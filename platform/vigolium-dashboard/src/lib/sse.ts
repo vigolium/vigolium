@@ -4,6 +4,7 @@ export interface SSECallbacks {
   onChunk: (text: string) => void;
   onDone: (result: unknown) => void;
   onError: (error: Error) => void;
+  onPhase?: (phase: string) => void;
 }
 
 export async function fetchSSE(
@@ -70,7 +71,13 @@ export async function fetchSSE(
         if (!payload || payload === '[DONE]') continue;
         try {
           const parsed = JSON.parse(payload);
+          if (parsed.type === 'phase' && parsed.phase && callbacks.onPhase) {
+            callbacks.onPhase(parsed.phase);
+          }
           if (parsed.text) callbacks.onChunk(parsed.text);
+          // OpenAI chat completions SSE delta format
+          const deltaContent = parsed.choices?.[0]?.delta?.content;
+          if (deltaContent) callbacks.onChunk(deltaContent);
           if (parsed.done || parsed.status === 'completed' || parsed.status === 'error') lastResult = parsed;
         } catch {
           callbacks.onChunk(payload);

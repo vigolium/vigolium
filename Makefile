@@ -450,7 +450,8 @@ update-jsscan:
 	@echo "$(PREFIX) Building jsscan from source..."
 	cd platform/jsscan && bun install --linker isolated && bun run build:bin
 	@echo "$(PREFIX) Copying jsscan binaries to $(JSSCAN_DST_DIR)..."
-	@cp $(JSSCAN_SRC_DIR)/* $(JSSCAN_DST_DIR)/
+	@mkdir -p $(JSSCAN_DST_DIR)
+	@cp -R $(JSSCAN_SRC_DIR)/* $(JSSCAN_DST_DIR)/
 	@echo "$(PREFIX) jsscan binaries updated"
 
 # Pre-test step: build jsscan from source if any binary is missing or is an LFS pointer

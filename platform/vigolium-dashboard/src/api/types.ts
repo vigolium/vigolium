@@ -489,6 +489,78 @@ export interface ExtensionDocsResponse {
 }
 
 // Agent types
+
+// POST /api/agent/run/query
+export interface AgentQueryRequest {
+  agent?: string;
+  prompt_template?: string;
+  prompt_file?: string;
+  prompt?: string;
+  repo_path?: string;
+  files?: string[];
+  append?: string;
+  source?: string;
+  scan_uuid?: string;
+  stream?: boolean;
+}
+
+// POST /api/agent/run/autopilot
+export interface AgentAutopilotRequest {
+  target: string;
+  agent?: string;
+  repo_path?: string;
+  files?: string[];
+  focus?: string;
+  system_prompt?: string;
+  timeout?: string;
+  max_commands?: number;
+  dry_run?: boolean;
+  stream?: boolean;
+  scan_uuid?: string;
+}
+
+// POST /api/agent/run/pipeline
+export interface AgentPipelineRequest {
+  target: string;
+  agent?: string;
+  repo_path?: string;
+  files?: string[];
+  focus?: string;
+  profile?: string;
+  timeout?: string;
+  max_rescan_rounds?: number;
+  skip_phases?: string[];
+  start_from?: string;
+  dry_run?: boolean;
+  stream?: boolean;
+  scan_uuid?: string;
+  project_uuid?: string;
+}
+
+// POST /api/agent/chat/completions
+export interface ChatCompletionRequest {
+  model: string;
+  messages: { role: string; content: string }[];
+}
+
+export interface ChatCompletionResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    message: { role: string; content: string };
+    finish_reason: string;
+  }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+/** @deprecated Use AgentQueryRequest instead */
 export interface AgentRunRequest {
   agent_name?: string;
   prompt_template?: string;
@@ -512,12 +584,16 @@ export interface AgentRunStatusResponse {
   status: string;
   agent_name: string;
   template_id?: string;
+  mode?: string;
+  current_phase?: string;
+  phases_run?: string[];
   finding_count: number;
   record_count: number;
   saved_count: number;
   error?: string;
   completed_at?: string;
   result?: AgentResult;
+  pipeline_result?: Record<string, unknown>;
 }
 
 export interface AgentResult {

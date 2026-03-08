@@ -48,7 +48,7 @@ else
     else
         echo -e "${PREFIX} Copying jsscan binaries from ${JSSCAN_SRC_DIR}..."
         for bin in $JSSCAN_BINS; do
-            cp "${JSSCAN_SRC_DIR}/${bin}" "${JSSCAN_DST_DIR}/"
+            cp -R "${JSSCAN_SRC_DIR}/${bin}" "${JSSCAN_DST_DIR}/"
         done
         echo -e "  ${OK} jsscan binaries copied successfully"
     fi
