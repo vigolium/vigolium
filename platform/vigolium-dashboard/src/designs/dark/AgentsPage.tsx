@@ -7,9 +7,25 @@ import { useAgentRuns } from '@/api/hooks';
 import { fetchSSE } from '@/lib/sse';
 import type { AgentRunStatusResponse } from '@/api/types';
 import PageShell from './PageShell';
+import Dropdown from './Dropdown';
 
 type MainTab = 'query' | 'autopilot' | 'pipeline' | 'chat';
 type ScanMode = 'template' | 'custom';
+
+const AGENT_OPTIONS = [
+  { value: '', label: 'default' },
+  { value: 'claude', label: 'claude' },
+  { value: 'opencode', label: 'opencode' },
+  { value: 'gemini', label: 'gemini' },
+  { value: 'custom', label: 'custom' },
+];
+
+const TAB_DESCRIPTIONS: Record<MainTab, string> = {
+  query: 'Single prompt → structured output. Best for code review and endpoint discovery.',
+  autopilot: 'Full autonomy — agent drives the CLI. Best for exploratory scanning and ad-hoc testing.',
+  pipeline: 'Fixed phases, AI at checkpoints only. Best for production scanning with predictable runtime.',
+  chat: 'Conversational interface for interactive agent sessions.',
+};
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -332,9 +348,9 @@ export default function AgentsPage() {
 
   return (
     <PageShell>
-      <div className="flex flex-col" style={{ height: 'calc(100vh - 120px)', minHeight: 500 }}>
-        {/* Tab bar */}
-        <div className="px-3 py-1.5 border border-[#2e2b26] bg-[#1c1b19] flex items-center gap-1.5">
+      <div className="flex flex-col" style={{ height: 'calc(100vh - 68px)', minHeight: 500 }}>
+        {/* Tab bar + description */}
+        <div className="px-3 py-1.5 border border-b-0 border-[#2e2b26] bg-[#1c1b19] flex items-center gap-1.5">
           <div className="flex border border-[#2e2b26]">
             <button onClick={() => setMainTab('query')} className={tabBtnClass(mainTab === 'query')}>
               <span className="flex items-center gap-1"><Terminal className="w-3 h-3" />QUERY</span>
@@ -354,6 +370,9 @@ export default function AgentsPage() {
               <Loader2 className="w-3 h-3 animate-spin" /> streaming…
             </span>
           )}
+        </div>
+        <div className="px-3 py-1 border-x border-[#2e2b26] bg-[#1c1b19] text-[#706560] text-xs italic">
+          {TAB_DESCRIPTIONS[mainTab]}
         </div>
 
         {/* Query tab */}
@@ -447,7 +466,7 @@ export default function AgentsPage() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
-                <input value={autopilotAgent} onChange={(e) => setAutopilotAgent(e.target.value)} placeholder="claude" className={inputClass} />
+                <Dropdown value={autopilotAgent} onChange={setAutopilotAgent} options={AGENT_OPTIONS} />
               </div>
               <div>
                 <label className="text-[#918175] text-xs block mb-0.5">Focus</label>
@@ -525,7 +544,7 @@ export default function AgentsPage() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
-                <input value={pipelineAgent} onChange={(e) => setPipelineAgent(e.target.value)} placeholder="claude" className={inputClass} />
+                <Dropdown value={pipelineAgent} onChange={setPipelineAgent} options={AGENT_OPTIONS} />
               </div>
               <div>
                 <label className="text-[#918175] text-xs block mb-0.5">Profile</label>
@@ -573,8 +592,20 @@ export default function AgentsPage() {
                   <input value={pipelineProjectUuid} onChange={(e) => setPipelineProjectUuid(e.target.value)} placeholder="uuid" className={inputClass} />
                 </div>
                 <div className="flex items-center gap-2 pt-4">
-                  <input type="checkbox" id="pipeline-dry-run" checked={pipelineDryRun} onChange={(e) => setPipelineDryRun(e.target.checked)} className="accent-[#7fd962]" />
-                  <label htmlFor="pipeline-dry-run" className="text-[#918175] text-xs">Dry Run</label>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={pipelineDryRun}
+                    onClick={() => setPipelineDryRun(!pipelineDryRun)}
+                    className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0"
+                    style={{ backgroundColor: pipelineDryRun ? '#7fd962' : '#2e2b26' }}
+                  >
+                    <span
+                      className="inline-block h-3 w-3 rounded-full bg-[#fce8c3] transition-transform"
+                      style={{ transform: pipelineDryRun ? 'translateX(14px)' : 'translateX(2px)' }}
+                    />
+                  </button>
+                  <span className="text-[#918175] text-xs">Dry Run</span>
                 </div>
               </div>
             </details>

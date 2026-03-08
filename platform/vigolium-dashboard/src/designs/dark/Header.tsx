@@ -50,7 +50,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
 
   return (
     <header className="border-b border-[#2e2b26] bg-[#1c1b19] sticky top-0 z-40">
-      <div className="max-w-[1920px] mx-auto px-4 h-8 flex items-center justify-between text-xs">
+      <div className="px-4 h-8 flex items-center justify-between text-xs">
         <div className="flex items-center gap-4">
           <span className="text-[#7fd962] font-bold">&gt; VIGOLIUM</span>
           {serverInfo && (

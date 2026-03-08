@@ -13,7 +13,7 @@ export default function PageShell({ children }: { children: ReactNode }) {
     <Layout>
       <Header serverInfo={serverInfo} isConnected={isConnected} />
       <Navigation />
-      <main className="max-w-[1920px] mx-auto px-0.5 pt-0 pb-1 space-y-1">
+      <main className="px-0 pt-0 pb-0">
         {children}
       </main>
     </Layout>

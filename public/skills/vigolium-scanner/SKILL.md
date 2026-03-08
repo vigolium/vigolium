@@ -1,5 +1,5 @@
 ---
-name: vigolium-cli
+name: vigolium-scanner
 description: >-
   Use when operating the vigolium CLI for web vulnerability scanning, security testing,
   traffic ingestion, server management, AI agent-driven scanning and code review, or
@@ -20,7 +20,6 @@ metadata:
   role: operator
   scope: usage
   output-format: commands
-  related-skills: golang-pro
 ---
 
 # Vigolium CLI
