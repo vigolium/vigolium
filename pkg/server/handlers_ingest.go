@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
+	"github.com/vigolium/vigolium/pkg/input/formats/har"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/formats/postman"
 	"go.uber.org/zap"
@@ -124,6 +125,8 @@ func (h *Handlers) HandleIngestHTTP(c fiber.Ctx) error {
 		return h.ingestOpenAPI(c, ctx, &req)
 	case "postman_collection":
 		return h.ingestPostman(c, ctx, &req)
+	case "har", "http_archive":
+		return h.ingestHAR(c, ctx, &req)
 	case "url":
 		return h.ingestURL(c, ctx, &req)
 	case "url_file":
@@ -432,6 +435,64 @@ func (h *Handlers) ingestURL(c fiber.Ctx, ctx context.Context, req *IngestHTTPRe
 		ProjectUUID: getProjectUUID(c),
 		Imported:    1,
 		Message:     "imported 1 request from URL",
+	})
+}
+
+func (h *Handlers) ingestHAR(c fiber.Ctx, ctx context.Context, req *IngestHTTPRequest) error {
+	content, err := resolveContent(req)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: err.Error(),
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	parser := har.New()
+	var imported, skipped int
+	var errors []string
+
+	var urlOverrideSvc *httpmsg.Service
+	if req.URL != "" {
+		if svc, svcErr := httpmsg.ParseService(req.URL); svcErr == nil {
+			urlOverrideSvc = svc
+		}
+	}
+
+	parseErr := parser.ParseFromData([]byte(content), func(rr *httpmsg.HttpRequestResponse) bool {
+		if urlOverrideSvc != nil {
+			rr = rr.WithService(urlOverrideSvc)
+		}
+		rr = h.fetchResponseIfNeeded(rr)
+		if !h.isIngestInScope(rr) {
+			skipped++
+			return true
+		}
+		if _, err := h.saveRecord(ctx, rr, "ingest-server", getProjectUUID(c)); err != nil {
+			errors = append(errors, err.Error())
+			return true
+		}
+		imported++
+		return true
+	})
+
+	if parseErr != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "failed to parse HAR file: " + parseErr.Error(),
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	msg := fmt.Sprintf("imported %d requests from HAR file", imported)
+	if skipped > 0 {
+		msg += fmt.Sprintf(" (%d filtered by scope)", skipped)
+	}
+
+	return c.JSON(IngestHTTPResponse{
+		ProjectUUID: getProjectUUID(c),
+		Imported:    imported,
+		Skipped:     skipped,
+		Errors:      errors,
+		Message:     msg,
 	})
 }
 

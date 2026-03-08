@@ -4,6 +4,13 @@
 
 Import HTTP request/response data into the database for scanning. Supports multiple input formats.
 
+**Headers:**
+
+| Header            | Required | Description                                                        |
+|-------------------|----------|--------------------------------------------------------------------|
+| `Content-Type`    | Yes      | Must be `application/json`                                         |
+| `X-Project-UUID`  | No       | Project UUID to scope the imported data. Falls back to the default project if omitted. |
+
 **Request body:**
 
 | Field                  | Type   | Required | Description                              |
@@ -25,6 +32,7 @@ Import HTTP request/response data into the database for scanning. Supports multi
 | `burp_base64`         | Base64 raw HTTP request (+response)  | `http_request_base64` |
 | `openapi` / `swagger` | OpenAPI/Swagger spec (JSON or YAML)  | `content`      |
 | `postman_collection`  | Postman Collection v2                | `content`      |
+| `har` / `http_archive`| HAR (HTTP Archive) 1.2 JSON          | `content`      |
 
 ### Ingest a URL
 
@@ -91,6 +99,17 @@ curl -s -X POST http://localhost:9002/api/ingest-http \
 
 The `url` field provides the scheme (`https`) and the public hostname (`app.example.com`), overriding whatever `Host` header appeared in the raw request.
 
+### Ingest a HAR file
+
+```bash
+curl -s -X POST http://localhost:9002/api/ingest-http \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"input_mode\": \"har\",
+    \"content_base64\": \"$(base64 < recording.har)\"
+  }" | jq .
+```
+
 ### Ingest an OpenAPI spec
 
 ```bash
@@ -106,9 +125,33 @@ curl -s -X POST http://localhost:9002/api/ingest-http \
 
 ```json
 {
+  "project_uuid": "default",
   "imported": 15,
   "skipped": 0,
   "errors": [],
   "message": "imported 15 requests from OpenAPI spec"
+}
+```
+
+### Ingest into a specific project
+
+Use the `X-Project-UUID` header to scope imported data to a project. If omitted, data is stored under the default project.
+
+```bash
+curl -s -X POST http://localhost:9002/api/ingest-http \
+  -H "Content-Type: application/json" \
+  -H "X-Project-UUID: my-project-uuid" \
+  -d '{
+    "input_mode": "url",
+    "content": "https://example.com/api/users"
+  }' | jq .
+```
+
+```json
+{
+  "project_uuid": "my-project-uuid",
+  "imported": 1,
+  "skipped": 0,
+  "message": "imported 1 request from URL"
 }
 ```

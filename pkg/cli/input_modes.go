@@ -66,6 +66,12 @@ var inputModes = []inputModeEntry{
 		Example:     "vigolium scan -T export.xml -I burpxml",
 	},
 	{
+		Name:        "har",
+		Aliases:     []string{"http-archive"},
+		Description: "HAR (HTTP Archive) 1.2 JSON file",
+		Example:     "vigolium scan -T archive.har -I har",
+	},
+	{
 		Name:        "deparos",
 		Aliases:     []string{"deparos-output"},
 		Description: "Deparos content discovery JSONL output (supports .gz)",

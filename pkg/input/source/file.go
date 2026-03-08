@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/input/formats/crawlerxdir"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
 	"github.com/vigolium/vigolium/pkg/input/formats/deparos"
+	"github.com/vigolium/vigolium/pkg/input/formats/har"
 	"github.com/vigolium/vigolium/pkg/input/formats/nuclei"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/formats/postman"
@@ -90,6 +91,8 @@ func resolveFormat(name string) (formats.Format, error) {
 		return burpraw.New(), nil
 	case "burpxml", "burp-xml", "burp", "burpstate":
 		return burpxml.New(), nil
+	case "har", "http-archive":
+		return har.New(), nil
 	case "deparos", "deparos-output":
 		return deparos.New(), nil
 	default:
