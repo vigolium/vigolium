@@ -1,0 +1,67 @@
+framework: fastapi
+source_dir: fastapi
+detect_framework: true
+
+expected_match_count:
+  min: 5
+  max: 30
+
+expected_routes:
+  - method: GET
+    path: "/users"
+    file: main.py
+    assertion: strict
+
+  - method: POST
+    path: "/users"
+    file: main.py
+    assertion: strict
+
+  - method: GET
+    path: "/users/{user_id}"
+    file: main.py
+    assertion: strict
+
+  - method: PUT
+    path: "/users/{user_id}"
+    file: main.py
+    assertion: strict
+
+  - method: DELETE
+    path: "/users/{user_id}"
+    file: main.py
+    assertion: strict
+
+  - method: GET
+    path: "/health"
+    file: main.py
+    assertion: strict
+
+  - method: GET
+    path: "/items"
+    file: main.py
+    assertion: soft
+
+  - method: POST
+    path: "/items"
+    file: main.py
+    assertion: soft
+
+  - method: GET
+    path: "/items/{item_id}"
+    file: main.py
+    assertion: soft
+
+  - method: PATCH
+    path: "/items/{item_id}"
+    file: main.py
+    assertion: soft
+
+  - method: OPTIONS
+    path: "/config"
+    file: main.py
+    assertion: soft
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"

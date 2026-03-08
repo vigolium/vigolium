@@ -1,0 +1,9 @@
+id: express-route-handler-ts
+language: typescript
+severity: info
+message: "Route: $METHOD $PATH"
+rule:
+  pattern: $ROUTER.$METHOD($PATH, $$$HANDLERS)
+constraints:
+  METHOD:
+    regex: "^(get|post|put|delete|patch|head|options|all)$"

@@ -1,0 +1,52 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Go source files
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# Windows scripts (keep CRLF)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Config files
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+
+# Binary files
+*.parquet binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.burp binary
+
+# Exclude frontend files from GitHub language statistics
+public/presets/extensions/**.js linguist-vendored
+test/testdata/extensions/**.js linguist-vendored
+test/spitolas/testdata/html/**.html linguist-vendored
+test/spitolas/testdata/html/**/**.html linguist-vendored
+
+# Vendored JS/TS/HTML in subfolders
+platform/**/*.js linguist-vendored
+platform/**/*.ts linguist-vendored
+platform/**/*.html linguist-vendored
+test/**/*.js linguist-vendored
+test/**/*.ts linguist-vendored
+test/**/*.html linguist-vendored
+public/**/*.js linguist-vendored
+public/**/*.ts linguist-vendored
+public/**/*.html linguist-vendored

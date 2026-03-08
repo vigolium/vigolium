@@ -1,0 +1,24 @@
+<h1>WaitConditions</h1>
+
+<p>Websites can have widgets that load relatively slow, which can cause flakyness in the crawling
+    or while testing. With WaitConditions the user can specify that in wich url (or part of the
+    url) Crawljax should wait for certain elements or widgets to become visible.<p/>
+
+<h2>Methods in CrawlSpecification</h2>
+<p>
+<span class="java">
+waitFor(String url, ExpectedCondition...expectedConditions) {<br/>
+waitFor(String url, int timeout, ExpectedCondition...expectedConditions)
+</span>
+</p>
+
+
+<h2>Example</h2>
+<p>Wait for a list to be loaded on the #contact page.</p>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+...
+builder.waitFor("#contact", new ExpectedVisibleCondition(By.id("contactList")));
+</pre>
+
+<h3>Note: currently only supported when WebDriver is used</h3>

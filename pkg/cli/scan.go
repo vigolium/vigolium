@@ -1,0 +1,1021 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
+	"github.com/vigolium/vigolium/pkg/input/source"
+	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/types"
+	"github.com/vigolium/vigolium/pkg/work"
+	fileutil "github.com/projectdiscovery/utils/file"
+	"github.com/spf13/cobra"
+	"go.uber.org/zap"
+)
+
+var scanOpts = types.DefaultOptions()
+
+var scanCmd = &cobra.Command{
+	Use:   "scan",
+	Short: "Run vulnerability scan",
+	RunE:  runScanCmd,
+}
+
+func init() {
+	rootCmd.AddCommand(scanCmd)
+	flags := scanCmd.Flags()
+
+	// Target-Format group
+	flags.BoolVar(&scanOpts.FormatUseRequiredOnly, "required-only", false, "Use only required fields when parsing input format")
+	flags.BoolVar(&scanOpts.SkipFormatValidation, "skip-format-validation", false, "Skip validation of input file format")
+
+	// Output group
+	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to specified output file")
+	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Display live scan statistics during execution")
+	flags.BoolVar(&scanOpts.IncludeResponseInOutput, "include-response", false, "Include full HTTP response body in output")
+
+	// Optimizations group
+	flags.IntVar(&scanOpts.Retries, "retries", 1, "Number of retry attempts for failed requests")
+	flags.BoolVar(&scanOpts.Stream, "stream", false, "Process input targets in stream mode without sorting")
+
+	// Database group
+	flags.StringSliceVarP(&scanOpts.Headers, "header", "H", nil, "Custom HTTP header to include (can be specified multiple times)")
+	flags.StringToStringVarP(&scanOpts.AdvancedOptions, "advanced-options", "a", nil, "Advanced scan options as key=value pairs")
+
+	// Content discovery flags
+	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Run deparos content discovery before scanning")
+	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
+
+	// Browser-based spidering flags
+	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Run browser-based spidering before scanning")
+	flags.DurationVar(&scanOpts.SpideringMaxDuration, "spider-max-time", 30*time.Minute, "Max time for spidering per target")
+	flags.StringVarP(&scanOpts.SpideringBrowserEngine, "browser-engine", "E", "chromium", "Browser engine: 'chromium', 'ungoogled', or 'fingerprint'")
+	flags.IntVarP(&scanOpts.SpideringBrowserCount, "browsers", "b", 1, "Number of browser instances")
+	flags.BoolVar(&scanOpts.SpideringHeadless, "headless", true, "Run browser in headless mode")
+	flags.BoolVar(&scanOpts.SpideringNoCDP, "no-cdp", false, "Disable CDP event listener detection")
+	flags.BoolVar(&scanOpts.SpideringNoForms, "no-forms", false, "Disable automatic form filling")
+
+	// External intelligence harvesting flags
+	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Run pre-scan external intelligence harvesting from external sources")
+
+	// SPA (Security Posture Assessment) flags
+	flags.StringSliceVar(&scanOpts.SPATags, "spa-tags", nil, "Nuclei template tags to include (comma-separated)")
+	flags.StringSliceVar(&scanOpts.SPAExcludeTags, "spa-exclude-tags", nil, "Nuclei template tags to exclude (comma-separated)")
+	flags.StringSliceVar(&scanOpts.SPASeverities, "spa-severities", nil, "Filter Nuclei templates by severity (critical,high,medium,low,info)")
+	flags.StringVar(&scanOpts.SPATemplatesDir, "spa-templates-dir", "", "Custom Nuclei templates directory")
+
+	// SAST flags
+	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
+	flags.StringVar(&scanOpts.SASTRepoPath, "repo", "", "Local repo path for ad-hoc SAST scan (results not ingested to DB)")
+	flags.StringVar(&scanOpts.SASTRepoURL, "repo-url", "", "Git URL to clone for ad-hoc SAST scan (results not ingested to DB)")
+
+	// OAST flags
+	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed OAST callback URL (overrides config oast_url; disables interactsh auto-generation)")
+}
+
+func runScanCmd(cmd *cobra.Command, args []string) error {
+	defer syncLogger()
+
+	// Copy global flags into scan options
+	scanOpts.ScanUUID = globalScanID
+	scanOpts.Modules = resolveModules()
+	scanOpts.PassiveModules = []string{"all"}
+	scanOpts.Targets = globalTargets
+	scanOpts.TargetsFilePath = globalTargetFile
+	scanOpts.InputFileMode = globalInputMode
+	scanOpts.InputReadTimeout = globalInputReadTimeout
+	scanOpts.Timeout = globalTimeout
+	scanOpts.Concurrency = globalConcurrency
+	scanOpts.MaxPerHost = globalMaxPerHost
+	scanOpts.ConcurrencyExplicitlySet = rootCmd.PersistentFlags().Changed("concurrency")
+	scanOpts.MaxPerHostExplicitlySet = rootCmd.PersistentFlags().Changed("max-per-host")
+	scanOpts.MaxHostError = globalMaxHostError
+	scanOpts.MaxFindingsPerModule = globalMaxFindingsPerModule
+	scanOpts.Verbose = globalVerbose
+	scanOpts.Silent = globalSilent
+	scanOpts.Debug = globalDebug
+	scanOpts.DumpTraffic = globalDumpTraffic
+	scanOpts.JSONOutput = globalJSON
+	scanOpts.ProxyURL = globalProxy
+	scanOpts.ConfigPath = globalConfig
+	scanOpts.Stdin = fileutil.HasStdin()
+	scanOpts.OnlyPhase = globalOnly
+	scanOpts.SkipPhases = globalSkipPhases
+	scanOpts.ScopeOriginMode = globalScopeOrigin
+	scanOpts.SourcePath = globalSourcePath
+	scanOpts.OutputFormat = globalFormat
+	scanOpts.ProjectUUID = resolveProjectUUID()
+
+	// Resolve --repo-url: clone the git repo and set SASTRepoPath
+	if scanOpts.SASTRepoURL != "" {
+		if scanOpts.SASTRepoPath != "" {
+			return fmt.Errorf("cannot use both --repo and --repo-url")
+		}
+		clonedPath, cloneErr := cloneGitRepo(scanOpts.SASTRepoURL)
+		if cloneErr != nil {
+			return fmt.Errorf("failed to clone --repo-url: %w", cloneErr)
+		}
+		scanOpts.SASTRepoPath = clonedPath
+	}
+
+	// Resolve --source-url: clone the git repo and set SourcePath
+	if scanOpts.SourceURL != "" {
+		if globalSourcePath != "" {
+			return fmt.Errorf("cannot use both --source and --source-url")
+		}
+		clonedPath, cloneErr := cloneGitRepo(scanOpts.SourceURL)
+		if cloneErr != nil {
+			return fmt.Errorf("failed to clone --source-url: %w", cloneErr)
+		}
+		globalSourcePath = clonedPath
+		scanOpts.SourcePath = clonedPath
+	}
+
+	// Reconcile --json and --format flags
+	if globalJSON && globalFormat == "console" {
+		scanOpts.OutputFormat = "jsonl"
+	}
+	if scanOpts.OutputFormat == "jsonl" {
+		scanOpts.JSONOutput = true
+	}
+
+	// Initialize database (always enabled)
+	var repo *database.Repository
+	var db *database.DB
+
+	// Load settings from config file
+	settings, err := config.LoadSettings(scanOpts.ConfigPath)
+	if err != nil {
+		if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s Config file not found, using defaults\n",
+				terminal.Gray(terminal.SymbolPending))
+		}
+		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
+		settings = config.DefaultSettings()
+	}
+
+	// Override scope origin mode if --scope-origin flag is set
+	if scanOpts.ScopeOriginMode != "" {
+		settings.Scope.CLIOriginMode = scanOpts.ScopeOriginMode
+	}
+
+	// Override OAST URL if --oast-url flag is set
+	if scanOpts.OastURL != "" {
+		settings.OAST.OastURL = scanOpts.OastURL
+	}
+
+	// Override SQLite path if --db flag is set
+	if globalDB != "" {
+		settings.Database.Driver = "sqlite"
+		settings.Database.SQLite.Path = globalDB
+	}
+
+	// Validate database config
+	if err := settings.Database.Validate(); err != nil {
+		return fmt.Errorf("invalid database configuration: %w", err)
+	}
+
+	// Apply --ext / --ext-dir overrides before validation
+	if len(globalExtScripts) > 0 {
+		settings.DynamicAssessment.Extensions.Enabled = true
+		settings.DynamicAssessment.Extensions.CustomDir = append(
+			settings.DynamicAssessment.Extensions.CustomDir,
+			globalExtScripts...,
+		)
+	}
+	if globalExtDir != "" {
+		settings.DynamicAssessment.Extensions.Enabled = true
+		settings.DynamicAssessment.Extensions.ExtensionDir = globalExtDir
+	}
+
+	// Validate extensions config
+	if err := settings.DynamicAssessment.Extensions.Validate(); err != nil {
+		return fmt.Errorf("invalid extensions configuration: %w", err)
+	}
+
+	// Validate scanning strategy config
+	if err := settings.ScanningStrategy.Validate(); err != nil {
+		return fmt.Errorf("invalid scanning strategy configuration: %w", err)
+	}
+
+	// Determine scanning profile: CLI --scanning-profile > config scanning_strategy.scanning_profile
+	profileName := globalScanningProfile
+	if profileName == "" {
+		profileName = settings.ScanningStrategy.ScanningProfile
+	}
+
+	// Load and apply scanning profile before strategy resolution
+	if profileName != "" {
+		profilePath := settings.ScanningStrategy.ResolveProfilePath(profileName)
+		profile, profileErr := config.LoadProfile(profilePath)
+		if profileErr != nil {
+			return fmt.Errorf("failed to load scanning profile %q: %w", profileName, profileErr)
+		}
+		if err := config.ApplyProfile(settings, profile); err != nil {
+			return fmt.Errorf("failed to apply scanning profile %q: %w", profileName, err)
+		}
+		scanOpts.ScanningProfile = profileName
+		zap.L().Info("Applied scanning profile", zap.String("profile", profileName), zap.String("path", profilePath))
+	}
+
+	// Apply scanning strategy as baseline before per-phase overrides
+	scanOpts.ScanningStrategy = globalStrategy
+	strategyName := globalStrategy
+	if strategyName == "" {
+		strategyName = settings.ScanningStrategy.DefaultStrategy
+	}
+	if strategyName != "" {
+		phases, ok := settings.ScanningStrategy.GetStrategy(strategyName)
+		if !ok {
+			return fmt.Errorf("unknown scanning strategy %q; valid names: %v", strategyName, settings.ScanningStrategy.StrategyNames())
+		}
+		scanOpts.ExternalHarvestEnabled = phases.ExternalHarvesting
+		scanOpts.DiscoverEnabled = phases.Discovery
+		scanOpts.SpideringEnabled = phases.Spidering
+		scanOpts.SPAEnabled = phases.SPA
+		if phases.SourceAware {
+			scanOpts.SASTEnabled = true
+		}
+		if !phases.DynamicAssessment {
+			scanOpts.SkipDynamicAssessment = true
+		}
+		zap.L().Debug("Applied scanning strategy", zap.String("strategy", strategyName))
+	}
+
+	// Resolve heuristics check level
+	// Precedence: --skip-heuristics > --heuristics-check > config default > "basic"
+	scanOpts.HeuristicsCheck = "basic"
+	if settings.ScanningStrategy.HeuristicsCheck != "" {
+		scanOpts.HeuristicsCheck = settings.ScanningStrategy.HeuristicsCheck
+	}
+	if globalHeuristicsCheck != "" {
+		scanOpts.HeuristicsCheck = globalHeuristicsCheck
+	}
+	if globalSkipHeuristics {
+		scanOpts.HeuristicsCheck = "none"
+	}
+
+	// --only and --skip are mutually exclusive
+	if scanOpts.OnlyPhase != "" && len(scanOpts.SkipPhases) > 0 {
+		return fmt.Errorf("--only and --skip are mutually exclusive; use one or the other")
+	}
+
+	// Normalize phase aliases (deparos→discover, spitolas→spidering, audit→dynamic-assessment)
+	scanOpts.OnlyPhase = normalizePhase(scanOpts.OnlyPhase)
+
+	// --only overrides strategy and individual phase flags
+	if scanOpts.OnlyPhase != "" {
+		switch scanOpts.OnlyPhase {
+		case "ingestion":
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipDynamicAssessment = true
+		case "discovery":
+			scanOpts.DiscoverEnabled = true
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipDynamicAssessment = true
+		case "external-harvest":
+			scanOpts.ExternalHarvestEnabled = true
+			scanOpts.DiscoverEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = true
+		case "spidering":
+			scanOpts.SpideringEnabled = true
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = true
+		case "spa":
+			scanOpts.SPAEnabled = true
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = true
+		case "dynamic-assessment":
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = false
+		case "sast":
+			scanOpts.SASTEnabled = true
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = true
+		case "extension":
+			scanOpts.DiscoverEnabled = false
+			scanOpts.ExternalHarvestEnabled = false
+			scanOpts.SpideringEnabled = false
+			scanOpts.SPAEnabled = false
+			scanOpts.SkipIngestion = true
+			scanOpts.SkipDynamicAssessment = false
+			scanOpts.ExtensionsOnly = true
+			settings.DynamicAssessment.Extensions.Enabled = true
+		default:
+			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, dynamic-assessment (audit), extension (ext)", scanOpts.OnlyPhase)
+		}
+		scanOpts.HeuristicsCheck = "none"
+		zap.L().Info("Phase isolation active", zap.String("only", scanOpts.OnlyPhase))
+	}
+
+	// --skip disables specific phases while keeping all others
+	if len(scanOpts.SkipPhases) > 0 {
+		for _, phase := range scanOpts.SkipPhases {
+			phase = normalizePhase(phase)
+			switch phase {
+			case "discovery", "ingestion":
+				scanOpts.SkipIngestion = true
+			case "external-harvest":
+				scanOpts.ExternalHarvestEnabled = false
+			case "spidering":
+				scanOpts.SpideringEnabled = false
+			case "spa":
+				scanOpts.SPAEnabled = false
+			case "sast":
+				scanOpts.SASTEnabled = false
+			case "dynamic-assessment":
+				scanOpts.SkipDynamicAssessment = true
+			default:
+				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, dynamic-assessment (audit)", phase)
+			}
+		}
+		zap.L().Info("Phases skipped", zap.Strings("skip", scanOpts.SkipPhases))
+	}
+
+	// Validate HTML output format constraints
+	if scanOpts.OutputFormat == "html" {
+		if scanOpts.Output == "" {
+			return fmt.Errorf("--format html requires -o/--output to specify the report file path")
+		}
+		if scanOpts.OnlyPhase != "" &&
+			scanOpts.OnlyPhase != "discovery" && scanOpts.OnlyPhase != "spidering" {
+			return fmt.Errorf("--format html is only supported for discovery and spidering phases")
+		}
+	}
+
+	// Override scanning_pace.max_duration if --scanning-max-duration flag is set
+	if rootCmd.PersistentFlags().Changed("scanning-max-duration") && globalScanningMaxDuration > 0 {
+		settings.ScanningPace.MaxDuration = globalScanningMaxDuration.String()
+	}
+
+	// Validate and apply scanning_pace centralized speed control
+	if err := settings.ScanningPace.Validate(); err != nil {
+		return fmt.Errorf("invalid scanning_pace configuration: %w", err)
+	}
+
+	// Apply scanning_pace common values (precedence 4 — lowest after built-in defaults)
+	pace := &settings.ScanningPace
+	if !scanOpts.ConcurrencyExplicitlySet && pace.Concurrency > 0 {
+		scanOpts.Concurrency = pace.Concurrency
+	}
+	if !scanOpts.MaxPerHostExplicitlySet && pace.MaxPerHost > 0 {
+		scanOpts.MaxPerHost = pace.MaxPerHost
+	}
+
+	// Apply scanning_pace.discovery.max_duration (precedence 3) to scanOpts
+	discoveryPace := pace.ResolvePhase("discovery")
+	if !cmd.Flags().Changed("discover-max-time") && discoveryPace.MaxDuration > 0 {
+		scanOpts.DiscoverMaxDuration = discoveryPace.MaxDuration
+	}
+
+	// Apply scanning_pace.spidering.max_duration to scanOpts
+	spideringPace := pace.ResolvePhase("spidering")
+	if !cmd.Flags().Changed("spider-max-time") && spideringPace.MaxDuration > 0 {
+		scanOpts.SpideringMaxDuration = spideringPace.MaxDuration
+	}
+
+	// Validate per-phase configs when enabled (strategy + CLI flags are the only sources)
+	if scanOpts.DiscoverEnabled {
+		if err := settings.Discovery.Validate(); err != nil {
+			return fmt.Errorf("invalid discovery configuration: %w", err)
+		}
+	}
+	if scanOpts.SPAEnabled {
+		// Apply CLI overrides for SPA config
+		if cmd.Flags().Changed("spa-tags") {
+			settings.SPA.Tags = scanOpts.SPATags
+		}
+		if cmd.Flags().Changed("spa-exclude-tags") {
+			settings.SPA.ExcludeTags = scanOpts.SPAExcludeTags
+		}
+		if cmd.Flags().Changed("spa-severities") {
+			settings.SPA.Severities = scanOpts.SPASeverities
+		}
+		if cmd.Flags().Changed("spa-templates-dir") {
+			settings.SPA.TemplatesDir = scanOpts.SPATemplatesDir
+		}
+		if err := settings.SPA.Validate(); err != nil {
+			return fmt.Errorf("invalid spa configuration: %w", err)
+		}
+	}
+	if scanOpts.SpideringEnabled {
+		// Apply CLI overrides for spidering config
+		if cmd.Flags().Changed("browser-engine") {
+			settings.Spidering.BrowserEngine = scanOpts.SpideringBrowserEngine
+		}
+		if cmd.Flags().Changed("browsers") {
+			settings.Spidering.BrowserCount = scanOpts.SpideringBrowserCount
+		}
+		if cmd.Flags().Changed("headless") {
+			settings.Spidering.Headless = scanOpts.SpideringHeadless
+		}
+		if cmd.Flags().Changed("no-cdp") {
+			settings.Spidering.NoCDP = scanOpts.SpideringNoCDP
+		}
+		if cmd.Flags().Changed("no-forms") {
+			settings.Spidering.NoForms = scanOpts.SpideringNoForms
+		}
+		if err := settings.Spidering.Validate(); err != nil {
+			return fmt.Errorf("invalid spidering configuration: %w", err)
+		}
+	}
+	if scanOpts.ExternalHarvestEnabled {
+		if err := settings.ExternalHarvester.Validate(); err != nil {
+			return fmt.Errorf("invalid external harvester configuration: %w", err)
+		}
+	}
+
+	// Create database connection
+	db, err = database.NewDB(&settings.Database)
+	if err != nil {
+		return fmt.Errorf("failed to create database connection: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	if err := db.CreateSchema(ctx); err != nil {
+		return fmt.Errorf("failed to create database schema: %w", err)
+	}
+
+	// Create repository
+	repo = database.NewRepository(db)
+	zap.L().Debug("Database initialized successfully",
+		zap.String("driver", db.Driver()))
+
+	// Print scan summary banner (after DB init so we can show HTTP record count)
+	printScanSummary(scanOpts, settings, strategyName, repo)
+	scanOpts.ScanConfigPrinted = true
+
+	// Auto-create source repo if --source or --source-url is provided
+	if globalSourcePath != "" {
+		if err := upsertSourceRepo(ctx, repo, scanOpts.Targets, globalSourcePath); err != nil {
+			zap.L().Warn("Failed to link source repo", zap.Error(err))
+		}
+	}
+
+	// Warn about source_aware only when no --source and no existing repos in DB
+	if strategyName != "" && globalSourcePath == "" {
+		if phases, ok := settings.ScanningStrategy.GetStrategy(strategyName); ok && phases.SourceAware {
+			hasSourceRepos := false
+			for _, t := range scanOpts.Targets {
+				if u, parseErr := url.Parse(t); parseErr == nil && u.Hostname() != "" {
+					if existing, _ := repo.GetSourceReposByHostname(ctx, scanOpts.ProjectUUID, u.Hostname()); len(existing) > 0 {
+						hasSourceRepos = true
+						break
+					}
+				}
+			}
+			if !hasSourceRepos {
+				zap.L().Info("Strategy enables source_aware scanning; provide --source <path> for full coverage")
+			}
+		}
+	}
+
+	// If -i was explicitly provided, use two-phase ingest-then-scan
+	hasInputFile := globalInput != "" && globalInput != "-"
+	if hasInputFile {
+		return runScanWithIngest(settings, db, repo)
+	}
+
+	// If no targets/input/stdin, fall back to scanning DB records
+	hasTargets := len(scanOpts.Targets) > 0
+	hasTargetFile := scanOpts.TargetsFilePath != ""
+	hasStdin := scanOpts.Stdin
+	if !hasTargets && !hasTargetFile && !hasStdin {
+		return runDBScan(settings, db, repo)
+	}
+
+	scanRunner, err := runner.New(scanOpts)
+	if err != nil {
+		zap.L().Fatal("Could not create runner", zap.Error(err))
+	}
+	if scanRunner == nil {
+		return nil
+	}
+
+	// Set settings and repository on runner
+	scanRunner.SetSettings(settings)
+	if repo != nil {
+		scanRunner.SetRepository(repo)
+	}
+
+	setupScanSignalHandler(scanRunner)
+
+	if err := scanRunner.RunEnumeration(); err != nil {
+		zap.L().Info("Could not run scanner", zap.Error(err))
+	}
+	scanRunner.Close()
+
+	// Generate HTML report if requested
+	if scanOpts.OutputFormat == "html" && scanOpts.Output != "" {
+		if err := generateHTMLFromDB(context.Background(), db, scanOpts.Output); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
+		} else if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(scanOpts.Output))
+		}
+	}
+
+	// Print completion message with summary stats
+	if !scanOpts.Silent {
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		printScanCompletionSummary(repo)
+	}
+
+	return nil
+}
+
+// runScanWithIngest delegates to the Runner's 3-phase pipeline when -i is provided.
+// The Runner's Phase 1 ingests the input file, Phase 2 runs SPA if enabled,
+// and Phase 3 scans from DB with all modules.
+func runScanWithIngest(settings *config.Settings, db *database.DB, repo *database.Repository) error {
+	// Auto-detect format from file extension
+	inputFormat := globalInputMode
+	if inputFormat == "urls" {
+		if detected := detectInputFormat(globalInput); detected != "" {
+			inputFormat = detected
+			zap.L().Info("Auto-detected input format", zap.String("format", inputFormat))
+		}
+	}
+
+	// OpenAPI defaults: auto-enable UseSpecServers when no -t given
+	useSpecServers := globalSpecURL
+	if (inputFormat == "openapi" || inputFormat == "swagger") &&
+		len(globalTargets) == 0 && !useSpecServers {
+		useSpecServers = true
+		zap.L().Info("Auto-enabled --spec-url (no -t provided)")
+	}
+
+	// Create InputSource from the input file
+	inputSource, err := source.NewInputSource(source.SourceConfig{
+		Targets:       globalTargets,
+		FilePath:      globalInput,
+		Format:        inputFormat,
+		BufferSize:    100,
+		EnableModules: scanOpts.Modules,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create input source: %w", err)
+	}
+
+	// Configure OpenAPI options if applicable
+	if inputFormat == "openapi" || inputFormat == "swagger" {
+		if fs, ok := inputSource.(*source.FileSource); ok {
+			if openapiFormat, ok := fs.Format().(*openapi.Format); ok {
+				var targetURL string
+				if len(globalTargets) > 0 {
+					targetURL = globalTargets[0]
+				}
+				openapiFormat.SetOpenAPIOptions(openapi.Options{
+					BaseURL:              targetURL,
+					UseSpecServers:       useSpecServers,
+					Headers:              ingestParseHeaders(globalSpecHeader),
+					Variables:            ingestParseVariables(globalSpecVar),
+					DefaultFallbackValue: globalSpecDefault,
+				})
+			}
+		}
+	}
+
+	// Create Runner with the input source — RunEnumeration handles all 3 phases
+	scanRunner, err := runner.NewWithInputSource(scanOpts, inputSource)
+	if err != nil {
+		return fmt.Errorf("failed to create scan runner: %w", err)
+	}
+	defer scanRunner.Close()
+
+	scanRunner.SetSettings(settings)
+	scanRunner.SetRepository(repo)
+
+	setupScanSignalHandler(scanRunner)
+
+	if err := scanRunner.RunEnumeration(); err != nil {
+		zap.L().Info("Could not run scanner", zap.Error(err))
+	}
+
+	// Generate HTML report if requested
+	if scanOpts.OutputFormat == "html" && scanOpts.Output != "" {
+		if err := generateHTMLFromDB(context.Background(), db, scanOpts.Output); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
+		} else if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(scanOpts.Output))
+		}
+	}
+
+	if !scanOpts.Silent {
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		printScanCompletionSummary(repo)
+	}
+
+	return nil
+}
+
+// runDBScan scans records already in the database (no explicit targets).
+// Delegates to RunEnumeration(): Phase 1 is a no-op (empty source),
+// Phase 2 runs SPA if enabled, Phase 3 reads existing DB records.
+func runDBScan(settings *config.Settings, db *database.DB, repo *database.Repository) error {
+	// Create Runner with an empty input source — Phase 1 becomes a no-op
+	scanRunner, err := runner.NewWithInputSource(scanOpts, &emptySource{})
+	if err != nil {
+		return fmt.Errorf("failed to create scan runner: %w", err)
+	}
+	defer scanRunner.Close()
+
+	scanRunner.SetSettings(settings)
+	scanRunner.SetRepository(repo)
+
+	setupScanSignalHandler(scanRunner)
+
+	if err := scanRunner.RunEnumeration(); err != nil {
+		zap.L().Info("Could not run scanner", zap.Error(err))
+	}
+
+	// Generate HTML report if requested
+	if scanOpts.OutputFormat == "html" && scanOpts.Output != "" {
+		if err := generateHTMLFromDB(context.Background(), db, scanOpts.Output); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
+		} else if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(scanOpts.Output))
+		}
+	}
+
+	if !scanOpts.Silent {
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		printScanCompletionSummary(repo)
+	}
+
+	return nil
+}
+
+// emptySource is an InputSource that immediately returns io.EOF.
+// Used when no external input is provided (DB-only scan mode).
+type emptySource struct{}
+
+func (e *emptySource) Next(_ context.Context) (*work.WorkItem, error) { return nil, io.EOF }
+func (e *emptySource) Close() error                                   { return nil }
+
+
+// upsertSourceRepo links application source code to the first target's hostname.
+// If a source repo already exists for the same hostname+path, it is a no-op.
+func upsertSourceRepo(ctx context.Context, repo *database.Repository, targets []string, sourcePath string) error {
+	absPath, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return fmt.Errorf("invalid source path: %w", err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("source path does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("source path is not a directory: %s", absPath)
+	}
+
+	// Resolve hostname from the first target
+	hostname := ""
+	for _, t := range targets {
+		if u, parseErr := url.Parse(t); parseErr == nil && u.Hostname() != "" {
+			hostname = u.Hostname()
+			break
+		}
+	}
+	if hostname == "" {
+		return fmt.Errorf("cannot determine hostname from targets for --source")
+	}
+
+	// Check for existing link with the same hostname+path
+	existing, _ := repo.GetSourceReposByHostname(ctx, scanOpts.ProjectUUID, hostname)
+	for _, sr := range existing {
+		if sr.RootPath == absPath {
+			zap.L().Debug("Source repo already linked", zap.String("hostname", hostname), zap.String("path", absPath))
+			return nil
+		}
+	}
+
+	sr := &database.SourceRepo{
+		ProjectUUID: scanOpts.ProjectUUID,
+		Hostname:    hostname,
+		Name:        filepath.Base(absPath),
+		RootPath:    absPath,
+		RepoType:    "folder",
+	}
+	if err := repo.CreateSourceRepo(ctx, sr); err != nil {
+		return err
+	}
+
+	if !scanOpts.Silent {
+		fmt.Fprintf(os.Stderr, "%s Source repo linked: %s -> %s\n",
+			terminal.InfoSymbol(),
+			terminal.Cyan(hostname),
+			terminal.Gray(absPath))
+	}
+	return nil
+}
+
+// generateHTMLFromDB queries all data from the database (HTTP records, scans,
+// findings, modules) and generates an HTML report at the specified output path.
+func generateHTMLFromDB(ctx context.Context, db *database.DB, outputPath string) error {
+	items, err := queryExportData(ctx, db)
+	if err != nil {
+		return err
+	}
+	meta := output.HTMLReportMeta{
+		Title:        "Vigolium Scan Report",
+		Version:      getVersion(),
+		ScanDuration: computeScanDuration(ctx, db),
+	}
+	return output.GenerateHTMLReport(items, outputPath, meta)
+}
+
+// normalizePhase maps phase aliases to their canonical names.
+func normalizePhase(phase string) string {
+	switch phase {
+	case "deparos", "discover":
+		return "discovery"
+	case "spitolas":
+		return "spidering"
+	case "audit":
+		return "dynamic-assessment"
+	case "ext":
+		return "extension"
+	default:
+		return phase
+	}
+}
+
+func setupScanSignalHandler(r *runner.Runner) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		// First Ctrl+C: graceful shutdown
+		<-c
+		zap.L().Info("CTRL+C pressed: Exiting")
+		zap.L().Info("Attempting graceful shutdown...")
+
+		// Start graceful Close in a goroutine
+		closeDone := make(chan struct{})
+		go func() {
+			r.Close()
+			close(closeDone)
+		}()
+
+		// Wait for Close to finish or a second Ctrl+C
+		select {
+		case <-closeDone:
+			// Graceful shutdown completed
+		case <-c:
+			zap.L().Warn("Second CTRL+C received, forcing exit")
+			os.Exit(1)
+		}
+	}()
+}
+
+// printScanSummary prints a human-readable scan configuration overview to stderr.
+func printScanSummary(opts *types.Options, settings *config.Settings, strategyName string, repo *database.Repository) {
+	if opts.Silent || globalJSON {
+		return
+	}
+
+	// Phase status indicators: symbol + colored name + optional pace detail
+	phaseLabel := func(name, phasePaceKey string, enabled bool) string {
+		label := name
+		if !enabled {
+			return terminal.Gray(terminal.SymbolError) + " " + terminal.Gray(label)
+		}
+		// Append max_duration / duration_factor if set
+		resolved := settings.ScanningPace.ResolvePhase(phasePaceKey)
+		var paceDetail string
+		if resolved.MaxDuration > 0 {
+			paceDetail = resolved.MaxDuration.String()
+		}
+		if resolved.DurationFactor > 0 {
+			if paceDetail != "" {
+				paceDetail += fmt.Sprintf(", x%.1f", resolved.DurationFactor)
+			} else {
+				paceDetail = fmt.Sprintf("x%.1f", resolved.DurationFactor)
+			}
+		}
+		if paceDetail != "" {
+			label += " " + terminal.Gray("("+paceDetail+")")
+		}
+		return terminal.Green(terminal.SymbolSuccess) + " " + terminal.HiCyan(label)
+	}
+
+	discoveryEnabled := opts.DiscoverEnabled
+	spideringEnabled := opts.SpideringEnabled
+	spaEnabled := opts.SPAEnabled
+	daEnabled := !opts.SkipDynamicAssessment
+	ehEnabled := opts.ExternalHarvestEnabled
+
+	// Strategy name
+	strategy := strategyName
+	if strategy == "" {
+		strategy = "default"
+	}
+
+	// Module counts
+	var activeCount, passiveCount int
+	if len(opts.Modules) > 0 && opts.Modules[0] == "all" {
+		activeCount = len(modules.GetActiveModules())
+	} else {
+		activeCount = len(modules.GetActiveModulesByIDs(opts.Modules))
+	}
+	passiveCount = len(modules.GetPassiveModules())
+
+	// Scope origin mode
+	scopeOrigin := settings.Scope.CLIOriginMode
+	if scopeOrigin == "" {
+		scopeOrigin = "relaxed"
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s run %s and %s to view ingested data and vulnerabilities\n",
+		terminal.TipPrefix(),
+		terminal.HiCyan("vigolium traffic list"),
+		terminal.HiCyan("vigolium findings list"))
+	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Scan Configuration"))
+	if opts.ProjectUUID != "" {
+		fmt.Fprintf(os.Stderr, "  %s Project: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ProjectUUID))
+	}
+	fmt.Fprintf(os.Stderr, "  %s Strategy: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(strategy))
+	if opts.ScanningProfile != "" {
+		fmt.Fprintf(os.Stderr, "  %s Profile: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ScanningProfile))
+	}
+	targetsLine := fmt.Sprintf("Targets: %s (CLI: %s)", terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))), terminal.HiBlue(strings.Join(opts.Targets, ", ")))
+	if opts.TargetsFilePath != "" {
+		targetsLine += fmt.Sprintf(" (+ file: %s)", terminal.HiTeal(opts.TargetsFilePath))
+	}
+	if repo != nil {
+		ctx := context.Background()
+		if dbCount, err := repo.CountRecordsAfterCursor(ctx, time.Time{}, ""); err == nil && dbCount > 0 {
+			targetsLine += fmt.Sprintf(" | %s (HTTP Records)", terminal.Orange(fmt.Sprintf("%d", dbCount)))
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolTarget), targetsLine)
+	sastEnabled := opts.SASTEnabled
+	fmt.Fprintf(os.Stderr, "  %s Phases: %s | %s | %s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		phaseLabel("ExternalHarvest", "external_harvester", ehEnabled),
+		phaseLabel("Spidering", "spidering", spideringEnabled),
+		phaseLabel("Discovery", "discovery", discoveryEnabled))
+	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
+		phaseLabel("SPA", "spa", spaEnabled),
+		phaseLabel("DynamicAssessment", "dynamic_assessment", daEnabled),
+		phaseLabel("SAST", "sast", sastEnabled))
+	if sastEnabled && opts.SASTRepoPath != "" {
+		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTRepoPath))
+	}
+	heuristicsDesc := map[string]string{
+		"basic":    "probe target root pages to detect content type (HTML, JSON, blank) and skip spidering for non-HTML targets",
+		"advanced": "basic checks + deep HTML analysis to detect SPA frameworks and optimize phase selection",
+		"none":     "skip all heuristic probes, run all enabled phases unconditionally",
+	}
+	if desc, ok := heuristicsDesc[opts.HeuristicsCheck]; ok {
+		fmt.Fprintf(os.Stderr, "  %s Heuristics: %s %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(opts.HeuristicsCheck),
+			terminal.Gray(desc))
+	} else {
+		fmt.Fprintf(os.Stderr, "  %s Heuristics: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(opts.HeuristicsCheck))
+	}
+	fmt.Fprintf(os.Stderr, "  %s Speed: concurrency=%s | rate-limit=%s | max-per-host=%s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
+		terminal.HiBlue(fmt.Sprintf("%d", globalRateLimit)),
+		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
+	originDesc := map[string]string{
+		"relaxed":  "host must contain the target's keyword (e.g. \"example\")",
+		"all":      "no origin restriction, all hosts are in scope",
+		"balanced": "host must share the target's eTLD+1 (e.g. *.example.com)",
+		"strict":   "host must exactly match the target host",
+	}
+	originDescStr := ""
+	if desc, ok := originDesc[scopeOrigin]; ok {
+		originDescStr = " " + terminal.Gray(desc)
+	}
+	fmt.Fprintf(os.Stderr, "  %s Scope: origin=%s | ignore-static=%s%s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiPurple(scopeOrigin),
+		terminal.HiPurple(fmt.Sprintf("%v", settings.Scope.IgnoreStaticFile)),
+		originDescStr)
+	fmt.Fprintf(os.Stderr, "  %s Modules: %s active, %s passive\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.Orange(fmt.Sprintf("%d", activeCount)),
+		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
+	if globalVerbose {
+		fmt.Fprintf(os.Stderr, "\n  %s view scope details via %s\n",
+			terminal.TipPrefix(),
+			terminal.HiCyan("vigolium config ls scope"))
+		fmt.Fprintf(os.Stderr, "  %s view scanning pace via %s\n",
+			terminal.TipPrefix(),
+			terminal.HiCyan("vigolium config ls scanning_pace"))
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+// printScanCompletionSummary prints a compact summary of ingested records and findings after scan completion.
+func printScanCompletionSummary(repo *database.Repository) {
+	if repo == nil {
+		return
+	}
+
+	ctx := context.Background()
+	db := repo.DB()
+
+	// Count HTTP records
+	var recordCount int
+	err := db.NewSelect().Model((*database.HTTPRecord)(nil)).ColumnExpr("COUNT(*)").Scan(ctx, &recordCount)
+	if err != nil {
+		return
+	}
+
+	// Count findings by severity
+	type sevCount struct {
+		Severity string `bun:"severity"`
+		Count    int64  `bun:"count"`
+	}
+	var sevCounts []sevCount
+	err = db.NewSelect().Model((*database.Finding)(nil)).
+		ColumnExpr("severity, COUNT(*) AS count").
+		GroupExpr("severity").
+		Scan(ctx, &sevCounts)
+	if err != nil {
+		return
+	}
+
+	var totalFindings int64
+	counts := make(map[string]int64)
+	for _, sc := range sevCounts {
+		counts[sc.Severity] = sc.Count
+		totalFindings += sc.Count
+	}
+
+	fmt.Fprintf(os.Stderr, "  %s Records: %s http records ingested\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.Cyan(fmt.Sprintf("%d", recordCount)))
+
+	if totalFindings == 0 {
+		fmt.Fprintf(os.Stderr, "  %s Findings: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("no issues found"))
+		return
+	}
+
+	// Build severity breakdown
+	var parts []string
+	for _, s := range []struct {
+		key  string
+		fn   func(string) string
+		sym  func() string
+	}{
+		{"critical", terminal.BoldMagenta, terminal.CriticalSymbol},
+		{"high", terminal.BoldRed, terminal.HighSymbol},
+		{"medium", terminal.BoldYellow, terminal.MediumSymbol},
+		{"low", terminal.BoldGreen, terminal.LowSymbol},
+		{"suspect", terminal.BoldCyan, terminal.SuspectSymbol},
+		{"info", terminal.BoldBlue, terminal.InfoSeveritySymbol},
+	} {
+		if c, ok := counts[s.key]; ok && c > 0 {
+			parts = append(parts, fmt.Sprintf("%s %s %s", s.sym(), s.fn(fmt.Sprintf("%d", c)), s.key))
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "  %s Findings: %s issues found — %s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.Orange(fmt.Sprintf("%d", totalFindings)),
+		strings.Join(parts, ", "))
+}

@@ -1,0 +1,22 @@
+app:
+  name: xbow-sqli-071
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-071-24"
+  service_name: app
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-071-sqli-fullname"
+    endpoint: "/send.php"
+    method: POST
+    body: "fullname=test"
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via fullname POST parameter (XBEN-071-24)"

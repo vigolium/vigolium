@@ -1,0 +1,25 @@
+id: reflected-param-yaml
+name: Reflected Parameter Scanner (YAML)
+description: Injects a canary value into each parameter and checks if the response reflects it back
+type: active
+severity: medium
+confidence: firm
+tags:
+  - xss
+  - reflection
+  - injection
+scan_types:
+  - per_insertion_point
+
+payloads:
+  - "VGNM{{rand(8)}}"
+
+matchers:
+  - type: body
+    contains: "{{payload}}"
+
+finding:
+  name: "Reflected parameter: {{insertion.name}}"
+  description: "The value of parameter '{{insertion.name}}' is reflected in the response body without encoding"
+  matched: "{{payload}}"
+  severity: medium

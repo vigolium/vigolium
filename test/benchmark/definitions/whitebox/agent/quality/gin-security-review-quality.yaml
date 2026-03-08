@@ -1,0 +1,14 @@
+fixture: gin-security-code-review.json
+source_stub: gin
+template: security-code-review
+assertion: soft
+expected:
+  min_findings: 1
+  max_findings: 20
+  expected_cwes:
+    - "CWE-20"
+  expected_vuln_types:
+    - "validation"
+  severity_distribution:
+    medium: 1
+    high: 1

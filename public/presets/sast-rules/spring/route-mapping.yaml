@@ -1,0 +1,11 @@
+id: spring-route-mapping
+language: java
+message: "Route registration: $$$"
+note: "Matches Spring Boot route mapping annotations"
+severity: hint
+rule:
+  any:
+    - kind: marker_annotation
+      regex: "(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)"
+    - kind: annotation
+      regex: "(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)"

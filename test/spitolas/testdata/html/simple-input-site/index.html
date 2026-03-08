@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script type="text/javascript" src="../lib/jquery-2.0.3.min.js"></script>
+</head>
+<body>
+<div>
+    <h1>Simple input test</h1>
+    <p>If you fill in "Good input" the application will go to another
+        state. All other input is disregarded.</p>
+</div>
+<input id="input" type="text">
+<button id="button">Hit me</button>
+<script>
+		$('#button').click(function() {
+			if ($('#input').val() === "Good input") {
+				document.location.href = 'otherState.html';
+			}
+		});
+
+</script>
+</body>
+</html>

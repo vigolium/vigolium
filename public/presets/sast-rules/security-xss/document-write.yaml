@@ -1,0 +1,9 @@
+id: security-xss-document-write
+language: javascript
+severity: error
+message: "Security: document.write/writeln with dynamic content — allows full DOM injection and XSS"
+note: "document.write() is a legacy API that injects arbitrary HTML. It should never be used with dynamic content. Use DOM APIs with textContent instead."
+rule:
+  any:
+    - pattern: document.write($$$ARGS)
+    - pattern: document.writeln($$$ARGS)

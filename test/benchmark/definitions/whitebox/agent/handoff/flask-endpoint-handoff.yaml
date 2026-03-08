@@ -1,0 +1,17 @@
+fixture: flask-endpoint-discovery.json
+expected:
+  convertible_count: 7
+  skipped_count: 0
+  records:
+    - method: GET
+      url_prefix: "http://localhost:5000/users"
+      has_host: true
+      assertion: strict
+    - method: POST
+      url_prefix: "http://localhost:5000/users"
+      has_host: true
+      assertion: strict
+    - method: GET
+      url_prefix: "http://localhost:5000/health"
+      has_host: true
+      assertion: strict

@@ -1,0 +1,15 @@
+id: security-config-source-maps-webpack
+language: javascript
+severity: warning
+message: "Security: webpack devtool with source maps — source maps in production expose original source code to attackers"
+note: "In production webpack config, set devtool to false or 'nosources-source-map'. Avoid 'source-map', 'eval-source-map', 'cheap-module-source-map' in production."
+rule:
+  any:
+    - pattern: 'devtool: "source-map"'
+    - pattern: "devtool: 'source-map'"
+    - pattern: 'devtool: "eval-source-map"'
+    - pattern: "devtool: 'eval-source-map'"
+    - pattern: 'devtool: "cheap-module-source-map"'
+    - pattern: "devtool: 'cheap-module-source-map'"
+    - pattern: 'devtool: "eval"'
+    - pattern: "devtool: 'eval'"

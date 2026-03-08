@@ -1,0 +1,11 @@
+id: test-post-hook
+name: Test Post Hook
+description: A test post-hook for unit tests
+type: post_hook
+
+escalate:
+  when_url_contains:
+    - admin
+    - payment
+  tag: "CRITICAL"
+  bump_severity: true

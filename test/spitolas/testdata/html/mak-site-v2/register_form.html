@@ -1,0 +1,15 @@
+<h3>Register New User</h3>
+<form onsubmit="$.get('register_success.html', function(d){$('#main-content').html(d);}); return false;">
+    <input type="text" name="full-name" placeholder="Full Name"><br>
+    <input type="email" name="email" placeholder="Email"><br>
+    <input type="password" name="password" placeholder="Password"><br>
+    <input type="password" name="confirm-password" placeholder="Confirm Password"><br>
+    <select name="country">
+        <option value="">Select Country</option>
+        <option value="us">United States</option>
+        <option value="uk">United Kingdom</option>
+        <option value="vn">Vietnam</option>
+    </select><br>
+    <label><input type="checkbox" name="terms"> I agree to terms</label><br>
+    <button type="submit">Register</button>
+</form>

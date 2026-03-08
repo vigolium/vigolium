@@ -1,0 +1,16 @@
+fixture: express-security-code-review.json
+source_stub: express
+template: security-code-review
+assertion: soft
+expected:
+  min_findings: 1
+  max_findings: 20
+  expected_cwes:
+    - "CWE-79"
+    - "CWE-798"
+  expected_vuln_types:
+    - "xss"
+    - "authentication"
+  severity_distribution:
+    critical: 1
+    medium: 2

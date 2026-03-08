@@ -1,0 +1,14 @@
+id: django-class-view-method
+language: python
+severity: info
+message: "Route: $METHOD"
+rule:
+  all:
+    - pattern: |
+        def $METHOD(self, request, $$$PARAMS):
+          $$$BODY
+    - inside:
+        kind: class_definition
+constraints:
+  METHOD:
+    regex: "^(get|post|put|delete|patch|head|options|list|create|retrieve|update|destroy)$"

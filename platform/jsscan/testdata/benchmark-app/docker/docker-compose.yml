@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  webpack5:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.webpack5
+    volumes:
+      - ../dist/webpack5:/app/dist/webpack5
+    container_name: benchmark-webpack5
+
+  webpack4:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.webpack4
+    volumes:
+      - ../dist/webpack4:/app/dist/webpack4
+    container_name: benchmark-webpack4
+
+  rollup:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rollup
+    volumes:
+      - ../dist/rollup:/app/dist/rollup
+    container_name: benchmark-rollup
+
+  esbuild:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.esbuild
+    volumes:
+      - ../dist/esbuild:/app/dist/esbuild
+    container_name: benchmark-esbuild
+
+  parcel:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.parcel
+    volumes:
+      - ../dist/parcel:/app/dist/parcel
+    container_name: benchmark-parcel
+
+  vite:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.vite
+    volumes:
+      - ../dist/vite:/app/dist/vite
+    container_name: benchmark-vite
+
+# Usage:
+#   Build all:     docker-compose build
+#   Run all:       docker-compose up
+#   Build single:  docker-compose build webpack5
+#   Run single:    docker-compose up webpack5
+#
+# Output files will be in dist/<bundler>/bundle.js

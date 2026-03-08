@@ -1,0 +1,420 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vigolium API",
+    "description": "High-fidelity web vulnerability scanner API",
+    "version": "0.0.1-alpha",
+    "contact": {
+      "name": "Vigolium",
+      "url": "https://docs.vigolium.io"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:9002",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "App info",
+        "description": "Returns basic application information",
+        "operationId": "getAppInfo",
+        "tags": ["Info"],
+        "responses": {
+          "200": {
+            "description": "Application info",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AppInfoResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Returns server health status",
+        "operationId": "healthCheck",
+        "tags": ["Info"],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/server-info": {
+      "get": {
+        "summary": "Server info",
+        "description": "Returns detailed server information including uptime, queue depth, and database stats",
+        "operationId": "getServerInfo",
+        "tags": ["Info"],
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Server info",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServerInfoResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/modules": {
+      "get": {
+        "summary": "List modules",
+        "description": "Returns all registered scanner modules",
+        "operationId": "listModules",
+        "tags": ["Modules"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Search filter for module name or ID",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "modules": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ModuleInfo" }
+                    },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/http-records": {
+      "get": {
+        "summary": "List HTTP records",
+        "description": "Returns paginated HTTP request/response records",
+        "operationId": "listHttpRecords",
+        "tags": ["Records"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } },
+          { "name": "host", "in": "query", "schema": { "type": "string" } },
+          { "name": "method", "in": "query", "schema": { "type": "string" } },
+          { "name": "path", "in": "query", "schema": { "type": "string" } },
+          { "name": "status_code", "in": "query", "schema": { "type": "integer" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort_by", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort_asc", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated HTTP records",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/findings": {
+      "get": {
+        "summary": "List findings",
+        "description": "Returns paginated vulnerability findings",
+        "operationId": "listFindings",
+        "tags": ["Findings"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } },
+          { "name": "severity", "in": "query", "schema": { "type": "string" } },
+          { "name": "module", "in": "query", "schema": { "type": "string" } },
+          { "name": "host", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort_by", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort_asc", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated findings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ingest-http": {
+      "post": {
+        "summary": "Ingest HTTP data",
+        "description": "Import HTTP request/response data for scanning",
+        "operationId": "ingestHttp",
+        "tags": ["Ingest"],
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IngestHTTPRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ingestion result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IngestHTTPResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Scan statistics",
+        "description": "Returns aggregated statistics about HTTP records, modules, and findings",
+        "operationId": "getStats",
+        "tags": ["Stats"],
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Scan statistics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StatsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scope": {
+      "get": {
+        "summary": "View scope config",
+        "description": "Returns the current scope configuration",
+        "operationId": "getScope",
+        "tags": ["Scope"],
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current scope config",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ScopeConfig" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Update scope config",
+        "description": "Partially update scope configuration. Only provided fields are overwritten.",
+        "operationId": "updateScope",
+        "tags": ["Scope"],
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ScopeConfig" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scope updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ScopeUpdateResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "AppInfoResponse": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "vigolium" },
+          "version": { "type": "string", "example": "v0.0.1-alpha" },
+          "author": { "type": "string", "example": "@j3ssie" },
+          "docs": { "type": "string", "example": "https://docs.vigolium.io" },
+          "build_time": { "type": "string" },
+          "commit": { "type": "string" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "example": "healthy" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ServerInfoResponse": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "author": { "type": "string" },
+          "docs": { "type": "string" },
+          "build_time": { "type": "string" },
+          "commit": { "type": "string" },
+          "uptime": { "type": "string" },
+          "service_addr": { "type": "string" },
+          "proxy_addr": { "type": "string" },
+          "db_driver": { "type": "string" },
+          "queue_depth": { "type": "integer" },
+          "total_records": { "type": "integer" },
+          "total_findings": { "type": "integer" }
+        }
+      },
+      "ModuleInfo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "short_description": { "type": "string" },
+          "severity": { "type": "string" },
+          "type": { "type": "string", "enum": ["active", "passive"] }
+        }
+      },
+      "PaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": {} },
+          "total": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "has_more": { "type": "boolean" }
+        }
+      },
+      "IngestHTTPRequest": {
+        "type": "object",
+        "required": ["input_mode"],
+        "properties": {
+          "input_mode": { "type": "string", "enum": ["raw-request", "raw-request-response", "url", "curl", "openapi", "postman"] },
+          "content": { "type": "string" },
+          "content_base64": { "type": "string" },
+          "http_request_base64": { "type": "string" },
+          "http_response_base64": { "type": "string" }
+        }
+      },
+      "IngestHTTPResponse": {
+        "type": "object",
+        "properties": {
+          "imported": { "type": "integer" },
+          "errors": { "type": "array", "items": { "type": "string" } },
+          "message": { "type": "string" }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "properties": {
+          "http_records": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" }
+            }
+          },
+          "modules": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "object",
+                "properties": {
+                  "total": { "type": "integer" },
+                  "enabled": { "type": "integer" }
+                }
+              },
+              "passive": {
+                "type": "object",
+                "properties": {
+                  "total": { "type": "integer" },
+                  "enabled": { "type": "integer" }
+                }
+              }
+            }
+          },
+          "findings": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "by_severity": {
+                "type": "object",
+                "additionalProperties": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "ScopeConfig": {
+        "type": "object",
+        "properties": {
+          "host": { "$ref": "#/components/schemas/ScopeRule" },
+          "path": { "$ref": "#/components/schemas/ScopeRule" },
+          "status_code": { "$ref": "#/components/schemas/ScopeRule" },
+          "request_content_type": { "$ref": "#/components/schemas/ScopeRule" },
+          "response_content_type": { "$ref": "#/components/schemas/ScopeRule" },
+          "request_string": { "$ref": "#/components/schemas/ScopeRule" },
+          "response_string": { "$ref": "#/components/schemas/ScopeRule" }
+        }
+      },
+      "ScopeRule": {
+        "type": "object",
+        "properties": {
+          "include": { "type": "array", "items": { "type": "string" } },
+          "exclude": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ScopeUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "scope": { "$ref": "#/components/schemas/ScopeConfig" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "integer" },
+          "details": { "type": "string" }
+        }
+      }
+    }
+  }
+}

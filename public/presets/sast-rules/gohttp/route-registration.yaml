@@ -1,0 +1,19 @@
+id: go-route-registration
+language: go
+message: "Route registration: $$$"
+note: "Matches Go route definitions for chi, httprouter, and net/http stdlib"
+severity: hint
+rule:
+  any:
+    - pattern: $OBJ.$METHOD($PATH, $$$)
+    - kind: call_expression
+      has:
+        kind: selector_expression
+        has:
+          kind: field_identifier
+          regex: "^Group$"
+constraints:
+  METHOD:
+    regex: "^(Get|Post|Put|Delete|Patch|Route|Handle|HandleFunc|GET|POST|PUT|DELETE|PATCH|ServeFiles)$"
+  PATH:
+    kind: interpreted_string_literal

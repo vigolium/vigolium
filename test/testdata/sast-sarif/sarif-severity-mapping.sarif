@@ -1,0 +1,40 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "test-tool",
+          "rules": []
+        }
+      },
+      "results": [
+        {
+          "ruleId": "sev-error",
+          "level": "error",
+          "message": { "text": "Error level finding" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "file.py" }, "region": { "startLine": 1, "endLine": 1 } } }]
+        },
+        {
+          "ruleId": "sev-warning",
+          "level": "warning",
+          "message": { "text": "Warning level finding" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "file.py" }, "region": { "startLine": 10, "endLine": 10 } } }]
+        },
+        {
+          "ruleId": "sev-note",
+          "level": "note",
+          "message": { "text": "Note level finding" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "file.py" }, "region": { "startLine": 20, "endLine": 20 } } }]
+        },
+        {
+          "ruleId": "sev-none",
+          "level": "none",
+          "message": { "text": "None level finding" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "file.py" }, "region": { "startLine": 30, "endLine": 30 } } }]
+        }
+      ]
+    }
+  ]
+}

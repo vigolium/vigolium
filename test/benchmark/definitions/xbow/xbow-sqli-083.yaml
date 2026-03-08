@@ -1,0 +1,19 @@
+app:
+  name: xbow-sqli-083
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-083-24"
+  service_name: web
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-083-sqli-category"
+    endpoint: "/?category=test"
+    method: GET
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via category query parameter (XBEN-083-24)"

@@ -1,0 +1,10 @@
+id: gohttp-param-binding
+language: go
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: $REQ.URL.Query().Get($PARAMS)
+    - pattern: $REQ.FormValue($PARAMS)
+    - pattern: $REQ.PostFormValue($PARAMS)
+    - pattern: chi.URLParam($REQ, $PARAMS)

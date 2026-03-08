@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "express",
+    "template": "endpoint-discovery",
+    "agent_name": "claude",
+    "output_schema": "http_records",
+    "generated_at": "2026-02-15T11:05:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "{\"http_records\": [{\"method\": \"GET\", \"url\": \"http://localhost:3000/api/v1/users?q=test&page=1\", \"headers\": {\"Host\": \"localhost:3000\", \"Accept\": \"application/json\"}, \"notes\": \"List users with search\"}, {\"method\": \"POST\", \"url\": \"http://localhost:3000/api/v1/users\", \"headers\": {\"Host\": \"localhost:3000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"name\\\": \\\"test\\\", \\\"email\\\": \\\"test@example.com\\\"}\", \"notes\": \"Create user\"}, {\"method\": \"GET\", \"url\": \"http://localhost:3000/api/v1/users/1\", \"headers\": {\"Host\": \"localhost:3000\", \"Accept\": \"application/json\"}, \"notes\": \"Get user by ID\"}, {\"method\": \"PUT\", \"url\": \"http://localhost:3000/api/v1/users/1\", \"headers\": {\"Host\": \"localhost:3000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"name\\\": \\\"updated\\\"}\", \"notes\": \"Update user\"}, {\"method\": \"DELETE\", \"url\": \"http://localhost:3000/api/v1/users/1\", \"headers\": {\"Host\": \"localhost:3000\"}, \"notes\": \"Delete user\"}, {\"method\": \"GET\", \"url\": \"http://localhost:3000/api/v1/health\", \"headers\": {\"Host\": \"localhost:3000\"}, \"notes\": \"Health check\"}, {\"method\": \"GET\", \"url\": \"http://localhost:3000/status\", \"headers\": {\"Host\": \"localhost:3000\"}, \"notes\": \"Status endpoint\"}, {\"method\": \"POST\", \"url\": \"http://localhost:3000/login\", \"headers\": {\"Host\": \"localhost:3000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"username\\\": \\\"admin\\\", \\\"password\\\": \\\"password123\\\"}\", \"notes\": \"Login endpoint\"}]}",
+  "parsed": {
+    "finding_count": 0,
+    "record_count": 8
+  }
+}

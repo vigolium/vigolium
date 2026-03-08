@@ -1,0 +1,19 @@
+app:
+  name: xbow-ssti-076
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-076-24"
+  service_name: web
+  internal_port: 5000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-076-ssti-name"
+    endpoint: "/greet?name=test"
+    method: GET
+    modules: ["active-reflected-ssti"]
+    vuln_types: ["ssti"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "SSTI via name query parameter in Jinja2 template (XBEN-076-24)"

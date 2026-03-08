@@ -1,0 +1,20 @@
+id: test-active-scanner
+name: Test Active Scanner
+description: A test active scanner for unit tests
+type: active
+severity: medium
+scan_types:
+  - per_insertion_point
+
+payloads:
+  - "CANARY{{rand(8)}}"
+
+matchers:
+  - type: body
+    contains: "{{payload}}"
+
+finding:
+  name: "Reflected: {{insertion.name}}"
+  description: "Parameter '{{insertion.name}}' is reflected"
+  matched: "{{payload}}"
+  severity: medium

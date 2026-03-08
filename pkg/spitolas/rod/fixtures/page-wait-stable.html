@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <div id="progress"></div>
+
+    <script>
+      window.onload = function () {
+        var pg = document.getElementById('progress')
+        var count = 0
+        function tick() {
+          count += 1
+          pg.textContent = count + '%'
+
+          if (count < 100) setTimeout(tick, 10)
+        }
+        tick()
+      }
+    </script>
+  </body>
+</html>

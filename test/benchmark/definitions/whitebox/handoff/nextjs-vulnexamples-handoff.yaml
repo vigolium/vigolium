@@ -1,0 +1,64 @@
+framework: nextjs
+base_url: http://localhost:3000
+
+routes:
+  # Example 1: Missing authentication - vulnerable endpoint (no auth required)
+  - method: GET
+    path: "/api/example-1-missing-authentication/vulnerable"
+    expected_request:
+      method: GET
+      uri: "/api/example-1-missing-authentication/vulnerable"
+      host: localhost:3000
+
+  # Example 1: Solution with session token
+  - method: GET
+    path: "/api/example-1-missing-authentication/solution-1"
+    expected_request:
+      method: GET
+      uri: "/api/example-1-missing-authentication/solution-1"
+      host: localhost:3000
+
+  # Example 3: Missing authorization - vulnerable endpoint
+  - method: GET
+    path: "/api/example-3-missing-authorization/vulnerable"
+    expected_request:
+      method: GET
+      uri: "/api/example-3-missing-authorization/vulnerable"
+      host: localhost:3000
+
+  # Example 3: Solution with user-scoped query
+  - method: GET
+    path: "/api/example-3-missing-authorization/solution-2"
+    expected_request:
+      method: GET
+      uri: "/api/example-3-missing-authorization/solution-2"
+      host: localhost:3000
+
+  # Example 5: Secrets exposure solution (server-side API call)
+  - method: GET
+    path: "/api/example-5-secrets-exposure"
+    expected_request:
+      method: GET
+      uri: "/api/example-5-secrets-exposure"
+      host: localhost:3000
+
+  # Auth login
+  - method: POST
+    path: "/api/auth/login"
+    expected_request:
+      method: POST
+      uri: "/api/auth/login"
+      host: localhost:3000
+
+  # Auth logout
+  - method: GET
+    path: "/api/auth/logout"
+    expected_request:
+      method: GET
+      uri: "/api/auth/logout"
+      host: localhost:3000
+
+  # Empty route skip test
+  - method: ""
+    path: ""
+    expected_skip: true

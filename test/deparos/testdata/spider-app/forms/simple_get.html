@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple GET Form Test</title>
+</head>
+<body>
+    <h1>Simple GET Form</h1>
+    <p>A basic search form using GET method.</p>
+
+    <form action="/form-result/search" method="GET">
+        <label for="q">Search Query:</label>
+        <input type="text" id="q" name="q" value="test-query">
+
+        <label for="source">Source:</label>
+        <input type="hidden" id="source" name="source" value="web">
+
+        <input type="submit" value="Search">
+    </form>
+</body>
+</html>

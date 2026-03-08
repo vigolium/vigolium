@@ -1,0 +1,26 @@
+fixture: trivy-normal.sarif
+tool_name: trivy
+format: sarif
+
+expected:
+  finding_count: 3
+  error: false
+  findings:
+    - rule_id: "CVE-2023-1234"
+      severity: high
+      file_path: "requirements.txt"
+      start_line: 5
+
+    - rule_id: "SECRET-001"
+      severity: high
+      file_path: "config/settings.py"
+      start_line: 12
+
+    - rule_id: "MISCONF-001"
+      severity: medium
+      file_path: "Dockerfile"
+      start_line: 1
+
+  severity_distribution:
+    high: 2
+    medium: 1

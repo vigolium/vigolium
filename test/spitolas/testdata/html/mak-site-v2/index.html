@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MAK Test Site v2 - Complex Interactions</title>
+    <script type="text/javascript" src="../lib/jquery-2.0.3.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { border: 1px solid #ccc; padding: 15px; margin: 10px 0; }
+        .hidden { display: none; }
+        button { margin: 5px; padding: 8px 16px; cursor: pointer; }
+        iframe { border: 1px solid #999; margin: 10px 0; }
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content { display: none; position: absolute; background: #f9f9f9; min-width: 160px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); z-index: 1; }
+        .dropdown:hover .dropdown-content { display: block; }
+        .dropdown-content button { display: block; width: 100%; text-align: left; }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal-content { background: white; margin: 15% auto; padding: 20px; width: 50%; }
+        .tab { display: none; }
+        .tab.active { display: block; }
+        .tab-btn.active { background: #4CAF50; color: white; }
+    </style>
+    <script>
+    $(function() {
+        // === SECTION 1: Basic Button Paths ===
+        $("#btn_gold1").click(function() {
+            $.get("gold_path1.html", function(data) { $('#main-content').html(data); });
+        });
+        $("#btn_gold2").click(function() {
+            $.get("gold_path2.html", function(data) { $('#main-content').html(data); });
+        });
+        $("#btn_trap1").click(function() {
+            $.get("trap_path1.html", function(data) { $('#main-content').html(data); });
+        });
+        $("#btn_dead").click(function() {
+            $.get("dead_end.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 2: Form Submission ===
+        $("#login-form").submit(function(e) {
+            e.preventDefault();
+            $.get("form_success.html", function(data) { $('#main-content').html(data); });
+        });
+        $("#search-form").submit(function(e) {
+            e.preventDefault();
+            var query = $("#search-input").val();
+            $.get("search_results.html?q=" + query, function(data) { $('#main-content').html(data); });
+        });
+        $("#register-btn").click(function() {
+            $.get("register_form.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 3: Hidden Elements ===
+        $("#reveal-btn").click(function() {
+            $("#hidden-section").removeClass("hidden");
+        });
+        $(document).on("click", "#hidden-action1", function() {
+            $.get("hidden_gold.html", function(data) { $('#main-content').html(data); });
+        });
+        $(document).on("click", "#hidden-action2", function() {
+            $.get("hidden_trap.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 4: Dropdown Menu ===
+        $(document).on("click", ".dropdown-item", function() {
+            var target = $(this).data("target");
+            $.get(target, function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 5: Modal Dialog ===
+        $("#open-modal").click(function() {
+            $("#modal1").show();
+        });
+        $(".modal-close").click(function() {
+            $(this).closest(".modal").hide();
+        });
+        $(document).on("click", "#modal-confirm", function() {
+            $("#modal1").hide();
+            $.get("modal_confirmed.html", function(data) { $('#main-content').html(data); });
+        });
+        $(document).on("click", "#modal-action1", function() {
+            $("#modal1").hide();
+            $.get("modal_action1.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 6: Tabs ===
+        $(".tab-btn").click(function() {
+            var tabId = $(this).data("tab");
+            $(".tab-btn").removeClass("active");
+            $(this).addClass("active");
+            $(".tab").removeClass("active");
+            $("#" + tabId).addClass("active");
+        });
+        $(document).on("click", "#tab1-action", function() {
+            $.get("tab1_content.html", function(data) { $('#main-content').html(data); });
+        });
+        $(document).on("click", "#tab2-action", function() {
+            $.get("tab2_content.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 7: Dynamic Element Generation ===
+        $("#generate-elements").click(function() {
+            var html = '<div id="dynamic-section">';
+            html += '<h4>Dynamically Generated Elements</h4>';
+            html += '<button id="dyn-gold" type="button">Dynamic Gold (5 actions)</button>';
+            html += '<button id="dyn-trap" type="button">Dynamic Trap (dead)</button>';
+            html += '<button id="dyn-form-trigger" type="button">Show Dynamic Form</button>';
+            html += '</div>';
+            $("#dynamic-container").html(html);
+        });
+        $(document).on("click", "#dyn-gold", function() {
+            $.get("dynamic_gold.html", function(data) { $('#main-content').html(data); });
+        });
+        $(document).on("click", "#dyn-trap", function() {
+            $.get("dynamic_trap.html", function(data) { $('#main-content').html(data); });
+        });
+        $(document).on("click", "#dyn-form-trigger", function() {
+            var formHtml = '<form id="dyn-form"><input type="text" name="name" placeholder="Name"><button type="submit">Submit Dynamic Form</button></form>';
+            $("#dynamic-container").append(formHtml);
+        });
+        $(document).on("submit", "#dyn-form", function(e) {
+            e.preventDefault();
+            $.get("dynamic_form_result.html", function(data) { $('#main-content').html(data); });
+        });
+
+        // === SECTION 8: Checkbox/Radio Actions ===
+        $("#checkbox-submit").click(function() {
+            var checked = [];
+            $("input[name='options']:checked").each(function() {
+                checked.push($(this).val());
+            });
+            if (checked.length > 0) {
+                $.get("checkbox_result.html?opts=" + checked.join(","), function(data) { $('#main-content').html(data); });
+            }
+        });
+        $("input[name='radio-choice']").change(function() {
+            var val = $(this).val();
+            $.get("radio_" + val + ".html", function(data) { $('#main-content').html(data); });
+        });
+    });
+    </script>
+</head>
+<body>
+<h1>MAK Test Site v2 - Complex Interactions</h1>
+<p>Testing various interaction types for comprehensive MAB evaluation</p>
+
+<div id="main-content">
+    <!-- SECTION 1: Basic Buttons -->
+    <div class="section">
+        <h3>1. Basic Navigation (Buttons)</h3>
+        <button id="btn_gold1" type="button">Gold Path 1 (deep, many actions)</button>
+        <button id="btn_gold2" type="button">Gold Path 2 (deep, many actions)</button>
+        <button id="btn_trap1" type="button">Trap Path (looks good, dead end)</button>
+        <button id="btn_dead" type="button">Dead End (immediate)</button>
+    </div>
+
+    <!-- SECTION 2: Forms -->
+    <div class="section">
+        <h3>2. Forms</h3>
+        <form id="login-form">
+            <input type="text" name="username" placeholder="Username">
+            <input type="password" name="password" placeholder="Password">
+            <button type="submit">Login</button>
+        </form>
+        <form id="search-form">
+            <input type="text" id="search-input" name="q" placeholder="Search...">
+            <button type="submit">Search</button>
+        </form>
+        <button id="register-btn" type="button">Register New User</button>
+    </div>
+
+    <!-- SECTION 3: Hidden Elements -->
+    <div class="section">
+        <h3>3. Hidden Elements</h3>
+        <button id="reveal-btn" type="button">Reveal Hidden Options</button>
+        <div id="hidden-section" class="hidden">
+            <p>Hidden actions revealed!</p>
+            <button id="hidden-action1" type="button">Hidden Gold (rich content)</button>
+            <button id="hidden-action2" type="button">Hidden Trap (empty)</button>
+        </div>
+    </div>
+
+    <!-- SECTION 4: Dropdown Menu -->
+    <div class="section">
+        <h3>4. Dropdown Menu</h3>
+        <div class="dropdown">
+            <button type="button">Menu (hover me)</button>
+            <div class="dropdown-content">
+                <button class="dropdown-item" data-target="dropdown_gold.html" type="button">Dropdown Gold</button>
+                <button class="dropdown-item" data-target="dropdown_medium.html" type="button">Dropdown Medium</button>
+                <button class="dropdown-item" data-target="dropdown_trap.html" type="button">Dropdown Trap</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECTION 5: Modal Dialog -->
+    <div class="section">
+        <h3>5. Modal Dialog</h3>
+        <button id="open-modal" type="button">Open Modal</button>
+    </div>
+
+    <!-- SECTION 6: Tabs -->
+    <div class="section">
+        <h3>6. Tabbed Content</h3>
+        <button class="tab-btn active" data-tab="tab1" type="button">Tab 1</button>
+        <button class="tab-btn" data-tab="tab2" type="button">Tab 2</button>
+        <button class="tab-btn" data-tab="tab3" type="button">Tab 3</button>
+        <div id="tab1" class="tab active">
+            <p>Tab 1 Content</p>
+            <button id="tab1-action" type="button">Tab 1 Action (Gold)</button>
+        </div>
+        <div id="tab2" class="tab">
+            <p>Tab 2 Content</p>
+            <button id="tab2-action" type="button">Tab 2 Action (Trap)</button>
+        </div>
+        <div id="tab3" class="tab">
+            <p>Tab 3 Content - No actions</p>
+        </div>
+    </div>
+
+    <!-- SECTION 7: Dynamic Elements -->
+    <div class="section">
+        <h3>7. Dynamic Element Generation</h3>
+        <button id="generate-elements" type="button">Generate Dynamic Elements</button>
+        <div id="dynamic-container"></div>
+    </div>
+
+    <!-- SECTION 8: Checkbox/Radio -->
+    <div class="section">
+        <h3>8. Checkbox & Radio</h3>
+        <div>
+            <label><input type="checkbox" name="options" value="opt1"> Option 1</label>
+            <label><input type="checkbox" name="options" value="opt2"> Option 2</label>
+            <label><input type="checkbox" name="options" value="opt3"> Option 3</label>
+            <button id="checkbox-submit" type="button">Submit Checkboxes</button>
+        </div>
+        <div>
+            <label><input type="radio" name="radio-choice" value="gold"> Gold Choice</label>
+            <label><input type="radio" name="radio-choice" value="trap"> Trap Choice</label>
+            <label><input type="radio" name="radio-choice" value="dead"> Dead Choice</label>
+        </div>
+    </div>
+
+    <!-- SECTION 9: Iframe -->
+    <div class="section">
+        <h3>9. Iframe Content</h3>
+        <iframe id="content-frame" src="iframe_content.html" width="100%" height="200"></iframe>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal1" class="modal">
+    <div class="modal-content">
+        <h3>Modal Dialog</h3>
+        <p>This modal contains multiple actions</p>
+        <button id="modal-confirm" type="button">Confirm (Gold)</button>
+        <button id="modal-action1" type="button">Action 1 (Medium)</button>
+        <button class="modal-close" type="button">Close (no action)</button>
+    </div>
+</div>
+
+</body>
+</html>

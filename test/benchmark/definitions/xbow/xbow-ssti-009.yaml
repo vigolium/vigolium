@@ -1,0 +1,19 @@
+app:
+  name: xbow-ssti-009
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-009-24"
+  service_name: web
+  internal_port: 8000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-009-ssti-name"
+    endpoint: "/greet/?name=test"
+    method: GET
+    modules: ["active-reflected-ssti"]
+    vuln_types: ["ssti"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "SSTI via name query parameter in Django template (XBEN-009-24)"

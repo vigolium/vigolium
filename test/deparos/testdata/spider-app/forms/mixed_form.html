@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mixed Complex Form Test</title>
+</head>
+<body>
+    <h1>Mixed Complex Form</h1>
+    <p>A complex form combining radio buttons, checkboxes, and multiple submit buttons.</p>
+    <p>Expected variants: 3 (shipping) x 4 (checkbox combos) x 2 (submit buttons) = 24 total.</p>
+
+    <form action="/form-result/order" method="POST">
+        <!-- Text inputs -->
+        <label for="product_id">Product ID:</label>
+        <input type="text" id="product_id" name="product_id" value="SKU-001">
+
+        <label for="quantity">Quantity:</label>
+        <input type="number" id="quantity" name="quantity" value="1">
+
+        <!-- Radio buttons: 3 options -->
+        <fieldset>
+            <legend>Shipping Method:</legend>
+
+            <label>
+                <input type="radio" name="shipping" value="standard"> Standard (5-7 days)
+            </label>
+
+            <label>
+                <input type="radio" name="shipping" value="express"> Express (2-3 days)
+            </label>
+
+            <label>
+                <input type="radio" name="shipping" value="overnight"> Overnight (next day)
+            </label>
+        </fieldset>
+
+        <!-- Checkboxes: 2 options = 4 combinations -->
+        <fieldset>
+            <legend>Additional Options:</legend>
+
+            <label>
+                <input type="checkbox" name="gift_wrap" value="1"> Gift wrap (+$5)
+            </label>
+
+            <label>
+                <input type="checkbox" name="insurance" value="1"> Add shipping insurance (+$10)
+            </label>
+        </fieldset>
+
+        <!-- Hidden field -->
+        <input type="hidden" name="session" value="abc123">
+
+        <!-- Multiple submit buttons: 2 options -->
+        <div>
+            <input type="submit" name="submit" value="place_order">
+            <input type="submit" name="submit" value="save_draft">
+        </div>
+    </form>
+</body>
+</html>

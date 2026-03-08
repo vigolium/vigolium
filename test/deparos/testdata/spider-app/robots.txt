@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /robots/allowed-path/
+Disallow: /robots/disallowed-path/
+Disallow: /robots/admin/
+Disallow: /robots/private/
+
+User-agent: Googlebot
+Allow: /robots/googlebot-allowed/
+Disallow: /robots/googlebot-disallowed/
+
+Sitemap: /robots/sitemap.xml
+Sitemap: /robots/sitemap-images.xml

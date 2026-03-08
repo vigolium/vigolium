@@ -1,0 +1,198 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #f6edda;
+  --color-cream-dark: #ebe3d0;
+  --color-charcoal: #005661;
+  --color-charcoal-light: #003b42;
+  --color-terracotta: #e34e1c;
+  --color-olive: #00b368;
+  --color-rose: #ff5792;
+  --color-gold: #f49725;
+  --color-warm-border: #bbc3c4;
+  --color-warm-border-light: #d4e8e2;
+  --color-text-muted: #5c6166;
+
+  --font-serif: "IBM Plex Mono", monospace;
+  --font-sans: "IBM Plex Mono", monospace;
+}
+
+/* Base */
+body {
+  background: var(--color-cream);
+  color: var(--color-charcoal);
+  font-family: var(--font-sans);
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* Paper texture (light) */
+.paper-texture::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Small caps */
+.small-caps {
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+
+/* Drop cap */
+.drop-cap::first-letter {
+  font-family: var(--font-serif);
+  font-weight: 900;
+  float: left;
+  font-size: 3.5em;
+  line-height: 0.8;
+  margin-right: 0.08em;
+  margin-top: 0.05em;
+  color: var(--color-terracotta);
+}
+
+/* Decorative rules */
+.rule-single {
+  border: none;
+  border-top: 1px solid var(--color-warm-border);
+}
+
+.rule-double {
+  border: none;
+  border-top: 3px double var(--color-charcoal);
+}
+
+.rule-ornamental {
+  border: none;
+  height: 1px;
+  background: var(--color-warm-border);
+  position: relative;
+  overflow: visible;
+}
+
+.rule-ornamental::after {
+  content: "\25C6";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--color-cream);
+  padding: 0 12px;
+  color: var(--color-terracotta);
+  font-size: 10px;
+}
+
+/* AG Grid Light Theme */
+.ag-theme-quartz {
+  --ag-background-color: var(--color-cream);
+  --ag-header-background-color: var(--color-cream-dark);
+  --ag-odd-row-background-color: rgba(0, 86, 97, 0.03);
+  --ag-row-hover-color: rgba(227, 78, 28, 0.06);
+  --ag-selected-row-background-color: rgba(227, 78, 28, 0.10);
+  --ag-border-color: var(--color-warm-border);
+  --ag-secondary-border-color: var(--color-warm-border-light);
+  --ag-header-foreground-color: var(--color-charcoal);
+  --ag-foreground-color: var(--color-charcoal-light);
+  --ag-font-family: "IBM Plex Mono", monospace;
+  --ag-font-size: 12px;
+  --ag-row-height: 30px;
+  --ag-header-height: 34px;
+  --ag-cell-horizontal-padding: 10px;
+}
+
+.ag-theme-quartz .ag-header-cell-text {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.ag-theme-quartz .ag-paging-panel {
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-warm-border);
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
+
+/* Scrollbar - light */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-cream);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-warm-border);
+  border-radius: 4px;
+}
+
+/* ============================================================
+   DARK THEME — Brogrammer Terminal
+   ============================================================ */
+
+[data-theme="dark"] {
+  --color-cream: #1c1b19;
+  --color-cream-dark: #2a2825;
+  --color-charcoal: #fce8c3;
+  --color-charcoal-light: #baa67f;
+  --color-terracotta: #7fd962;
+  --color-olive: #519f50;
+  --color-rose: #ef2f27;
+  --color-gold: #fed06e;
+  --color-warm-border: #383530;
+  --color-warm-border-light: #4a4641;
+  --color-text-muted: #918175;
+}
+
+/* Subtle noise texture for dark */
+[data-theme="dark"] .paper-texture::before {
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* Ornamental rule dark bg */
+[data-theme="dark"] .rule-ornamental::after {
+  background: var(--color-cream);
+}
+
+/* AG Grid dark overrides — Brogrammer */
+[data-theme="dark"] .ag-theme-quartz {
+  --ag-background-color: #1c1b19;
+  --ag-header-background-color: #2a2825;
+  --ag-odd-row-background-color: rgba(252, 232, 195, 0.02);
+  --ag-row-hover-color: rgba(127, 217, 98, 0.06);
+  --ag-selected-row-background-color: rgba(127, 217, 98, 0.1);
+  --ag-border-color: #383530;
+  --ag-secondary-border-color: #4a4641;
+  --ag-header-foreground-color: #fce8c3;
+  --ag-foreground-color: #baa67f;
+}
+
+/* Scrollbar dark */
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #1c1b19;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #4a4641;
+}
+
+/* Select dropdown dark */
+[data-theme="dark"] select option {
+  background: #2a2825;
+  color: #fce8c3;
+}

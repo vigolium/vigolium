@@ -1,0 +1,32 @@
+fixture: semgrep-normal.sarif
+tool_name: semgrep
+format: sarif
+
+expected:
+  finding_count: 4
+  error: false
+  findings:
+    - rule_id: "python.django.security.injection.sql-injection"
+      severity: high
+      file_path: "app/views.py"
+      start_line: 42
+
+    - rule_id: "python.flask.security.xss.reflected-xss"
+      severity: medium
+      file_path: "app/routes.py"
+      start_line: 15
+
+    - rule_id: "python.lang.security.deserialization.avoid-pickle"
+      severity: medium
+      file_path: "app/utils.py"
+      start_line: 8
+
+    - rule_id: "javascript.express.security.open-redirect"
+      severity: low
+      file_path: "src/handlers.js"
+      start_line: 23
+
+  severity_distribution:
+    high: 1
+    medium: 2
+    low: 1

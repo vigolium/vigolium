@@ -1,0 +1,14 @@
+id: django-param-binding
+language: python
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: request.GET.get($PARAMS)
+    - pattern: request.GET[$PARAMS]
+    - pattern: request.POST.get($PARAMS)
+    - pattern: request.POST[$PARAMS]
+    - pattern: request.data.get($PARAMS)
+    - pattern: request.data[$PARAMS]
+    - pattern: request.query_params.get($PARAMS)
+    - pattern: request.query_params[$PARAMS]

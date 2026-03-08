@@ -1,0 +1,6 @@
+id: nextjs-pages-api-handler
+language: typescript
+severity: info
+message: "Route: handler: ANY"
+rule:
+  pattern: "export default function $FUNC($$$PARAMS) { $$$BODY }"

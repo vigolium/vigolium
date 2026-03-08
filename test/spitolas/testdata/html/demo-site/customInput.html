@@ -1,0 +1,60 @@
+<h1>Forms</h1>
+<p>Crawljax can fill in customs values in input elements
+<p>
+    <table>
+        <tr>
+            <td valign="top" width="300px">
+                <h2>Contact</h2>
+                <table>
+                    <tr>
+                        <td>Gender:</td>
+                        <td><input name="gender" type="radio" id="male" value="male">Male <input
+                                id="female" type="radio" name="gender" value="Female">Female
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Name:</td>
+                        <td><input type="text" id="name"></td>
+                    </tr>
+                    <tr>
+                        <td>Phone:</td>
+                        <td><input type="text" id="phone"></td>
+                    </tr>
+                    <tr>
+                        <td>Mobile:</td>
+                        <td><input type="text" id="mobile"></td>
+                    </tr>
+                    <tr>
+                        <td>Type:</td>
+                        <td><select id="type">
+                            <option>Student</option>
+                            <option>Teacher</option>
+                            <option>Professor</option>
+                        </select></td>
+                    </tr>
+                    <tr>
+                        <td>Active:</td>
+                        <td><input type="checkbox" id="active"></td>
+                    </tr>
+                </table>
+<p>
+    <button onclick="saveContact('Contact Saved')">Save</button>
+    <button onclick="openPage('home.html')">Cancel</button>
+</p>
+
+</td>
+<td valign="top">
+    <h2>Example Code</h2>
+    <pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+...
+InputSpecification input = new InputSpecification();
+input.field("male").setValue(true);
+input.field("name").setValue("Bob");
+input.fields("phone", "mobile").setValue("1234567890");
+input.field("type").setValue("Student");
+input.field("active").setValue(true);
+...
+builder.setInputSpecification(input);
+</pre>
+</td></tr></table>

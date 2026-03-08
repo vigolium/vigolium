@@ -1,0 +1,41 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<title>Nested IFrame</title>
+<head>
+    <script language="javascript" src="../lib/jquery-2.0.3.min.js"
+            type="text/javascript"></script>
+    <script type="text/javascript">
+	
+	function toggle1() {
+		if(document.getElementById("button001").value == "Click Me !")
+			document.getElementById("button001").value = "I'm clicked";
+		else
+			document.getElementById("button001").value = "Click Me !";
+		//document.getElementById("button002").disabled = false;		
+	}
+	
+	function toggle2() {
+		//document.getElementById("button001").disabled = false;
+		document.getElementById("button002").disabled = true;		
+	}
+	
+function doLoad(textf){
+     
+	$('#content').html(textf);
+	
+}
+	
+
+    </script>
+</head>
+
+<body>
+<a href="javascript:void(0)" id="click-in-iframe-1" onclick="doLoad('some text from iframe')">load-c11</a>
+<input id="button001" style="display:block" class="btn" type="button"
+       name="firstButton" onclick="toggle1();" value="Click Me (c4)!"/>
+<input id="button002" style="display:block" class="btn" type="button"
+       name="secondButton" onclick="toggle2();" value="Click Me Too (c5)!"/>
+<div id="content"></div>
+</body>
+
+</html>

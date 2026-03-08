@@ -1,0 +1,12 @@
+id: express-route-registration-ts
+language: typescript
+message: "Route registration: $$$"
+note: "Matches Express.js route and middleware definitions"
+severity: hint
+rule:
+  any:
+    - pattern: $APP.$METHOD($PATH, $HANDLER, $$$)
+    - pattern: $APP.use($$$)
+constraints:
+  METHOD:
+    regex: "^(get|post|put|delete|patch|all|options|head)$"

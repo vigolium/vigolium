@@ -1,0 +1,13 @@
+fixture: flask-security-code-review.json
+output_schema: findings
+expected:
+  finding_count: 4
+  record_count: 0
+  error: false
+  required_fields:
+    - field: title
+      non_empty: true
+    - field: severity
+      non_empty: true
+    - field: file
+      non_empty: true

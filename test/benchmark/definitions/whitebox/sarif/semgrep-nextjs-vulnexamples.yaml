@@ -1,0 +1,41 @@
+fixture: semgrep-nextjs-vulnexamples.sarif
+tool_name: semgrep
+format: sarif
+
+expected:
+  finding_count: 6
+  error: false
+  findings:
+    - rule_id: "typescript.react.security.audit.react-dangerouslysetinnerhtml"
+      severity: medium
+      file_path: "app/example-6-cross-site-scripting/vulnerable/page.tsx"
+      start_line: 18
+
+    - rule_id: "typescript.nextjs.security.missing-authentication-route-handler"
+      severity: high
+      file_path: "app/api/example-1-missing-authentication/vulnerable/route.ts"
+      start_line: 12
+
+    - rule_id: "typescript.nextjs.security.missing-authorization-data-access"
+      severity: high
+      file_path: "app/api/example-3-missing-authorization/vulnerable/route.ts"
+      start_line: 30
+
+    - rule_id: "typescript.nextjs.security.secrets-exposure-client-props"
+      severity: high
+      file_path: "app/example-5-secrets-exposure/vulnerable/page.tsx"
+      start_line: 13
+
+    - rule_id: "typescript.nextjs.security.password-hash-exposure"
+      severity: high
+      file_path: "app/example-5-secrets-exposure/vulnerable/page.tsx"
+      start_line: 8
+
+    - rule_id: "typescript.nextjs.security.select-star-users"
+      severity: medium
+      file_path: "database/users.ts"
+      start_line: 24
+
+  severity_distribution:
+    high: 4
+    medium: 2

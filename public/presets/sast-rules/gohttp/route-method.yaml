@@ -1,0 +1,9 @@
+id: gohttp-route-method
+language: go
+severity: info
+message: "Route: $METHOD $PATH"
+rule:
+  pattern: $ROUTER.$METHOD($PATH, $$$HANDLERS)
+constraints:
+  METHOD:
+    regex: "^(Get|Post|Put|Delete|Patch|Head|Options|Connect|Trace)$"

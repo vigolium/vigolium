@@ -1,0 +1,38 @@
+<h1>CrawlConditions</h1>
+
+<p>Crawljax has CrawlConditions which can be used to guide the crawling with a dynamic approach.
+    When Crawljax finds a new state, it only crawls it when <strong>all</strong> the
+    CrawlConditions are satisfied. If no CrawlConditions are specified, all the states are
+    crawled.</p>
+
+<h2>Methods in CrawlSpecification</h2>
+<p>
+<span class="java">
+addCrawlCondition(String description, Condition crawlCondition)<br/>
+addCrawlCondition(String description, Condition crawlCondition, Condition... preConditions)
+</span>
+</p>
+
+<h2>Example 1</h2>
+<p>Crawljax should only crawl pages with the text foo in the URL.</p>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+...
+UrlCondition onlyFooDomain = new UrlCondition("foo"));
+builder.addCrawlCondition("Only crawl foo site", onlyFooDomain);
+</pre>
+
+<h2>Example 2</h2>
+<p>Crawljax should never crawl a page with a <span class="foo">span with the class 'foo'</span>.
+</p>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+...
+NotXPathCondition noFooClass = new NotXPathCondition("//SPAN[@class='foo']"));
+builder.addCrawlCondition("No spans with foo as class", noFooClass);
+</pre>
+
+<p>This page contains a <span class="foo">foo</span> and should therefore not be crawled by
+    Crawljax. <a href="#" onclick="addError('Should not crawl this page');">Thus think link should
+        not be clicked by Crawljax</a></p>
+

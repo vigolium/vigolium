@@ -1,0 +1,10 @@
+id: laravel-route-registration
+language: php
+message: "Route registration: $$$"
+note: "Matches Laravel Route facade definitions"
+severity: hint
+rule:
+  pattern: Route::$METHOD($$$)
+constraints:
+  METHOD:
+    regex: "^(get|post|put|delete|patch|middleware|any|match|resource|group)$"

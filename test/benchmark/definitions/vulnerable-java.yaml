@@ -1,0 +1,127 @@
+app:
+  name: vulnerable-java
+  type: docker
+  image: "ghcr.io/datadog/vulnerable-java-application:latest"
+  port: 8000
+  wait_endpoint: "/"
+  startup_timeout: 120s
+
+test_cases:
+  # === Active Module Tests ===
+
+  # Command Injection via POST form on index page
+  # DataDog vulnerable-java-application has OS command injection via form input
+  - id: "vuln-java-cmdi"
+    endpoint: "/index.html"
+    method: POST
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    body: "input=127.0.0.1"
+    modules: ["active-code-exec"]
+    vuln_types: ["code-exec"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Command injection via form input on index page"
+
+  # SSRF via POST form on website page
+  - id: "vuln-java-ssrf"
+    endpoint: "/website.html"
+    method: POST
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    body: "input=http://example.com"
+    modules: ["active-ssrf-detection"]
+    vuln_types: ["ssrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SSRF via form input on website page"
+
+  # LFI via POST form on file page
+  - id: "vuln-java-lfi"
+    endpoint: "/file.html"
+    method: POST
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    body: "input=/etc/passwd"
+    modules: ["active-lfi-generic"]
+    vuln_types: ["lfi"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Path traversal via form input on file page"
+
+  # OAST probe on SSRF endpoint
+  - id: "vuln-java-oast-ssrf"
+    endpoint: "/website.html"
+    method: POST
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    body: "input=http://example.com"
+    modules: ["active-oast-probe"]
+    vuln_types: ["oast"]
+    assertion: soft
+    min_findings: 0
+    requires_oast: true
+    scan_mode: active
+    description: "OAST probe for blind SSRF detection on website page"
+
+  # Host header injection
+  - id: "vuln-java-host-header"
+    endpoint: "/index.html"
+    method: GET
+    modules: ["active-host-header-injection"]
+    vuln_types: ["host-header-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Host header injection on Java application"
+
+  # CRLF injection via POST form
+  - id: "vuln-java-crlf"
+    endpoint: "/index.html"
+    method: POST
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    body: "input=test"
+    modules: ["active-crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection via form input"
+
+  # Proxy pingback with OAST
+  - id: "vuln-java-proxy-pingback"
+    endpoint: "/"
+    method: GET
+    modules: ["active-proxy-pingback"]
+    vuln_types: ["proxy-pingback"]
+    assertion: soft
+    min_findings: 0
+    requires_oast: true
+    scan_mode: active
+    description: "Proxy pingback detection via OAST on base URL"
+
+  # === Passive Module Tests ===
+
+  # Missing security headers
+  - id: "vuln-java-headers"
+    endpoint: "/index.html"
+    method: GET
+    modules: ["passive-security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers on Java application"
+
+  # Info disclosure
+  - id: "vuln-java-info-disclosure"
+    endpoint: "/index.html"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: passive
+    description: "Information disclosure check on Java application"

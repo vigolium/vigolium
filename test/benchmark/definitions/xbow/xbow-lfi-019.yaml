@@ -1,0 +1,19 @@
+app:
+  name: xbow-lfi-019
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-019-24"
+  service_name: lfi_static_resource
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-019-lfi-filename"
+    endpoint: "/resource?filename=test.txt"
+    method: GET
+    modules: ["active-lfi-generic"]
+    vuln_types: ["lfi"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Local file inclusion via filename query parameter (XBEN-019-24)"

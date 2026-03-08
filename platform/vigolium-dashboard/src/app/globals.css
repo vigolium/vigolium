@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+html {
+  font-size: 17px;
+}
+
+@theme {
+  /* Terminal (Dark) */
+  --color-term-bg: #1c1b19;
+  --color-term-accent: #7fd962;
+  --color-term-dim: #918175;
+  --color-term-border: #2e2b26;
+  --color-term-text: #fce8c3;
+
+  /* Light */
+  --color-edit-bg: #f6edda;
+  --color-edit-surface: #ede4d1;
+  --color-edit-border: #bbc3c4;
+  --color-edit-terracotta: #0094f0;
+  --color-edit-charcoal: #005661;
+  --color-edit-muted: #8ca6a6;
+
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+/* ── AG Grid Dark ── */
+.ag-theme-dark {
+  --ag-background-color: #1c1b19;
+  --ag-header-background-color: #272520;
+  --ag-odd-row-background-color: #201f1d;
+  --ag-row-hover-color: rgba(127, 217, 98, 0.06);
+  --ag-selected-row-background-color: rgba(127, 217, 98, 0.10);
+  --ag-border-color: #2e2b26;
+  --ag-secondary-border-color: #252320;
+  --ag-header-foreground-color: #7fd962;
+  --ag-foreground-color: #fce8c3;
+  --ag-font-family: "JetBrains Mono", "Fira Code", monospace;
+  --ag-font-size: 13px;
+  --ag-row-height: 26px;
+  --ag-header-height: 30px;
+  --ag-cell-horizontal-padding: 8px;
+}
+
+/* ── Module Markdown (Dark) ── */
+.prose-dark-module {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #baa67f;
+}
+.prose-dark-module h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7fd962;
+  margin: 8px 0 4px;
+}
+.prose-dark-module h2:first-child {
+  margin-top: 0;
+}
+.prose-dark-module p {
+  margin: 4px 0;
+}
+.prose-dark-module ul {
+  margin: 4px 0;
+  padding-left: 16px;
+  list-style-type: disc;
+}
+.prose-dark-module li {
+  margin: 2px 0;
+}
+.prose-dark-module a {
+  color: #68a8e4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-dark-module a:hover {
+  color: #fce8c3;
+}
+.prose-dark-module code {
+  color: #fce8c3;
+  background: #272520;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* ── Module Markdown (Light) ── */
+.prose-light-module {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #004d57;
+}
+.prose-light-module h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0094f0;
+  margin: 8px 0 4px;
+}
+.prose-light-module h2:first-child {
+  margin-top: 0;
+}
+.prose-light-module p {
+  margin: 4px 0;
+}
+.prose-light-module ul {
+  margin: 4px 0;
+  padding-left: 16px;
+  list-style-type: disc;
+}
+.prose-light-module li {
+  margin: 2px 0;
+}
+.prose-light-module a {
+  color: #0094f0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-light-module a:hover {
+  color: #005661;
+}
+.prose-light-module code {
+  color: #005661;
+  background: #ede4d1;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* ── Toast animation ── */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-toast-in {
+  animation: toast-in 0.2s ease-out;
+}
+
+/* ── AG Grid Light ── */
+.ag-theme-light {
+  --ag-background-color: #f6edda;
+  --ag-header-background-color: #ede4d1;
+  --ag-odd-row-background-color: rgba(0, 86, 97, 0.03);
+  --ag-row-hover-color: rgba(0, 148, 240, 0.04);
+  --ag-selected-row-background-color: rgba(0, 148, 240, 0.06);
+  --ag-border-color: #bbc3c4;
+  --ag-secondary-border-color: #d4e8e2;
+  --ag-header-foreground-color: #0094f0;
+  --ag-foreground-color: #005661;
+  --ag-font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+  --ag-font-size: 13px;
+  --ag-row-height: 26px;
+  --ag-header-height: 30px;
+  --ag-cell-horizontal-padding: 8px;
+}

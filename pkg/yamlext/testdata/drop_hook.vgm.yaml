@@ -1,0 +1,8 @@
+id: test-drop-hook
+name: Test Drop Hook
+description: Drops info-severity findings
+type: post_hook
+
+drop_when:
+  severity:
+    - info

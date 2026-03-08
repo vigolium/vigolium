@@ -1,0 +1,28 @@
+POST /v3/b6bf7d3508c941499b10025c0776eaf8 HTTP/2
+Host: mainnet.infura.io
+Content-Length: 84
+Accept: application/json
+Dnt: 1
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36
+Content-Type: application/json
+Origin: chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn
+Sec-Fetch-Site: none
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Accept-Encoding: gzip, deflate, br
+Accept-Language: en-US,en;q=0.9
+Priority: u=1, i
+Connection: keep-alive
+
+{"id":"df125c02-c687-4d6c-8207-4ee2388a9a2d","jsonrpc":"2.0","method":"net_version"}
+
+***
+
+HTTP/2 200 OK
+Date: Sun, 15 Feb 2026 06:27:06 GMT
+Content-Type: application/json
+Content-Length: 74
+Access-Control-Allow-Origin: *
+Vary: Accept-Encoding
+
+{"jsonrpc":"2.0","id":"df125c02-c687-4d6c-8207-4ee2388a9a2d","result":"1"}

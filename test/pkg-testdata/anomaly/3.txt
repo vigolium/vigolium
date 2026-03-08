@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-1977741-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-1977741-2');
+</script>
+
+
+<script data-ad-client="ca-pub-4575936807909242" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="format-detection" content="telephone=no">
+<meta name="author" content="Eiji Takahashi">
+
+<meta name="keywords" content="HTML,TAG,Element,input,submit,reset">
+<meta name="description" content="HTML Tag Reference. Creates a submit button or a reset button on the form. Codes and Examples.">
+
+<link rel="canonical" href="https://www.tagindex.net/html/form/input_submit.html">
+
+<link rel="stylesheet" href="../../include/css/common.css">
+<link rel="stylesheet" href="../../include/css/usage.css">
+<link rel="stylesheet" href="../../include/css/explain.css">
+
+<script src="../../include/js/jquery.js"></script>
+<script src="../../include/js/common.js"></script>
+<script src="../../include/js/ad.js"></script>
+
+<title>HTML/Form Tags/submit button and reset button - TAG index</title>
+
+</head>
+<body>
+
+
+<!-- Header -->
+<header id="header">
+
+<div class="limit">
+
+<div class="plate">
+
+<div class="logo">
+<a href="https://www.tagindex.net/">
+<img src="https://www.tagindex.net/image/design/title.gif" alt="TAG index" width="208" height="33">
+</a>
+</div>
+
+<div class="info">
+<p>HTML and CSS Quick Reference</p>
+</div>
+
+</div>
+
+</div><!-- /limit -->
+
+<nav id="menu" class="menu">
+
+<div class="toggle">
+<div id="toggle" class="close">MENU</div>
+</div>
+
+<div class="limit html">
+
+<ul id="gnav" class="multi">
+<li><a href="https://www.tagindex.net/index.html" class="home">HOME</a></li>
+<li><a href="https://www.tagindex.net/html/index.html" class="html">HTML Tags</a></li>
+<li><a href="https://www.tagindex.net/css/index.html" class="css">CSS Properties</a></li>
+<li><a href="https://www.tagindex.net/color/index.html" class="color">HTML Colors</a></li>
+</ul>
+
+</div><!-- /limit -->
+
+</nav>
+
+<nav class="path">
+
+<div class="limit">
+
+<ol>
+<li><a href="../../index.html">HOME</a></li>
+<li><a href="../index.html">HTML Tags</a></li>
+<li><a href="index.html">Form Tags</a></li>
+<li>submit button and reset button</li>
+</ol>
+
+</div><!-- /limit -->
+
+</nav>
+
+<div class="title">
+
+<div class="limit">
+
+<h1>submit button and reset button</h1>
+
+</div><!-- /limit -->
+
+</div>
+
+</header>
+<!-- /Header -->
+
+
+<!-- AdsTop -->
+<aside id="ads_top">
+
+<div class="limit">
+
+
+<div class="pc">
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4575936807909242"
+     crossorigin="anonymous"></script>
+<!-- TAG-US TOP for PC -->
+<ins class="adsbygoogle ads_page_top"
+     style="display:block"
+     data-ad-client="ca-pub-4575936807909242"
+     data-ad-slot="7728700331"
+     data-ad-format="horizontal"
+     data-full-width-responsive="false"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+</div>
+
+<div class="sp">
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4575936807909242"
+     crossorigin="anonymous"></script>
+<!-- TAG-US TOP for SP -->
+<ins class="adsbygoogle ads_page_top"
+     style="display:block"
+     data-ad-client="ca-pub-4575936807909242"
+     data-ad-slot="7728700331"
+     data-ad-format="auto"
+     data-full-width-responsive="false"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+</div>
+
+
+</div>
+
+</aside>
+<!-- /AdsTop -->
+
+
+<!-- Body -->
+<div id="body">
+
+<div class="limit multi">
+
+
+<!-- Main -->
+<div id="main"><main>
+
+
+<!-- Article -->
+<article id="content">
+
+
+<!-- Article Header -->
+<header class="articleHeader">
+<h2>
+
+&lt;input type="submit"&gt;&lt;input type="reset"&gt;
+
+</h2>
+</header>
+<!-- /Article Header -->
+
+
+<!-- Element Data -->
+<section class="data">
+
+<table>
+<tr class="browser">
+<th scope="row">Browser</th>
+<td>
+
+<ul>
+<li><img src="../../image/marks/ie.gif" alt="IE" width="32" height="13" title="Internet Explorer"></li>
+<li><img src="../../image/marks/cr.gif" alt="Cr" width="32" height="13" title="Chrome"></li>
+<li><img src="../../image/marks/sf.gif" alt="Sf" width="32" height="13" title="Safari"></li>
+<li><img src="../../image/marks/fx.gif" alt="Fx" width="32" height="13" title="Firefox"></li>
+<li><img src="../../image/marks/o.gif" alt="O" width="32" height="13" title="Opera"></li>
+</ul>
+
+</td>
+</tr>
+<tr class="type">
+<th scope="row">Type</th>
+<td>
+
+<ul>
+<li><a href="../basic/block_inline.html">Inline-block</a></li>
+<li><a href="../basic/empty.html">Empty</a></li>
+</ul>
+
+</td>
+</tr>
+</table>
+
+</section>
+<!-- /Element Data -->
+
+
+<!-- Section -->
+<section class="description">
+
+<p>The <dfn>INPUT</dfn> element defines an input field. When you specify "<span class="soValue">submit</span>" (or "<span class="soValue">reset</span>") for the <span class="soAttr">type</span> attribute of this element, a submit button (or a reset button) is created.</p>
+
+</section>
+<!-- /Section -->
+
+
+<!-- Section -->
+<section class="code">
+
+<pre class="preBreak">
+<code>
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">submit</span>" value="<span class="soValue">Submit</span>"</span>&gt;</mark>
+
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">reset</span>" value="<span class="soValue">Reset</span>"</span>&gt;</mark>
+</code>
+</pre>
+
+</section>
+<!-- /Section -->
+
+
+<!-- Section -->
+<section class="description">
+
+<div class="over">
+<table>
+<tr>
+<th>Attribute</th>
+<th>Value</th>
+<th>Explanation</th>
+</tr>
+<tr>
+<td rowspan="2"><span class="soAttr">type=" "</span></td>
+<td><span class="soValue">submit</span></td>
+<td rowspan="2">the type of input field<br><span class="soValue">submit</span> : creates a submit button<br><span class="soValue">reset</span> : creates a reset button</td>
+</tr>
+<tr>
+<td><span class="soValue">reset</span></td>
+</tr>
+<tr>
+<td><span class="soAttr">name=" "</span></td>
+<td>button name</td>
+<td>a unique name for the button</td>
+</tr>
+<tr>
+<td><span class="soAttr">value=" "</span></td>
+<td>button text</td>
+<td>the text displayed on the button</td>
+</tr>
+</table>
+</div>
+
+<dl>
+<dt>type="<span class="soValue">submit</span>"</dt>
+<dd>Creates a submit button on the form. When this button is clicked, the form data is submitted to the server.</dd>
+<dt>type="<span class="soValue">reset</span>"</dt>
+<dd>Creates a reset button on the form. When this button is clicked, the input is reset.</dd>
+<dt>name=""</dt>
+<dd>The button name is used to identify the clicked submit button.</dd>
+<dt>value=""</dt>
+<dd>Value is the text displayed on the button.</dd>
+</dl>
+
+</section>
+<!-- /Section -->
+
+
+<!-- Section -->
+<aside class="memo">
+
+<div>
+
+<p>The style of the button can be changed with CSS. Please see the "Related Document" for details on CSS.</p>
+
+</div>
+
+</aside>
+<!-- /Section -->
+
+
+<!-- Example -->
+<section class="example">
+
+<h3>Example</h3>
+
+<!-- Example Inner -->
+<div class="exampleInner">
+
+
+<figure>
+
+<pre class="code preBreak">
+<code>
+&lt;form method="POST" action="example.cgi"&gt;
+
+&lt;p&gt;&lt;input type="text" name="name" size="30"&gt;&lt;/p&gt;
+
+&lt;p&gt;
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">submit</span>" value="<span class="soValue">Submit Button</span>"</span>&gt;</mark>
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">reset</span>" value="<span class="soValue">Reset Button</span>"</span>&gt;</mark>
+&lt;/p&gt;
+
+&lt;/form&gt;
+</code>
+</pre>
+
+<dl class="display">
+<dt>Output</dt>
+<dd>
+
+<form method="GET" action="input_submit.html">
+
+<p><input type="text" name="name" size="30"></p>
+
+<p>
+<input type="submit" value="Submit Button">
+<input type="reset" value="Reset Button">
+</p>
+
+</form>
+
+</dd>
+</dl>
+
+<p>This form cannot submit because of a sample.</p>
+
+</figure>
+
+
+<figure>
+
+<pre class="code preBreak">
+<code>
+&lt;form method="POST" action="example.cgi"&gt;
+
+&lt;p&gt;&lt;input type="text" name="name" size="30"&gt;&lt;/p&gt;
+
+&lt;p&gt;
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">submit</span>" name="<span class="soValue">button_a</span>" value="<span class="soValue">Button A</span>"</span>&gt;</mark>
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">submit</span>" name="<span class="soValue">button_b</span>" value="<span class="soValue">Button B</span>"</span>&gt;</mark>
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">submit</span>" name="<span class="soValue">button_c</span>" value="<span class="soValue">Button C</span>"</span>&gt;</mark>
+<mark>&lt;input <span class="soAttr">type="<span class="soValue">reset</span>" value="<span class="soValue">Reset</span>"</span>&gt;</mark>
+&lt;/p&gt;
+
+&lt;/form&gt;
+</code>
+</pre>
+
+<dl class="display">
+<dt>Output</dt>
+<dd>
+
+<form method="GET" action="input_submit.html">
+
+<p><input type="text" name="name" size="30"></p>
+
+<p>
+<input type="submit" name="button_a" value="Button A">
+<input type="submit" name="button_b" value="Button B">
+<input type="submit" name="button_c" value="Button C">
+<input type="reset" value="Reset">
+</p>
+
+</form>
+
+</dd>
+</dl>
+
+<p>This form cannot submit because of a sample.</p>
+
+</figure>
+
+
+</div>
+<!-- /Example Inner -->
+
+</section>
+<!-- /Example -->
+
+
+<!-- AdsBottom -->
+<aside class="ads_main_btm">
+
+<div class="ads">
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4575936807909242"
+     crossorigin="anonymous"></script>
+<!-- TAG-US BOTTOM -->
+<ins class="adsbygoogle ads_main_btm"
+     style="display:block"
+     data-ad-client="ca-pub-4575936807909242"
+     data-ad-slot="5078486268"
+     data-ad-format="auto"
+     data-full-width-responsive="false"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+</div>
+
+</aside>
+<!-- /AdsBottom -->
+
+
+<!-- Article Footer -->
+<footer class="relatedLink">
+
+<nav class="backLink">
+<a href="index.html">Form Tags</a>
+</nav>
+
+<dl>
+<dt>Related Document</dt>
+<dd>
+
+<ul>
+<li><a href="form.html">HTML - creates a form</a></li>
+<li><a href="input_image.html">HTML - image submit button</a></li>
+<li><a href="../../css/form/width_height.html">CSS - width and height of a form field</a></li>
+<li><a href="../../css/form/background_color.html">CSS - form field background color</a></li>
+<li><a href="../../css/form/border.html">CSS - form field border</a></li>
+<li><a href="../../css/form/font_size.html">CSS - font size of text in a form field</a></li>
+<li><a href="../../css/form/color.html">CSS - color of text in a form field</a></li>
+</ul>
+
+</dd>
+</dl>
+
+</footer>
+<!-- /Article Footer -->
+
+
+</article>
+<!-- /Article -->
+
+
+</main></div>
+<!-- /Main -->
+
+
+<!-- Navi -->
+<div id="navi">
+
+
+<!-- AdsNavi -->
+<aside class="ads_nav_top">
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4575936807909242"
+     crossorigin="anonymous"></script>
+<!-- TAG-US SIDE TOP -->
+<ins class="adsbygoogle page_navi_top"
+     style="display:block"
+     data-ad-client="ca-pub-4575936807909242"
+     data-ad-slot="1349269751"
+     data-ad-format="rectangle"
+     data-full-width-responsive="false"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+</aside>
+<!-- /AdsNavi -->
+
+
+<!-- Category -->
+<section id="category">
+
+<h2>Categories</h2>
+
+<nav class="menu">
+
+<ul>
+<li><a href="../index.html">HTML Tags</a></li>
+</ul>
+
+<ul>
+<li><a href="../page/index.html">Page Tags</a></li>
+<li><a href="../text/index.html">Text Tags</a></li>
+<li><a href="../link/index.html">Link Tags</a></li>
+<li><a href="../list/index.html">List Tags</a></li>
+<li><a href="../img/index.html">Image Tags</a></li>
+<li><a href="../table/index.html">Table Tags</a></li>
+<li><a href="../frame/index.html">Frame Tags</a></li>
+<li><a href="../form/index.html" class="active">Form Tags</a></li>
+<li><a href="../embed/index.html">Embed Tags</a></li>
+<li><a href="../attribute/index.html">Attributes</a></li>
+</ul>
+
+<ul>
+<li><a href="../tags/index.html">All HTML Tags</a></li>
+<li><a href="../basic/index.html">Relation Document</a></li>
+</ul>
+
+</nav>
+
+</section>
+<!-- /Category -->
+
+
+<!-- AdsRelated -->
+<aside id="ads" class="ads_nav_btm">
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4575936807909242"
+     crossorigin="anonymous"></script>
+<!-- TAG-US SIDE BOTTOM -->
+<ins class="adsbygoogle page_navi_btm"
+     style="display:block"
+     data-ad-client="ca-pub-4575936807909242"
+     data-ad-slot="3783861400"
+     data-ad-format="vertical"
+     data-full-width-responsive="false"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+</aside>
+<!-- /AdsRelated -->
+
+
+</div>
+<!-- /Navi -->
+
+
+</div><!-- /limit -->
+
+</div>
+<!-- /Body -->
+
+
+<!-- Post -->
+<aside id="post">
+
+<div class="limit">
+
+<a href="https://www.urlinput.com/" rel="sponsored">
+<picture>
+<source media="(max-width: 767px)" srcset="https://www.tagindex.net/image/design/url_en_sp.png">
+<img src="https://www.tagindex.net/image/design/url_en_pc.png" alt="URL input" width="800" height="160">
+</picture>
+</a>
+
+</div><!-- /limit -->
+
+</aside>
+<!-- /Post -->
+
+
+<!-- Footer -->
+<footer id="footer">
+
+<div class="limit">
+
+<ul>
+<li><a href="https://www.tagindex.net/info/about/index.html">About TAG index</a></li>
+<li><a href="https://www.tagindex.net/info/privacy/index.html">Privacy Policy</a></li>
+<li><a href="https://www.tagindex.net/info/contact/index.html">Contact Me</a></li>
+<li><a href="https://twitter.com/aegtaka" rel="nofollow">Twitter</a></li>
+</ul>
+
+<p>HTML Tags, CSS Properties, Codes and Examples.</p>
+
+<address>
+author: Eiji Takahashi
+</address>
+
+<div class="copy">
+<small>Copyright &copy; TAG index. All Rights Reserved.</small>
+</div>
+
+</div><!-- /limit -->
+
+<div id="backtop"><a href="#header"><img src="https://www.tagindex.net/image/design/up_wt.gif" alt="Page Top" width="20" height="14"></a></div>
+
+</footer>
+<!-- /Footer -->
+
+
+</body>
+</html>

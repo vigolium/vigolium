@@ -1,0 +1,9 @@
+id: security-config-source-maps-vite
+language: typescript
+severity: warning
+message: "Security: Vite sourcemap enabled — source maps in production expose original source code to attackers"
+note: "Set build.sourcemap to false for production builds. If needed for error monitoring, use 'hidden' source maps uploaded to your error tracker but not served publicly."
+rule:
+  any:
+    - pattern: "sourcemap: true"
+    - pattern: 'sourcemap: "hidden"'

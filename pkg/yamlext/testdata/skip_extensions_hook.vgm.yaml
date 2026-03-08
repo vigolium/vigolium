@@ -1,0 +1,9 @@
+id: test-skip-ext
+name: Test Skip Extensions
+description: Skips static files
+type: pre_hook
+
+skip_extensions:
+  - .css
+  - .js
+  - .png

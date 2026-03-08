@@ -1,0 +1,17 @@
+fixture: express-endpoint-discovery.json
+expected:
+  convertible_count: 8
+  skipped_count: 0
+  records:
+    - method: GET
+      url_prefix: "http://localhost:3000/api/v1/users"
+      has_host: true
+      assertion: strict
+    - method: POST
+      url_prefix: "http://localhost:3000/api/v1/users"
+      has_host: true
+      assertion: strict
+    - method: POST
+      url_prefix: "http://localhost:3000/login"
+      has_host: true
+      assertion: strict

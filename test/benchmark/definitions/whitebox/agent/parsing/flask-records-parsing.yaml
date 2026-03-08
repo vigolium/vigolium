@@ -1,0 +1,11 @@
+fixture: flask-endpoint-discovery.json
+output_schema: http_records
+expected:
+  finding_count: 0
+  record_count: 7
+  error: false
+  required_fields:
+    - field: method
+      non_empty: true
+    - field: url
+      non_empty: true

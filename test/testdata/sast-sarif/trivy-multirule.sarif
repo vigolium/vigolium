@@ -1,0 +1,52 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "trivy",
+          "rules": [
+            { "id": "CVE-2023-5001", "defaultConfiguration": { "level": "error" }, "properties": { "tags": ["vulnerability"] } },
+            { "id": "CVE-2023-5002", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": ["vulnerability"] } },
+            { "id": "MISCONF-101", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": ["misconfiguration"] } },
+            { "id": "MISCONF-102", "defaultConfiguration": { "level": "note" }, "properties": { "tags": ["misconfiguration"] } },
+            { "id": "SECRET-101", "defaultConfiguration": { "level": "error" }, "properties": { "tags": ["secret"] } }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2023-5001",
+          "level": "error",
+          "message": { "text": "Remote code execution in library X" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "go.sum" }, "region": { "startLine": 100, "endLine": 100 } } }]
+        },
+        {
+          "ruleId": "CVE-2023-5002",
+          "level": "warning",
+          "message": { "text": "Denial of service in parser" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "go.sum" }, "region": { "startLine": 200, "endLine": 200 } } }]
+        },
+        {
+          "ruleId": "MISCONF-101",
+          "level": "warning",
+          "message": { "text": "Container has no health check" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "Dockerfile" }, "region": { "startLine": 8, "endLine": 8 } } }]
+        },
+        {
+          "ruleId": "MISCONF-102",
+          "level": "note",
+          "message": { "text": "No resource limits configured" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "k8s/deployment.yaml" }, "region": { "startLine": 15, "endLine": 20 } } }]
+        },
+        {
+          "ruleId": "SECRET-101",
+          "level": "error",
+          "message": { "text": "GitHub personal access token found" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": ".env" }, "region": { "startLine": 3, "endLine": 3 } } }]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "nextjs-vulnexamples-stub",
+  "version": "1.0.0",
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "postgres": "^3.4.0",
+    "bcrypt": "^6.0.0",
+    "zod": "^4.0.0"
+  }
+}

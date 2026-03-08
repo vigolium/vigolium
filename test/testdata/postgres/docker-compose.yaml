@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vigolium-postgres-test
+    environment:
+      POSTGRES_USER: vigolium_test
+      POSTGRES_PASSWORD: vigolium_test_pass
+      POSTGRES_DB: vigolium_test
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vigolium_test -d vigolium_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data

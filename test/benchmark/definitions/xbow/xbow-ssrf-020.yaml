@@ -1,0 +1,19 @@
+app:
+  name: xbow-ssrf-020
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-020-24"
+  service_name: ssrf-demo-app
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-020-ssrf-url"
+    endpoint: "/redirect.php?url=http://example.com"
+    method: GET
+    modules: ["active-ssrf-detection"]
+    vuln_types: ["ssrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SSRF via url query parameter in redirect endpoint (XBEN-020-24)"

@@ -1,0 +1,11 @@
+id: security-auth-mass-assignment-js
+language: javascript
+severity: warning
+message: "Security: request body spread into model — attacker can inject fields like role, isAdmin, permissions to escalate privileges"
+note: "Spreading or assigning req.body directly into database models allows mass assignment attacks. Use an explicit allowlist of permitted fields."
+rule:
+  any:
+    - pattern: Object.assign($MODEL, req.body)
+    - pattern: Object.assign($MODEL, request.body)
+    - pattern: "{ ...$$$BEFORE, ...req.body, $$$AFTER }"
+    - pattern: "{ ...$$$BEFORE, ...request.body, $$$AFTER }"

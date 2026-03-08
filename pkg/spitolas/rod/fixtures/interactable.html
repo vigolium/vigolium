@@ -1,0 +1,27 @@
+<html>
+  <style>
+    #no-pointer-events {
+      pointer-events: none;
+    }
+
+    #outside {
+      position: absolute;
+      left: 10000px;
+    }
+
+    #invisible {
+      display: none;
+    }
+  </style>
+  <body>
+    <button>
+      <span id="no-pointer-events">click me</span>
+    </button>
+
+    <div id="no-shape"></div>
+
+    <button id="outside">outside viewport</button>
+
+    <button id="invisible">invisible</button>
+  </body>
+</html>

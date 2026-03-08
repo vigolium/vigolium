@@ -1,0 +1,59 @@
+framework: gin
+source_dir: gin
+detect_framework: true
+
+expected_match_count:
+  min: 5
+  max: 30
+
+expected_routes:
+  - method: GET
+    path: "/users"
+    file: main.go
+    assertion: strict
+
+  - method: POST
+    path: "/users"
+    file: main.go
+    assertion: strict
+
+  - method: GET
+    path: "/users/:id"
+    file: main.go
+    assertion: strict
+
+  - method: PUT
+    path: "/users/:id"
+    file: main.go
+    assertion: strict
+
+  - method: DELETE
+    path: "/users/:id"
+    file: main.go
+    assertion: strict
+
+  - method: ANY
+    path: "/health"
+    file: main.go
+    assertion: soft
+
+  - method: GET
+    path: "/items"
+    file: main.go
+    assertion: soft
+
+  - method: POST
+    path: "/items"
+    file: main.go
+    assertion: soft
+
+  - method: GET
+    path: "/items/:id"
+    file: main.go
+    assertion: soft
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"
+  - method: POST
+    path: "/imaginary"

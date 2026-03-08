@@ -1,0 +1,36 @@
+fixture: semgrep-multirule.sarif
+tool_name: semgrep
+format: sarif
+
+expected:
+  finding_count: 11
+  error: false
+  findings:
+    - rule_id: "rule-sqli-1"
+      severity: high
+      file_path: "db/query.py"
+
+    - rule_id: "rule-xss-1"
+      severity: medium
+      file_path: "templates/user.html"
+
+    - rule_id: "rule-ssrf-1"
+      severity: high
+      file_path: "api/proxy.py"
+
+    - rule_id: "rule-idor-1"
+      severity: medium
+      file_path: "api/users.py"
+
+    - rule_id: "rule-info-1"
+      severity: low
+      file_path: "config.py"
+
+    - rule_id: "rule-crypto-1"
+      severity: medium
+      file_path: "auth/hash.py"
+
+  severity_distribution:
+    high: 4
+    medium: 5
+    low: 2

@@ -1,0 +1,1118 @@
+# Vigolium Configuration File
+# This is an example configuration file with all available settings.
+# Copy this file to ~/.vigolium/vigolium-configs.yaml and customize as needed.
+#
+# Default location: ~/.vigolium/vigolium-configs.yaml
+# Custom location: Use --config flag with any vigolium command
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+# Settings for the API server mode (vigolium server).
+server:
+  # API key for authenticating server requests.
+  # Auto-generated on first run. Override with VIGOLIUM_API_KEY env var.
+  # Clients send this in the Authorization: Bearer <key> header.
+  auth_api_key: "auto-generated-on-first-run"
+
+  # Port for the main API service.
+  # Default: 9002
+  service_port: 9002
+
+  # Port for the transparent HTTP ingestion proxy.
+  # Set to 0 (default) to disable. When enabled, HTTP traffic through
+  # this proxy is forwarded to the original destination and recorded.
+  # HTTPS CONNECT tunneling passes through without recording.
+  ingest_proxy_port: 0
+
+  # CORS allowed origins for the API server.
+  # Options:
+  #   "reflect-origin" — echoes the requesting Origin back (allows credentials)
+  #   "*"              — allow all origins (no credentials)
+  #   ""               — disable CORS middleware entirely
+  #   "https://app.example.com, https://admin.example.com" — comma-separated allowlist
+  # Default: reflect-origin
+  cors_allowed_origins: reflect-origin
+
+  # Enable Prometheus metrics endpoint at /metrics.
+  # Exposes server, queue, scan, module, and database metrics
+  # in Prometheus text format for monitoring and alerting.
+  # Default: true
+  enable_metrics: true
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+# Vigolium stores HTTP requests, responses, and findings in a database
+# for historical analysis, querying, and reporting.
+database:
+  # Enable or disable database storage
+  # Default: true (enabled by default for all scans)
+  enabled: true
+
+  # Database driver to use
+  # Options: "sqlite" or "postgres"
+  # Default: "sqlite"
+  driver: sqlite
+
+  # SQLite Configuration (used when driver=sqlite)
+  sqlite:
+    # Path to SQLite database file
+    # Supports ~ expansion for home directory
+    # Default: ~/.vigolium/database-vgnm.sqlite
+    path: ~/.vigolium/database-vgnm.sqlite
+
+    # Busy timeout in milliseconds
+    # How long to wait when database is locked
+    # Default: 5000 (5 seconds)
+    busy_timeout: 5000
+
+    # Journal mode
+    # Options: DELETE, TRUNCATE, PERSIST, MEMORY, WAL, OFF
+    # Recommended: WAL (Write-Ahead Logging) for better concurrency
+    # Default: WAL
+    journal_mode: WAL
+
+    # Synchronous mode
+    # Options: OFF, NORMAL, FULL, EXTRA
+    # OFF = fastest but unsafe (risk of corruption)
+    # NORMAL = balanced (recommended)
+    # FULL = safest but slower
+    # Default: NORMAL
+    synchronous: NORMAL
+
+    # Cache size in KB (or pages if negative)
+    # Larger cache = better performance for large datasets
+    # Default: 10000 (10MB)
+    cache_size: 10000
+
+  # PostgreSQL Configuration (used when driver=postgres)
+  postgres:
+    # Database host
+    # Default: localhost
+    host: localhost
+
+    # Database port
+    # Default: 5432
+    port: 5432
+
+    # Database user
+    # Default: vigolium
+    user: vigolium
+
+    # Database password
+    # Use ${ENV_VAR} syntax to read from environment variable
+    # Example: ${VIGOLIUM_DB_PASSWORD}
+    # IMPORTANT: Never commit passwords to git!
+    # Default: "" (empty)
+    password: ""
+
+    # Database name
+    # Default: vigolium
+    database: vigolium
+
+    # SSL mode
+    # Options: disable, require, verify-ca, verify-full
+    # Default: disable
+    sslmode: disable
+
+    # Maximum number of open connections
+    # Default: 25
+    max_open_conns: 25
+
+    # Maximum number of idle connections in pool
+    # Default: 5
+    max_idle_conns: 5
+
+    # Maximum lifetime of a connection
+    # Format: duration string (e.g., "5m", "1h", "30s")
+    # Default: 5m
+    conn_max_lifetime: 5m
+
+# ============================================================================
+# Scanning Strategy
+# ============================================================================
+# Named presets that control which scan phases are enabled.
+# Select a strategy via --strategy flag or set the default below.
+# Individual phase flags (--discover, --spa, --external-harvest) override the strategy.
+scanning_strategy:
+  default_strategy: 'balanced'
+
+  # Heuristics check level before spidering/external-harvest phases.
+  # Probes root page of each CLI target to decide if spidering is worthwhile.
+  #   none:     skip heuristics check
+  #   basic:    check if root is blank vs content, detect JSON/XML APIs
+  #   advanced: basic + SPA detection, link counting
+  heuristics_check: 'basic'
+
+  # Scanning profile preset (name from profiles_dir or path to YAML file).
+  # A profile bundles strategy + pace + module selection + scope + discovery config
+  # into a single file, overriding the main config when selected.
+  # Use --scanning-profile flag or set here.
+  # When empty, no profile is loaded and default_strategy is used as-is.
+  scanning_profile: ""
+
+  # Directory containing scanning profile YAML files.
+  # Profile names correspond to filenames without the .yaml extension.
+  # List available profiles with: vigolium strategy ls
+  profiles_dir: ~/.vigolium/profiles/
+
+  lite:
+    external_harvesting: false
+    discovery: false
+    spidering: false
+    spa: false
+    dynamic_assessment: true
+
+  balanced:
+    external_harvesting: false
+    discovery: true
+    spidering: true
+    spa: true
+    dynamic_assessment: true
+
+  deep:
+    external_harvesting: true
+    discovery: true
+    spidering: true
+    spa: true
+    dynamic_assessment: true
+
+  whitebox:
+    external_harvesting: false
+    source_aware: true
+    discovery: true
+    spidering: false
+    spa: true
+    dynamic_assessment: true
+
+# ============================================================================
+# Scanning Pace (Speed Control)
+# ============================================================================
+# Centralized speed control parameters. Common values serve as baseline
+# for all phases; per-phase subsections override specific values.
+#
+# Precedence (highest to lowest):
+#   1. CLI flags (-c, --max-per-host, --scanning-max-duration, --discover-max-time)
+#   2. scanning_pace per-phase overrides
+#   3. scanning_pace common values
+#   4. Built-in defaults
+scanning_pace:
+  ## Common defaults (inherited by all phases unless overridden)
+  concurrency: 50        # Worker/thread count
+  rate_limit: 100        # Requests/sec (applies to SPA currently)
+  max_per_host: 10        # Per-host concurrency cap
+  max_duration: 1h      # Base duration for all phases (per-phase factors scale this)
+
+  # Per-phase overrides (only set fields override common values)
+  # Factors scale the common value (e.g. duration_factor: 2.0 = 2x base max_duration).
+  # Explicit values always take priority over factors.
+  discovery:
+  #   concurrency: 30
+  #   concurrency_factor: 0.6     # alternative: 60% of common concurrency
+  #   max_duration: 1h
+    duration_factor: 0.5          # 0.5x base → 30m
+  spa:
+    duration_factor: 3.0          # 3x base → 3h
+  spidering:
+    duration_factor: 0.1          # 0.08x base → 6m
+  external_harvester:
+    duration_factor: 0.1          # 0.2x base → 24m
+  dynamic_assessment:
+    duration_factor: 1.0          # 1x base → 1h
+
+# ============================================================================
+# Notification Configuration
+# ============================================================================
+# Configure notifications for scan findings.
+# Supports Telegram and Discord backends.
+# Use ${ENV_VAR} syntax to read secrets from environment variables.
+notify:
+  # Enable or disable notifications
+  # Default: false
+  enabled: false
+
+  # Severity levels to notify on
+  # Options: critical, high, medium, low, info, all
+  # Default: [high, critical, medium]
+  severities:
+    - high
+    - critical
+    - medium
+
+  # Telegram notification settings
+  telegram:
+    # Bot token (or set TELEGRAM_BOT_TOKEN env)
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    # Chat ID (or set TELEGRAM_CHAT_ID env)
+    chat_id: ${TELEGRAM_CHAT_ID}
+
+  # Discord notification settings
+  discord:
+    # Webhook URL (or set DISCORD_WEBHOOK_URL env)
+    webhook_url: ${DISCORD_WEBHOOK_URL}
+
+# ============================================================================
+# Dynamic Assessment Configuration
+# ============================================================================
+# Settings for the dynamic assessment scan phase (Phase 4): which scanner
+# modules are enabled and JavaScript extension configuration.
+dynamic_assessment:
+  # Maximum findings emitted per module before suppression.
+  # Prevents noisy modules from flooding results. Set to 0 for unlimited.
+  # Override with CLI flag: --max-findings-per-module
+  # Default: 15
+  max_findings_per_module: 15
+
+  # --------------------------------------------------------------------------
+  # Enabled Modules
+  # --------------------------------------------------------------------------
+  # Control which scanner modules are loaded when scanning with "-m all" (the default).
+  # Use ["all"] to enable every registered module, or list specific module IDs.
+  # Explicit CLI selection (e.g. "-m sqli,xss") always overrides this setting.
+  #
+  # Run "vigolium module ls" to see all available module IDs.
+  enabled_modules:
+    # Active (fuzzing) modules to load
+    # Default: [all]
+    active_modules:
+      - all
+    # Passive (observation) modules to load
+    # Default: [all]
+    passive_modules:
+      - all
+    # Example: run only specific active modules while keeping all passive modules:
+    # active_modules:
+    #   - sqli-error-based
+    #   - xss-reflected-brutelogic
+    # passive_modules:
+    #   - all
+
+  # --------------------------------------------------------------------------
+  # JavaScript Extensions
+  # --------------------------------------------------------------------------
+  # Load JavaScript-based extensions for custom active/passive modules
+  # and pre/post hooks. Powered by goja (ES5.1 compatible).
+  extensions:
+    # Enable or disable JS extensions
+    # Default: false
+    enabled: false
+
+    # Directory to scan for .js extension files
+    # Default: ~/.vigolium/extensions/
+    extension_dir: ~/.vigolium/extensions/
+
+    # Explicit script paths (in addition to extension_dir)
+    custom_dir: []
+
+    # User-defined variables accessible as vigolium.config.* in scripts
+    variables: {}
+      # collaborator_domain: "collab.example.com"
+      # api_key: "${MY_API_KEY}"
+
+    # Resource limits for script execution
+    limits:
+      # Maximum execution time per script invocation
+      # Default: 30s
+      timeout: 30s
+
+      # Maximum memory in MB per VM instance
+      # Default: 128
+      max_memory_mb: 128
+
+# ============================================================================
+# OAST (Out-of-Band Application Security Testing)
+# ============================================================================
+# Detects blind vulnerabilities (SSRF, XXE, RCE, etc.) by injecting callback
+# URLs that phone home when triggered. Uses an interactsh server to receive
+# DNS/HTTP/SMTP interactions from the target.
+#
+# Works out of the box with the public oast.pro server — no setup needed.
+# For private/self-hosted interactsh servers, set server_url and token.
+oast:
+  # Enable OAST callback detection during active scanning.
+  # When enabled, modules that support blind testing (e.g. oast-probe, ssrf-detection)
+  # will inject callback URLs and listen for out-of-band interactions.
+  # Default: true
+  enabled: true
+
+  # Interactsh server URL for receiving callbacks.
+  # The public "oast.pro" server works without authentication.
+  # For private deployments: "your-interactsh.company.com"
+  # Default: oast.pro
+  server_url: oast.pro
+
+  # Authentication token for private interactsh servers.
+  # Not required for the public oast.pro server.
+  # Use ${ENV_VAR} syntax to read from environment variables.
+  # Default: "" (no auth)
+  token: ""
+
+  # Seconds between polling the interactsh server for new interactions.
+  # Lower values detect callbacks faster but generate more traffic.
+  # Default: 5
+  poll_interval: 5
+
+  # Seconds to keep polling after the scan ends, catching late callbacks.
+  # Some blind vulnerabilities trigger delayed interactions (async jobs,
+  # queued emails, cron tasks). Increase for targets with known async processing.
+  # Default: 10
+  grace_period: 10
+
+  # Fixed OAST callback URL. When set, all OAST modules use this URL
+  # instead of auto-generating unique URLs via interactsh.
+  # Useful for custom callback servers or manual testing.
+  # Default: "" (auto-generate via interactsh)
+  oast_url: ""
+
+  # Enable blind XSS detection during active scanning.
+  # When enabled, modules will inject <script src="..."> payloads
+  # using the blind_xss_src URL to detect stored/blind XSS.
+  # Default: false
+  enabled_blind_xss: false
+
+  # JavaScript payload URL for blind XSS detection.
+  # This URL is injected as <script src="..."> in parameters.
+  # Use a service like xsshunter or your own callback server.
+  # Default: "" (no blind XSS probing)
+  blind_xss_src: ""
+
+# ============================================================================
+# Mutation Strategy Configuration
+# ============================================================================
+# Controls how request values are mutated during scanning and what default
+# values to use per field type when OpenAPI specs lack examples.
+mutation_strategy:
+  # Mutation modes to apply for payloads.
+  # Each request is scanned once per mode, so more modes = more thorough but slower.
+  # Options: "replace", "append", "prepend"
+  # Default: ["append"]
+  default_modes:
+    - append
+  # Example: scan with both append and replace strategies:
+  # default_modes:
+  #   - append
+  #   - replace
+
+  # Default example values per field type.
+  # Used by the OpenAPI parser when specs lack examples for parameters/fields.
+  # The first value in each list is used as the primary example.
+  field_type_defaults:
+    string:
+      - "test"
+      - "example"
+      - "sample"
+    slug:
+      - "test-slug"
+      - "example-item"
+      - "sample-post"
+    json:
+      - '{"key":"value"}'
+      - '{"test":true}'
+      - '{"id":123}'
+    "null":
+      - "null"
+      - ""
+      - "nil"
+    date:
+      - "2026-02-16"
+      - "2026-01-01"
+      - "2025-12-31"
+    datetime:
+      - "2026-02-16T03:00:00Z"
+      - "2026-01-01T00:00:00Z"
+      - "2025-12-31T23:59:59Z"
+    number:
+      - "123"
+      - "456.789"
+      - "0"
+    float:
+      - "123.45"
+      - "0.001"
+      - "999.99"
+    integer:
+      - "1"
+      - "100"
+      - "999"
+    long:
+      - "9223372036854775807"
+      - "1000000"
+      - "42"
+    boolean:
+      - "true"
+      - "false"
+      - "1"
+    uuid:
+      - "550e8400-e29b-41d4-a716-446655440000"
+      - "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      - "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+    path:
+      - "/api/v1/resource"
+      - "/test/path"
+      - "/example"
+    credit_card:
+      - "4532015112830366"
+      - "5425233430109903"
+      - "374245455400126"
+    email:
+      - "test@example.com"
+      - "user@test.org"
+      - "admin@localhost"
+    username:
+      - "testuser"
+      - "admin"
+      - "user123"
+    password:
+      - "P@ssw0rd123!"
+      - "Test1234!"
+      - "S3cur3P@ss!"
+    phone_number:
+      - "+1-555-123-4567"
+      - "+44-20-7946-0958"
+      - "+81-3-1234-5678"
+    country:
+      - "US"
+      - "GB"
+      - "JP"
+    uri:
+      - "https://example.com/path"
+      - "http://test.local/api"
+      - "https://api.example.org/v1"
+    file_upload:
+      - "test.pdf"
+      - "image.jpg"
+      - "document.docx"
+
+# ============================================================================
+# Scope Configuration
+# ============================================================================
+# Controls which HTTP records are in scope for scanning.
+# Each rule has include and exclude lists. All rules use AND logic:
+# a record must pass every rule to be in scope. Exclude takes priority
+# over include (if a record matches both, it is excluded).
+#
+# Pattern types vary by field:
+#   host, path, content-type  — glob patterns (case-insensitive)
+#   status_code               — exact ("200"), wildcard ("2xx", "2*"), range ("400-499")
+#   request_string, response_string — case-insensitive substring match
+#
+# Defaults: include ["*"] and exclude [] for host, path, status_code,
+# and content-types. String rules default to include [] (empty = match all).
+#
+# Manage at runtime with: vigolium scope / vigolium scope set
+scope:
+  # When true, scope rules are also enforced during ingestion: out-of-scope
+  # requests are rejected before being saved to the database.
+  # When false (default), all requests are saved but out-of-scope records
+  # are skipped during scanning.
+  applied_on_ingest: false
+
+  # CLI origin mode restricts which hosts are in scope based on CLI target origins.
+  # This provides automatic host restriction from the -t target URL(s).
+  #
+  # Modes (example target: http://www.example.com):
+  #   "relaxed"  — host must contain the target's keyword (e.g. "example") (default);
+  #                matches examplesite.com, test-example.net, etc.
+  #   "all"      — no origin restriction
+  #   "balanced" — host must share the target's eTLD+1 (e.g. example.com);
+  #                matches *.example.com but not examplesite.com
+  #   "strict"   — host must exactly match the target host;
+  #                only www.example.com passes
+  #
+  # IP targets always use exact match regardless of mode.
+  # Override with CLI flag: --scope-origin <mode>
+  # Default: relaxed
+  cli_origin_mode: relaxed
+
+  # Maximum request body size in bytes. Bodies exceeding this limit are
+  # handled according to body_size_exceeded_action.
+  # 0 means unlimited. Default: 1048576 (1 MB)
+  max_request_body_size: 1048576
+
+  # Maximum response body size in bytes. Bodies exceeding this limit are
+  # handled according to body_size_exceeded_action.
+  # 0 means unlimited. Default: 524288000 (500 MB)
+  max_response_body_size: 524288000
+
+  # Action when body size exceeds the limit:
+  #   "truncate"  — truncate body to the limit, save and scan (default)
+  #   "drop"      — discard the item entirely (no save, no scan)
+  #   "skip-scan" — save truncated body to DB but skip scanning modules
+  body_size_exceeded_action: truncate
+
+  # Automatically skip URLs whose path ends with a known static-asset
+  # extension (images, fonts, video, audio, etc.).
+  # This reduces noise and improves scan performance out of the box.
+  # Default: true
+  ignore_static_file: true
+
+  # Categories of static file extensions to ignore when ignore_static_file
+  # is enabled. Each key is a category name; values are lists of extensions
+  # (case-insensitive, leading dot required). Add or remove entries to
+  # customize which file types are skipped.
+  ignore_static_content_type:
+    fonts: [".ttf", ".otf", ".woff", ".woff2", ".eot", ".pfa", ".pfb", ".fnt", ".bdf", ".psf", ".snf", ".otc", ".ttc", ".afm", ".pfm"]
+    images: [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".avif", ".heic", ".heif", ".ico", ".cur", ".psd", ".raw", ".cr2", ".nef", ".arw", ".dng"]
+    vector_images: [".ai", ".eps", ".cdr"]
+    video: [".mp4", ".m4v", ".mov", ".avi", ".wmv", ".flv", ".webm", ".mkv", ".3gp", ".3g2", ".mpeg", ".mpg", ".m2ts", ".ogv", ".vob", ".rm", ".rmvb"]
+    audio: [".mp3", ".wav", ".ogg", ".aac", ".flac", ".m4a", ".wma", ".mid", ".midi", ".amr", ".aiff"]
+
+  # Host patterns (glob, case-insensitive)
+  host:
+    include:
+      - "*"
+    exclude: []
+    # Example: scan only example.com and its subdomains, skip staging:
+    # include:
+    #   - "*.example.com"
+    #   - "example.com"
+    # exclude:
+    #   - "staging.example.com"
+
+  # URL path patterns (glob, case-insensitive)
+  path:
+    include:
+      - "*"
+    exclude: []
+    # Example: scan only /api paths, skip health checks:
+    # include:
+    #   - "/api/*"
+    # exclude:
+    #   - "/api/health"
+    #   - "/api/metrics"
+
+  # HTTP status code filters
+  # Supports exact ("200"), wildcard ("2xx"), and range ("400-499")
+  status_code:
+    include:
+      - "*"
+    exclude: []
+    # Example: only scan responses with 2xx and 3xx status codes:
+    # include:
+    #   - "2xx"
+    #   - "3xx"
+
+  # Request Content-Type patterns (glob)
+  request_content_type:
+    include:
+      - "*"
+    exclude: []
+    # Example: only scan JSON and form requests:
+    # include:
+    #   - "application/json*"
+    #   - "application/x-www-form-urlencoded*"
+
+  # Response Content-Type patterns (glob)
+  response_content_type:
+    include:
+      - "*"
+    exclude: []
+    # Example: only scan HTML and JSON responses, skip images:
+    # include:
+    #   - "text/html*"
+    #   - "application/json*"
+    # exclude:
+    #   - "image/*"
+
+  # Request body/header substring match (case-insensitive)
+  # Empty include = match all requests
+  request_string:
+    include: []
+    exclude: []
+    # Example: skip requests containing a specific auth token:
+    # exclude:
+    #   - "X-Internal-Service-Key"
+
+  # Response body/header substring match (case-insensitive)
+  # Empty include = match all responses
+  response_string:
+    include: []
+    exclude: []
+    # Example: skip responses containing "not found" boilerplate:
+    # exclude:
+    #   - "page not found"
+    #   - "404 error"
+
+# ============================================================================
+# Source Code Awareness
+# ============================================================================
+# Configure where cloned source repositories are stored on disk.
+# Used by "vigolium source add --git" and "vigolium scan --source <git-url>".
+source_aware:
+  # Base directory for cloned repositories.
+  # Default: ~/.vigolium/source-aware/
+  storage_path: ~/.vigolium/source-aware/
+
+  # Git clone depth (--depth flag). Use 1 for shallow clones (faster, less disk).
+  # Default: 1
+  clone_depth: 1
+
+  # Third-party tool integration
+  # Runs external security scanners on source repos when added or rescanned.
+  # Tools must be installed and available in $PATH.
+  # Use "vigolium source scan <id>" to rescan a repo.
+  third_party_integration:
+    enabled: true
+    timeout: "10m"
+    tools:
+      semgrep:
+        enabled: true
+        command: semgrep
+        args: ["scan", "--sarif", "--quiet", "--sarif-output={{output}}"]
+        output_file: "{{output}}"
+      trivy:
+        enabled: true
+        command: trivy
+        args: ["fs", "--format", "sarif", "--quiet", "--output={{output}}"]
+        output_file: "{{output}}"
+      codeql:
+        enabled: true
+        command: codeql
+        # Language for CodeQL analysis. Set to "auto" to detect from repo file extensions.
+        # Supported: javascript, python, java, csharp, cpp, go, ruby, swift, kotlin
+        language: auto
+        steps:
+          - args: ["database", "create", "{{db}}", "--language={{language}}", "--source-root={{repo}}", "--overwrite"]
+          - args: ["pack", "download", "codeql/{{language}}-queries"]
+          - args: ["database", "analyze", "{{db}}", "codeql/{{language}}-queries", "--format=sarif-latest", "--output={{output}}", "--threads=0"]
+            output_file: "{{output}}"
+
+  # ast-grep source code analysis
+  # Uses tree-sitter-based structural search to extract routes, parameters,
+  # and API endpoints from source code. Binary auto-downloaded if not in PATH.
+  ast_grep:
+    # Enable ast-grep route extraction.
+    # Default: true
+    enabled: true
+
+    # Directory containing ast-grep rules and ast-grep-config.yaml.
+    # Bootstrapped automatically on first run with built-in rules.
+    # Default: ~/.vigolium/sast-rules/astgrep/
+    rules_dir: "~/.vigolium/sast-rules/astgrep/"
+
+    # Maximum time for ast-grep analysis per repo.
+    # Default: 5m
+    timeout: "5m"
+
+  # AI Agent SAST
+  # Run AI agent-powered code review after ast-grep and third-party tools finish.
+  # The agent reviews source code using prompt templates from the sast/ folder.
+  # Requires an agent backend configured in the agent section below.
+  agent_sast:
+    # Enable agent-powered SAST analysis.
+    # Default: false
+    enabled: false
+
+    # Prompt template IDs to run sequentially against each source repo.
+    # Templates are resolved from ~/.vigolium/prompts/ or built-in presets.
+    # Default: [security-code-review]
+    prompt_templates:
+      - security-code-review
+
+    # Custom inline prompts to run after templates.
+    # Each entry is a raw prompt string sent to the agent with the source code.
+    # Useful for project-specific instructions without creating a template file.
+    # Default: [] (none)
+    custom_prompts: []
+    # Example:
+    # custom_prompts:
+    #   - "Review the source code for hardcoded AWS credentials and S3 bucket misconfigurations. Report findings as JSON."
+    #   - "Check all database queries for SQL injection. Focus on raw query builders and string concatenation."
+
+    # Agent backend override (empty = use agent.default_agent).
+    # Default: "" (use default)
+    agent: ""
+
+    # Maximum time per template execution.
+    # Default: 15m
+    timeout: "15m"
+
+# ============================================================================
+# Content Discovery (Deparos)
+# ============================================================================
+# Configure deparos content discovery, which brute-forces directories and files
+# on a target web server before vulnerability scanning begins.
+# Managed by scanning_strategy; override with CLI flags: --discover, --discover-max-time
+# Speed control (concurrency, max_duration) is configured in scanning_pace.discovery.
+discovery:
+  # Discovery mode: what types of resources to discover.
+  # Options: "files_and_dirs", "files_only", "dirs_only"
+  # Default: files_and_dirs
+  mode: files_and_dirs
+
+  # Scope mode for discovered URLs.
+  # Options:
+  #   "subdomain" - same registered domain (eTLD+1)
+  #   "exact"     - exact hostname match only
+  #   "any"       - no host restriction
+  # Default: subdomain
+  scope_mode: subdomain
+
+  # Save HTTP response bodies from discovery into the ephemeral DB.
+  # When true, response data is available for scanning modules.
+  # Default: true
+  save_response_body: true
+
+  # Enable malformed path probing during directory discovery.
+  # When true, uses the fuzz wordlist (fuzz_wordlist_path) to test directories
+  # with path traversal and malformed path payloads (e.g., ..;/, .%00/, %2e%2e/).
+  # Default: false
+  enable_malformed_path_probe: false
+
+  # Recursion settings for directory traversal.
+  recursion:
+    # Enable recursive directory discovery.
+    # Default: true
+    enabled: true
+
+    # Maximum recursion depth (1-32767).
+    # Default: 5
+    max_depth: 5
+
+  # Wordlist paths for discovery.
+  # Empty path = wordlist disabled. Supports ~ expansion.
+  wordlists:
+    # short_file_path: ~/.vigolium/wordlists/file-short.txt
+    # long_file_path: ~/.vigolium/wordlists/file-long.txt
+    # short_dir_path: ~/.vigolium/wordlists/dir-short.txt
+    # long_dir_path: ~/.vigolium/wordlists/dir-long.txt
+    # fuzz_wordlist_path: ~/.vigolium/wordlists/fuzz.txt
+
+    # Use filenames observed during spidering as wordlist entries.
+    # Default: true
+    use_observed_names: true
+
+    # Test full observed filenames (e.g., "app.b5ca88ec.js").
+    # Default: true
+    use_observed_files: true
+
+  # File extension testing during discovery.
+  extensions:
+    # Test custom extensions (php, asp, aspx, jsp, etc.).
+    # Default: true
+    test_custom: true
+
+    # Custom extension list (used when test_custom is true).
+    # Default: deparos built-in list (php, asp, aspx, jsp, jspa, do)
+    # custom_list:
+    #   - php
+    #   - asp
+    #   - aspx
+
+    # Test extensions observed during spidering.
+    # Default: true
+    test_observed: true
+
+    # Test backup/variant extensions (.bak, .old, .tmp, etc.).
+    # Default: true
+    test_variants: true
+
+    # Test files without extensions.
+    # Default: true
+    test_no_extension: true
+
+  # Discovery engine settings.
+  engine:
+    # Case sensitivity mode for filename matching.
+    # Options: "auto_detect", "sensitive", "insensitive"
+    # Default: auto_detect
+    case_sensitivity: auto_detect
+
+    # HTTP request timeout per discovery request.
+    # Must be 1s-300s.
+    # Default: 10s
+    timeout: 10s
+
+    # Custom HTTP headers to include in all discovery requests.
+    # custom_headers:
+    #   Authorization: "Bearer my-token"
+    #   X-Custom-Header: "value"
+
+    # Enable cookie jar for session persistence during discovery.
+    # Default: false
+    enable_cookie_jar: false
+
+# ============================================================================
+# Browser-Based Spidering (Spitolas)
+# ============================================================================
+# Configure browser-based crawling to discover dynamic content, SPAs,
+# and API endpoints that static crawlers miss. Uses headless Chromium
+# to interact with pages (click elements, fill forms, trigger JS).
+#
+# Managed by scanning_strategy; override with CLI flags: --spider, --spider-max-time
+# Speed control (max_duration) is configured in scanning_pace.spidering.
+spidering:
+  # Maximum crawl depth (0 = unlimited).
+  # Default: 0
+  max_depth: 0
+
+  # Maximum number of unique states to discover (0 = unlimited).
+  # Default: 0
+  max_states: 0
+
+  # Maximum duration for spidering per target.
+  # Format: duration string (e.g., "30m", "1h")
+  # Default: 30m
+  max_duration: 30m
+
+  # Maximum consecutive action failures before aborting.
+  # Default: 100
+  max_consecutive_fails: 100
+
+  # Run browser in headless mode (no visible window).
+  # Default: true
+  headless: true
+
+  # Number of concurrent browser instances.
+  # More instances = faster crawling but higher resource usage.
+  # Default: 1
+  browser_count: 1
+
+  # Crawl strategy for state exploration.
+  # Options: "normal", "random", "oldest_first", "shallow_first", "adaptive"
+  # Default: adaptive
+  strategy: adaptive
+
+  # Include HTTP response bodies in captured traffic.
+  # Default: true
+  include_response_body: true
+
+  # Browser engine to use.
+  # Options: "chromium" (default), "ungoogled" (Linux only)
+  # Default: chromium
+  browser_engine: chromium
+
+  # Disable CDP (Chrome DevTools Protocol) event listener detection.
+  # When false (default), the crawler uses CDP to detect click handlers
+  # on elements. Set to true to disable this detection.
+  # Default: false
+  no_cdp: false
+
+  # Disable automatic form filling during crawling.
+  # When false (default), the crawler automatically fills and submits
+  # forms it encounters. Set to true to skip form interactions.
+  # Default: false
+  no_forms: false
+
+# ============================================================================
+# Security Posture Assessment (SPA)
+# ============================================================================
+# Run nuclei templates against in-scope targets using the nuclei Go library.
+# SPA complements Vigolium's precision scanning with nuclei's broad template
+# coverage for misconfigurations, exposures, and known CVEs.
+#
+# Managed by scanning_strategy; override with CLI flag: --spa
+# Speed control (concurrency, rate_limit, timeout) is configured in scanning_pace.spa.
+spa:
+  # Nuclei template tags to include (empty = all templates).
+  # Default: [] (run all templates)
+  tags: []
+  # Example: run only specific tag categories:
+  # tags:
+  #   - cve
+  #   - misconfig
+  #   - exposure
+
+  # Nuclei template tags to exclude.
+  # Default: [dos]
+  exclude_tags:
+    - dos
+
+  # Filter templates by severity (empty = all severities).
+  # Options: critical, high, medium, low, info
+  # Default: [] (all severities)
+  severities: []
+  # Example: only run critical and high severity templates:
+  # severities:
+  #   - critical
+  #   - high
+
+  # Custom nuclei templates directory.
+  # Leave empty to use the default nuclei-templates location.
+  # Supports ~ expansion.
+  # Default: "" (uses nuclei default templates)
+  templates_dir: ""
+
+  # Enrich SPA targets with paths discovered in previous phases.
+  # When true, nuclei templates are run against individual path prefixes
+  # found during discovery/spidering (increases coverage but can slow down scans).
+  # When false, only host-level URLs are used as targets.
+  # Default: true
+  enrich_targets: false
+
+# ============================================================================
+# Pre-Scan External Intelligence Harvester
+# ============================================================================
+# Collects URLs from external intelligence sources before scanning.
+# Discovered URLs are fed into the scan pipeline for vulnerability analysis.
+# Managed by scanning_strategy; override with CLI flag: --external-harvest
+# Timeout is configured in scanning_pace.external_harvester.max_duration.
+external_harvester:
+  # External sources to query for URLs.
+  # Free sources (no API key): wayback, commoncrawl, alienvault
+  # Keyed sources (require api_keys): urlscan, virustotal
+  # Default: [wayback, commoncrawl, alienvault]
+  sources:
+    - wayback
+    - commoncrawl
+    - alienvault
+
+  # API keys for external sources that require authentication.
+  # Use ${ENV_VAR} syntax to read from environment variables.
+  api_keys:
+    urlscan: ${URLSCAN_API_KEY}
+    virustotal: ${VIRUSTOTAL_API_KEY}
+
+# ============================================================================
+# AI Agent Integration
+# ============================================================================
+# Configure AI agent backends for automated analysis.
+# Agents are invoked via the CLI ("vigolium agent") or the REST API.
+# Each agent is an external command that receives a prompt on stdin
+# and returns structured results.
+#
+# Communication protocol:
+#   "pipe" (default) — pipe prompt to stdin, capture stdout
+#   "acp"            — Agent Client Protocol (JSON-RPC over stdio),
+#                      enables streaming progress, permission handling,
+#                      and structured session management
+#
+# Manage agent runs at runtime:
+#   POST /api/agent/run/query      — single-shot prompt execution
+#   POST /api/agent/run/autopilot  — autonomous scanning session
+#   POST /api/agent/run/pipeline   — multi-phase scanning pipeline
+#   GET  /api/agent/status/list    — list all runs
+#   GET  /api/agent/status/:id     — check a specific run
+agent:
+  # Default agent backend to use when none is specified.
+  # Must match a key in the agents map below.
+  # Default: claude
+  default_agent: claude
+
+  # Stream agent output to stdout in real-time.
+  # When true (default), agent message text appears incrementally as it is produced.
+  # Set to false to buffer output and display only after the agent completes.
+  # Only affects CLI mode; API/server mode is unaffected.
+  # Default: true
+  stream: true
+
+  # Directory containing prompt template files (.md).
+  # Templates are referenced by name (filename without extension)
+  # via --prompt-template flag or API prompt_template field.
+  # Subdirectories are searched recursively. Built-in templates are
+  # organized into sast/ (code review) and analysis/ (scan input generation).
+  # Supports ~ expansion.
+  # Default: ~/.vigolium/prompts/
+  templates_dir: ~/.vigolium/prompts/
+
+  # --------------------------------------------------------------------------
+  # LLM Configuration (Direct API)
+  # --------------------------------------------------------------------------
+  # Settings for direct LLM API calls used by JavaScript extension agent APIs
+  # (vigolium.agent.chat / vigolium.agent.analyze). These calls bypass the
+  # agent backends above and call the LLM provider API directly.
+  llm:
+    # LLM provider to use.
+    # Options: "anthropic", "openai"
+    # Default: anthropic
+    provider: anthropic
+
+    # Model identifier.
+    # Examples: "claude-sonnet-4-20250514", "gpt-4o"
+    # Default: claude-sonnet-4-20250514
+    model: claude-sonnet-4-20250514
+
+    # API key (inline). Prefer api_key_env for security.
+    # IMPORTANT: Never commit API keys to git!
+    # Default: "" (empty, uses api_key_env)
+    api_key: ""
+
+    # Environment variable name containing the API key.
+    # Default: ANTHROPIC_API_KEY (for anthropic) or OPENAI_API_KEY (for openai)
+    api_key_env: ""
+
+    # Custom base URL for OpenAI-compatible providers.
+    # Leave empty for default provider endpoints.
+    # Default: "" (uses provider default)
+    base_url: ""
+
+    # Maximum tokens in the LLM response.
+    # Default: 4096
+    max_tokens: 4096
+
+    # Sampling temperature (0.0 = deterministic, 1.0 = creative).
+    # Default: 0.0
+    temperature: 0.0
+
+    # LRU cache size (number of entries). Set to 0 to disable caching.
+    # Default: 256
+    cache_size: 256
+
+    # Cache entry TTL in seconds.
+    # Default: 300 (5 minutes)
+    cache_ttl: 300
+
+  # --------------------------------------------------------------------------
+  # Warm Session Pooling (ACP)
+  # --------------------------------------------------------------------------
+  # Keep ACP agent subprocesses alive between runs to avoid cold-start latency.
+  # When enabled, after an agent run completes the subprocess stays warm in a
+  # pool and is reused for subsequent runs with the same agent backend.
+  warm_session:
+    # Enable warm session pooling.
+    # Default: false
+    enable: false
+
+    # Seconds to keep idle sessions alive before terminating.
+    # Default: 300 (5 minutes)
+    idle_timeout: 300
+
+    # Maximum number of concurrent warm sessions.
+    # Default: 2
+    max_sessions: 2
+
+  # Agent backend definitions.
+  # Each entry defines an external command that acts as an AI agent.
+  # Set "protocol" to "acp" or "pipe" (default is "pipe" if omitted).
+  agents:
+    # Default: uses ACP protocol via @zed-industries/claude-code-acp bridge.
+    # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
+    claude:
+      command: npx
+      args: ["-y", "@zed-industries/claude-code-acp@latest"]
+      description: "Anthropic Claude Code (ACP)"
+      protocol: acp
+    # Pipe-mode fallback for environments where ACP or npx is not available.
+    claude-cli:
+      command: claude
+      args: ["--dangerously-skip-permissions", "-p"]
+      description: "Anthropic Claude Code (pipe mode)"
+    # Uses Codex CLI via ACP bridge.
+    # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
+    codex:
+      command: npx
+      args: ["-y", "@zed-industries/codex-acp"]
+      description: "OpenAI Codex CLI (ACP)"
+      protocol: acp
+    # Uses OpenCode's native ACP support.
+    opencode:
+      command: opencode
+      args: ["acp"]
+      description: "OpenCode agent (ACP)"
+      protocol: acp
+    # Pipe-mode fallback: add `"permission": {"*": "allow"}` to ~/.config/opencode/opencode.json
+    opencode-cli:
+      command: opencode
+      args: ["run"]
+      description: "OpenCode agent (pipe mode)"
+    # Uses Gemini CLI's native ACP support (--experimental-acp flag).
+    gemini:
+      command: gemini
+      args: ["--experimental-acp"]
+      description: "Google Gemini CLI (ACP)"
+      protocol: acp
+    # Pipe-mode fallback for Gemini CLI.
+    gemini-cli:
+      command: gemini
+      args: ["-p"]
+      description: "Google Gemini CLI (pipe mode)"

@@ -1,0 +1,16 @@
+id: security-xss-jquery-html-sink
+language: javascript
+severity: warning
+message: "Security: jQuery .html()/.append()/.prepend() — if argument contains user input, this is an XSS vulnerability"
+note: "jQuery HTML manipulation methods parse and inject raw HTML. Use .text() for text content or sanitize input with DOMPurify before passing to these methods."
+rule:
+  any:
+    - pattern: $ELEM.html($CONTENT)
+    - pattern: $ELEM.append($CONTENT)
+    - pattern: $ELEM.prepend($CONTENT)
+    - pattern: $ELEM.after($CONTENT)
+    - pattern: $ELEM.before($CONTENT)
+  inside:
+    kind: call_expression
+    has:
+      kind: member_expression

@@ -1,0 +1,5 @@
+<h3>Edit Profile</h3>
+<form onsubmit="$.get('profile_updated.html', function(d){$('#main-content').html(d);}); return false;">
+    <input type="text" name="bio" placeholder="Bio">
+    <button type="submit">Update Profile</button>
+</form>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Regex Path Extraction Test</title>
+</head>
+<body>
+    <h1>Regex Path (LinkFinder) Extraction Test</h1>
+    <p>This page contains paths that match LinkFinder-style regex patterns.</p>
+
+<script>
+    // Various path patterns that LinkFinder would extract
+    "api/v1/users"
+    "api/v2/products"
+    "admin/dashboard.php"
+    "search.aspx?q=test"
+    "data/config.json"
+    "../relative/path.html"
+    "./current/dir/file.json"
+    "/absolute/path/endpoint"
+    "rest/api/2/issue"
+    "graphql/query"
+</script>
+
+<script>
+    // More patterns in different contexts
+    var paths = [
+        "users/profile",
+        "orders/history",
+        "settings/account.php"
+    ];
+
+    // Path in concatenation
+    var base = "/api";
+    var endpoint = base + "/endpoint";
+
+    // Paths with parameters
+    "page.php?id=123&action=view"
+    "handler.aspx?type=admin"
+</script>
+</body>
+</html>

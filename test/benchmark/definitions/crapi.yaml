@@ -1,0 +1,156 @@
+app:
+  name: crapi
+  type: compose
+  compose_file: "test/testdata/vulnerable-apps/crapi/docker-compose.yaml"
+  base_url: "http://127.0.0.1:8888"
+  wait_endpoint: "/health"
+  startup_timeout: 180s
+
+setup:
+  auth_flow:
+    - name: register
+      method: POST
+      path: "/identity/api/auth/signup"
+      headers:
+        Content-Type: "application/json"
+      body: '{"name":"benchmark","email":"benchmark@example.com","number":"1234567890","password":"Benchmark!123"}'
+    - name: login
+      method: POST
+      path: "/identity/api/auth/login"
+      headers:
+        Content-Type: "application/json"
+      body: '{"email":"benchmark@example.com","password":"Benchmark!123"}'
+      extract:
+        token: "$.token"
+
+test_cases:
+  # === Active Module Tests ===
+
+  # SQLi - Mechanic search
+  - id: "crapi-sqli-mechanic"
+    endpoint: "/workshop/api/mechanic/?mechanic_code=test"
+    method: GET
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in mechanic search parameter"
+
+  # NoSQLi - Community posts
+  - id: "crapi-nosqli-posts"
+    endpoint: "/community/api/v2/community/posts?limit=10"
+    method: GET
+    modules: ["active-nosqli-error-based"]
+    vuln_types: ["nosqli"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "NoSQL injection in community posts endpoint"
+
+  # SSRF - Contact mechanic
+  - id: "crapi-ssrf-mechanic"
+    endpoint: "/workshop/api/merchant/contact_mechanic"
+    method: GET
+    modules: ["active-ssrf-detection"]
+    vuln_types: ["ssrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SSRF in contact mechanic endpoint"
+
+  # JWT Vulnerability
+  - id: "crapi-jwt-vuln"
+    endpoint: "/identity/api/v2/user/dashboard"
+    method: GET
+    modules: ["active-jwt-vulnerability"]
+    vuln_types: ["jwt-vulnerability"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "JWT vulnerability in dashboard auth"
+
+  # CORS Misconfiguration
+  - id: "crapi-cors"
+    endpoint: "/identity/api/v2/user/dashboard"
+    method: GET
+    modules: ["active-cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration on API endpoints"
+
+  # Command Injection - QR code
+  - id: "crapi-cmd-injection"
+    endpoint: "/workshop/api/shop/orders/1/return?qr_code=test"
+    method: GET
+    modules: ["active-code-exec"]
+    vuln_types: ["code-exec"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Command injection in QR code endpoint"
+
+  # Host Header Injection
+  - id: "crapi-host-header"
+    endpoint: "/identity/api/auth/forget-password"
+    method: GET
+    modules: ["active-host-header-injection"]
+    vuln_types: ["host-header-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Host header injection in password reset"
+
+  # === Passive Module Tests ===
+
+  # Security Headers
+  - id: "crapi-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-security-headers-missing"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "crAPI should be missing security headers"
+
+  # Auth Headers Exposure
+  - id: "crapi-auth-headers"
+    endpoint: "/identity/api/v2/user/dashboard"
+    method: GET
+    modules: ["passive-auth-headers-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Auth headers exposure in API responses"
+
+  # Cookie Security
+  - id: "crapi-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cookie security flags check"
+
+  # JWT Weak Secret (passive)
+  - id: "crapi-jwt-weak-passive"
+    endpoint: "/identity/api/v2/user/dashboard"
+    method: GET
+    modules: ["passive-jwt-weak-secret"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "JWT with known weak secret 'crapi'"
+
+  # CORS Headers (passive)
+  - id: "crapi-cors-passive"
+    endpoint: "/identity/api/v2/user/dashboard"
+    method: GET
+    modules: ["passive-cors-headers-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "CORS headers analysis"

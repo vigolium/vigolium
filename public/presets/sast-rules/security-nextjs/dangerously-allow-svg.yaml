@@ -1,0 +1,7 @@
+id: security-nextjs-dangerously-allow-svg
+language: typescript
+severity: warning
+message: "Security: dangerouslyAllowSVG enabled — SVGs can contain embedded scripts leading to XSS via image optimization"
+note: "When dangerouslyAllowSVG is true in next.config images, the image optimization endpoint serves SVGs which can contain JavaScript."
+rule:
+  pattern: "dangerouslyAllowSVG: true"

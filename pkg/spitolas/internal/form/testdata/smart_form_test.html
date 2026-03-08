@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Form Value Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+        h2 { margin-top: 0; }
+        label { display: block; margin: 5px 0; }
+        input, select, textarea { margin: 5px 0; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Smart Form Value Test</h1>
+
+    <!-- Section 1: Smart Value Detection by Name/ID -->
+    <div class="section">
+        <h2>Smart Value Detection (by name/id patterns)</h2>
+
+        <!-- Email patterns -->
+        <input type="text" id="email" name="email" placeholder="Email">
+        <input type="text" id="user_mail" name="user_mail" placeholder="User Mail">
+        <input type="text" id="correo" name="correo" placeholder="Correo (Spanish)">
+
+        <!-- Password patterns -->
+        <input type="text" id="password" name="password" placeholder="Password">
+        <input type="text" id="pwd" name="pwd" placeholder="Pwd">
+        <input type="text" id="passwd" name="passwd" placeholder="Passwd">
+
+        <!-- Phone patterns -->
+        <input type="text" id="phone" name="phone" placeholder="Phone">
+        <input type="text" id="mobile" name="mobile" placeholder="Mobile">
+        <input type="text" id="telefono" name="telefono" placeholder="Telefono (Spanish)">
+
+        <!-- Name patterns -->
+        <input type="text" id="firstname" name="firstname" placeholder="First Name">
+        <input type="text" id="first_name" name="first_name" placeholder="First_Name">
+        <input type="text" id="lastname" name="lastname" placeholder="Last Name">
+        <input type="text" id="surname" name="surname" placeholder="Surname">
+        <input type="text" id="fullname" name="fullname" placeholder="Full Name">
+        <input type="text" id="name" name="name" placeholder="Name">
+
+        <!-- Username patterns -->
+        <input type="text" id="username" name="username" placeholder="Username">
+        <input type="text" id="login" name="login" placeholder="Login">
+        <input type="text" id="userid" name="userid" placeholder="User ID">
+
+        <!-- Address patterns -->
+        <input type="text" id="address" name="address" placeholder="Address">
+        <input type="text" id="street" name="street" placeholder="Street">
+        <input type="text" id="city" name="city" placeholder="City">
+        <input type="text" id="zipcode" name="zipcode" placeholder="Zip Code">
+        <input type="text" id="postal" name="postal" placeholder="Postal">
+        <input type="text" id="country" name="country_name" placeholder="Country">
+        <input type="text" id="state" name="state" placeholder="State">
+        <input type="text" id="province" name="province" placeholder="Province">
+
+        <!-- Date/Age patterns -->
+        <input type="text" id="dob" name="dob" placeholder="Date of Birth">
+        <input type="text" id="birthday" name="birthday" placeholder="Birthday">
+        <input type="text" id="age" name="age" placeholder="Age">
+
+        <!-- URL patterns -->
+        <input type="text" id="website" name="website" placeholder="Website">
+        <input type="text" id="homepage" name="homepage" placeholder="Homepage">
+
+        <!-- Company patterns -->
+        <input type="text" id="company" name="company" placeholder="Company">
+        <input type="text" id="organization" name="organization" placeholder="Organization">
+
+        <!-- Credit card patterns (fake test data) -->
+        <input type="text" id="cardnumber" name="cardnumber" placeholder="Card Number">
+        <input type="text" id="cvv" name="cvv" placeholder="CVV">
+        <input type="text" id="expiry" name="expiry" placeholder="Expiry">
+
+        <!-- Message patterns -->
+        <input type="text" id="message" name="message" placeholder="Message">
+        <input type="text" id="comment" name="comment" placeholder="Comment">
+        <input type="text" id="description" name="description" placeholder="Description">
+
+        <!-- Search patterns -->
+        <input type="text" id="search" name="search" placeholder="Search">
+        <input type="text" id="q" name="q" placeholder="Query">
+
+        <!-- Title patterns -->
+        <input type="text" id="title" name="title" placeholder="Title">
+        <input type="text" id="subject" name="subject" placeholder="Subject">
+    </div>
+
+    <!-- Section 2: Select Elements (Random Option Selection) -->
+    <div class="section">
+        <h2>Select Elements</h2>
+
+        <!-- Single select with placeholder -->
+        <label>Country (with placeholder):</label>
+        <select id="select_country" name="select_country">
+            <option value="">-- Select Country --</option>
+            <option value="us">United States</option>
+            <option value="uk">United Kingdom</option>
+            <option value="ca">Canada</option>
+            <option value="au">Australia</option>
+            <option value="de">Germany</option>
+        </select>
+
+        <!-- Single select without placeholder -->
+        <label>Color (no placeholder):</label>
+        <select id="select_color" name="select_color">
+            <option value="red">Red</option>
+            <option value="green">Green</option>
+            <option value="blue">Blue</option>
+            <option value="yellow">Yellow</option>
+        </select>
+
+        <!-- Select with disabled options -->
+        <label>Size (with disabled):</label>
+        <select id="select_size" name="select_size">
+            <option value="">Choose size</option>
+            <option value="xs" disabled>XS (Out of stock)</option>
+            <option value="s">Small</option>
+            <option value="m">Medium</option>
+            <option value="l">Large</option>
+            <option value="xl" disabled>XL (Out of stock)</option>
+        </select>
+
+        <!-- Multi-select -->
+        <label>Languages (multi-select):</label>
+        <select id="select_languages" name="select_languages" multiple>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="ja">Japanese</option>
+        </select>
+    </div>
+
+    <!-- Section 3: Checkbox Elements -->
+    <div class="section">
+        <h2>Checkbox Elements</h2>
+
+        <label>
+            <input type="checkbox" id="checkbox_agree" name="agree" value="yes">
+            I agree to the terms
+        </label>
+
+        <label>
+            <input type="checkbox" id="checkbox_subscribe" name="subscribe" value="1">
+            Subscribe to newsletter
+        </label>
+
+        <label>
+            <input type="checkbox" id="checkbox_checked" name="already_checked" value="on" checked>
+            Already checked
+        </label>
+
+        <label>
+            <input type="checkbox" id="checkbox_disabled" name="disabled_check" value="yes" disabled>
+            Disabled checkbox
+        </label>
+    </div>
+
+    <!-- Section 4: Radio Button Elements -->
+    <div class="section">
+        <h2>Radio Button Elements</h2>
+
+        <label>Gender:</label>
+        <label>
+            <input type="radio" id="radio_male" name="gender" value="male">
+            Male
+        </label>
+        <label>
+            <input type="radio" id="radio_female" name="gender" value="female">
+            Female
+        </label>
+        <label>
+            <input type="radio" id="radio_other" name="gender" value="other">
+            Other
+        </label>
+
+        <label>Priority:</label>
+        <label>
+            <input type="radio" id="radio_low" name="priority" value="low">
+            Low
+        </label>
+        <label>
+            <input type="radio" id="radio_medium" name="priority" value="medium" checked>
+            Medium (pre-selected)
+        </label>
+        <label>
+            <input type="radio" id="radio_high" name="priority" value="high">
+            High
+        </label>
+    </div>
+
+    <!-- Section 5: All Input Types -->
+    <div class="section">
+        <h2>All Input Types (Type-based defaults)</h2>
+
+        <input type="text" id="type_text" name="type_text" placeholder="Text">
+        <input type="email" id="type_email" name="type_email" placeholder="Email Type">
+        <input type="password" id="type_password" name="type_password" placeholder="Password Type">
+        <input type="number" id="type_number" name="type_number" placeholder="Number">
+        <input type="tel" id="type_tel" name="type_tel" placeholder="Tel">
+        <input type="url" id="type_url" name="type_url" placeholder="URL">
+        <input type="search" id="type_search" name="type_search" placeholder="Search Type">
+        <input type="date" id="type_date" name="type_date">
+        <input type="time" id="type_time" name="type_time">
+        <input type="color" id="type_color" name="type_color" value="#ff0000">
+        <input type="range" id="type_range" name="type_range" min="0" max="100" value="50">
+        <input type="hidden" id="type_hidden" name="type_hidden" value="">
+        <textarea id="type_textarea" name="type_textarea" placeholder="Textarea"></textarea>
+    </div>
+
+    <!-- Section 6: Disabled and Readonly -->
+    <div class="section">
+        <h2>Disabled and Readonly</h2>
+
+        <input type="text" id="disabled_input" name="disabled_input" disabled value="Disabled">
+        <input type="text" id="readonly_input" name="readonly_input" readonly value="Readonly">
+        <select id="disabled_select" name="disabled_select" disabled>
+            <option value="a">Option A</option>
+            <option value="b">Option B</option>
+        </select>
+    </div>
+
+    <!-- Section 7: Form with Submit -->
+    <form id="complete_form" action="/submit" method="POST">
+        <div class="section">
+            <h2>Complete Form</h2>
+
+            <input type="text" id="form_firstname" name="firstname" placeholder="First Name">
+            <input type="text" id="form_lastname" name="lastname" placeholder="Last Name">
+            <input type="email" id="form_email" name="email" placeholder="Email">
+            <input type="password" id="form_password" name="password" placeholder="Password">
+            <input type="tel" id="form_phone" name="phone" placeholder="Phone">
+
+            <select id="form_country" name="country">
+                <option value="">Select Country</option>
+                <option value="us">United States</option>
+                <option value="uk">United Kingdom</option>
+            </select>
+
+            <label>
+                <input type="checkbox" id="form_agree" name="agree" value="yes">
+                I agree to terms
+            </label>
+
+            <button type="submit">Submit</button>
+        </div>
+    </form>
+</body>
+</html>

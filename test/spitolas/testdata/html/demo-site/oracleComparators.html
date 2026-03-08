@@ -1,0 +1,33 @@
+<h1>Oracle Comparators</h1>
+
+<h2>Methods in CrawlSpecification</h2>
+<p>
+<span class="java">
+addOracleComparator(String id, Oracle oracleComparator)<br/>
+addOracleComparator(String id, Oracle oracleComparator, Condition...preConditions) 
+</span><br/>
+    The argument <span class="java">id</span> is used to indenty the oracles comparators easily.
+    For example, there could me multple AttributeOracle comparators.
+</p>
+
+<h2>Example</h2>
+<p>Example of an Oracle Comparator</p>
+<pre>
+public class IgnoreCasingOracle extends OracleAbstract {
+
+  @Override
+  public boolean isEquivalent() {
+    return getOriginalDom().equalsIgnoreCase(getNewDom());
+  }
+}
+</pre>
+<p>Adding to the CrawlSpecification<p>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+...
+UrlCondition onFooPage = new UrlhCondition("#foo"));
+builder.addOracleComparator("Ignore casing on foo pages", new IgnoreCasingOracle())
+</pre>
+
+<h2>Oracle Comparator Pipelining</h2>
+TODO

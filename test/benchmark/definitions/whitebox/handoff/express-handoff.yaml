@@ -1,0 +1,36 @@
+framework: express
+base_url: http://localhost:3000
+
+routes:
+  - method: GET
+    path: "/users"
+    expected_request:
+      method: GET
+      uri: "/users"
+      host: localhost:3000
+
+  - method: POST
+    path: "/users"
+    expected_request:
+      method: POST
+      uri: "/users"
+      host: localhost:3000
+
+  - method: ALL
+    path: "/health"
+    expected_request:
+      method: GET
+      uri: "/health"
+      host: localhost:3000
+
+  - method: GET
+    path: "/users/:id"
+    params: ["id"]
+    expected_request:
+      method: GET
+      uri: "/users/:id?id=FUZZ"
+      host: localhost:3000
+
+  - method: ""
+    path: ""
+    expected_skip: true

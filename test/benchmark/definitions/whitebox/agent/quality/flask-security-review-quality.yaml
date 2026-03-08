@@ -1,0 +1,14 @@
+fixture: flask-security-code-review.json
+source_stub: flask
+template: security-code-review
+assertion: soft
+expected:
+  min_findings: 1
+  max_findings: 20
+  expected_cwes:
+    - "CWE-79"
+  expected_vuln_types:
+    - "xss"
+  severity_distribution:
+    medium: 2
+    high: 2

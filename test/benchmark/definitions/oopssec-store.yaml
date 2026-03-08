@@ -1,0 +1,346 @@
+app:
+  name: oopssec-store
+  type: xbow
+  build_context: test/testdata/vulnerable-apps/oopssec-store
+  service_name: app
+  internal_port: 3000
+  port: 3000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  # === Active Module Tests ===
+
+  # SQLi - Error-based in orders search status parameter
+  # The orders search endpoint uses unsanitized input in SQL queries
+  - id: "oopssec-sqli-orders-search"
+    endpoint: "/api/orders/search"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"status":"pending"}'
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in orders search status parameter"
+
+  # SQLi - Error-based in products search query parameter
+  - id: "oopssec-sqli-products-search"
+    endpoint: "/api/products/search?q=test"
+    method: GET
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in products search query parameter"
+
+  # SQLi - Via X-Forwarded-For header injection in tracking endpoint
+  - id: "oopssec-sqli-tracking-header"
+    endpoint: "/api/tracking"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      X-Forwarded-For: "127.0.0.1"
+    body: '{"trackingId":"12345"}'
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via X-Forwarded-For header in tracking endpoint"
+
+  # SSRF via screenshotUrl in support endpoint
+  - id: "oopssec-ssrf-support"
+    endpoint: "/api/support"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"screenshotUrl":"http://example.com","message":"test"}'
+    modules: ["active-ssrf-detection"]
+    vuln_types: ["ssrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SSRF via screenshotUrl parameter in support endpoint"
+
+  # LFI - Path traversal in file download endpoint
+  - id: "oopssec-lfi-files"
+    endpoint: "/api/files?file=test.txt"
+    method: GET
+    modules: ["active-lfi-path-traversal"]
+    vuln_types: ["lfi"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Path traversal in file download endpoint"
+
+  # Open redirect via login redirect parameter
+  - id: "oopssec-open-redirect"
+    endpoint: "/login?redirect=/dashboard"
+    method: GET
+    modules: ["active-open-redirect"]
+    vuln_types: ["open-redirect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Open redirect via login redirect parameter"
+
+  # XXE in supplier XML import endpoint
+  - id: "oopssec-xxe-import"
+    endpoint: "/api/admin/suppliers/import-order"
+    method: POST
+    headers:
+      Content-Type: "application/xml"
+    body: '<?xml version="1.0"?><order><id>1</id><supplier>test</supplier><qty>1</qty></order>'
+    modules: ["active-xxe-generic"]
+    vuln_types: ["xxe"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XXE in supplier XML import endpoint"
+
+  # XSS - Stored XSS in product reviews
+  - id: "oopssec-xss-reviews"
+    endpoint: "/api/products/1/reviews"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"content":"test review","rating":5}'
+    modules: ["active-xss-light-url-params"]
+    vuln_types: ["xss-stored"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Stored XSS in product reviews content field"
+
+  # IDOR on order endpoint
+  - id: "oopssec-idor-orders"
+    endpoint: "/api/orders/1"
+    method: GET
+    modules: ["active-idor-detection"]
+    vuln_types: ["idor"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "IDOR on order endpoint - accessing other users' orders"
+
+  # Mass assignment on signup endpoint
+  - id: "oopssec-mass-assignment"
+    endpoint: "/api/auth/signup"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"email":"test@test.com","password":"test123","name":"Test"}'
+    modules: ["active-mass-assignment"]
+    vuln_types: ["mass-assignment"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Mass assignment adding role field on signup"
+
+  # CORS misconfiguration probes
+  - id: "oopssec-cors"
+    endpoint: "/api/products"
+    method: GET
+    modules: ["active-cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration on products API endpoint"
+
+  # Next.js /_next/image SSRF
+  - id: "oopssec-nextjs-image-ssrf"
+    endpoint: "/"
+    method: GET
+    modules: ["active-nextjs-image-ssrf"]
+    vuln_types: ["ssrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Next.js /_next/image SSRF via image optimization endpoint"
+
+  # Next.js middleware bypass on protected route
+  - id: "oopssec-nextjs-middleware-bypass"
+    endpoint: "/admin"
+    method: GET
+    modules: ["active-nextjs-middleware-bypass"]
+    vuln_types: ["auth-bypass"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Next.js middleware bypass on protected admin route"
+
+  # Next.js data route leakage on protected page
+  - id: "oopssec-nextjs-data-leakage"
+    endpoint: "/admin"
+    method: GET
+    modules: ["active-nextjs-data-leakage"]
+    vuln_types: ["data-leakage"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Next.js data route leakage on protected admin page"
+
+  # Dev server endpoint detection
+  - id: "oopssec-devserver-exposure"
+    endpoint: "/"
+    method: GET
+    modules: ["active-js-devserver-exposure"]
+    vuln_types: ["devserver-exposure"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "JavaScript dev server endpoint detection"
+
+  # Sensitive file discovery for JS frameworks
+  - id: "oopssec-sensitive-files"
+    endpoint: "/"
+    method: GET
+    modules: ["active-sensitive-file-discovery"]
+    vuln_types: ["sensitive-file"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "JS framework sensitive file discovery (.env, next.config.js, etc.)"
+
+  # SVG file upload with XSS
+  - id: "oopssec-file-upload"
+    endpoint: "/api/products/1/images"
+    method: POST
+    headers:
+      Content-Type: "multipart/form-data"
+    modules: ["active-file-upload-scan"]
+    vuln_types: ["file-upload"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SVG file upload with XSS payload"
+
+  # CSRF on order status update
+  - id: "oopssec-csrf-verify"
+    endpoint: "/api/orders/1"
+    method: PATCH
+    headers:
+      Content-Type: "application/json"
+    body: '{"status":"shipped"}'
+    modules: ["active-csrf-verify"]
+    vuln_types: ["csrf"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CSRF on order status update endpoint"
+
+  # === Passive Module Tests ===
+
+  # Next.js framework fingerprinting (__NEXT_DATA__, _next/static)
+  - id: "oopssec-js-fingerprint"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-js-framework-fingerprint"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "Next.js framework detection via __NEXT_DATA__ and _next/static markers"
+
+  # SSR data exposure - inspect state blobs for sensitive data
+  - id: "oopssec-ssr-data-exposure"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-ssr-data-exposure"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "SSR state blob inspection for sensitive data exposure"
+
+  # Missing security headers (CSP, HSTS)
+  - id: "oopssec-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-security-headers-missing"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers (CSP, HSTS, Permissions-Policy)"
+
+  # Cookie security flags
+  - id: "oopssec-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cookie security flags check (HttpOnly, Secure, SameSite)"
+
+  # Weak JWT secret detection
+  - id: "oopssec-jwt-weak"
+    endpoint: "/api/auth/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"email":"bench@test.com","password":"benchmark123"}'
+    modules: ["passive-jwt-weak-secret"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Weak JWT secret detection in login response"
+
+  # Missing CSRF protection
+  - id: "oopssec-csrf-detect"
+    endpoint: "/api/orders/1"
+    method: PATCH
+    headers:
+      Content-Type: "application/json"
+    body: '{"status":"shipped"}'
+    modules: ["passive-csrf-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing CSRF protection on state-changing endpoint"
+
+  # Info disclosure in export endpoint
+  - id: "oopssec-info-disclosure"
+    endpoint: "/api/user/export"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{}'
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Information disclosure in user data export"
+
+  # Error message leakage
+  - id: "oopssec-error-message"
+    endpoint: "/api/nonexistent"
+    method: GET
+    modules: ["passive-error-message-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Error message leakage on nonexistent endpoint"
+
+  # Cache-auth misconfiguration
+  - id: "oopssec-cache-auth"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-cache-auth-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cache-auth misconfiguration detection"
+
+  # Next.js configuration audit
+  - id: "oopssec-nextjs-config"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-nextjs-config-audit"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Next.js configuration audit for security issues"

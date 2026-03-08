@@ -1,0 +1,7 @@
+<h3>Settings</h3>
+<p>User settings page</p>
+<form onsubmit="$.get('settings_saved.html', function(d){$('#main-content').html(d);}); return false;">
+    <input type="text" name="display-name" placeholder="Display Name">
+    <input type="email" name="email" placeholder="Email">
+    <button type="submit">Save Settings</button>
+</form>

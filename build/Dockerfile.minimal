@@ -1,0 +1,35 @@
+# Build stage
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION
+ARG COMMIT_HASH
+ARG BUILD_TIME
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/vigolium/vigolium/pkg/cli.Version=${VERSION} \
+              -X github.com/vigolium/vigolium/pkg/cli.Commit=${COMMIT_HASH} \
+              -X github.com/vigolium/vigolium/pkg/cli.BuildTime=${BUILD_TIME}" \
+    -o /out/vigolium ./cmd/vigolium
+
+# Runtime stage
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+RUN adduser -D -u 1000 vigolium
+
+COPY --from=builder /out/vigolium /usr/local/bin/vigolium
+
+USER vigolium
+WORKDIR /home/vigolium
+
+ENTRYPOINT ["vigolium"]

@@ -1,0 +1,9 @@
+id: security-nextjs-broad-remote-patterns
+language: typescript
+severity: warning
+message: "Security: broad remotePatterns hostname — overly permissive image optimization allows SSRF via /_next/image"
+note: "Wildcard hostnames in remotePatterns (e.g. '**' or '*') allow the image optimization endpoint to fetch from arbitrary hosts, enabling SSRF attacks."
+rule:
+  any:
+    - pattern: "hostname: \"**\""
+    - pattern: "hostname: \"*\""

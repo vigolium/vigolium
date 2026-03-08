@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Form Input Test</title>
+</head>
+<body>
+    <h1>Form Input Test</h1>
+
+    <form id="testForm" action="/submit" method="POST">
+        <!-- Text inputs -->
+        <input type="text" id="name" name="name" placeholder="Name">
+        <input type="email" id="email" name="email" placeholder="Email">
+        <input type="password" id="password" name="password" placeholder="Password">
+        <input type="number" id="age" name="age" placeholder="Age">
+        <input type="tel" id="phone" name="phone" placeholder="Phone">
+        <input type="url" id="website" name="website" placeholder="Website">
+        <input type="search" id="search" name="search" placeholder="Search">
+
+        <!-- Textarea -->
+        <textarea id="bio" name="bio" placeholder="Bio"></textarea>
+
+        <!-- Hidden -->
+        <input type="hidden" id="hidden_field" name="hidden_field" value="">
+
+        <!-- Checkbox -->
+        <input type="checkbox" id="agree" name="agree" value="yes">
+        <label for="agree">I agree</label>
+
+        <input type="checkbox" id="subscribe" name="subscribe" value="yes">
+        <label for="subscribe">Subscribe</label>
+
+        <!-- Radio buttons -->
+        <input type="radio" id="gender_m" name="gender" value="male">
+        <label for="gender_m">Male</label>
+
+        <input type="radio" id="gender_f" name="gender" value="female">
+        <label for="gender_f">Female</label>
+
+        <input type="radio" id="gender_o" name="gender" value="other">
+        <label for="gender_o">Other</label>
+
+        <!-- Radio without name (for testing Crawljax parity - no name required) -->
+        <input type="radio" id="option_a" value="a">
+        <label for="option_a">Option A</label>
+
+        <input type="radio" id="option_b" value="b">
+        <label for="option_b">Option B</label>
+
+        <!-- Select -->
+        <select id="country" name="country">
+            <option value="">Select Country</option>
+            <option value="us">United States</option>
+            <option value="uk">United Kingdom</option>
+            <option value="ca">Canada</option>
+            <option value="au">Australia</option>
+        </select>
+
+        <!-- Multi-select -->
+        <select id="languages" name="languages" multiple>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+        </select>
+
+        <!-- Date/Time -->
+        <input type="date" id="birthdate" name="birthdate">
+        <input type="time" id="meeting_time" name="meeting_time">
+
+        <!-- Color/Range -->
+        <input type="color" id="fav_color" name="fav_color" value="#000000">
+        <input type="range" id="satisfaction" name="satisfaction" min="0" max="10" value="5">
+
+        <!-- File upload -->
+        <input type="file" id="avatar" name="avatar" accept="image/*">
+        <input type="file" id="documents" name="documents" accept=".pdf,.doc,.docx" multiple>
+
+        <!-- Hidden file input with button trigger -->
+        <input type="file" id="hidden_upload" name="hidden_upload" accept="image/*" style="display:none">
+        <button type="button" id="upload_btn" onclick="document.getElementById('hidden_upload').click()">Upload Image</button>
+
+        <!-- Hidden file input with label trigger -->
+        <input type="file" id="labeled_upload" name="labeled_upload" accept=".pdf" hidden>
+        <label for="labeled_upload" id="upload_label">Click to upload PDF</label>
+
+        <!-- Disabled/Readonly -->
+        <input type="text" id="disabled_field" name="disabled_field" disabled value="Cannot edit">
+        <input type="text" id="readonly_field" name="readonly_field" readonly value="Read only">
+
+        <!-- Submit -->
+        <button type="submit">Submit</button>
+    </form>
+
+    <!-- Standalone input (not in form) -->
+    <input type="text" id="standalone" name="standalone" placeholder="Standalone input">
+</body>
+</html>

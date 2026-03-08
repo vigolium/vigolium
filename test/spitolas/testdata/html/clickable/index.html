@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Clickable Elements</title>
+    <script language="javascript" src="../lib/jquery-2.0.3.min.js" type="text/javascript"></script>
+
+</head>
+<body>
+
+<script>
+    $(document).ready(function(){
+        setEventHandlers();
+    });
+    function setEventHandlers(){
+        $('#clickable').click(function(){ openPage("clicked.html") } );
+        $('#ignore').hover(function(){ addError("Crawljax should ignore me") } );
+    }
+    function openPage(page){
+        $('#content').load(page);
+    }
+    function addError(msg){
+        $('#errors').show();
+        $('#errors').html($('#errors').html() + "<p>ERROR: " + msg + "</p>");
+    }
+</script>
+<div id="clickable"> clickable </div>
+
+<div id="ignore"> not clickable </div>
+<div id="content"></div>
+<div id="errors" style="display: none;"></div>
+</body>
+</html>

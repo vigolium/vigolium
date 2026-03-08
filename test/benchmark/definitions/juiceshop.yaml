@@ -1,0 +1,231 @@
+app:
+  name: juiceshop
+  type: docker
+  image: "bkimminich/juice-shop:latest"
+  port: 3000
+  wait_endpoint: "/"
+  startup_timeout: 120s
+
+test_cases:
+  # === Active Module Tests ===
+  # Reference: OWASP Juice Shop Write-Up (v2.19.1) challenges
+
+  # SQLi - Product search (Challenge 18: "Retrieve all user credentials via SQLi")
+  # Confirmed: /rest/products/search?q='))-- returns all products (SQLi bypass)
+  # Confirmed: UNION payload triggers SQLITE_ERROR in response
+  # Note: single quote alone is handled by Sequelize, need ')) to break out
+  - id: "juiceshop-sqli-search"
+    endpoint: "/rest/products/search?q=apple"
+    method: GET
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in product search - Sequelize/SQLite (needs ')) to break out)"
+
+  # XSS - Product search (Challenge 3: "Perform a reflected XSS attack")
+  # The search returns JSON (application/json), not HTML, so reflected XSS
+  # won't be detected via response body reflection. The actual XSS is DOM-based
+  # via Angular rendering. Keep as soft assertion for module coverage.
+  - id: "juiceshop-xss-search"
+    endpoint: "/rest/products/search?q=test"
+    method: GET
+    modules: ["active-xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XSS in product search - JSON response, DOM-based via Angular"
+
+  # CORS Misconfiguration (writeup: Access-Control-Allow-Origin: * on all endpoints)
+  # Confirmed: Juice Shop returns ACAO:* on all responses
+  # Note: The CORS module checks for reflected origin, null origin, wildcard+credentials,
+  # and subdomain bypass. Simple ACAO:* without credentials may not trigger.
+  - id: "juiceshop-cors-api"
+    endpoint: "/api/Products/"
+    method: GET
+    modules: ["active-cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS wildcard on API Products endpoint (ACAO:* confirmed)"
+
+  # CRLF Injection on search
+  - id: "juiceshop-crlf-search"
+    endpoint: "/rest/products/search?q=test"
+    method: GET
+    modules: ["active-crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection on product search endpoint"
+
+  # XXE in B2B orders (Challenge: XXE in file upload/API)
+  - id: "juiceshop-xxe"
+    endpoint: "/b2b/v2/orders"
+    method: GET
+    modules: ["active-xxe-generic"]
+    vuln_types: ["xxe"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XXE in B2B orders endpoint"
+
+  # XXE via XML body (INS_PARAM_XML) - tests XML parameter insertion points
+  - id: "juiceshop-xxe-xml-body"
+    endpoint: "/b2b/v2/orders"
+    method: POST
+    headers:
+      Content-Type: "application/xml"
+    body: '<?xml version="1.0"?><order><id>1</id><qty>1</qty></order>'
+    modules: ["active-xxe-generic"]
+    vuln_types: ["xxe"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XXE via XML body on B2B orders endpoint (INS_PARAM_XML coverage)"
+
+  # Host Header Injection
+  - id: "juiceshop-host-header"
+    endpoint: "/"
+    method: GET
+    modules: ["active-host-header-injection"]
+    vuln_types: ["host-header-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Host header injection on main page"
+
+  # SSTI Detection on search
+  - id: "juiceshop-ssti-search"
+    endpoint: "/rest/products/search?q=test"
+    method: GET
+    modules: ["active-reflected-ssti"]
+    vuln_types: ["ssti"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SSTI detection via product search parameter"
+
+  # Path normalization on API
+  - id: "juiceshop-path-normalization"
+    endpoint: "/api/Products/"
+    method: GET
+    modules: ["active-path-normalization"]
+    vuln_types: ["path-normalization"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Path normalization issues on Products API"
+
+  # === Passive Module Tests ===
+
+  # Security Headers (Confirmed: missing CSP, HSTS, Permissions-Policy)
+  # The module checks HTML responses for missing headers. Juice Shop has
+  # X-Content-Type-Options and X-Frame-Options but is missing CSP, HSTS, etc.
+  - id: "juiceshop-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-security-headers-missing"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing CSP, HSTS, Permissions-Policy (confirmed)"
+
+  # Info Disclosure - FTP directory listing (Challenge 5: "Access a confidential document")
+  # Confirmed: /ftp/ returns HTML directory listing with sensitive files
+  # (acquisitions.md, coupons_2013.md.bak, incident-support.kdbx, package.json.bak)
+  # Module detects: <title>Directory listing for, Parent Directory, Index of
+  - id: "juiceshop-ftp-listing"
+    endpoint: "/ftp/"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "FTP directory listing exposes sensitive files (acquisitions.md, .bak files, .kdbx)"
+
+  # Info Disclosure - API Products (exposes internal data without auth)
+  - id: "juiceshop-api-products-disclosure"
+    endpoint: "/api/Products/"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Products API exposes internal data structure (IDs, prices, timestamps)"
+
+  # Info Disclosure - Swagger UI exposed (Challenge: API documentation)
+  # Confirmed: /api-docs/ returns Swagger UI (200)
+  - id: "juiceshop-swagger-ui"
+    endpoint: "/api-docs/"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Swagger UI exposed at /api-docs/ (full API documentation)"
+
+  # Info Disclosure - Server powered by Express (X-Powered-By header)
+  - id: "juiceshop-xpoweredby"
+    endpoint: "/rest/products/search?q=test"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "X-Powered-By header may expose Express framework"
+
+  # DOM XSS Detection
+  - id: "juiceshop-dom-xss"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-dom-xss-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "DOM XSS sinks in Angular SPA JavaScript"
+
+  # Sourcemap Detection
+  - id: "juiceshop-sourcemap"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-sourcemap-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "JavaScript source maps exposed"
+
+  # Cookie Security
+  - id: "juiceshop-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cookie security flags check"
+
+  # Open Redirect Parameters (Challenge 30: open redirect via /redirect?to=)
+  # Confirmed: /redirect?to=https://github.com/juice-shop/juice-shop returns 302
+  - id: "juiceshop-openredirect-passive"
+    endpoint: "/redirect?to=https://github.com/juice-shop/juice-shop"
+    method: GET
+    modules: ["passive-openredirect-params"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Open redirect parameter 'to' in URL (Challenge 30)"
+
+  # Content Type Mismatch on API endpoint
+  - id: "juiceshop-content-type"
+    endpoint: "/api/Products/"
+    method: GET
+    modules: ["passive-content-type-mismatch"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: passive
+    description: "Content type mismatch check on Products API (JSON response)"

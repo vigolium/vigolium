@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "flask",
+    "template": "security-code-review",
+    "agent_name": "claude",
+    "output_schema": "findings",
+    "generated_at": "2026-02-15T10:45:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "{\"findings\": [{\"title\": \"Reflected Parameter in JSON Response\", \"description\": \"The list_users endpoint echoes the 'q' query parameter directly in the JSON response without sanitization. If this response is rendered in an HTML context, it could lead to XSS.\", \"severity\": \"medium\", \"confidence\": \"firm\", \"file\": \"app.py\", \"line\": 15, \"snippet\": \"return jsonify({\\\"query\\\": q, \\\"page\\\": page})\", \"cwe\": \"CWE-79\", \"tags\": [\"xss\", \"reflection\"]}, {\"title\": \"Unrestricted File Upload Endpoint\", \"description\": \"The /upload endpoint accepts file uploads without validating file type, size, or content. This could allow uploading of malicious files.\", \"severity\": \"high\", \"confidence\": \"firm\", \"file\": \"app.py\", \"line\": 30, \"snippet\": \"file = request.args.get('file')\", \"cwe\": \"CWE-434\", \"tags\": [\"file-upload\"]}, {\"title\": \"Missing CSRF Protection\", \"description\": \"The Flask application does not use Flask-WTF or any CSRF protection mechanism. State-changing POST and DELETE endpoints are vulnerable to CSRF attacks.\", \"severity\": \"medium\", \"confidence\": \"tentative\", \"file\": \"app.py\", \"line\": 1, \"snippet\": \"app = Flask(__name__)\", \"cwe\": \"CWE-352\", \"tags\": [\"csrf\"]}, {\"title\": \"Debug Mode Potentially Enabled\", \"description\": \"The application structure suggests debug mode may be enabled in production, which exposes the Werkzeug debugger and allows remote code execution.\", \"severity\": \"high\", \"confidence\": \"tentative\", \"file\": \"app.py\", \"line\": 50, \"snippet\": \"app.run()\", \"cwe\": \"CWE-489\", \"tags\": [\"configuration\"]}]}",
+  "parsed": {
+    "finding_count": 4,
+    "record_count": 0
+  }
+}

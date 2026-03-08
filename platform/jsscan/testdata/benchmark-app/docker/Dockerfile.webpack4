@@ -1,0 +1,25 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install base dependencies first
+RUN npm install --legacy-peer-deps
+
+# Install webpack 4 specifically with compatible ts-loader
+# ts-loader@8 is the last version that supports webpack 4
+RUN npm install webpack@4 webpack-cli@4 ts-loader@8 --save-dev --legacy-peer-deps
+
+# Copy source and config
+COPY tsconfig.json ./
+COPY src/ ./src/
+COPY configs/webpack4.config.js ./configs/
+COPY configs/tsconfig.webpack4.json ./configs/
+
+# Build with webpack 4
+RUN npx webpack --config configs/webpack4.config.js
+
+# Output will be in /app/dist/webpack4/bundle.js
+CMD ["ls", "-la", "dist/webpack4/"]

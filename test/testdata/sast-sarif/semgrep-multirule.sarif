@@ -1,0 +1,34 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "rules": [
+            { "id": "rule-sqli-1", "defaultConfiguration": { "level": "error" }, "properties": { "tags": [] } },
+            { "id": "rule-xss-1", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": [] } },
+            { "id": "rule-ssrf-1", "defaultConfiguration": { "level": "error" }, "properties": { "tags": [] } },
+            { "id": "rule-idor-1", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": [] } },
+            { "id": "rule-info-1", "defaultConfiguration": { "level": "note" }, "properties": { "tags": [] } },
+            { "id": "rule-crypto-1", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": [] } }
+          ]
+        }
+      },
+      "results": [
+        { "ruleId": "rule-sqli-1", "message": { "text": "SQL injection in query builder" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "db/query.py" }, "region": { "startLine": 10, "endLine": 10 } } }] },
+        { "ruleId": "rule-sqli-1", "message": { "text": "SQL injection in search handler" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "api/search.py" }, "region": { "startLine": 22, "endLine": 24 } } }] },
+        { "ruleId": "rule-xss-1", "message": { "text": "Reflected XSS in template" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "templates/user.html" }, "region": { "startLine": 5, "endLine": 5 } } }] },
+        { "ruleId": "rule-xss-1", "message": { "text": "Stored XSS in comment" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "api/comments.py" }, "region": { "startLine": 33, "endLine": 35 } } }] },
+        { "ruleId": "rule-ssrf-1", "message": { "text": "Server-side request forgery" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "api/proxy.py" }, "region": { "startLine": 12, "endLine": 14 } } }] },
+        { "ruleId": "rule-ssrf-1", "message": { "text": "SSRF via webhook URL" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "api/webhooks.py" }, "region": { "startLine": 8, "endLine": 8 } } }] },
+        { "ruleId": "rule-idor-1", "message": { "text": "Insecure direct object reference" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "api/users.py" }, "region": { "startLine": 45, "endLine": 47 } } }] },
+        { "ruleId": "rule-info-1", "message": { "text": "Debug mode enabled" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "config.py" }, "region": { "startLine": 3, "endLine": 3 } } }] },
+        { "ruleId": "rule-info-1", "message": { "text": "Verbose error messages" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "app.py" }, "region": { "startLine": 77, "endLine": 77 } } }] },
+        { "ruleId": "rule-crypto-1", "message": { "text": "Weak hashing algorithm MD5" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "auth/hash.py" }, "region": { "startLine": 19, "endLine": 19 } } }] },
+        { "ruleId": "rule-crypto-1", "message": { "text": "Hardcoded secret key" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "settings.py" }, "region": { "startLine": 11, "endLine": 11 } } }] }
+      ]
+    }
+  ]
+}

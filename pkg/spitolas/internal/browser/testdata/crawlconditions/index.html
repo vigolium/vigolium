@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Index</title>
+</head>
+<body>
+<div>
+    <h1>Index</h1>
+    <p>This is the index. All other pages should not be crawled due to
+        crawl conditions.</p>
+</div>
+<button onclick="loadHtml('DONT-CRAWL-' + 'THIS-STATE');">Regex</button>
+<button onclick="loadIllegalP();">Illegal P</button>
+
+<div id='container'>This is the container. Text and html will be
+    loaded here.
+</div>
+
+<p id='url'></p>
+<script src="../lib/jquery-2.0.3.min.js"></script>
+<script>
+		function loadHtml(text) {
+			$("#container").html(text);
+		}
+
+		function loadIllegalP() {
+			loadHtml("<p id='noCrawl'>Don't crawl this<p>");
+		}
+
+</script>
+</body>
+</html>

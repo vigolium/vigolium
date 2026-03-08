@@ -1,0 +1,7 @@
+services:
+  vulnerable-nginx:
+    image: detectify/vulnerable-nginx:latest
+    container_name: vulnerable-nginx
+    ports:
+      - "5000:80"
+    restart: unless-stopped

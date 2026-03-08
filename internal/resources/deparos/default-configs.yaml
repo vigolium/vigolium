@@ -1,0 +1,1071 @@
+# ==============================================================================
+# TARGET
+# ==============================================================================
+
+# Target URL to start the discovery process (required)
+# url: http://example.com/app/
+
+# File containing list of target URLs (one URL per line)
+# Use instead of --url when scanning multiple targets.
+# target-file: /path/to/targets.txt
+
+# Discovery mode: files_and_dirs, files_only, or dirs_only
+mode: files_and_dirs
+
+# Enable directory recursion (default: false)
+recursion: false
+
+# Maximum recursion depth (1-32767, default: 16)
+max-depth: 3
+
+# ==============================================================================
+# SCOPE (for content extracted from response)
+# ==============================================================================
+
+# URL scope checking for content extracted from response:
+# - Spider links (href, src, action, ...)
+# - JavaScript URLs
+# - Form actions
+# - Redirect targets
+#
+# Does NOT affect wordlist brute-force (always runs on target URL).
+#
+# Modes:
+#   any       - No restrictions, process all extracted URLs
+#   subdomain - Only process URLs with same main domain (eTLD+1) as target (default)
+#   exact     - Only process URLs with exact same host as target
+scope: subdomain
+
+# ==============================================================================
+# WORDLISTS
+# ==============================================================================
+
+# Wordlist paths - provide path to enable, leave empty/omit to disable
+# Empty path = disabled, non-empty path = enabled (no boolean flags needed)
+
+# Short file wordlist (fast scan with common filenames)
+# Paths are relative to ~/.config/deparos/
+short-file-wordlist: wordlists/file-short.txt
+
+# Long file wordlist (thorough scan with extensive filenames)
+long-file-wordlist: wordlists/file-long.txt
+
+# Short directory wordlist (fast scan with common directories)
+short-dir-wordlist: wordlists/dir-short.txt
+
+# Long directory wordlist (thorough scan with extensive directories)
+long-dir-wordlist: wordlists/dir-long.txt
+
+# Custom fuzz wordlist (replaces FUZZ marker in URL with each word).
+# Use with --url http://example.com/FUZZ to test arbitrary positions.
+# Runs at lowest priority (after all other wordlists).
+# fuzz-wordlist: /path/to/fuzz-wordlist.txt
+
+# ==============================================================================
+# FILENAME BEHAVIOR
+# ==============================================================================
+
+# Use names collected from spider ("name replay" phase).
+# Spider records all actual filenames then engine retries those names on all
+# known directories. Disable when target returns too much noise.
+observed-names: true
+
+# Collect URL paths from spider ("path replay" phase).
+# When spider discovers `/api/v1/users/123`, engine will:
+#   1. Save full path `/api/v1/users/` to observedPaths
+#   2. Extract segments `api`, `v1`, `users`, `123` to observedNames
+# Then try these paths as directories on all known directories.
+# Useful for finding hidden endpoints with similar structure.
+observed-paths: true
+
+# Check full observed filenames (e.g. 'app.b5ca88ec.js').
+# Spider records literal filenames from link extraction. When enabled, engine
+# will try these names on all known directories.
+# Useful for finding JS bundles with hash in filename.
+observed-files: true
+
+# Generate numeric variants from discovered names ("numeric fuzzing" phase).
+# Example: seeing `page1.php` will auto-try `page2.php`, `page0.php`, `page10.php`.
+# Useful for finding sequentially numbered pages.
+numeric-fuzzing: true
+
+# Enable malformed path probing using embedded fuzz.txt wordlist.
+# Tests each discovered directory with path traversals, dotfiles, sensitive config
+# files, backup probes, etc. (~5,366 payloads per directory).
+# Runs at priority 10 (after long wordlists, before general fuzzer).
+enable-malformed-path-probe: false
+
+# ==============================================================================
+# WORDLIST EXTRACTION
+# ==============================================================================
+
+# Extract words from response body to supplement runtime wordlist.
+# When enabled, engine will parse HTML/JSON/JS/CSS responses and extract
+# meaningful tokens (class names, API endpoints, JS variables, etc.) then add
+# to observedNames to try on other directories.
+extract-words: false
+
+# Delimiter characters preserved in extracted words.
+# Example with "-_": "admin-api" will produce ["admin", "api", "admin-api"]
+# instead of just ["admin", "api"].
+extract-delims: "-_"
+
+# Maximum number of segments combined with delimiter.
+# Example with max-combine=2: "admin-api-v2" → ["admin-api", "api-v2"]
+# With max-combine=3: adds ["admin-api-v2"]
+extract-max-combine: 2
+
+# Minimum word length (skip tokens shorter than this).
+extract-min-length: 3
+
+# Maximum word length (skip tokens longer than this).
+extract-max-length: 64
+
+# ==============================================================================
+# EXTENSION STRATEGY
+# ==============================================================================
+
+# Check custom extensions ("custom extension sweep" phase).
+# Usually runs first with fixed list (php, asp, ...), suitable when backend
+# technology is known.
+custom-extensions: false
+
+# Check extensions discovered by spider ("observed extension replay" phase).
+# Spider records actual file extensions (e.g. `.action`). When enabled, engine
+# will try all names with those extensions - useful after spider completes or
+# when periodically filling cache.
+observed-extensions: true
+
+# Check variant extensions ("backup sweep" phase).
+# When `admin.php` is discovered, engine adds tasks with backup/temp suffixes
+# from `variant-ext-list`. Very useful after finding valid files.
+variant-extensions: false
+
+# Check names without extension ("extensionless replay" phase).
+# Enable to try paths like `/admin`, `/backup`. Disable if server only serves
+# files with specific extensions.
+no-extension: true
+
+# ==============================================================================
+# EXTENSION LISTS
+# ==============================================================================
+
+# Custom extension list:
+# - Applied to all filenames in wordlist.
+# - Can add/remove based on stack (e.g. `phtml`, `cfm`).
+custom-ext-list:
+  - php
+  - asp
+  - aspx
+  - jsp
+  - jspa
+  - do
+  - html
+  - htm
+
+# Variant list (Burp standard, priority order preserved).
+# List is quite long and request-heavy, consider trimming if target is weak.
+variant-ext-list:
+  - "~1"
+  - "$$$"
+  - "1"
+  - bac
+  - backup
+  - bak
+  - conf
+  - cs
+  - csproj
+  - gz
+  - inc
+  - ini
+  - java
+  - log
+  - old
+  - sav
+  - tar
+  - tmp
+  - zip
+  - "~bk"
+  - "0"
+  - BAC
+  - BACKUP
+  - BAK
+  - OLD
+  - INC
+  - lst
+  - orig
+  - ORIG
+  - save
+  - temp
+  - TMP
+  - "-OLD"
+  - "-old"
+  - vbproj
+  - vb
+
+# ==============================================================================
+# PERFORMANCE
+# ==============================================================================
+
+# Number of discovery threads (1-255, default: 40).
+# This is the main pool performing HTTP brute-force - each thread is a worker
+# in the "discovery execution" phase. Spider link extraction and JS fetching
+# also use this pool through unified task queue.
+threads: 40
+
+# Case sensitivity mode: sensitive, insensitive, or auto_detect.
+# Auto-detect based on 404 response then fixed for entire job.
+case: auto_detect
+
+# ==============================================================================
+# TIMEOUTS AND LIMITS
+# ==============================================================================
+
+# Timeout per HTTP request (1-300 seconds, default: 10).
+# Applies to each HTTP task, does not affect global deadline.
+http-timeout: 10
+
+# Maximum runtime for entire job (e.g., 30s, 5m, 1h). 0 = no limit.
+# When time expires, engine sends stop signal to all workers.
+max-duration: 0
+
+# Exit after N consecutive network errors (0 = disable).
+# Useful when server is unresponsive or connection is dropped.
+max-errors: 100
+
+# Exit after N consecutive WAF/CDN blocked responses (0 = disable).
+# Detects WAFs: Cloudflare, Akamai, AWS WAF, F5 BIG-IP, Imperva, Sucuri, ModSecurity.
+# When enabled, engine analyzes response headers and body to identify block pages.
+max-waf-blocks: 100
+
+# Maximum items per observed provider (names/extensions/paths).
+# When limit is reached, items with lowest frequency are evicted (removes 20%).
+# Larger value = find more patterns but uses more RAM.
+observed-max-items: 5000
+
+# ==============================================================================
+# MODULES
+# ==============================================================================
+
+# Enable/disable module system (default: true)
+modules: true
+
+# Specific modules to enable (empty = all)
+# enable-module:
+#  - js
+#  - api
+
+# Modules to disable
+# disable-module:
+#  - backup
+
+# ==============================================================================
+# HTTP REQUEST
+# ==============================================================================
+
+# Custom HTTP headers (list, one header 'Key: Value' per line).
+# Useful for adding authentication, custom user-agent, or bypass headers.
+# header:
+#  - "Authorization: Bearer token123"
+#  - "X-Custom-Header: value"
+#  - "User-Agent: Mozilla/5.0 (compatible; Deparos/1.0)"
+
+# Path to raw HTTP request file.
+# File contains full HTTP request including headers and body.
+# Completely replaces default request template.
+# raw-request: /path/to/request.txt
+
+# Enable cookie jar to maintain session cookies between requests.
+# When enabled, crawler will automatically save and send cookies received
+# from Set-Cookie headers.
+# Useful when scanning targets requiring authentication or session tracking.
+enable-cookies: false
+
+# ==============================================================================
+# THIRD-PARTY INTELLIGENCE
+# ==============================================================================
+
+# Collect information from third-party sources (Wayback Machine, etc.).
+# Helps discover hidden endpoints and files from archive.org crawl history.
+# Engine will extract URLs and paths from historical snapshots.
+3rd: true
+
+# ==============================================================================
+# SECRET SCANNING
+# ==============================================================================
+
+# Disable kingfisher secret scanning (default: false = enabled).
+# Kingfisher scans HTTP responses to detect exposed secrets like API keys,
+# MongoDB URIs, tokens, SSH keys, etc. Disable if not needed or to speed up.
+disable-kingfisher: true
+
+# ==============================================================================
+# OUTPUT
+# ==============================================================================
+
+# Output file path (empty = print to stdout)
+# output: results.txt
+
+# Output format:
+#   jsonl – convenient for automation (jq, pipeline), one JSON object per line.
+#   text – human-readable, use directly on terminal.
+#   html – HTML report with nice interface.
+#   csv – easy to import into spreadsheet.
+format: jsonl
+
+# Send results to Telegram.
+# Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID configured in environment.
+notify: false
+
+# Verbosity level: 0=silent (default), 1=info, 2=debug
+verbose: 0
+
+# Disable colors in output
+no-color: false
+
+# Suppress all output (banner, logs, progress, results).
+# Results are still saved to database/file if specified.
+# Useful for scripting or when only exit code matters.
+silent: false
+
+# SQLite database path for sitemap storage (empty = create temp file).
+# db: /path/to/discovery.db
+
+# Custom session name (default: auto-generated UUID).
+# Useful for naming different scans descriptively.
+# session-name: my-target-scan-2024
+
+# Save HTTP response body to database (default: false, saves storage).
+# Enable when detailed response analysis is needed later.
+save-response-body: false
+
+# ==============================================================================
+# MODULE DEFINITIONS (inline)
+# ==============================================================================
+#
+# Pattern Types Reference:
+# - path_contains: substring match in full path
+# - path_prefix: path starts with value
+# - path_suffix: path ends with value (use for directory matching like /js/)
+# - path_exact: exact path match
+# - path_regex: regex match on full path
+# - segment_exact: exact match on any path segment
+# - segment_contains: substring match on any path segment
+# - segment_prefix: segment starts with value
+# - segment_suffix: segment ends with value
+# - segment_regex: regex match on any path segment
+# - file_extension: match file extension (case-insensitive)
+# - file_name: match exact filename
+# - file_glob: glob pattern on filename
+#
+# Task Configuration:
+# tasks:
+#   - wordlist: observed_names | observed_paths | short_files | long_files | short_dirs | long_dirs | custom
+#     extensions: [ext1, ext2]  # Required (empty [] = no extension)
+#     priority: 0-14            # Optional, defaults to 6
+#     file: /path/to/wordlist   # For custom wordlist from file
+#     inline: [word1, word2]    # For custom inline wordlist
+
+module-definitions:
+  built_in:
+    - wildcard # Only keep wildcard as builtin
+  disabled: []
+
+  custom:
+    # =========================================================================
+    # BACKUP MODULE (replaces backup.go)
+    # Matches: /backup/, /bak/, /old/, /dump/, /archive/, /temp/, /tmp/
+    # Actions: Highest priority (0), test with backup extensions
+    # =========================================================================
+    - name: backup
+      description: Backup/archive directories - highest priority with backup extensions
+      enabled: true
+      priority: 10
+      patterns:
+        # Match any path segment containing these keywords
+        # e.g., /mybackup/, /data-bak/, /archive_2024/
+        - type: segment_contains
+          value: backup
+        - type: segment_contains
+          value: bak
+        - type: segment_regex
+          value: "^old"
+        - type: segment_contains
+          value: dump
+        - type: segment_contains
+          value: archive
+        - type: segment_regex
+          value: "^temp"
+        - type: segment_contains
+          value: tmp
+      actions:
+        tasks:
+          # Test observed names with backup extensions at highest priority
+          - wordlist: observed_names
+            extensions:
+              [
+                sql,
+                tar,
+                tar.gz,
+                tgz,
+                gz,
+                zip,
+                bak,
+                backup,
+                old,
+                dump,
+                sql.gz,
+                sql.bz2,
+                sql.zip,
+              ]
+            priority: 0
+          # Also test short file list with backup extensions
+          - wordlist: short_files
+            extensions: [sql, tar, gz, zip, bak]
+            priority: 4
+
+    # =========================================================================
+    # JS MODULE (replaces js.go)
+    # Matches: /js/, /scripts/, /javascript/ directories OR .js/.mjs files
+    # Actions: Test with JS-specific extensions
+    # =========================================================================
+    - name: js
+      description: JavaScript directories and files - use JS-specific extensions
+      enabled: true
+      priority: 50
+      patterns:
+        # Directory patterns: path must END with these
+        - type: path_suffix
+          value: /js/
+        - type: path_suffix
+          value: /scripts/
+        - type: path_suffix
+          value: /javascript/
+        # File patterns: match by extension
+        - type: file_extension
+          value: js
+        - type: file_extension
+          value: mjs
+      actions:
+        tasks:
+          # Test observed names with JS extensions
+          - wordlist: observed_names
+            extensions: [js, min.js]
+            priority: 1
+
+    # =========================================================================
+    # TEMPLATE MODULE
+    # Matches: /template/, /templates/ directories
+    # Actions: Test with HTML extensions
+    # =========================================================================
+    - name: template
+      description: Template directories - use HTML extensions
+      enabled: true
+      priority: 50
+      patterns:
+        # Directory patterns: path must END with these
+        - type: segment_exact
+          value: template
+        - type: segment_exact
+          value: templates
+      actions:
+        tasks:
+          # Test observed names with HTML extensions
+          - wordlist: long_files
+            extensions: [html]
+            priority: 1
+
+    # =========================================================================
+    # STATIC MODULE (replaces static.go)
+    # Matches: /images/, /img/, /media/, /fonts/, /css/, /styles/, /stylesheets/
+    # Actions: Stop recursion, skip task generation, block all tasks in these paths
+    # =========================================================================
+    - name: static
+      description: Static asset directories (images, fonts, CSS) - stop recursion
+      enabled: true
+      priority: 40
+      patterns:
+        # Images
+        - type: segment_exact
+          value: images
+        - type: segment_exact
+          value: img
+        - type: segment_exact
+          value: imgs
+        - type: segment_exact
+          value: media
+        # Fonts
+        - type: segment_exact
+          value: fonts
+        # CSS/Styles
+        - type: segment_exact
+          value: css
+        - type: segment_exact
+          value: styles
+        - type: segment_exact
+          value: stylesheets
+        - type: segment_exact
+          value: tinymce
+        - type: segment_exact
+          value: ckeditor
+      actions:
+        stop_recursion: true
+        skip_default_logic: true
+        # Block ALL tasks containing these path segments
+        block_task_patterns:
+          - "/images/"
+          - "/img/"
+          - "/imgs/"
+          - "/media/"
+          - "/fonts/"
+          - "/css/"
+          - "/styles/"
+          - "/stylesheets/"
+          - "/tinymce/"
+          - "/ckeditor/"
+
+    # =========================================================================
+    # DOCS MODULE
+    # Matches: /docs/, /swagger/, /api-docs/, /openapi/, /graphiql/, etc.
+    # Actions: Test documentation files and info disclosure endpoints
+    # =========================================================================
+    - name: docs
+      description: API documentation - Swagger, OpenAPI, GraphiQL, info disclosure
+      enabled: true
+      priority: 8
+      patterns:
+        # Documentation directories
+        - type: segment_exact
+          value: docs
+        - type: segment_exact
+          value: documentation
+        - type: segment_exact
+          value: doc
+        - type: segment_exact
+          value: api-docs
+        - type: segment_exact
+          value: apidocs
+        # Swagger/OpenAPI
+        - type: segment_exact
+          value: swagger
+        - type: segment_exact
+          value: swagger-ui
+        - type: segment_exact
+          value: openapi
+        - type: segment_exact
+          value: redoc
+        # GraphQL playgrounds
+        - type: segment_exact
+          value: graphiql
+        - type: segment_exact
+          value: playground
+        - type: segment_exact
+          value: explorer
+        - type: segment_exact
+          value: graphql-playground
+        # API versions with docs
+        - type: path_suffix
+          value: /api-docs/
+        - type: path_suffix
+          value: /swagger-ui/
+        # Common documentation files
+        - type: file_name
+          value: swagger.json
+          match_files: true
+        - type: file_name
+          value: swagger.yaml
+          match_files: true
+        - type: file_name
+          value: openapi.json
+          match_files: true
+        - type: file_name
+          value: openapi.yaml
+          match_files: true
+        - type: file_name
+          value: api.json
+          match_files: true
+        - type: file_name
+          value: api.yaml
+          match_files: true
+      actions:
+        tasks:
+          # High-value doc files (swagger-ui, redoc often have no extension)
+          - wordlist: custom
+            inline:
+              - swagger-ui
+              - swagger-ui.html
+              - swagger-resources
+              - api-docs
+              - v2/api-docs
+              - v3/api-docs
+              - openapi
+              - openapi.json
+              - openapi.yaml
+              - swagger.json
+              - swagger.yaml
+              - redoc
+              - graphiql
+              - graphql-playground
+              - playground
+              - explorer
+              - api
+              - api/v1
+              - api/v2
+              - api/v3
+              - docs/api
+              - documentation
+              - reference
+              - schema
+              - schema.json
+              - schema.graphql
+              - introspection
+            extensions: []
+            priority: 2
+          # Test observed_names with doc extensions
+          - wordlist: observed_names
+            extensions: [json, yaml, yml, html]
+            priority: 3
+
+    # =========================================================================
+    # API MODULE
+    # Matches: /api/, /graphql/, /rest/, /soap/, /webservice/, versioned APIs
+    # Actions: Test common API resource names and endpoints
+    # =========================================================================
+    - name: api
+      description: REST/GraphQL/SOAP API endpoints - high value targets
+      enabled: true
+      priority: 5
+      patterns:
+        # Core API directories
+        - type: segment_exact
+          value: api
+        - type: segment_exact
+          value: apis
+        - type: segment_exact
+          value: rest
+        - type: segment_exact
+          value: restful
+        # GraphQL
+        - type: segment_exact
+          value: graphql
+        - type: segment_exact
+          value: gql
+        - type: segment_exact
+          value: query
+        # SOAP/Web Services
+        - type: segment_exact
+          value: soap
+        - type: segment_exact
+          value: ws
+        - type: segment_exact
+          value: wsdl
+        - type: segment_exact
+          value: webservice
+        - type: segment_exact
+          value: webservices
+        - type: segment_exact
+          value: service
+        - type: segment_exact
+          value: services
+        - type: segment_exact
+          value: rpc
+        - type: segment_exact
+          value: jsonrpc
+        - type: segment_exact
+          value: xmlrpc
+        # Versioned API patterns
+        - type: segment_regex
+          value: "^v[0-9]+$"
+        - type: path_regex
+          value: "/api/v[0-9]+/"
+        # Internal/private APIs
+        - type: segment_exact
+          value: internal
+        - type: segment_exact
+          value: private
+        - type: segment_exact
+          value: external
+        - type: segment_exact
+          value: public
+        # Backend/Gateway
+        - type: segment_exact
+          value: gateway
+        - type: segment_exact
+          value: proxy
+        # Data endpoints
+        - type: segment_exact
+          value: data
+        - type: segment_exact
+          value: json
+        - type: segment_exact
+          value: xml
+        - type: segment_exact
+          value: feed
+        - type: segment_exact
+          value: feeds
+      actions:
+        tasks:
+          # Critical: Common API resource names (no extension - REST style)
+          - wordlist: custom
+            inline:
+              # User/Auth resources
+              - users
+              - user
+              - me
+              - profile
+              - profiles
+              - account
+              - accounts
+              - auth
+              - authenticate
+              - authentication
+              - login
+              - logout
+              - register
+              - signup
+              - signin
+              - token
+              - tokens
+              - refresh
+              - session
+              - sessions
+              - oauth
+              - oauth2
+              - authorize
+              - permissions
+              - roles
+              - groups
+              # CRUD resources
+              - create
+              - read
+              - update
+              - delete
+              - list
+              - get
+              - post
+              - put
+              - patch
+              - search
+              - query
+              - filter
+              - sort
+              - page
+              - paginate
+              # Data resources
+              - data
+              - export
+              - import
+              - upload
+              - download
+              - file
+              - files
+              - document
+              - documents
+              - image
+              - images
+              - media
+              - attachment
+              - attachments
+              # Admin/Config resources
+              - admin
+              - config
+              - configuration
+              - settings
+              - options
+              - preferences
+              - metadata
+              - schema
+              # Status/Health
+              - health
+              - healthcheck
+              - status
+              - ping
+              - version
+              - info
+              - metrics
+              - stats
+              - statistics
+              # Common entities
+              - items
+              - products
+              - orders
+              - customers
+              - payments
+              - transactions
+              - notifications
+              - messages
+              - comments
+              - posts
+              - articles
+              - categories
+              - tags
+              - events
+              - logs
+              - reports
+              - analytics
+              - dashboard
+              # Batch/Bulk operations
+              - batch
+              - bulk
+              - async
+              - sync
+              - webhook
+              - webhooks
+              - callback
+              - callbacks
+              # GraphQL specific
+              - graphql
+              - introspection
+              - __schema
+            extensions: []
+            priority: 0
+          # JSON/XML responses
+          - wordlist: observed_names
+            extensions: [json, xml]
+            priority: 1
+          # PHP/ASP API files
+          - wordlist: observed_names
+            extensions: [php, asp, aspx, jsp, do, action]
+            priority: 2
+          # Short files with API extensions
+          - wordlist: short_files
+            extensions: [json, xml, php]
+            priority: 4
+
+    # =========================================================================
+    # ADMIN MODULE
+    # Matches: /admin/, /administrator/, /manage/, /panel/, /dashboard/, etc.
+    # Actions: Test admin login pages, management interfaces, and control panels
+    # =========================================================================
+    - name: admin
+      description: Admin panels, dashboards, management interfaces
+      enabled: true
+      priority: 6
+      patterns:
+        # Core admin directories
+        - type: segment_exact
+          value: admin
+        - type: segment_exact
+          value: administrator
+        - type: segment_exact
+          value: administration
+        - type: segment_exact
+          value: adm
+        - type: segment_exact
+          value: sysadmin
+        - type: segment_exact
+          value: superadmin
+        # Management interfaces
+        - type: segment_exact
+          value: manage
+        - type: segment_exact
+          value: manager
+        - type: segment_exact
+          value: management
+        # Panels/Dashboards
+        - type: segment_exact
+          value: panel
+        - type: segment_exact
+          value: cpanel
+        - type: segment_exact
+          value: controlpanel
+        - type: segment_exact
+          value: dashboard
+        - type: segment_exact
+          value: dashboards
+        # Console/Backend
+        - type: segment_exact
+          value: console
+        - type: segment_exact
+          value: backend
+        - type: segment_exact
+          value: backoffice
+        - type: segment_exact
+          value: back-office
+        # Control
+        - type: segment_exact
+          value: control
+        - type: segment_exact
+          value: controller
+        # Portal/Internal
+        - type: segment_exact
+          value: portal
+        - type: segment_exact
+          value: intranet
+        - type: segment_exact
+          value: staff
+        - type: segment_exact
+          value: employee
+        - type: segment_exact
+          value: members
+        # CMS specific
+        - type: segment_exact
+          value: cms
+        - type: segment_exact
+          value: editor
+        - type: segment_exact
+          value: webmaster
+        # System
+        - type: segment_exact
+          value: system
+        - type: segment_exact
+          value: sys
+        - type: segment_exact
+          value: root
+        - type: segment_exact
+          value: superuser
+        # Hosting panels
+        - type: segment_exact
+          value: plesk
+        - type: segment_exact
+          value: whm
+        - type: segment_exact
+          value: webmin
+        - type: segment_exact
+          value: directadmin
+        # Prefix patterns (adminXXX)
+        - type: segment_prefix
+          value: admin
+        # Suffix patterns (XXXadmin)
+        - type: segment_suffix
+          value: admin
+        - type: segment_suffix
+          value: panel
+        - type: segment_suffix
+          value: manager
+        # Path patterns
+        - type: path_suffix
+          value: /admin/
+        - type: path_suffix
+          value: /administrator/
+        - type: path_suffix
+          value: /manage/
+      actions:
+        tasks:
+          # Critical: Common admin login/index files
+          - wordlist: custom
+            inline:
+              # Index/Login pages
+              - index
+              - login
+              - signin
+              - auth
+              - authenticate
+              - home
+              - main
+              - default
+              - start
+              - welcome
+              # User management
+              - users
+              - user
+              - accounts
+              - members
+              - customers
+              - clients
+              - staff
+              - employees
+              - roles
+              - permissions
+              - groups
+              # Content management
+              - pages
+              - posts
+              - articles
+              - content
+              - media
+              - files
+              - uploads
+              - images
+              - documents
+              - categories
+              - tags
+              # Configuration
+              - settings
+              - config
+              - configuration
+              - options
+              - preferences
+              - system
+              - general
+              - site
+              - website
+              # Tools/Utilities
+              - tools
+              - utilities
+              - backup
+              - restore
+              - export
+              - import
+              - logs
+              - reports
+              - analytics
+              - statistics
+              - dashboard
+              # Security
+              - security
+              - password
+              - change-password
+              - profile
+              - logout
+              - session
+              # Database
+              - database
+              - db
+              - sql
+              - phpmyadmin
+              - adminer
+              # Maintenance
+              - maintenance
+              - cache
+              - clear-cache
+              - update
+              - upgrade
+              - install
+              - setup
+              # Plugin/Module management
+              - plugins
+              - modules
+              - extensions
+              - addons
+              - themes
+              - templates
+              # API/Integration
+              - api
+              - webhook
+              - integration
+              - connect
+              # Specific admin files
+              - admin
+              - administrator
+              - admincp
+              - admin_area
+              - admin-login
+              - admin_login
+              - admin-panel
+              - admin_panel
+              - secure
+              - private
+            extensions: [php, asp, aspx, jsp, html, htm]
+            priority: 1
+          # No extension (directory index)
+          - wordlist: custom
+            inline:
+              - index
+              - login
+              - dashboard
+              - home
+              - main
+              - admin
+              - panel
+              - console
+            extensions: []
+            priority: 2
+          # Observed names with admin extensions
+          - wordlist: observed_names
+            extensions: [php, asp, aspx, jsp, html, htm, cgi]
+            priority: 2
+          # Short wordlist with common extensions
+          - wordlist: short_files
+            extensions: [php, asp, aspx, html]
+            priority: 4

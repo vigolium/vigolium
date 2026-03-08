@@ -1,0 +1,22 @@
+id: skip-static-assets-yaml
+name: Static Asset Skipper (YAML)
+description: Skips requests to common static file extensions to reduce scan noise
+type: pre_hook
+tags:
+  - filter
+  - performance
+
+skip_extensions:
+  - .css
+  - .js
+  - .png
+  - .jpg
+  - .jpeg
+  - .gif
+  - .svg
+  - .ico
+  - .woff
+  - .woff2
+  - .ttf
+  - .eot
+  - .map

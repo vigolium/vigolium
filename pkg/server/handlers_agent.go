@@ -1,0 +1,825 @@
+package server
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/types"
+	"go.uber.org/zap"
+)
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/run/query — single-shot prompt execution
+// ---------------------------------------------------------------------------
+
+// HandleAgentQuery handles POST /api/agent/run/query — triggers a single-shot AI agent run.
+// When "stream":true, the response is an SSE stream; otherwise it returns 202 async.
+func (h *Handlers) HandleAgentQuery(c fiber.Ctx) error {
+	var req AgentRunRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	if req.PromptTemplate == "" && req.PromptFile == "" && req.Prompt == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: ErrMissingPrompt.Error(),
+		})
+	}
+
+	opts := h.buildQueryOpts(req)
+	timeout := 10 * time.Minute
+
+	return h.startAgentRun(c, "query", req.Stream, opts, timeout)
+}
+
+// buildQueryOpts creates agent.Options from a query request.
+func (h *Handlers) buildQueryOpts(req AgentRunRequest) agent.Options {
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+	return agent.Options{
+		AgentName:      agentName,
+		PromptTemplate: req.PromptTemplate,
+		PromptFile:     req.PromptFile,
+		PromptInline:   req.Prompt,
+		RepoPath:       req.RepoPath,
+		Files:          req.Files,
+		Append:         req.Append,
+		Source:         req.Source,
+		ScanUUID:       req.ScanUUID,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/run/autopilot — autonomous scanning session
+// ---------------------------------------------------------------------------
+
+// HandleAgentAutopilot handles POST /api/agent/run/autopilot — launches an autonomous AI scanning session.
+func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
+	var req AgentAutopilotRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	if req.Target == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: ErrMissingTarget.Error(),
+		})
+	}
+
+	opts := h.buildAutopilotOpts(req)
+	timeout := parseDurationOrDefault(req.Timeout, 30*time.Minute)
+
+	return h.startAgentRun(c, "autopilot", req.Stream, opts, timeout)
+}
+
+// buildAutopilotOpts creates agent.Options from an autopilot request.
+func (h *Handlers) buildAutopilotOpts(req AgentAutopilotRequest) agent.Options {
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+
+	maxCmds := req.MaxCommands
+	if maxCmds <= 0 {
+		maxCmds = 100
+	}
+
+	opts := agent.Options{
+		AgentName:      agentName,
+		PromptTemplate: "autopilot-system",
+		TargetURL:      req.Target,
+		RepoPath:       req.RepoPath,
+		Files:          req.Files,
+		Source:         "autopilot",
+		Autopilot:      true,
+		MaxCommands:    maxCmds,
+		DryRun:         req.DryRun,
+		ScanUUID:       req.ScanUUID,
+	}
+
+	if req.SystemPrompt != "" {
+		opts.PromptTemplate = ""
+		opts.PromptFile = req.SystemPrompt
+	}
+
+	if req.Focus != "" {
+		opts.Append = fmt.Sprintf("## Focus Area\n\n%s", req.Focus)
+	}
+
+	return opts
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/run/pipeline — multi-phase scanning pipeline
+// ---------------------------------------------------------------------------
+
+// HandleAgentPipeline handles POST /api/agent/run/pipeline — launches the multi-phase AI pipeline.
+func (h *Handlers) HandleAgentPipeline(c fiber.Ctx) error {
+	var req AgentPipelineRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	if req.Target == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: ErrMissingTarget.Error(),
+		})
+	}
+
+	timeout := parseDurationOrDefault(req.Timeout, 1*time.Hour)
+
+	return h.startPipelineRun(c, req, timeout)
+}
+
+// startPipelineRun acquires the concurrency lock, creates status tracking, and runs the pipeline.
+func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeout time.Duration) error {
+	h.agentMu.Lock()
+	if h.agentRunning {
+		h.agentMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrAgentAlreadyRunning.Error(),
+		})
+	}
+	h.agentRunning = true
+
+	runID := "agt-" + uuid.New().String()
+	h.agentRunStatus[runID] = &AgentRunStatusResponse{
+		RunID:  runID,
+		Mode:   "pipeline",
+		Status: "running",
+	}
+	h.agentMu.Unlock()
+
+	if req.Stream {
+		return h.handlePipelineSSE(c, runID, req, timeout)
+	}
+
+	go h.runBackgroundPipeline(runID, req, timeout)
+
+	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+		RunID:   runID,
+		Status:  "running",
+		Message: "pipeline run started",
+	})
+}
+
+// buildPipelineConfig creates an agent.PipelineConfig from an API request.
+func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.PipelineConfig, error) {
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+
+	skipPhases := make(map[agent.PipelinePhase]bool)
+	for _, p := range req.SkipPhases {
+		phase := agent.PipelinePhase(strings.TrimSpace(p))
+		skipPhases[phase] = true
+	}
+
+	maxRescan := req.MaxRescanRounds
+	if maxRescan <= 0 {
+		maxRescan = 2
+	}
+
+	// Clone settings so profile application doesn't mutate server-wide settings.
+	settings := h.settings
+	if req.Profile != "" {
+		settingsCopy := *h.settings
+		settings = &settingsCopy
+
+		profilePath := settings.ScanningStrategy.ResolveProfilePath(req.Profile)
+		profile, err := config.LoadProfile(profilePath)
+		if err != nil {
+			return agent.PipelineConfig{}, fmt.Errorf("failed to load scanning profile %q: %w", req.Profile, err)
+		}
+		if err := config.ApplyProfile(settings, profile); err != nil {
+			return agent.PipelineConfig{}, fmt.Errorf("failed to apply scanning profile %q: %w", req.Profile, err)
+		}
+	}
+
+	cfg := agent.PipelineConfig{
+		TargetURL:       req.Target,
+		AgentName:       agentName,
+		Focus:           req.Focus,
+		RepoPath:        req.RepoPath,
+		Files:           req.Files,
+		MaxRescanRounds: maxRescan,
+		SkipPhases:      skipPhases,
+		StartFrom:       agent.PipelinePhase(req.StartFrom),
+		DryRun:          req.DryRun,
+		ProjectUUID:     req.ProjectUUID,
+		ScanUUID:        req.ScanUUID,
+	}
+
+	// Wire native scan callbacks.
+	cfg.DiscoverFunc = h.buildServerDiscoverFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
+	cfg.ScanFunc = h.buildServerScanFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
+
+	return cfg, nil
+}
+
+// buildServerDiscoverFunc creates a callback that runs discovery + spidering using the native runner.
+func (h *Handlers) buildServerDiscoverFunc(target, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		opts := types.DefaultOptions()
+		opts.Targets = []string{target}
+		opts.ProjectUUID = projectUUID
+		opts.ScanUUID = scanUUID
+		opts.OnlyPhase = "discovery"
+		opts.DiscoverEnabled = true
+		opts.SpideringEnabled = true
+		opts.HeuristicsCheck = "basic"
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		scanRunner, err := runner.New(opts)
+		if err != nil {
+			return err
+		}
+		defer scanRunner.Close()
+
+		scanRunner.SetSettings(settings)
+		scanRunner.SetRepository(h.repo)
+		return scanRunner.RunEnumeration()
+	}
+}
+
+// buildServerScanFunc creates a callback that runs dynamic assessment with specified module filters.
+func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
+	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
+		opts := types.DefaultOptions()
+		opts.Targets = []string{target}
+		opts.ProjectUUID = projectUUID
+		opts.ScanUUID = scanUUID
+		opts.OnlyPhase = "dynamic-assessment"
+		opts.SkipIngestion = true
+		opts.HeuristicsCheck = "none"
+		opts.Modules = resolveModulesFromPlanAPI(moduleTags, moduleIDs)
+		opts.PassiveModules = []string{"all"}
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		scanRunner, err := runner.New(opts)
+		if err != nil {
+			return err
+		}
+		defer scanRunner.Close()
+
+		scanRunner.SetSettings(settings)
+		scanRunner.SetRepository(h.repo)
+		return scanRunner.RunEnumeration()
+	}
+}
+
+// resolveModulesFromPlanAPI converts agent-suggested tags and IDs into module ID list.
+func resolveModulesFromPlanAPI(tags []string, ids []string) []string {
+	moduleSet := make(map[string]bool)
+
+	if len(tags) > 0 {
+		resolved := modules.ResolveModuleTags(tags)
+		for _, id := range resolved {
+			moduleSet[id] = true
+		}
+	}
+
+	for _, id := range ids {
+		moduleSet[id] = true
+	}
+
+	if len(moduleSet) == 0 {
+		return []string{"all"}
+	}
+
+	result := make([]string, 0, len(moduleSet))
+	for id := range moduleSet {
+		result = append(result, id)
+	}
+	return result
+}
+
+// handlePipelineSSE runs the pipeline synchronously while streaming SSE events.
+func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelineRequest, timeout time.Duration) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		defer func() {
+			h.agentMu.Lock()
+			h.agentRunning = false
+			h.agentMu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		cfg, err := h.buildPipelineConfig(req)
+		if err != nil {
+			h.updateStatusFailed(runID, err)
+			_ = writeSSE(w, sseEvent{Type: "error", Error: err.Error()})
+			return
+		}
+
+		// Wire phase callback for SSE events and status updates.
+		cfg.PhaseCallback = func(phase agent.PipelinePhase) {
+			h.agentMu.Lock()
+			if status := h.agentRunStatus[runID]; status != nil {
+				status.CurrentPhase = string(phase)
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "phase", Phase: string(phase)})
+		}
+
+		// Set up stream writer pipe.
+		pr, pw := io.Pipe()
+		cfg.StreamWriter = pw
+
+		type pipeResult struct {
+			result *agent.PipelineResult
+			err    error
+		}
+		done := make(chan pipeResult, 1)
+
+		pipelineRunner := agent.NewPipelineRunner(h.agentEngine, h.repo)
+		go func() {
+			result, runErr := pipelineRunner.Run(ctx, cfg)
+			_ = pw.Close()
+			done <- pipeResult{result: result, err: runErr}
+		}()
+
+		// Stream chunks.
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := pr.Read(buf)
+			if n > 0 {
+				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
+					_ = pr.Close()
+					<-done
+					return
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		res := <-done
+		now := time.Now()
+		h.agentMu.Lock()
+		status := h.agentRunStatus[runID]
+
+		if res.err != nil {
+			if status != nil {
+				status.Status = "failed"
+				status.Error = res.err.Error()
+				status.CompletedAt = &now
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			zap.L().Error("Pipeline run failed (streaming)",
+				zap.String("run_id", runID),
+				zap.Error(res.err))
+			return
+		}
+
+		if status != nil && res.result != nil {
+			status.Status = "completed"
+			status.CompletedAt = &now
+			status.FindingCount = res.result.TotalFindings
+			status.PipelineResult = res.result
+			status.PhasesRun = pipelinePhasesToStrings(res.result.PhasesRun)
+		}
+		h.agentMu.Unlock()
+
+		_ = writeSSE(w, sseEvent{Type: "done", PipelineResult: res.result})
+		zap.L().Info("Pipeline run completed (streaming)",
+			zap.String("run_id", runID),
+			zap.Int("findings", res.result.TotalFindings))
+	})
+}
+
+// runBackgroundPipeline executes a pipeline run in a goroutine and updates status.
+func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest, timeout time.Duration) {
+	defer func() {
+		h.agentMu.Lock()
+		h.agentRunning = false
+		h.agentMu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cfg, err := h.buildPipelineConfig(req)
+	if err != nil {
+		h.updateStatusFailed(runID, err)
+		return
+	}
+
+	// Wire phase callback for status updates.
+	cfg.PhaseCallback = func(phase agent.PipelinePhase) {
+		h.agentMu.Lock()
+		if status := h.agentRunStatus[runID]; status != nil {
+			status.CurrentPhase = string(phase)
+		}
+		h.agentMu.Unlock()
+	}
+
+	pipelineRunner := agent.NewPipelineRunner(h.agentEngine, h.repo)
+	result, runErr := pipelineRunner.Run(ctx, cfg)
+
+	h.agentMu.Lock()
+	defer h.agentMu.Unlock()
+
+	status := h.agentRunStatus[runID]
+	if status == nil {
+		return
+	}
+
+	now := time.Now()
+	if runErr != nil {
+		status.Status = "failed"
+		status.Error = runErr.Error()
+		status.CompletedAt = &now
+		zap.L().Error("Pipeline run failed",
+			zap.String("run_id", runID),
+			zap.Error(runErr))
+		return
+	}
+
+	status.Status = "completed"
+	status.CompletedAt = &now
+	status.FindingCount = result.TotalFindings
+	status.PipelineResult = result
+	status.PhasesRun = pipelinePhasesToStrings(result.PhasesRun)
+
+	zap.L().Info("Pipeline run completed",
+		zap.String("run_id", runID),
+		zap.Int("findings", result.TotalFindings))
+}
+
+// ---------------------------------------------------------------------------
+// Shared agent run helpers
+// ---------------------------------------------------------------------------
+
+// startAgentRun is the shared entry point for query and autopilot modes.
+// It acquires the concurrency lock, creates status tracking, and runs the agent.
+func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
+	h.agentMu.Lock()
+	if h.agentRunning {
+		h.agentMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrAgentAlreadyRunning.Error(),
+		})
+	}
+	h.agentRunning = true
+
+	runID := "agt-" + uuid.New().String()
+	h.agentRunStatus[runID] = &AgentRunStatusResponse{
+		RunID:  runID,
+		Mode:   mode,
+		Status: "running",
+	}
+	h.agentMu.Unlock()
+
+	if stream {
+		return h.handleAgentSSE(c, runID, opts, timeout)
+	}
+
+	go h.runBackgroundAgentWithOpts(runID, opts, timeout)
+
+	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+		RunID:   runID,
+		Status:  "running",
+		Message: mode + " run started",
+	})
+}
+
+// handleAgentSSE runs the agent synchronously while streaming SSE events to the client.
+func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options, timeout time.Duration) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		defer func() {
+			h.agentMu.Lock()
+			h.agentRunning = false
+			h.agentMu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		pr, pw := io.Pipe()
+		opts.StreamWriter = pw
+
+		type runResult struct {
+			result *agent.Result
+			err    error
+		}
+		done := make(chan runResult, 1)
+		go func() {
+			result, err := h.agentEngine.Run(ctx, opts)
+			_ = pw.Close()
+			done <- runResult{result: result, err: err}
+		}()
+
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := pr.Read(buf)
+			if n > 0 {
+				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
+					_ = pr.Close()
+					<-done
+					return
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		res := <-done
+		now := time.Now()
+		h.agentMu.Lock()
+		status := h.agentRunStatus[runID]
+		if res.err != nil {
+			if status != nil {
+				status.Status = "failed"
+				status.Error = res.err.Error()
+				status.CompletedAt = &now
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			zap.L().Error("Agent run failed (streaming)",
+				zap.String("run_id", runID),
+				zap.Error(res.err))
+			return
+		}
+
+		if status != nil {
+			status.Status = "completed"
+			status.AgentName = res.result.AgentName
+			status.TemplateID = res.result.TemplateID
+			status.FindingCount = len(res.result.Findings)
+			status.RecordCount = len(res.result.HTTPRecords)
+			status.SavedCount = res.result.SavedCount
+			status.CompletedAt = &now
+			status.Result = res.result
+		}
+		h.agentMu.Unlock()
+
+		_ = writeSSE(w, sseEvent{Type: "done", Result: res.result})
+		zap.L().Info("Agent run completed (streaming)",
+			zap.String("run_id", runID),
+			zap.String("agent", res.result.AgentName),
+			zap.Int("findings", len(res.result.Findings)),
+			zap.Int("saved", res.result.SavedCount))
+	})
+}
+
+// runBackgroundAgentWithOpts executes an agent run in a goroutine and updates status.
+func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, timeout time.Duration) {
+	defer func() {
+		h.agentMu.Lock()
+		h.agentRunning = false
+		h.agentMu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	result, err := h.agentEngine.Run(ctx, opts)
+
+	h.agentMu.Lock()
+	defer h.agentMu.Unlock()
+
+	status := h.agentRunStatus[runID]
+	if status == nil {
+		return
+	}
+
+	now := time.Now()
+	if err != nil {
+		status.Status = "failed"
+		status.Error = err.Error()
+		status.CompletedAt = &now
+		zap.L().Error("Agent run failed",
+			zap.String("run_id", runID),
+			zap.Error(err))
+		return
+	}
+
+	status.Status = "completed"
+	status.AgentName = result.AgentName
+	status.TemplateID = result.TemplateID
+	status.FindingCount = len(result.Findings)
+	status.RecordCount = len(result.HTTPRecords)
+	status.SavedCount = result.SavedCount
+	status.CompletedAt = &now
+	status.Result = result
+
+	zap.L().Info("Agent run completed",
+		zap.String("run_id", runID),
+		zap.String("agent", result.AgentName),
+		zap.Int("findings", len(result.Findings)),
+		zap.Int("saved", result.SavedCount))
+}
+
+// ---------------------------------------------------------------------------
+// SSE event types and helpers
+// ---------------------------------------------------------------------------
+
+// sseEvent is an SSE event payload sent during streaming agent runs.
+type sseEvent struct {
+	Type           string                `json:"type"`                      // "chunk", "done", "error", "phase"
+	Text           string                `json:"text,omitempty"`            // for "chunk" events
+	Result         *agent.Result         `json:"result,omitempty"`          // for "done" events (query/autopilot)
+	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"` // for "done" events (pipeline)
+	Phase          string                `json:"phase,omitempty"`           // for "phase" events
+	Error          string                `json:"error,omitempty"`           // for "error" events
+}
+
+// writeSSE marshals an event to JSON and writes it as an SSE data line, then flushes.
+func writeSSE(w *bufio.Writer, evt sseEvent) error {
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
+// ---------------------------------------------------------------------------
+// Status endpoints (unchanged)
+// ---------------------------------------------------------------------------
+
+// HandleAgentRunList handles GET /api/agent/status/list — returns all agent run statuses.
+func (h *Handlers) HandleAgentRunList(c fiber.Ctx) error {
+	h.agentMu.Lock()
+	statuses := make([]*AgentRunStatusResponse, 0, len(h.agentRunStatus))
+	for _, s := range h.agentRunStatus {
+		statuses = append(statuses, s)
+	}
+	h.agentMu.Unlock()
+	return c.JSON(statuses)
+}
+
+// HandleAgentRunStatus handles GET /api/agent/status/:id — returns status of a specific agent run.
+func (h *Handlers) HandleAgentRunStatus(c fiber.Ctx) error {
+	runID := c.Params("id")
+
+	h.agentMu.Lock()
+	status, ok := h.agentRunStatus[runID]
+	h.agentMu.Unlock()
+
+	if !ok {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error: ErrAgentNotFound.Error(),
+		})
+	}
+
+	return c.JSON(status)
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/chat/completions — OpenAI-compatible (unchanged)
+// ---------------------------------------------------------------------------
+
+// HandleChatCompletions handles POST /api/agent/chat/completions — OpenAI-compatible chat endpoint.
+func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
+	var req ChatCompletionRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	if len(req.Messages) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "messages must not be empty",
+		})
+	}
+
+	var prompt string
+	for i, msg := range req.Messages {
+		if i > 0 {
+			prompt += "\n\n"
+		}
+		prompt += msg.Role + ": " + msg.Content
+	}
+
+	agentName := h.settings.Agent.DefaultAgent
+	if _, ok := h.settings.Agent.Agents[req.Model]; ok {
+		agentName = req.Model
+	}
+
+	h.agentMu.Lock()
+	if h.agentRunning {
+		h.agentMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrAgentAlreadyRunning.Error(),
+		})
+	}
+	h.agentRunning = true
+	h.agentMu.Unlock()
+
+	defer func() {
+		h.agentMu.Lock()
+		h.agentRunning = false
+		h.agentMu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	opts := agent.Options{
+		AgentName:    agentName,
+		PromptInline: prompt,
+	}
+
+	result, err := h.agentEngine.Run(ctx, opts)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "agent run failed: " + err.Error(),
+		})
+	}
+
+	return c.JSON(ChatCompletionResponse{
+		ID:      "chatcmpl-" + uuid.New().String(),
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   req.Model,
+		Choices: []ChatChoice{
+			{
+				Index: 0,
+				Message: ChatMessage{
+					Role:    "assistant",
+					Content: result.RawOutput,
+				},
+				FinishReason: "stop",
+			},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
+
+// updateStatusFailed marks an agent run status as failed.
+func (h *Handlers) updateStatusFailed(runID string, err error) {
+	now := time.Now()
+	h.agentMu.Lock()
+	defer h.agentMu.Unlock()
+	if status := h.agentRunStatus[runID]; status != nil {
+		status.Status = "failed"
+		status.Error = err.Error()
+		status.CompletedAt = &now
+	}
+}
+
+// parseDurationOrDefault parses a Go duration string, returning the default on failure or empty input.
+func parseDurationOrDefault(s string, def time.Duration) time.Duration {
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+	return d
+}
+
+// pipelinePhasesToStrings converts pipeline phases to string slice for status response.
+func pipelinePhasesToStrings(phases []agent.PipelinePhase) []string {
+	result := make([]string, len(phases))
+	for i, p := range phases {
+		result[i] = string(p)
+	}
+	return result
+}

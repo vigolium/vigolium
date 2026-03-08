@@ -1,0 +1,32 @@
+fixture: trivy-multirule.sarif
+tool_name: trivy
+format: sarif
+
+expected:
+  finding_count: 5
+  error: false
+  findings:
+    - rule_id: "CVE-2023-5001"
+      severity: high
+      file_path: "go.sum"
+
+    - rule_id: "CVE-2023-5002"
+      severity: medium
+      file_path: "go.sum"
+
+    - rule_id: "MISCONF-101"
+      severity: medium
+      file_path: "Dockerfile"
+
+    - rule_id: "MISCONF-102"
+      severity: low
+      file_path: "k8s/deployment.yaml"
+
+    - rule_id: "SECRET-101"
+      severity: high
+      file_path: ".env"
+
+  severity_distribution:
+    high: 2
+    medium: 2
+    low: 1

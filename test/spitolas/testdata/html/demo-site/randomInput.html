@@ -1,0 +1,44 @@
+<h1>Random Input</h1>
+
+<p>Crawljax enters random input while crawling of no inputvalues are specified</p>
+
+<p>When Crawljax finds form input elements in a state, it sets a random value in the elements:</p>
+
+<table class="default">
+    <tr>
+        <th>Type</th>
+        <th>Example</th>
+        <th>Random value</th>
+    </tr>
+    <tr>
+        <td>Text fields</td>
+        <td><input id="text" type="text"><br/>
+            <textarea id="area" cols="20" rows="2"></textarea>
+        </td>
+        <td>Random string of 8 alpha characters</td>
+    </tr>
+    <tr>
+        <td>Checkboxes</td>
+        <td><input id="checkbox" type="checkbox"></td>
+        <td>Checks with p &lt; 0.5</td>
+    </tr>
+    <tr>
+        <td>Radio buttons</td>
+        <td><input id="radio" type="radio"></td>
+        <td>Checks with p &lt; 0.5</td>
+    </tr>
+    <tr>
+        <td>Lists</td>
+        <td><select id="select">
+            <option>Banana</option>
+            <option>Apple</option>
+            <option>Peer</option>
+            <option>Orange</option>
+            <option>Strawberry</option>
+        </select></td>
+        <td>Uniform selects a random item from the list</td>
+    </tr>
+</table>
+<p>
+
+<div class="clickable" onclick="afterRandomInput()">Next</div>

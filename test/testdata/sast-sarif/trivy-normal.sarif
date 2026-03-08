@@ -1,0 +1,38 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "trivy",
+          "rules": [
+            { "id": "CVE-2023-1234", "defaultConfiguration": { "level": "error" }, "properties": { "tags": ["vulnerability"] } },
+            { "id": "SECRET-001", "defaultConfiguration": { "level": "error" }, "properties": { "tags": ["secret"] } },
+            { "id": "MISCONF-001", "defaultConfiguration": { "level": "warning" }, "properties": { "tags": ["misconfiguration"] } }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2023-1234",
+          "level": "error",
+          "message": { "text": "Critical vulnerability in dependency" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "requirements.txt" }, "region": { "startLine": 5, "endLine": 5 } } }]
+        },
+        {
+          "ruleId": "SECRET-001",
+          "level": "error",
+          "message": { "text": "AWS access key detected" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "config/settings.py" }, "region": { "startLine": 12, "endLine": 12 } } }]
+        },
+        {
+          "ruleId": "MISCONF-001",
+          "level": "warning",
+          "message": { "text": "Docker container running as root" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "Dockerfile" }, "region": { "startLine": 1, "endLine": 1 } } }]
+        }
+      ]
+    }
+  ]
+}

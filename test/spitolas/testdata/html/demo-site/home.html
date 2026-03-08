@@ -1,0 +1,64 @@
+<h1>Welcome to the Crawljax Testing page</h1>
+<h2>What is Crawljax?</h2>
+<p>Crawljax is a Java tool for automatically crawling and testing AJAX based applications.</p>
+
+<p>Crawljax can crawl any AJAX based web application by clicking links and filling in form data.
+    It
+    creates a state-flow graph of the states of the web application. This state-flow graph which
+    is a very powerful base for many types of automated
+    tests.</p>
+
+<p>This site explains how to configure Crawljax and also acts as a test site for Crawljax.</p>
+
+<h2>Applications for Crawljax</h2>
+<ul>
+    <li>Invariant-based testing</li>
+    <li>Regression testing</li>
+    <li>Non functional testing (Accessibility, I18n, security, ...)</li>
+    <li>Detecting broken links/images/tooltips</li>
+    <li><Strong>And via its plugin support even more.... </strong></li>
+</ul>
+
+<h2>Setup</h2>
+<p>Setting up Crawljax only takes a couple of minutes:</p>
+<ul>
+    <li>Create a new Java project.</li>
+    <li>Include the Crawljax.jar (and its needed libraries) to your project.</li>
+    <li>Copy/paste the code fragment below.</li>
+</ul>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+builder.crawlRules().insertRandomDataInInputForms(false);
+
+// click these elements
+builder.crawlRules().clickDefaultElements();
+builder.crawlRules().click("div").withAttribute("class", "clickable");
+
+// but don't click these
+builder.crawlRules().dontClick("a").withAttribute("class", "ignore");
+builder.crawlRules().dontClick("a").underXPath("//DIV[@id='footer']");
+
+// Set timeouts
+builder.crawlRules().waitAfterReloadUrl(WAIT_TIME_AFTER_RELOAD, TimeUnit.MILLISECONDS);
+builder.crawlRules().waitAfterEvent(WAIT_TIME_AFTER_EVENT, TimeUnit.MILLISECONDS);
+
+// Add a condition that this XPath doesn't exits
+builder.crawlRules().addCrawlCondition("No spans with foo as class",
+		        new NotXPathCondition("//*[@class='foo']"));
+
+// Set some input for fields
+builder.crawlRules().setInputSpec(getInputSpecification());
+
+// This will generate a nice output in the output directory.
+File outFolder = new File("output");
+if (outFolder.exists()) {
+	FileUtils.deleteDirectory(outFolder);
+}
+builder.addPlugin(new CrawlOverview(outFolder));
+
+// We want to use two browsers simultaneously.
+builder.setBrowserConfig(new BrowserConfiguration(BrowserType.firefox, 2));
+
+CrawljaxRunner crawljax = new CrawljaxRunner(builder.build());
+crawljax.call();
+</pre>

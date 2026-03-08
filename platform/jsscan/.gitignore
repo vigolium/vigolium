@@ -1,0 +1,16 @@
+.DS_Store
+node_modules
+.turbo
+*.log
+dist
+*.local
+.env
+.cache
+server/dist
+public/dist
+**/.vitepress/dist/**
+**/.vitepress/cache/**
+coverage
+.netlify
+bin
+.vscode

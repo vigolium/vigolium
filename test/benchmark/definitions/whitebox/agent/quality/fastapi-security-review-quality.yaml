@@ -1,0 +1,13 @@
+fixture: fastapi-security-code-review.json
+source_stub: fastapi
+template: security-code-review
+assertion: soft
+expected:
+  min_findings: 1
+  max_findings: 20
+  expected_cwes:
+    - "CWE-306"
+  expected_vuln_types:
+    - "authentication"
+  severity_distribution:
+    high: 1

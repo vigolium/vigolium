@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "fastapi",
+    "template": "security-code-review",
+    "agent_name": "claude",
+    "output_schema": "findings",
+    "generated_at": "2026-02-15T11:20:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "{\"findings\": [{\"title\": \"Missing Authentication on All Endpoints\", \"description\": \"No authentication dependency is configured on any endpoint. All routes including item management are publicly accessible.\", \"severity\": \"high\", \"confidence\": \"firm\", \"file\": \"main.py\", \"line\": 1, \"snippet\": \"app = FastAPI()\", \"cwe\": \"CWE-306\", \"tags\": [\"authentication\"]}, {\"title\": \"CORS Not Configured\", \"description\": \"The FastAPI application does not configure CORS middleware, which may prevent legitimate cross-origin requests or allow unintended access if a permissive default is assumed.\", \"severity\": \"low\", \"confidence\": \"tentative\", \"file\": \"main.py\", \"line\": 1, \"snippet\": \"app = FastAPI()\", \"cwe\": \"CWE-942\", \"tags\": [\"cors\", \"configuration\"]}]}",
+  "parsed": {
+    "finding_count": 2,
+    "record_count": 0
+  }
+}

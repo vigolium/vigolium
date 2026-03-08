@@ -1,0 +1,62 @@
+id: error-pattern-detector-yaml
+name: Error Pattern Detector (YAML)
+description: Detects error messages and stack traces in HTTP responses that may reveal internal details
+type: active
+severity: low
+confidence: firm
+tags:
+  - error-handling
+  - information-disclosure
+  - light
+scan_types:
+  - per_request
+
+rules:
+  - match:
+      body_regex: "(?i)Traceback \\(most recent call last\\)"
+    finding:
+      name: "Error pattern: Python traceback"
+      description: "Response body contains a Python traceback which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)at [A-Za-z0-9_.$]+\\.(java|kt):\\d+"
+    finding:
+      name: "Error pattern: Java/Kotlin stack trace"
+      description: "Response body contains a Java/Kotlin stack trace which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)goroutine \\d+ \\[running\\]"
+    finding:
+      name: "Error pattern: Go panic stack trace"
+      description: "Response body contains a Go panic stack trace which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)SQLSTATE\\["
+    finding:
+      name: "Error pattern: SQL error (SQLSTATE)"
+      description: "Response body contains a SQL error which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)mysql_fetch|pg_query|sqlite3?\\."
+    finding:
+      name: "Error pattern: Database function leak"
+      description: "Response body contains a database function name which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)Fatal error:.*on line \\d+"
+    finding:
+      name: "Error pattern: PHP fatal error"
+      description: "Response body contains a PHP fatal error which may reveal internal details"
+      severity: low
+
+  - match:
+      body_regex: "(?i)Microsoft OLE DB Provider"
+    finding:
+      name: "Error pattern: ASP/OLE DB error"
+      description: "Response body contains an ASP/OLE DB error which may reveal internal details"
+      severity: low

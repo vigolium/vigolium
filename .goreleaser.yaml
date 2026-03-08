@@ -1,0 +1,56 @@
+version: 2
+
+project_name: vigolium
+dist: dist
+
+snapshot:
+  version_template: "1.0.0"
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: vigolium
+    main: ./cmd/vigolium
+    binary: vigolium
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.buildTime={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "vigolium_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: osmedeus
+    name: vigolium

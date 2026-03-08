@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JavaScript URL Extraction Test</title>
+</head>
+<body>
+    <h1>JavaScript String Extraction Test</h1>
+    <p>This page contains JavaScript with embedded URLs.</p>
+
+<script>
+    // URLs in string literals
+    var apiUrl = "/js-content/api/users";
+    var configEndpoint = '/js-content/api/v2/config';
+    const dataPath = "/js-content/data/items.json";
+
+    // fetch calls
+    fetch('/js-content/fetch-endpoint');
+    fetch("/js-content/api/fetch-double-quotes");
+
+    // Object with URL properties
+    const config = {
+        apiBase: "/js-content/api-base",
+        settingsUrl: '/js-content/settings.json',
+        endpoint: "/js-content/endpoint"
+    };
+
+    // Template string (backticks)
+    const templateUrl = `/js-content/template-url`;
+
+    // HTML in JavaScript strings
+    var template = '<a href="/js-content/from-js-html.html">Link in JS HTML</a>';
+    var imgTemplate = '<img src="/js-content/from-js-img.png">';
+
+    // Dynamic imports
+    import("/js-content/dynamic-import.js");
+
+    // XMLHttpRequest
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/js-content/xhr-endpoint");
+
+    // jQuery-style AJAX (common pattern)
+    $.ajax({url: "/js-content/jquery-ajax"});
+    $.get("/js-content/jquery-get");
+    $.post("/js-content/jquery-post");
+</script>
+</body>
+</html>

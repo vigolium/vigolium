@@ -1,0 +1,192 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.50.0",
+          "rules": [
+            {
+              "id": "typescript.react.security.audit.react-dangerouslysetinnerhtml",
+              "shortDescription": {
+                "text": "Usage of dangerouslySetInnerHTML"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "typescript.nextjs.security.missing-authentication-route-handler",
+              "shortDescription": {
+                "text": "Route handler missing authentication check"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "typescript.nextjs.security.missing-authorization-data-access",
+              "shortDescription": {
+                "text": "Data access without authorization scoping"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "typescript.nextjs.security.secrets-exposure-client-props",
+              "shortDescription": {
+                "text": "Sensitive data passed to client component via props"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "typescript.nextjs.security.password-hash-exposure",
+              "shortDescription": {
+                "text": "Password hash data sent to client"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              }
+            },
+            {
+              "id": "typescript.nextjs.security.select-star-users",
+              "shortDescription": {
+                "text": "SELECT * on users table may expose sensitive columns"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "typescript.react.security.audit.react-dangerouslysetinnerhtml",
+          "level": "warning",
+          "message": {
+            "text": "dangerouslySetInnerHTML with unsanitized database content enables stored XSS"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/example-6-cross-site-scripting/vulnerable/page.tsx"
+                },
+                "region": {
+                  "startLine": 18,
+                  "startColumn": 7
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "typescript.nextjs.security.missing-authentication-route-handler",
+          "level": "error",
+          "message": {
+            "text": "Route handler returns data without any authentication check (no session token validation)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/example-1-missing-authentication/vulnerable/route.ts"
+                },
+                "region": {
+                  "startLine": 12,
+                  "startColumn": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "typescript.nextjs.security.missing-authorization-data-access",
+          "level": "error",
+          "message": {
+            "text": "Route handler calls getUnpublishedBlogPosts() without user-scoped filtering - exposes all users' private data"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/example-3-missing-authorization/vulnerable/route.ts"
+                },
+                "region": {
+                  "startLine": 30,
+                  "startColumn": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "typescript.nextjs.security.secrets-exposure-client-props",
+          "level": "error",
+          "message": {
+            "text": "process.env.API_KEY passed as prop to client component, exposing secret in client-side JavaScript"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/example-5-secrets-exposure/vulnerable/page.tsx"
+                },
+                "region": {
+                  "startLine": 13,
+                  "startColumn": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "typescript.nextjs.security.password-hash-exposure",
+          "level": "error",
+          "message": {
+            "text": "getUsersWithPasswordHash() result sent to client - password hashes visible in browser"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/example-5-secrets-exposure/vulnerable/page.tsx"
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "typescript.nextjs.security.select-star-users",
+          "level": "warning",
+          "message": {
+            "text": "SELECT * on users table includes password_hash column - use explicit column selection"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "database/users.ts"
+                },
+                "region": {
+                  "startLine": 24,
+                  "startColumn": 3
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

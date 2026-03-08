@@ -1,0 +1,18 @@
+id: tag-critical-domains-yaml
+name: Critical Domain Tagger (YAML)
+description: Escalates severity for findings on critical business domains
+type: post_hook
+tags:
+  - filter
+  - severity
+  - post-processing
+
+escalate:
+  when_url_contains:
+    - payment
+    - admin
+    - auth
+    - checkout
+    - billing
+  tag: "CRITICAL"
+  bump_severity: true

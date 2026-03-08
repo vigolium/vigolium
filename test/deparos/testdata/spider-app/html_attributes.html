@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html manifest="/html-attr/app.manifest">
+<head>
+    <title>HTML Attributes Test</title>
+    <base href="/">
+    <link href="/html-attr/canonical.html" rel="canonical">
+    <link rel="preload" as="script" href="/html-attr/preload.js">
+    <link rel="modulepreload" href="/html-attr/module.mjs">
+    <link rel="stylesheet" href="/html-attr/style.css">
+    <script src="/html-attr/external.js"></script>
+</head>
+<body background="/html-attr/bg.jpg">
+    <h1>HTML Attribute Extraction Test</h1>
+
+    <!-- Standard anchor links -->
+    <a href="/html-attr/anchor-link.html">Anchor Link</a>
+    <a href="/html-attr/another-page.html">Another Page</a>
+
+    <!-- Images with srcset -->
+    <img src="/html-attr/image.png" alt="Test Image">
+    <img src="/html-attr/photo.jpg" srcset="/html-attr/photo-2x.jpg 2x, /html-attr/photo-3x.jpg 3x" alt="Responsive">
+
+    <!-- Iframe and frame -->
+    <iframe src="/html-attr/iframe-page.html" title="Embedded Frame"></iframe>
+
+    <!-- Media elements -->
+    <video src="/html-attr/video.mp4" controls>
+        <source src="/html-attr/video-alt.webm" type="video/webm">
+    </video>
+    <audio src="/html-attr/audio.mp3" controls></audio>
+
+    <!-- Object and embed -->
+    <embed src="/html-attr/flash.swf" type="application/x-shockwave-flash">
+    <object data="/html-attr/object.swf" type="application/x-shockwave-flash">
+        <param name="movie" value="/html-attr/param-movie.swf">
+    </object>
+
+    <!-- Form with image input -->
+    <form action="/html-attr/form-action">
+        <input type="image" src="/html-attr/input-image.png" alt="Submit">
+    </form>
+
+    <!-- Blockquote and citations -->
+    <blockquote cite="/html-attr/blockquote-cite.html">
+        <p>A quoted text.</p>
+    </blockquote>
+    <ins cite="/html-attr/ins-cite.html">Inserted text</ins>
+    <del cite="/html-attr/del-cite.html">Deleted text</del>
+
+    <!-- Area in map -->
+    <map name="testmap">
+        <area href="/html-attr/area-link.html" alt="Area" shape="rect" coords="0,0,100,100">
+    </map>
+
+    <!-- SVG with xlink -->
+    <svg width="100" height="100">
+        <image href="/html-attr/svg-image.svg" width="100" height="100"/>
+    </svg>
+
+    <!-- Table backgrounds (deprecated but still parsed) -->
+    <table background="/html-attr/table-bg.png">
+        <tr>
+            <td background="/html-attr/td-bg.png">Cell</td>
+        </tr>
+    </table>
+</body>
+</html>

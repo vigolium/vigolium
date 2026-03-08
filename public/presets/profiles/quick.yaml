@@ -1,0 +1,46 @@
+# description: Fast scan — minimal discovery, no spidering, host-only SPA targets
+scanning_strategy:
+  default_strategy: lite
+
+scanning_pace:
+  concurrency: 100
+  rate_limit: 200
+  max_per_host: 20
+  discovery:
+    concurrency: 100
+    max_duration: 10m
+  dynamic_assessment:
+    concurrency: 100
+    max_duration: 30m
+
+discovery:
+  mode: files_only
+  scope_mode: subdomain
+  save_response_body: false
+  enable_malformed_path_probe: false
+  recursion:
+    enabled: false
+  extensions:
+    test_custom: false
+    test_observed: false
+    test_variants: false
+    test_no_extension: true
+  engine:
+    case_sensitivity: auto_detect
+    timeout: 5s
+
+spa:
+  enrich_targets: false
+  exclude_tags:
+    - dos
+
+dynamic_assessment:
+  enabled_modules:
+    active_modules:
+      - all
+    passive_modules:
+      - all
+
+mutation_strategy:
+  default_modes:
+    - append

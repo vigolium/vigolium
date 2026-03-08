@@ -1,0 +1,6 @@
+id: gin-route-group
+language: go
+severity: info
+message: "Route: GROUP $PATH"
+rule:
+  pattern: $ROUTER.Group($PATH)

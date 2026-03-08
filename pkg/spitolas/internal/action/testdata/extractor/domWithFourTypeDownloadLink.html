@@ -1,0 +1,33 @@
+<html>
+<head>
+<title>Simple page</title>
+</head>
+<body>
+	<!-- Should be added to candidates (file extension in query param, not path) -->
+	<a href="/search?a.pdfShop.com">Link 1</a>
+	<a href="/search?a.psShop.com">Link 2</a>
+	<a href="/search?a.zipShop.com">Link 3</a>
+	<a href="/search?a.mp3Shop.com">Link 4</a>
+
+	<a href="/pdf">Link 5</a>
+	<a href="/ps">Link 6</a>
+	<a href="/zip">Link 7</a>
+	<a href="/mp3">Link 8</a>
+
+	<a href="/abcpdf">Link 9</a>
+	<a href="/abcps">Link 10</a>
+	<a href="/abczip">Link 11</a>
+	<a href="/abcmp3">Link 12</a>
+
+	<!-- Should NOT be added to candidates (file downloads) -->
+	<a href="/abc.pdf">Download PDF</a>
+	<a href="/abc.ps">Download PS</a>
+	<a href="/abc.zip">Download ZIP</a>
+	<a href="/abc.mp3">Download MP3</a>
+
+	<a href="/abc.pdf?foo=abc">Download PDF with query</a>
+	<a href="/abc.ps?foo=abc">Download PS with query</a>
+	<a href="/abc.zip?foo=abc">Download ZIP with query</a>
+	<a href="/abc.mp3?foo=abc">Download MP3 with query</a>
+</body>
+</html>

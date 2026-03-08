@@ -1,0 +1,62 @@
+<h1>Plugins</h1>
+<p>Crawljax supports the use of plugins which can be used to extend Crawljax and use your own
+    tests and tools.</p>
+<p>Plugins can be added via the <span class="java">addPlugin()</span> method in <span
+        class="java">CrawljaxConfiguration</span>.</p>
+
+<h2>Types of Plugins</h2>
+<p>The main interface is <span class="java">Plugin</span> which is implemented by the
+    different types of plugins. To write a plugin you should implement one of the
+    following plugins types.</p>
+<table class="default">
+    <tr>
+        <th>Type</th>
+        <th>Called</th>
+        <th>Example</th>
+    </tr>
+    <tr>
+        <td><span class="java">PreCrawlingPlugin</span></td>
+        <td>Before the crawling</td>
+        <td>Login</td>
+    </tr>
+    <tr>
+        <td><span class="java">OnNewStatePlugin</span></td>
+        <td>When a new state is found while crawling</td>
+        <td>Create Screenshots</td>
+    </tr>
+    <tr>
+        <td><span class="java">OnUrlLoadPlugin</span></td>
+        <td>After the initial URL is (re)loaded</td>
+        <td>Reset backend state</td>
+    </tr>
+    <tr>
+        <td><span class="java">PreStateCrawlingPlugin</span></td>
+        <td>Before a new state is crawled</td>
+        <td>Logging the candidate elements</td>
+    </tr>
+    <tr>
+        <td><span class="java">PostCrawlingPlugin</span></td>
+        <td>After the crawling</td>
+        <td>Generating tests</td>
+    </tr>
+</table>
+
+<h2>Example</h2>
+<p>Create a new class.</p>
+<pre>
+public class MyTestPlugin implements OnNewStatePlugin {
+
+  @Override
+  public void onNewState(CrawlSession session) {
+    String name = session.getCurrentState().getName();
+    String url = session.getBrowser().getCurrentUrl();
+    System.out.println("New State: " + name + "; url: " + url);
+  }
+}
+</pre>
+
+<p>Add this plugin to your Crawljax configuration.</p>
+<pre>
+CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+builder.addPlugin(new MyTestPlugin());
+</pre>

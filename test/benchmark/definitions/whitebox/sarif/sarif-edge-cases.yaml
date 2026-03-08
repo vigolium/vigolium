@@ -1,0 +1,25 @@
+fixture: sarif-severity-mapping.sarif
+tool_name: test-tool
+format: sarif
+
+expected:
+  finding_count: 4
+  error: false
+  findings:
+    - rule_id: "sev-error"
+      severity: high
+
+    - rule_id: "sev-warning"
+      severity: medium
+
+    - rule_id: "sev-note"
+      severity: low
+
+    - rule_id: "sev-none"
+      severity: info
+
+  severity_distribution:
+    high: 1
+    medium: 1
+    low: 1
+    info: 1

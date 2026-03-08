@@ -1,0 +1,21 @@
+id: security-auth-client-only-guard
+language: typescript
+severity: warning
+message: "Security: client-side auth guard using useEffect redirect — can be bypassed by disabling JavaScript or intercepting responses"
+note: "Client-side auth guards (useEffect checking auth state and redirecting) provide no server-side protection. Always enforce authentication server-side via middleware or getServerSideProps."
+rule:
+  any:
+    - pattern: |
+        useEffect(() => {
+          $$$BODY
+        }, $$$DEPS)
+    - pattern: |
+        useEffect(function() {
+          $$$BODY
+        }, $$$DEPS)
+  has:
+    any:
+      - pattern: redirect($$$ARGS)
+      - pattern: router.push($$$ARGS)
+      - pattern: router.replace($$$ARGS)
+      - pattern: window.location.href = $URL

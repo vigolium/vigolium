@@ -1,0 +1,192 @@
+app:
+  name: nextjs-vulnexamples
+  type: xbow
+  build_context: test/testdata/vulnerable-apps/nextjs-vulnexamples
+  service_name: app
+  internal_port: 3000
+  port: 3000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  # === Active Module Tests ===
+
+  # Example 1: Missing Authentication - unauthenticated access to blog posts
+  # The vulnerable endpoint returns data without any session check
+  - id: "vulnexamples-missing-authn-api"
+    endpoint: "/api/example-1-missing-authentication/vulnerable"
+    method: GET
+    modules: ["active-authn-bypass"]
+    vuln_types: ["missing-authentication"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Missing authentication on route handler - blog posts accessible without login"
+
+  # Example 3: Missing Authorization - access to other users' unpublished posts
+  # Requires authentication (session cookie) but returns ALL users' data
+  - id: "vulnexamples-missing-authz-api"
+    endpoint: "/api/example-3-missing-authorization/vulnerable"
+    method: GET
+    headers:
+      Cookie: "sessionToken=valid-session-token"
+    modules: ["active-authz-bypass"]
+    vuln_types: ["missing-authorization"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Missing authorization on route handler - exposes all users' unpublished posts"
+
+  # Example 6: Stored XSS via dangerouslySetInnerHTML
+  # Blog post 6 contains <img src="x" onerror="alert('pwned')" />
+  - id: "vulnexamples-xss-stored"
+    endpoint: "/example-6-cross-site-scripting/vulnerable"
+    method: GET
+    modules: ["active-xss-light-url-params"]
+    vuln_types: ["xss-stored"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Stored XSS via dangerouslySetInnerHTML with unsanitized DB content"
+
+  # Next.js framework-specific checks
+  - id: "vulnexamples-nextjs-data-leakage"
+    endpoint: "/example-5-secrets-exposure/vulnerable"
+    method: GET
+    modules: ["active-nextjs-data-leakage"]
+    vuln_types: ["data-leakage"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Next.js server component leaking password hashes and API key to client"
+
+  # Missing security headers
+  - id: "vulnexamples-security-headers-active"
+    endpoint: "/"
+    method: GET
+    modules: ["active-nextjs-middleware-bypass"]
+    vuln_types: ["auth-bypass"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Next.js middleware bypass check on example pages"
+
+  # Sensitive file discovery
+  - id: "vulnexamples-sensitive-files"
+    endpoint: "/"
+    method: GET
+    modules: ["active-sensitive-file-discovery"]
+    vuln_types: ["sensitive-file"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Sensitive file discovery (.env, next.config.js)"
+
+  # CORS misconfiguration on API endpoints
+  - id: "vulnexamples-cors"
+    endpoint: "/api/example-1-missing-authentication/vulnerable"
+    method: GET
+    modules: ["active-cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration on unauthenticated API endpoint"
+
+  # === Passive Module Tests ===
+
+  # Next.js framework fingerprinting
+  - id: "vulnexamples-js-fingerprint"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-js-framework-fingerprint"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "Next.js framework detection via __NEXT_DATA__ and _next/static markers"
+
+  # Missing security headers (CSP, HSTS)
+  - id: "vulnexamples-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-security-headers-missing"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers (CSP, HSTS, Permissions-Policy)"
+
+  # Cookie security flags on session token
+  - id: "vulnexamples-cookie-security"
+    endpoint: "/api/auth/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"alice","password":"abc"}'
+    modules: ["passive-cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Session cookie security flags check (HttpOnly, Secure, SameSite)"
+
+  # SSR data exposure - password hashes in server component output
+  - id: "vulnexamples-ssr-secrets-exposure"
+    endpoint: "/example-5-secrets-exposure/vulnerable"
+    method: GET
+    modules: ["passive-ssr-data-exposure"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "SSR state inspection for password hashes and API key exposure"
+
+  # Info disclosure - password hashes visible in page HTML
+  - id: "vulnexamples-info-disclosure"
+    endpoint: "/example-5-secrets-exposure/vulnerable"
+    method: GET
+    modules: ["passive-info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Password hashes and API key visible in server-rendered HTML"
+
+  # XSS detection in response body (passive)
+  - id: "vulnexamples-xss-passive"
+    endpoint: "/example-6-cross-site-scripting/vulnerable"
+    method: GET
+    modules: ["passive-dom-xss-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "XSS payload detection in server-rendered response (onerror handler)"
+
+  # Error message leakage on 404
+  - id: "vulnexamples-error-message"
+    endpoint: "/api/nonexistent"
+    method: GET
+    modules: ["passive-error-message-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Error message leakage on nonexistent endpoint"
+
+  # Next.js configuration audit
+  - id: "vulnexamples-nextjs-config"
+    endpoint: "/"
+    method: GET
+    modules: ["passive-nextjs-config-audit"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Next.js configuration audit (ignoreBuildErrors, missing CSP)"
+
+  # Missing CSRF protection on login
+  - id: "vulnexamples-csrf-detect"
+    endpoint: "/api/auth/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"alice","password":"abc"}'
+    modules: ["passive-csrf-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing CSRF protection on login endpoint"

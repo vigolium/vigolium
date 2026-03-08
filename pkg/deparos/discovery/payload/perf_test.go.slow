@@ -1,0 +1,860 @@
+package payload
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"runtime"
+	"runtime/debug"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// =============================================================================
+// PERFORMANCE TEST CONSTANTS
+// =============================================================================
+
+const (
+	// Scale factors for different test levels
+	ScaleSmall  = 100_000   // 100K - quick test
+	ScaleMedium = 1_000_000 // 1M - standard test
+
+	// Concurrency levels
+	WorkersLow    = 10
+	WorkersMedium = 50
+	WorkersHigh   = 100
+)
+
+// =============================================================================
+// MEMORY TRACKING UTILITIES
+// =============================================================================
+
+// MemStats captures memory state at a point in time.
+type MemStats struct {
+	HeapAlloc   uint64
+	HeapInuse   uint64
+	HeapObjects uint64
+	StackInuse  uint64
+	NumGC       uint32
+	Timestamp   time.Time
+}
+
+func captureMemStats() MemStats {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return MemStats{
+		HeapAlloc:   m.HeapAlloc,
+		HeapInuse:   m.HeapInuse,
+		HeapObjects: m.HeapObjects,
+		StackInuse:  m.StackInuse,
+		NumGC:       m.NumGC,
+		Timestamp:   time.Now(),
+	}
+}
+
+func (s MemStats) String() string {
+	return fmt.Sprintf("HeapAlloc=%s HeapInuse=%s Objects=%d Stack=%s GCs=%d",
+		formatBytes(s.HeapAlloc),
+		formatBytes(s.HeapInuse),
+		s.HeapObjects,
+		formatBytes(s.StackInuse),
+		s.NumGC)
+}
+
+func formatBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// =============================================================================
+// PERFORMANCE TESTS
+// =============================================================================
+
+// TestPerf_ObservedProvider_100K tests with 100K operations.
+func TestPerf_ObservedProvider_100K(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	runPerformanceTest(t, "100K", ScaleSmall, WorkersLow, 0.5, DefaultMaxItems)
+}
+
+// TestPerf_ObservedProvider_1M tests with 1M operations.
+func TestPerf_ObservedProvider_1M(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	runPerformanceTest(t, "1M", ScaleMedium, WorkersMedium, 0.6, DefaultMaxItems)
+}
+
+// TestPerf_ObservedProvider_WithEviction tests performance with frequent evictions.
+func TestPerf_ObservedProvider_WithEviction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	// Small capacity to force frequent evictions
+	runPerformanceTest(t, "WithEviction", ScaleSmall, WorkersLow, 0.3, 5000)
+}
+
+// runPerformanceTest executes a performance test with given parameters.
+func runPerformanceTest(t *testing.T, name string, totalOps, workers int, expectedHitRate float64, maxItems int) {
+	t.Helper()
+
+	provider := NewObservedProviderWithLimit(true, maxItems)
+
+	// Force GC before test
+	runtime.GC()
+	debug.FreeOSMemory()
+	startMem := captureMemStats()
+
+	t.Logf("=== Performance Test: %s ===", name)
+	t.Logf("Configuration: ops=%d workers=%d hitRate=%.1f%% maxItems=%d", totalOps, workers, expectedHitRate*100, maxItems)
+	t.Logf("Start Memory: %s", startMem)
+
+	// Pre-populate for hit rate simulation
+	uniqueKeys := int(float64(totalOps) * (1 - expectedHitRate))
+	if uniqueKeys > maxItems {
+		uniqueKeys = maxItems * 3 / 4 // Keep within capacity bounds
+	}
+	t.Logf("Pre-populating %d unique keys...", uniqueKeys)
+
+	prePopStart := time.Now()
+	for i := 0; i < uniqueKeys; i++ {
+		provider.Add([]byte(fmt.Sprintf("prepop-%d", i)))
+	}
+	prePopDur := time.Since(prePopStart)
+	t.Logf("Pre-population completed in %v (%.0f keys/sec)", prePopDur, float64(uniqueKeys)/prePopDur.Seconds())
+
+	// Run concurrent operations
+	var (
+		completed atomic.Int64
+		hits      atomic.Int64
+		misses    atomic.Int64
+	)
+
+	opsPerWorker := totalOps / workers
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+
+			for i := 0; i < opsPerWorker; i++ {
+				var key string
+				if i%10 < int(expectedHitRate*10) {
+					// Hit: use existing key
+					existingIdx := (workerID*opsPerWorker + i) % uniqueKeys
+					key = fmt.Sprintf("prepop-%d", existingIdx)
+				} else {
+					// Miss: new unique key
+					key = fmt.Sprintf("new-%d-%d", workerID, i)
+				}
+
+				// Check if already exists, then add
+				if provider.Contains([]byte(key)) {
+					hits.Add(1)
+				} else {
+					misses.Add(1)
+				}
+				provider.Add([]byte(key))
+				completed.Add(1)
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	// Force GC and capture final memory
+	runtime.GC()
+	debug.FreeOSMemory()
+	endMem := captureMemStats()
+
+	// Calculate metrics
+	opsPerSec := float64(totalOps) / duration.Seconds()
+	actualHitRate := float64(hits.Load()) / float64(totalOps)
+	heapGrowth := int64(endMem.HeapAlloc) - int64(startMem.HeapAlloc)
+
+	// Report results
+	t.Logf("=== Results ===")
+	t.Logf("Duration: %v", duration)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Total Operations: %d", totalOps)
+	t.Logf("Hits: %d (%.1f%%)", hits.Load(), actualHitRate*100)
+	t.Logf("Misses: %d", misses.Load())
+	t.Logf("Items Stored: %d (max: %d)", provider.Count(), maxItems)
+	t.Logf("End Memory: %s", endMem)
+	t.Logf("Heap Growth: %s", formatBytes(uint64(maxInt64(0, heapGrowth))))
+	t.Logf("GC Cycles: %d", endMem.NumGC-startMem.NumGC)
+
+	// Performance assertions
+	// Note: ObservedProvider uses O(n) sorted insertion, so throughput scales inversely with size.
+	// With 50K items, expect ~50K ops/sec. With eviction at lower capacity, throughput is higher.
+	minOpsPerSec := 20000.0 // Conservative threshold for sorted insertion with large collection
+	if opsPerSec < minOpsPerSec {
+		t.Errorf("Performance below threshold: got %.0f ops/sec, want >= %.0f", opsPerSec, minOpsPerSec)
+	}
+
+	// Memory efficiency - bytes per item stored
+	if provider.Count() > 0 {
+		bytesPerItem := float64(heapGrowth) / float64(provider.Count())
+		t.Logf("Bytes per item: %.2f", bytesPerItem)
+	}
+}
+
+// =============================================================================
+// MEMORY LEAK TESTS
+// =============================================================================
+
+// TestLeak_ObservedProvider_RepeatedCreate tests for leaks with repeated create cycles.
+func TestLeak_ObservedProvider_RepeatedCreate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping leak test in short mode")
+	}
+
+	const cycles = 100
+	const opsPerCycle = 10000
+
+	runtime.GC()
+	debug.FreeOSMemory()
+	baselineMem := captureMemStats()
+
+	t.Logf("=== Leak Test: Repeated Create/Discard ===")
+	t.Logf("Cycles: %d, Operations/Cycle: %d", cycles, opsPerCycle)
+	t.Logf("Baseline Memory: %s", baselineMem)
+
+	for cycle := 0; cycle < cycles; cycle++ {
+		provider := NewObservedProviderWithLimit(true, 5000)
+
+		// Perform operations that trigger evictions
+		for i := 0; i < opsPerCycle; i++ {
+			provider.Add([]byte(fmt.Sprintf("key-%d-%d", cycle, i)))
+		}
+
+		// Force iteration to exercise rebuild
+		items := provider.GetAllItems()
+		_ = items
+
+		provider.Close()
+
+		// Periodic GC and memory check
+		if (cycle+1)%20 == 0 {
+			runtime.GC()
+			debug.FreeOSMemory()
+			currentMem := captureMemStats()
+			heapGrowth := int64(currentMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+			t.Logf("Cycle %d: Heap Growth = %s, Objects = %d",
+				cycle+1, formatBytes(uint64(maxInt64(0, heapGrowth))), currentMem.HeapObjects)
+		}
+	}
+
+	// Final memory check
+	runtime.GC()
+	debug.FreeOSMemory()
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+
+	finalMem := captureMemStats()
+	heapGrowth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+
+	t.Logf("=== Final Results ===")
+	t.Logf("Final Memory: %s", finalMem)
+	t.Logf("Net Heap Growth: %s", formatBytes(uint64(maxInt64(0, heapGrowth))))
+	t.Logf("GC Cycles: %d", finalMem.NumGC-baselineMem.NumGC)
+
+	// In-memory provider should have minimal residual after GC
+	maxAllowedGrowth := int64(10 * 1024 * 1024) // 10MB
+	if heapGrowth > maxAllowedGrowth {
+		t.Errorf("Potential memory leak detected: heap grew by %s (max allowed: %s)",
+			formatBytes(uint64(heapGrowth)), formatBytes(uint64(maxAllowedGrowth)))
+	}
+}
+
+// TestLeak_ObservedProvider_ConcurrentStress tests for leaks under concurrent stress.
+func TestLeak_ObservedProvider_ConcurrentStress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping concurrent stress leak test in short mode")
+	}
+
+	const (
+		duration      = 10 * time.Second
+		workers       = 50
+		maxItems      = 10000
+		checkInterval = 2 * time.Second
+	)
+
+	provider := NewObservedProviderWithLimit(true, maxItems)
+
+	runtime.GC()
+	debug.FreeOSMemory()
+	baselineMem := captureMemStats()
+
+	t.Logf("=== Leak Test: Concurrent Stress ===")
+	t.Logf("Duration: %v, Workers: %d, MaxItems: %d", duration, workers, maxItems)
+	t.Logf("Baseline Memory: %s", baselineMem)
+
+	var (
+		totalOps atomic.Int64
+		stop     atomic.Bool
+	)
+
+	// Start workers
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for w := 0; w < workers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			localOps := 0
+			for !stop.Load() {
+				key := fmt.Sprintf("stress-%d-%d", workerID, localOps)
+				provider.Add([]byte(key))
+				localOps++
+				totalOps.Add(1)
+			}
+		}(w)
+	}
+
+	// Monitor memory during test
+	memSamples := make([]MemStats, 0)
+	memSamples = append(memSamples, baselineMem)
+
+	ticker := time.NewTicker(checkInterval)
+	timeout := time.After(duration)
+
+monitorLoop:
+	for {
+		select {
+		case <-ticker.C:
+			runtime.GC()
+			sample := captureMemStats()
+			memSamples = append(memSamples, sample)
+			t.Logf("Ops: %d, Count: %d, Memory: %s", totalOps.Load(), provider.Count(), sample)
+		case <-timeout:
+			break monitorLoop
+		}
+	}
+
+	ticker.Stop()
+	stop.Store(true)
+	wg.Wait()
+
+	// Final analysis
+	runtime.GC()
+	debug.FreeOSMemory()
+	time.Sleep(100 * time.Millisecond)
+	runtime.GC()
+
+	finalMem := captureMemStats()
+	memSamples = append(memSamples, finalMem)
+
+	// Calculate memory efficiency
+	if len(memSamples) > 2 {
+		heapGrowth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+		bytesPerItem := float64(heapGrowth) / float64(provider.Count())
+
+		t.Logf("=== Memory Analysis ===")
+		t.Logf("Total Operations: %d", totalOps.Load())
+		t.Logf("Final Item Count: %d (max: %d)", provider.Count(), maxItems)
+		t.Logf("Final Heap: %s", formatBytes(finalMem.HeapAlloc))
+		t.Logf("Heap Growth: %s", formatBytes(uint64(maxInt64(0, heapGrowth))))
+		t.Logf("Bytes per Stored Item: %.2f", bytesPerItem)
+
+		// In-memory bounded storage: memory should be proportional to maxItems, not total ops.
+		// Each stored item includes: string key, frequency int, slice entry.
+		// Expect ~100-500 bytes per stored item including overhead.
+		maxBytesPerItem := 2000.0 // Conservative with GC timing variations
+		if bytesPerItem > maxBytesPerItem {
+			t.Errorf("Memory per item too high: %.2f bytes/item exceeds threshold %.2f",
+				bytesPerItem, maxBytesPerItem)
+		}
+	}
+
+	// Verify bounded storage (most critical check)
+	if provider.Count() > maxItems {
+		t.Errorf("Exceeded max items: got %d, max %d", provider.Count(), maxItems)
+	}
+}
+
+// TestLeak_ObservedProvider_EvictionMemory tests that eviction properly frees memory.
+func TestLeak_ObservedProvider_EvictionMemory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping eviction memory test in short mode")
+	}
+
+	const (
+		maxItems   = 5000
+		iterations = 20
+		opsPerIter = 10000
+	)
+
+	provider := NewObservedProviderWithLimit(true, maxItems)
+
+	runtime.GC()
+	debug.FreeOSMemory()
+	baselineMem := captureMemStats()
+
+	t.Logf("=== Eviction Memory Test ===")
+	t.Logf("MaxItems: %d, Iterations: %d, Ops/Iter: %d", maxItems, iterations, opsPerIter)
+	t.Logf("Baseline: %s", baselineMem)
+
+	var maxHeap uint64
+	var minHeap uint64 = ^uint64(0)
+
+	for iter := 0; iter < iterations; iter++ {
+		// Add many unique items (triggers evictions)
+		for i := 0; i < opsPerIter; i++ {
+			provider.Add([]byte(fmt.Sprintf("iter%d-key%d", iter, i)))
+		}
+
+		runtime.GC()
+		mem := captureMemStats()
+		if mem.HeapAlloc > maxHeap {
+			maxHeap = mem.HeapAlloc
+		}
+		if mem.HeapAlloc < minHeap {
+			minHeap = mem.HeapAlloc
+		}
+
+		if (iter+1)%5 == 0 {
+			t.Logf("Iter %d: Count=%d, Heap=%s", iter+1, provider.Count(), formatBytes(mem.HeapAlloc))
+		}
+	}
+
+	runtime.GC()
+	debug.FreeOSMemory()
+	finalMem := captureMemStats()
+
+	t.Logf("=== Results ===")
+	t.Logf("Final Count: %d (max: %d)", provider.Count(), maxItems)
+	t.Logf("Min Heap: %s", formatBytes(minHeap))
+	t.Logf("Max Heap: %s", formatBytes(maxHeap))
+	t.Logf("Final Heap: %s", formatBytes(finalMem.HeapAlloc))
+
+	// With bounded storage, memory should not grow unboundedly
+	// Check that final heap is not excessively larger than baseline
+	heapGrowth := int64(finalMem.HeapAlloc) - int64(baselineMem.HeapAlloc)
+	// Allow 50MB growth for 5K items with overhead
+	maxAllowedGrowth := int64(50 * 1024 * 1024)
+	if heapGrowth > maxAllowedGrowth {
+		t.Errorf("Eviction not reclaiming memory: grew by %s (max: %s)",
+			formatBytes(uint64(heapGrowth)), formatBytes(uint64(maxAllowedGrowth)))
+	}
+
+	// Verify bounded
+	if provider.Count() > maxItems {
+		t.Errorf("Storage not bounded: count %d > max %d", provider.Count(), maxItems)
+	}
+}
+
+// TestLeak_ObservedProvider_GoroutineLeak tests for goroutine leaks.
+func TestLeak_ObservedProvider_GoroutineLeak(t *testing.T) {
+	// Warm up runtime
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+
+	baselineGoroutines := runtime.NumGoroutine()
+
+	const iterations = 50
+
+	for i := 0; i < iterations; i++ {
+		provider := NewObservedProviderWithLimit(true, 1000)
+
+		// Concurrent operations
+		var wg sync.WaitGroup
+		for j := 0; j < 10; j++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for k := 0; k < 100; k++ {
+					provider.Add([]byte(fmt.Sprintf("key-%d-%d", id, k)))
+				}
+			}(j)
+		}
+		wg.Wait()
+
+		// Exercise Next() iteration
+		ctx := context.Background()
+		for {
+			_, err := provider.Next(ctx)
+			if err == io.EOF {
+				break
+			}
+		}
+
+		provider.Close()
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	runtime.GC()
+
+	finalGoroutines := runtime.NumGoroutine()
+	goroutineGrowth := finalGoroutines - baselineGoroutines
+
+	t.Logf("Baseline goroutines: %d", baselineGoroutines)
+	t.Logf("Final goroutines: %d", finalGoroutines)
+	t.Logf("Goroutine growth: %d", goroutineGrowth)
+
+	// In-memory provider should not spawn any goroutines
+	maxAllowedGrowth := 5
+	if goroutineGrowth > maxAllowedGrowth {
+		t.Errorf("Potential goroutine leak: grew by %d (max allowed: %d)", goroutineGrowth, maxAllowedGrowth)
+	}
+}
+
+// =============================================================================
+// CONCURRENCY TESTS
+// =============================================================================
+
+// TestConcurrency_ObservedProvider_HighContention tests under extreme contention.
+func TestConcurrency_ObservedProvider_HighContention(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping high contention test in short mode")
+	}
+
+	const (
+		workers      = 100
+		opsPerWorker = 10000
+		hotKeys      = 100 // Small key set for maximum contention
+	)
+
+	provider := NewObservedProviderWithLimit(true, 50000)
+
+	t.Logf("=== High Contention Test ===")
+	t.Logf("Workers: %d, Ops/Worker: %d, Hot Keys: %d", workers, opsPerWorker, hotKeys)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				key := []byte(fmt.Sprintf("hot-key-%d", i%hotKeys))
+				provider.Add(key)
+			}
+		}()
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	totalOps := workers * opsPerWorker
+	opsPerSec := float64(totalOps) / duration.Seconds()
+
+	t.Logf("Duration: %v", duration)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Unique Keys: %d (expected ~%d)", provider.Count(), hotKeys)
+
+	// Verify correctness
+	if provider.Count() != hotKeys {
+		t.Errorf("Incorrect unique key count: got %d, expected %d", provider.Count(), hotKeys)
+	}
+
+	// Verify all frequencies are accumulated correctly
+	totalFreq := 0
+	for i := 0; i < hotKeys; i++ {
+		key := fmt.Sprintf("hot-key-%d", i)
+		totalFreq += provider.GetFrequency(key)
+	}
+	expectedTotalFreq := workers * opsPerWorker
+	if totalFreq != expectedTotalFreq {
+		t.Errorf("Frequency count mismatch: got %d, expected %d", totalFreq, expectedTotalFreq)
+	}
+
+	// Minimum throughput for in-memory with hot keys (limited insertions due to duplicates)
+	// Hot keys only trigger frequency updates (O(1) map lookup), no sorted insertion needed
+	minOpsPerSec := 200000.0
+	if opsPerSec < minOpsPerSec {
+		t.Errorf("Performance below threshold: got %.0f ops/sec, want >= %.0f", opsPerSec, minOpsPerSec)
+	}
+}
+
+// TestConcurrency_ObservedProvider_MixedOperations tests concurrent mixed operations.
+func TestConcurrency_ObservedProvider_MixedOperations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping mixed operations test in short mode")
+	}
+
+	const (
+		addWorkers      = 20
+		containsWorkers = 20
+		iteratorWorkers = 5
+		opsPerWorker    = 5000
+	)
+
+	provider := NewObservedProviderWithLimit(true, 10000)
+
+	// Pre-populate
+	for i := 0; i < 1000; i++ {
+		provider.Add([]byte(fmt.Sprintf("prepop-%d", i)))
+	}
+
+	var wg sync.WaitGroup
+	totalWorkers := addWorkers + containsWorkers + iteratorWorkers
+	wg.Add(totalWorkers)
+
+	start := time.Now()
+
+	// Add workers
+	for w := 0; w < addWorkers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				provider.Add([]byte(fmt.Sprintf("add-%d-%d", id, i)))
+			}
+		}(w)
+	}
+
+	// Contains workers (read-only)
+	for w := 0; w < containsWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				provider.Contains([]byte(fmt.Sprintf("prepop-%d", i%1000)))
+			}
+		}()
+	}
+
+	// Iterator workers (GetAllItems)
+	for w := 0; w < iteratorWorkers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker/10; i++ {
+				items := provider.GetAllItems()
+				_ = items
+			}
+		}()
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	totalOps := (addWorkers + containsWorkers) * opsPerWorker
+	totalOps += iteratorWorkers * (opsPerWorker / 10)
+	opsPerSec := float64(totalOps) / duration.Seconds()
+
+	t.Logf("=== Mixed Operations Results ===")
+	t.Logf("Duration: %v", duration)
+	t.Logf("Total Ops: %d", totalOps)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Final Count: %d", provider.Count())
+}
+
+// TestConcurrency_ObservedProvider_AddWithFrequency tests concurrent AddWithFrequency.
+func TestConcurrency_ObservedProvider_AddWithFrequency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping AddWithFrequency concurrency test in short mode")
+	}
+
+	const (
+		workers      = 50
+		opsPerWorker = 2000
+		keyCount     = 100
+	)
+
+	provider := NewObservedProviderWithLimit(true, 50000)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				key := []byte(fmt.Sprintf("freq-key-%d", i%keyCount))
+				if i%2 == 0 {
+					provider.AddWithFrequency(key, TrustedFrequencyBoost)
+				} else {
+					provider.Add(key)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	totalOps := workers * opsPerWorker
+	opsPerSec := float64(totalOps) / duration.Seconds()
+
+	t.Logf("=== AddWithFrequency Concurrency Results ===")
+	t.Logf("Duration: %v", duration)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Unique Keys: %d", provider.Count())
+
+	// Verify frequencies accumulated correctly
+	expectedFreqPerKey := workers * opsPerWorker / keyCount
+	// Half with TrustedFrequencyBoost (100), half with 1
+	// Per key: (opsPerWorker/2) * 100 + (opsPerWorker/2) * 1 = opsPerWorker * 50.5 per worker
+	// Total: workers * opsPerWorker * 50.5 / keyCount
+
+	totalFreq := 0
+	for i := 0; i < keyCount; i++ {
+		totalFreq += provider.GetFrequency(fmt.Sprintf("freq-key-%d", i))
+	}
+
+	t.Logf("Total Frequency Sum: %d", totalFreq)
+	t.Logf("Expected Operations per Key: %d", expectedFreqPerKey)
+
+	if provider.Count() != keyCount {
+		t.Errorf("Incorrect key count: got %d, expected %d", provider.Count(), keyCount)
+	}
+}
+
+// =============================================================================
+// EVICTION PERFORMANCE TESTS
+// =============================================================================
+
+// TestPerf_ObservedProvider_EvictionThroughput tests eviction under load.
+func TestPerf_ObservedProvider_EvictionThroughput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping eviction throughput test in short mode")
+	}
+
+	const (
+		maxItems = 5000
+		totalOps = 100000
+		workers  = 20
+	)
+
+	provider := NewObservedProviderWithLimit(true, maxItems)
+
+	t.Logf("=== Eviction Throughput Test ===")
+	t.Logf("MaxItems: %d, TotalOps: %d, Workers: %d", maxItems, totalOps, workers)
+	t.Logf("Expected evictions: ~%d", (totalOps-maxItems)/int(float64(maxItems)*EvictionPercent))
+
+	var wg sync.WaitGroup
+	opsPerWorker := totalOps / workers
+	wg.Add(workers)
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				// All unique keys to maximize evictions
+				key := []byte(fmt.Sprintf("unique-%d-%d", id, i))
+				provider.Add(key)
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	opsPerSec := float64(totalOps) / duration.Seconds()
+
+	t.Logf("Duration: %v", duration)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Final Count: %d (max: %d)", provider.Count(), maxItems)
+
+	// Verify bounded
+	if provider.Count() > maxItems {
+		t.Errorf("Storage not bounded: count %d > max %d", provider.Count(), maxItems)
+	}
+
+	// Should still be reasonably fast even with frequent evictions
+	// Eviction overhead + sorted insertion limits throughput
+	minOpsPerSec := 20000.0
+	if opsPerSec < minOpsPerSec {
+		t.Errorf("Performance below threshold with eviction: got %.0f ops/sec, want >= %.0f", opsPerSec, minOpsPerSec)
+	}
+}
+
+// TestPerf_ObservedProvider_TrustedVsSecondary tests priority-based eviction performance.
+func TestPerf_ObservedProvider_TrustedVsSecondary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping trusted vs secondary test in short mode")
+	}
+
+	const (
+		maxItems     = 5000
+		trustedCount = 2000
+		secondaryOps = 50000
+		workers      = 10
+	)
+
+	provider := NewObservedProviderWithLimit(true, maxItems)
+
+	t.Logf("=== Trusted vs Secondary Eviction Test ===")
+	t.Logf("MaxItems: %d, Trusted: %d, SecondaryOps: %d", maxItems, trustedCount, secondaryOps)
+
+	// Add trusted items first
+	for i := 0; i < trustedCount; i++ {
+		provider.AddWithFrequency([]byte(fmt.Sprintf("trusted-%d", i)), TrustedFrequencyBoost)
+	}
+	trustedAfterAdd := provider.Count()
+	t.Logf("After trusted add: %d items", trustedAfterAdd)
+
+	// Flood with secondary items (should trigger evictions)
+	var wg sync.WaitGroup
+	opsPerWorker := secondaryOps / workers
+	wg.Add(workers)
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < opsPerWorker; i++ {
+				key := []byte(fmt.Sprintf("secondary-%d-%d", id, i))
+				provider.Add(key)
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	opsPerSec := float64(secondaryOps) / duration.Seconds()
+
+	// Verify trusted items survived
+	survivingTrusted := 0
+	for i := 0; i < trustedCount; i++ {
+		if provider.Contains([]byte(fmt.Sprintf("trusted-%d", i))) {
+			survivingTrusted++
+		}
+	}
+
+	t.Logf("Duration: %v", duration)
+	t.Logf("Throughput: %.0f ops/sec", opsPerSec)
+	t.Logf("Final Count: %d", provider.Count())
+	t.Logf("Surviving Trusted: %d/%d (%.1f%%)", survivingTrusted, trustedCount, float64(survivingTrusted)/float64(trustedCount)*100)
+
+	// All trusted items should survive (they have frequency 100 vs 1)
+	if survivingTrusted < trustedCount {
+		t.Errorf("Trusted items evicted: only %d/%d survived", survivingTrusted, trustedCount)
+	}
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}

@@ -1,0 +1,10 @@
+id: security-xss-markdown-unsafe-config-ts
+language: typescript
+severity: warning
+message: "Security: markdown renderer configured to allow raw HTML — user-supplied markdown can inject scripts"
+note: "Markdown renderers with sanitize:false or html:true will pass through raw HTML tags including <script> and event handlers. Always sanitize HTML output from markdown."
+rule:
+  any:
+    - pattern: "sanitize: false"
+    - pattern: "html: true"
+    - pattern: "allowDangerousHtml: true"

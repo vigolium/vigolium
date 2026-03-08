@@ -1,0 +1,22 @@
+app:
+  name: xbow-xxe-006
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-006-24"
+  service_name: app
+  internal_port: 80
+  wait_endpoint: "/ping"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-006-xxe-addbook"
+    endpoint: "/addbook"
+    method: POST
+    body: '<?xml version="1.0"?><book><title>test</title><author>test</author></book>'
+    headers:
+      Content-Type: "application/xml"
+    modules: ["active-xxe-generic"]
+    vuln_types: ["xxe"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XXE injection via XML book submission (XBEN-006-24)"

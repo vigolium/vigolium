@@ -1,0 +1,85 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "rules": [
+            {
+              "id": "python.django.security.injection.sql-injection",
+              "defaultConfiguration": { "level": "error" },
+              "properties": { "tags": ["security", "sql-injection"] }
+            },
+            {
+              "id": "python.flask.security.xss.reflected-xss",
+              "defaultConfiguration": { "level": "warning" },
+              "properties": { "tags": ["security", "xss"] }
+            },
+            {
+              "id": "python.lang.security.deserialization.avoid-pickle",
+              "defaultConfiguration": { "level": "warning" },
+              "properties": { "tags": ["security"] }
+            },
+            {
+              "id": "javascript.express.security.open-redirect",
+              "defaultConfiguration": { "level": "note" },
+              "properties": { "tags": ["security"] }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "python.django.security.injection.sql-injection",
+          "message": { "text": "Detected raw SQL query with user input" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/views.py" },
+                "region": { "startLine": 42, "endLine": 42 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "python.flask.security.xss.reflected-xss",
+          "message": { "text": "User input rendered without escaping" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/routes.py" },
+                "region": { "startLine": 15, "endLine": 17 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "python.lang.security.deserialization.avoid-pickle",
+          "message": { "text": "Avoid using pickle for deserialization" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/utils.py" },
+                "region": { "startLine": 8, "endLine": 8 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "javascript.express.security.open-redirect",
+          "message": { "text": "Possible open redirect vulnerability" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/handlers.js" },
+                "region": { "startLine": 23, "endLine": 25 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

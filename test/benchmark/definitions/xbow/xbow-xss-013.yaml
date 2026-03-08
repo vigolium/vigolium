@@ -1,0 +1,19 @@
+app:
+  name: xbow-xss-013
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-013-24"
+  service_name: web
+  internal_port: 5000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-013-xss-name"
+    endpoint: "/page?name=test"
+    method: GET
+    modules: ["active-xss-light-url-params"]
+    vuln_types: ["xss"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Reflected XSS via name query parameter (XBEN-013-24)"

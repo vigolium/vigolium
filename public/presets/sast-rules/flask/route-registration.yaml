@@ -1,0 +1,10 @@
+id: flask-route-registration
+language: python
+message: "Route registration: $$$"
+note: "Matches Flask/Connexion route definitions and API registrations"
+severity: hint
+rule:
+  any:
+    - pattern: $APP.route($$$)
+    - pattern: $APP.add_url_rule($$$)
+    - pattern: $APP.add_api($$$)

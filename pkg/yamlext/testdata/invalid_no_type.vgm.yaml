@@ -1,0 +1,4 @@
+id: missing-type
+name: Missing Type Extension
+description: This extension is missing the required type field
+severity: info

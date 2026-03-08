@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Radio Buttons Form Test</title>
+</head>
+<body>
+    <h1>Radio Buttons Form</h1>
+    <p>A form with radio button options. Spider should generate 3 variants (one per radio option).</p>
+
+    <form action="/form-result/survey" method="POST">
+        <fieldset>
+            <legend>Select your gender:</legend>
+
+            <label>
+                <input type="radio" name="gender" value="male"> Male
+            </label>
+
+            <label>
+                <input type="radio" name="gender" value="female"> Female
+            </label>
+
+            <label>
+                <input type="radio" name="gender" value="other"> Other
+            </label>
+        </fieldset>
+
+        <input type="submit" value="Submit">
+    </form>
+</body>
+</html>

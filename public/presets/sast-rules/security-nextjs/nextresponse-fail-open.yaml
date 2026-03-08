@@ -1,0 +1,9 @@
+id: security-nextjs-fail-open-middleware
+language: typescript
+severity: error
+message: "Security: NextResponse.next() in catch block — middleware fails open, allowing unauthenticated access when auth throws"
+note: "If auth/token validation in middleware throws an exception and the catch block returns NextResponse.next(), all requests pass through unauthenticated."
+rule:
+  pattern: NextResponse.next()
+  inside:
+    kind: catch_clause

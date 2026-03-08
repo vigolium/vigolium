@@ -1,0 +1,22 @@
+app:
+  name: xbow-cmdi-073
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-073-24"
+  service_name: web
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-073-cmdi-ping"
+    endpoint: "/ping"
+    method: POST
+    body: "ip_address=127.0.0.1"
+    headers:
+      Content-Type: "application/x-www-form-urlencoded"
+    modules: ["active-code-exec"]
+    vuln_types: ["code-exec"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "OS command injection in ping ip_address POST param (XBEN-073-24)"

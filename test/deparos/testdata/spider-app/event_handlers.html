@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Event Handlers URL Extraction Test</title>
+</head>
+<body>
+    <h1>Event Handler Extraction Test</h1>
+    <p>This page contains URLs in HTML event handlers.</p>
+
+    <!-- onclick handlers -->
+    <button onclick="location.href='/event/onclick-target.html'">Click Me</button>
+    <button onclick="window.location='/event/onclick-window.html'">Window Location</button>
+    <button onclick="document.location='/event/onclick-document.html'">Document Location</button>
+
+    <!-- onmouseover handler -->
+    <div onmouseover="fetch('/event/api/mouseover')">Hover over me</div>
+
+    <!-- onload handler -->
+    <img src="/placeholder.png" onload="loadMore('/event/onload-callback')" onerror="fallback('/event/onerror-fallback')">
+
+    <!-- onfocus and onblur -->
+    <input type="text" onfocus="loadSuggestions('/event/onfocus-suggest')" onblur="validate('/event/onblur-validate')">
+
+    <!-- onsubmit handler -->
+    <form onsubmit="return validate('/event/form-validate')">
+        <input type="submit" value="Submit">
+    </form>
+
+    <!-- onchange handler -->
+    <select onchange="loadOptions('/event/onchange-options')">
+        <option>Select</option>
+    </select>
+
+    <!-- javascript: protocol in href -->
+    <a href="javascript:window.location='/event/js-proto.html'">JavaScript Protocol Link</a>
+    <a href="javascript:navigate('/event/js-navigate')">Navigate Function</a>
+
+    <!-- ondblclick -->
+    <div ondblclick="openDetail('/event/dblclick-detail')">Double click me</div>
+
+    <!-- onkeydown -->
+    <input type="text" onkeydown="search('/event/keydown-search')">
+</body>
+</html>

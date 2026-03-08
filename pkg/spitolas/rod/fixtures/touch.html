@@ -1,0 +1,47 @@
+<html>
+  <style>
+    body {
+      width: 200px;
+      height: 200px;
+      margin: 0;
+    }
+    button {
+      margin: 20px;
+    }
+  </style>
+
+  <body>
+    <button id="btn">touch</button>
+  </body>
+
+  <script>
+    window.touchTrack = ''
+    const body = document.body
+    body.ontouchstart = (e) => {
+      const t = e.touches[0]
+      window.touchTrack += ' start ' + (t.clientX | 0) + ' ' + (t.clientY | 0)
+    }
+    body.ontouchmove = (e) => {
+      const t = e.touches[0]
+      window.touchTrack += ' move ' + (t.clientX | 0) + ' ' + (t.clientY | 0)
+    }
+    body.ontouchend = () => {
+      window.touchTrack += ' end'
+    }
+    body.ontouchcancel = () => {
+      window.touchTrack += ' cancel'
+    }
+
+    const btn = document.getElementById('btn')
+    let start = false
+    btn.ontouchstart = () => {
+      start = true
+    }
+    btn.ontouchend = () => {
+      if (start) {
+        btn.setAttribute('tapped', true)
+      }
+      start = false
+    }
+  </script>
+</html>

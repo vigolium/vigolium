@@ -1,0 +1,39 @@
+id: sensitive-header-leak-yaml
+name: Sensitive Header Leak (YAML)
+description: Detects responses that expose server technology details through HTTP headers
+type: passive
+severity: info
+confidence: certain
+scope: response
+tags:
+  - headers
+  - information-disclosure
+  - light
+scan_types:
+  - per_request
+
+rules:
+  - match:
+      response_header: X-Powered-By
+    finding:
+      name: X-Powered-By header exposed
+      description: "Response includes X-Powered-By header which reveals server technology"
+      matched: "{{matched}}"
+      severity: info
+
+  - match:
+      response_header: Server
+      regex: "[0-9]+\\.[0-9]+"
+    finding:
+      name: Server version disclosed
+      description: "Response includes Server header with version info"
+      matched: "{{matched}}"
+      severity: low
+
+  - match:
+      response_header: X-AspNet-Version
+    finding:
+      name: ASP.NET version disclosed
+      description: "Response includes X-AspNet-Version header"
+      matched: "{{matched}}"
+      severity: info

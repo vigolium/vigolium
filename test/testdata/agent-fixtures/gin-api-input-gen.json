@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "gin",
+    "template": "api-input-gen",
+    "agent_name": "claude",
+    "output_schema": "http_records",
+    "generated_at": "2026-02-15T10:40:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "Based on the source code analysis, here are the HTTP requests for fuzzing:\n\n```json\n{\"http_records\": [{\"method\": \"GET\", \"url\": \"http://localhost:8080/users?q=%27OR+1%3D1--&page=-1\", \"headers\": {\"Host\": \"localhost:8080\"}, \"notes\": \"SQLi test on search param\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8080/users?q=<script>alert(1)</script>&page=1\", \"headers\": {\"Host\": \"localhost:8080\"}, \"notes\": \"XSS test on search param\"}, {\"method\": \"POST\", \"url\": \"http://localhost:8080/users\", \"headers\": {\"Host\": \"localhost:8080\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"name\\\": \\\"<img src=x onerror=alert(1)>\\\", \\\"email\\\": \\\"test@example.com\\\"}\", \"notes\": \"XSS in name field\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8080/users/../../etc/passwd\", \"headers\": {\"Host\": \"localhost:8080\"}, \"notes\": \"Path traversal on user ID\"}, {\"method\": \"DELETE\", \"url\": \"http://localhost:8080/api/v2/admin/cache\", \"headers\": {\"Host\": \"localhost:8080\"}, \"notes\": \"Unauthorized admin action\"}]}\n```",
+  "parsed": {
+    "finding_count": 0,
+    "record_count": 5
+  }
+}

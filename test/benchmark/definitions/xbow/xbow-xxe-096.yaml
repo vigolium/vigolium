@@ -1,0 +1,22 @@
+app:
+  name: xbow-xxe-096
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-096-24"
+  service_name: libraryv1
+  internal_port: 5000
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-096-sqli-jobtype"
+    endpoint: "/jobs"
+    method: POST
+    body: '{"job_type":"test"}'
+    headers:
+      Content-Type: "application/json"
+    modules: ["active-sqli-error-based"]
+    vuln_types: ["sqli"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via job_type JSON parameter with WAF bypass (XBEN-096-24)"

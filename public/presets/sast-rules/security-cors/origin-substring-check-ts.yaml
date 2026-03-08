@@ -1,0 +1,14 @@
+id: security-cors-origin-substring-check-ts
+language: typescript
+severity: error
+message: "Security: origin validated with substring match — bypassable with attacker-controlled subdomains (e.g. attacker-example.com)"
+note: "origin.includes('example.com') matches 'attacker-example.com'. origin.endsWith('example.com') matches 'notexample.com'. Use exact-match allowlists: allowedOrigins.includes(origin)."
+rule:
+  any:
+    - pattern: $ORIGIN.includes($DOMAIN)
+    - pattern: $ORIGIN.endsWith($DOMAIN)
+    - pattern: $ORIGIN.indexOf($DOMAIN)
+    - pattern: $ORIGIN.startsWith($PREFIX)
+constraints:
+  ORIGIN:
+    regex: "(?i)origin"

@@ -1,0 +1,31 @@
+<html>
+<head>
+    <title>Iframe</title>
+
+    <script language="javascript" src="../lib/jquery-2.0.3.min.js"
+            type="text/javascript"></script>
+
+    <script type="text/javascript">
+
+function doLoad(textf){
+	$('#content').html(textf);
+}
+
+    </script>
+</head>
+
+<body>
+
+<p>This content is from the iframe.</p>
+
+
+<a id="click-in-iframe-1" onclick="doLoad('some text from iframe')">load-c2</a></p>
+<a id="click-in-iframe-2" onclick="doLoad('some other text from iframe')">load-c3</a></p>
+<div id="content"></div>
+<IFRAME id="nested" src="page0-0-0.html" width="400" height="500" scrolling="auto"
+        frameborder="1">
+</IFRAME>
+
+</body>
+
+</html> 

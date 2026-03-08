@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"/>
+    <meta name="keywords"
+          content="crawljax, crawljax, ajax, test, testing, plugins, invariants, conditions, form"/>
+    <meta name="robots" content="index, follow"/>
+    <meta name="description" content="Demo and instruction site for Crawljax"/>
+    <title>Crawljax</title>
+    <link href="style.css" rel="stylesheet" type="text/css"/>
+
+    <script language="javascript" src="lib/jquery-2.0.3.min.js" type="text/javascript"></script>
+    <script language="javascript" src="js/general.js" type="text/javascript"></script>
+</head>
+<body>
+<div id="header">
+    <h1>Crawljax Demo And Instruction Site</h1>
+</div>
+<div id="menubar">
+    <ul>
+        <li><a id="home" href="javascript:void(0)">Home</a></li>
+        <li><a id="papers" href="javascript:void(0)">Papers</a></li>
+        <li><a id="info" href="javascript:void(0)">Information</a></li>
+        <li><a id="ignore" class="ignore" href="javascript:void(0)">Ignore</a></li>
+    </ul>
+</div>
+<table border="0">
+    <tr>
+        <td valign="top">
+            <div id="left">
+                <h2>Crawling</h2>
+                <ul class="test">
+                    <li><a href="javascript:void(0)" onclick="openPage('select.html')">Select
+                        Elements To Crawl</a></li>
+                    <li><a href="javascript:void(0)" onclick="openPage('crawlConditions.html')">CrawlConditions</a>
+                    </li>
+                    <li><a href="javascript:void(0)" onclick="openPage('waitConditions.html')">WaitConditions</a>
+                    </li>
+                </ul>
+                <h2>Testing</h2>
+                <ul class="test">
+                    <li><a href="javascript:void(0)"
+                           onclick="openPage('plugins.html')">Plugins</a></li>
+                    <li><a href="javascript:void(0)" onclick="openPage('oracleComparators.html')">Oracle
+                        Comparators</a></li>
+                    <li><a href="javascript:void(0)" onclick="openPage('invariants.html')">Invariants</a>
+                    </li>
+                    <li><a href="javascript:void(0)" onclick="openPage('conditions.html')">Conditions</a>
+                    </li>
+                </ul>
+                <h2>Input</h2>
+                <ul class="test">
+                    <li><a href="javascript:void(0)" onclick="openPage('randomInput.html')">Random
+                        Form Input</a></li>
+                    <li><a href="javascript:void(0)" onclick="openPage('customInput.html')">Custom
+                        Input</a></li>
+                    <li><a href="javascript:void(0)" onclick="openPage('forms.html')">Custom
+                        Forms</a></li>
+                </ul>
+            </div>
+        </td>
+        <td valign="top">
+            <div id="content"></div>
+        </td>
+    </tr>
+</table>
+<div id="footer">
+    <a href="#" onclick="addError('Dont click on elements in the footer')">Do not click elements
+        in the footer</a>
+</div>
+<div id="errors" style="display: none;"></div>
+
+</body>
+</html>

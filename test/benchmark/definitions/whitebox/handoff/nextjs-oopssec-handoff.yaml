@@ -1,0 +1,80 @@
+framework: nextjs
+base_url: http://localhost:3000
+
+routes:
+  - method: GET
+    path: "/api/products/search"
+    params: ["q"]
+    expected_request:
+      method: GET
+      uri: "/api/products/search?q=FUZZ"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/orders/search"
+    expected_request:
+      method: POST
+      uri: "/api/orders/search"
+      host: localhost:3000
+
+  - method: PATCH
+    path: "/api/orders/[id]"
+    params: ["id"]
+    expected_request:
+      method: PATCH
+      uri: "/api/orders/[id]?id=FUZZ"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/support"
+    expected_request:
+      method: POST
+      uri: "/api/support"
+      host: localhost:3000
+
+  - method: GET
+    path: "/api/files"
+    params: ["file"]
+    expected_request:
+      method: GET
+      uri: "/api/files?file=FUZZ"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/auth/signup"
+    expected_request:
+      method: POST
+      uri: "/api/auth/signup"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/auth/login"
+    expected_request:
+      method: POST
+      uri: "/api/auth/login"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/tracking"
+    expected_request:
+      method: POST
+      uri: "/api/tracking"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/user/export"
+    expected_request:
+      method: POST
+      uri: "/api/user/export"
+      host: localhost:3000
+
+  - method: POST
+    path: "/api/admin/suppliers/import-order"
+    expected_request:
+      method: POST
+      uri: "/api/admin/suppliers/import-order"
+      host: localhost:3000
+
+  - method: ""
+    path: ""
+    expected_skip: true

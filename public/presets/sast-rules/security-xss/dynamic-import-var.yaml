@@ -1,0 +1,10 @@
+id: security-xss-dynamic-import-var
+language: typescript
+severity: warning
+message: "Security: dynamic import() with variable path — if user-controlled, allows loading arbitrary modules"
+note: "Dynamic import with a variable module path can be exploited to load unintended modules. Validate the path against an allowlist of permitted module names."
+rule:
+  pattern: import($PATH)
+constraints:
+  PATH:
+    regex: "^[^'\"`]"

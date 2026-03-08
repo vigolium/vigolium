@@ -1,0 +1,14 @@
+id: add-auth-header-yaml
+name: Auth Header Injector (YAML)
+description: Adds Authorization and X-Correlation-ID headers to every request
+type: pre_hook
+tags:
+  - auth
+  - headers
+
+skip_when:
+  config_empty: auth_token
+
+add_headers:
+  Authorization: "Bearer {{config.auth_token}}"
+  X-Correlation-ID: "{{rand(12)}}"

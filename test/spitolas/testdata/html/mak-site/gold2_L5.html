@@ -1,0 +1,10 @@
+<script>
+$(function() {
+    $("#gold2_bonus_a").click(function() { $.get("gold2_bonus_a.html", function(data) { $('#contents').html(data); }); });
+    $("#gold2_bonus_b").click(function() { $.get("gold2_bonus_b.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>GOLD 2 Level 5 - BONUS! (Depth 5)</h2>
+<p>2 bonus actions!</p>
+<button id="gold2_bonus_a" type="button">Bonus A</button>
+<button id="gold2_bonus_b" type="button">Bonus B</button>
