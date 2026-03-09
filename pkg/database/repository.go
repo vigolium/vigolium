@@ -511,12 +511,17 @@ func (r *Repository) AdvanceScanCursor(ctx context.Context, scanUUID string, rec
 }
 
 // CountRecordsAfterCursor counts records after the given cursor position.
-// A zero cursorAt means count all records.
-func (r *Repository) CountRecordsAfterCursor(ctx context.Context, cursorAt time.Time, cursorUUID string) (int64, error) {
+// A zero cursorAt means count all records. When hostnames is non-empty,
+// only records matching those hostnames are counted.
+func (r *Repository) CountRecordsAfterCursor(ctx context.Context, cursorAt time.Time, cursorUUID string, hostnames ...string) (int64, error) {
 	q := r.db.NewSelect().Model((*HTTPRecord)(nil))
 
 	if !cursorAt.IsZero() {
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", cursorAt, cursorAt, cursorUUID)
+	}
+
+	if len(hostnames) > 0 {
+		q = q.Where("hostname IN (?)", bun.In(hostnames))
 	}
 
 	count, err := q.Count(ctx)

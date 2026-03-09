@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/work"
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ type DBInputSource struct {
 	pollInterval time.Duration
 	oneShot      bool // when true, return io.EOF instead of polling when no records remain
 	closed       atomic.Bool
+	hostnames    []string // when non-empty, only records matching these hostnames are returned
 }
 
 // NewDBInputSource creates a new DBInputSource that polls for records after the scan cursor at the given interval.
@@ -42,6 +44,14 @@ func NewOneShotDBInputSource(db *DB, repo *Repository, scanUUID string) *DBInput
 		scanUUID: scanUUID,
 		oneShot:  true,
 	}
+}
+
+// WithHostnames sets a hostname filter so only records matching these hostnames are returned.
+// This ensures that HTTP records from unrelated hosts (e.g. leftover from previous scans)
+// are not included when the CLI targets a specific host.
+func (s *DBInputSource) WithHostnames(hostnames []string) *DBInputSource {
+	s.hostnames = hostnames
+	return s
 }
 
 // Next returns the next record after the scan cursor as a WorkItem.
@@ -114,6 +124,11 @@ func (s *DBInputSource) fetchNextRecord(ctx context.Context) (*HTTPRecord, error
 			scan.CursorAt, scan.CursorAt, scan.CursorUUID)
 	}
 
+	// Filter by hostnames when set — only return records whose hostname matches a CLI target
+	if len(s.hostnames) > 0 {
+		q = q.Where("hostname IN (?)", bun.In(s.hostnames))
+	}
+
 	err = q.OrderExpr("created_at ASC, uuid ASC").
 		Limit(1).
 		Scan(ctx)
@@ -174,6 +189,7 @@ type RiskPrioritizedDBInputSource struct {
 	highRiskIdx  int
 	highRiskUUIDs []string
 	fallback     *DBInputSource
+	hostnames    []string // when non-empty, only records matching these hostnames are returned
 }
 
 // NewRiskPrioritizedDBInputSource creates a DBInputSource that processes
@@ -191,6 +207,13 @@ func NewRiskPrioritizedDBInputSource(db *DB, repo *Repository, scanUUID string) 
 			oneShot:  true,
 		},
 	}
+}
+
+// WithHostnames sets a hostname filter so only records matching these hostnames are returned.
+func (s *RiskPrioritizedDBInputSource) WithHostnames(hostnames []string) *RiskPrioritizedDBInputSource {
+	s.hostnames = hostnames
+	s.fallback.hostnames = hostnames
+	return s
 }
 
 // Next returns records prioritized by risk_score, then falls back to cursor order.
@@ -258,6 +281,10 @@ func (s *RiskPrioritizedDBInputSource) loadHighRiskUUIDs(ctx context.Context) ([
 	if !scan.CursorAt.IsZero() {
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
 			scan.CursorAt, scan.CursorAt, scan.CursorUUID)
+	}
+
+	if len(s.hostnames) > 0 {
+		q = q.Where("hostname IN (?)", bun.In(s.hostnames))
 	}
 
 	err = q.Scan(ctx, &uuids)

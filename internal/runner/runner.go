@@ -230,16 +230,54 @@ func (r *Runner) printPhaseDetail(detail string) {
 }
 
 // formatTargetCounts builds a standardized "Targets: N (M CLI | K HTTP Records)" string.
+// Only HTTP records whose hostname matches the CLI targets are counted.
 func (r *Runner) formatTargetCounts(ctx context.Context, cliCount int) string {
 	var dbCount int64
 	if r.repository != nil {
-		dbCount, _ = r.repository.CountRecordsAfterCursor(ctx, time.Time{}, "")
+		hostnames := r.getInScopeDBHostnamesList(ctx)
+		dbCount, _ = r.repository.CountRecordsAfterCursor(ctx, time.Time{}, "", hostnames...)
 	}
 	total := int64(cliCount) + dbCount
 	return fmt.Sprintf("Targets: %s (%s CLI | %s HTTP Records)",
 		terminal.Orange(fmt.Sprintf("%d", total)),
 		terminal.Orange(fmt.Sprintf("%d", cliCount)),
 		terminal.Orange(fmt.Sprintf("%d", dbCount)))
+}
+
+// getInScopeDBHostnamesList returns the list of hostnames from the database that are
+// in scope according to the CLI targets and origin mode. When no targets are configured,
+// returns nil (meaning no hostname filter — all records are included).
+func (r *Runner) getInScopeDBHostnamesList(ctx context.Context) []string {
+	if len(r.options.Targets) == 0 || r.repository == nil {
+		return nil
+	}
+
+	// Build a scope matcher from current settings and CLI targets
+	var scopeMatcher *config.ScopeMatcher
+	if r.settings != nil {
+		scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
+	}
+
+	hosts, err := r.repository.GetDistinctHosts(ctx, r.options.ProjectUUID)
+	if err != nil {
+		return nil
+	}
+
+	var hostnames []string
+	seen := make(map[string]struct{})
+	for _, h := range hosts {
+		if _, exists := seen[h.Hostname]; exists {
+			continue
+		}
+		seen[h.Hostname] = struct{}{}
+
+		if scopeMatcher != nil && !scopeMatcher.InScopeRequest(h.Hostname, "/", "", "") {
+			continue
+		}
+		hostnames = append(hostnames, h.Hostname)
+	}
+
+	return hostnames
 }
 
 // printTargetDetail prints an indented target detail line using SymbolTarget.
@@ -473,7 +511,8 @@ func (r *Runner) printScanConfig() {
 	targetsLine := fmt.Sprintf("Targets: %s", terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))))
 	if r.repository != nil {
 		ctx := context.Background()
-		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, time.Time{}, ""); err == nil && dbCount > 0 {
+		hostnames := r.getInScopeDBHostnamesList(ctx)
+		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, time.Time{}, "", hostnames...); err == nil && dbCount > 0 {
 			targetsLine += fmt.Sprintf(" (CLI: %s | HTTP Records: %s)",
 				terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))),
 				terminal.Orange(fmt.Sprintf("%d", dbCount)))
@@ -1357,10 +1396,14 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		}
 	}
 
+	// Compute in-scope hostnames to filter DB records by CLI target hostnames
+	inScopeHostnames := r.getInScopeDBHostnamesList(ctx)
+
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
 		roundStart := time.Now()
-		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, scan.UUID)
+		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, scan.UUID).
+			WithHostnames(inScopeHostnames)
 
 		executorCfg := core.ExecutorConfig{
 			Workers:              daConcurrency,
@@ -1409,7 +1452,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 
 		// Check for newly discovered records
 		if round < maxFeedbackRounds-1 {
-			newCount, countErr := r.repository.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID)
+			newCount, countErr := r.repository.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID, inScopeHostnames...)
 			if countErr != nil || newCount == 0 {
 				break
 			}

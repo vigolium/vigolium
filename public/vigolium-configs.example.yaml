@@ -213,11 +213,11 @@ scanning_pace:
   #   max_duration: 1h
     duration_factor: 0.5          # 0.5x base → 30m
   spa:
-    duration_factor: 3.0          # 3x base → 3h
+    duration_factor: 1.0          # 3x base → 3h
   spidering:
     duration_factor: 0.1          # 0.08x base → 6m
   external_harvester:
-    duration_factor: 0.1          # 0.2x base → 24m
+    duration_factor: 0.1          # 0.08x base → 6m
   dynamic_assessment:
     duration_factor: 1.0          # 1x base → 1h
 
