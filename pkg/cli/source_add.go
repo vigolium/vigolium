@@ -122,9 +122,14 @@ func runSourceAdd(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	repo := database.NewRepository(db)
 	sr := &database.SourceRepo{
-		ProjectUUID: resolveProjectUUID(),
+		ProjectUUID: projectUUID,
 		Hostname:    sourceAddOpts.Hostname,
 		Name:        name,
 		RootPath:    absPath,

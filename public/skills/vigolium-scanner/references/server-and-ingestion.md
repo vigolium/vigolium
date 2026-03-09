@@ -21,15 +21,16 @@ Start the API server with Swagger UI, ingestion endpoints, and optional scan-on-
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--host` | — | string | `0.0.0.0` | Host address to listen on |
-| `--service-port` | — | int | `9002` | API service port |
+| `--host` | — | string | `0.0.0.0` | Bind address for the API server |
+| `--service-port` | — | int | `9002` | Port for the REST API server |
 | `--ingest-proxy-port` | — | int | `0` (disabled) | Transparent HTTP proxy port for recording traffic |
-| `--alternative-ingest-key` | — | []string | — | Secondary ingest API key (repeatable) |
+| `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
 | `--no-auth` | `-A` | bool | `false` | Run without API key authentication |
-| `--mem-buffer` | — | int | `10000` | In-memory buffer size for hybrid queue |
+| `--mem-buffer` | — | int | `10000` | In-memory queue capacity before spilling to disk |
 | `--output` | `-o` | string | — | Write findings to output file |
-| `--catchup-threads` | — | int | `4` | Workers for background catchup scan |
-| `--disable-catchup` | — | bool | `false` | Disable automatic catchup scan |
+| `--catchup-threads` | — | int | `4` | Workers for background scanning of unscanned records |
+| `--disable-catchup` | — | bool | `false` | Disable automatic background scanning of unscanned records |
+| `--disable-warm-session` | — | bool | `false` | Disable agent subprocess warm session pooling |
 
 ### Server Authentication
 
@@ -152,29 +153,29 @@ Browse stored HTTP traffic. Shortcut for `vigolium db ls --table http_records`.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--host` | string | — | Filter by hostname pattern (wildcard supported) |
-| `--method` | []string | — | Filter by HTTP method |
-| `--status` | []int | — | Filter by HTTP status code |
+| `--method` | []string | — | Filter by HTTP method (repeatable, e.g. --method GET --method POST) |
+| `--status` | []int | — | Filter by HTTP status code (repeatable, e.g. --status 200 --status 404) |
 | `--path` | string | — | Filter by URL path pattern |
 | `--from` | string | — | Records after this date (YYYY-MM-DD or RFC3339) |
 | `--to` | string | — | Records before this date |
-| `--search` | string | — | Search across URLs and paths |
-| `--header` | string | — | Search in HTTP headers |
-| `--body` | string | — | Search in request/response body |
+| `--search` | string | — | Fuzzy search across URLs, paths, and hostnames |
+| `--header` | string | — | Search within HTTP header names and values |
+| `--body` | string | — | Search within HTTP request/response body content |
 | `--source` | string | — | Filter by source (scanner, ingest-cli, ingest-server, etc.) |
 | `--sort` | string | `created_at` | Sort field: uuid, created_at, sent_at, method, status, time |
-| `--asc` | bool | `false` | Sort ascending |
+| `--asc` | bool | `false` | Sort in ascending order (default: descending) |
 | `--limit` | `-n` | int | `100` | Max records to display |
-| `--offset` | `-o` | int | `0` | Records to skip |
+| `--offset` | `-o` | int | `0` | Number of records to skip (for pagination) |
 
 ### Display flags (traffic only)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--tree` | bool | `false` | Hierarchical tree format |
+| `--tree` | bool | `false` | Display as host/path hierarchy tree |
 | `--raw` | bool | `false` | Full raw HTTP request and response |
 | `--burp` | bool | `false` | Burp Suite-style colored format |
-| `--columns` | []string | — | Columns to include (comma-separated) |
-| `--exclude-columns` | []string | — | Columns to exclude |
+| `--columns` | []string | — | Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS) |
+| `--exclude-columns` | []string | — | Columns to hide (comma-separated) |
 
 ### Available Columns
 

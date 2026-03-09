@@ -49,7 +49,10 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s Seeding database with sample data...\n\n", terminal.InfoSymbol())
 
-	projectUUID := resolveProjectUUID()
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
 
 	// Use ON CONFLICT DO NOTHING so re-running is idempotent
 	// --- Scans ---

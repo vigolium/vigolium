@@ -39,37 +39,37 @@ func init() {
 	flags := scanCmd.Flags()
 
 	// Target-Format group
-	flags.BoolVar(&scanOpts.FormatUseRequiredOnly, "required-only", false, "Use only required fields when parsing input format")
+	flags.BoolVar(&scanOpts.FormatUseRequiredOnly, "required-only", false, "Parse only required fields from input format (ignore optional)")
 	flags.BoolVar(&scanOpts.SkipFormatValidation, "skip-format-validation", false, "Skip validation of input file format")
 
 	// Output group
 	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to specified output file")
-	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Display live scan statistics during execution")
+	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Show live progress stats during scanning")
 	flags.BoolVar(&scanOpts.IncludeResponseInOutput, "include-response", false, "Include full HTTP response body in output")
 
 	// Optimizations group
 	flags.IntVar(&scanOpts.Retries, "retries", 1, "Number of retry attempts for failed requests")
-	flags.BoolVar(&scanOpts.Stream, "stream", false, "Process input targets in stream mode without sorting")
+	flags.BoolVar(&scanOpts.Stream, "stream", false, "Process targets as a stream without buffering or deduplication")
 
 	// Database group
-	flags.StringSliceVarP(&scanOpts.Headers, "header", "H", nil, "Custom HTTP header to include (can be specified multiple times)")
-	flags.StringToStringVarP(&scanOpts.AdvancedOptions, "advanced-options", "a", nil, "Advanced scan options as key=value pairs")
+	flags.StringSliceVarP(&scanOpts.Headers, "header", "H", nil, "Add custom HTTP header (repeatable, e.g. -H 'Auth: Bearer token')")
+	flags.StringToStringVarP(&scanOpts.AdvancedOptions, "advanced-options", "a", nil, "Module-specific options as key=value (e.g. -a xss.dom=true)")
 
 	// Content discovery flags
-	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Run deparos content discovery before scanning")
+	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Enable content discovery phase before scanning")
 	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
 
 	// Browser-based spidering flags
-	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Run browser-based spidering before scanning")
+	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Enable browser-based spidering phase before scanning")
 	flags.DurationVar(&scanOpts.SpideringMaxDuration, "spider-max-time", 30*time.Minute, "Max time for spidering per target")
 	flags.StringVarP(&scanOpts.SpideringBrowserEngine, "browser-engine", "E", "chromium", "Browser engine: 'chromium', 'ungoogled', or 'fingerprint'")
-	flags.IntVarP(&scanOpts.SpideringBrowserCount, "browsers", "b", 1, "Number of browser instances")
+	flags.IntVarP(&scanOpts.SpideringBrowserCount, "browsers", "b", 1, "Number of parallel browser instances for spidering")
 	flags.BoolVar(&scanOpts.SpideringHeadless, "headless", true, "Run browser in headless mode")
-	flags.BoolVar(&scanOpts.SpideringNoCDP, "no-cdp", false, "Disable CDP event listener detection")
-	flags.BoolVar(&scanOpts.SpideringNoForms, "no-forms", false, "Disable automatic form filling")
+	flags.BoolVar(&scanOpts.SpideringNoCDP, "no-cdp", false, "Disable Chrome DevTools Protocol event listener detection")
+	flags.BoolVar(&scanOpts.SpideringNoForms, "no-forms", false, "Disable automatic form detection and filling during spidering")
 
 	// External intelligence harvesting flags
-	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Run pre-scan external intelligence harvesting from external sources")
+	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Enable external intelligence gathering phase (Wayback, CT logs, etc.)")
 
 	// SPA (Security Posture Assessment) flags
 	flags.StringSliceVar(&scanOpts.SPATags, "spa-tags", nil, "Nuclei template tags to include (comma-separated)")
@@ -79,11 +79,11 @@ func init() {
 
 	// SAST flags
 	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
-	flags.StringVar(&scanOpts.SASTRepoPath, "repo", "", "Local repo path for ad-hoc SAST scan (results not ingested to DB)")
-	flags.StringVar(&scanOpts.SASTRepoURL, "repo-url", "", "Git URL to clone for ad-hoc SAST scan (results not ingested to DB)")
+	flags.StringVar(&scanOpts.SASTRepoPath, "repo", "", "Local repo path for ad-hoc SAST scan (results not saved to database)")
+	flags.StringVar(&scanOpts.SASTRepoURL, "repo-url", "", "Git URL to clone for ad-hoc SAST scan (results not saved to database)")
 
 	// OAST flags
-	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed OAST callback URL (overrides config oast_url; disables interactsh auto-generation)")
+	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed out-of-band callback URL (overrides auto-generated interactsh URL)")
 }
 
 func runScanCmd(cmd *cobra.Command, args []string) error {
@@ -117,7 +117,11 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	scanOpts.ScopeOriginMode = globalScopeOrigin
 	scanOpts.SourcePath = globalSourcePath
 	scanOpts.OutputFormat = globalFormat
-	scanOpts.ProjectUUID = resolveProjectUUID()
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+	scanOpts.ProjectUUID = projectUUID
 
 	// Resolve --repo-url: clone the git repo and set SASTRepoPath
 	if scanOpts.SASTRepoURL != "" {

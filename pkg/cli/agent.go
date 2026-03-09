@@ -61,22 +61,22 @@ func init() {
 	af.StringVar(&agentPromptFile, "prompt-file", "", "Path to a prompt template file")
 	af.StringVar(&agentRepo, "repo", "", "Path to source code repository")
 	af.StringSliceVar(&agentFiles, "files", nil, "Specific files to include (relative to --repo)")
-	af.StringVar(&agentAppend, "append", "", "Extra text appended to the rendered prompt")
+	af.StringVar(&agentAppend, "append", "", "Append extra text to the rendered prompt")
 	af.StringVar(&agentOutput, "output", "", "Write agent output to this file")
-	af.StringVar(&agentSource, "source", "", "Source identifier for ingested records")
+	af.StringVar(&agentSource, "source", "", "Label for records ingested from agent output (e.g. 'agent-review')")
 	af.BoolVar(&agentListTemplates, "list-templates", false, "List available prompt templates")
 	af.BoolVar(&agentListAgents, "list-agents", false, "List configured agent backends")
-	af.BoolVar(&agentDryRun, "dry-run", false, "Render the prompt and print it without executing the agent")
-	af.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Timeout for agent execution (0 to disable)")
+	af.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
+	af.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
 
 	// Child command flags
 	rf := agentQueryCmd.Flags()
 	rf.StringVar(&agentName, "agent", "", "Agent backend to use (default from config)")
-	rf.StringVarP(&agentPromptInline, "prompt", "p", "", "Inline prompt string")
+	rf.StringVarP(&agentPromptInline, "prompt", "p", "", "Prompt text to send to the agent")
 	rf.BoolVar(&agentStdin, "stdin", false, "Read prompt from stdin")
 	rf.StringVar(&agentOutput, "output", "", "Write agent output to this file")
-	rf.StringVar(&agentSource, "source", "", "Source identifier for ingested records")
-	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Timeout for agent execution (0 to disable)")
+	rf.StringVar(&agentSource, "source", "", "Label for records ingested from agent output (e.g. 'agent-review')")
+	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
 }
 
 func runAgent(cmd *cobra.Command, args []string) error {

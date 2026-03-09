@@ -406,7 +406,7 @@ vigolium project list
 vigolium project use my-project
 
 # Scope CLI operations to a project
-vigolium scan -t https://example.com --project my-project
+vigolium scan -t https://example.com --project-name my-project
 
 # Project-scoped database access
 VIGOLIUM_PROJECT=my-project vigolium db stats
@@ -456,24 +456,25 @@ These flags are available on all commands (persistent flags on root):
 | `--only` | — | — | Run only a single phase |
 | `--skip` | — | — | Skip specific phases |
 | `--format` | — | `console` | Output format: console, jsonl, html |
-| `--scan-on-receive` | `-S` | `false` | Auto-scan new database records |
+| `--scan-on-receive` | `-S` | `false` | Continuously scan new HTTP records as they arrive in the database |
 | `--source` | — | — | Path to application source code |
 | `--source-url` | — | — | Git URL to clone for source-aware scanning |
 | `--scan-id` | — | — | Label for grouping scan session results |
-| `--scanning-profile` | — | — | Scanning profile YAML name or path |
+| `--scanning-profile` | — | — | Scanning profile name or YAML file path |
 | `--scope-origin` | — | — | Origin scope: all, relaxed, balanced, strict |
-| `--project` | — | — | Project name or UUID to scope operations |
+| `--project-id` | — | — | Project UUID to scope all operations to |
+| `--project-name` | — | — | Project name to scope all operations to |
 | `--verbose` | `-v` | `false` | Verbose logging |
 | `--silent` | — | `false` | Suppress all output except findings |
-| `--json` | `-j` | `false` | JSON output format |
+| `--json` | `-j` | `false` | Format output as JSONL (one JSON object per line) |
 | `--debug` | — | `false` | Dump raw HTTP traffic |
 | `--db` | — | `~/.vigolium/database-vgnm.sqlite` | SQLite database path |
 | `--config` | — | `~/.vigolium/vigolium-configs.yaml` | Config file path |
 | `--force` | `-F` | `false` | Skip confirmation prompts |
 | `--list-modules` | `-M` | `false` | List all scanner modules |
-| `--watch` | — | — | Auto-refresh interval (e.g. 5s, 1m) |
+| `--watch` | — | — | Re-run on interval (e.g. 10s, 1m, 5m) |
 | `--width` | — | `70` | Max column width for tables |
-| `--ext` | — | — | Extension script path to load (repeatable) |
+| `--ext` | — | — | Load JavaScript extension script (repeatable) |
 | `--ext-dir` | — | — | Override extension scripts directory |
 
 ## Constraints

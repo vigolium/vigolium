@@ -302,6 +302,11 @@ func runLocalIngest(_ *cobra.Command, _ []string) error {
 			scopeMatcher = config.NewScopeMatcher(settings.Scope, globalTargets...)
 		}
 
+		ingestProjectUUID, projErr := resolveProjectUUID()
+		if projErr != nil {
+			return projErr
+		}
+
 		var count int
 		for {
 			item, nextErr := inputSource.Next(ctx)
@@ -324,7 +329,7 @@ func runLocalIngest(_ *cobra.Command, _ []string) error {
 					continue
 				}
 			}
-			if _, saveErr := repo.SaveRecord(ctx, item.Request, "ingest-cli", resolveProjectUUID()); saveErr != nil {
+			if _, saveErr := repo.SaveRecord(ctx, item.Request, "ingest-cli", ingestProjectUUID); saveErr != nil {
 				zap.L().Debug("Failed to save record", zap.Error(saveErr))
 				continue
 			}
@@ -469,10 +474,14 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 	opts.Modules = ingestOpts.EnableModules
 
 	// Create a Scan record if none provided
+	ingestScanProjectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
 	if scanUUID == "" {
 		scan := &database.Scan{
 			UUID:        fmt.Sprintf("scan-%d", time.Now().UnixNano()),
-			ProjectUUID: resolveProjectUUID(),
+			ProjectUUID: ingestScanProjectUUID,
 			Name:        "ingest-scan",
 			Status:      "running",
 			Modules:     strings.Join(opts.Modules, ","),

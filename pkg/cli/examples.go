@@ -28,7 +28,7 @@ func printFullExamples() {
 		"vigolium scan -t https://example.com --ext custom-check.js",
 		"vigolium scan -t https://example.com --ext-dir ./my-extensions",
 		"vigolium scan -t https://example.com --only extension --ext custom-check.js",
-		"vigolium scan -t https://example.com --project my-project",
+		"vigolium scan -t https://example.com --project-name my-project",
 		"vigolium scan -t https://example.com --oast-url https://interact.sh/abc123",
 		"vigolium scan -t https://example.com --spa-tags cve,misconfig --spa-severities critical,high",
 	})

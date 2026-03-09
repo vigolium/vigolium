@@ -23,13 +23,13 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--output` | `-o` | string | — | Write findings to specified output file |
-| `--stats` | — | bool | `false` | Display live scan statistics during execution |
+| `--stats` | — | bool | `false` | Show live progress stats during scanning |
 | `--include-response` | — | bool | `false` | Include full HTTP response body in output |
 | `--retries` | — | int | `1` | Retry attempts for failed requests |
-| `--stream` | — | bool | `false` | Process targets in stream mode without sorting |
-| `--header` | `-H` | []string | — | Custom HTTP header (repeatable) |
-| `--advanced-options` | `-a` | map | — | Advanced options as key=value pairs |
-| `--required-only` | — | bool | `false` | Use only required fields when parsing input format |
+| `--stream` | — | bool | `false` | Process targets as a stream without buffering or deduplication |
+| `--header` | `-H` | []string | — | Add custom HTTP header (repeatable, e.g. -H 'Auth: Bearer token') |
+| `--advanced-options` | `-a` | map | — | Module-specific options as key=value (e.g. -a xss.dom=true) |
+| `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--skip-format-validation` | — | bool | `false` | Skip validation of input file format |
 | `--source-url` | — | string | — | Git URL to clone for source-aware scanning |
 | `--module-tag` | — | []string | — | Filter modules by tag (OR condition, repeatable) |
@@ -38,26 +38,26 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--discover` | bool | `false` | Run deparos content discovery before scanning |
+| `--discover` | bool | `false` | Enable content discovery phase before scanning |
 | `--discover-max-time` | duration | `1h` | Max time for content discovery per target |
 
 ### Browser Spidering flags (scan & run)
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--spider` | — | bool | `false` | Run browser-based spidering before scanning |
+| `--spider` | — | bool | `false` | Enable browser-based spidering phase before scanning |
 | `--spider-max-time` | — | duration | `30m` | Max time for spidering per target |
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: chromium, ungoogled, fingerprint |
-| `--browsers` | `-b` | int | `1` | Number of browser instances |
+| `--browsers` | `-b` | int | `1` | Number of parallel browser instances for spidering |
 | `--headless` | — | bool | `true` | Run browser in headless mode |
-| `--no-cdp` | — | bool | `false` | Disable CDP event listener detection |
-| `--no-forms` | — | bool | `false` | Disable automatic form filling |
+| `--no-cdp` | — | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
+| `--no-forms` | — | bool | `false` | Disable automatic form detection and filling during spidering |
 
 ### External Harvest flags (scan & run)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--external-harvest` | bool | `false` | Run external intelligence harvesting |
+| `--external-harvest` | bool | `false` | Enable external intelligence gathering phase (Wayback, CT logs, etc.) |
 
 ### SPA flags (scan & run)
 
@@ -73,13 +73,13 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--rule` | string | — | Filter SAST rules by fuzzy name match |
-| `--repo` | string | — | Local repo path for ad-hoc SAST scan |
+| `--repo` | string | — | Local repo path for ad-hoc SAST scan (results not saved to database) |
 
 ### OAST flags (scan & run)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--oast-url` | string | — | Fixed OAST callback URL (overrides config) |
+| `--oast-url` | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
 
 ### Examples
 

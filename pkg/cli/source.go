@@ -41,8 +41,13 @@ func runSourceList(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	repo := database.NewRepository(db)
-	repos, total, err := repo.ListSourceRepos(ctx, resolveProjectUUID(), 100, 0)
+	repos, total, err := repo.ListSourceRepos(ctx, projectUUID, 100, 0)
 	if err != nil {
 		return fmt.Errorf("failed to list source repos: %w", err)
 	}

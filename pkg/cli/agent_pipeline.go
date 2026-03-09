@@ -61,7 +61,7 @@ func init() {
 	f.StringVar(&pipelineRepo, "repo", "", "Path to source code repository for agent context")
 	f.StringSliceVar(&pipelineFiles, "files", nil, "Specific source files to include (relative to --repo)")
 	f.StringVar(&pipelineFocus, "focus", "", "Focus area hint for the planning agent (e.g. 'API injection', 'auth bypass')")
-	f.DurationVar(&pipelineTimeout, "timeout", 1*time.Hour, "Overall timeout for the pipeline")
+	f.DurationVar(&pipelineTimeout, "timeout", 1*time.Hour, "Maximum total pipeline duration")
 	f.BoolVar(&pipelineDryRun, "dry-run", false, "Render agent prompts without executing (shows plan and triage prompts)")
 	f.IntVar(&pipelineMaxRescanRounds, "max-rescan-rounds", 2, "Maximum number of triage→rescan iterations")
 	f.StringSliceVar(&pipelineSkipPhases, "skip-phase", nil, "Skip specific phases (discover, plan, scan, triage, rescan, report)")
@@ -122,6 +122,11 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 		skipPhases[phase] = true
 	}
 
+	pipelineProjectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	// Build pipeline config
 	cfg := agent.PipelineConfig{
 		TargetURL:       pipelineTarget,
@@ -133,7 +138,7 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 		SkipPhases:      skipPhases,
 		StartFrom:       agent.PipelinePhase(pipelineStartFrom),
 		DryRun:          pipelineDryRun,
-		ProjectUUID:     resolveProjectUUID(),
+		ProjectUUID:     pipelineProjectUUID,
 		ScanUUID:        globalScanID,
 	}
 
@@ -186,21 +191,28 @@ func runPipelinePhaseRunner(opts *types.Options, settings *config.Settings, repo
 }
 
 // pipelineBaseOpts returns default options pre-filled with common pipeline fields.
-func pipelineBaseOpts() *types.Options {
+func pipelineBaseOpts() (*types.Options, error) {
 	opts := types.DefaultOptions()
 	opts.Targets = []string{pipelineTarget}
 	opts.ScanUUID = globalScanID
-	opts.ProjectUUID = resolveProjectUUID()
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return nil, err
+	}
+	opts.ProjectUUID = projectUUID
 	opts.ConfigPath = globalConfig
 	opts.Silent = true
 	opts.ScanConfigPrinted = true
-	return opts
+	return opts, nil
 }
 
 // buildDiscoverFunc creates a callback that runs discovery + spidering using the native runner.
 func buildDiscoverFunc(settings *config.Settings, repo *database.Repository) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		opts := pipelineBaseOpts()
+		opts, err := pipelineBaseOpts()
+		if err != nil {
+			return err
+		}
 		opts.OnlyPhase = "discovery"
 		opts.DiscoverEnabled = true
 		opts.SpideringEnabled = true
@@ -216,7 +228,10 @@ func buildDiscoverFunc(settings *config.Settings, repo *database.Repository) fun
 // buildScanFunc creates a callback that runs dynamic assessment with specified module filters.
 func buildScanFunc(settings *config.Settings, repo *database.Repository) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
 	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
-		opts := pipelineBaseOpts()
+		opts, err := pipelineBaseOpts()
+		if err != nil {
+			return err
+		}
 		opts.OnlyPhase = "dynamic-assessment"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"

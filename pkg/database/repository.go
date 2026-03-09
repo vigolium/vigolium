@@ -675,6 +675,24 @@ func (r *Repository) GetProjectByUUID(ctx context.Context, uuid string) (*Projec
 	return project, nil
 }
 
+// GetProjectByName retrieves a project by name. Returns an error if zero or
+// multiple projects match (names are not guaranteed to be unique).
+func (r *Repository) GetProjectByName(ctx context.Context, name string) (*Project, error) {
+	var projects []*Project
+	err := r.db.NewSelect().Model(&projects).Where("name = ?", name).Limit(2).Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query project by name: %w", err)
+	}
+	switch len(projects) {
+	case 0:
+		return nil, fmt.Errorf("no project found with name %q", name)
+	case 1:
+		return projects[0], nil
+	default:
+		return nil, fmt.Errorf("multiple projects (%d) found with name %q; use --project-id to specify by UUID", len(projects), name)
+	}
+}
+
 // ListProjects returns projects, optionally filtered by owner.
 func (r *Repository) ListProjects(ctx context.Context, ownerUUID string) ([]*Project, error) {
 	var projects []*Project

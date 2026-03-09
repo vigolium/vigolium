@@ -266,7 +266,7 @@ var scanExamples = FormatExamples(
 	"vigolium scan -t https://example.com -o findings.jsonl",
 	"",
 	"# Scope all operations to a project",
-	"vigolium scan -t https://example.com --project my-project",
+	"vigolium scan -t https://example.com --project-name my-project",
 	"# Use OAST callback URL for out-of-band detection",
 	"vigolium scan -t https://example.com --oast-url https://interact.sh/abc123",
 )
@@ -510,7 +510,7 @@ var runExamples = FormatExamples(
 	"# Run with custom headers",
 	`vigolium run dynamic-assessment -t https://example.com -H "Authorization: Bearer token"`,
 	"# Scope to a specific project",
-	"vigolium run spa -t https://example.com --project my-project",
+	"vigolium run spa -t https://example.com --project-name my-project",
 	"",
 	"# Short alias",
 	"vigolium r discovery -t https://example.com",

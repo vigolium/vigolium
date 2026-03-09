@@ -111,27 +111,27 @@ func init() {
 	// Shared filter flags on PersistentFlags so replay inherits them
 	pf := trafficCmd.PersistentFlags()
 	pf.StringVar(&trafficHost, "host", "", "Filter by hostname pattern (wildcard supported)")
-	pf.StringSliceVar(&trafficMethods, "method", nil, "Filter by HTTP method")
-	pf.IntSliceVar(&trafficStatus, "status", nil, "Filter by HTTP status code")
+	pf.StringSliceVar(&trafficMethods, "method", nil, "Filter by HTTP method (repeatable, e.g. --method GET --method POST)")
+	pf.IntSliceVar(&trafficStatus, "status", nil, "Filter by HTTP status code (repeatable, e.g. --status 200 --status 404)")
 	pf.StringVar(&trafficPath, "path", "", "Filter by URL path pattern")
 	pf.StringVar(&trafficFrom, "from", "", "Show records after this date (YYYY-MM-DD or RFC3339)")
 	pf.StringVar(&trafficTo, "to", "", "Show records before this date (YYYY-MM-DD or RFC3339)")
-	pf.StringVar(&trafficSearch, "search", "", "Search across URLs and paths")
-	pf.StringVar(&trafficHeader, "header", "", "Search in HTTP headers")
-	pf.StringVar(&trafficBody, "body", "", "Search in request/response body")
+	pf.StringVar(&trafficSearch, "search", "", "Fuzzy search across URLs, paths, and hostnames")
+	pf.StringVar(&trafficHeader, "header", "", "Search within HTTP header names and values")
+	pf.StringVar(&trafficBody, "body", "", "Search within HTTP request/response body content")
 	pf.StringVar(&trafficSource, "source", "", "Filter by record source (e.g. scanner, ingest-cli, ingest-server, ingest-proxy, seed)")
 	pf.StringVar(&trafficSort, "sort", "created_at", "Sort by: uuid, created_at, sent_at, method, status, time")
-	pf.BoolVar(&trafficAsc, "asc", false, "Sort ascending")
+	pf.BoolVar(&trafficAsc, "asc", false, "Sort in ascending order (default: descending)")
 	pf.IntVarP(&trafficLimit, "limit", "n", 100, "Maximum records to display")
-	pf.IntVarP(&trafficOffset, "offset", "o", 0, "Records to skip")
+	pf.IntVarP(&trafficOffset, "offset", "o", 0, "Number of records to skip (for pagination)")
 
 	// Display-only flags
 	f := trafficCmd.Flags()
-	f.BoolVar(&trafficTree, "tree", false, "Display in hierarchical tree format")
+	f.BoolVar(&trafficTree, "tree", false, "Display as host/path hierarchy tree")
 	f.BoolVar(&trafficRaw, "raw", false, "Show full raw HTTP request and response")
 	f.BoolVar(&trafficBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
-	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to include (comma-separated)")
-	f.StringSliceVar(&trafficExclude, "exclude-columns", nil, "Columns to exclude (comma-separated)")
+	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS)")
+	f.StringSliceVar(&trafficExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
 }
 
 func runTraffic(cmd *cobra.Command, args []string) error {
@@ -205,8 +205,13 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		dateTo = &t
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return database.QueryFilters{}, err
+	}
+
 	return database.QueryFilters{
-		ProjectUUID:  resolveProjectUUID(),
+		ProjectUUID:  projectUUID,
 		HostPattern:  trafficHost,
 		Methods:      trafficMethods,
 		StatusCodes:  trafficStatus,

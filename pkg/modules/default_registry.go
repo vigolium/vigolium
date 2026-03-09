@@ -123,6 +123,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/express_debug_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/express_directory_listing"
 	"github.com/vigolium/vigolium/pkg/modules/active/express_trust_proxy_misconfig"
+	// Common Directory Listing - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/common_directory_listing"
 	// Rails Security - Active
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_info_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_sensitive_files"
@@ -149,6 +151,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/cors_headers_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/dom_xss_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/error_message_detect"
+	"github.com/vigolium/vigolium/pkg/modules/passive/directory_listing_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/info_disclosure_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/graphql_introspection_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/jwt_claims_detect"
@@ -387,6 +390,8 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(express_debug_probe.New()).
 	RegisterActive(express_trust_proxy_misconfig.New()).
 	RegisterActive(express_directory_listing.New()).
+	// Active modules - Common Directory Listing
+	RegisterActive(common_directory_listing.New()).
 	// Active modules - Rails Security
 	RegisterActive(rails_info_exposure.New()).
 	RegisterActive(rails_sensitive_files.New()).
@@ -412,6 +417,7 @@ var DefaultRegistry = NewRegistry().
 	RegisterPassive(sourcemap_detect.New()).
 	RegisterPassive(security_headers_missing.New()).
 	RegisterPassive(info_disclosure_detect.New()).
+	RegisterPassive(directory_listing_detect.New()).
 	RegisterPassive(cookie_security_detect.New()).
 	RegisterPassive(mixed_content_detect.New()).
 	RegisterPassive(sensitive_url_params.New()).

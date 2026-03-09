@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
@@ -12,13 +13,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// resolveProjectUUID returns the effective project UUID from --project flag
-// (or VIGOLIUM_PROJECT env var, resolved in PersistentPreRunE) or the default.
-func resolveProjectUUID() string {
-	if globalProject != "" {
-		return globalProject
-	}
-	return database.DefaultProjectUUID
+var (
+	resolvedProjectUUID string
+	resolveProjectOnce  sync.Once
+	resolveProjectErr   error
+)
+
+// resolveProjectUUID returns the effective project UUID from --project-id,
+// --project-name, env vars (VIG_PROJECT_UUID / VIGOLIUM_PROJECT), or the default.
+func resolveProjectUUID() (string, error) {
+	resolveProjectOnce.Do(func() {
+		switch {
+		case globalProjectID != "":
+			resolvedProjectUUID = globalProjectID
+		case globalProjectName != "":
+			db, err := getDB()
+			if err != nil {
+				resolveProjectErr = fmt.Errorf("failed to open database for project name lookup: %w", err)
+				return
+			}
+			repo := database.NewRepository(db)
+			project, err := repo.GetProjectByName(context.Background(), globalProjectName)
+			if err != nil {
+				resolveProjectErr = err
+				return
+			}
+			resolvedProjectUUID = project.UUID
+		default:
+			resolvedProjectUUID = database.DefaultProjectUUID
+		}
+	})
+	return resolvedProjectUUID, resolveProjectErr
 }
 
 var projectCmd = &cobra.Command{
@@ -94,7 +119,10 @@ var projectListCmd = &cobra.Command{
 			return nil
 		}
 
-		active := resolveProjectUUID()
+		active, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
 
 		tbl := terminal.NewTable("", "UUID", "NAME", "DESCRIPTION")
 		for _, p := range projects {
@@ -112,7 +140,7 @@ var projectListCmd = &cobra.Command{
 var projectUseCmd = &cobra.Command{
 	Use:   "use [uuid]",
 	Short: "Print the shell export command to set the active project",
-	Long:  "Prints an export command you can eval to set VIGOLIUM_PROJECT.\nUsage: eval $(vigolium project use <uuid>)",
+	Long:  "Prints an export command you can eval to set VIG_PROJECT_UUID.\nUsage: eval $(vigolium project use <uuid>)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer syncLogger()
@@ -134,7 +162,7 @@ var projectUseCmd = &cobra.Command{
 		}
 
 		// Print export command (user evals this)
-		fmt.Printf("export VIGOLIUM_PROJECT=%s\n", project.UUID)
+		fmt.Printf("export VIG_PROJECT_UUID=%s\n", project.UUID)
 		// Print info to stderr so eval doesn't capture it
 		fmt.Fprintf(os.Stderr, "%s Active project: %s (%s)\n",
 			terminal.SuccessSymbol(), terminal.BoldGreen(project.Name), project.UUID)
@@ -149,7 +177,10 @@ var projectConfigCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer syncLogger()
 
-		projectUUID := resolveProjectUUID()
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
 		if len(args) > 0 {
 			projectUUID = args[0]
 		}

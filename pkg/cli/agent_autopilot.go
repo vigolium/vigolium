@@ -50,7 +50,7 @@ func init() {
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --repo)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
 	f.StringVar(&autopilotSystemPrompt, "system-prompt", "", "Custom system prompt file (overrides default)")
-	f.DurationVar(&autopilotTimeout, "timeout", 30*time.Minute, "Overall timeout for the autopilot session")
+	f.DurationVar(&autopilotTimeout, "timeout", 30*time.Minute, "Maximum duration for the autopilot session")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.IntVar(&autopilotMaxCommands, "max-commands", 100, "Maximum number of CLI commands the agent can execute")
 	_ = agentAutopilotCmd.MarkFlagRequired("target")

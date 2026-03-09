@@ -39,7 +39,7 @@ eval $(vigolium project use a1b2c3d4-...)
 # Active project: my-engagement (a1b2c3d4-...)
 ```
 
-This exports the `VIGOLIUM_PROJECT` environment variable in your shell. All subsequent commands in that shell session will use this project.
+This exports the `VIG_PROJECT_UUID` environment variable in your shell. All subsequent commands in that shell session will use this project.
 
 ### View project config path
 
@@ -51,28 +51,35 @@ vigolium project config a1b2c3d4-...
 
 ## Scoping Operations to a Project
 
-There are three ways to scope operations to a project, listed by precedence (highest first):
+There are several ways to scope operations to a project, listed by precedence (highest first):
 
 | Method | Example |
 |--------|---------|
-| `--project` flag | `vigolium scan -t https://example.com --project a1b2c3d4-...` |
-| `VIGOLIUM_PROJECT` env var | `export VIGOLIUM_PROJECT=a1b2c3d4-...` |
-| Default project | Used when neither flag nor env var is set |
+| `--project-id` flag | `vigolium scan -t https://example.com --project-id a1b2c3d4-...` |
+| `--project-name` flag | `vigolium scan -t https://example.com --project-name my-engagement` |
+| `VIG_PROJECT_UUID` env var | `export VIG_PROJECT_UUID=a1b2c3d4-...` |
+| `VIGOLIUM_PROJECT` env var (legacy) | `export VIGOLIUM_PROJECT=a1b2c3d4-...` |
+| Default project | Used when no flag or env var is set |
+
+`--project-id` and `--project-name` are mutually exclusive. The deprecated `--project` flag is an alias for `--project-id`.
 
 ### CLI examples
 
 ```bash
-# Scan within a project
-vigolium scan -t https://example.com --project a1b2c3d4-...
+# Scan within a project (by UUID)
+vigolium scan -t https://example.com --project-id a1b2c3d4-...
+
+# Scan within a project (by name)
+vigolium scan -t https://example.com --project-name my-engagement
 
 # Ingest into a project
-vigolium ingest --input urls.txt --project a1b2c3d4-...
+vigolium ingest --input urls.txt --project-id a1b2c3d4-...
 
 # List findings for a project
-vigolium db list findings --project a1b2c3d4-...
+vigolium db list findings --project-name my-engagement
 
 # Export project data
-vigolium db export --project a1b2c3d4-... -o findings.jsonl
+vigolium db export --project-id a1b2c3d4-... -o findings.jsonl
 ```
 
 ### Server API

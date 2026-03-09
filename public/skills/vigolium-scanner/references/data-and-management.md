@@ -49,7 +49,7 @@ List database records with filtering, sorting, and display options.
 | `--tree` | bool | `false` | Hierarchical tree format |
 | `--raw` | bool | `false` | Full raw HTTP request and response |
 | `--list-tables` | bool | `false` | List all database table names |
-| `--list-columns` | bool | `false` | List column names for the table |
+| `--list-columns` | bool | `false` | List column names for the current table |
 
 ### Pagination flags
 
@@ -75,11 +75,11 @@ List database records with filtering, sorting, and display options.
 | `--path` | string | — | Filter by URL path pattern |
 | `--scan-id` | string | — | Filter by scan session ID |
 | `--severity` | string | — | Filter findings by severity |
-| `--min-risk` | int | `0` | Filter records with risk >= value |
-| `--remark` | string | — | Filter by remark substring |
+| `--min-risk` | int | `0` | Show only records with risk score at or above this value |
+| `--remark` | string | — | Filter records containing this text in remarks |
 | `--from` | string | — | Records after date (YYYY-MM-DD) |
 | `--to` | string | — | Records before date |
-| `--header` | string | — | Search in HTTP headers |
+| `--header` | string | — | Search within HTTP header names and values |
 | `--body` | string | — | Search in request/response body |
 
 ### Sorting flags
@@ -115,7 +115,7 @@ Show database statistics including record counts, finding breakdowns, and host s
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--detailed` | bool | `false` | Show detailed stats broken down by host (top 10) |
+| `--detailed` | bool | `false` | Show per-host and per-module breakdown |
 | `--scan-id` | string | — | Stats for a specific scan session |
 | `--host` | string | — | Stats for a specific hostname |
 
@@ -153,7 +153,7 @@ Export database records in various formats.
 | `--limit` | — | int | `0` (unlimited) | Max records to export |
 | `--offset` | — | int | `0` | Records to skip |
 | `--uuid` | — | string | — | Export single record by UUID |
-| `--request-only` | — | bool | `false` | Export only requests (raw format) |
+| `--request-only` | — | bool | `false` | Export only HTTP requests, omitting responses (raw format only) |
 
 ### Examples
 
@@ -183,10 +183,10 @@ Delete database records with filtering. Destructive operations require `--force`
 | `--before` | string | — | Delete records before date (YYYY-MM-DD) |
 | `--status` | []int | — | Delete by HTTP status code |
 | `--severity` | string | — | Delete findings by severity |
-| `--dry-run` | bool | `false` | Preview without deleting |
+| `--dry-run` | bool | `false` | Show what would be deleted without deleting |
 | `--vacuum` | bool | `false` | Reclaim disk space after deletion (SQLite) |
-| `--orphans` | bool | `false` | Delete orphaned findings |
-| `--findings-only` | bool | `false` | Delete only findings, keep HTTP records |
+| `--orphans` | bool | `false` | Delete findings with no matching HTTP record |
+| `--findings-only` | bool | `false` | Delete findings only, keep HTTP records |
 
 ### Special behavior
 
@@ -239,8 +239,8 @@ Top-level export command. Exports database tables and module registry as JSONL o
 |------|-------|------|---------|-------------|
 | `--format` | — | string | `jsonl` | Export format: html, jsonl |
 | `--output` | `-o` | string | — | Output file (required for html) |
-| `--only` | — | []string | all | Data types: http, findings, scans, modules, oast, source-repos, scopes |
-| `--lite` | — | bool | `false` | Export lite records (omit raw HTTP data) |
+| `--only` | — | []string | all | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
+| `--lite` | — | bool | `false` | Export summary fields only, omit raw HTTP data and headers |
 | `--search` | — | string | — | Fuzzy search filter |
 | `--limit` | — | int | `0` (unlimited) | Max records per table |
 

@@ -71,7 +71,7 @@ func registerListFlags(cmd *cobra.Command) {
 
 	// Schema inspection flags
 	cmd.Flags().BoolVar(&listTables, "list-tables", false, "List all database table names")
-	cmd.Flags().BoolVar(&listColumnNames, "list-columns", false, "List column names for the specified table (default: http_records)")
+	cmd.Flags().BoolVar(&listColumnNames, "list-columns", false, "List column names for the current table")
 
 	// Pagination flags
 	cmd.Flags().IntVarP(&listLimit, "limit", "n", 100, "Maximum number of records to display")
@@ -88,8 +88,8 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&listPath, "path", "", "Filter records by URL path pattern")
 	cmd.Flags().StringVar(&listScanUUID, "scan-id", "", "Filter records by scan session ID")
 	cmd.Flags().StringVar(&listSeverity, "severity", "", "Filter findings by severity: critical, high, medium, low")
-	cmd.Flags().IntVar(&listMinRisk, "min-risk", 0, "Filter records with risk score >= value")
-	cmd.Flags().StringVar(&listRemark, "remark", "", "Filter records by remark substring")
+	cmd.Flags().IntVar(&listMinRisk, "min-risk", 0, "Show only records with risk score at or above this value")
+	cmd.Flags().StringVar(&listRemark, "remark", "", "Filter records containing this text in remarks")
 	cmd.Flags().StringVar(&listModuleType, "module-type", "", "Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
 	cmd.Flags().StringVar(&listFindingSource, "finding-source", "", "Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
 
@@ -98,7 +98,7 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&listTo, "to", "", "Show records created before this date (YYYY-MM-DD or RFC3339)")
 
 	// Search flags
-	cmd.Flags().StringVar(&listHeader, "header", "", "Search for matching HTTP header pattern")
+	cmd.Flags().StringVar(&listHeader, "header", "", "Search within HTTP header names and values")
 	cmd.Flags().StringVar(&listBody, "body", "", "Search within request or response body content")
 
 	// Sorting flags
@@ -214,8 +214,13 @@ func runListHTTPRecords(ctx context.Context, db *database.DB) error {
 		severities = strings.Split(listSeverity, ",")
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	filters := database.QueryFilters{
-		ProjectUUID:  resolveProjectUUID(),
+		ProjectUUID:  projectUUID,
 		HostPattern:  listHost,
 		Methods:      listMethods,
 		StatusCodes:  listStatus,
@@ -279,8 +284,13 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 		severities = strings.Split(listSeverity, ",")
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	filters := database.QueryFilters{
-		ProjectUUID:   resolveProjectUUID(),
+		ProjectUUID:   projectUUID,
 		HostPattern:   listHost,
 		ScanUUID:      listScanUUID,
 		Severity:      severities,
@@ -308,7 +318,7 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 
 	if globalJSON {
 		output := map[string]interface{}{
-			"project_uuid": resolveProjectUUID(),
+			"project_uuid": projectUUID,
 			"total":        total,
 			"offset":       listOffset,
 			"limit":        listLimit,
@@ -320,7 +330,6 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 	}
 
 	// Build severity and confidence breakdown summary
-	projectUUID := resolveProjectUUID()
 	sevLine := ""
 	sevCounts, sevErr := database.CountFindingsBySeverity(ctx, db, projectUUID)
 	if sevErr == nil {
@@ -384,7 +393,11 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 // runListScans handles the scans table listing with a compact summary view.
 func runListScans(ctx context.Context, db *database.DB) error {
 	repo := database.NewRepository(db)
-	scans, total, err := repo.ListScans(ctx, resolveProjectUUID(), listLimit, listOffset)
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+	scans, total, err := repo.ListScans(ctx, projectUUID, listLimit, listOffset)
 	if err != nil {
 		return fmt.Errorf("failed to list scans: %w", err)
 	}
@@ -534,8 +547,12 @@ func runListGenericTable(ctx context.Context, db *database.DB, tableName string)
 }
 
 func displayJSON(records []*database.HTTPRecord, total int64, offset, limit int) error {
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
 	output := map[string]interface{}{
-		"project_uuid": resolveProjectUUID(),
+		"project_uuid": projectUUID,
 		"total":        total,
 		"offset":       offset,
 		"limit":        limit,

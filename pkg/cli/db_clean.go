@@ -37,19 +37,19 @@ var (
 func init() {
 	dbCmd.AddCommand(dbCleanCmd)
 
-	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete all records from the database (requires --force)")
+	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete all records (requires --force)")
 	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records matching the specified hostname")
 	dbCleanCmd.Flags().StringVar(&cleanScanUUID, "scan-id", "", "Delete records belonging to the specified scan session")
 	dbCleanCmd.Flags().StringVar(&cleanBefore, "before", "", "Delete records created before this date (YYYY-MM-DD)")
 	dbCleanCmd.Flags().IntSliceVar(&cleanStatus, "status", nil, "Delete records with matching HTTP status codes")
 	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level")
 
-	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Preview what would be deleted without making changes")
-	dbCleanCmd.Flags().BoolVar(&cleanVacuum, "vacuum", false, "Reclaim disk space after deletion (SQLite only)")
+	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be deleted without deleting")
+	dbCleanCmd.Flags().BoolVar(&cleanVacuum, "vacuum", false, "Reclaim disk space after deletion (SQLite)")
 
-	dbCleanCmd.Flags().BoolVar(&cleanOrphans, "orphans", false, "Delete orphaned findings that have no matching records")
+	dbCleanCmd.Flags().BoolVar(&cleanOrphans, "orphans", false, "Delete findings with no matching HTTP record")
 
-	dbCleanCmd.Flags().BoolVar(&cleanFindings, "findings-only", false, "Delete only findings while keeping HTTP records intact")
+	dbCleanCmd.Flags().BoolVar(&cleanFindings, "findings-only", false, "Delete findings only, keep HTTP records")
 }
 
 func runDBClean(cmd *cobra.Command, args []string) error {

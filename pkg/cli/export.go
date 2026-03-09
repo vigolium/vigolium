@@ -38,9 +38,9 @@ func init() {
 	exportCmd.Flags().StringVar(&topExportFormat, "format", "jsonl", "Export format: html, jsonl")
 	exportCmd.Flags().StringVarP(&topExportOutput, "output", "o", "", "Output file path (required for html)")
 	exportCmd.Flags().StringSliceVar(&topExportOnly, "only", nil,
-		"Export only specific data types: http, findings, scans, modules, oast, source-repos, scopes")
+		"Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes)")
 	exportCmd.Flags().BoolVar(&topExportLite, "lite", false,
-		"Export lite records (main fields only, omit raw HTTP request/response and headers)")
+		"Export summary fields only, omit raw HTTP data and headers")
 	exportCmd.Flags().StringVar(&topExportSearch, "search", "",
 		"Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources")
 	exportCmd.Flags().IntVar(&topExportLimit, "limit", 0,

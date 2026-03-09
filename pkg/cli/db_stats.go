@@ -26,7 +26,7 @@ var (
 func init() {
 	dbCmd.AddCommand(dbStatsCmd)
 
-	dbStatsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show detailed statistics broken down by host")
+	dbStatsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show per-host and per-module breakdown")
 	dbStatsCmd.Flags().StringVar(&statsScanUUID, "scan-id", "", "Show statistics for a specific scan session")
 	dbStatsCmd.Flags().StringVar(&statsHost, "host", "", "Show statistics for a specific hostname")
 }

@@ -56,7 +56,7 @@ func init() {
 	dbExportCmd.Flags().IntVar(&exportOffset, "offset", 0, "Number of records to skip before exporting")
 	dbExportCmd.Flags().StringVar(&exportRecordUUID, "uuid", "", "Export a single record by its UUID")
 
-	dbExportCmd.Flags().BoolVar(&exportRequestOnly, "request-only", false, "Export only HTTP requests without responses (raw format)")
+	dbExportCmd.Flags().BoolVar(&exportRequestOnly, "request-only", false, "Export only HTTP requests, omitting responses (raw format only)")
 }
 
 func runDBExport(cmd *cobra.Command, args []string) error {
@@ -102,8 +102,13 @@ func runDBExport(cmd *cobra.Command, args []string) error {
 			severities = strings.Split(exportSeverity, ",")
 		}
 
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
+
 		filters := database.QueryFilters{
-			ProjectUUID: resolveProjectUUID(),
+			ProjectUUID: projectUUID,
 			HostPattern: exportHost,
 			Methods:     exportMethods,
 			StatusCodes: exportStatus,

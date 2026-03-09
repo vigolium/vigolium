@@ -29,13 +29,13 @@ Run an AI coding agent for security code review, endpoint discovery, or custom a
 | `--prompt-file` | string | — | Path to a prompt template file |
 | `--repo` | string | — | Path to source code repository |
 | `--files` | []string | — | Specific files to include (relative to --repo) |
-| `--append` | string | — | Extra text appended to the rendered prompt |
+| `--append` | string | — | Append extra text to the rendered prompt |
 | `--output` | string | — | Write agent output to this file |
-| `--source` | string | — | Source identifier for ingested records |
+| `--source` | string | — | Label for records ingested from agent output (e.g. 'agent-review') |
 | `--list-templates` | bool | `false` | List available prompt templates |
 | `--list-agents` | bool | `false` | List configured agent backends |
-| `--dry-run` | bool | `false` | Render prompt without executing |
-| `--agent-timeout` | duration | `5m` | Timeout for agent execution (0 to disable) |
+| `--dry-run` | bool | `false` | Print the rendered prompt without executing |
+| `--agent-timeout` | duration | `5m` | Maximum time for agent execution (0 = no limit) |
 
 ### Examples
 
@@ -87,11 +87,11 @@ Send a freeform prompt to an AI agent without templates or structured output. Pr
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--prompt` | `-p` | string | — | Inline prompt string |
+| `--prompt` | `-p` | string | — | Prompt text to send to the agent |
 | `--stdin` | — | bool | `false` | Read prompt from stdin |
 | `--output` | — | string | — | Write agent output to this file |
 | `--source` | — | string | — | Source identifier for ingested records |
-| `--agent-timeout` | — | duration | `5m` | Timeout for agent execution |
+| `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution (0 = no limit) |
 
 ### Examples
 
@@ -133,7 +133,7 @@ Launch an AI agent that autonomously discovers, scans, and triages vulnerabiliti
 | `--files` | — | []string | — | Specific files to include (relative to --repo) |
 | `--focus` | — | string | — | Focus area hint (e.g. "API injection", "auth bypass") |
 | `--system-prompt` | — | string | — | Custom system prompt file (overrides default) |
-| `--timeout` | — | duration | `30m` | Overall timeout for the autopilot session |
+| `--timeout` | — | duration | `30m` | Maximum duration for the autopilot session |
 | `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
 
@@ -201,7 +201,7 @@ The triage→rescan loop (phases 4-5) repeats until the agent sets verdict to `"
 | `--repo` | — | string | — | Path to source code repository for agent context |
 | `--files` | — | []string | — | Specific source files to include (relative to --repo) |
 | `--focus` | — | string | — | Focus area hint for the planning agent |
-| `--timeout` | — | duration | `1h` | Overall timeout for the pipeline |
+| `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
 | `--max-rescan-rounds` | — | int | `2` | Maximum triage→rescan iterations |
 | `--skip-phase` | — | []string | — | Skip phases (discover, plan, scan, triage, rescan, report) |
 | `--start-from` | — | string | — | Resume pipeline from a specific phase |

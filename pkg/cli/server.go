@@ -67,27 +67,27 @@ func init() {
 	flags := serverCmd.Flags()
 
 	// Server group
-	flags.StringVar(&serverOpts.Host, "host", "0.0.0.0", "Host address to listen on")
-	flags.IntVar(&serverOpts.ServicePort, "service-port", 9002, "API service port")
+	flags.StringVar(&serverOpts.Host, "host", "0.0.0.0", "Bind address for the API server")
+	flags.IntVar(&serverOpts.ServicePort, "service-port", 9002, "Port for the REST API server")
 	flags.IntVar(&serverOpts.IngestProxyPort, "ingest-proxy-port", 0, "Transparent HTTP proxy port for recording traffic (0 = disabled)")
-	flags.StringSliceVar(&serverOpts.APIKeys, "alternative-ingest-key", nil, "Secondary ingest API key (can be specified multiple times)")
+	flags.StringSliceVar(&serverOpts.APIKeys, "alternative-ingest-key", nil, "Additional API key for ingestion endpoints (repeatable)")
 	flags.BoolVarP(&serverOpts.NoAuth, "no-auth", "A", false, "Run server without API key authentication")
 
 	// Queue group
-	flags.IntVar(&serverOpts.MemBufferSize, "mem-buffer", 10000, "In-memory buffer size for hybrid queue (tasks beyond this spill to disk)")
+	flags.IntVar(&serverOpts.MemBufferSize, "mem-buffer", 10000, "In-memory queue capacity before spilling to disk")
 
 	// Output group
 	flags.StringVarP(&serverOpts.Output, "output", "o", "", "Write findings to specified output file")
 
 	// Catchup scan group
 	flags.IntVar(&serverOpts.CatchupThreads, "catchup-threads", 4,
-		"Number of concurrent workers for background catchup scan of unscanned records")
+		"Workers for background scanning of unscanned records")
 	flags.BoolVar(&serverOpts.DisableCatchup, "disable-catchup", false,
-		"Disable automatic background catchup scan of unscanned records")
+		"Disable automatic background scanning of unscanned records")
 
 	// Agent warm session
 	flags.BoolVar(&serverOpts.DisableWarmSession, "disable-warm-session", false,
-		"Disable automatic warm session pooling for agent subprocesses")
+		"Disable agent subprocess warm session pooling")
 }
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
