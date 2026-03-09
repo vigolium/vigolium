@@ -37,7 +37,7 @@ export default function Navigation() {
 
   return (
     <nav className="border-b border-[#bbc3c4] bg-[#f6edda]">
-      <div className="px-4 min-h-7 py-1 flex flex-wrap items-center text-xs gap-0">
+      <div className="px-4 min-h-7 py-0.5 flex flex-wrap items-center text-xs leading-tight">
         <span className="text-[#bbc3c4] mr-2">&gt;</span>
         {NAV_ITEMS.map((item, i) => (
           <span key={item.href} className="flex items-center">
