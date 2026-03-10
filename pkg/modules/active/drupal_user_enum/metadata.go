@@ -3,7 +3,7 @@ package drupal_user_enum
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-drupal-user-enum"
+	ModuleID    = "drupal-user-enum"
 	ModuleName  = "Drupal User Enumeration"
 	ModuleShort = "Detects Drupal user enumeration via user profile paths and JSON:API"
 )

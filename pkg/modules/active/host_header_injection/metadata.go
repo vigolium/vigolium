@@ -3,7 +3,7 @@ package host_header_injection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-host-header-injection"
+	ModuleID    = "host-header-injection"
 	ModuleName  = "Host Header Injection"
 	ModuleShort = "Detects host header injection and routing manipulation"
 )

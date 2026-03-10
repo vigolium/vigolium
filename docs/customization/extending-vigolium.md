@@ -305,7 +305,7 @@ type Module struct {
 func New() *Module {
     return &Module{
         BaseActiveModule: modkit.NewBaseActiveModule(
-            "active-my-check",
+            "my-check",
             "My Custom Check",
             "Detailed description of what this checks",
             "One-line summary",
@@ -462,8 +462,8 @@ Vigolium ships with 15 built-in templates:
 | `endpoint-discovery` | http_records | Extract API routes from source code |
 | `api-input-gen` | http_records | Generate HTTP requests from endpoints |
 | `curl-command-gen` | http_records | Generate curl commands for all routes |
-| `interactive-scan` | findings | Agent loop: analyze + run scans |
-| `targeted-retest` | findings | Agent loop: verify previous findings |
+| `interactive-scan` | findings | Autopilot: analyze + run scans |
+| `targeted-retest` | findings | Autopilot: verify previous findings |
 | `attack-surface-mapper` | http_records | Discover and cross-reference APIs |
 | `nextjs-security-audit` | findings | Next.js-specific security review |
 | `react-xss-audit` | findings | React XSS pattern analysis |
@@ -488,7 +488,7 @@ vigolium agent --prompt-template my-custom-review --repo /path/to/source --dry-r
 - **No code** — Markdown files with template syntax.
 - **Context-aware** — automatic enrichment with database findings, endpoints, scan stats.
 - **Multiple AI backends** — works with Claude, Codex, OpenCode, Gemini, or any custom agent.
-- **Iterative refinement** — agent loop passes prior findings back for verification.
+- **Iterative refinement** — autopilot and pipeline modes pass prior findings back for verification.
 - **Two output modes** — emit findings for code review or HTTP records for endpoint discovery.
 
 ### Cons
@@ -789,7 +789,7 @@ vigolium agent --agent my-agent --prompt-template security-code-review --repo /p
 
 ### Warm sessions
 
-For iterative workflows (agent loop), ACP backends support session pooling to avoid subprocess startup overhead:
+For iterative workflows (autopilot), ACP backends support session pooling to avoid subprocess startup overhead:
 
 ```yaml
 agent:

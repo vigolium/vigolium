@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 
 func TestNew(t *testing.T) {
 	m := New()
-	assert.Equal(t, "active-backslash-transformation", m.ID())
+	assert.Equal(t, "backslash-transformation", m.ID())
 	assert.Equal(t, "Backslash Transformation Detection", m.Name())
 }
 

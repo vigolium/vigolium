@@ -3,7 +3,7 @@ package wp_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-wp-misconfig"
+	ModuleID    = "wp-misconfig"
 	ModuleName  = "WordPress Misconfiguration"
 	ModuleShort = "Detects exposed WordPress configuration files, debug logs, and dangerous endpoints"
 )

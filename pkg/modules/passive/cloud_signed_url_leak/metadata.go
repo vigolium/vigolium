@@ -3,7 +3,7 @@ package cloud_signed_url_leak
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cloud-signed-url-leak"
+	ModuleID    = "cloud-signed-url-leak"
 	ModuleName  = "Cloud Signed URL Leak"
 	ModuleShort = "Detects leaked cloud storage signed URLs and SAS tokens in responses"
 )

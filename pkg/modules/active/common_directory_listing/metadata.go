@@ -3,7 +3,7 @@ package common_directory_listing
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-common-directory-listing"
+	ModuleID    = "common-directory-listing"
 	ModuleName  = "Common Directory Listing"
 	ModuleShort = "Detects directory listing exposure on common web servers (Apache, Nginx, IIS, Jetty, Python)"
 )

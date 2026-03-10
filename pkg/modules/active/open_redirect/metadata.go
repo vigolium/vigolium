@@ -3,7 +3,7 @@ package open_redirect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-open-redirect"
+	ModuleID    = "open-redirect"
 	ModuleName  = "Open Redirect"
 	ModuleShort = "Detects open redirect vulnerabilities"
 )

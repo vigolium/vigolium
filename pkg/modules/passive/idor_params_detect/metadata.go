@@ -3,7 +3,7 @@ package idor_params_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-idor-params-detect"
+	ModuleID    = "idor-params-detect"
 	ModuleName  = "IDOR Parameter Detection"
 	ModuleShort = "Detects parameters that may reference object identifiers (IDOR/BOLA triage)"
 )

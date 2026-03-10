@@ -3,7 +3,7 @@ package backslash_transformation
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-backslash-transformation"
+	ModuleID    = "backslash-transformation"
 	ModuleName  = "Backslash Transformation Detection"
 	ModuleShort = "Detects escape sequence interpretation, backslash consumption, character handling"
 )

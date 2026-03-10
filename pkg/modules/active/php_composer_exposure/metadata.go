@@ -3,7 +3,7 @@ package php_composer_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-php-composer-exposure"
+	ModuleID    = "php-composer-exposure"
 	ModuleName  = "PHP Composer Exposure"
 	ModuleShort = "Detects exposed Composer manifests, vendor directory, and PHPUnit dev endpoints"
 )

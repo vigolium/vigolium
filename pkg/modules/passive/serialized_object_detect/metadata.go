@@ -3,7 +3,7 @@ package serialized_object_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-serialized-object-detect"
+	ModuleID    = "serialized-object-detect"
 	ModuleName  = "Serialized Object Detection"
 	ModuleShort = "Detects serialized Java/PHP/.NET/Python objects in request parameters"
 )

@@ -8,7 +8,7 @@ import (
 // Module is the base interface for all scanner modules.
 // All modules must be thread-safe as scan methods will be called concurrently.
 type Module interface {
-	// ID returns unique identifier for the module (e.g., "active-sqli-error-based").
+	// ID returns unique identifier for the module (e.g., "sqli-error-based").
 	ID() string
 
 	// Name returns human-readable name (e.g., "SQLi Error Based Scanner").

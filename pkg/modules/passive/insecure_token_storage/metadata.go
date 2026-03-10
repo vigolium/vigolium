@@ -3,7 +3,7 @@ package insecure_token_storage
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-insecure-token-storage"
+	ModuleID    = "insecure-token-storage"
 	ModuleName  = "Insecure Token Storage"
 	ModuleShort = "Detects auth tokens stored in localStorage/sessionStorage"
 )

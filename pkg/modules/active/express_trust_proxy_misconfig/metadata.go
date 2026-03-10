@@ -3,7 +3,7 @@ package express_trust_proxy_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-express-trust-proxy-misconfig"
+	ModuleID    = "express-trust-proxy-misconfig"
 	ModuleName  = "Express Trust Proxy Misconfiguration"
 	ModuleShort = "Detects Express trust proxy misconfiguration via X-Forwarded-* header manipulation"
 )

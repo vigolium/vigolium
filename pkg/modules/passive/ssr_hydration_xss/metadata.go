@@ -3,7 +3,7 @@ package ssr_hydration_xss
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-ssr-hydration-xss"
+	ModuleID    = "ssr-hydration-xss"
 	ModuleName  = "SSR Hydration XSS Detection"
 	ModuleShort = "Detects potential XSS in server-side rendered JSON hydration scripts"
 )

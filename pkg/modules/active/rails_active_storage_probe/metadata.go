@@ -3,7 +3,7 @@ package rails_active_storage_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-rails-active-storage-probe"
+	ModuleID    = "rails-active-storage-probe"
 	ModuleName  = "Rails Active Storage Probe"
 	ModuleShort = "Detects exposed Rails Active Storage direct upload and Action Mailbox ingress endpoints"
 )

@@ -30,7 +30,7 @@ test_cases:
   - id: "crapi-sqli-mechanic"
     endpoint: "/workshop/api/mechanic/?mechanic_code=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -41,7 +41,7 @@ test_cases:
   - id: "crapi-nosqli-posts"
     endpoint: "/community/api/v2/community/posts?limit=10"
     method: GET
-    modules: ["active-nosqli-error-based"]
+    modules: ["nosqli-error-based"]
     vuln_types: ["nosqli"]
     assertion: soft
     min_findings: 1
@@ -52,7 +52,7 @@ test_cases:
   - id: "crapi-ssrf-mechanic"
     endpoint: "/workshop/api/merchant/contact_mechanic"
     method: GET
-    modules: ["active-ssrf-detection"]
+    modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
     min_findings: 1
@@ -63,7 +63,7 @@ test_cases:
   - id: "crapi-jwt-vuln"
     endpoint: "/identity/api/v2/user/dashboard"
     method: GET
-    modules: ["active-jwt-vulnerability"]
+    modules: ["jwt-vulnerability"]
     vuln_types: ["jwt-vulnerability"]
     assertion: soft
     min_findings: 1
@@ -74,7 +74,7 @@ test_cases:
   - id: "crapi-cors"
     endpoint: "/identity/api/v2/user/dashboard"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -85,7 +85,7 @@ test_cases:
   - id: "crapi-cmd-injection"
     endpoint: "/workshop/api/shop/orders/1/return?qr_code=test"
     method: GET
-    modules: ["active-code-exec"]
+    modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: soft
     min_findings: 1
@@ -96,7 +96,7 @@ test_cases:
   - id: "crapi-host-header"
     endpoint: "/identity/api/auth/forget-password"
     method: GET
-    modules: ["active-host-header-injection"]
+    modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
     min_findings: 1
@@ -109,7 +109,7 @@ test_cases:
   - id: "crapi-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -119,7 +119,7 @@ test_cases:
   - id: "crapi-auth-headers"
     endpoint: "/identity/api/v2/user/dashboard"
     method: GET
-    modules: ["passive-auth-headers-detect"]
+    modules: ["auth-headers-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -129,7 +129,7 @@ test_cases:
   - id: "crapi-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -139,7 +139,7 @@ test_cases:
   - id: "crapi-jwt-weak-passive"
     endpoint: "/identity/api/v2/user/dashboard"
     method: GET
-    modules: ["passive-jwt-weak-secret"]
+    modules: ["jwt-weak-secret"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -149,7 +149,7 @@ test_cases:
   - id: "crapi-cors-passive"
     endpoint: "/identity/api/v2/user/dashboard"
     method: GET
-    modules: ["passive-cors-headers-detect"]
+    modules: ["cors-headers-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

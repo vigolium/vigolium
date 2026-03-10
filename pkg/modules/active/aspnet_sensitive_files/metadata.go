@@ -3,7 +3,7 @@ package aspnet_sensitive_files
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-sensitive-files"
+	ModuleID    = "aspnet-sensitive-files"
 	ModuleName  = "ASP.NET Sensitive Files"
 	ModuleShort = "Probes for exposed ASP.NET configuration files, backups, and sensitive directories"
 )

@@ -74,6 +74,7 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 |------|------|---------|-------------|
 | `--rule` | string | — | Filter SAST rules by fuzzy name match |
 | `--repo` | string | — | Local repo path for ad-hoc SAST scan (results not saved to database) |
+| `--repo-url` | string | — | Git URL to clone for ad-hoc SAST scan (results not saved to database) |
 
 ### OAST flags (scan & run)
 
@@ -296,8 +297,19 @@ Speed settings have a layered precedence:
 3. Config `scanning_pace` section — per-phase max_duration and duration_factor
 4. Built-in defaults — lowest
 
+### CI Output
+
+- `--ci-output-format` enables CI-friendly output: JSONL findings only, no color, no banners
+- Equivalent to combining `--format jsonl --silent`
+- Useful for CI/CD pipelines that parse JSON output
+
 ### HTML Format Constraints
 
 - `--format html` requires `-o/--output`
 - In `scan` mode with `--only`, HTML is only supported for `discovery` and `spidering` phases
 - The `export` command supports HTML for all data
+
+### SAST Constraints
+
+- `--repo` and `--repo-url` are mutually exclusive
+- `--repo-url` clones the git repository to a temp directory and sets `--repo` automatically

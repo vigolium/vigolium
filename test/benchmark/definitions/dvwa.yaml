@@ -13,7 +13,7 @@ test_cases:
   - id: "dvwa-xss-reflected"
     endpoint: "/vulnerabilities/xss_r/?name=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: strict
     min_findings: 1
@@ -24,7 +24,7 @@ test_cases:
   - id: "dvwa-xss-dom"
     endpoint: "/vulnerabilities/xss_d/?default=English"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-dom"]
     assertion: soft
     min_findings: 1
@@ -35,7 +35,7 @@ test_cases:
   - id: "dvwa-sqli-error"
     endpoint: "/vulnerabilities/sqli/?id=1&Submit=Submit"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: strict
     min_findings: 1
@@ -46,7 +46,7 @@ test_cases:
   - id: "dvwa-lfi"
     endpoint: "/vulnerabilities/fi/?page=include.php"
     method: GET
-    modules: ["active-lfi-generic"]
+    modules: ["lfi-generic"]
     vuln_types: ["lfi"]
     assertion: strict
     min_findings: 1
@@ -57,7 +57,7 @@ test_cases:
   - id: "dvwa-cmd-injection"
     endpoint: "/vulnerabilities/exec/?ip=127.0.0.1&Submit=Submit"
     method: GET
-    modules: ["active-code-exec"]
+    modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: soft
     min_findings: 1
@@ -68,7 +68,7 @@ test_cases:
   - id: "dvwa-crlf"
     endpoint: "/vulnerabilities/xss_r/?name=test"
     method: GET
-    modules: ["active-crlf-injection"]
+    modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
     min_findings: 1
@@ -81,7 +81,7 @@ test_cases:
     method: GET
     headers:
       Cookie: "security=low; PHPSESSID=test; trackingId=abc"
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -94,7 +94,7 @@ test_cases:
   - id: "dvwa-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -104,7 +104,7 @@ test_cases:
   - id: "dvwa-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -114,7 +114,7 @@ test_cases:
   - id: "dvwa-sql-syntax-passive"
     endpoint: "/vulnerabilities/sqli/?id=1'&Submit=Submit"
     method: GET
-    modules: ["passive-sql-syntax-detect"]
+    modules: ["sql-syntax-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -124,7 +124,7 @@ test_cases:
   - id: "dvwa-dom-xss-passive"
     endpoint: "/vulnerabilities/xss_d/?default=English"
     method: GET
-    modules: ["passive-dom-xss-detect"]
+    modules: ["dom-xss-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -134,7 +134,7 @@ test_cases:
   - id: "dvwa-info-disclosure"
     endpoint: "/phpinfo.php"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

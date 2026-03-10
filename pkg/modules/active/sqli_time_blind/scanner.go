@@ -1,7 +1,6 @@
 package sqli_time_blind
 
 import (
-	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -80,26 +79,11 @@ ipScan:
 	for _, ip := range points {
 		baseValue := ip.BaseValue()
 
-		// Handle email-style values: inject before the @ portion
-		emailPrefix := ""
-		if strings.Contains(baseValue, "@") {
-			parts := strings.SplitN(baseValue, "@", 2)
-			emailPrefix = parts[0]
-			baseValue = emailPrefix
-		}
-
 		payloads := getPayloadsForValue(baseValue)
 
 		for _, pair := range payloads {
 			sleepPayload := baseValue + pair.sleepVal
 			noSleepPayload := baseValue + pair.noSleep
-
-			// If email, append the @domain back
-			if emailPrefix != "" {
-				atPart := "@" + strings.SplitN(ip.BaseValue(), "@", 2)[1]
-				sleepPayload += atPart
-				noSleepPayload += atPart
-			}
 
 			result, err := m.testTimingPair(ctx, httpClient, ip, sleepPayload, noSleepPayload, pair.dbType)
 			if err != nil {

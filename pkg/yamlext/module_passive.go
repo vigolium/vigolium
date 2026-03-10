@@ -21,7 +21,7 @@ func NewYAMLPassiveModule(def *ExtensionDef, configVars map[string]string) (*YAM
 	scope := ParsePassiveScope(def.Scope)
 
 	base := modkit.NewBasePassiveModule(
-		"passive-ext-"+def.ID,
+		"ext-"+def.ID,
 		def.Name,
 		def.Description,
 		"YAML extension: "+def.Name,

@@ -3,7 +3,7 @@ package nextauth_config_audit
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-nextauth-config-audit"
+	ModuleID    = "nextauth-config-audit"
 	ModuleName  = "NextAuth.js Configuration Audit"
 	ModuleShort = "Detects insecure NextAuth.js session and cookie configurations"
 )

@@ -3,7 +3,7 @@ package oauth_facebook_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-oauth-facebook-detect"
+	ModuleID    = "oauth-facebook-detect"
 	ModuleName  = "Facebook OAuth Detect"
 	ModuleShort = "Detects Facebook OAuth redirect parameters for security analysis"
 )

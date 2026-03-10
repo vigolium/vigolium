@@ -3,7 +3,7 @@ package drupal_api_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-drupal-api-detect"
+	ModuleID    = "drupal-api-detect"
 	ModuleName  = "Drupal API Exposure"
 	ModuleShort = "Detects exposed Drupal JSON:API and REST endpoints from response content"
 )

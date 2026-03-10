@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/signal"
@@ -22,11 +23,13 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/input/formats/detect"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
+	fileutil "github.com/projectdiscovery/utils/file"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -64,11 +67,42 @@ func hasPhaseFlags() bool {
 }
 
 var scanURLCmd = &cobra.Command{
-	Use:   "scan-url <url>",
+	Use:   "scan-url [url]",
 	Short: "Scan a single URL for vulnerabilities",
-	Long:  "Run active and passive scanner modules against a single URL.\nDesigned for quick, targeted scans and AI agent integration.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runScanURLCmd,
+	Long: `Run active and passive scanner modules against a single URL.
+Accepts a URL as argument or reads from stdin (auto-detects raw HTTP, curl, or URLs).
+Designed for quick, targeted scans and AI agent integration.`,
+	Example: `  # Scan a URL directly
+  vigolium scan-url https://example.com/api/users?id=1
+
+  # Scan with a specific HTTP method and body
+  vigolium scan-url --method POST --body '{"user":"admin"}' -H 'Content-Type: application/json' https://example.com/api/login
+
+  # Scan with custom headers
+  vigolium scan-url -H 'Authorization: Bearer tok123' -H 'X-Custom: value' https://example.com/api/data
+
+  # Pipe a URL from stdin
+  echo 'https://example.com/search?q=test' | vigolium scan-url
+
+  # Pipe a curl command from stdin
+  echo "curl -X POST -d 'user=admin' https://example.com/login" | vigolium scan-url
+
+  # Pipe a raw HTTP request from stdin
+  printf 'GET /api/users?id=1 HTTP/1.1\r\nHost: example.com\r\n\r\n' | vigolium scan-url
+
+  # Run only specific modules
+  vigolium scan-url -m sqli -m xss https://example.com/search?q=test
+
+  # Skip passive analysis
+  vigolium scan-url --no-passive https://example.com/api/users
+
+  # Enable content discovery before scanning
+  vigolium scan-url --discover https://example.com/
+
+  # JSON output for scripting
+  vigolium scan-url --json https://example.com/api/users?id=1`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runScanURLCmd,
 }
 
 func init() {
@@ -87,20 +121,61 @@ func init() {
 func runScanURLCmd(_ *cobra.Command, args []string) error {
 	defer syncLogger()
 
-	target := args[0]
+	// If a URL argument is provided, use existing behavior
+	if len(args) == 1 {
+		target := args[0]
 
-	// Build HttpRequestResponse
-	rr, err := buildRequestFromFlags(target, scanURLMethod, scanURLBody, scanURLHeaders)
+		rr, err := buildRequestFromFlags(target, scanURLMethod, scanURLBody, scanURLHeaders)
+		if err != nil {
+			return fmt.Errorf("failed to build request: %w", err)
+		}
+
+		if hasPhaseFlags() {
+			return runPhaseMode(rr, target, scanURLMethod)
+		}
+
+		return runScanWithRR(rr, target, scanURLMethod)
+	}
+
+	// No args — try reading from stdin
+	if !fileutil.HasStdin() {
+		return fmt.Errorf("no URL argument provided and no stdin input detected")
+	}
+
+	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		return fmt.Errorf("failed to build request: %w", err)
+		return fmt.Errorf("failed to read stdin: %w", err)
 	}
 
-	// Delegate to Runner when any phase flag is set
-	if hasPhaseFlags() {
-		return runPhaseMode(rr, target, scanURLMethod)
+	content := strings.TrimSpace(string(raw))
+	if content == "" {
+		return fmt.Errorf("empty stdin input")
 	}
 
-	return runScanWithRR(rr, target, scanURLMethod)
+	detected := detect.DetectStdinFormat(content)
+	items, err := detect.ParseStdinContent(content, detected)
+	if err != nil {
+		return err
+	}
+
+	// Scan each parsed request
+	var lastErr error
+	for _, rr := range items {
+		target := rr.Target()
+		method := rr.Request().Method()
+
+		if hasPhaseFlags() {
+			if err := runPhaseMode(rr, target, method); err != nil {
+				lastErr = err
+			}
+		} else {
+			if err := runScanWithRR(rr, target, method); err != nil {
+				lastErr = err
+			}
+		}
+	}
+
+	return lastErr
 }
 
 // --- Shared helpers used by both scan-url and scan-request ---
@@ -422,6 +497,14 @@ func buildPhaseOptions(target string) *types.Options {
 		opts.JSONOutput = true
 	}
 
+	// --ci-output-format: JSONL findings only, no color, no banners
+	if globalCIOutput {
+		opts.CIOutput = true
+		opts.OutputFormat = "jsonl"
+		opts.JSONOutput = true
+		opts.Silent = true
+	}
+
 	// Phase flags
 	opts.DiscoverEnabled = scanPhaseDiscover
 	opts.SpideringEnabled = scanPhaseSpider
@@ -533,6 +616,19 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 
 // outputScanResult writes the scan result as JSON or human-readable table.
 func outputScanResult(result *scanResult) error {
+	// CI output: one JSONL line per finding, nothing else
+	if globalCIOutput {
+		for _, f := range result.Findings {
+			data, err := json.Marshal(f)
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(data)
+			os.Stdout.Write([]byte("\n"))
+		}
+		return nil
+	}
+
 	if globalJSON {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
@@ -552,11 +648,12 @@ func outputScanResult(result *scanResult) error {
 		return nil
 	}
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "SEVERITY", "MODULE", "MATCHED", "NAME")
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "SEVERITY", "MODULE", "TYPE", "MATCHED", "NAME")
 	for _, f := range result.Findings {
 		tbl.AddRow(
 			colorSeverity(f.Info.Severity.String()),
 			terminal.Cyan(f.ModuleID),
+			colorModuleType(f.ModuleType),
 			f.Matched,
 			f.Info.Name,
 		)

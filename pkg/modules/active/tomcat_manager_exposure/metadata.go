@@ -3,7 +3,7 @@ package tomcat_manager_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-tomcat-manager-exposure"
+	ModuleID    = "tomcat-manager-exposure"
 	ModuleName  = "Tomcat Manager Exposure"
 	ModuleShort = "Detects exposed Apache Tomcat Manager and Host Manager interfaces"
 )

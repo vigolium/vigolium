@@ -3,7 +3,7 @@ package firebase_auth_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-firebase-auth-misconfig"
+	ModuleID    = "firebase-auth-misconfig"
 	ModuleName  = "Firebase Auth Misconfiguration"
 	ModuleShort = "Detects Firebase Authentication misconfigurations via Identity Toolkit probing"
 )

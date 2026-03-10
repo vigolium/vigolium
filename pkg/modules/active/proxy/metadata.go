@@ -3,7 +3,7 @@ package proxy
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-proxy"
+	ModuleID    = "proxy"
 	ModuleName  = "Proxy"
 	ModuleShort = "Replay all requests through configured proxy for inspection"
 )

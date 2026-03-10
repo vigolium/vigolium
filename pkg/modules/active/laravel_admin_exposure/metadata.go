@@ -3,7 +3,7 @@ package laravel_admin_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-laravel-admin-exposure"
+	ModuleID    = "laravel-admin-exposure"
 	ModuleName  = "Laravel Admin Exposure"
 	ModuleShort = "Detects unauthenticated access to Laravel admin panels, API documentation, and GraphQL endpoints"
 )

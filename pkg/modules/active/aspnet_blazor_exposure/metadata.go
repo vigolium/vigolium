@@ -3,7 +3,7 @@ package aspnet_blazor_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-blazor-exposure"
+	ModuleID    = "aspnet-blazor-exposure"
 	ModuleName  = "ASP.NET Blazor Exposure"
 	ModuleShort = "Detects exposed Blazor WebAssembly assemblies and Blazor Server endpoints"
 )

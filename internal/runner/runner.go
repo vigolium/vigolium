@@ -35,7 +35,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
 	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/modules/active/authz_compare"
 	"github.com/vigolium/vigolium/pkg/oast"
+	"github.com/vigolium/vigolium/pkg/session"
 
 	secret_detect "github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/notify"
@@ -86,6 +88,15 @@ type phaseInfra struct {
 	hookChain     *jsext.HookChain
 	jsEngine      *jsext.Engine
 	scanUUID      string
+
+	// Multi-session support for IDOR/BOLA testing
+	compareSessions []compareSession
+}
+
+// compareSession pairs a named session with its dedicated HTTP requester.
+type compareSession struct {
+	Name   string
+	Client *http.Requester
 }
 
 // Close releases infrastructure resources.
@@ -864,7 +875,109 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 		}
 	}
 
+	// Initialize multi-session support for IDOR/BOLA testing
+	if err := r.initSessions(infra); err != nil {
+		// If the user explicitly configured sessions, surface the error clearly
+		if len(r.options.Sessions) > 0 || r.options.AuthConfigPath != "" || len(r.options.SessionFiles) > 0 {
+			return nil, fmt.Errorf("session initialization failed: %w", err)
+		}
+		zap.L().Warn("Failed to initialize sessions", zap.Error(err))
+	}
+
 	return infra, nil
+}
+
+// initSessions loads, validates, hydrates sessions and creates compare requesters.
+func (r *Runner) initSessions(infra *phaseInfra) error {
+	opts := r.options
+	sessionCfg := r.settings.ScanningStrategy.Session
+	hasSessions := len(opts.Sessions) > 0
+	hasAuthConfig := opts.AuthConfigPath != ""
+	hasSessionFiles := len(opts.SessionFiles) > 0
+
+	if !hasSessions && !hasAuthConfig && !hasSessionFiles {
+		return nil
+	}
+
+	var sessions []*session.Session
+
+	switch {
+	case hasAuthConfig:
+		loaded, err := session.LoadFromConfig(opts.AuthConfigPath)
+		if err != nil {
+			return err
+		}
+		sessions = loaded
+	case hasSessionFiles:
+		loaded, err := session.LoadFromSessionFiles(opts.SessionFiles, sessionCfg.SessionDir)
+		if err != nil {
+			return err
+		}
+		sessions = loaded
+	case hasSessions:
+		loaded, err := session.LoadFromInlineFlags(opts.Sessions)
+		if err != nil {
+			return err
+		}
+		sessions = loaded
+	}
+
+	mgr, err := session.NewManager(sessions, session.WithSessionDir(sessionCfg.SessionDir))
+	if err != nil {
+		return err
+	}
+
+	// Execute login flows
+	if err := mgr.HydrateSessions(); err != nil {
+		return fmt.Errorf("session hydration failed: %w", err)
+	}
+
+	// Merge primary session headers into the main requester's options.
+	// When use_in_discovery is false, primary headers are only applied to the
+	// dynamic assessment requester (handled downstream), not the main one used
+	// for discovery and spidering.
+	primaryHeaders := mgr.PrimaryHeaders()
+	if len(primaryHeaders) > 0 && sessionCfg.UseInDiscovery {
+		opts.Headers = append(opts.Headers, primaryHeaders...)
+		// Rebuild the main requester with updated headers
+		httpRequester, err := http.NewRequester(opts, infra.svc)
+		if err != nil {
+			return fmt.Errorf("failed to rebuild requester with session headers: %w", err)
+		}
+		infra.httpRequester = httpRequester
+	}
+
+	// Create separate requesters for compare sessions (IDOR/BOLA testing)
+	if !sessionCfg.CompareEnabled {
+		zap.L().Info("Multi-session scanning enabled (compare disabled by config)",
+			zap.String("primary", mgr.Primary().Name))
+		return nil
+	}
+
+	cmpSessions := mgr.CompareSessions()
+	if len(cmpSessions) == 0 {
+		return nil
+	}
+
+	for _, cs := range cmpSessions {
+		// Clone options, merge global headers with session-specific auth headers
+		compareOpts := *opts
+		compareOpts.Headers = append(append([]string{}, opts.Headers...), cs.HeaderSlice()...)
+		compareRequester, err := http.NewRequester(&compareOpts, infra.svc)
+		if err != nil {
+			return fmt.Errorf("failed to create requester for session %q: %w", cs.Name, err)
+		}
+		infra.compareSessions = append(infra.compareSessions, compareSession{
+			Name:   cs.Name,
+			Client: compareRequester,
+		})
+	}
+
+	zap.L().Info("Multi-session scanning enabled",
+		zap.String("primary", mgr.Primary().Name),
+		zap.Int("compare_sessions", len(cmpSessions)))
+
+	return nil
 }
 
 // runDiscoveryPhase ingests all input into the database without running modules.
@@ -1150,14 +1263,19 @@ func (r *Runner) runSPAPhase(ctx context.Context, infra *phaseInfra) error {
 			r.printPhaseDetail(detail)
 		}
 	}
+	enrichTargets := true
+	if r.settings != nil {
+		enrichTargets = r.settings.SPA.EnrichTargets
+	}
+	if !enrichTargets && !r.options.Silent {
+		fmt.Fprintf(os.Stderr, "  %s enrich SPA targets with discovered paths via %s\n",
+			terminal.TipPrefix(),
+			terminal.HiCyan("vigolium config spa.enrich_targets=true"))
+	}
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 	if r.repository != nil && r.options.Verbose {
 		paths, _ := r.repository.GetDistinctPaths(ctx, r.options.ProjectUUID)
 		if len(paths) > 0 {
-			enrichTargets := true
-			if r.settings != nil {
-				enrichTargets = r.settings.SPA.EnrichTargets
-			}
 			var spaTargets []string
 			if enrichTargets {
 				spaTargets = buildSPATargetsFromPaths(paths)
@@ -1347,9 +1465,25 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
-	// If SPA was enabled, filter out passive-secret-detect to avoid duplicate kingfisher findings
+	// If SPA was enabled, filter out secret-detect to avoid duplicate kingfisher findings
 	if r.options.SPAEnabled {
 		passiveModules = filterOutPassiveModule(passiveModules, secret_detect.ModuleID)
+	}
+
+	// Wire compare session clients into the authz-compare module
+	if len(infra.compareSessions) > 0 {
+		clients := make([]*http.Requester, len(infra.compareSessions))
+		names := make([]string, len(infra.compareSessions))
+		for i, cs := range infra.compareSessions {
+			clients[i] = cs.Client
+			names[i] = cs.Name
+		}
+		for _, mod := range activeModules {
+			if ac, ok := mod.(*authz_compare.Module); ok {
+				ac.SetCompareClients(clients, names)
+				break
+			}
+		}
 	}
 
 	// Create scan record for cursor tracking
@@ -1765,10 +1899,11 @@ func (r *Runner) runSPA(ctx context.Context, onResult func(*output.ResultEvent))
 		Targets:     targets,
 		Concurrency: r.options.Concurrency,
 		ScanUUID:    r.options.ScanUUID,
-		ProxyURL: r.options.ProxyURL,
-		Headers:  r.options.Headers,
-		OnResult: onResult,
-		Repository: r.repository,
+		ProjectUUID: r.options.ProjectUUID,
+		ProxyURL:    r.options.ProxyURL,
+		Headers:     r.options.Headers,
+		OnResult:    onResult,
+		Repository:  r.repository,
 	}
 
 	// Apply YAML settings

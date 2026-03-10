@@ -3,7 +3,7 @@ package path_normalization
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-path-normalization"
+	ModuleID    = "path-normalization"
 	ModuleName  = "Path Normalization"
 	ModuleShort = "Detects path normalization vulnerabilities"
 )

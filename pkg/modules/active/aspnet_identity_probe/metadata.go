@@ -3,7 +3,7 @@ package aspnet_identity_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-identity-probe"
+	ModuleID    = "aspnet-identity-probe"
 	ModuleName  = "ASP.NET Identity Probe"
 	ModuleShort = "Detects exposed ASP.NET Identity endpoints, IdentityServer discovery, and authentication misconfigurations"
 )

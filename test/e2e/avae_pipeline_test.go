@@ -171,7 +171,7 @@ func TestAVAE_Phase1_IngestToDatabase(t *testing.T) {
 	assert.Greater(t, len(hosts), 0, "Expected at least one host in DB after ingest")
 
 	// Verify records have responses
-	records, err := env.repo.GetRecordsWithResponseBody(ctx, "", 100)
+	records, err := env.repo.GetRecordsWithResponseBody(ctx, ", 100)
 	require.NoError(t, err)
 	assert.Greater(t, len(records), 0, "Expected records with response bodies in DB")
 	t.Logf("Phase 1: %d records with response body, %d distinct hosts", len(records), len(hosts))
@@ -302,7 +302,7 @@ func TestAVAE_Phase3_ScanFromDB(t *testing.T) {
 	}
 
 	// Complete scan
-	_ = env.repo.CompleteScan(ctx, scan.UUID, "")
+	_ = env.repo.CompleteScan(ctx, scan.UUID, ")
 }
 
 // TestAVAE_Phase3_SkipBaseline verifies that SkipBaseline correctly uses
@@ -422,7 +422,7 @@ func TestAVAE_FullPipeline_IngestThenScan(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, len(hosts), 0)
 
-	records, err := env.repo.GetRecordsWithResponseBody(ctx, "", 100)
+	records, err := env.repo.GetRecordsWithResponseBody(ctx, ", 100)
 	require.NoError(t, err)
 	assert.Greater(t, len(records), 0)
 	t.Logf("Phase 1 DB state: %d hosts, %d records with body", len(hosts), len(records))
@@ -479,7 +479,7 @@ func TestAVAE_FullPipeline_IngestThenScan(t *testing.T) {
 	}
 	t.Logf("  Total: %d", len(findings))
 
-	_ = env.repo.CompleteScan(ctx, scan.UUID, "")
+	_ = env.repo.CompleteScan(ctx, scan.UUID, ")
 }
 
 // --- Phase 2: SPA (Kingfisher Batch) Tests ---
@@ -519,7 +519,7 @@ func TestAVAE_Phase2_KingfisherBatch(t *testing.T) {
 	t.Logf("Ingested %d records for kingfisher batch test", executor.Processed())
 
 	// Run GetRecordsWithResponseBody to verify batch query works
-	records, err := env.repo.GetRecordsWithResponseBody(ctx, "", 500)
+	records, err := env.repo.GetRecordsWithResponseBody(ctx, ", 500)
 	require.NoError(t, err)
 	assert.Greater(t, len(records), 0, "Expected records with response bodies")
 
@@ -549,7 +549,7 @@ func TestAVAE_Phase2_KingfisherBatch(t *testing.T) {
 // --- Edge Cases ---
 
 // TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled verifies that the
-// passive-secret-detect module is correctly filtered out of Phase 3
+// secret-detect module is correctly filtered out of Phase 3
 // when SPA mode is enabled (to avoid duplicate kingfisher findings).
 func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
 	if testing.Short() {
@@ -568,7 +568,7 @@ func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
 	}
 	// Only test filtering if the module is registered
 	if !hasSecretDetect {
-		t.Skip("passive-secret-detect module not registered, skipping filter test")
+		t.Skip("secret-detect module not registered, skipping filter test")
 	}
 
 	// Simulate the filtering that runDynamicAssessmentPhase does when SPA is enabled
@@ -577,7 +577,7 @@ func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
 	// Verify it was removed
 	for _, m := range filtered {
 		assert.NotEqual(t, secret_detect.ModuleID, m.ID(),
-			"passive-secret-detect should be filtered out when SPA is enabled")
+			"secret-detect should be filtered out when SPA is enabled")
 	}
 	assert.Equal(t, len(passiveModules)-1, len(filtered),
 		"Filtered list should have exactly one fewer module")
@@ -642,7 +642,7 @@ func TestAVAE_DBGetterAndBatchQuery(t *testing.T) {
 
 	// Verify empty DB returns empty results
 	ctx := context.Background()
-	records, err := repo.GetRecordsWithResponseBody(ctx, "", 10)
+	records, err := repo.GetRecordsWithResponseBody(ctx, ", 10)
 	require.NoError(t, err)
 	assert.Empty(t, records, "Empty DB should return no records")
 }
@@ -726,5 +726,5 @@ func TestAVAE_Phase3_FeedbackLoop(t *testing.T) {
 	}
 
 	assert.Greater(t, totalProcessed, int64(0), "Feedback loop should process records")
-	_ = env.repo.CompleteScan(ctx, scan.UUID, "")
+	_ = env.repo.CompleteScan(ctx, scan.UUID, ")
 }

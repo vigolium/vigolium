@@ -3,7 +3,7 @@ package cloud_public_read
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cloud-public-read"
+	ModuleID    = "cloud-public-read"
 	ModuleName  = "Cloud Public Read"
 	ModuleShort = "Detects publicly readable sensitive paths on cloud storage endpoints"
 )

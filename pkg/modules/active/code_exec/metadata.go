@@ -3,7 +3,7 @@ package code_exec
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-code-exec"
+	ModuleID    = "code-exec"
 	ModuleName  = "Code Execution (RCE)"
 	ModuleShort = "Detects OS command injection via time-based blind. Source: ActiveScanPlusPlus"
 )

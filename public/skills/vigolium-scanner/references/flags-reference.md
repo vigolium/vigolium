@@ -44,6 +44,7 @@ Persistent flags available on every command.
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, openapi, swagger, burp, curl, nuclei, har |
 | `--input-read-timeout` | — | duration | `3m` | Timeout for reading input |
 | `--json` | `-j` | bool | `false` | Format output as JSONL (one JSON object per line) |
+| `--ci-output-format` | — | bool | `false` | CI-friendly output: JSONL findings only, no color, no banners |
 | `--list-input-mode` | — | bool | `false` | List supported input modes |
 | `--list-modules` | `-M` | bool | `false` | List scanner modules |
 | `--log-file` | — | string | — | Write logs to file (JSON format) |
@@ -102,6 +103,7 @@ Flags specific to `vigolium scan` and `vigolium run`.
 | `--oast-url` | — | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
 | `--output` | `-o` | string | — | Output file path |
 | `--repo` | — | string | — | SAST repo path |
+| `--repo-url` | — | string | — | Git URL to clone for ad-hoc SAST scan |
 | `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--retries` | — | int | `1` | Retry attempts |
 | `--rule` | — | string | — | SAST rule filter |
@@ -251,6 +253,51 @@ Flags specific to `vigolium agent pipeline`.
 
 ---
 
+## Finding Flags
+
+Flags specific to `vigolium finding` (aliases: `findings`).
+
+### Finding filter flags (persistent)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--host` | — | string | — | Filter by hostname pattern |
+| `--method` | — | []string | — | Filter by HTTP method (repeatable) |
+| `--status` | — | []int | — | Filter by HTTP status code (repeatable) |
+| `--path` | — | string | — | Filter by URL path pattern |
+| `--from` | — | string | — | Show findings after date |
+| `--to` | — | string | — | Show findings before date |
+| `--search` | — | string | — | Search across descriptions, module IDs, and matched_at |
+| `--header` | — | string | — | Search within HTTP header names and values |
+| `--body` | — | string | — | Search within HTTP request/response body content |
+| `--source` | — | string | — | Filter by record source |
+| `--sort` | — | string | `found_at` | Sort by: found_at, created_at, severity, module, confidence |
+| `--asc` | — | bool | `false` | Sort ascending |
+| `--limit` | `-n` | int | `100` | Maximum findings to display |
+| `--offset` | `-o` | int | `0` | Number of findings to skip |
+| `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
+| `--scan-id` | — | string | — | Filter by scan session ID |
+| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--finding-source` | — | string | — | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--id` | — | int | `0` | Filter by finding ID |
+
+### Finding display flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--raw` | bool | `false` | Show full raw HTTP request and response for each finding |
+| `--burp` | bool | `false` | Display in Burp Suite-style format (colored request/response) |
+| `--columns` | []string | — | Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE) |
+| `--exclude-columns` | []string | — | Columns to hide (comma-separated) |
+
+### Finding available columns
+
+ID, SEVERITY, CONFIDENCE, MODULE, MODULE_ID, SHORT_DESC, DESCRIPTION, TYPE, SOURCE, MATCHED_AT, FOUND_AT, SCAN_UUID, TAGS
+
+Default columns: ID, SEVERITY, MODULE, SHORT_DESC, TYPE, SOURCE, MATCHED_AT
+
+---
+
 ## Traffic Flags
 
 Filter flags (shared with traffic replay via PersistentFlags).
@@ -298,6 +345,35 @@ Shared across db subcommands.
 |------|------|---------|-------------|
 | `--table` | string | — | Table name |
 | `--search` | string | — | Quick search |
+
+DB list flags.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--tree` | — | bool | `false` | Hierarchical tree format |
+| `--raw` | — | bool | `false` | Full raw HTTP request and response |
+| `--list-tables` | — | bool | `false` | List all database table names |
+| `--list-columns` | — | bool | `false` | List column names for the current table |
+| `--limit` | `-n` | int | `100` | Max records |
+| `--offset` | `-o` | int | `0` | Records to skip |
+| `--columns` | — | []string | — | Columns to include |
+| `--exclude-columns` | — | []string | — | Columns to exclude |
+| `--host` | — | string | — | Filter by hostname |
+| `--method` | — | []string | — | Filter by HTTP method |
+| `--status` | — | []int | — | Filter by HTTP status code |
+| `--path` | — | string | — | Filter by URL path |
+| `--scan-id` | — | string | — | Filter by scan session ID |
+| `--severity` | — | string | — | Filter findings by severity |
+| `--min-risk` | — | int | `0` | Show only records with risk score at or above this value |
+| `--remark` | — | string | — | Filter records containing this text in remarks |
+| `--module-type` | — | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--finding-source` | — | string | — | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--from` | — | string | — | Records after date |
+| `--to` | — | string | — | Records before date |
+| `--header` | — | string | — | Search within HTTP headers |
+| `--body` | — | string | — | Search within request/response body |
+| `--sort` | — | string | `created_at` | Sort field |
+| `--asc` | — | bool | `false` | Sort ascending |
 
 DB clean flags.
 

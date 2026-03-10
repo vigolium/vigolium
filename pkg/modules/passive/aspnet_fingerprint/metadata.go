@@ -3,7 +3,7 @@ package aspnet_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-aspnet-fingerprint"
+	ModuleID    = "aspnet-fingerprint"
 	ModuleName  = "ASP.NET Fingerprint"
 	ModuleShort = "Identifies ASP.NET and IIS installations from response headers, cookies, and body patterns"
 )

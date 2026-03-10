@@ -3,7 +3,7 @@ package http_method_tampering
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-http-method-tampering"
+	ModuleID    = "http-method-tampering"
 	ModuleName  = "HTTP Method Tampering"
 	ModuleShort = "Detects unexpectedly enabled HTTP methods and method override headers"
 )

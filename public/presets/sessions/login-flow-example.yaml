@@ -1,0 +1,35 @@
+# Example multi-session config with login flow automation.
+# The scanner will execute the login requests at scan start and extract credentials.
+# Usage: vigolium scan https://app.com --auth-config ~/.vigolium/sessions/login-flow-example.yaml
+
+sessions:
+  # Primary session: login via JSON API, extract Bearer token
+  - name: admin
+    role: primary
+    login:
+      url: "https://app.com/api/auth/login"
+      method: POST
+      content_type: "application/json"
+      body: '{"username":"${ADMIN_USER}","password":"${ADMIN_PASS}"}'
+      extract:
+        - source: json
+          path: "$.token"
+          apply_as: "Authorization: Bearer {value}"
+
+  # Compare session: login via form POST, extract session cookie
+  - name: regular_user
+    role: compare
+    login:
+      url: "https://app.com/login"
+      method: POST
+      content_type: "application/x-www-form-urlencoded"
+      body: "username=${USER_NAME}&password=${USER_PASS}"
+      extract:
+        - source: cookie
+          # When name is omitted, all cookies from the response are extracted
+
+  # Compare session: static token (no login needed)
+  - name: api_key_user
+    role: compare
+    headers:
+      X-API-Key: "${API_KEY}"

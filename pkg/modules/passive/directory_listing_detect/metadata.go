@@ -3,7 +3,7 @@ package directory_listing_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-directory-listing-detect"
+	ModuleID    = "directory-listing-detect"
 	ModuleName  = "Directory Listing Detect"
 	ModuleShort = "Passively detects directory listing exposure in HTTP responses"
 )

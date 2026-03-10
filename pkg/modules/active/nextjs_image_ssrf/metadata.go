@@ -3,7 +3,7 @@ package nextjs_image_ssrf
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nextjs-image-ssrf"
+	ModuleID    = "nextjs-image-ssrf"
 	ModuleName  = "Next.js Image Optimizer SSRF"
 	ModuleShort = "Detects SSRF via the Next.js image optimization endpoint"
 )

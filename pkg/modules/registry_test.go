@@ -54,19 +54,19 @@ func (s stubPassive) ScanPerHost(_ *httpmsg.HttpRequestResponse, _ *ScanContext)
 
 func buildTestRegistry() *Registry {
 	r := NewRegistry()
-	r.RegisterActive(stubActive{stubModule{id: "active-sqli-error-based", name: "SQLi Error Based Scanner", tags: []string{"injection", "sqli"}}})
-	r.RegisterActive(stubActive{stubModule{id: "active-sqli-boolean-blind", name: "SQLi Boolean Blind Scanner", tags: []string{"injection", "sqli", "heavy"}}})
-	r.RegisterActive(stubActive{stubModule{id: "active-xss-reflected", name: "Reflected XSS Scanner", tags: []string{"injection", "xss"}}})
-	r.RegisterActive(stubActive{stubModule{id: "active-cors-misconfiguration", name: "CORS Misconfiguration Scanner", tags: []string{"misconfiguration", "header-security"}}})
-	r.RegisterPassive(stubPassive{stubModule{id: "passive-csp-header", name: "CSP Header Analyzer", tags: []string{"header-security", "light"}}})
-	r.RegisterPassive(stubPassive{stubModule{id: "passive-jwt-claims-detect", name: "JWT Claims Detector", tags: []string{"authentication", "session"}}})
+	r.RegisterActive(stubActive{stubModule{id: "sqli-error-based", name: "SQLi Error Based Scanner", tags: []string{"injection", "sqli"}}})
+	r.RegisterActive(stubActive{stubModule{id: "sqli-boolean-blind", name: "SQLi Boolean Blind Scanner", tags: []string{"injection", "sqli", "heavy"}}})
+	r.RegisterActive(stubActive{stubModule{id: "xss-reflected", name: "Reflected XSS Scanner", tags: []string{"injection", "xss"}}})
+	r.RegisterActive(stubActive{stubModule{id: "cors-misconfiguration", name: "CORS Misconfiguration Scanner", tags: []string{"misconfiguration", "header-security"}}})
+	r.RegisterPassive(stubPassive{stubModule{id: "csp-header", name: "CSP Header Analyzer", tags: []string{"header-security", "light"}}})
+	r.RegisterPassive(stubPassive{stubModule{id: "jwt-claims-detect", name: "JWT Claims Detector", tags: []string{"authentication", "session"}}})
 	return r
 }
 
 func TestResolveModulePatterns_ExactMatch(t *testing.T) {
 	r := buildTestRegistry()
-	got := r.ResolveModulePatterns([]string{"active-sqli-error-based"})
-	if len(got) != 1 || got[0] != "active-sqli-error-based" {
+	got := r.ResolveModulePatterns([]string{"sqli-error-based"})
+	if len(got) != 1 || got[0] != "sqli-error-based" {
 		t.Fatalf("expected exact match, got %v", got)
 	}
 }
@@ -82,7 +82,7 @@ func TestResolveModulePatterns_SubstringID(t *testing.T) {
 func TestResolveModulePatterns_SubstringName(t *testing.T) {
 	r := buildTestRegistry()
 	got := r.ResolveModulePatterns([]string{"reflected"})
-	if len(got) != 1 || got[0] != "active-xss-reflected" {
+	if len(got) != 1 || got[0] != "xss-reflected" {
 		t.Fatalf("expected reflected xss module, got %v", got)
 	}
 }
@@ -90,7 +90,7 @@ func TestResolveModulePatterns_SubstringName(t *testing.T) {
 func TestResolveModulePatterns_CaseInsensitive(t *testing.T) {
 	r := buildTestRegistry()
 	got := r.ResolveModulePatterns([]string{"CORS"})
-	if len(got) != 1 || got[0] != "active-cors-misconfiguration" {
+	if len(got) != 1 || got[0] != "cors-misconfiguration" {
 		t.Fatalf("expected cors module, got %v", got)
 	}
 }
@@ -145,7 +145,7 @@ func TestResolveModulePatterns_Dedup(t *testing.T) {
 func TestResolveModulePatterns_MatchesPassive(t *testing.T) {
 	r := buildTestRegistry()
 	got := r.ResolveModulePatterns([]string{"csp"})
-	if len(got) != 1 || got[0] != "passive-csp-header" {
+	if len(got) != 1 || got[0] != "csp-header" {
 		t.Fatalf("expected passive csp module, got %v", got)
 	}
 }

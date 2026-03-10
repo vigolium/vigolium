@@ -3,7 +3,7 @@ package laravel_sensitive_files
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-laravel-sensitive-files"
+	ModuleID    = "laravel-sensitive-files"
 	ModuleName  = "Laravel Sensitive Files"
 	ModuleShort = "Detects Laravel-specific sensitive files: PHPUnit config, SQLite DB, storage internals, eval-stdin, and wrong document root"
 )

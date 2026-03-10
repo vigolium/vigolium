@@ -3,7 +3,7 @@ package error_message_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-error-message-detect"
+	ModuleID    = "error-message-detect"
 	ModuleName  = "Error Message Detect"
 	ModuleShort = "Detects interesting error messages in HTTP responses"
 )

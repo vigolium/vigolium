@@ -3,7 +3,7 @@ package js_devserver_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-js-devserver-exposure"
+	ModuleID    = "js-devserver-exposure"
 	ModuleName  = "JS Dev Server Exposure"
 	ModuleShort = "Detects exposed JavaScript development server endpoints (webpack HMR, Vite, Nuxt)"
 )

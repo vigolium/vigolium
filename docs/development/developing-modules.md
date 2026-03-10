@@ -98,7 +98,7 @@ Every module (active or passive) implements the `Module` interface:
 ```go
 // pkg/modules/module.go
 type Module interface {
-    ID() string                                        // e.g. "active-crlf-injection"
+    ID() string                                        // e.g. "crlf-injection"
     Name() string                                      // e.g. "CRLF Injection"
     Description() string                               // Detailed description (may contain markdown)
     ShortDescription() string                          // One-line summary for listings
@@ -206,7 +206,7 @@ type BaseActiveModule struct {
 
 ```go
 modkit.NewBaseActiveModule(
-    id string,                     // Must start with "active-", kebab-case, lowercase
+    id string,                     // kebab-case, lowercase
     name string,
     description string,            // Detailed markdown description (see Description Format below)
     shortDesc string,              // One-line summary for listings
@@ -240,7 +240,7 @@ type BasePassiveModule struct {
 
 ```go
 modkit.NewBasePassiveModule(
-    id string,                     // Must start with "passive-", kebab-case, lowercase
+    id string,                     // kebab-case, lowercase
     name string,
     description string,            // Detailed markdown description
     shortDesc string,              // One-line summary
@@ -420,7 +420,7 @@ package crlf_injection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-    ModuleID    = "active-crlf-injection"
+    ModuleID    = "crlf-injection"
     ModuleName  = "CRLF Injection"
     ModuleShort = "Detects CRLF injection"
 )
@@ -452,7 +452,6 @@ line feed characters and checking if they appear in response headers.
 - `Severity` and `Confidence` are `var` since they reference the `severity` package
 
 **ID rules:**
-- Must start with `"active-"` (enforced at startup — panics otherwise)
 - Must be lowercase kebab-case (no underscores)
 - Must be unique across all modules
 
@@ -647,7 +646,7 @@ package dom_xss_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-    ModuleID    = "passive-dom-xss-detect"
+    ModuleID    = "dom-xss-detect"
     ModuleName  = "DOM XSS Detect"
     ModuleShort = "Detects potential DOM-based XSS patterns in responses"
 )
@@ -673,7 +672,6 @@ responses for dangerous source-to-sink data flows.
 ```
 
 ID rules for passive modules:
-- Must start with `"passive-"`
 - Must be lowercase kebab-case
 - Must be unique
 
@@ -947,7 +945,7 @@ package my_new_scanner
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-    ModuleID    = "active-my-new-scanner"
+    ModuleID    = "my-new-scanner"
     ModuleName  = "My New Scanner"
     ModuleShort = "Detects my new vuln"
 )
@@ -1013,7 +1011,7 @@ import (
 
 func TestModule_Metadata(t *testing.T) {
     m := my_scanner.New()
-    assert.Equal(t, "active-my-scanner", m.ID())
+    assert.Equal(t, "my-scanner", m.ID())
     assert.NotEmpty(t, m.Name())
     assert.NotEmpty(t, m.Description())
     assert.NotEmpty(t, m.ConfirmationCriteria())

@@ -3,7 +3,7 @@ package ssrf_detection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-ssrf-detection"
+	ModuleID    = "ssrf-detection"
 	ModuleName  = "SSRF Detection"
 	ModuleShort = "Detects server-side request forgery via out-of-band and in-band techniques"
 )

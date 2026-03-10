@@ -14,7 +14,7 @@ test_cases:
     body: '<?xml version="1.0"?><book><title>test</title><author>test</author></book>'
     headers:
       Content-Type: "application/xml"
-    modules: ["active-xxe-generic"]
+    modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
     min_findings: 1

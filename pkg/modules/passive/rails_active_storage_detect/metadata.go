@@ -3,7 +3,7 @@ package rails_active_storage_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-rails-active-storage-detect"
+	ModuleID    = "rails-active-storage-detect"
 	ModuleName  = "Rails Active Storage Detect"
 	ModuleShort = "Passively detects Active Storage URLs and direct upload references in responses"
 )

@@ -3,7 +3,7 @@ package cors_headers_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cors-headers-detect"
+	ModuleID    = "cors-headers-detect"
 	ModuleName  = "CORS Headers Detect"
 	ModuleShort = "Passively detects permissive CORS headers in responses"
 )

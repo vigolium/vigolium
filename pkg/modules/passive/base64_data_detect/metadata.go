@@ -3,7 +3,7 @@ package base64_data_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-base64-data-detect"
+	ModuleID    = "base64-data-detect"
 	ModuleName  = "Base64 Data Detect"
 	ModuleShort = "Identifies interesting base64 encoded data like JSON, PHP Object in requests/responses"
 )

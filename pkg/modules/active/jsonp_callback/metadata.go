@@ -3,7 +3,7 @@ package jsonp_callback
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-jsonp-callback"
+	ModuleID    = "jsonp-callback"
 	ModuleName  = "JSONP Callback Injection"
 	ModuleShort = "Detects JSONP endpoints that allow cross-origin data theft via callback injection"
 )

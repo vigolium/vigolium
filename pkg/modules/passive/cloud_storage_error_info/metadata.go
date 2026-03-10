@@ -3,7 +3,7 @@ package cloud_storage_error_info
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cloud-storage-error-info"
+	ModuleID    = "cloud-storage-error-info"
 	ModuleName  = "Cloud Storage Error Info"
 	ModuleShort = "Extracts bucket names and regions from cloud storage error responses"
 )

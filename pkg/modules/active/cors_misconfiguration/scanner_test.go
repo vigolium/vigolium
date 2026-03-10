@@ -17,7 +17,7 @@ func TestMain(m *testing.M) {
 
 func TestNew(t *testing.T) {
 	m := New()
-	assert.Equal(t, "active-cors-misconfiguration", m.ID())
+	assert.Equal(t, "cors-misconfiguration", m.ID())
 	assert.Equal(t, "CORS Misconfiguration", m.Name())
 	assert.Equal(t, severity.Medium, m.Severity())
 	assert.Equal(t, severity.Firm, m.Confidence())

@@ -3,7 +3,7 @@ package remix_loader_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-remix-loader-exposure"
+	ModuleID    = "remix-loader-exposure"
 	ModuleName  = "Remix Loader Exposure"
 	ModuleShort = "Detects sensitive data leaked through Remix loader data and context"
 )

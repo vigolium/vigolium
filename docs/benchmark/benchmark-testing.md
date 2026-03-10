@@ -530,7 +530,7 @@ test_cases:
       Authorization: "Bearer {{token}}"
     body: ""                          # Request body (optional)
     modules:                          # Module IDs to test (from DefaultRegistry)
-      - "active-xss-light-url-params"
+      - "xss-light-url-params"
     vuln_types:                       # Expected vulnerability types (informational)
       - "xss-reflected"
     assertion: strict                 # strict | soft | negative
@@ -573,7 +573,7 @@ test_cases:
   - id: "dvwa-sqli-blind"
     endpoint: "/vulnerabilities/sqli_blind/?id=1&Submit=Submit"
     method: GET
-    modules: ["active-sqli-time-based-params"]
+    modules: ["sqli-time-based-params"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
     min_findings: 1
@@ -587,7 +587,7 @@ test_cases:
   - id: "dvwa-mixed-content"
     endpoint: "/"
     method: GET
-    modules: ["passive-mixed-content-detect"]
+    modules: ["mixed-content-detect"]
     assertion: soft
     min_findings: 0
     scan_mode: passive
@@ -605,7 +605,7 @@ test_cases:
 
 ```bash
 # List all active module IDs
-go test -v -run TestGenerateCoverageReport ./test/benchmark/harness/... 2>&1 | grep "active-"
+go test -v -run TestGenerateCoverageReport ./test/benchmark/harness/...
 
 # Or check the registry directly
 grep 'Register' pkg/modules/default_registry.go
@@ -632,7 +632,7 @@ test_cases:
   - id: "webgoat-sqli"
     endpoint: "/WebGoat/SqlInjection/attack5a?account=test&operator=test&injection=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
     scan_mode: active
@@ -724,7 +724,7 @@ test_cases:
   - id: "hackazon-xss"
     endpoint: "/search?searchString=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     assertion: soft    # Always soft for blackbox
     min_findings: 1
     scan_mode: active
@@ -1002,7 +1002,7 @@ test_cases:
   - id: "xbow-053-ssti-jinja"
     endpoint: "/?username=test"
     method: GET
-    modules: ["active-reflected-ssti"]
+    modules: ["reflected-ssti"]
     vuln_types: ["ssti"]
     assertion: strict
     min_findings: 1
@@ -1020,7 +1020,7 @@ test_cases:
     body: "ip_address=127.0.0.1"
     headers:
       Content-Type: "application/x-www-form-urlencoded"
-    modules: ["active-code-exec"]
+    modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: strict
     min_findings: 1
@@ -1084,7 +1084,7 @@ test_cases:
   - id: "xbow-<num>-<type>-<param>"
     endpoint: "/vulnerable?param=test"
     method: GET                  # or POST
-    modules: ["active-<module-id>"]
+    modules: ["<module-id>"]
     vuln_types: ["<vuln-type>"]
     assertion: strict            # or soft for uncertain detections
     min_findings: 1

@@ -3,7 +3,7 @@ package permissions_policy_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-permissions-policy-detect"
+	ModuleID    = "permissions-policy-detect"
 	ModuleName  = "Permissions Policy Detect"
 	ModuleShort = "Detects missing or overly permissive Permissions-Policy headers"
 )

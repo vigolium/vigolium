@@ -27,7 +27,7 @@ func TestYAMLActiveModule_ScanPerRequest_FlatMatchers(t *testing.T) {
 
 	mod, err := NewYAMLActiveModule(def, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "active-ext-test-active-flat", mod.ID())
+	assert.Equal(t, "ext-test-active-flat", mod.ID())
 	assert.Equal(t, severity.Low, mod.Severity())
 
 	ctx := makeRequestResponse("GET", "/api", 200, nil, "Error: SQLSTATE[42S02]")

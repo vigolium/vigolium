@@ -1,8 +1,6 @@
 package sqli_boolean_blind
 
 import (
-	"strings"
-
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -72,26 +70,11 @@ ipScan:
 	for _, ip := range points {
 		baseValue := ip.BaseValue()
 
-		// Handle email-style values: inject before the @ portion
-		emailPrefix := ""
-		if strings.Contains(baseValue, "@") {
-			parts := strings.SplitN(baseValue, "@", 2)
-			emailPrefix = parts[0]
-			baseValue = emailPrefix
-		}
-
 		payloads := getPayloadsForValue(baseValue)
 
 		for _, pair := range payloads {
 			truePayload := baseValue + pair.trueVal
 			falsePayload := baseValue + pair.falseVal
-
-			// If email, append the @domain back
-			if emailPrefix != "" {
-				atPart := "@" + strings.SplitN(ip.BaseValue(), "@", 2)[1]
-				truePayload += atPart
-				falsePayload += atPart
-			}
 
 			result, err := m.testPayloadPair(ctx, httpClient, ip, truePayload, falsePayload)
 			if err != nil {
@@ -156,14 +139,18 @@ func (m *Module) testPayloadPair(
 		return nil, nil // Unstable FALSE response
 	}
 
-	// Step 6: Send original value and verify it matches TRUE
+	// Step 6: Send original value and verify it maps to one of the two states.
+	// For AND-based payloads (no comment), original ≈ TRUE because the injected
+	// AND '1'='1' is a tautology. For comment-terminated payloads on login forms,
+	// original may match FALSE instead (e.g. wrong password makes both fail).
+	// Accepting either confirms the differential is driven by SQL logic.
 	origValue := ip.BaseValue()
 	_, origSig, err := m.sendPayload(ctx, httpClient, ip, origValue)
 	if err != nil {
 		return nil, err
 	}
-	if !isSimilar(trueSig1, origSig) {
-		return nil, nil // Original doesn't match TRUE behavior
+	if !isSimilar(trueSig1, origSig) && !isSimilar(falseSig1, origSig) {
+		return nil, nil // Original doesn't match either TRUE or FALSE behavior
 	}
 
 	// All checks passed — confirmed blind SQLi

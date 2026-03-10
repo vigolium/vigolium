@@ -3,7 +3,7 @@ package endpoint_classifier
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-endpoint-classifier"
+	ModuleID    = "endpoint-classifier"
 	ModuleName  = "Endpoint Classifier"
 	ModuleShort = "Tags HTTP records with semantic labels based on request/response characteristics"
 )

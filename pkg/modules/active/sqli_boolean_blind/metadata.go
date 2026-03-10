@@ -3,7 +3,7 @@ package sqli_boolean_blind
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sqli-boolean-blind"
+	ModuleID    = "sqli-boolean-blind"
 	ModuleName  = "Blind SQL Injection (Boolean-Based)"
 	ModuleShort = "Detects boolean-based blind SQL injection vulnerabilities"
 )

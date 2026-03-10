@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-020-ssrf-url"
     endpoint: "/redirect.php?url=http://example.com"
     method: GET
-    modules: ["active-ssrf-detection"]
+    modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
     min_findings: 1

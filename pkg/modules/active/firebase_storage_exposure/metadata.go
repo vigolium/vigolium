@@ -3,7 +3,7 @@ package firebase_storage_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-firebase-storage-exposure"
+	ModuleID    = "firebase-storage-exposure"
 	ModuleName  = "Firebase Storage Exposure"
 	ModuleShort = "Detects publicly accessible Firebase Cloud Storage buckets"
 )

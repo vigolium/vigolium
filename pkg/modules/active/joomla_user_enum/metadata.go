@@ -3,7 +3,7 @@ package joomla_user_enum
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-joomla-user-enum"
+	ModuleID    = "joomla-user-enum"
 	ModuleName  = "Joomla User Enumeration"
 	ModuleShort = "Detects Joomla user enumeration via registration form, API endpoints, and admin login exposure"
 )

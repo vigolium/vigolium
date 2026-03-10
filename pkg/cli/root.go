@@ -76,7 +76,8 @@ var (
 	globalScanningMaxDuration time.Duration
 
 	// Output format
-	globalFormat string
+	globalFormat   string
+	globalCIOutput bool
 
 	// Full example flag
 	globalFullExample bool
@@ -204,6 +205,7 @@ func init() {
 	pf.StringVar(&globalScopeOrigin, "scope-origin", "", "Host scope strictness: all, relaxed, balanced, strict")
 	pf.DurationVar(&globalScanningMaxDuration, "scanning-max-duration", 0, "Maximum total scan duration (overrides config, e.g. 1h, 30m)")
 	pf.StringVar(&globalFormat, "format", "console", "Output format: console, jsonl, html")
+	pf.BoolVar(&globalCIOutput, "ci-output-format", false, "CI-friendly output: JSONL findings only, no color, no banners")
 	pf.StringVar(&globalHeuristicsCheck, "heuristics-check", "", `Pre-scan heuristics level: none, basic, advanced (default: basic)`)
 	pf.BoolVar(&globalSkipHeuristics, "skip-heuristics", false, "Disable pre-scan heuristics (equivalent to --heuristics-check=none)")
 	pf.BoolVar(&globalFullExample, "full-example", false, "Show full example commands organized by section")

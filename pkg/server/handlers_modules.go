@@ -47,7 +47,7 @@ func buildModuleInfo(m modules.Module, moduleType string) ModuleInfo {
 		tags = []string{}
 	}
 	return ModuleInfo{
-		ID:                   stripTypePrefix(m.ID()),
+		ID:                   m.ID(),
 		Name:                 m.Name(),
 		Description:          m.Description(),
 		ShortDescription:     m.ShortDescription(),
@@ -58,13 +58,6 @@ func buildModuleInfo(m modules.Module, moduleType string) ModuleInfo {
 		Tags:                 tags,
 		Type:                 moduleType,
 	}
-}
-
-// stripTypePrefix removes the "active-" or "passive-" prefix from a module ID.
-func stripTypePrefix(id string) string {
-	id = strings.TrimPrefix(id, "active-")
-	id = strings.TrimPrefix(id, "passive-")
-	return id
 }
 
 // scanScopeNames converts a ScanScope bitmask to a list of human-readable names.

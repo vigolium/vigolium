@@ -27,15 +27,15 @@ Vigolium ships a Claude Code skill that teaches the AI assistant how to operate 
 Copy the skill into your project's `.claude/skills/` directory:
 
 ```bash
-mkdir -p .claude/skills/vigolium-cli
-cp public/skills/vigolium-cli/SKILL.md .claude/skills/vigolium-cli/SKILL.md
-cp -r public/skills/vigolium-cli/references .claude/skills/vigolium-cli/references
+mkdir -p .claude/skills/vigolium-scanner
+cp public/skills/vigolium-scanner/SKILL.md .claude/skills/vigolium-scanner/SKILL.md
+cp -r public/skills/vigolium-scanner/references .claude/skills/vigolium-scanner/references
 ```
 
 The resulting directory structure:
 
 ```
-.claude/skills/vigolium-cli/
+.claude/skills/vigolium-scanner/
 ├── SKILL.md
 └── references/
     ├── agent-commands.md
@@ -55,7 +55,7 @@ The resulting directory structure:
 
 Once the skill is in `.claude/skills/`, Claude Code automatically discovers it. You can:
 
-1. **Invoke it explicitly** with `/vigolium-cli` in your Claude Code session.
+1. **Invoke it explicitly** with `/vigolium-scanner` in your Claude Code session.
 2. **Let it trigger automatically** — Claude Code loads the skill when your request matches its triggers (e.g., asking about scanning, vulnerabilities, security testing).
 
 Claude Code then runs `vigolium` commands via the Bash tool, using the skill's decision tree and reference files to pick the right command and flags.
@@ -65,9 +65,9 @@ Claude Code then runs `vigolium` commands via the Bash tool, using the skill's d
 To make the skill available across all your projects, install it to your personal skills directory instead:
 
 ```bash
-mkdir -p ~/.claude/skills/vigolium-cli
-cp public/skills/vigolium-cli/SKILL.md ~/.claude/skills/vigolium-cli/SKILL.md
-cp -r public/skills/vigolium-cli/references ~/.claude/skills/vigolium-cli/references
+mkdir -p ~/.claude/skills/vigolium-scanner
+cp public/skills/vigolium-scanner/SKILL.md ~/.claude/skills/vigolium-scanner/SKILL.md
+cp -r public/skills/vigolium-scanner/references ~/.claude/skills/vigolium-scanner/references
 ```
 
 ---
@@ -578,7 +578,7 @@ Used by pipeline phase 2 (Plan). The AI selects which modules to run and which e
 ```json
 {
   "module_tags": ["injection", "xss", "auth"],
-  "module_ids": ["active-sqli-error-based"],
+  "module_ids": ["sqli-error-based"],
   "focus_areas": ["SQL injection in /api/users"],
   "skip_paths": ["/static/", "/assets/"],
   "endpoints": [
@@ -603,7 +603,7 @@ Used by pipeline phase 4 (Triage). The AI classifies findings and decides whethe
   "confirmed": [
     {
       "title": "SQL Injection in /api/users",
-      "module_id": "active-sqli-error-based",
+      "module_id": "sqli-error-based",
       "url": "https://example.com/api/users?id=1",
       "reason": "Error-based response confirms MySQL injection"
     }
@@ -611,7 +611,7 @@ Used by pipeline phase 4 (Triage). The AI classifies findings and decides whethe
   "false_positives": [
     {
       "title": "XSS in /static/page",
-      "module_id": "active-xss",
+      "module_id": "xss",
       "url": "https://example.com/static/page",
       "reason": "Static HTML page, no user input reflected"
     }

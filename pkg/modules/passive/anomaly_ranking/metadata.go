@@ -3,7 +3,7 @@ package anomaly_ranking
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-anomaly-ranking"
+	ModuleID    = "anomaly-ranking"
 	ModuleName  = "Anomaly Ranking"
 	ModuleShort = "Statistical anomaly detection across per-host response batches"
 )

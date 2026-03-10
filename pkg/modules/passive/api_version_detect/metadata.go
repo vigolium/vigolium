@@ -3,7 +3,7 @@ package api_version_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-api-version-detect"
+	ModuleID    = "api-version-detect"
 	ModuleName  = "API Version Detect"
 	ModuleShort = "Detects API versioning patterns in URLs, headers, and response bodies"
 )

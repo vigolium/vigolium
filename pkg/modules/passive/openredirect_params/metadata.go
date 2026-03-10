@@ -3,7 +3,7 @@ package openredirect_params
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-openredirect-params"
+	ModuleID    = "openredirect-params"
 	ModuleName  = "Open Redirect Params"
 	ModuleShort = "Detects URL parameters commonly used for open redirects"
 )

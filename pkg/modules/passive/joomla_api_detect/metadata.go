@@ -3,7 +3,7 @@ package joomla_api_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-joomla-api-detect"
+	ModuleID    = "joomla-api-detect"
 	ModuleName  = "Joomla API Exposure"
 	ModuleShort = "Detects exposed Joomla Web Services API endpoints and CORS misconfigurations"
 )

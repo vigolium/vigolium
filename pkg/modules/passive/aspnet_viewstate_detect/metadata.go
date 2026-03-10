@@ -3,7 +3,7 @@ package aspnet_viewstate_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-aspnet-viewstate-detect"
+	ModuleID    = "aspnet-viewstate-detect"
 	ModuleName  = "ASP.NET ViewState Detect"
 	ModuleShort = "Detects ASP.NET ViewState issues including missing encryption, CSRF tokens, and large payloads"
 )

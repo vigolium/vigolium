@@ -3,7 +3,7 @@ package file_upload_scan
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-file-upload-scan"
+	ModuleID    = "file-upload-scan"
 	ModuleName  = "File Upload Scanner"
 	ModuleShort = "Tests for arbitrary file upload and execution vulnerabilities"
 )

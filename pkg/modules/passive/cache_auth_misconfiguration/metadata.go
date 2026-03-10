@@ -3,7 +3,7 @@ package cache_auth_misconfiguration
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cache-auth-misconfiguration"
+	ModuleID    = "cache-auth-misconfiguration"
 	ModuleName  = "Cache-Auth Misconfiguration"
 	ModuleShort = "Detects cacheable responses with user-specific data missing Vary headers"
 )

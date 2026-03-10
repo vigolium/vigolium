@@ -3,7 +3,7 @@ package java_appserver_console
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-java-appserver-console"
+	ModuleID    = "java-appserver-console"
 	ModuleName  = "Java App Server Console"
 	ModuleShort = "Detects exposed admin consoles for WildFly/JBoss, WebLogic, and GlassFish/Payara"
 )

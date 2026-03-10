@@ -3,7 +3,7 @@ package csrf_verify
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-csrf-verify"
+	ModuleID    = "csrf-verify"
 	ModuleName  = "CSRF Token Verification"
 	ModuleShort = "Verifies CSRF token enforcement by removing, emptying, or randomizing tokens"
 )

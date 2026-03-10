@@ -3,7 +3,7 @@ package aspnet_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-misconfig"
+	ModuleID    = "aspnet-misconfig"
 	ModuleName  = "ASP.NET Misconfiguration"
 	ModuleShort = "Detects ASP.NET/IIS misconfigurations including exposed diagnostics, debug endpoints, and verbose errors"
 )

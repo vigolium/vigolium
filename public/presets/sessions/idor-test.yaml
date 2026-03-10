@@ -1,0 +1,24 @@
+# Example multi-session config for IDOR/BOLA testing
+# Usage: vigolium scan https://app.com --auth-config ~/.vigolium/sessions/idor-test.yaml
+#
+# Environment variables are expanded: use ${VAR} syntax for secrets.
+
+sessions:
+  # Primary session: the "owner" of the resources being scanned.
+  # Discovery and spidering phases use this session only.
+  - name: admin
+    role: primary
+    headers:
+      Cookie: "${ADMIN_SESSION_COOKIE}"
+      # Authorization: "Bearer ${ADMIN_TOKEN}"
+
+  # Compare session: a different user whose access is compared against the primary.
+  # If this session can see the same data as the primary, it's an IDOR/BOLA issue.
+  - name: regular_user
+    role: compare
+    headers:
+      Cookie: "${USER_SESSION_COOKIE}"
+
+  # Optional: unauthenticated session (no headers) to test public access
+  # - name: unauthenticated
+  #   role: compare

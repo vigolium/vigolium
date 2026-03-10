@@ -4,7 +4,7 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 
 // Main XSS Light Scanner
 const (
-	ModuleID    = "active-xss-light"
+	ModuleID    = "xss-light"
 	ModuleName  = "XSS Light Scanner"
 	ModuleShort = "Detects reflected XSS via character transformation analysis"
 )
@@ -30,7 +30,7 @@ and analyzes how they are reflected to determine exploitability.
 
 // XSS Light - URL Parameters
 const (
-	URLParamsModuleID    = "active-xss-light-url-params"
+	URLParamsModuleID    = "xss-light-url-params"
 	URLParamsModuleName  = "XSS Light - URL Parameters"
 	URLParamsModuleShort = "Detects XSS in URL parameters (POST→GET conversion when applicable)"
 )
@@ -54,7 +54,7 @@ conversion when applicable and tests URL parameters for reflection-based XSS.
 
 // XSS Light - Path Injection
 const (
-	PathModuleID    = "active-xss-light-path"
+	PathModuleID    = "xss-light-path"
 	PathModuleName  = "XSS Light - Path Injection"
 	PathModuleShort = "Detects XSS via path manipulation (recursive, cut, append)"
 )
@@ -78,7 +78,7 @@ for reflection using recursive, cut, and append injection strategies.
 
 // XSS Light - Parameter Discovery
 const (
-	ParamDiscoveryModuleID    = "active-xss-light-param-discovery"
+	ParamDiscoveryModuleID    = "xss-light-param-discovery"
 	ParamDiscoveryModuleName  = "XSS Light - Parameter Discovery"
 	ParamDiscoveryModuleShort = "Detects XSS via echo parameter discovery"
 )

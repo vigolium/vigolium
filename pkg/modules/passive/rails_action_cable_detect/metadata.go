@@ -3,7 +3,7 @@ package rails_action_cable_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-rails-action-cable-detect"
+	ModuleID    = "rails-action-cable-detect"
 	ModuleName  = "Rails Action Cable Detect"
 	ModuleShort = "Passively detects Action Cable WebSocket endpoints and configuration in responses"
 )

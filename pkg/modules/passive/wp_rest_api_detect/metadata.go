@@ -3,7 +3,7 @@ package wp_rest_api_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-wp-rest-api-detect"
+	ModuleID    = "wp-rest-api-detect"
 	ModuleName  = "WordPress REST API Exposure"
 	ModuleShort = "Detects exposed WordPress REST API namespaces and sensitive endpoints"
 )

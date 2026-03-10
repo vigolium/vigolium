@@ -3,7 +3,7 @@ package javascript_uri_sink
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-javascript-uri-sink"
+	ModuleID    = "javascript-uri-sink"
 	ModuleName  = "JavaScript URI Sink Detection"
 	ModuleShort = "Detects javascript: URIs reflected in href/src attributes"
 )

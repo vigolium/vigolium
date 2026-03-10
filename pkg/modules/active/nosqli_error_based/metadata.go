@@ -3,7 +3,7 @@ package nosqli_error_based
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nosqli-error-based"
+	ModuleID    = "nosqli-error-based"
 	ModuleName  = "NoSQLi Error Based"
 	ModuleShort = "Detects NoSQL injection via error messages and operator injection"
 )

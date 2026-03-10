@@ -3,7 +3,7 @@ package idor_detection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-idor-detection"
+	ModuleID    = "idor-detection"
 	ModuleName  = "IDOR Detection"
 	ModuleShort = "Detects missing authorization on object ID parameters (IDOR/BOLA)"
 )

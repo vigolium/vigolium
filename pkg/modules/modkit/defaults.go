@@ -11,24 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-const (
-	ActiveModulePrefix  = "active-"
-	PassiveModulePrefix = "passive-"
-)
-
-func validateActiveModuleID(id string) {
-	if id == "" {
-		panic("module ID cannot be empty")
-	}
-	if strings.Contains(id, "_") {
-		panic(fmt.Sprintf("invalid module ID %q: must use kebab-case (no underscores)", id))
-	}
-	if id != strings.ToLower(id) {
-		panic(fmt.Sprintf("invalid module ID %q: must be lowercase", id))
-	}
-}
-
-func validatePassiveModuleID(id string) {
+func validateModuleID(id string) {
 	if id == "" {
 		panic("module ID cannot be empty")
 	}
@@ -94,7 +77,7 @@ func NewBaseActiveModule(
 	scanTypes ScanScope,
 	allowedIPTypes InsertionPointTypeSet,
 ) BaseActiveModule {
-	validateActiveModuleID(id)
+	validateModuleID(id)
 	return BaseActiveModule{
 		BaseModule:     NewBaseModule(id, name, description, shortDesc, confirmationCriteria, s, c, scanTypes),
 		AllowedIPTypes: allowedIPTypes,
@@ -178,7 +161,7 @@ func NewBasePassiveModule(
 	scanTypes ScanScope,
 	scope PassiveScanScope,
 ) BasePassiveModule {
-	validatePassiveModuleID(id)
+	validateModuleID(id)
 	return BasePassiveModule{
 		BaseModule:  NewBaseModule(id, name, description, shortDesc, confirmationCriteria, s, c, scanTypes),
 		ModuleScope: scope,

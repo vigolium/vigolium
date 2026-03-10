@@ -23,13 +23,11 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	}
 
 	// [type] [module-name]
-	var moduleType, moduleName string
+	var moduleType string
 	if output.ModuleType != "" {
 		moduleType = output.ModuleType
-		moduleName = output.ModuleID
-	} else {
-		moduleType, moduleName = splitModuleID(output.ModuleID)
 	}
+	moduleName := output.ModuleID
 	if moduleType != "" {
 		builder.WriteRune('[')
 		builder.WriteString(moduleTypeColor(moduleType))
@@ -150,18 +148,6 @@ func severityColor(s severity.Severity) string {
 	}
 
 	return symbol + " " + coloredText
-}
-
-// splitModuleID splits a combined module ID like "active-input-behavior-probe" into
-// its type prefix ("active") and name ("input-behavior-probe").
-func splitModuleID(id string) (moduleType, moduleName string) {
-	if name, ok := strings.CutPrefix(id, "active-"); ok {
-		return "active", name
-	}
-	if name, ok := strings.CutPrefix(id, "passive-"); ok {
-		return "passive", name
-	}
-	return "", id
 }
 
 // moduleTypeColor returns the module type string with appropriate color.

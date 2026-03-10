@@ -3,7 +3,7 @@ package wasm_module_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-wasm-module-detect"
+	ModuleID    = "wasm-module-detect"
 	ModuleName  = "WebAssembly Module Detect"
 	ModuleShort = "Detects WebAssembly modules and WASM instantiation in HTTP responses"
 )

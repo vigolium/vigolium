@@ -3,7 +3,7 @@ package websocket_security
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-websocket-security"
+	ModuleID    = "websocket-security"
 	ModuleName  = "WebSocket Security"
 	ModuleShort = "Detects insecure WebSocket upgrade policies and missing origin validation"
 )

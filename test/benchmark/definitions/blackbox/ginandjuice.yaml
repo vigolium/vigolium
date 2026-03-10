@@ -11,7 +11,7 @@ test_cases:
   - id: "ginandjuice-xss-reflected"
     endpoint: "/blog?search=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -22,7 +22,7 @@ test_cases:
   - id: "ginandjuice-cors"
     endpoint: "/"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -33,7 +33,7 @@ test_cases:
   - id: "ginandjuice-proto-pollution"
     endpoint: "/"
     method: GET
-    modules: ["active-prototype-pollution"]
+    modules: ["prototype-pollution"]
     vuln_types: ["prototype-pollution"]
     assertion: soft
     min_findings: 1
@@ -44,7 +44,7 @@ test_cases:
   - id: "ginandjuice-cache-poison"
     endpoint: "/"
     method: GET
-    modules: ["active-web-cache-poisoning"]
+    modules: ["web-cache-poisoning"]
     vuln_types: ["web-cache-poisoning"]
     assertion: soft
     min_findings: 1
@@ -57,7 +57,7 @@ test_cases:
   - id: "ginandjuice-dom-xss"
     endpoint: "/"
     method: GET
-    modules: ["passive-dom-xss-detect"]
+    modules: ["dom-xss-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -67,7 +67,7 @@ test_cases:
   - id: "ginandjuice-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -77,7 +77,7 @@ test_cases:
   - id: "ginandjuice-sourcemap"
     endpoint: "/"
     method: GET
-    modules: ["passive-sourcemap-detect"]
+    modules: ["sourcemap-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

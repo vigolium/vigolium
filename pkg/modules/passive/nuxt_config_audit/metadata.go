@@ -3,7 +3,7 @@ package nuxt_config_audit
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-nuxt-config-audit"
+	ModuleID    = "nuxt-config-audit"
 	ModuleName  = "Nuxt Config Audit"
 	ModuleShort = "Detects insecure Nuxt configuration patterns and sensitive data in Nuxt state"
 )

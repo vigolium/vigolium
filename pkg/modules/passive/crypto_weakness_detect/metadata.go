@@ -3,7 +3,7 @@ package crypto_weakness_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-crypto-weakness-detect"
+	ModuleID    = "crypto-weakness-detect"
 	ModuleName  = "Cryptographic Weakness Detection"
 	ModuleShort = "Detects weak cryptographic patterns in HTTP traffic"
 )

@@ -3,7 +3,7 @@ package env_secret_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-env-secret-exposure"
+	ModuleID    = "env-secret-exposure"
 	ModuleName  = "Environment Secret Exposure"
 	ModuleShort = "Detects secrets exposed through public environment variables"
 )

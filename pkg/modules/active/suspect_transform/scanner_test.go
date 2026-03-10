@@ -14,8 +14,8 @@ func TestMain(m *testing.M) {
 func TestNew(t *testing.T) {
 	module := New()
 
-	if module.ID() != "active-suspect-transform" {
-		t.Errorf("expected ID 'active-suspect-transform', got %s", module.ID())
+	if module.ID() != "suspect-transform" {
+		t.Errorf("expected ID 'suspect-transform', got %s", module.ID())
 	}
 
 	if module.Name() != "Suspect Transform Detection" {

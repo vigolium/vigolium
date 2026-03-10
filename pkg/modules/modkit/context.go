@@ -6,8 +6,15 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/dedup"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/mutation"
 )
+
+// RequestFeeder allows modules to inject discovered requests back into the scanning pipeline.
+type RequestFeeder interface {
+	// Feed submits a new request for scanning. Returns true if accepted, false if dropped.
+	Feed(rr *httpmsg.HttpRequestResponse) bool
+}
 
 // RiskScoreUpdater updates risk scores for HTTP records in the database.
 type RiskScoreUpdater interface {
@@ -48,6 +55,7 @@ type ScanContext struct {
 	RequestUUIDResolver RequestUUIDResolver
 	OASTProvider        OASTProvider
 	MutationGen         MutationGenerator
+	RequestFeeder       RequestFeeder
 
 	baselineOnce  sync.Once
 	baselineCache *lru.Cache[string, *BaselineEntry]
@@ -76,6 +84,14 @@ func (sc *ScanContext) OASTProv() OASTProvider {
 		return nil
 	}
 	return sc.OASTProvider
+}
+
+// Feeder returns the RequestFeeder or nil safely.
+func (sc *ScanContext) Feeder() RequestFeeder {
+	if sc == nil {
+		return nil
+	}
+	return sc.RequestFeeder
 }
 
 // MutGen returns the MutationGenerator or a default implementation if nil.

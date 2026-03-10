@@ -3,7 +3,7 @@ package hsts_preload_audit
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-hsts-preload-audit"
+	ModuleID    = "hsts-preload-audit"
 	ModuleName  = "HSTS Preload Audit"
 	ModuleShort = "Audits Strict-Transport-Security header for preload readiness"
 )

@@ -3,7 +3,7 @@ package info_disclosure_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-info-disclosure-detect"
+	ModuleID    = "info-disclosure-detect"
 	ModuleName  = "Info Disclosure Detect"
 	ModuleShort = "Detects information disclosure patterns in HTTP responses"
 )

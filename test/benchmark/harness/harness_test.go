@@ -116,19 +116,19 @@ func TestLoadDefinitionsFromDir(t *testing.T) {
 }
 
 func TestResolveActiveModules(t *testing.T) {
-	mods, err := ResolveActiveModules([]string{"active-sqli-error-based", "active-xss-light-url-params"})
+	mods, err := ResolveActiveModules([]string{"sqli-error-based", "xss-light-url-params"})
 	require.NoError(t, err)
 	assert.Len(t, mods, 2)
 }
 
 func TestResolveActiveModules_NotFound(t *testing.T) {
-	_, err := ResolveActiveModules([]string{"active-nonexistent-module"})
+	_, err := ResolveActiveModules([]string{"nonexistent-module"})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "active-nonexistent-module")
+	assert.Contains(t, err.Error(), "nonexistent-module")
 }
 
 func TestResolvePassiveModules(t *testing.T) {
-	mods, err := ResolvePassiveModules([]string{"passive-security-headers-missing"})
+	mods, err := ResolvePassiveModules([]string{"security-headers-missing"})
 	require.NoError(t, err)
 	assert.Len(t, mods, 1)
 }
@@ -146,8 +146,8 @@ func TestGenerateCoverageReport(t *testing.T) {
 	// Verify the markdown output
 	markdown := FormatCoverageMarkdown(report)
 	assert.Contains(t, markdown, "Module Benchmark Coverage")
-	assert.Contains(t, markdown, "active-sqli-error-based")
-	assert.Contains(t, markdown, "passive-security-headers-missing")
+	assert.Contains(t, markdown, "sqli-error-based")
+	assert.Contains(t, markdown, "security-headers-missing")
 }
 
 func TestBuildRequestWithMethodAndBody(t *testing.T) {

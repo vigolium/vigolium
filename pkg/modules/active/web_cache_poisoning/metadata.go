@@ -3,7 +3,7 @@ package web_cache_poisoning
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-web-cache-poisoning"
+	ModuleID    = "web-cache-poisoning"
 	ModuleName  = "Web Cache Poisoning"
 	ModuleShort = "Detects web cache poisoning via unkeyed header injection"
 )

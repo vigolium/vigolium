@@ -77,6 +77,8 @@ List database records with filtering, sorting, and display options.
 | `--severity` | string | — | Filter findings by severity |
 | `--min-risk` | int | `0` | Show only records with risk score at or above this value |
 | `--remark` | string | — | Filter records containing this text in remarks |
+| `--module-type` | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--finding-source` | string | — | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
 | `--from` | string | — | Records after date (YYYY-MM-DD) |
 | `--to` | string | — | Records before date |
 | `--header` | string | — | Search within HTTP header names and values |
@@ -211,9 +213,36 @@ vigolium db clean --force  # reset entire database
 
 ## finding
 
-**Usage:** `vigolium finding [flags]` (aliases: `findings`)
+**Usage:** `vigolium finding [search-term] [flags]` (aliases: `findings`)
 
-Browse vulnerability findings. Shortcut for `vigolium db ls --table findings`. Accepts all the same flags as `db list`.
+Browse vulnerability findings with fuzzy search, filtering, raw display, and column selection.
+
+### Finding-specific filter flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
+| `--scan-id` | — | string | — | Filter by scan session ID |
+| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--finding-source` | — | string | — | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--id` | — | int | `0` | Filter by finding ID |
+
+### Display flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--raw` | bool | `false` | Show full raw HTTP request and response for each finding |
+| `--burp` | bool | `false` | Display in Burp Suite-style format (colored request/response) |
+| `--columns` | []string | — | Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE) |
+| `--exclude-columns` | []string | — | Columns to hide (comma-separated) |
+
+Also accepts filter flags: `--host`, `--method`, `--status`, `--path`, `--from`, `--to`, `--search`, `--header`, `--body`, `--source`, `--sort`, `--asc`, `--limit`, `--offset`.
+
+### Available columns
+
+ID, SEVERITY, CONFIDENCE, MODULE, MODULE_ID, SHORT_DESC, DESCRIPTION, TYPE, SOURCE, MATCHED_AT, FOUND_AT, SCAN_UUID, TAGS
+
+Default columns: ID, SEVERITY, MODULE, SHORT_DESC, TYPE, SOURCE, MATCHED_AT
 
 ### Examples
 
@@ -221,6 +250,12 @@ Browse vulnerability findings. Shortcut for `vigolium db ls --table findings`. A
 vigolium finding
 vigolium finding --severity high,critical
 vigolium finding --search "sql injection"
+vigolium finding --module-type active
+vigolium finding --finding-source dynamic-assessment
+vigolium finding --id 42
+vigolium finding --burp
+vigolium finding --raw
+vigolium finding --columns ID,SEVERITY,MODULE,MATCHED_AT,TAGS
 vigolium finding --sort severity --asc
 vigolium finding --watch 5s
 ```

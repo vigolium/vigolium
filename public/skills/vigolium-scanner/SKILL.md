@@ -60,6 +60,7 @@ Use this to find the right command quickly:
 | Pipeline with focus area and source | `vigolium agent pipeline -t <url> --focus "auth bypass" --repo ./src` |
 | Browse stored HTTP traffic | `vigolium traffic` or `vigolium traffic <search>` |
 | Browse findings/vulnerabilities | `vigolium finding` or `vigolium db ls --table findings` |
+| Filter findings by module type or source | `vigolium finding --module-type active --finding-source dynamic-assessment` |
 | View database statistics | `vigolium db stats` |
 | Export results to JSONL/HTML | `vigolium export --format jsonl -o results.jsonl` |
 | Clean database records | `vigolium db clean --host <hostname>` |
@@ -324,6 +325,11 @@ vigolium traffic --host api.example.com --method POST
 # Browse findings
 vigolium finding
 vigolium finding --severity high,critical
+vigolium finding --module-type active
+vigolium finding --finding-source dynamic-assessment
+vigolium finding --burp         # Burp-style format
+vigolium finding --id 42        # specific finding by ID
+vigolium finding --columns ID,SEVERITY,MODULE,MATCHED_AT,TAGS
 vigolium db ls --table findings --severity critical
 
 # Database stats
@@ -368,6 +374,9 @@ vigolium scan -t https://example.com --strategy whitebox
 # SAST-only phase
 vigolium run sast --repo /path/to/app
 vigolium run sast --repo /path/to/app --rule gin
+
+# SAST from git URL (clones automatically)
+vigolium run sast --repo-url https://github.com/org/repo
 ```
 
 ### 17. Configuration Tuning
@@ -467,6 +476,7 @@ These flags are available on all commands (persistent flags on root):
 | `--verbose` | `-v` | `false` | Verbose logging |
 | `--silent` | — | `false` | Suppress all output except findings |
 | `--json` | `-j` | `false` | Format output as JSONL (one JSON object per line) |
+| `--ci-output-format` | — | `false` | CI-friendly output: JSONL findings only, no color, no banners |
 | `--debug` | — | `false` | Dump raw HTTP traffic |
 | `--db` | — | `~/.vigolium/database-vgnm.sqlite` | SQLite database path |
 | `--config` | — | `~/.vigolium/vigolium-configs.yaml` | Config file path |
@@ -483,6 +493,8 @@ These flags are available on all commands (persistent flags on root):
 - `--format html` requires `-o/--output` and is only supported for discovery/spidering phases (in scan mode)
 - `--target/-t` and `--spec-url` are mutually exclusive for ingest
 - `--source` and `--source-url` are mutually exclusive
+- `--repo` and `--repo-url` are mutually exclusive
+- `--ci-output-format` sets JSONL output, suppresses banners and color (implies `--json --silent`)
 - Server mode requires API key auth by default (use `--no-auth` to disable, or set `VIGOLIUM_API_KEY`)
 - Agent commands require agent backends configured in `vigolium-configs.yaml`
 - `--scan-on-receive/-S` is ignored in remote ingest mode (server handles scanning)

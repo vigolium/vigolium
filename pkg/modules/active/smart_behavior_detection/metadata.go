@@ -3,7 +3,7 @@ package smart_behavior_detection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-smart-behavior-detection"
+	ModuleID    = "smart-behavior-detection"
 	ModuleName  = "Smart Behavior Detection"
 	ModuleShort = "Diff-based injection detection via behavioral analysis"
 )

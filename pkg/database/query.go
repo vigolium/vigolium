@@ -33,6 +33,7 @@ type QueryFilters struct {
 	Remarks      []string // Filter by multiple remarks (AND: record must have all)
 
 	// Finding filtering
+	FindingID     int      // Filter by finding ID
 	Severity      []string // Finding severity (critical, high, medium, low, info)
 	ModuleName    string   // Filter findings by module name
 	ModuleType    string   // Filter findings by module type (active, passive, nuclei, etc.)
@@ -128,13 +129,13 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 		query.Where("r.method IN (?)", bun.In(qb.filters.Methods))
 	}
 
-	// Path filtering
+	// Path filtering (fuzzy by default, wildcards supported)
 	if qb.filters.PathPattern != "" {
 		if strings.Contains(qb.filters.PathPattern, "*") {
 			pattern := strings.ReplaceAll(qb.filters.PathPattern, "*", "%")
 			query.Where("r.path LIKE ?", pattern)
 		} else {
-			query.Where("r.path = ?", qb.filters.PathPattern)
+			query.Where("r.path LIKE ?", "%"+qb.filters.PathPattern+"%")
 		}
 	}
 
@@ -192,11 +193,15 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 		query.Where("r.sent_at <= ?", qb.filters.DateTo)
 	}
 
-	// Fuzzy search (broad, across multiple fields)
+	// Fuzzy search (broad, across metadata + full request/response content)
 	if qb.filters.FuzzyTerm != "" {
 		p := "%" + qb.filters.FuzzyTerm + "%"
-		query.Where("(r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ? OR r.method LIKE ? OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?)",
-			p, p, p, p, p, p, p)
+		query.Where(`(r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ? OR r.method LIKE ?
+			OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?
+			OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+			OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+			OR r.request_headers LIKE ? OR r.response_headers LIKE ?)`,
+			p, p, p, p, p, p, p, p, p, p, p, p, p)
 	}
 
 	// Full-text search
@@ -205,16 +210,18 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 		query.Where("r.url LIKE ? OR r.path LIKE ?", searchPattern, searchPattern)
 	}
 
-	// Header search
+	// Header search (request + response headers)
 	if qb.filters.HeaderSearch != "" {
 		searchPattern := "%" + qb.filters.HeaderSearch + "%"
-		query.Where("r.request_headers LIKE ?", searchPattern)
+		query.Where("(r.request_headers LIKE ? OR r.response_headers LIKE ?)", searchPattern, searchPattern)
 	}
 
-	// Body search
+	// Body search (request + response body and raw content)
 	if qb.filters.BodySearch != "" {
 		searchPattern := "%" + qb.filters.BodySearch + "%"
-		query.Where("r.request_body LIKE ?", searchPattern)
+		query.Where(`(CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+			OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
+			searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 }
 
@@ -430,6 +437,11 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 		query.Where("f.project_uuid = ?", fqb.filters.ProjectUUID)
 	}
 
+	// Finding ID filtering
+	if fqb.filters.FindingID > 0 {
+		query.Where("f.id = ?", fqb.filters.FindingID)
+	}
+
 	// Scan UUID filtering
 	if fqb.filters.ScanUUID != "" {
 		query.Where("f.scan_uuid = ?", fqb.filters.ScanUUID)
@@ -471,6 +483,80 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	if fqb.filters.SearchTerm != "" {
 		p := "%" + fqb.filters.SearchTerm + "%"
 		query.Where("(f.description LIKE ? OR f.module_id LIKE ? OR f.matched_at LIKE ?)", p, p, p)
+	}
+
+	// Fuzzy search across finding fields and associated HTTP records
+	if fqb.filters.FuzzyTerm != "" {
+		p := "%" + fqb.filters.FuzzyTerm + "%"
+		// Search finding's own fields first
+		findingMatch := "(f.description LIKE ? OR f.module_id LIKE ? OR f.module_name LIKE ? OR f.module_short LIKE ? OR f.matched_at LIKE ? OR f.request LIKE ? OR f.response LIKE ?)"
+		// Also search associated HTTP records via junction table
+		recordMatch := `EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND (
+				r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ?
+				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+				OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+				OR r.request_headers LIKE ? OR r.response_headers LIKE ?
+			))`
+		query.Where("("+findingMatch+" OR "+recordMatch+")",
+			p, p, p, p, p, p, p, // finding fields
+			p, p, p, p, p, p, p, p, p) // record fields
+	}
+
+	// Path filtering via associated HTTP records
+	if fqb.filters.PathPattern != "" {
+		var pathCond string
+		if strings.Contains(fqb.filters.PathPattern, "*") {
+			pattern := strings.ReplaceAll(fqb.filters.PathPattern, "*", "%")
+			pathCond = fmt.Sprintf("r.path LIKE '%s'", strings.ReplaceAll(pattern, "'", "''"))
+		} else {
+			escaped := strings.ReplaceAll(fqb.filters.PathPattern, "'", "''")
+			pathCond = fmt.Sprintf("r.path LIKE '%%%s%%'", escaped)
+		}
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND `+pathCond+`)`)
+	}
+
+	// Method filtering via associated HTTP records
+	if len(fqb.filters.Methods) > 0 {
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND r.method IN (?))`, bun.In(fqb.filters.Methods))
+	}
+
+	// Status code filtering via associated HTTP records
+	if len(fqb.filters.StatusCodes) > 0 {
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND r.status_code IN (?))`, bun.In(fqb.filters.StatusCodes))
+	}
+
+	// Source filtering via associated HTTP records
+	if fqb.filters.Source != "" {
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND r.source = ?)`, fqb.filters.Source)
+	}
+
+	// Header search via associated HTTP records
+	if fqb.filters.HeaderSearch != "" {
+		hp := "%" + fqb.filters.HeaderSearch + "%"
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND (r.request_headers LIKE ? OR r.response_headers LIKE ?))`, hp, hp)
+	}
+
+	// Body search via associated HTTP records
+	if fqb.filters.BodySearch != "" {
+		bp := "%" + fqb.filters.BodySearch + "%"
+		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
+			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
+			WHERE fr2.finding_id = f.id AND (
+				CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+			))`, bp, bp, bp, bp)
 	}
 
 	// Date range filtering

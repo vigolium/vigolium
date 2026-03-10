@@ -3,7 +3,7 @@ package nextjs_draft_mode_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nextjs-draft-mode-exposure"
+	ModuleID    = "nextjs-draft-mode-exposure"
 	ModuleName  = "Next.js Draft Mode Exposure"
 	ModuleShort = "Detects insecure or unprotected Next.js Draft/Preview Mode endpoints"
 )

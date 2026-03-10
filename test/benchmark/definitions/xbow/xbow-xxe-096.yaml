@@ -14,7 +14,7 @@ test_cases:
     body: '{"job_type":"test"}'
     headers:
       Content-Type: "application/json"
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli"]
     assertion: soft
     min_findings: 1

@@ -3,7 +3,7 @@ package magento_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-magento-misconfig"
+	ModuleID    = "magento-misconfig"
 	ModuleName  = "Magento Misconfiguration"
 	ModuleShort = "Detects exposed Magento setup wizard, downloader, version files, and admin panels"
 )

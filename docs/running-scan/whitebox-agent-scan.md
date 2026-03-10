@@ -1,6 +1,6 @@
 # Whitebox + Agent Scanning
 
-Agent-enhanced scanning uses AI coding agents (Claude, Codex, Gemini, OpenCode) to analyze source code, discover vulnerabilities, generate test targets, and drive iterative scanning loops.
+Agent-enhanced scanning uses AI coding agents (Claude, Codex, Gemini, OpenCode) to analyze source code, discover vulnerabilities, and generate test targets.
 
 ## Prerequisites
 
@@ -15,12 +15,9 @@ vigolium agent --prompt-template security-code-review --repo ./my-app
 
 # Discover endpoints from source code
 vigolium agent --prompt-template endpoint-discovery --repo ./my-app
-
-# Iterative scan loop: AI analyzes → generates targets → scans → repeats
-vigolium agent loop --target https://api.example.com --repo ./my-app
 ```
 
-> **Tip:** Use `--repo` for local paths. For `vigolium scan` and `vigolium agent loop`, you can also use `--source-url` or `--repo-url` with a Git URL to have Vigolium clone the repository automatically.
+> **Tip:** Use `--repo` for local paths. For `vigolium scan`, you can also use `--source-url` or `--repo-url` with a Git URL to have Vigolium clone the repository automatically.
 
 ## Agent Configuration
 
@@ -189,77 +186,14 @@ For ad-hoc analysis without a template:
 
 ```bash
 # Inline prompt
-vigolium agent run --prompt "Review this Go code for race conditions" --repo ./my-app
+vigolium agent query --prompt "Review this Go code for race conditions" --repo ./my-app
 
 # Prompt from stdin
 echo "Find all SQL queries that don't use parameterized statements" | \
-  vigolium agent run --stdin --repo ./my-app
+  vigolium agent query --stdin --repo ./my-app
 ```
 
 Inline prompts do not have an output schema, so results are not parsed or ingested into the database.
-
-## Agent Loop
-
-The agent loop runs an iterative cycle: analyze code → generate HTTP targets → scan those targets → feed results back → repeat.
-
-```bash
-# Basic loop (3 iterations, interactive-scan template)
-vigolium agent loop --target https://api.example.com --repo ./my-app
-
-# More iterations
-vigolium agent loop --target https://api.example.com --repo ./my-app --max-iterations 5
-
-# With focus area
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --focus "authentication and session management"
-
-# Retest mode: after iteration 1, switches to targeted-retest template
-vigolium agent loop --target https://api.example.com --repo ./my-app --retest
-```
-
-### How the Loop Works
-
-```
-Iteration 1:
-  → Agent analyzes source code (interactive-scan template)
-  → Agent outputs findings and/or HTTP records
-  → HTTP records are scanned by Vigolium modules
-  → Results accumulated
-
-Iteration 2:
-  → Previous findings are fed back to the agent
-  → Agent refines analysis or explores new areas
-  → New HTTP records scanned
-  → Check: any new findings?
-
-Iteration N:
-  → Loop continues until:
-    a) Max iterations reached, OR
-    b) Convergence: no new findings AND no scan findings
-```
-
-### Convergence Detection
-
-The loop exits early when both conditions hold:
-- Zero new agent findings (deduplicated by title against all prior iterations)
-- Zero scan findings from dynamic testing
-
-This prevents wasting agent invocations when no new information is being discovered.
-
-### Loop Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--target` | (required) | Target URL for dynamic scanning |
-| `--max-iterations` | 3 | Maximum loop iterations |
-| `--focus` | "" | Focus area hint appended to every iteration's prompt |
-| `--retest` | false | Switch to `targeted-retest` template after iteration 1 |
-| `--agent` | config default | Agent backend to use |
-| `--prompt-template` | `interactive-scan` | Template for iteration 1 (and all iterations unless `--retest`) |
-| `--repo` | "" | Path to source code |
-| `--files` | nil | Specific files to analyze |
-| `--dry-run` | false | Print first iteration prompt without executing |
-| `--agent-timeout` | 10m | Timeout for the entire loop |
 
 ## Template Variables and Context Enrichment
 
@@ -348,7 +282,6 @@ vigolium agent --prompt-template endpoint-discovery --repo ./my-app
 vigolium scan -t https://api.example.com --strategy lite
 ```
 
-The agent loop automates this pattern by scanning HTTP records as they are generated.
 
 ## Common Workflows
 
@@ -360,10 +293,6 @@ vigolium agent --prompt-template security-code-review --repo ./my-app
 vigolium agent --prompt-template endpoint-discovery --repo ./my-app
 vigolium scan -t https://api.example.com
 
-# Full iterative loop with retest
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --max-iterations 5 --retest
-
 # Focused review of auth code with Gemini
 vigolium agent --prompt-template auth-bypass --repo ./my-app \
   --files src/auth/ --agent gemini
@@ -374,7 +303,4 @@ vigolium agent --prompt-template nextjs-security-audit --repo ./my-nextjs-app
 # Attack surface mapping
 vigolium agent --prompt-template attack-surface-mapper --repo ./my-app
 
-# Agent loop with focus on injection
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --focus "SQL injection and command injection in user input handlers"
 ```

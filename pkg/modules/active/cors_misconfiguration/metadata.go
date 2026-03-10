@@ -3,7 +3,7 @@ package cors_misconfiguration
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cors-misconfiguration"
+	ModuleID    = "cors-misconfiguration"
 	ModuleName  = "CORS Misconfiguration"
 	ModuleShort = "Detects permissive CORS policies allowing unauthorized cross-origin access"
 )

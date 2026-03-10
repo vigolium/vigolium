@@ -3,7 +3,7 @@ package insecure_deserialization
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-insecure-deserialization"
+	ModuleID    = "insecure-deserialization"
 	ModuleName  = "Insecure Deserialization"
 	ModuleShort = "Detects insecure deserialization via error-based detection"
 )

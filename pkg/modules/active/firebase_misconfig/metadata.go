@@ -3,7 +3,7 @@ package firebase_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-firebase-misconfig"
+	ModuleID    = "firebase-misconfig"
 	ModuleName  = "Firebase Misconfiguration"
 	ModuleShort = "Detects exposed Firebase configuration, security rules, and credential files"
 )

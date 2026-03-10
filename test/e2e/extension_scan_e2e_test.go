@@ -163,12 +163,12 @@ func TestExtensionOnlyPhase(t *testing.T) {
 	assert.Greater(t, extFindings, 0,
 		"Expected at least one finding from the canary JS extension")
 
-	// Verify no built-in module findings (built-in modules have IDs like "active-*")
-	// Extension findings have module IDs with "active-ext-" prefix
+	// Verify no built-in module findings
+	// Extension findings have module IDs with "ext-" prefix
 	for _, f := range findings {
 		if f.ModuleID != "" {
 			assert.True(t,
-				strings.HasPrefix(f.ModuleID, "active-ext-") || strings.HasPrefix(f.ModuleID, "passive-ext-"),
+				strings.HasPrefix(f.ModuleID, "ext-"),
 				"Expected only extension module findings, got module ID: %s", f.ModuleID)
 		}
 	}

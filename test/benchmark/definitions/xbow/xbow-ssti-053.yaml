@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-053-ssti-jinja"
     endpoint: "/?username=test"
     method: GET
-    modules: ["active-reflected-ssti"]
+    modules: ["reflected-ssti"]
     vuln_types: ["ssti"]
     assertion: strict
     min_findings: 1

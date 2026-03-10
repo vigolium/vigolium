@@ -315,7 +315,7 @@ var moduleExamples = FormatExamples(
 	"# Enable modules matching a keyword",
 	"vigolium module enable sqli",
 	"# Disable a specific module by exact ID",
-	"vigolium module disable active-sqli-error-based --id",
+	"vigolium module disable sqli-error-based --id",
 )
 
 var moduleLsExamples = FormatExamples(
@@ -333,14 +333,14 @@ var moduleEnableExamples = FormatExamples(
 	"# Enable all modules matching 'xss'",
 	"vigolium module enable xss",
 	"# Enable a specific module by exact ID",
-	"vigolium module enable active-sqli-error-based --id",
+	"vigolium module enable sqli-error-based --id",
 )
 
 var moduleDisableExamples = FormatExamples(
 	"# Disable all modules matching 'xss'",
 	"vigolium module disable xss",
 	"# Disable a specific module by exact ID",
-	"vigolium module disable active-sqli-error-based --id",
+	"vigolium module disable sqli-error-based --id",
 )
 
 var configExamples = FormatExamples(

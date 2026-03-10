@@ -67,7 +67,7 @@ func TestExtExample_ReflectedParamScanner(t *testing.T) {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-reflected-param", activeMods[0].ID())
+	assert.Equal(t, "ext-reflected-param", activeMods[0].ID())
 	assert.Equal(t, "Reflected Parameter Scanner", activeMods[0].Name())
 
 	// httpbin /get echoes query params back in the JSON body
@@ -121,7 +121,7 @@ func TestExtExample_ErrorPatternDetector(t *testing.T) {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-error-pattern-detector", activeMods[0].ID())
+	assert.Equal(t, "ext-error-pattern-detector", activeMods[0].ID())
 
 	t.Run("DetectsPythonTraceback", func(t *testing.T) {
 		rawReq := "GET /api HTTP/1.1\r\nHost: example.com\r\n\r\n"
@@ -203,7 +203,7 @@ func TestExtExample_SensitiveHeaderLeak(t *testing.T) {
 
 	passiveMods := engine.PassiveModules()
 	require.Len(t, passiveMods, 1)
-	assert.Equal(t, "passive-ext-sensitive-header-leak", passiveMods[0].ID())
+	assert.Equal(t, "ext-sensitive-header-leak", passiveMods[0].ID())
 
 	t.Run("DetectsXPoweredBy", func(t *testing.T) {
 		rawReq := "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
@@ -561,7 +561,7 @@ func TestExtExample_ExecRecon(t *testing.T) {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-exec-recon", activeMods[0].ID())
+	assert.Equal(t, "ext-exec-recon", activeMods[0].ID())
 	assert.Equal(t, "DNS Recon via Exec", activeMods[0].Name())
 
 	t.Run("RunsDNSLookup", func(t *testing.T) {
@@ -606,7 +606,7 @@ func TestExtExample_AnomalyBaseline(t *testing.T) {
 
 	passiveMods := engine.PassiveModules()
 	require.Len(t, passiveMods, 1)
-	assert.Equal(t, "passive-ext-anomaly-baseline", passiveMods[0].ID())
+	assert.Equal(t, "ext-anomaly-baseline", passiveMods[0].ID())
 
 	t.Run("DetectsAnomalousResponse", func(t *testing.T) {
 		// A 500 error response with large body should differ significantly from 200/OK baseline

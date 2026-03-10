@@ -764,6 +764,17 @@ func colorSeverity(sev string) string {
 	}
 }
 
+func colorModuleType(t string) string {
+	switch strings.ToLower(t) {
+	case "active":
+		return terminal.BoldYellow(t)
+	case "passive":
+		return terminal.BoldCyan(t)
+	default:
+		return t
+	}
+}
+
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

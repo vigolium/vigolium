@@ -3,7 +3,7 @@ package sqli_error_based
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sqli-error-based"
+	ModuleID    = "sqli-error-based"
 	ModuleName  = "SQLi Error Based"
 	ModuleShort = "Detects SQLi via error messages"
 )

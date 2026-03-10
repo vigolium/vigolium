@@ -3,7 +3,7 @@ package spring_boot_admin_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-boot-admin-exposure"
+	ModuleID    = "spring-boot-admin-exposure"
 	ModuleName  = "Spring Boot Admin Exposure"
 	ModuleShort = "Detects exposed Spring Boot Admin dashboards providing centralized access to actuator data"
 )

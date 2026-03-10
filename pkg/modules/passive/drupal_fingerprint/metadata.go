@@ -3,7 +3,7 @@ package drupal_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-drupal-fingerprint"
+	ModuleID    = "drupal-fingerprint"
 	ModuleName  = "Drupal Fingerprint"
 	ModuleShort = "Identifies Drupal installations and detects core version, major generation (7/8/9/10/11), and contributed modules"
 )

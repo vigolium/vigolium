@@ -3,7 +3,7 @@ package iis_shortname_discovery
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-iis-shortname-discovery"
+	ModuleID    = "iis-shortname-discovery"
 	ModuleName  = "IIS Short Filename Discovery"
 	ModuleShort = "Enumerates IIS 8.3 short filenames via tilde-based oracle (per-host)"
 )

@@ -3,7 +3,7 @@ package ssti_detection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-ssti-detection"
+	ModuleID    = "ssti-detection"
 	ModuleName  = "SSTI Detection"
 	ModuleShort = "Diff-based SSTI detection via error responses"
 )

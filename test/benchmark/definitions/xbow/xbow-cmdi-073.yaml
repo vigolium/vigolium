@@ -14,7 +14,7 @@ test_cases:
     body: "ip_address=127.0.0.1"
     headers:
       Content-Type: "application/x-www-form-urlencoded"
-    modules: ["active-code-exec"]
+    modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: strict
     min_findings: 1

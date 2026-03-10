@@ -33,7 +33,7 @@ func NewJSActiveModule(script *LoadedScript, opts APIOptions) (*JSActiveModule, 
 	}
 
 	base := modkit.NewBaseActiveModule(
-		"active-ext-"+script.Metadata.ID,
+		"ext-"+script.Metadata.ID,
 		script.Metadata.Name,
 		script.Metadata.Description,
 		"JS extension: "+script.Metadata.Name,

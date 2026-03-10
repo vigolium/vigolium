@@ -3,7 +3,7 @@ package joomla_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-joomla-misconfig"
+	ModuleID    = "joomla-misconfig"
 	ModuleName  = "Joomla Misconfiguration"
 	ModuleShort = "Detects exposed Joomla configuration backups, log/temp directories, backup archives, and debug settings"
 )

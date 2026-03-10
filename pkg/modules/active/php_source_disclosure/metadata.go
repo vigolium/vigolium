@@ -3,7 +3,7 @@ package php_source_disclosure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-php-source-disclosure"
+	ModuleID    = "php-source-disclosure"
 	ModuleName  = "PHP Source Disclosure"
 	ModuleShort = "Detects PHP source code disclosure via .phps handlers, misconfigured extensions, and static file serving"
 )

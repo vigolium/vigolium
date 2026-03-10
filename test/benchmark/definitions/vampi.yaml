@@ -16,7 +16,7 @@ test_cases:
   - id: "vampi-sqli-debug"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -27,7 +27,7 @@ test_cases:
   - id: "vampi-sqli-books"
     endpoint: "/books/v1?book=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -39,7 +39,7 @@ test_cases:
   - id: "vampi-sqli-user-profile"
     endpoint: "/users/v1/admin"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -50,7 +50,7 @@ test_cases:
   - id: "vampi-sqli-time-debug"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-sqli-time-based-params"]
+    modules: ["sqli-time-based-params"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
     min_findings: 1
@@ -62,7 +62,7 @@ test_cases:
   - id: "vampi-sqli-time-books"
     endpoint: "/books/v1?book=test"
     method: GET
-    modules: ["active-sqli-time-based-params"]
+    modules: ["sqli-time-based-params"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
     min_findings: 1
@@ -74,7 +74,7 @@ test_cases:
   - id: "vampi-safe-users"
     endpoint: "/users/v1"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     assertion: soft
     min_findings: 0
     scan_mode: active
@@ -84,7 +84,7 @@ test_cases:
   - id: "vampi-nosqli"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-nosqli-error-based"]
+    modules: ["nosqli-error-based"]
     vuln_types: ["nosqli"]
     assertion: soft
     min_findings: 1
@@ -95,7 +95,7 @@ test_cases:
   - id: "vampi-cors"
     endpoint: "/users/v1"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -110,7 +110,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"name1","password":"pass1"}'
-    modules: ["active-jwt-vulnerability"]
+    modules: ["jwt-vulnerability"]
     vuln_types: ["jwt-vulnerability"]
     assertion: soft
     min_findings: 1
@@ -125,7 +125,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"xsstest","password":"xsspass123","email":"xss@test.com"}'
-    modules: ["active-xss-light"]
+    modules: ["xss-light"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -136,7 +136,7 @@ test_cases:
   - id: "vampi-xss-books"
     endpoint: "/books/v1?book=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -147,7 +147,7 @@ test_cases:
   - id: "vampi-crlf-api"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-crlf-injection"]
+    modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
     min_findings: 1
@@ -158,7 +158,7 @@ test_cases:
   - id: "vampi-host-header"
     endpoint: "/users/v1"
     method: GET
-    modules: ["active-host-header-injection"]
+    modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
     min_findings: 1
@@ -169,7 +169,7 @@ test_cases:
   - id: "vampi-open-redirect"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-open-redirect"]
+    modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
     assertion: soft
     min_findings: 0
@@ -184,7 +184,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"password":"newpass123"}'
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -199,7 +199,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"email":"test@example.com"}'
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -210,7 +210,7 @@ test_cases:
   - id: "vampi-delete-user"
     endpoint: "/users/v1/benchuser"
     method: DELETE
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 0
@@ -221,7 +221,7 @@ test_cases:
   - id: "vampi-options-cors"
     endpoint: "/users/v1"
     method: OPTIONS
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 0
@@ -235,7 +235,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"test","password":"Pass!123","email":"t@t.com"}'
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -247,7 +247,7 @@ test_cases:
   - id: "vampi-sqli-header-injection"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-sqli-time-based-header"]
+    modules: ["sqli-time-based-header"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
     min_findings: 0
@@ -259,7 +259,7 @@ test_cases:
   - id: "vampi-sqli-path-segment"
     endpoint: "/users/v1/admin/books"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -270,7 +270,7 @@ test_cases:
   - id: "vampi-oast-debug"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["active-oast-probe"]
+    modules: ["oast-probe"]
     vuln_types: ["oast"]
     assertion: soft
     min_findings: 0
@@ -282,7 +282,7 @@ test_cases:
   - id: "vampi-swagger-disclose"
     endpoint: "/"
     method: GET
-    modules: ["active-swagger-disclose"]
+    modules: ["swagger-disclose"]
     vuln_types: ["swagger-disclose"]
     assertion: soft
     min_findings: 1
@@ -295,7 +295,7 @@ test_cases:
   - id: "vampi-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -305,7 +305,7 @@ test_cases:
   - id: "vampi-info-disclosure"
     endpoint: "/users/v1/_debug"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -315,7 +315,7 @@ test_cases:
   - id: "vampi-auth-headers"
     endpoint: "/users/v1"
     method: GET
-    modules: ["passive-auth-headers-detect"]
+    modules: ["auth-headers-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -325,7 +325,7 @@ test_cases:
   - id: "vampi-content-type"
     endpoint: "/users/v1"
     method: GET
-    modules: ["passive-content-type-mismatch"]
+    modules: ["content-type-mismatch"]
     assertion: soft
     min_findings: 0
     scan_mode: passive
@@ -338,7 +338,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"name1","password":"pass1"}'
-    modules: ["passive-jwt-weak-secret"]
+    modules: ["jwt-weak-secret"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -348,7 +348,7 @@ test_cases:
   - id: "vampi-cors-headers"
     endpoint: "/users/v1"
     method: GET
-    modules: ["passive-cors-headers-detect"]
+    modules: ["cors-headers-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -358,7 +358,7 @@ test_cases:
   - id: "vampi-sql-syntax-debug"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["passive-sql-syntax-detect"]
+    modules: ["sql-syntax-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -368,7 +368,7 @@ test_cases:
   - id: "vampi-secret-debug"
     endpoint: "/users/v1/_debug"
     method: GET
-    modules: ["passive-secret-detect"]
+    modules: ["secret-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -378,7 +378,7 @@ test_cases:
   - id: "vampi-sensitive-params"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["passive-sensitive-url-params"]
+    modules: ["sensitive-url-params"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -391,7 +391,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"name1","password":"pass1"}'
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 0
     scan_mode: passive
@@ -404,7 +404,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"name1","password":"pass1"}'
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -417,7 +417,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"nonexistent","password":"wrong"}'
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

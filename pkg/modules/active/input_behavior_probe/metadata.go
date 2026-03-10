@@ -3,7 +3,7 @@ package input_behavior_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-input-behavior-probe"
+	ModuleID    = "input-behavior-probe"
 	ModuleName  = "Input Behavior Probe"
 	ModuleShort = "Detects behavior changes from header, path, debug param, and char probing"
 )

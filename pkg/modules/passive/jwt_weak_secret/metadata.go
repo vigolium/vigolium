@@ -3,9 +3,9 @@ package jwt_weak_secret
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-jwt-weak-secret"
+	ModuleID    = "jwt-weak-secret"
 	ModuleName  = "JWT Weak Secret Detection"
-	ModuleShort = "Detects JWTs signed with weak HMAC secrets via offline brute-force"
+	ModuleShort = "Detects JWTs with weak HMAC secrets, non-cryptographic signatures, and algorithm confusion"
 )
 
 var (
@@ -13,9 +13,16 @@ var (
 Passively detects JWT tokens signed with weak HMAC secrets by performing offline
 brute-force against an embedded wordlist of ~104K known weak secrets.
 
+When an asymmetric-algorithm JWT (RS256, ES256, etc.) is found but no HMAC secret
+matches, emits a low-severity informational finding noting the potential for
+algorithm confusion (CVE-2015-9235). Active testing is recommended to confirm.
+
 ## Notes
 - Extracts JWTs from Authorization Bearer headers and cookies
-- Only tests HMAC-based algorithms (HS256, HS384, HS512)
+- Tests HMAC-based algorithms (HS256, HS384, HS512)
+- Detects non-cryptographic (plaintext ASCII) signatures indicating trivially forgeable tokens
+- Tests algorithm confusion (CVE-2015-9235): tries HS256/HS384/HS512 brute-force on asymmetric tokens (RS256, ES256, etc.)
+- Emits informational finding for asymmetric JWTs even when no weak secret is found
 - Computes HMAC signatures offline without sending additional requests
 - Uses embedded jwt.secrets.list wordlist
 

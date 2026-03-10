@@ -3,7 +3,7 @@ package laravel_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-laravel-fingerprint"
+	ModuleID    = "laravel-fingerprint"
 	ModuleName  = "Laravel Fingerprint"
 	ModuleShort = "Identifies Laravel installations from response headers, cookies, and body patterns"
 )

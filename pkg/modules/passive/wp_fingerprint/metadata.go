@@ -3,7 +3,7 @@ package wp_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-wp-fingerprint"
+	ModuleID    = "wp-fingerprint"
 	ModuleName  = "WordPress Fingerprint"
 	ModuleShort = "Identifies WordPress installations and enumerates core version, plugins, and themes"
 )

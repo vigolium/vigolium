@@ -3,7 +3,7 @@ package security_headers_missing
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-security-headers-missing"
+	ModuleID    = "security-headers-missing"
 	ModuleName  = "Security Headers Missing"
 	ModuleShort = "Detects missing HTTP security headers in responses"
 )

@@ -3,7 +3,7 @@ package auth_headers_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-auth-headers-detect"
+	ModuleID    = "auth-headers-detect"
 	ModuleName  = "Auth Headers Detect"
 	ModuleShort = "Detects authorization headers in requests"
 )

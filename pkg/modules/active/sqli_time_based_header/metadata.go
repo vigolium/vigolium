@@ -3,7 +3,7 @@ package sqli_time_based_header
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sqli-time-based-header"
+	ModuleID    = "sqli-time-based-header"
 	ModuleName  = "SQLi Time Based - Header"
 	ModuleShort = "Detects time-based SQL injection in HTTP headers"
 )

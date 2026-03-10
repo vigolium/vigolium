@@ -3,7 +3,7 @@ package firebase_functions_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-firebase-functions-exposure"
+	ModuleID    = "firebase-functions-exposure"
 	ModuleName  = "Firebase Functions Exposure"
 	ModuleShort = "Detects unauthenticated Firebase Cloud Functions and verbose error leakage"
 )

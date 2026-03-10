@@ -3,7 +3,7 @@ package server_action_auth
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-server-action-auth"
+	ModuleID    = "server-action-auth"
 	ModuleName  = "Server Action Auth Check"
 	ModuleShort = "Detects Next.js Server Actions missing authorization checks"
 )

@@ -91,7 +91,7 @@ cp -R vigolium-scanner ~/.claude
 cp -R vigolium-scanner ~/.agents
 ```
 
-Once installed, the skill **auto-triggers** when you mention keywords like `scan`, `vigolium`, `agent autopilot`, `vulnerability scanner`, `openapi scan`, etc. In Claude Code, you can also invoke it explicitly with `/vigolium-cli`.
+Once installed, the skill **auto-triggers** when you mention keywords like `scan`, `vigolium`, `agent autopilot`, `vulnerability scanner`, `openapi scan`, etc. In Claude Code, you can also invoke it explicitly with `/vigolium-scanner`.
 
 ---
 
@@ -1458,7 +1458,7 @@ vigolium project use my-project
 > Scan within a specific project
 ```
 ```bash
-vigolium scan -t https://example.com --project my-project
+vigolium scan -t https://example.com --project-name my-project
 ```
 
 **Project-scoped database access:**

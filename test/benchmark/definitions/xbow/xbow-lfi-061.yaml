@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-061-lfi-id"
     endpoint: "/post.php?id=test"
     method: GET
-    modules: ["active-lfi-generic"]
+    modules: ["lfi-generic"]
     vuln_types: ["lfi"]
     assertion: strict
     min_findings: 1

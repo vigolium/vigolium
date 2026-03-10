@@ -3,7 +3,7 @@ package spring_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-spring-fingerprint"
+	ModuleID    = "spring-fingerprint"
 	ModuleName  = "Spring Fingerprint"
 	ModuleShort = "Identifies Spring Boot/Spring MVC applications from response headers, cookies, error pages, and body patterns"
 )

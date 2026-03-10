@@ -3,7 +3,7 @@ package express_session_audit
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-express-session-audit"
+	ModuleID    = "express-session-audit"
 	ModuleName  = "Express Session Audit"
 	ModuleShort = "Audits Express.js session cookies for default naming, excessive expiry, and session proliferation"
 )

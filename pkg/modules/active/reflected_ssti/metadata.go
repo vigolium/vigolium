@@ -3,7 +3,7 @@ package reflected_ssti
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-reflected-ssti"
+	ModuleID    = "reflected-ssti"
 	ModuleName  = "Reflected SSTI"
 	ModuleShort = "Detects SSTI via math expression evaluation"
 )

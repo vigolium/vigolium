@@ -3,7 +3,7 @@ package sensitive_url_params
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-sensitive-url-params"
+	ModuleID    = "sensitive-url-params"
 	ModuleName  = "Sensitive URL Params"
 	ModuleShort = "Detects sensitive data in URL query parameters"
 )

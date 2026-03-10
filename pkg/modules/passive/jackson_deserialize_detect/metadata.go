@@ -3,7 +3,7 @@ package jackson_deserialize_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-jackson-deserialize-detect"
+	ModuleID    = "jackson-deserialize-detect"
 	ModuleName  = "Jackson Deserialization Detect"
 	ModuleShort = "Detects Jackson polymorphic typing indicators and Java deserialization error patterns in responses"
 )

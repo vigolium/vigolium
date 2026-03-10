@@ -3,7 +3,7 @@ package cookie_security_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cookie-security-detect"
+	ModuleID    = "cookie-security-detect"
 	ModuleName  = "Cookie Security Detect"
 	ModuleShort = "Detects insecure cookie attributes in HTTP responses"
 )

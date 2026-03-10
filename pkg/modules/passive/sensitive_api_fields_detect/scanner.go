@@ -112,8 +112,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	host := urlx.Host
+	dedupKey := host + urlx.Path
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
 	}
 

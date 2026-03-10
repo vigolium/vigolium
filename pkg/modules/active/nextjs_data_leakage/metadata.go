@@ -3,7 +3,7 @@ package nextjs_data_leakage
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nextjs-data-leakage"
+	ModuleID    = "nextjs-data-leakage"
 	ModuleName  = "Next.js Data Route Leakage"
 	ModuleShort = "Detects unauthorized access to Next.js data routes on auth-protected pages"
 )

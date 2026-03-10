@@ -22,7 +22,7 @@ func NewYAMLActiveModule(def *ExtensionDef, configVars map[string]string, httpCl
 	sev := ParseSeverity(def.Severity)
 
 	base := modkit.NewBaseActiveModule(
-		"active-ext-"+def.ID,
+		"ext-"+def.ID,
 		def.Name,
 		def.Description,
 		"YAML extension: "+def.Name,

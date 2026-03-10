@@ -1,6 +1,6 @@
 // sensitive_data_exposure.js
 // Passive module: Detects PII and sensitive data patterns in HTTP response
-// bodies that the built-in passive-secret-detect (API keys/tokens) does not
+// bodies that the built-in secret-detect (API keys/tokens) does not
 // cover — credit cards, SSNs, internal IPs, private keys, phone numbers, and
 // bulk email addresses.
 

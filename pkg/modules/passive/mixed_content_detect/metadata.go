@@ -3,7 +3,7 @@ package mixed_content_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-mixed-content-detect"
+	ModuleID    = "mixed-content-detect"
 	ModuleName  = "Mixed Content Detect"
 	ModuleShort = "Detects mixed HTTP/HTTPS content in responses"
 )

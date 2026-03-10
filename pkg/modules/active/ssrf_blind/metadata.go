@@ -3,7 +3,7 @@ package ssrf_blind
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-ssrf-blind"
+	ModuleID    = "ssrf-blind"
 	ModuleName  = "Blind SSRF Detection"
 	ModuleShort = "Detects blind server-side request forgery via OAST callbacks"
 )

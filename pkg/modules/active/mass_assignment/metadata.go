@@ -3,7 +3,7 @@ package mass_assignment
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-mass-assignment"
+	ModuleID    = "mass-assignment"
 	ModuleName  = "Mass Assignment"
 	ModuleShort = "Detects mass assignment / parameter pollution in JSON APIs"
 )

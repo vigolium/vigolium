@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
@@ -138,6 +139,9 @@ type Executor struct {
 
 	// Per-module finding cap
 	moduleFindingCount sync.Map // key: module ID → *moduleFindingTracker
+
+	// Feedback channel: modules can inject discovered requests back into the pipeline
+	feedbackCh chan *work.WorkItem
 }
 
 // NewExecutor creates a new Executor with the given configuration.
@@ -174,6 +178,7 @@ func NewExecutor(
 		projectUUID:    cfg.ProjectUUID,
 		requestUUIDs:   newShardedMap(cfg.Workers),
 		ipCache:        ipCache,
+		feedbackCh:     make(chan *work.WorkItem, cfg.Workers*4),
 	}
 
 	// Wire risk score updater, remarks annotator, and request UUID resolver into ScanContext
@@ -190,6 +195,12 @@ func NewExecutor(
 		}
 		e.scanCtx.OASTProvider = cfg.OASTProvider
 	}
+
+	// Wire feedback feeder into ScanContext
+	if e.scanCtx == nil {
+		e.scanCtx = &modules.ScanContext{}
+	}
+	e.scanCtx.RequestFeeder = &executorFeeder{ch: e.feedbackCh}
 
 	// Pre-group modules by scan type
 	e.perHostActive = filterActiveModulesByScanScope(activeModules, modules.ScanScopeHost)
@@ -239,6 +250,26 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	}
 
 	e.feedItems(ctx, itemCh)
+
+	// After source EOF, drain remaining feedback items from in-flight workers.
+	// Use an idle timeout: if no new feedback arrives within 100ms, assume done.
+	drainTimer := time.NewTimer(100 * time.Millisecond)
+	defer drainTimer.Stop()
+drainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break drainLoop
+		case fb := <-e.feedbackCh:
+			drainTimer.Reset(100 * time.Millisecond)
+			if !e.sendItem(ctx, fb, itemCh) {
+				break drainLoop
+			}
+		case <-drainTimer.C:
+			break drainLoop
+		}
+	}
+
 	close(itemCh)
 	wg.Wait()
 
@@ -286,6 +317,9 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 		default:
 		}
 
+		// Drain any pending feedback items (non-blocking) before pulling from source
+		e.drainFeedback(ctx, itemCh)
+
 		// Block feeding while paused
 		if e.cfg.PauseCtrl != nil {
 			if !e.cfg.PauseCtrl.WaitIfPaused(ctx) {
@@ -305,35 +339,58 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 			continue
 		}
 
-		// Always filter static files before HTTP fetch (unconditional)
-		if e.cfg.StaticFileMatcher != nil &&
-			e.cfg.StaticFileMatcher.IsStaticFile(item.Request.Request().Path()) {
-			item.Complete()
-			continue
-		}
-
-		// Pre-request scope check (host/path only — avoids HTTP call)
-		if e.cfg.ScopeMatcher != nil && item.Request.Service() != nil {
-			if !e.cfg.ScopeMatcher.InScopeRequest(
-				item.Request.Service().Host(),
-				item.Request.Request().Path(), "", "") {
-				item.Complete()
-				continue
-			}
-		}
-
-		// Per-module filtering via CanProcess() replaces global ShouldSkip
-		if e.cfg.Services != nil && e.cfg.Services.HostErrors != nil &&
-			e.cfg.Services.HostErrors.Check(item.Request.ID()) {
-			item.Complete()
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
+		if !e.sendItem(ctx, item, itemCh) {
 			return
-		case itemCh <- item:
 		}
+	}
+}
+
+// drainFeedback non-blocking drains all pending feedback items into itemCh.
+func (e *Executor) drainFeedback(ctx context.Context, itemCh chan<- *work.WorkItem) {
+	for {
+		select {
+		case fb := <-e.feedbackCh:
+			if !e.sendItem(ctx, fb, itemCh) {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+// sendItem applies scope/static filters and sends the item to itemCh.
+// Returns false if context is cancelled.
+func (e *Executor) sendItem(ctx context.Context, item *work.WorkItem, itemCh chan<- *work.WorkItem) bool {
+	// Always filter static files before HTTP fetch (unconditional)
+	if e.cfg.StaticFileMatcher != nil &&
+		e.cfg.StaticFileMatcher.IsStaticFile(item.Request.Request().Path()) {
+		item.Complete()
+		return true
+	}
+
+	// Pre-request scope check (host/path only — avoids HTTP call)
+	if e.cfg.ScopeMatcher != nil && item.Request.Service() != nil {
+		if !e.cfg.ScopeMatcher.InScopeRequest(
+			item.Request.Service().Host(),
+			item.Request.Request().Path(), "", "") {
+			item.Complete()
+			return true
+		}
+	}
+
+	// Per-module filtering via CanProcess() replaces global ShouldSkip
+	if e.cfg.Services != nil && e.cfg.Services.HostErrors != nil &&
+		e.cfg.Services.HostErrors.Check(item.Request.ID()) {
+		item.Complete()
+		return true
+	}
+
+	select {
+	case <-ctx.Done():
+		return false
+	case itemCh <- item:
+		return true
 	}
 }
 
@@ -506,20 +563,16 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		req = hooked
 	}
 
-	// Body size enforcement
+	// Body size enforcement — truncate oversized bodies but defer drop/skip
+	// decisions until after passive modules run (they are read-only).
+	var bodySizeAction config.BodySizeAction
 	if e.cfg.ScopeMatcher != nil {
 		reqBodyLen := len(req.Request().Body())
 		respBodyLen := len(httpResp.Body())
-		action, maxReq, maxResp := e.cfg.ScopeMatcher.CheckBodySize(reqBodyLen, respBodyLen)
+		var maxReq, maxResp int
+		bodySizeAction, maxReq, maxResp = e.cfg.ScopeMatcher.CheckBodySize(reqBodyLen, respBodyLen)
 
-		switch action {
-		case config.BodySizeDrop:
-			zap.L().Debug("Body size exceeded, dropping item",
-				zap.String("url", req.Target()),
-				zap.Int("req_body", reqBodyLen),
-				zap.Int("resp_body", respBodyLen))
-			return
-		case config.BodySizeTruncate, config.BodySizeSkipScan:
+		if bodySizeAction != config.BodySizeOK {
 			if reqBodyLen > maxReq {
 				req.Request().TruncateBody(maxReq)
 				zap.L().Debug("Request body truncated",
@@ -535,11 +588,37 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 					zap.Int("truncated_to", maxResp))
 			}
 		}
+	}
 
-		if action == config.BodySizeSkipScan {
-			e.saveToDatabase(item, req)
-			return
-		}
+	// Module filter setup (needed by passive modules below)
+	var filter moduleFilter
+	if len(enableModules) == 0 {
+		filter = allModulesFilter
+	} else {
+		filter = newModuleFilter(enableModules)
+	}
+
+	// Pre-register requestUUIDs for DB-sourced items so passive module
+	// findings can link to the existing http_record instead of creating
+	// duplicate "scanner-fuzz" records.
+	if item.RecordUUID != "" && e.repo != nil {
+		e.requestUUIDs.Store(req.Request().ID(), item.RecordUUID)
+	}
+
+	// Phase 1: Passive modules (no network I/O — run on ALL records
+	// regardless of scope/body-size gates since they are read-only)
+	e.runPassivePerHost(req, &filter)
+	e.runPassivePerRequest(req, &filter)
+
+	// Body size gate — drop/skip only affects active modules
+	if bodySizeAction == config.BodySizeDrop {
+		zap.L().Debug("Body size exceeded, dropping item (active scan skipped)",
+			zap.String("url", req.Target()))
+		return
+	}
+	if bodySizeAction == config.BodySizeSkipScan {
+		e.saveToDatabase(item, req)
+		return
 	}
 
 	// Scope check + database save (single pass)
@@ -572,16 +651,6 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 	}
 
 	elig := computeEligibility(req)
-	var filter moduleFilter
-	if len(enableModules) == 0 {
-		filter = allModulesFilter
-	} else {
-		filter = newModuleFilter(enableModules)
-	}
-
-	// Phase 1: Passive modules (no network I/O — run sequentially)
-	e.runPassivePerHost(req, &filter)
-	e.runPassivePerRequest(req, &filter)
 
 	// Phase 2: Active modules (network I/O — run categories in parallel)
 	// conc.WaitGroup automatically catches panics per goroutine and re-panics
@@ -640,7 +709,7 @@ func (e *Executor) runPassivePerHost(item *httpmsg.HttpRequestResponse, filter *
 			continue
 		}
 
-		e.processResults(results, module)
+		e.processResults(results, module, item)
 	}
 }
 
@@ -665,7 +734,7 @@ func (e *Executor) runPassivePerRequest(item *httpmsg.HttpRequestResponse, filte
 			continue
 		}
 
-		e.processResults(results, module)
+		e.processResults(results, module, item)
 	}
 }
 
@@ -692,7 +761,7 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 					zap.Error(err))
 				return
 			}
-			e.processResults(results, mod)
+			e.processResults(results, mod, item)
 		})
 	}
 	g.Wait()
@@ -721,7 +790,7 @@ func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter
 					zap.Error(err))
 				return
 			}
-			e.processResults(results, mod)
+			e.processResults(results, mod, item)
 		})
 	}
 	g.Wait()
@@ -776,7 +845,7 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 						zap.Error(err))
 					return
 				}
-				e.processResults(results, mod)
+				e.processResults(results, mod, item)
 			})
 		}
 	}
@@ -784,7 +853,7 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 	g.Wait()
 }
 
-func (e *Executor) processResults(results []*output.ResultEvent, m modules.Module) {
+func (e *Executor) processResults(results []*output.ResultEvent, m modules.Module, item *httpmsg.HttpRequestResponse) {
 	moduleType := database.ModuleTypeActive
 	if _, ok := m.(modules.PassiveModule); ok {
 		moduleType = database.ModuleTypePassive
@@ -796,6 +865,19 @@ func (e *Executor) processResults(results []*output.ResultEvent, m modules.Modul
 		result.ModuleType = moduleType
 		result.FindingSource = database.FindingSourceDynamicAssessment
 		e.assignModuleInfo(result, m)
+
+		// Backfill request/response from original item when the module
+		// did not populate them so the finding always carries raw data
+		// and can be linked to an http_record.
+		if item != nil {
+			if result.Request == "" && item.Request() != nil {
+				result.Request = string(item.Request().Raw())
+			}
+			if result.Response == "" && item.HasResponse() {
+				result.Response = string(item.Response().Raw())
+			}
+		}
+
 		e.emitResult(result)
 	}
 }
@@ -1042,6 +1124,21 @@ type repoRiskScoreUpdater struct {
 
 func (u *repoRiskScoreUpdater) UpdateRiskScores(ctx context.Context, scores map[string]int) error {
 	return u.repo.UpdateRiskScores(ctx, scores)
+}
+
+// executorFeeder implements modkit.RequestFeeder via a non-blocking channel send.
+type executorFeeder struct {
+	ch chan *work.WorkItem
+}
+
+func (f *executorFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
+	item := work.NewWithModules(rr, nil)
+	select {
+	case f.ch <- item:
+		return true
+	default:
+		return false // channel full, drop
+	}
 }
 
 // repoRemarksAnnotator adapts *database.Repository to modkit.RemarksAnnotator.

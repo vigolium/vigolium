@@ -3,7 +3,7 @@ package wp_xmlrpc
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-wp-xmlrpc"
+	ModuleID    = "wp-xmlrpc"
 	ModuleName  = "WordPress XML-RPC Abuse"
 	ModuleShort = "Detects enabled WordPress XML-RPC with multicall brute-force and pingback abuse potential"
 )

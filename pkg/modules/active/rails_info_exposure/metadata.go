@@ -3,7 +3,7 @@ package rails_info_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-rails-info-exposure"
+	ModuleID    = "rails-info-exposure"
 	ModuleName  = "Rails Info Exposure"
 	ModuleShort = "Detects exposed Rails development and debug endpoints in production"
 )

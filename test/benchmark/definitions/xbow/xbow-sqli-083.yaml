@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-083-sqli-category"
     endpoint: "/?category=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli"]
     assertion: strict
     min_findings: 1

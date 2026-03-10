@@ -3,7 +3,7 @@ package php_path_info_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-php-path-info-misconfig"
+	ModuleID    = "php-path-info-misconfig"
 	ModuleName  = "PHP PATH_INFO Misconfiguration"
 	ModuleShort = "Detects cgi.fix_pathinfo routing ambiguity allowing script path manipulation"
 )

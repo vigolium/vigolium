@@ -55,6 +55,8 @@ type Options struct {
 	JSONOutput bool
 	// OutputFormat selects the output format: console, jsonl, html
 	OutputFormat string
+	// CIOutput enables CI-friendly output: JSONL findings only, no color, no banners
+	CIOutput bool
 
 	Timeout time.Duration
 	Retries int
@@ -168,6 +170,14 @@ type Options struct {
 
 	// ClusterRequests enables request clustering to deduplicate concurrent identical HTTP requests
 	ClusterRequests bool
+
+	// Multi-session authentication for IDOR/BOLA testing
+	// Sessions are inline "name:Header:value" strings from --session flags
+	Sessions []string
+	// AuthConfigPath is the path to an auth-config YAML file with session definitions
+	AuthConfigPath string
+	// SessionFiles are paths to individual session YAML files from --session-file flags
+	SessionFiles []string
 }
 
 // DefaultOptions returns default options for the scanner

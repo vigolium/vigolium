@@ -238,7 +238,7 @@ The triage→rescan loop (phases 4-5) repeats until the agent sets verdict to `"
   "confirmed": [
     {
       "title": "SQL Injection in /api/users",
-      "module_id": "active-sqli-error-based",
+      "module_id": "sqli-error-based",
       "url": "https://example.com/api/users?id=1",
       "reason": "Error-based response confirms MySQL injection"
     }
@@ -246,7 +246,7 @@ The triage→rescan loop (phases 4-5) repeats until the agent sets verdict to `"
   "false_positives": [
     {
       "title": "XSS in /static/page",
-      "module_id": "active-xss",
+      "module_id": "xss",
       "url": "https://example.com/static/page",
       "reason": "Static HTML page, no user input reflected"
     }

@@ -3,7 +3,7 @@ package spring_data_rest_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-data-rest-exposure"
+	ModuleID    = "spring-data-rest-exposure"
 	ModuleName  = "Spring Data REST Exposure"
 	ModuleShort = "Detects auto-exposed Spring Data REST repository endpoints with HAL/HATEOAS discovery"
 )

@@ -419,11 +419,11 @@ Recognized value types include: integer, UUID, email, JWT, boolean, path, sequen
 
 ## Project Scoping
 
-Use `--project` to scope all scan data to a specific project for multi-tenant isolation:
+Use `--project-id` (with a UUID) or `--project-name` (with a name) to scope all scan data to a specific project for multi-tenant isolation:
 
 ```bash
 # Scan within a project
-vigolium scan -t https://example.com --project a1b2c3d4-...
+vigolium scan -t https://example.com --project-id a1b2c3d4-...
 
 # Or set the environment variable for your session
 eval $(vigolium project use a1b2c3d4-...)
@@ -459,5 +459,5 @@ vigolium scan -t https://example.com --scan-id "sprint-42"
 vigolium scan -t https://example.com -v --dump-traffic
 
 # Scan only Spring-related modules within a project
-vigolium scan -t https://example.com --module-tag spring --project a1b2c3d4-...
+vigolium scan -t https://example.com --module-tag spring --project-id a1b2c3d4-...
 ```

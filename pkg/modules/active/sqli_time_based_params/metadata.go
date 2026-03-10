@@ -3,7 +3,7 @@ package sqli_time_based_params
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sqli-time-based-params"
+	ModuleID    = "sqli-time-based-params"
 	ModuleName  = "SQLi Time Based - Params"
 	ModuleShort = "Detects time-based SQL injection in parameters"
 )

@@ -162,6 +162,19 @@ func TestGetPayloadsForValue(t *testing.T) {
 	}
 }
 
+func TestStringPayloadsStartWithAND(t *testing.T) {
+	// AND-based payloads must come first for login form detection.
+	// They create reliable TRUE/FALSE differentials even when the
+	// base value matches an existing record.
+	if len(stringPayloads) == 0 {
+		t.Fatal("stringPayloads is empty")
+	}
+	first := stringPayloads[0]
+	if !strings.Contains(first.trueVal, "AND") {
+		t.Errorf("first string payload should be AND-based, got trueVal=%q", first.trueVal)
+	}
+}
+
 func TestPayloadPairsAreValid(t *testing.T) {
 	allPairs := append(append(stringPayloads, numericPayloads...), bypassPayloads...)
 	for _, pair := range allPairs {

@@ -446,7 +446,7 @@ module.exports = {
 	var jsFindings int
 	for _, f := range findings {
 		t.Logf("  [%s] %s — %s", f.Severity, f.ModuleID, f.ModuleName)
-		if f.ModuleID == "active-ext-source-check" {
+		if f.ModuleID == "ext-source-check" {
 			jsFindings++
 		}
 	}

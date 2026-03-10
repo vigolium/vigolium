@@ -3,7 +3,7 @@ package jwt_claims_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-jwt-claims-detect"
+	ModuleID    = "jwt-claims-detect"
 	ModuleName  = "JWT Claim Analyzer"
 	ModuleShort = "Analyzes JWT claims for security misconfigurations"
 )

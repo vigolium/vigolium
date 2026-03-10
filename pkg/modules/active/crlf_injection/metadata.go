@@ -3,7 +3,7 @@ package crlf_injection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-crlf-injection"
+	ModuleID    = "crlf-injection"
 	ModuleName  = "CRLF Injection"
 	ModuleShort = "Detects CRLF injection"
 )

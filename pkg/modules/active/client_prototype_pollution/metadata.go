@@ -3,7 +3,7 @@ package client_prototype_pollution
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-client-prototype-pollution"
+	ModuleID    = "client-prototype-pollution"
 	ModuleName  = "Client-Side Prototype Pollution"
 	ModuleShort = "Detects client-side prototype pollution via JavaScript static analysis"
 )

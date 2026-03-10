@@ -10,12 +10,11 @@ The comprehensive approach runs in stages:
 1. SAST route extraction     → Routes from source code saved to DB
 2. Third-party SAST tools    → Semgrep + Trivy findings (SARIF)
 3. AI agent code review      → Security findings + new endpoints to DB
-4. Agent loop (optional)     → Iterative AI analysis with dynamic scanning
-5. Dynamic blackbox scan     → Active + passive modules against all endpoints
-6. Extension modules         → Custom JS/YAML extensions for specialized checks
+4. Dynamic blackbox scan     → Active + passive modules against all endpoints
+5. Extension modules         → Custom JS/YAML extensions for specialized checks
 ```
 
-Each stage feeds the next: SAST-discovered routes become dynamic scan targets, agent-discovered endpoints expand the attack surface, agent findings inform targeted retesting, and custom extensions add specialized checks.
+Each stage feeds the next: SAST-discovered routes become dynamic scan targets, agent-discovered endpoints expand the attack surface, and custom extensions add specialized checks.
 
 ## Quick Start
 
@@ -26,9 +25,6 @@ vigolium scan -t https://api.example.com --source ./my-app --strategy whitebox
 
 # Step 2: Agent code review
 vigolium agent --prompt-template security-code-review --repo ./my-app
-
-# Step 3: Agent loop for iterative analysis
-vigolium agent loop --target https://api.example.com --repo ./my-app --retest
 ```
 
 ## Step-by-Step Workflow
@@ -69,21 +65,7 @@ vigolium agent --prompt-template auth-bypass --repo ./my-app
 
 Agent findings are ingested into the database. HTTP records from `endpoint-discovery` become additional scan targets.
 
-### Step 3: Agent Loop (Optional)
-
-Run an iterative loop where the agent analyzes code, generates test targets, Vigolium scans them, and results are fed back.
-
-```bash
-# Iterative loop with retest
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --max-iterations 5 --retest
-
-# Focused loop on specific areas
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --focus "payment processing and financial transactions"
-```
-
-### Step 4: Dynamic Blackbox Scan
+### Step 3: Dynamic Blackbox Scan
 
 Run the full dynamic scan. This uses all endpoints in the database: SAST-extracted routes, agent-discovered endpoints, and any previously crawled/discovered URLs.
 
@@ -95,9 +77,9 @@ vigolium scan -t https://api.example.com --source ./my-app --strategy whitebox
 vigolium scan -t https://api.example.com --source ./my-app --strategy deep
 ```
 
-The database already contains routes from Steps 1-3, so the dynamic scan benefits from the expanded attack surface.
+The database already contains routes from Steps 1-2, so the dynamic scan benefits from the expanded attack surface.
 
-### Step 5: Custom Extension Modules (Optional)
+### Step 4: Custom Extension Modules (Optional)
 
 Run custom JS/YAML extensions for specialized checks not covered by built-in modules or AI analysis.
 
@@ -111,7 +93,7 @@ vigolium run extension -t https://api.example.com --ext-dir ~/extensions/
 
 See [Extension Scanning](extension-scan.md) for details on writing and managing extensions.
 
-### Step 6: Generate Report
+### Step 5: Generate Report
 
 ```bash
 # HTML report from database
@@ -133,27 +115,16 @@ vigolium scan -t https://api.example.com --source ./my-app --strategy whitebox
 
 This covers: SAST route extraction → content discovery → SPA → dynamic assessment. It does not include AI agent analysis.
 
-### Agent Loop (AI + Dynamic)
+### Combining SAST and Agent Review
 
-The agent loop combines AI analysis with dynamic scanning:
-
-```bash
-vigolium agent loop --target https://api.example.com --repo ./my-app
-```
-
-This covers: AI code review → HTTP record generation → dynamic scanning → iteration. It does not include SAST route extraction.
-
-### Combining Both
-
-For maximum coverage, run SAST first, then the agent loop:
+For maximum coverage, run SAST first, then agent review, then the dynamic scan:
 
 ```bash
 # SAST populates routes in DB
 vigolium scan -t https://api.example.com --source ./my-app --only sast
 
-# Agent loop uses SAST-discovered routes as context and adds more
-vigolium agent loop --target https://api.example.com --repo ./my-app \
-  --max-iterations 3 --retest
+# Agent code review discovers additional endpoints and findings
+vigolium agent --prompt-template security-code-review --repo ./my-app
 
 # Final dynamic scan with everything
 vigolium scan -t https://api.example.com --strategy whitebox
@@ -229,7 +200,6 @@ agent-review:
 full-scan:
   script:
     - vigolium scan -t $STAGING_URL --source . --strategy whitebox
-    - vigolium agent loop --target $STAGING_URL --repo . --max-iterations 3
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 ```
@@ -285,7 +255,6 @@ A full combined scan is the most thorough but slowest approach. Typical time bre
 | SAST (ast-grep) | 30s - 5m |
 | Third-party SAST (semgrep, trivy) | 1 - 10m |
 | Agent code review | 2 - 10m per template |
-| Agent loop (3 iterations) | 5 - 30m |
 | Dynamic scan (balanced) | 10m - 2h |
 
 ### Optimization Tips
@@ -293,9 +262,8 @@ A full combined scan is the most thorough but slowest approach. Typical time bre
 1. **Run SAST first** — It is fast and populates routes for everything downstream
 2. **Use `--only sast` for CI on every PR** — Fast feedback without network traffic
 3. **Reserve agent + dynamic for merge-to-main** — More thorough but slower
-4. **Use `--focus` in agent loops** — Narrow the agent's analysis scope
-5. **Time-box dynamic scanning** — Use `--scanning-max-duration` and per-phase max times
-6. **Use `--strategy lite` for quick dynamic checks** — Skip discovery/spidering
+4. **Time-box dynamic scanning** — Use `--scanning-max-duration` and per-phase max times
+5. **Use `--strategy lite` for quick dynamic checks** — Skip discovery/spidering
 
 ### Resource Usage
 
@@ -318,16 +286,12 @@ vigolium agent --prompt-template security-code-review --repo ./backend
 # 4. Generate test inputs from agent
 vigolium agent --prompt-template api-input-gen --repo ./backend
 
-# 5. Run iterative agent loop
-vigolium agent loop --target https://api.example.com --repo ./backend \
-  --max-iterations 3 --retest --focus "input validation and SQL injection"
-
-# 6. Full dynamic scan with all discovered endpoints + extensions
+# 5. Full dynamic scan with all discovered endpoints + extensions
 vigolium scan -t https://api.example.com --strategy whitebox \
   --ext ~/extensions/custom-auth-check.js \
   --scanning-max-duration 2h
 
-# 7. Generate HTML report
+# 6. Generate HTML report
 vigolium scan -t https://api.example.com --format html -o full-report.html
 ```
 
@@ -346,13 +310,9 @@ vigolium agent --prompt-template react-xss-audit --repo ./frontend
 # 4. Attack surface mapping
 vigolium agent --prompt-template attack-surface-mapper --repo ./frontend
 
-# 5. Agent loop
-vigolium agent loop --target https://app.example.com --repo ./frontend \
-  --max-iterations 3
-
-# 6. Dynamic scan
+# 5. Dynamic scan
 vigolium scan -t https://app.example.com --strategy whitebox
 
-# 7. Report
+# 6. Report
 vigolium scan -t https://app.example.com --format html -o nextjs-report.html
 ```

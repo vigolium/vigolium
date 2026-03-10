@@ -3,7 +3,7 @@ package referrer_policy_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-referrer-policy-detect"
+	ModuleID    = "referrer-policy-detect"
 	ModuleName  = "Referrer Policy Detect"
 	ModuleShort = "Detects missing or weak Referrer-Policy headers"
 )

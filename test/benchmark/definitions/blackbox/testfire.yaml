@@ -11,7 +11,7 @@ test_cases:
   - id: "testfire-sqli-login"
     endpoint: "/login.jsp?uid=test&passw=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -22,7 +22,7 @@ test_cases:
   - id: "testfire-xss-search"
     endpoint: "/search.jsp?query=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -33,7 +33,7 @@ test_cases:
   - id: "testfire-swagger"
     endpoint: "/swagger/index.html"
     method: GET
-    modules: ["active-swagger-disclose"]
+    modules: ["swagger-disclose"]
     vuln_types: ["swagger-disclosure"]
     assertion: soft
     min_findings: 1
@@ -44,7 +44,7 @@ test_cases:
   - id: "testfire-cors"
     endpoint: "/"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -57,7 +57,7 @@ test_cases:
   - id: "testfire-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -67,7 +67,7 @@ test_cases:
   - id: "testfire-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -77,7 +77,7 @@ test_cases:
   - id: "testfire-info-disclosure"
     endpoint: "/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

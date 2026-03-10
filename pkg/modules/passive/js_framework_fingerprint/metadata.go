@@ -3,7 +3,7 @@ package js_framework_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-js-framework-fingerprint"
+	ModuleID    = "js-framework-fingerprint"
 	ModuleName  = "JS Framework Fingerprint"
 	ModuleShort = "Identifies JavaScript frameworks (Next.js, Nuxt, Angular, React, Remix, SvelteKit, Gatsby)"
 )

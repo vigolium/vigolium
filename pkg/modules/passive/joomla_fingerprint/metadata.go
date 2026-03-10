@@ -3,7 +3,7 @@ package joomla_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-joomla-fingerprint"
+	ModuleID    = "joomla-fingerprint"
 	ModuleName  = "Joomla Fingerprint"
 	ModuleShort = "Identifies Joomla installations and enumerates components, modules, and plugins from asset paths"
 )

@@ -3,7 +3,7 @@ package ssti_blind
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-ssti-blind"
+	ModuleID    = "ssti-blind"
 	ModuleName  = "Blind Server-Side Template Injection (SSTI)"
 	ModuleShort = "Detects blind SSTI via OAST callbacks and time-delay payloads"
 )

@@ -3,7 +3,7 @@ package aspnet_health_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-health-exposure"
+	ModuleID    = "aspnet-health-exposure"
 	ModuleName  = "ASP.NET Health Endpoint Exposure"
 	ModuleShort = "Detects exposed ASP.NET health checks, monitoring dashboards, and metrics endpoints"
 )

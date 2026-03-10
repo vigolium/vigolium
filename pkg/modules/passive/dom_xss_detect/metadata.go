@@ -3,7 +3,7 @@ package dom_xss_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-dom-xss-detect"
+	ModuleID    = "dom-xss-detect"
 	ModuleName  = "DOM XSS Detect"
 	ModuleShort = "Detects potential DOM-based XSS patterns in responses"
 )

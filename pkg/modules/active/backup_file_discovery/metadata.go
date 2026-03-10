@@ -3,7 +3,7 @@ package backup_file_discovery
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-backup-file-discovery"
+	ModuleID    = "backup-file-discovery"
 	ModuleName  = "Backup File Discovery"
 	ModuleShort = "Probes for exposed backup archives derived from hostname, common names, and year variants"
 )

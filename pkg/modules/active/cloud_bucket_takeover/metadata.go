@@ -3,7 +3,7 @@ package cloud_bucket_takeover
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cloud-bucket-takeover"
+	ModuleID    = "cloud-bucket-takeover"
 	ModuleName  = "Cloud Bucket Takeover"
 	ModuleShort = "Detects dangling cloud storage buckets vulnerable to takeover"
 )

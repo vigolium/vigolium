@@ -3,7 +3,7 @@ package sql_syntax_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-sql-syntax-detect"
+	ModuleID    = "sql-syntax-detect"
 	ModuleName  = "SQL Syntax in Request Detection"
 	ModuleShort = "Detects SQL syntax in HTTP request parameter values"
 )

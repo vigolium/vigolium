@@ -3,7 +3,7 @@ package cms_installer_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cms-installer-exposure"
+	ModuleID    = "cms-installer-exposure"
 	ModuleName  = "CMS Installer Exposure"
 	ModuleShort = "Detects exposed CMS installation wizards for WordPress, Drupal, and Joomla"
 )

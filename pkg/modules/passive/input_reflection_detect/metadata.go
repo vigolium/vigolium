@@ -3,7 +3,7 @@ package input_reflection_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-input-reflection-detect"
+	ModuleID    = "input-reflection-detect"
 	ModuleName  = "Input Reflection Detect"
 	ModuleShort = "Detects request parameter values reflected in responses"
 )

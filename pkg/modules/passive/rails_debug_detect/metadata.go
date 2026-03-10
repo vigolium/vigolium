@@ -3,7 +3,7 @@ package rails_debug_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-rails-debug-detect"
+	ModuleID    = "rails-debug-detect"
 	ModuleName  = "Rails Debug Detect"
 	ModuleShort = "Detects Rails debug exception pages, Better Errors, Web Console, and ActiveRecord errors in responses"
 )

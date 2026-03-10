@@ -3,7 +3,7 @@ package forbidden_bypass
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-forbidden-bypass"
+	ModuleID    = "forbidden-bypass"
 	ModuleName  = "403/401 Forbidden Bypass"
 	ModuleShort = "Detects bypass methods for 403/401 Forbidden responses"
 )

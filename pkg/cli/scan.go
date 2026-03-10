@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/input/formats/detect"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -84,6 +85,11 @@ func init() {
 
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed out-of-band callback URL (overrides auto-generated interactsh URL)")
+
+	// Multi-session authentication flags
+	flags.StringSliceVar(&scanOpts.Sessions, "session", nil, "Inline session for IDOR/BOLA testing (repeatable, format: name:Header:value)")
+	flags.StringVar(&scanOpts.AuthConfigPath, "auth-config", "", "Path to auth-config YAML file with session definitions")
+	flags.StringSliceVar(&scanOpts.SessionFiles, "session-file", nil, "Path to individual session YAML file (repeatable)")
 }
 
 func runScanCmd(cmd *cobra.Command, args []string) error {
@@ -154,6 +160,14 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	}
 	if scanOpts.OutputFormat == "jsonl" {
 		scanOpts.JSONOutput = true
+	}
+
+	// --ci-output-format: JSONL findings only, no color, no banners
+	if globalCIOutput {
+		scanOpts.CIOutput = true
+		scanOpts.OutputFormat = "jsonl"
+		scanOpts.JSONOutput = true
+		scanOpts.Silent = true
 	}
 
 	// Initialize database (always enabled)
@@ -524,6 +538,68 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		return runDBScan(settings, db, repo)
 	}
 
+	// Smart stdin detection: if stdin is present and -I was not explicitly set,
+	// peek at the content to detect raw HTTP or curl format
+	if hasStdin && !cmd.Flags().Changed("input-mode") {
+		raw, readErr := io.ReadAll(os.Stdin)
+		if readErr != nil {
+			return fmt.Errorf("failed to read stdin: %w", readErr)
+		}
+		content := strings.TrimSpace(string(raw))
+		if content != "" {
+			detected := detect.DetectStdinFormat(content)
+			if detected != detect.FormatURLs {
+				// Raw HTTP or curl — parse eagerly and use SliceSource
+				items, parseErr := detect.ParseStdinContent(content, detected)
+				if parseErr != nil {
+					return fmt.Errorf("failed to parse stdin as %s: %w", detected, parseErr)
+				}
+				inputSrc := source.NewSliceSource(items, scanOpts.Modules)
+				scanOpts.Stdin = false
+
+				scanRunner, runnerErr := runner.NewWithInputSource(scanOpts, inputSrc)
+				if runnerErr != nil {
+					return fmt.Errorf("failed to create scan runner: %w", runnerErr)
+				}
+				defer scanRunner.Close()
+
+				scanRunner.SetSettings(settings)
+				if repo != nil {
+					scanRunner.SetRepository(repo)
+				}
+
+				setupScanSignalHandler(scanRunner)
+
+				if err := scanRunner.RunEnumeration(); err != nil {
+					zap.L().Info("Could not run scanner", zap.Error(err))
+				}
+
+				if scanOpts.OutputFormat == "html" && scanOpts.Output != "" {
+					if err := generateHTMLFromDB(context.Background(), db, scanOpts.Output); err != nil {
+						fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
+					} else if !scanOpts.Silent {
+						fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(scanOpts.Output))
+					}
+				}
+
+				if !scanOpts.Silent {
+					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+					printScanCompletionSummary(repo)
+				}
+				return nil
+			}
+		}
+		// URLs detected — fall through to existing runner.New() which handles stdin streaming.
+		// However, we already consumed stdin, so we need to pass the content as targets instead.
+		for _, line := range strings.Split(content, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				scanOpts.Targets = append(scanOpts.Targets, line)
+			}
+		}
+		scanOpts.Stdin = false
+	}
+
 	scanRunner, err := runner.New(scanOpts)
 	if err != nil {
 		zap.L().Fatal("Could not create runner", zap.Error(err))
@@ -809,7 +885,7 @@ func setupScanSignalHandler(r *runner.Runner) {
 
 // printScanSummary prints a human-readable scan configuration overview to stderr.
 func printScanSummary(opts *types.Options, settings *config.Settings, strategyName string, repo *database.Repository) {
-	if opts.Silent || globalJSON {
+	if opts.Silent || globalJSON || globalCIOutput {
 		return
 	}
 
@@ -947,6 +1023,11 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		fmt.Fprintf(os.Stderr, "  %s view scanning pace via %s\n",
 			terminal.TipPrefix(),
 			terminal.HiCyan("vigolium config ls scanning_pace"))
+		if spaEnabled && !settings.SPA.EnrichTargets {
+			fmt.Fprintf(os.Stderr, "  %s enrich SPA targets with discovered paths via %s\n",
+				terminal.TipPrefix(),
+				terminal.HiCyan("vigolium config spa.enrich_targets=true"))
+		}
 	}
 	fmt.Fprintln(os.Stderr)
 }

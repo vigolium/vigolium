@@ -30,7 +30,7 @@ func NewJSPassiveModule(script *LoadedScript, opts APIOptions) (*JSPassiveModule
 	}
 
 	base := modkit.NewBasePassiveModule(
-		"passive-ext-"+script.Metadata.ID,
+		"ext-"+script.Metadata.ID,
 		script.Metadata.Name,
 		script.Metadata.Description,
 		"JS extension: "+script.Metadata.Name,

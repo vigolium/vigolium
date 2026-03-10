@@ -3,7 +3,7 @@ package nginx_off_by_slash
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nginx-off-by-slash"
+	ModuleID    = "nginx-off-by-slash"
 	ModuleName  = "Nginx Off-by-Slash"
 	ModuleShort = "Detects Nginx alias traversal via missing trailing slash"
 )

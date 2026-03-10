@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-009-ssti-name"
     endpoint: "/greet/?name=test"
     method: GET
-    modules: ["active-reflected-ssti"]
+    modules: ["reflected-ssti"]
     vuln_types: ["ssti"]
     assertion: strict
     min_findings: 1

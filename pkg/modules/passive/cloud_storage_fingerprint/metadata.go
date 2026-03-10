@@ -3,7 +3,7 @@ package cloud_storage_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cloud-storage-fingerprint"
+	ModuleID    = "cloud-storage-fingerprint"
 	ModuleName  = "Cloud Storage Fingerprint"
 	ModuleShort = "Detects S3, GCS, and Azure Blob Storage endpoints in HTTP responses"
 )

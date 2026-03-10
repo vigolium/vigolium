@@ -3,7 +3,7 @@ package lfi_path_traversal
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-lfi-path-traversal"
+	ModuleID    = "lfi-path-traversal"
 	ModuleName  = "LFI Path Traversal"
 	ModuleShort = "Detects LFI via advanced path traversal, null bytes, encoding bypass, and multi-marker confirmation"
 )

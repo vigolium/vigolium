@@ -3,7 +3,7 @@ package secret_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-secret-detect"
+	ModuleID    = "secret-detect"
 	ModuleName  = "Secret Detection"
 	ModuleShort = "Detects leaked secrets and credentials in HTTP responses"
 )

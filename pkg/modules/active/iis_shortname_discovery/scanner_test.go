@@ -176,7 +176,7 @@ func TestModuleCanProcess(t *testing.T) {
 func TestModuleMetadata(t *testing.T) {
 	m := New()
 
-	if m.ID() != "active-iis-shortname-discovery" {
+	if m.ID() != "iis-shortname-discovery" {
 		t.Errorf("unexpected ID: %s", m.ID())
 	}
 	if m.Name() != "IIS Short Filename Discovery" {

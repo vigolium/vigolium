@@ -3,7 +3,7 @@ package express_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-express-fingerprint"
+	ModuleID    = "express-fingerprint"
 	ModuleName  = "Express/NestJS Fingerprint"
 	ModuleShort = "Identifies Express.js and NestJS applications via response headers and error body patterns"
 )

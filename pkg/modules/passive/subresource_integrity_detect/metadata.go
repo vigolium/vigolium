@@ -3,7 +3,7 @@ package subresource_integrity_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-subresource-integrity-detect"
+	ModuleID    = "subresource-integrity-detect"
 	ModuleName  = "Subresource Integrity Detect"
 	ModuleShort = "Detects external resources loaded without subresource integrity"
 )

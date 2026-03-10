@@ -3,7 +3,7 @@ package spring_debug_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-debug-exposure"
+	ModuleID    = "spring-debug-exposure"
 	ModuleName  = "Spring Debug Exposure"
 	ModuleShort = "Detects Spring Boot debug endpoints, Whitelabel error pages, and verbose stack trace disclosure"
 )

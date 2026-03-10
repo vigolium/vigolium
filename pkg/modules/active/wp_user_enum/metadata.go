@@ -3,7 +3,7 @@ package wp_user_enum
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-wp-user-enum"
+	ModuleID    = "wp-user-enum"
 	ModuleName  = "WordPress User Enumeration"
 	ModuleShort = "Detects WordPress user enumeration via author archives and REST API"
 )

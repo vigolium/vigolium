@@ -3,7 +3,7 @@ package firebase_rtdb_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-firebase-rtdb-exposure"
+	ModuleID    = "firebase-rtdb-exposure"
 	ModuleName  = "Firebase RTDB Exposure"
 	ModuleShort = "Detects publicly readable Firebase Realtime Database instances"
 )

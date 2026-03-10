@@ -3,7 +3,7 @@ package nginx_path_escape
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nginx-path-escape"
+	ModuleID    = "nginx-path-escape"
 	ModuleName  = "Nginx Path Escape Detection"
 	ModuleShort = "Diff-based Nginx path escape detection (alias traversal, encoding bypass, semicolon injection)"
 )
@@ -22,7 +22,7 @@ testing alias traversal, URL encoding bypass, and semicolon injection techniques
 - https://www.acunetix.com/vulnerabilities/web/path-traversal-via-misconfigured-nginx-alias/`
 
 	ModuleConfirmation = "Confirmed when path escape payloads produce different response content or status compared to the baseline, indicating path traversal"
-	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Firm
-	ModuleTags = []string{"nginx", "misconfiguration", "moderate"}
+	ModuleSeverity     = severity.Medium
+	ModuleConfidence   = severity.Tentative
+	ModuleTags         = []string{"nginx", "misconfiguration", "moderate"}
 )

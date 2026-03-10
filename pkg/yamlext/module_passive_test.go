@@ -45,7 +45,7 @@ func TestYAMLPassiveModule_FlatMatchers(t *testing.T) {
 
 	mod, err := NewYAMLPassiveModule(def, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "passive-ext-test-flat", mod.ID())
+	assert.Equal(t, "ext-test-flat", mod.ID())
 
 	ctx := makeRequestResponse("GET", "/api", 200, nil, "data: secret_key=abc123")
 	results, err := mod.ScanPerRequest(ctx, nil)

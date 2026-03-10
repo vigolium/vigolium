@@ -3,7 +3,7 @@ package csrf_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-csrf-detect"
+	ModuleID    = "csrf-detect"
 	ModuleName  = "CSRF Detection"
 	ModuleShort = "Flags state-changing requests missing anti-CSRF protections"
 )

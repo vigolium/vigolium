@@ -3,7 +3,7 @@ package spring_actuator_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-actuator-misconfig"
+	ModuleID    = "spring-actuator-misconfig"
 	ModuleName  = "Spring Actuator Misconfiguration"
 	ModuleShort = "Detects exposed Spring Boot actuator endpoints"
 )

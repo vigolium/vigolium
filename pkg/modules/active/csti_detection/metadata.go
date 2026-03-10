@@ -3,7 +3,7 @@ package csti_detection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-csti-detection"
+	ModuleID    = "csti-detection"
 	ModuleName  = "Client-Side Template Injection (CSTI)"
 	ModuleShort = "Detects client-side template injection in AngularJS/Vue.js applications"
 )

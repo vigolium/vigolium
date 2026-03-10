@@ -199,7 +199,7 @@ The plan and triage agent checkpoints produce structured JSON:
   "confirmed": [
     {
       "title": "SQL Injection in /api/users",
-      "module_id": "active-sqli-error-based",
+      "module_id": "sqli-error-based",
       "url": "https://example.com/api/users?id=1",
       "reason": "Error-based response confirms MySQL injection"
     }
@@ -207,7 +207,7 @@ The plan and triage agent checkpoints produce structured JSON:
   "false_positives": [
     {
       "title": "XSS in /static/page",
-      "module_id": "active-xss",
+      "module_id": "xss",
       "url": "https://example.com/static/page",
       "reason": "Static HTML page, no user input reflected"
     }

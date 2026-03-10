@@ -3,7 +3,7 @@ package cloud_origin_bypass
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cloud-origin-bypass"
+	ModuleID    = "cloud-origin-bypass"
 	ModuleName  = "Cloud Origin Bypass"
 	ModuleShort = "Detects direct access to cloud storage origins bypassing CDN security controls"
 )

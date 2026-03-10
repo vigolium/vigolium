@@ -157,6 +157,63 @@ scanning_strategy:
   # List available profiles with: vigolium strategy ls
   profiles_dir: ~/.vigolium/profiles/
 
+  # --------------------------------------------------------------------------
+  # Session Strategy
+  # --------------------------------------------------------------------------
+  # Controls how authentication sessions behave during scanning.
+  # Sessions are loaded from --session, --session-file, or --auth-config flags.
+  # See docs/running-scan/authenticated-scan.md for the full guide.
+  session:
+    # Directory where session YAML files are stored.
+    # When --session-file receives a bare name (e.g. "myapp"), the scanner
+    # resolves it as <session_dir>/myapp.yaml.
+    # Supports ~ expansion.
+    # Default: ~/.vigolium/sessions/
+    session_dir: ~/.vigolium/sessions/
+
+    # Apply primary session headers during discovery and spidering phases.
+    # When true, the primary session's credentials (cookies, tokens) are
+    # included in all discovery/spidering requests so authenticated content
+    # is discovered.
+    # When false, discovery and spidering run unauthenticated — useful for
+    # mapping the public attack surface before scanning authenticated.
+    # Default: true
+    use_in_discovery: true
+
+    # Enable cross-session IDOR/BOLA replay with compare sessions.
+    # When true and multiple sessions are defined, the authz-compare module
+    # replays primary-session requests with each compare session's credentials
+    # to detect authorization bypass.
+    # When false, compare sessions are ignored even if defined — use this
+    # when you only need authenticated scanning without authorization testing.
+    # Default: true
+    compare_enabled: true
+
+    # Re-execute login flows at this interval to refresh expiring tokens.
+    # Useful for long-running scans where tokens expire mid-scan.
+    # Format: Go duration string (e.g. "15m", "1h", "30m").
+    # Empty or "0" means login once at scan start and never refresh.
+    # Default: "" (disabled)
+    reauth_interval: ""
+
+    # Trigger reactive re-authentication when the primary session receives
+    # one of these HTTP status codes. When triggered, the login flow is
+    # re-executed immediately and the failed request is retried.
+    # Common values: [401, 403]
+    # Default: [] (disabled)
+    reauth_on_status: []
+    # Example: re-authenticate on 401 Unauthorized and 403 Forbidden:
+    # reauth_on_status: [401, 403]
+
+    # URL to GET after login to verify that extracted credentials work.
+    # The scanner checks for a 2xx response before proceeding with the scan.
+    # Can be a relative path (resolved against the target) or absolute URL.
+    # Empty means no validation — credentials are used as-is.
+    # Default: "" (disabled)
+    validate_url: ""
+    # Example: validate against a "who am I" endpoint:
+    # validate_url: "/api/me"
+
   lite:
     external_harvesting: false
     discovery: false

@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 
 func TestNew(t *testing.T) {
 	m := New()
-	assert.Equal(t, "active-nginx-off-by-slash", m.ID())
+	assert.Equal(t, "nginx-off-by-slash", m.ID())
 	assert.Equal(t, "Nginx Off-by-Slash", m.Name())
 	assert.Equal(t, severity.High, m.Severity())
 	assert.Equal(t, severity.Tentative, m.Confidence())

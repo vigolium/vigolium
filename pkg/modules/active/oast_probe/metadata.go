@@ -3,7 +3,7 @@ package oast_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-oast-probe"
+	ModuleID    = "oast-probe"
 	ModuleName  = "OAST Probe"
 	ModuleShort = "Detects blind vulnerabilities via out-of-band callbacks (DNS/HTTP)"
 )

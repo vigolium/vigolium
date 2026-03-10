@@ -6,13 +6,16 @@ This guide covers how to start Vigolium in server mode and ingest HTTP traffic i
 
 ```bash
 # Start with an API key
-vigolium server -k my-secret-key
+export VIGOLIUM_API_KEY=my-secret-key
+vigolium server
 
 # Custom host and port
-vigolium server -k my-secret-key --host 127.0.0.1 --service-port 9002
+export VIGOLIUM_API_KEY=my-secret-key
+vigolium server --host 127.0.0.1 --service-port 9002
 
 # With transparent HTTP proxy for recording traffic
-vigolium server -k my-secret-key --ingest-proxy-port 9003
+export VIGOLIUM_API_KEY=my-secret-key
+vigolium server --ingest-proxy-port 9003
 
 # Without authentication (development only)
 vigolium server -A
@@ -59,7 +62,7 @@ All API requests (except `/health`) require a Bearer token:
 Authorization: Bearer my-secret-key
 ```
 
-API key resolution order: `--api-key` flag > `VIGOLIUM_API_KEY` env var > `server.auth_api_key` in config file.
+API key resolution order: `VIGOLIUM_API_KEY` env var > `server.auth_api_key` in config file.
 
 ## API Endpoints
 
@@ -282,7 +285,7 @@ vigolium ingest --input urls.txt --scan-id recon-2026-02
 vigolium ingest --input urls.txt --db ./project.db
 
 # Ingest into a specific project
-vigolium ingest --input urls.txt --project a1b2c3d4-...
+vigolium ingest --input urls.txt --project-id a1b2c3d4-...
 ```
 
 ## Ingesting via Transparent Proxy
@@ -290,7 +293,8 @@ vigolium ingest --input urls.txt --project a1b2c3d4-...
 Start the server with a proxy port to passively record HTTP traffic:
 
 ```bash
-vigolium server -k my-secret-key --ingest-proxy-port 9003
+export VIGOLIUM_API_KEY=my-secret-key
+vigolium server --ingest-proxy-port 9003
 ```
 
 Then route your tools through the proxy:
@@ -482,7 +486,7 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400... \
 
 Once the run completes, the response includes a `result` field with the full agent output (raw text, findings, HTTP records).
 
-The CLI also supports an iterative `agent loop` command that combines agent analysis with targeted scanning in a converging loop. See [Agent Mode](agent-mode.md) for the full agent documentation (including loop mode, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
+See [Agent Mode](agent-mode.md) for the full agent documentation (including autopilot, pipeline, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
 
 ## Input Modes Reference
 

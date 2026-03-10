@@ -17,7 +17,7 @@ test_cases:
   - id: "juiceshop-sqli-search"
     endpoint: "/rest/products/search?q=apple"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -31,7 +31,7 @@ test_cases:
   - id: "juiceshop-xss-search"
     endpoint: "/rest/products/search?q=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -45,7 +45,7 @@ test_cases:
   - id: "juiceshop-cors-api"
     endpoint: "/api/Products/"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -56,7 +56,7 @@ test_cases:
   - id: "juiceshop-crlf-search"
     endpoint: "/rest/products/search?q=test"
     method: GET
-    modules: ["active-crlf-injection"]
+    modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
     min_findings: 1
@@ -67,7 +67,7 @@ test_cases:
   - id: "juiceshop-xxe"
     endpoint: "/b2b/v2/orders"
     method: GET
-    modules: ["active-xxe-generic"]
+    modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
     min_findings: 1
@@ -81,7 +81,7 @@ test_cases:
     headers:
       Content-Type: "application/xml"
     body: '<?xml version="1.0"?><order><id>1</id><qty>1</qty></order>'
-    modules: ["active-xxe-generic"]
+    modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
     min_findings: 1
@@ -92,7 +92,7 @@ test_cases:
   - id: "juiceshop-host-header"
     endpoint: "/"
     method: GET
-    modules: ["active-host-header-injection"]
+    modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
     min_findings: 1
@@ -103,7 +103,7 @@ test_cases:
   - id: "juiceshop-ssti-search"
     endpoint: "/rest/products/search?q=test"
     method: GET
-    modules: ["active-reflected-ssti"]
+    modules: ["reflected-ssti"]
     vuln_types: ["ssti"]
     assertion: soft
     min_findings: 1
@@ -114,7 +114,7 @@ test_cases:
   - id: "juiceshop-path-normalization"
     endpoint: "/api/Products/"
     method: GET
-    modules: ["active-path-normalization"]
+    modules: ["path-normalization"]
     vuln_types: ["path-normalization"]
     assertion: soft
     min_findings: 1
@@ -129,7 +129,7 @@ test_cases:
   - id: "juiceshop-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -142,7 +142,7 @@ test_cases:
   - id: "juiceshop-ftp-listing"
     endpoint: "/ftp/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -152,7 +152,7 @@ test_cases:
   - id: "juiceshop-api-products-disclosure"
     endpoint: "/api/Products/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -163,7 +163,7 @@ test_cases:
   - id: "juiceshop-swagger-ui"
     endpoint: "/api-docs/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -173,7 +173,7 @@ test_cases:
   - id: "juiceshop-xpoweredby"
     endpoint: "/rest/products/search?q=test"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -183,7 +183,7 @@ test_cases:
   - id: "juiceshop-dom-xss"
     endpoint: "/"
     method: GET
-    modules: ["passive-dom-xss-detect"]
+    modules: ["dom-xss-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -193,7 +193,7 @@ test_cases:
   - id: "juiceshop-sourcemap"
     endpoint: "/"
     method: GET
-    modules: ["passive-sourcemap-detect"]
+    modules: ["sourcemap-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -203,7 +203,7 @@ test_cases:
   - id: "juiceshop-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -214,7 +214,7 @@ test_cases:
   - id: "juiceshop-openredirect-passive"
     endpoint: "/redirect?to=https://github.com/juice-shop/juice-shop"
     method: GET
-    modules: ["passive-openredirect-params"]
+    modules: ["openredirect-params"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -224,7 +224,7 @@ test_cases:
   - id: "juiceshop-content-type"
     endpoint: "/api/Products/"
     method: GET
-    modules: ["passive-content-type-mismatch"]
+    modules: ["content-type-mismatch"]
     assertion: soft
     min_findings: 0
     scan_mode: passive

@@ -16,7 +16,7 @@ test_cases:
   - id: "vulnexamples-missing-authn-api"
     endpoint: "/api/example-1-missing-authentication/vulnerable"
     method: GET
-    modules: ["active-authn-bypass"]
+    modules: ["authn-bypass"]
     vuln_types: ["missing-authentication"]
     assertion: strict
     min_findings: 1
@@ -30,7 +30,7 @@ test_cases:
     method: GET
     headers:
       Cookie: "sessionToken=valid-session-token"
-    modules: ["active-authz-bypass"]
+    modules: ["authz-bypass"]
     vuln_types: ["missing-authorization"]
     assertion: soft
     min_findings: 1
@@ -42,7 +42,7 @@ test_cases:
   - id: "vulnexamples-xss-stored"
     endpoint: "/example-6-cross-site-scripting/vulnerable"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-stored"]
     assertion: soft
     min_findings: 1
@@ -53,7 +53,7 @@ test_cases:
   - id: "vulnexamples-nextjs-data-leakage"
     endpoint: "/example-5-secrets-exposure/vulnerable"
     method: GET
-    modules: ["active-nextjs-data-leakage"]
+    modules: ["nextjs-data-leakage"]
     vuln_types: ["data-leakage"]
     assertion: soft
     min_findings: 1
@@ -64,7 +64,7 @@ test_cases:
   - id: "vulnexamples-security-headers-active"
     endpoint: "/"
     method: GET
-    modules: ["active-nextjs-middleware-bypass"]
+    modules: ["nextjs-middleware-bypass"]
     vuln_types: ["auth-bypass"]
     assertion: soft
     min_findings: 1
@@ -75,7 +75,7 @@ test_cases:
   - id: "vulnexamples-sensitive-files"
     endpoint: "/"
     method: GET
-    modules: ["active-sensitive-file-discovery"]
+    modules: ["sensitive-file-discovery"]
     vuln_types: ["sensitive-file"]
     assertion: soft
     min_findings: 1
@@ -86,7 +86,7 @@ test_cases:
   - id: "vulnexamples-cors"
     endpoint: "/api/example-1-missing-authentication/vulnerable"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -99,7 +99,7 @@ test_cases:
   - id: "vulnexamples-js-fingerprint"
     endpoint: "/"
     method: GET
-    modules: ["passive-js-framework-fingerprint"]
+    modules: ["js-framework-fingerprint"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -109,7 +109,7 @@ test_cases:
   - id: "vulnexamples-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -122,7 +122,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"alice","password":"abc"}'
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -132,7 +132,7 @@ test_cases:
   - id: "vulnexamples-ssr-secrets-exposure"
     endpoint: "/example-5-secrets-exposure/vulnerable"
     method: GET
-    modules: ["passive-ssr-data-exposure"]
+    modules: ["ssr-data-exposure"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -142,7 +142,7 @@ test_cases:
   - id: "vulnexamples-info-disclosure"
     endpoint: "/example-5-secrets-exposure/vulnerable"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -152,7 +152,7 @@ test_cases:
   - id: "vulnexamples-xss-passive"
     endpoint: "/example-6-cross-site-scripting/vulnerable"
     method: GET
-    modules: ["passive-dom-xss-detect"]
+    modules: ["dom-xss-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -162,7 +162,7 @@ test_cases:
   - id: "vulnexamples-error-message"
     endpoint: "/api/nonexistent"
     method: GET
-    modules: ["passive-error-message-detect"]
+    modules: ["error-message-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -172,7 +172,7 @@ test_cases:
   - id: "vulnexamples-nextjs-config"
     endpoint: "/"
     method: GET
-    modules: ["passive-nextjs-config-audit"]
+    modules: ["nextjs-config-audit"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -185,7 +185,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"alice","password":"abc"}'
-    modules: ["passive-csrf-detect"]
+    modules: ["csrf-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

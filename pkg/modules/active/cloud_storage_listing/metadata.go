@@ -3,7 +3,7 @@ package cloud_storage_listing
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-cloud-storage-listing"
+	ModuleID    = "cloud-storage-listing"
 	ModuleName  = "Cloud Storage Listing"
 	ModuleShort = "Detects publicly listable S3 buckets and Azure containers"
 )

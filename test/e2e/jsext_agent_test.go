@@ -153,7 +153,7 @@ func TestAgentExt_XSSScanner_FindsReflection(t *testing.T) {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-ai-xss-scanner", activeMods[0].ID())
+	assert.Equal(t, "ext-ai-xss-scanner", activeMods[0].ID())
 	assert.Equal(t, "AI-Augmented XSS Scanner", activeMods[0].Name())
 
 	// Build a request targeting our echo server
@@ -455,7 +455,7 @@ func TestAgentExt_ResponseAnalyzerYAML_DetectsIssue(t *testing.T) {
 
 	passiveMods := engine.PassiveModules()
 	require.Len(t, passiveMods, 1, "YAML extension with script should load as a passive module")
-	assert.Equal(t, "passive-ext-ai-response-analyzer", passiveMods[0].ID())
+	assert.Equal(t, "ext-ai-response-analyzer", passiveMods[0].ID())
 	assert.Equal(t, "AI Response Analyzer", passiveMods[0].Name())
 
 	t.Run("DetectsSQLError", func(t *testing.T) {
@@ -585,11 +585,11 @@ func TestAgentExt_LoadAll(t *testing.T) {
 
 	// Verify IDs
 	if len(activeMods) > 0 {
-		assert.Equal(t, "active-ext-ai-xss-scanner", activeMods[0].ID())
+		assert.Equal(t, "ext-ai-xss-scanner", activeMods[0].ID())
 		t.Logf("Active:    %s (%s)", activeMods[0].ID(), activeMods[0].Name())
 	}
 	if len(passiveMods) > 0 {
-		assert.Equal(t, "passive-ext-ai-response-analyzer", passiveMods[0].ID())
+		assert.Equal(t, "ext-ai-response-analyzer", passiveMods[0].ID())
 		t.Logf("Passive:   %s (%s)", passiveMods[0].ID(), passiveMods[0].Name())
 	}
 	t.Logf("PostHooks: %d loaded", len(postHooks))

@@ -3,7 +3,7 @@ package drupal_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-drupal-misconfig"
+	ModuleID    = "drupal-misconfig"
 	ModuleName  = "Drupal Misconfiguration"
 	ModuleShort = "Detects exposed Drupal configuration files, update scripts, installer, debug settings, and directory listings"
 )

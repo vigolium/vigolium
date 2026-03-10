@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/insecure_deserialization"
 	"github.com/vigolium/vigolium/pkg/modules/active/jwt_vulnerability"
 	"github.com/vigolium/vigolium/pkg/modules/active/csrf_verify"
+	"github.com/vigolium/vigolium/pkg/modules/active/authz_compare"
 	"github.com/vigolium/vigolium/pkg/modules/active/idor_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/jsonp_callback"
 	"github.com/vigolium/vigolium/pkg/modules/active/lfi_generic"
@@ -131,6 +132,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_admin_dashboard"
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_active_storage_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_action_mailbox_probe"
+	// API Spec Discovery & Ingestion - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/api_spec_ingest"
 	// Python/Django/Flask/FastAPI Security - Active
 	"github.com/vigolium/vigolium/pkg/modules/active/fastapi_docs_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/fastapi_auth_inconsistency"
@@ -224,6 +227,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/django_fingerprint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/flask_fingerprint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/python_debug_detect"
+	// API Spec Detection - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/api_spec_detect"
 	// API Security - Passive
 	"github.com/vigolium/vigolium/pkg/modules/passive/sensitive_api_fields_detect"
 	// Protocol & Technology Detection - Passive
@@ -309,6 +314,7 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(http_method_tampering.New()).
 	RegisterActive(csrf_verify.New()).
 	RegisterActive(idor_detection.New()).
+	RegisterActive(authz_compare.New()).
 	RegisterActive(mass_assignment.New()).
 	// Active modules - Discovery
 	RegisterActive(sensitive_file_discovery.New()).
@@ -398,6 +404,8 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(rails_admin_dashboard.New()).
 	RegisterActive(rails_active_storage_probe.New()).
 	RegisterActive(rails_action_mailbox_probe.New()).
+	// Active modules - API Spec Discovery & Ingestion
+	RegisterActive(api_spec_ingest.New()).
 	// Active modules - Python/Django/Flask/FastAPI Security
 	RegisterActive(fastapi_docs_exposure.New()).
 	RegisterActive(fastapi_auth_inconsistency.New()).
@@ -507,6 +515,8 @@ var DefaultRegistry = NewRegistry().
 	RegisterPassive(django_fingerprint.New()).
 	RegisterPassive(flask_fingerprint.New()).
 	RegisterPassive(python_debug_detect.New()).
+	// API Spec Detection - Passive
+	RegisterPassive(api_spec_detect.New()).
 	// API Security - Passive
 	RegisterPassive(sensitive_api_fields_detect.New())
 

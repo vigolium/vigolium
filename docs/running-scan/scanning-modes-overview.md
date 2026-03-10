@@ -14,7 +14,6 @@ Vigolium supports multiple scanning modes depending on what you have available: 
 | **SAST-only** | Source code | `vigolium scan -t URL --source ./app --only sast` | Static analysis only, no dynamic scanning |
 | **Agent** | Source code + AI backend | `vigolium agent --prompt-template X --repo ./app` | AI-powered code review |
 | **Extension** | URL + JS/YAML extensions | `vigolium run extension -t URL --ext script.js` | Run only custom extension modules |
-| **Agent Loop** | URL + source code + AI backend | `vigolium agent loop --target URL --repo ./app` | Iterative AI analyze-scan-repeat cycle |
 | **Full Combined** | URL + source code + AI backend | Multi-step (see [full-scan.md](full-scan.md)) | SAST + agent + dynamic for maximum coverage |
 
 ## Decision Guide
@@ -37,7 +36,6 @@ Do you have application source code?
     │   │
     │   └── Yes
     │       ├── One-shot code review? ──── vigolium agent --prompt-template security-code-review --repo ./app
-    │       ├── Iterative scan loop? ───── vigolium agent loop --target URL --repo ./app
     │       └── Full combined scan? ────── See full-scan.md
 ```
 

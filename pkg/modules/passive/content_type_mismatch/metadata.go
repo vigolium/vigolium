@@ -3,7 +3,7 @@ package content_type_mismatch
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-content-type-mismatch"
+	ModuleID    = "content-type-mismatch"
 	ModuleName  = "Content Type Mismatch"
 	ModuleShort = "Detects mismatches between Content-Type header and response body"
 )

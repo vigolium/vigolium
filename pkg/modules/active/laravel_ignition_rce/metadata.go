@@ -3,7 +3,7 @@ package laravel_ignition_rce
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-laravel-ignition-rce"
+	ModuleID    = "laravel-ignition-rce"
 	ModuleName  = "Laravel Ignition RCE"
 	ModuleShort = "Detects exposed Ignition endpoints and flags CVE-2021-3129 RCE candidates"
 )

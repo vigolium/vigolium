@@ -16,10 +16,51 @@ type ScanningStrategyConfig struct {
 	HeuristicsCheck string         `yaml:"heuristics_check"`
 	ScanningProfile string         `yaml:"scanning_profile"`
 	ProfilesDir     string         `yaml:"profiles_dir"`
+	Session         SessionStrategyConfig `yaml:"session"`
 	Lite            StrategyPhases `yaml:"lite"`
 	Balanced        StrategyPhases `yaml:"balanced"`
 	Deep            StrategyPhases `yaml:"deep"`
 	Whitebox        StrategyPhases `yaml:"whitebox"`
+}
+
+// SessionStrategyConfig controls how authentication sessions behave during scanning.
+type SessionStrategyConfig struct {
+	// SessionDir is the directory where session YAML files are stored.
+	// Defaults to ~/.vigolium/sessions/. Used to resolve --session-file names
+	// that are not absolute paths.
+	SessionDir string `yaml:"session_dir"`
+
+	// UseInDiscovery controls whether the primary session's headers are applied
+	// during the discovery and spidering phases. When false, these phases run
+	// unauthenticated even if a primary session is configured. Default: true.
+	UseInDiscovery bool `yaml:"use_in_discovery"`
+
+	// CompareEnabled controls whether compare sessions are activated for
+	// cross-session IDOR/BOLA replay during dynamic assessment. Default: true.
+	CompareEnabled bool `yaml:"compare_enabled"`
+
+	// ReauthInterval re-executes login flows at this interval to refresh
+	// expiring tokens. Zero or empty means login once at scan start.
+	// Accepts Go duration strings (e.g. "15m", "1h").
+	ReauthInterval string `yaml:"reauth_interval"`
+
+	// ReauthOnStatus triggers re-authentication when the primary session
+	// receives one of these HTTP status codes mid-scan. Common values: [401, 403].
+	ReauthOnStatus []int `yaml:"reauth_on_status"`
+
+	// ValidateURL is a relative or absolute URL to GET after login to confirm
+	// that extracted credentials are working. The scanner checks for a 2xx
+	// response before proceeding. Empty means no validation.
+	ValidateURL string `yaml:"validate_url"`
+}
+
+// DefaultSessionStrategyConfig returns sensible defaults for session behavior.
+func DefaultSessionStrategyConfig() *SessionStrategyConfig {
+	return &SessionStrategyConfig{
+		SessionDir:     "~/.vigolium/sessions/",
+		UseInDiscovery: true,
+		CompareEnabled: true,
+	}
 }
 
 // StrategyPhases defines which phases are enabled for a strategy.
@@ -38,6 +79,7 @@ func DefaultScanningStrategyConfig() *ScanningStrategyConfig {
 		DefaultStrategy: "balanced",
 		HeuristicsCheck: "basic",
 		ProfilesDir:     "~/.vigolium/profiles/",
+		Session:         *DefaultSessionStrategyConfig(),
 		Lite: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          false,

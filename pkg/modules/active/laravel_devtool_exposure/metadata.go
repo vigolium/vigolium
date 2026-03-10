@@ -3,7 +3,7 @@ package laravel_devtool_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-laravel-devtool-exposure"
+	ModuleID    = "laravel-devtool-exposure"
 	ModuleName  = "Laravel Developer Tool Exposure"
 	ModuleShort = "Detects exposed Laravel developer tools: Web Tinker, Clockwork, Pulse, and Log Viewer"
 )

@@ -3,7 +3,7 @@ package aspnet_viewstate_scan
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-viewstate-scan"
+	ModuleID    = "aspnet-viewstate-scan"
 	ModuleName  = "ASP.NET ViewState Scan"
 	ModuleShort = "Tests for ASP.NET ViewState MAC disabled, event validation bypass, and cookieless sessions"
 )

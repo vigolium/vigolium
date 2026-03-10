@@ -3,7 +3,7 @@ package express_directory_listing
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-express-directory-listing"
+	ModuleID    = "express-directory-listing"
 	ModuleName  = "Express Directory Listing"
 	ModuleShort = "Detects directory listing exposure via serve-index or similar middleware"
 )

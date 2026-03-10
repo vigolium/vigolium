@@ -14,7 +14,7 @@ test_cases:
     body: "fullname=test"
     headers:
       Content-Type: "application/x-www-form-urlencoded"
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli"]
     assertion: soft
     min_findings: 1

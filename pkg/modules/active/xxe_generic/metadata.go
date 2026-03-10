@@ -3,7 +3,7 @@ package xxe_generic
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-xxe-generic"
+	ModuleID    = "xxe-generic"
 	ModuleName  = "XXE Generic"
 	ModuleShort = "Detects XML external entity injection in generic XML endpoints"
 )

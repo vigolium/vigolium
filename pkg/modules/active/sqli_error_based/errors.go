@@ -111,6 +111,8 @@ var (
 			regexp.MustCompile(`(Microsoft|System)\.Data\.SQLite\.SQLiteException`),
 			regexp.MustCompile(`Warning.*?\W(sqlite_|SQLite3::)`),
 			regexp.MustCompile(`\[SQLITE_ERROR\]`),
+			regexp.MustCompile(`SQLITE_ERROR:`),
+			regexp.MustCompile("SequelizeDatabaseError"),
 			regexp.MustCompile(`SQLite error \d+:`),
 			regexp.MustCompile("sqlite3.OperationalError:"),
 			regexp.MustCompile("SQLite3::SQLException"),

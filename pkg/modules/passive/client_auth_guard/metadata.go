@@ -3,7 +3,7 @@ package client_auth_guard
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-client-auth-guard"
+	ModuleID    = "client-auth-guard"
 	ModuleName  = "Client Auth Guard Check"
 	ModuleShort = "Detects client-only auth guards without server-side enforcement"
 )

@@ -3,7 +3,7 @@ package rails_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-rails-fingerprint"
+	ModuleID    = "rails-fingerprint"
 	ModuleName  = "Rails Fingerprint"
 	ModuleShort = "Identifies Ruby on Rails installations from response headers, cookies, and body patterns"
 )

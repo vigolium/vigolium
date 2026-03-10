@@ -3,7 +3,7 @@ package rails_sensitive_files
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-rails-sensitive-files"
+	ModuleID    = "rails-sensitive-files"
 	ModuleName  = "Rails Sensitive Files"
 	ModuleShort = "Detects exposed Rails configuration files, credentials, and artifacts"
 )

@@ -3,7 +3,7 @@ package spring_gateway_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-gateway-exposure"
+	ModuleID    = "spring-gateway-exposure"
 	ModuleName  = "Spring Gateway Exposure"
 	ModuleShort = "Detects exposed Spring Cloud Gateway actuator endpoints revealing routes and filters"
 )

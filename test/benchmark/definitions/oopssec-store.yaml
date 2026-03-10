@@ -19,7 +19,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"status":"pending"}'
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -30,7 +30,7 @@ test_cases:
   - id: "oopssec-sqli-products-search"
     endpoint: "/api/products/search?q=test"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -45,7 +45,7 @@ test_cases:
       Content-Type: "application/json"
       X-Forwarded-For: "127.0.0.1"
     body: '{"trackingId":"12345"}'
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -59,7 +59,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"screenshotUrl":"http://example.com","message":"test"}'
-    modules: ["active-ssrf-detection"]
+    modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
     min_findings: 1
@@ -70,7 +70,7 @@ test_cases:
   - id: "oopssec-lfi-files"
     endpoint: "/api/files?file=test.txt"
     method: GET
-    modules: ["active-lfi-path-traversal"]
+    modules: ["lfi-path-traversal"]
     vuln_types: ["lfi"]
     assertion: soft
     min_findings: 1
@@ -81,7 +81,7 @@ test_cases:
   - id: "oopssec-open-redirect"
     endpoint: "/login?redirect=/dashboard"
     method: GET
-    modules: ["active-open-redirect"]
+    modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
     assertion: soft
     min_findings: 1
@@ -95,7 +95,7 @@ test_cases:
     headers:
       Content-Type: "application/xml"
     body: '<?xml version="1.0"?><order><id>1</id><supplier>test</supplier><qty>1</qty></order>'
-    modules: ["active-xxe-generic"]
+    modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
     min_findings: 1
@@ -109,7 +109,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"content":"test review","rating":5}'
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-stored"]
     assertion: soft
     min_findings: 1
@@ -120,7 +120,7 @@ test_cases:
   - id: "oopssec-idor-orders"
     endpoint: "/api/orders/1"
     method: GET
-    modules: ["active-idor-detection"]
+    modules: ["idor-detection"]
     vuln_types: ["idor"]
     assertion: soft
     min_findings: 1
@@ -134,7 +134,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"email":"test@test.com","password":"test123","name":"Test"}'
-    modules: ["active-mass-assignment"]
+    modules: ["mass-assignment"]
     vuln_types: ["mass-assignment"]
     assertion: soft
     min_findings: 1
@@ -145,7 +145,7 @@ test_cases:
   - id: "oopssec-cors"
     endpoint: "/api/products"
     method: GET
-    modules: ["active-cors-misconfiguration"]
+    modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -156,7 +156,7 @@ test_cases:
   - id: "oopssec-nextjs-image-ssrf"
     endpoint: "/"
     method: GET
-    modules: ["active-nextjs-image-ssrf"]
+    modules: ["nextjs-image-ssrf"]
     vuln_types: ["ssrf"]
     assertion: soft
     min_findings: 1
@@ -167,7 +167,7 @@ test_cases:
   - id: "oopssec-nextjs-middleware-bypass"
     endpoint: "/admin"
     method: GET
-    modules: ["active-nextjs-middleware-bypass"]
+    modules: ["nextjs-middleware-bypass"]
     vuln_types: ["auth-bypass"]
     assertion: soft
     min_findings: 1
@@ -178,7 +178,7 @@ test_cases:
   - id: "oopssec-nextjs-data-leakage"
     endpoint: "/admin"
     method: GET
-    modules: ["active-nextjs-data-leakage"]
+    modules: ["nextjs-data-leakage"]
     vuln_types: ["data-leakage"]
     assertion: soft
     min_findings: 1
@@ -189,7 +189,7 @@ test_cases:
   - id: "oopssec-devserver-exposure"
     endpoint: "/"
     method: GET
-    modules: ["active-js-devserver-exposure"]
+    modules: ["js-devserver-exposure"]
     vuln_types: ["devserver-exposure"]
     assertion: soft
     min_findings: 1
@@ -200,7 +200,7 @@ test_cases:
   - id: "oopssec-sensitive-files"
     endpoint: "/"
     method: GET
-    modules: ["active-sensitive-file-discovery"]
+    modules: ["sensitive-file-discovery"]
     vuln_types: ["sensitive-file"]
     assertion: soft
     min_findings: 1
@@ -213,7 +213,7 @@ test_cases:
     method: POST
     headers:
       Content-Type: "multipart/form-data"
-    modules: ["active-file-upload-scan"]
+    modules: ["file-upload-scan"]
     vuln_types: ["file-upload"]
     assertion: soft
     min_findings: 1
@@ -227,7 +227,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"status":"shipped"}'
-    modules: ["active-csrf-verify"]
+    modules: ["csrf-verify"]
     vuln_types: ["csrf"]
     assertion: soft
     min_findings: 1
@@ -240,7 +240,7 @@ test_cases:
   - id: "oopssec-js-fingerprint"
     endpoint: "/"
     method: GET
-    modules: ["passive-js-framework-fingerprint"]
+    modules: ["js-framework-fingerprint"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -250,7 +250,7 @@ test_cases:
   - id: "oopssec-ssr-data-exposure"
     endpoint: "/"
     method: GET
-    modules: ["passive-ssr-data-exposure"]
+    modules: ["ssr-data-exposure"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -260,7 +260,7 @@ test_cases:
   - id: "oopssec-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: strict
     min_findings: 1
     scan_mode: passive
@@ -270,7 +270,7 @@ test_cases:
   - id: "oopssec-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -283,7 +283,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"email":"bench@test.com","password":"benchmark123"}'
-    modules: ["passive-jwt-weak-secret"]
+    modules: ["jwt-weak-secret"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -296,7 +296,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"status":"shipped"}'
-    modules: ["passive-csrf-detect"]
+    modules: ["csrf-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -309,7 +309,7 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{}'
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -319,7 +319,7 @@ test_cases:
   - id: "oopssec-error-message"
     endpoint: "/api/nonexistent"
     method: GET
-    modules: ["passive-error-message-detect"]
+    modules: ["error-message-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -329,7 +329,7 @@ test_cases:
   - id: "oopssec-cache-auth"
     endpoint: "/"
     method: GET
-    modules: ["passive-cache-auth-misconfiguration"]
+    modules: ["cache-auth-misconfiguration"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -339,7 +339,7 @@ test_cases:
   - id: "oopssec-nextjs-config"
     endpoint: "/"
     method: GET
-    modules: ["passive-nextjs-config-audit"]
+    modules: ["nextjs-config-audit"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

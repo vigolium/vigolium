@@ -3,7 +3,7 @@ package ssr_data_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-ssr-data-exposure"
+	ModuleID    = "ssr-data-exposure"
 	ModuleName  = "SSR Data Exposure"
 	ModuleShort = "Detects sensitive data leaked in server-side rendered state blobs"
 )

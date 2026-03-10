@@ -3,7 +3,7 @@ package rails_action_mailbox_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-rails-action-mailbox-probe"
+	ModuleID    = "rails-action-mailbox-probe"
 	ModuleName  = "Rails Action Mailbox Probe"
 	ModuleShort = "Detects exposed Rails Action Mailbox ingress endpoints that may accept unauthorized submissions"
 )

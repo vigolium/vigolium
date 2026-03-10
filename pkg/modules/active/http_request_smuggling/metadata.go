@@ -3,7 +3,7 @@ package http_request_smuggling
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-http-request-smuggling"
+	ModuleID    = "http-request-smuggling"
 	ModuleName  = "HTTP Request Smuggling"
 	ModuleShort = "Detects HTTP request smuggling via CL.TE and TE.CL desync"
 )

@@ -3,7 +3,7 @@ package proxy_pingback
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-proxy-pingback"
+	ModuleID    = "proxy-pingback"
 	ModuleName  = "Proxy Pingback"
 	ModuleShort = "Detects open proxy/callback endpoints via OAST URL injection into proxy-related paths"
 )

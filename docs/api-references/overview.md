@@ -9,7 +9,8 @@ Base URL: `http://localhost:9002` (default)
 vigolium server -A
 
 # With API key
-vigolium server --api-key "my-secret-key"
+export VIGOLIUM_API_KEY="my-secret-key"
+vigolium server -A
 
 # Custom host/port
 vigolium server -A --host 127.0.0.1 --service-port 8080
@@ -17,7 +18,7 @@ vigolium server -A --host 127.0.0.1 --service-port 8080
 
 ## Authentication
 
-All endpoints registered after the auth middleware require a Bearer token when the server is started with `--api-key`. This includes `GET /`, `GET /health`, `GET /server-info`, and all `/api/*` routes.
+All endpoints registered after the auth middleware require a Bearer token when the server is started with the `VIGOLIUM_API_KEY` environment variable or `server.auth_api_key` config. This includes `GET /`, `GET /health`, `GET /server-info`, and all `/api/*` routes.
 
 ```bash
 curl -H "Authorization: Bearer my-secret-key" http://localhost:9002/api/stats

@@ -3,7 +3,7 @@ package nextjs_middleware_bypass
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nextjs-middleware-bypass"
+	ModuleID    = "nextjs-middleware-bypass"
 	ModuleName  = "Next.js Middleware Bypass"
 	ModuleShort = "Detects Next.js middleware authentication bypass via header injection and path manipulation"
 )

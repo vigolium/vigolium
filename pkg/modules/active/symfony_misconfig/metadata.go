@@ -3,7 +3,7 @@ package symfony_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-symfony-misconfig"
+	ModuleID    = "symfony-misconfig"
 	ModuleName  = "Symfony Misconfiguration"
 	ModuleShort = "Detects exposed Symfony profiler, debug toolbar, dev front controller, and configuration leaks"
 )

@@ -3,7 +3,7 @@ package xml_saml_security
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-xml-saml-security"
+	ModuleID    = "xml-saml-security"
 	ModuleName  = "XML SAML Security"
 	ModuleShort = "SAML XML security checks (XXE/DTD)"
 )

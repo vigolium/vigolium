@@ -3,7 +3,7 @@ package sourcemap_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-sourcemap-detect"
+	ModuleID    = "sourcemap-detect"
 	ModuleName  = "Sourcemap Exposure Detect"
 	ModuleShort = "Detects exposed JavaScript sourcemaps in production responses"
 )

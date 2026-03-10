@@ -106,7 +106,7 @@ module.exports = {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-echo-scanner", activeMods[0].ID())
+	assert.Equal(t, "ext-echo-scanner", activeMods[0].ID())
 	assert.Equal(t, "Echo Scanner", activeMods[0].Name())
 
 	// Scan httpbin /get?search=test — httpbin echoes query params back in JSON
@@ -212,7 +212,7 @@ module.exports = {
 
 	passiveMods := engine.PassiveModules()
 	require.Len(t, passiveMods, 1)
-	assert.Equal(t, "passive-ext-missing-security-headers", passiveMods[0].ID())
+	assert.Equal(t, "ext-missing-security-headers", passiveMods[0].ID())
 
 	// Build a request-response pair with a synthetic response that lacks security headers
 	// (matching what httpbin actually returns — no X-Content-Type-Options or X-Frame-Options)
@@ -808,13 +808,13 @@ module.exports = {
 		activeIDs[m.ID()] = true
 		t.Logf("Active module: %s", m.ID())
 	}
-	assert.True(t, activeIDs["active-ext-scanner-a"])
-	assert.True(t, activeIDs["active-ext-scanner-b"])
+	assert.True(t, activeIDs["ext-scanner-a"])
+	assert.True(t, activeIDs["ext-scanner-b"])
 
 	for _, m := range engine.PassiveModules() {
 		t.Logf("Passive module: %s", m.ID())
 	}
-	assert.Equal(t, "passive-ext-observer-a", engine.PassiveModules()[0].ID())
+	assert.Equal(t, "ext-observer-a", engine.PassiveModules()[0].ID())
 }
 
 // TestJSExtension_DetectAnomaly tests vigolium.utils.detectAnomaly() via inline JS.

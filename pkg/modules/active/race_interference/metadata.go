@@ -3,7 +3,7 @@ package race_interference
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-race-interference"
+	ModuleID    = "race-interference"
 	ModuleName  = "Race Interference Detection"
 	ModuleShort = "Detects input storage, cross-contamination, and request interference races"
 )

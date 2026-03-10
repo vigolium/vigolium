@@ -3,7 +3,7 @@ package lfi_generic
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-lfi-generic"
+	ModuleID    = "lfi-generic"
 	ModuleName  = "LFI Generic"
 	ModuleShort = "Detects LFI via path traversal payloads"
 )

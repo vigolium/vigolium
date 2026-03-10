@@ -16,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/discovery"
 	deparosstorage "github.com/vigolium/vigolium/pkg/deparos/storage"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit/specutil"
 	"github.com/vigolium/vigolium/pkg/work"
 	"go.uber.org/zap"
 )
@@ -434,6 +435,16 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	}
 
 	localStats.HardDedupRemoved = localStats.TotalDiscovered - len(survivors)
+
+	// Parse API specs (OpenAPI/Swagger/Postman) found among survivors and add parsed endpoints
+	specEndpoints := extractSpecEndpoints(survivors)
+	if len(specEndpoints) > 0 {
+		survivors = append(survivors, specEndpoints...)
+		zap.L().Info("Ingested API spec endpoints from discovery results",
+			zap.String("target", target),
+			zap.Int("endpoints", len(specEndpoints)))
+	}
+
 	localStats.Imported = len(survivors)
 
 	// Batch save to DB
@@ -484,6 +495,65 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	}
 
 	return nil
+}
+
+// extractSpecEndpoints scans discovered records for API specs (OpenAPI/Swagger/Postman)
+// and returns parsed endpoints as additional HttpRequestResponse items.
+func extractSpecEndpoints(records []*httpmsg.HttpRequestResponse) []*httpmsg.HttpRequestResponse {
+	specSeen := make(map[string]struct{})
+	var allEndpoints []*httpmsg.HttpRequestResponse
+
+	for _, rr := range records {
+		if rr.Response() == nil {
+			continue
+		}
+		sc := rr.Response().StatusCode()
+		if sc < 200 || sc >= 300 {
+			continue
+		}
+
+		body := rr.Response().Body()
+		if len(body) < specutil.MinSpecBodySize || len(body) > specutil.MaxSpecBodySize {
+			continue
+		}
+
+		// Content-type pre-filter
+		ct, _ := httpmsg.FindHttpHeader(rr.Response().Headers(), "Content-Type")
+		if ct != "" && !specutil.IsSpecContentType(ct) {
+			continue
+		}
+
+		// Detect spec type
+		st := specutil.DetectSpecType(body)
+		if st == specutil.Unknown {
+			continue
+		}
+
+		// Content dedup
+		h := sha256.Sum256(body)
+		hash := hex.EncodeToString(h[:])
+		if _, seen := specSeen[hash]; seen {
+			continue
+		}
+		specSeen[hash] = struct{}{}
+
+		// Derive base URL from the record's service
+		baseURL := ""
+		if rr.Service() != nil {
+			baseURL = rr.Service().Protocol() + "://" + rr.Service().Host()
+		}
+
+		endpoints, err := specutil.ParseSpecTyped(st, body, baseURL, rr.Service())
+		if err != nil {
+			zap.L().Debug("Failed to parse API spec from discovery result",
+				zap.String("url", rr.Target()),
+				zap.Error(err))
+			continue
+		}
+		allEndpoints = append(allEndpoints, endpoints...)
+	}
+
+	return allEndpoints
 }
 
 // Close releases resources and stops discovery.

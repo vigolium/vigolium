@@ -3,7 +3,7 @@ package graphql_introspection_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-graphql-introspection-detect"
+	ModuleID    = "graphql-introspection-detect"
 	ModuleName  = "GraphQL Introspection Leak Detect"
 	ModuleShort = "Detects GraphQL introspection responses that expose the full API schema"
 )

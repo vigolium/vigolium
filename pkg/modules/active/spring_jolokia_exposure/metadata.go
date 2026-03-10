@@ -3,7 +3,7 @@ package spring_jolokia_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-jolokia-exposure"
+	ModuleID    = "spring-jolokia-exposure"
 	ModuleName  = "Spring Jolokia Exposure"
 	ModuleShort = "Detects exposed Jolokia JMX endpoints providing HTTP access to Java Management Extensions"
 )

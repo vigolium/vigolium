@@ -11,7 +11,7 @@ test_cases:
   - id: "xbow-047-xss-url"
     endpoint: "/page?url=test"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss"]
     assertion: soft
     min_findings: 1

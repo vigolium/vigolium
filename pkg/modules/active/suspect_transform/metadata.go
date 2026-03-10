@@ -3,7 +3,7 @@ package suspect_transform
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-suspect-transform"
+	ModuleID    = "suspect-transform"
 	ModuleName  = "Suspect Transform Detection"
 	ModuleShort = "Detects expression evaluation, quote consumption, unicode transformations"
 )

@@ -16,6 +16,12 @@ import (
 // iisPattern matches IIS default directory listing HTML structure.
 var iisPattern = regexp.MustCompile(`</title></head><body><H1>.*?-.*?</H1><hr>`)
 
+// genericListingPattern matches generic directory listing titles like:
+// <title>listing directory /ftp/</title>, <title>Directory listing for /</title>,
+// <title>Index of /uploads</title>, <title>Directory: /path</title>
+var genericListingPattern = regexp.MustCompile(`(?i)<title>\s*(?:(?:listing|index)\s+(?:of|directory)|directory\s+(?:listing|index|of))\b`)
+
+
 // Module implements the Directory Listing Detect passive scanner.
 type Module struct {
 	modkit.BasePassiveModule
@@ -107,16 +113,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 func detectDirectoryListing(body string) string {
 	lower := strings.ToLower(body)
 
-	// Apache: <title>Index of AND <h1>Index of
-	if strings.Contains(lower, "<title>index of") && strings.Contains(lower, "<h1>index of") {
-		return "Apache"
-	}
-
-	// Python SimpleHTTPServer: <title>Directory listing for / <title>Directory listing of
-	if strings.Contains(lower, "<title>directory listing for") || strings.Contains(lower, "<title>directory listing of") {
-		return "Python"
-	}
-
 	// Jetty: <title>Directory: AND jetty-dir.css
 	if strings.Contains(lower, "<title>directory:") && strings.Contains(lower, "jetty-dir.css") {
 		return "Jetty"
@@ -127,9 +123,21 @@ func detectDirectoryListing(body string) string {
 		return "IIS"
 	}
 
+	// Apache: <title>Index of AND <h1>Index of
+	if strings.Contains(lower, "<title>index of") && strings.Contains(lower, "<h1>index of") {
+		return "Apache"
+	}
+
 	// Nginx: <title>Index of AND <pre>
 	if strings.Contains(lower, "<title>index of") && strings.Contains(lower, "<pre>") {
 		return "Nginx"
+	}
+
+	// Generic catch-all: matches title patterns like "listing directory", "directory listing",
+	// "index of", "directory of", etc. Covers Express serve-index, Python SimpleHTTPServer,
+	// and other servers with directory listing titles.
+	if genericListingPattern.MatchString(body) {
+		return "Generic"
 	}
 
 	return ""

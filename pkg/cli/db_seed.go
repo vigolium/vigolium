@@ -845,7 +845,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/cgi-bin/submit")},
 			ModuleID:         "info-server-version",
-			ModuleName:       "passive-info",
+			ModuleName:       "info",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects server version disclosure in response headers",
 			FindingSource:    database.FindingSourceDynamicAssessment,
@@ -865,7 +865,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/post/hello-world")},
 			ModuleID:         "info-missing-headers",
-			ModuleName:       "passive-info",
+			ModuleName:       "info",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects missing security headers in HTTP responses",
 			FindingSource:    database.FindingSourceDynamicAssessment,
@@ -885,7 +885,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/users/me")},
 			ModuleID:         "info-sensitive-data",
-			ModuleName:       "passive-info",
+			ModuleName:       "info",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects sensitive data exposure in API responses",
 			FindingSource:    database.FindingSourceDynamicAssessment,
@@ -905,7 +905,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/search?q=test")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-backslash-transformation",
+			ModuleID:         "backslash-transformation",
 			ModuleName:       "backslash-transformation",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects backslash escape sequence interpretation",
@@ -926,7 +926,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/admin/settings")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-suspect-transform",
+			ModuleID:         "suspect-transform",
 			ModuleName:       "suspect-transform",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects server-side expression evaluation in parameters",
@@ -947,7 +947,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/auth/login")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ModuleID:         "active-smart-behavior-detection",
+			ModuleID:         "smart-behavior-detection",
 			ModuleName:       "smart-behavior-detection",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects differential behavior suggesting injection context",
@@ -972,7 +972,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/contact")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-input-behavior-probe",
+			ModuleID:         "input-behavior-probe",
 			ModuleName:       "input-behavior-probe",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects HTML structure changes from fuzz payloads",
@@ -993,7 +993,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v2/beta/experimental")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ModuleID:         "passive-anomaly-ranking",
+			ModuleID:         "anomaly-ranking",
 			ModuleName:       "anomaly-ranking",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects statistical outlier responses across host",
@@ -1014,7 +1014,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/products")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ModuleID:         "active-wildcard-injection",
+			ModuleID:         "wildcard-injection",
 			ModuleName:       "wildcard-injection",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects wildcard character interpretation in query layer",
@@ -1035,7 +1035,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/profile/1")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "passive-response-anomaly",
+			ModuleID:         "response-anomaly",
 			ModuleName:       "response-anomaly",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects anomalous response size patterns",
@@ -1056,7 +1056,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/post/hello-world/comment")},
 			ScanUUID:         "scan-0003-aaaa-bbbb-cccc-ddddeeee0003",
-			ModuleID:         "active-timing-anomaly",
+			ModuleID:         "timing-anomaly",
 			ModuleName:       "timing-anomaly",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects timing-based anomalies suggesting blind injection",
@@ -1082,7 +1082,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/orders")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ModuleID:         "passive-content-type-mismatch",
+			ModuleID:         "content-type-mismatch",
 			ModuleName:       "content-type-mismatch",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects content-type confusion between expected and actual response",
@@ -1103,7 +1103,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/graphql")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-header-reflection",
+			ModuleID:         "header-reflection",
 			ModuleName:       "header-reflection",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects user input reflection in HTTP response headers",
@@ -1124,7 +1124,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/admin/logs")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-encoding-bypass",
+			ModuleID:         "encoding-bypass",
 			ModuleName:       "encoding-bypass",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects multi-layer URL decoding bypass",
@@ -1145,7 +1145,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/products/42")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ModuleID:         "active-method-override",
+			ModuleID:         "method-override",
 			ModuleName:       "method-override",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects HTTP method override via headers",
@@ -1169,7 +1169,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/soap/UserService")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "active-xml-entity-probe",
+			ModuleID:         "xml-entity-probe",
 			ModuleName:       "xml-entity-probe",
 			ModuleType:       database.ModuleTypeActive,
 			ModuleShort:      "Detects XML external entity processing in SOAP/XML endpoints",
@@ -1190,7 +1190,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/account/preferences")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			ModuleID:         "passive-cookie-reflection",
+			ModuleID:         "cookie-reflection",
 			ModuleName:       "cookie-reflection",
 			ModuleType:       database.ModuleTypePassive,
 			ModuleShort:      "Detects cookie value reflection in response body",

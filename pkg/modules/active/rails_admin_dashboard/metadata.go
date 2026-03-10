@@ -3,7 +3,7 @@ package rails_admin_dashboard
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-rails-admin-dashboard"
+	ModuleID    = "rails-admin-dashboard"
 	ModuleName  = "Rails Admin Dashboard"
 	ModuleShort = "Detects exposed Rails ecosystem admin panels and dashboard UIs"
 )

@@ -3,7 +3,7 @@ package graphql_scan
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-graphql-scan"
+	ModuleID    = "graphql-scan"
 	ModuleName  = "GraphQL Security Scanner"
 	ModuleShort = "Tests GraphQL endpoints for introspection, injection, and batching vulnerabilities"
 )

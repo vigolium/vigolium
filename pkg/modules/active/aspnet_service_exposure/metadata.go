@@ -3,7 +3,7 @@ package aspnet_service_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-aspnet-service-exposure"
+	ModuleID    = "aspnet-service-exposure"
 	ModuleName  = "ASP.NET Service Exposure"
 	ModuleShort = "Detects exposed ASP.NET service endpoints including ASMX, WCF, OData, and legacy service paths"
 )

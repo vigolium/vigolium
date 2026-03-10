@@ -189,7 +189,7 @@ func printModuleTable(opts *moduleOptions, filter string) {
 			buckets[scope] = append(buckets[scope], moduleRow{
 				terminal.ActiveModuleSymbol(),
 				terminal.BoldRed("active"),
-				terminal.Cyan(strings.TrimPrefix(m.ID(), "active-")),
+				terminal.Cyan(m.ID()),
 				m.ShortDescription(),
 				status,
 				terminal.Gray(formatTags(m.Tags())),
@@ -225,7 +225,7 @@ func printModuleTable(opts *moduleOptions, filter string) {
 			buckets[scope] = append(buckets[scope], moduleRow{
 				terminal.PassiveModuleSymbol(),
 				terminal.BoldBlue("passive"),
-				terminal.Cyan(strings.TrimPrefix(m.ID(), "passive-")),
+				terminal.Cyan(m.ID()),
 				m.ShortDescription(),
 				status,
 				terminal.Gray(formatTags(m.Tags())),
@@ -321,7 +321,7 @@ func printModuleJSON(opts *moduleOptions, filter string) {
 			}
 			activeCount++
 			entries = append(entries, moduleJSONEntry{
-				ID:                   strings.TrimPrefix(m.ID(), "active-"),
+				ID:                   m.ID(),
 				Name:                 m.Name(),
 				Type:                 "active",
 				Description:          m.Description(),
@@ -347,7 +347,7 @@ func printModuleJSON(opts *moduleOptions, filter string) {
 			}
 			passiveCount++
 			entries = append(entries, moduleJSONEntry{
-				ID:                   strings.TrimPrefix(m.ID(), "passive-"),
+				ID:                   m.ID(),
 				Name:                 m.Name(),
 				Type:                 "passive",
 				Description:          m.Description(),
@@ -404,7 +404,7 @@ func printModuleVerbose(opts *moduleOptions, filter string) {
 		if !enabled {
 			status = terminal.Yellow("disabled")
 		}
-		name := strings.TrimPrefix(m.ID(), typeName+"-")
+		name := m.ID()
 		fmt.Printf("  %s [%s] %s  %s\n", symbolFn(), typeColorFn(typeName), terminal.Cyan(name), status)
 		fmt.Printf("      %s %s\n", terminal.Gray("Short Description:"), m.ShortDescription())
 		if desc := m.Description(); desc != "" {

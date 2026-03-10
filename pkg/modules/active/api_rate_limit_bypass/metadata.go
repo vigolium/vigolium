@@ -3,7 +3,7 @@ package api_rate_limit_bypass
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-api-rate-limit-bypass"
+	ModuleID    = "api-rate-limit-bypass"
 	ModuleName  = "API Rate Limit Bypass"
 	ModuleShort = "Detects rate limiting bypass via IP spoofing headers"
 )

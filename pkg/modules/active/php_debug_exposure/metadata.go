@@ -3,7 +3,7 @@ package php_debug_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-php-debug-exposure"
+	ModuleID    = "php-debug-exposure"
 	ModuleName  = "PHP Debug Exposure"
 	ModuleShort = "Detects exposed phpinfo pages, PHP-FPM status endpoints, and phpMyAdmin instances"
 )

@@ -3,7 +3,7 @@ package sqli_time_blind
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sqli-time-blind"
+	ModuleID    = "sqli-time-blind"
 	ModuleName  = "Blind SQL Injection (Time-Based)"
 	ModuleShort = "Detects time-based blind SQL injection vulnerabilities"
 )

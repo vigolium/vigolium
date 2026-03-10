@@ -3,7 +3,7 @@ package angular_template_injection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-angular-template-injection"
+	ModuleID    = "angular-template-injection"
 	ModuleName  = "Angular Template Injection"
 	ModuleShort = "Detects Angular template injection via expression evaluation"
 )

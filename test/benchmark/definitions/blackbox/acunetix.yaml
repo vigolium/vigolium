@@ -11,7 +11,7 @@ test_cases:
   - id: "acunetix-xss-search"
     endpoint: "/search.php?test=query"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -22,7 +22,7 @@ test_cases:
   - id: "acunetix-sqli-listproducts"
     endpoint: "/listproducts.php?cat=1"
     method: GET
-    modules: ["active-sqli-error-based"]
+    modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
     min_findings: 1
@@ -33,7 +33,7 @@ test_cases:
   - id: "acunetix-lfi-showimage"
     endpoint: "/showimage.php?file=test"
     method: GET
-    modules: ["active-lfi-generic"]
+    modules: ["lfi-generic"]
     vuln_types: ["lfi"]
     assertion: soft
     min_findings: 1
@@ -44,7 +44,7 @@ test_cases:
   - id: "acunetix-crlf-redir"
     endpoint: "/redir.php?url=test"
     method: GET
-    modules: ["active-crlf-injection"]
+    modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
     min_findings: 1
@@ -55,7 +55,7 @@ test_cases:
   - id: "acunetix-open-redirect"
     endpoint: "/redir.php?url=http://evil.com"
     method: GET
-    modules: ["active-open-redirect"]
+    modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
     assertion: soft
     min_findings: 1
@@ -66,7 +66,7 @@ test_cases:
   - id: "acunetix-xss-path"
     endpoint: "/artists.php?artist=1"
     method: GET
-    modules: ["active-xss-light-url-params"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
     min_findings: 1
@@ -79,7 +79,7 @@ test_cases:
   - id: "acunetix-security-headers"
     endpoint: "/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -89,7 +89,7 @@ test_cases:
   - id: "acunetix-cookie-security"
     endpoint: "/"
     method: GET
-    modules: ["passive-cookie-security-detect"]
+    modules: ["cookie-security-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -99,7 +99,7 @@ test_cases:
   - id: "acunetix-info-disclosure"
     endpoint: "/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -109,7 +109,7 @@ test_cases:
   - id: "acunetix-sql-syntax-passive"
     endpoint: "/listproducts.php?cat=1'"
     method: GET
-    modules: ["passive-sql-syntax-detect"]
+    modules: ["sql-syntax-detect"]
     assertion: soft
     min_findings: 1
     scan_mode: passive

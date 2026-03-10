@@ -3,7 +3,7 @@ package cache_data_leak
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cache-data-leak"
+	ModuleID    = "cache-data-leak"
 	ModuleName  = "Cache Data Leak"
 	ModuleShort = "Detects cache and static generation patterns that may leak user data"
 )

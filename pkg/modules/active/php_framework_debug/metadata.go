@@ -3,7 +3,7 @@ package php_framework_debug
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-php-framework-debug"
+	ModuleID    = "php-framework-debug"
 	ModuleName  = "PHP Framework Debug Exposure"
 	ModuleShort = "Detects exposed debug endpoints for Yii, CodeIgniter, CakePHP, and other PHP frameworks"
 )

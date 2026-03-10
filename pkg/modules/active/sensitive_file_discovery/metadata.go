@@ -3,7 +3,7 @@ package sensitive_file_discovery
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-sensitive-file-discovery"
+	ModuleID    = "sensitive-file-discovery"
 	ModuleName  = "Sensitive File Discovery"
 	ModuleShort = "Probes for exposed sensitive files (.env, .git/config, dot files, log files, and more)"
 )

@@ -3,7 +3,7 @@ package spring_h2_console_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-h2-console-exposure"
+	ModuleID    = "spring-h2-console-exposure"
 	ModuleName  = "Spring H2 Console Exposure"
 	ModuleShort = "Detects exposed H2 database web consoles commonly left enabled in Spring Boot applications"
 )

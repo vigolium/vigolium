@@ -3,7 +3,7 @@ package firebase_fingerprint
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-firebase-fingerprint"
+	ModuleID    = "firebase-fingerprint"
 	ModuleName  = "Firebase Fingerprint"
 	ModuleShort = "Identifies Firebase usage and detects leaked Firebase secrets in responses"
 )

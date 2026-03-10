@@ -3,7 +3,7 @@ package nosqli_operator_injection
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-nosqli-operator-injection"
+	ModuleID    = "nosqli-operator-injection"
 	ModuleName  = "NoSQL Operator Injection"
 	ModuleShort = "Detects MongoDB operator injection ($ne, $gt, $regex, $where) for auth bypass and data exfiltration"
 )

@@ -3,7 +3,7 @@ package cacheable_https_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cacheable-https-detect"
+	ModuleID    = "cacheable-https-detect"
 	ModuleName  = "Cacheable HTTPS Response Detect"
 	ModuleShort = "Detects sensitive HTTPS responses without proper cache control"
 )

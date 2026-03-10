@@ -3,7 +3,7 @@ package java_sensitive_files
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-java-sensitive-files"
+	ModuleID    = "java-sensitive-files"
 	ModuleName  = "Java Sensitive Files"
 	ModuleShort = "Detects Java-specific sensitive files: application configs, WEB-INF, META-INF, and build artifacts"
 )

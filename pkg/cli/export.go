@@ -299,7 +299,7 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 
 		for _, m := range modules.GetActiveModules() {
 			entry := moduleJSONEntry{
-				ID:                   strings.TrimPrefix(m.ID(), "active-"),
+				ID:                   m.ID(),
 				Name:                 m.Name(),
 				Type:                 "active",
 				Description:          m.Description(),
@@ -314,7 +314,7 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 		}
 		for _, m := range modules.GetPassiveModules() {
 			entry := moduleJSONEntry{
-				ID:                   strings.TrimPrefix(m.ID(), "passive-"),
+				ID:                   m.ID(),
 				Name:                 m.Name(),
 				Type:                 "passive",
 				Description:          m.Description(),

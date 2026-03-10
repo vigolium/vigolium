@@ -3,7 +3,7 @@ package build_misconfig_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-build-misconfig-detect"
+	ModuleID    = "build-misconfig-detect"
 	ModuleName  = "Build Misconfiguration Detect"
 	ModuleShort = "Detects build and deployment misconfigurations in framework config files"
 )

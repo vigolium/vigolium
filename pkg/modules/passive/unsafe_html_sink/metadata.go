@@ -3,7 +3,7 @@ package unsafe_html_sink
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-unsafe-html-sink"
+	ModuleID    = "unsafe-html-sink"
 	ModuleName  = "Unsafe HTML Sink"
 	ModuleShort = "Detects raw HTML injection sinks in JS/TS framework code"
 )

@@ -13,7 +13,7 @@ test_cases:
   - id: "nginx-off-by-slash"
     endpoint: "/cats/"
     method: GET
-    modules: ["active-nginx-off-by-slash"]
+    modules: ["nginx-off-by-slash"]
     vuln_types: ["nginx-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -24,7 +24,7 @@ test_cases:
   - id: "nginx-path-escape"
     endpoint: "/cats/"
     method: GET
-    modules: ["active-nginx-path-escape"]
+    modules: ["nginx-path-escape"]
     vuln_types: ["nginx-misconfiguration"]
     assertion: soft
     min_findings: 1
@@ -35,7 +35,7 @@ test_cases:
   - id: "nginx-path-normalization"
     endpoint: "/cats/"
     method: GET
-    modules: ["active-path-normalization"]
+    modules: ["path-normalization"]
     vuln_types: ["path-normalization"]
     assertion: soft
     min_findings: 1
@@ -46,7 +46,7 @@ test_cases:
   - id: "nginx-host-header"
     endpoint: "/"
     method: GET
-    modules: ["active-host-header-injection"]
+    modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
     min_findings: 1
@@ -57,7 +57,7 @@ test_cases:
   - id: "nginx-crlf"
     endpoint: "/cats/"
     method: GET
-    modules: ["active-crlf-injection"]
+    modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
     min_findings: 1
@@ -70,7 +70,7 @@ test_cases:
   - id: "nginx-headers"
     endpoint: "/cats/"
     method: GET
-    modules: ["passive-security-headers-missing"]
+    modules: ["security-headers-missing"]
     assertion: soft
     min_findings: 1
     scan_mode: passive
@@ -80,7 +80,7 @@ test_cases:
   - id: "nginx-info-disclosure"
     endpoint: "/"
     method: GET
-    modules: ["passive-info-disclosure-detect"]
+    modules: ["info-disclosure-detect"]
     assertion: soft
     min_findings: 0
     scan_mode: passive

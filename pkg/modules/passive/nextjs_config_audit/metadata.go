@@ -3,7 +3,7 @@ package nextjs_config_audit
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-nextjs-config-audit"
+	ModuleID    = "nextjs-config-audit"
 	ModuleName  = "Next.js Config Audit"
 	ModuleShort = "Detects insecure Next.js configuration patterns"
 )

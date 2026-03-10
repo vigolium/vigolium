@@ -3,7 +3,7 @@ package swagger_disclose
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-swagger-disclose"
+	ModuleID    = "swagger-disclose"
 	ModuleName  = "Swagger Disclosure"
 	ModuleShort = "Detects exposed Swagger/OpenAPI documentation"
 )

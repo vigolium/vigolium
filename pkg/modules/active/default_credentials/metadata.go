@@ -3,7 +3,7 @@ package default_credentials
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-default-credentials"
+	ModuleID    = "default-credentials"
 	ModuleName  = "Default Credentials"
 	ModuleShort = "Tests for default or common credential pairs on login endpoints"
 )

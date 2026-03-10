@@ -3,7 +3,7 @@ package cors_vary_origin_missing
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-cors-vary-origin-missing"
+	ModuleID    = "cors-vary-origin-missing"
 	ModuleName  = "CORS Vary Origin Missing"
 	ModuleShort = "Detects dynamic CORS responses missing Vary: Origin header enabling cache poisoning"
 )

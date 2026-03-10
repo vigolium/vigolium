@@ -3,7 +3,7 @@ package wp_ajax_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-wp-ajax-exposure"
+	ModuleID    = "wp-ajax-exposure"
 	ModuleName  = "WordPress AJAX Action Exposure"
 	ModuleShort = "Detects publicly accessible WordPress AJAX actions from plugins with known vulnerabilities"
 )

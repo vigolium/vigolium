@@ -3,7 +3,7 @@ package xss_scanner
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-xss-scanner"
+	ModuleID    = "xss-scanner"
 	ModuleName  = "XSS Scanner"
 	ModuleShort = "Detects reflected XSS vulnerabilities"
 )

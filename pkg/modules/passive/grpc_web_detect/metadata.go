@@ -3,7 +3,7 @@ package grpc_web_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-grpc-web-detect"
+	ModuleID    = "grpc-web-detect"
 	ModuleName  = "gRPC-Web Detect"
 	ModuleShort = "Detects gRPC-Web protocol usage in HTTP traffic"
 )

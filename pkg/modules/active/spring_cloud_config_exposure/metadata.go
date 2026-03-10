@@ -3,7 +3,7 @@ package spring_cloud_config_exposure
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-spring-cloud-config-exposure"
+	ModuleID    = "spring-cloud-config-exposure"
 	ModuleName  = "Spring Cloud Config Exposure"
 	ModuleShort = "Detects exposed Spring Cloud Config Server endpoints leaking application configuration and secrets"
 )

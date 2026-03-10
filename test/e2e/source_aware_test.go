@@ -300,7 +300,7 @@ module.exports = {
 
 	activeMods := engine.ActiveModules()
 	require.Len(t, activeMods, 1)
-	assert.Equal(t, "active-ext-source-test", activeMods[0].ID())
+	assert.Equal(t, "ext-source-test", activeMods[0].ID())
 
 	// Build a minimal request for scanPerHost
 	rawReq := "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"

@@ -3,7 +3,7 @@ package laravel_misconfig
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-laravel-misconfig"
+	ModuleID    = "laravel-misconfig"
 	ModuleName  = "Laravel Misconfiguration"
 	ModuleShort = "Detects Laravel debug mode, exposed debugbar, application logs, and configuration leaks"
 )

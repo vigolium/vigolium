@@ -3,7 +3,7 @@ package password_autocomplete_detect
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "passive-password-autocomplete-detect"
+	ModuleID    = "password-autocomplete-detect"
 	ModuleName  = "Password Autocomplete Detect"
 	ModuleShort = "Detects password fields without autocomplete disabled"
 )

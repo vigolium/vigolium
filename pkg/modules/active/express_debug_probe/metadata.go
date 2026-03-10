@@ -3,7 +3,7 @@ package express_debug_probe
 import "github.com/vigolium/vigolium/pkg/types/severity"
 
 const (
-	ModuleID    = "active-express-debug-probe"
+	ModuleID    = "express-debug-probe"
 	ModuleName  = "Express Debug Probe"
 	ModuleShort = "Triggers error responses in Express/NestJS apps to detect stack trace and debug info leakage"
 )
