@@ -354,6 +354,37 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			module_id TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS agent_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			uuid TEXT NOT NULL UNIQUE,
+			project_uuid TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+			scan_uuid TEXT,
+			mode TEXT NOT NULL,
+			agent_name TEXT NOT NULL,
+			input_raw TEXT,
+			input_type TEXT,
+			target_url TEXT,
+			vuln_type TEXT,
+			module_names TEXT,
+			template_id TEXT,
+			status TEXT NOT NULL DEFAULT 'pending',
+			current_phase TEXT,
+			phases_run TEXT,
+			finding_count INTEGER DEFAULT 0,
+			record_count INTEGER DEFAULT 0,
+			saved_count INTEGER DEFAULT 0,
+			attack_plan TEXT,
+			triage_result TEXT,
+			prompt_sent TEXT,
+			agent_raw_output TEXT,
+			error_message TEXT,
+			result_json TEXT,
+			session_id TEXT,
+			started_at TIMESTAMP,
+			completed_at TIMESTAMP,
+			duration_ms INTEGER DEFAULT 0,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS scan_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			project_uuid TEXT NOT NULL,
@@ -410,6 +441,12 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		// -- oast_interactions --
 		"CREATE INDEX IF NOT EXISTS idx_oast_project_scan ON oast_interactions(project_uuid, scan_uuid)",
 		"CREATE INDEX IF NOT EXISTS idx_oast_interactions_unique_id ON oast_interactions(unique_id)",
+
+		// -- agent_runs --
+		"CREATE INDEX IF NOT EXISTS idx_agent_runs_uuid ON agent_runs(uuid)",
+		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_status ON agent_runs(project_uuid, status)",
+		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_created ON agent_runs(project_uuid, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_agent_runs_scan ON agent_runs(scan_uuid)",
 
 		// -- scan_logs --
 		"CREATE INDEX IF NOT EXISTS idx_scan_logs_project_scan ON scan_logs(project_uuid, scan_uuid)",
@@ -476,6 +513,9 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "scans", "cursor_at", "TIMESTAMP")
 	db.addColumnIfNotExists(ctx, "scans", "cursor_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "processed_count", "INTEGER DEFAULT 0")
+
+	// Agent runs schema migrations
+	db.addColumnIfNotExists(ctx, "agent_runs", "session_id", "TEXT")
 
 	// Project UUID migration for existing databases (backfill with default project)
 	projectTables := []string{"scans", "http_records", "findings", "scopes", "source_repos", "oast_interactions", "scan_logs"}

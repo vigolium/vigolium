@@ -65,8 +65,7 @@ func init() {
 
 	// SAST flags
 	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
-	flags.StringVar(&scanOpts.SASTRepoPath, "repo", "", "Local repo path for ad-hoc SAST scan (results not ingested to DB)")
-	flags.StringVar(&scanOpts.SASTRepoURL, "repo-url", "", "Git URL to clone for ad-hoc SAST scan (results not ingested to DB)")
+	flags.StringVar(&scanOpts.SASTAdhoc, "sast-adhoc", "", "Local path or git URL for ad-hoc SAST scan (auto-detected, results not saved to database)")
 
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed OAST callback URL (overrides config oast_url; disables interactsh auto-generation)")

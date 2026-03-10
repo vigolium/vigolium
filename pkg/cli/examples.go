@@ -41,8 +41,8 @@ func printFullExamples() {
 		"vigolium run external-harvest -t https://example.com",
 		"vigolium run spa -t https://example.com",
 		"vigolium run spa -t https://example.com --spa-tags cve --spa-severities critical,high",
-		"vigolium run sast --repo /path/to/app",
-		"vigolium run sast --repo /path/to/app --rule gin",
+		"vigolium run sast --sast-adhoc /path/to/app",
+		"vigolium run sast --sast-adhoc /path/to/app --rule gin",
 		"vigolium run extension -t https://example.com --ext custom-check.js",
 		"vigolium run deparos -t https://example.com",
 		"vigolium run audit -t https://example.com",
@@ -113,14 +113,14 @@ func printFullExamples() {
 	})
 
 	printSection("Agent (AI)", []string{
-		"vigolium agent --prompt-template security-code-review --source ./src",
-		"vigolium agent --prompt-template endpoint-discovery --source ./src",
+		"vigolium agent query --source ./src --prompt-template security-code-review",
+		"vigolium agent query --source ./src --prompt-template endpoint-discovery",
 		"vigolium agent query 'review this code for vulnerabilities'",
 		"vigolium agent query --agent claude --prompt-file custom-prompt.md",
 		"vigolium agent --list-templates",
 		"vigolium agent pipeline -t https://example.com",
 		"vigolium agent pipeline -t https://example.com --focus 'API injection'",
-		"vigolium agent pipeline -t https://example.com --repo ./src --max-rescan-rounds 3",
+		"vigolium agent pipeline -t https://example.com --source ./src --max-rescan-rounds 3",
 		"vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan",
 		"vigolium agent autopilot -t https://example.com",
 	})

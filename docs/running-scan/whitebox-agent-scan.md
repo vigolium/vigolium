@@ -27,6 +27,7 @@ Configure agent backends in `vigolium-configs.yaml`:
 agent:
   default_agent: claude          # Default backend to use
   templates_dir: ~/.vigolium/prompts/  # Custom template directory
+  sessions_dir: ~/.vigolium/agent-sessions/  # Agent run session artifacts
   stream: true                   # Stream agent output in real-time
 
   agents:

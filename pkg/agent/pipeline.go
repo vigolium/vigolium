@@ -14,6 +14,7 @@ import (
 // PipelineRunner orchestrates the multi-phase scanning pipeline with agent checkpoints.
 //
 // Pipeline phases:
+//  0. Source Analysis — agent checkpoint: analyze source code, extract routes, session config, extensions
 //  1. Discover — native deparos/spidering (no agent)
 //  2. Plan — agent checkpoint: analyze discovery results, output AttackPlan
 //  3. Scan — native executor with plan-selected modules (no agent)
@@ -55,6 +56,8 @@ func (p *PipelineRunner) Run(ctx context.Context, cfg PipelineConfig) (*Pipeline
 		var err error
 
 		switch phase {
+		case PhaseSourceAnalysis:
+			result.SourceAnalysis, err = p.runSourceAnalysis(ctx, cfg)
 		case PhaseDiscover:
 			err = p.runDiscover(ctx, cfg)
 		case PhasePlan:
@@ -88,6 +91,14 @@ func (p *PipelineRunner) Run(ctx context.Context, cfg PipelineConfig) (*Pipeline
 // resolvePhases returns the ordered list of phases to run, respecting skip/start-from config.
 func (p *PipelineRunner) resolvePhases(cfg PipelineConfig) []PipelinePhase {
 	all := AllPipelinePhases()
+
+	// Auto-skip source-analysis when no source path is provided
+	if cfg.SourcePath == "" {
+		if cfg.SkipPhases == nil {
+			cfg.SkipPhases = make(map[PipelinePhase]bool)
+		}
+		cfg.SkipPhases[PhaseSourceAnalysis] = true
+	}
 
 	// Apply start-from: skip phases before the starting phase
 	if cfg.StartFrom != "" {
@@ -134,6 +145,35 @@ func (p *PipelineRunner) resolvePhases(cfg PipelineConfig) []PipelinePhase {
 	return phases
 }
 
+// runSourceAnalysis executes phase 0: AI-driven source code analysis.
+// Delegates to Engine.RunSourceAnalysis and invokes the pipeline-specific callback.
+func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConfig) (*SourceAnalysisResult, error) {
+	saCfg := SourceAnalysisConfig{
+		AgentName:    cfg.AgentName,
+		TargetURL:    cfg.TargetURL,
+		SourcePath:   cfg.SourcePath,
+		Files:        cfg.Files,
+		DryRun:       cfg.DryRun,
+		ScanUUID:     cfg.ScanUUID,
+		ProjectUUID:  cfg.ProjectUUID,
+		StreamWriter: cfg.StreamWriter,
+	}
+
+	saResult, err := p.engine.RunSourceAnalysis(ctx, saCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Invoke callback so the CLI/server can write extensions and session config to disk
+	if saResult != nil && cfg.SourceAnalysisCallback != nil {
+		if cbErr := cfg.SourceAnalysisCallback(saResult); cbErr != nil {
+			zap.L().Warn("Source analysis callback failed", zap.Error(cbErr))
+		}
+	}
+
+	return saResult, nil
+}
+
 // runDiscover executes phase 1: discovery and spidering.
 func (p *PipelineRunner) runDiscover(ctx context.Context, cfg PipelineConfig) error {
 	if cfg.DiscoverFunc == nil {
@@ -148,7 +188,7 @@ func baseAgentOpts(cfg PipelineConfig, template string) Options {
 		AgentName:      cfg.AgentName,
 		PromptTemplate: template,
 		TargetURL:      cfg.TargetURL,
-		RepoPath:       cfg.RepoPath,
+		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		DryRun:         cfg.DryRun,
 		ScanUUID:       cfg.ScanUUID,

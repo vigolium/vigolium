@@ -149,6 +149,12 @@ func (s *DBInputSource) recordToHttpRequestResponse(record *HTTPRecord) (*httpms
 	return recordToHttpRequestResponse(record)
 }
 
+// RecordToHttpRequestResponse converts an HTTPRecord back to HttpRequestResponse.
+// Exported for use by the agent input normalizer and other packages.
+func RecordToHttpRequestResponse(record *HTTPRecord) (*httpmsg.HttpRequestResponse, error) {
+	return recordToHttpRequestResponse(record)
+}
+
 // recordToHttpRequestResponse converts an HTTPRecord back to HttpRequestResponse.
 func recordToHttpRequestResponse(record *HTTPRecord) (*httpmsg.HttpRequestResponse, error) {
 	// Prefer raw request if available

@@ -80,8 +80,7 @@ func init() {
 
 	// SAST flags
 	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
-	flags.StringVar(&scanOpts.SASTRepoPath, "repo", "", "Local repo path for ad-hoc SAST scan (results not saved to database)")
-	flags.StringVar(&scanOpts.SASTRepoURL, "repo-url", "", "Git URL to clone for ad-hoc SAST scan (results not saved to database)")
+	flags.StringVar(&scanOpts.SASTAdhoc, "sast-adhoc", "", "Local path or git URL for ad-hoc SAST scan (auto-detected, results not saved to database)")
 
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed out-of-band callback URL (overrides auto-generated interactsh URL)")
@@ -129,16 +128,13 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	}
 	scanOpts.ProjectUUID = projectUUID
 
-	// Resolve --repo-url: clone the git repo and set SASTRepoPath
-	if scanOpts.SASTRepoURL != "" {
-		if scanOpts.SASTRepoPath != "" {
-			return fmt.Errorf("cannot use both --repo and --repo-url")
-		}
-		clonedPath, cloneErr := cloneGitRepo(scanOpts.SASTRepoURL)
+	// Resolve --sast-adhoc: auto-detect URL vs local path
+	if scanOpts.SASTAdhoc != "" && looksLikeGitURL(scanOpts.SASTAdhoc) {
+		clonedPath, cloneErr := cloneGitRepo(scanOpts.SASTAdhoc)
 		if cloneErr != nil {
-			return fmt.Errorf("failed to clone --repo-url: %w", cloneErr)
+			return fmt.Errorf("failed to clone --sast-adhoc URL: %w", cloneErr)
 		}
-		scanOpts.SASTRepoPath = clonedPath
+		scanOpts.SASTAdhoc = clonedPath
 	}
 
 	// Resolve --source-url: clone the git repo and set SourcePath
@@ -974,8 +970,8 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		phaseLabel("SPA", "spa", spaEnabled),
 		phaseLabel("DynamicAssessment", "dynamic_assessment", daEnabled),
 		phaseLabel("SAST", "sast", sastEnabled))
-	if sastEnabled && opts.SASTRepoPath != "" {
-		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTRepoPath))
+	if sastEnabled && opts.SASTAdhoc != "" {
+		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTAdhoc))
 	}
 	heuristicsDesc := map[string]string{
 		"basic":    "probe target root pages to detect content type (HTML, JSON, blank) and skip spidering for non-HTML targets",

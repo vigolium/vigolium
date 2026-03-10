@@ -226,13 +226,13 @@ func (h *Handlers) buildRunScanOptions(req RunScanRequest, projectUUID string) (
 		opts.ScanningProfile = req.ScanningProfile
 	}
 
-	// Wire SAST repo fields
+	// Wire SAST ad-hoc field
 	if req.RepoPath != "" {
-		opts.SASTRepoPath = req.RepoPath
+		opts.SASTAdhoc = req.RepoPath
 		opts.SASTEnabled = true
 	}
 	if req.RepoURL != "" {
-		opts.SASTRepoURL = req.RepoURL
+		opts.SASTAdhoc = req.RepoURL
 		opts.SASTEnabled = true
 	}
 
@@ -436,8 +436,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 				Error: "failed to clone repo_url: " + cloneErr.Error(),
 			})
 		}
-		opts.SASTRepoPath = clonedPath
-		opts.SASTRepoURL = req.RepoURL
+		opts.SASTAdhoc = clonedPath
 	}
 
 	// Auto-set only=sast when a repo is provided but no phase is specified
@@ -475,7 +474,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 	ctx := context.Background()
 
 	scanMode := "target"
-	if opts.SASTRepoPath != "" {
+	if opts.SASTAdhoc != "" {
 		scanMode = "sast"
 	}
 
@@ -504,7 +503,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 			Message:      "scan record created (dry run)",
 			TargetsCount: len(req.Targets),
 			ScanMode:     scanMode,
-			RepoPath:     opts.SASTRepoPath,
+			RepoPath:     opts.SASTAdhoc,
 		})
 	}
 
@@ -545,7 +544,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		Message:      "scan started",
 		TargetsCount: len(req.Targets),
 		ScanMode:     scanMode,
-		RepoPath:     opts.SASTRepoPath,
+		RepoPath:     opts.SASTAdhoc,
 	})
 }
 

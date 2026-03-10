@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -98,11 +99,18 @@ func NewACPPool(cfg config.WarmSessionConfig, agents map[string]config.AgentDef)
 }
 
 // Prompt sends a prompt to the named agent, reusing a warm session if available.
-func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, cwd string, opts ...acpClientOption) (stdout string, stderr string, err error) {
+func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, cwd string, opts ...acpClientOption) (result acpResult, err error) {
+	// Normalize cwd to absolute path for consistent session matching
+	if !filepath.IsAbs(cwd) {
+		if abs, err := filepath.Abs(cwd); err == nil {
+			cwd = abs
+		}
+	}
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
-		return "", "", fmt.Errorf("pool is closed")
+		return acpResult{}, fmt.Errorf("pool is closed")
 	}
 
 	sess, exists := p.sessions[agentName]
@@ -118,7 +126,7 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			exists = false
 		} else if sess.inUse {
 			p.mu.Unlock()
-			return "", "", fmt.Errorf("ACP session for agent %q is already in use", agentName)
+			return acpResult{}, fmt.Errorf("ACP session for agent %q is already in use", agentName)
 		}
 	}
 
@@ -134,7 +142,7 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		// Spawn new session (outside lock to avoid blocking)
 		newSess, spawnErr := p.spawnSession(ctx, agentName, cwd, opts...)
 		if spawnErr != nil {
-			return "", "", spawnErr
+			return acpResult{}, spawnErr
 		}
 		p.mu.Lock()
 		// Another goroutine may have inserted a session while we were spawning.
@@ -178,6 +186,8 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		zap.String("agent", agentName),
 		zap.Int("promptLength", len(prompt)))
 
+	sessionID := string(sess.sessionID)
+
 	// Send prompt on the existing connection
 	promptResp, promptErr := sess.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: sess.sessionID,
@@ -191,10 +201,11 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		p.mu.Unlock()
 		sess.kill()
 
+		r := acpResult{Stdout: sess.client.collectedOutput(), SessionID: sessionID}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return sess.client.collectedOutput(), "", fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
 		}
-		return sess.client.collectedOutput(), "", fmt.Errorf("ACP prompt failed on warm session: %w", promptErr)
+		return r, fmt.Errorf("ACP prompt failed on warm session: %w", promptErr)
 	}
 
 	zap.L().Debug("ACP warm session prompt completed",
@@ -202,7 +213,10 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		zap.String("stopReason", string(promptResp.StopReason)),
 		zap.Int("outputBytes", len(sess.client.collectedOutput())))
 
-	return sess.client.collectedOutput(), "", nil
+	return acpResult{
+		Stdout:    sess.client.collectedOutput(),
+		SessionID: sessionID,
+	}, nil
 }
 
 // Close kills all sessions and stops the reaper.
@@ -236,12 +250,25 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 		return nil, fmt.Errorf("agent command %q not found in PATH: %w", agentDef.Command, err)
 	}
 
+	// Resolve cwd to absolute path before spawning the process.
+	// A relative "." is meaningless for a long-running server whose CWD may not exist.
+	absCwd := cwd
+	if filepath.IsAbs(cwd) {
+		absCwd = cwd
+	} else if abs, absErr := filepath.Abs(cwd); absErr == nil {
+		absCwd = abs
+	} else {
+		// Fallback: use os.TempDir() if we can't resolve the CWD (e.g., it was deleted)
+		absCwd = os.TempDir()
+	}
+
 	zap.L().Debug("spawning ACP warm session",
 		zap.String("agent", agentName),
 		zap.String("cmd", cmdPath+" "+strings.Join(agentDef.Args, " ")),
-		zap.String("cwd", cwd))
+		zap.String("cwd", absCwd))
 
 	cmd := exec.CommandContext(ctx, cmdPath, agentDef.Args...)
+	cmd.Dir = absCwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if len(agentDef.Env) > 0 {
@@ -272,7 +299,7 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	sess := &acpSession{
 		agentName:    agentName,
 		cmd:          cmd,
-		cwd:          cwd,
+		cwd:          absCwd,
 		stdinPipe:    stdinPipe,
 		stderrWriter: stderrWriter,
 		stderrReader: stderrReader,
@@ -310,12 +337,6 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	if initErr != nil {
 		sess.kill()
 		return nil, fmt.Errorf("ACP initialize failed for warm session: %w", initErr)
-	}
-
-	// Resolve cwd
-	absCwd := cwd
-	if abs, absErr := filepath.Abs(cwd); absErr == nil {
-		absCwd = abs
 	}
 
 	// Create session

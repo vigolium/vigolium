@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -22,11 +23,11 @@ var (
 	agentName           string
 	agentPromptTemplate string
 	agentPromptFile     string
-	agentRepo           string
+	agentSourcePath     string
 	agentFiles          []string
 	agentAppend         string
 	agentOutput         string
-	agentSource         string
+	agentSourceLabel    string
 	agentListTemplates  bool
 	agentListAgents     bool
 	agentDryRun         bool
@@ -36,72 +37,97 @@ var (
 )
 
 var agentCmd = &cobra.Command{
-	Use:   "agent",
-	Short: "Invoke an AI coding agent for data ingestion, code review, and analysis",
-	Long:  "Run an AI coding agent (Claude, OpenCode, Gemini) for security code review, endpoint discovery, or custom analysis.",
-	RunE:  runAgent,
+	Use:          "agent",
+	Short:        "Invoke an AI coding agent for data ingestion, code review, and analysis",
+	SilenceUsage: true,
+	Long: `Run an AI coding agent (Claude, OpenCode, Gemini) for security code review, endpoint discovery, or custom analysis.
+
+Use a subcommand to select the execution mode:
+  query      Single-shot prompt execution (template-based or inline)
+  autopilot  Autonomous AI-driven vulnerability scanning
+  pipeline   Multi-phase AI-guided vulnerability scanning pipeline
+  swarm      AI-guided targeted vulnerability swarm`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		defer syncLogger()
+
+		settings, err := config.LoadSettings(globalConfig)
+		if err != nil {
+			zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
+			settings = config.DefaultSettings()
+		}
+
+		// Handle --list-agents
+		if agentListAgents {
+			return printAgentList(settings)
+		}
+
+		// Handle --list-templates
+		if agentListTemplates {
+			return printTemplateList(settings)
+		}
+
+		return cmd.Help()
+	},
 }
 
 var agentQueryCmd = &cobra.Command{
 	Use:   "query [prompt]",
 	Short: "Send a prompt to an AI agent and get a response",
-	Long:  "Send a prompt to an AI agent (Claude, OpenCode, Gemini) and get a response.\nA prompt can be passed as the first argument, via --prompt/-p, or piped through --stdin.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runAgentInline,
+	Long: `Send a prompt to an AI agent (Claude, OpenCode, Gemini) and get a response.
+
+Supports two modes:
+  - Template mode: use --prompt-template or --prompt-file with --source for code review
+  - Inline mode: pass a prompt as argument, via --prompt/-p, or piped through --stdin`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runAgentQuery,
 }
 
 func init() {
 	rootCmd.AddCommand(agentCmd)
 	agentCmd.AddCommand(agentQueryCmd)
 
-	// Parent command flags
+	// Parent command flags (informational only)
 	af := agentCmd.Flags()
-	af.StringVar(&agentName, "agent", "", "Agent backend to use (default from config)")
-	af.StringVar(&agentPromptTemplate, "prompt-template", "", "Prompt template ID (e.g. security-code-review)")
-	af.StringVar(&agentPromptFile, "prompt-file", "", "Path to a prompt template file")
-	af.StringVar(&agentRepo, "repo", "", "Path to source code repository")
-	af.StringSliceVar(&agentFiles, "files", nil, "Specific files to include (relative to --repo)")
-	af.StringVar(&agentAppend, "append", "", "Append extra text to the rendered prompt")
-	af.StringVar(&agentOutput, "output", "", "Write agent output to this file")
-	af.StringVar(&agentSource, "source", "", "Label for records ingested from agent output (e.g. 'agent-review')")
 	af.BoolVar(&agentListTemplates, "list-templates", false, "List available prompt templates")
 	af.BoolVar(&agentListAgents, "list-agents", false, "List configured agent backends")
-	af.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
-	af.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
 
-	// Child command flags
+	// Query command flags
 	rf := agentQueryCmd.Flags()
 	rf.StringVar(&agentName, "agent", "", "Agent backend to use (default from config)")
+	rf.StringVar(&agentPromptTemplate, "prompt-template", "", "Prompt template ID (e.g. security-code-review)")
+	rf.StringVar(&agentPromptFile, "prompt-file", "", "Path to a prompt template file")
+	rf.StringVar(&agentSourcePath, "source", "", "Path to source code repository")
+	rf.StringSliceVar(&agentFiles, "files", nil, "Specific files to include (relative to --source)")
+	rf.StringVar(&agentAppend, "append", "", "Append extra text to the rendered prompt")
 	rf.StringVarP(&agentPromptInline, "prompt", "p", "", "Prompt text to send to the agent")
 	rf.BoolVar(&agentStdin, "stdin", false, "Read prompt from stdin")
 	rf.StringVar(&agentOutput, "output", "", "Write agent output to this file")
-	rf.StringVar(&agentSource, "source", "", "Label for records ingested from agent output (e.g. 'agent-review')")
+	rf.StringVar(&agentSourceLabel, "source-label", "", "Label for records ingested from agent output (e.g. 'agent-review')")
+	rf.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
 	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
 }
 
-func runAgent(cmd *cobra.Command, args []string) error {
+func runAgentQuery(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
+
+	// Accept first positional arg as the prompt if --prompt wasn't given
+	if agentPromptInline == "" && len(args) > 0 {
+		agentPromptInline = args[0]
+	}
+
+	// Determine mode: template-based or inline
+	hasTemplate := agentPromptTemplate != "" || agentPromptFile != ""
+	hasInline := agentPromptInline != "" || agentStdin
+
+	if !hasTemplate && !hasInline {
+		return fmt.Errorf("either a prompt (argument, --prompt/-p, --stdin) or a template (--prompt-template, --prompt-file) is required")
+	}
 
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
 		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
 		settings = config.DefaultSettings()
-	}
-
-	// Handle --list-agents
-	if agentListAgents {
-		return printAgentList(settings)
-	}
-
-	// Handle --list-templates
-	if agentListTemplates {
-		return printTemplateList(settings)
-	}
-
-	// Require a prompt source
-	if agentPromptTemplate == "" && agentPromptFile == "" {
-		return cmd.Help()
 	}
 
 	// Open DB for ingestion (optional)
@@ -122,11 +148,13 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		AgentName:      agentName,
 		PromptTemplate: agentPromptTemplate,
 		PromptFile:     agentPromptFile,
-		RepoPath:       agentRepo,
+		PromptInline:   agentPromptInline,
+		Stdin:          agentStdin,
+		SourcePath:     agentSourcePath,
 		Files:          agentFiles,
 		Append:         agentAppend,
 		OutputPath:     agentOutput,
-		Source:         agentSource,
+		Source:         agentSourceLabel,
 		DryRun:         agentDryRun,
 		ScanUUID:       globalScanID,
 	}
@@ -141,6 +169,13 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		defer cancel()
 	}
 
+	// Create session directory for agent artifacts
+	queryRunID := "agt-" + uuid.New().String()
+	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), queryRunID)
+	if sdErr != nil {
+		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+	}
+
 	result, err := engine.Run(ctx, opts)
 	if err != nil {
 		if result != nil && result.Stderr != "" {
@@ -150,79 +185,20 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("agent timed out after %s (use --agent-timeout to adjust or set to 0 to disable)", agentTimeout)
 		}
 		return fmt.Errorf("agent run failed: %w", err)
+	}
+
+	// Save raw output to session directory
+	if sessionDir != "" && result.RawOutput != "" {
+		_ = os.WriteFile(sessionDir+"/output.txt", []byte(result.RawOutput), 0644)
+	}
+
+	// For inline runs without a template, print raw output (skip if already streamed)
+	if !hasTemplate && opts.StreamWriter == nil {
+		fmt.Print(result.RawOutput)
+		return nil
 	}
 
 	printAgentResult(result)
-	return nil
-}
-
-func runAgentInline(cmd *cobra.Command, args []string) error {
-	defer syncLogger()
-	defer closeDatabaseOnExit()
-
-	// Accept first positional arg as the prompt if --prompt wasn't given
-	if agentPromptInline == "" && len(args) > 0 {
-		agentPromptInline = args[0]
-	}
-
-	if agentPromptInline == "" && !agentStdin {
-		return fmt.Errorf("either a prompt argument, --prompt/-p, or --stdin is required")
-	}
-
-	settings, err := config.LoadSettings(globalConfig)
-	if err != nil {
-		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
-		settings = config.DefaultSettings()
-	}
-
-	// Open DB for ingestion (optional)
-	var repo *database.Repository
-	db, dbErr := getDB()
-	if dbErr == nil {
-		ctx := context.Background()
-		if schemaErr := db.CreateSchema(ctx); schemaErr != nil {
-			zap.L().Warn("Failed to create schema", zap.Error(schemaErr))
-		}
-		repo = database.NewRepository(db)
-	}
-
-	engine := agent.NewEngine(settings, repo)
-	defer engine.Close()
-
-	opts := agent.Options{
-		AgentName:    agentName,
-		PromptInline: agentPromptInline,
-		Stdin:        agentStdin,
-		OutputPath:   agentOutput,
-		Source:       agentSource,
-		ScanUUID:     globalScanID,
-	}
-	if settings.Agent.StreamEnabled() {
-		opts.StreamWriter = os.Stdout
-	}
-
-	ctx := context.Background()
-	if agentTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, agentTimeout)
-		defer cancel()
-	}
-
-	result, err := engine.Run(ctx, opts)
-	if err != nil {
-		if result != nil && result.Stderr != "" {
-			fmt.Fprintf(os.Stderr, "%s Agent stderr:\n%s\n", terminal.WarningSymbol(), result.Stderr)
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("agent timed out after %s (use --agent-timeout to adjust or set to 0 to disable)", agentTimeout)
-		}
-		return fmt.Errorf("agent run failed: %w", err)
-	}
-
-	// For inline runs, print raw output (skip if already streamed)
-	if opts.StreamWriter == nil {
-		fmt.Print(result.RawOutput)
-	}
 	return nil
 }
 
@@ -325,6 +301,10 @@ func printAgentResult(result *agent.Result) {
 	if result.OutputSchema == "" {
 		// Inline run — output is already printed
 		return
+	}
+
+	if result.SessionID != "" {
+		fmt.Fprintf(os.Stderr, "%s Session ID: %s\n", terminal.InfoSymbol(), result.SessionID)
 	}
 
 	switch result.OutputSchema {

@@ -13,7 +13,7 @@ metadata:
   domain: security-tooling
   triggers: >-
     vigolium, scan, scan-url, scan-request, run, ingest, server, agent, agent query,
-    agent autopilot, agent pipeline, traffic, db, module, extensions, export, strategy,
+    agent autopilot, agent pipeline, agent swarm, traffic, db, module, extensions, export, strategy,
     scope, source, config, project, vulnerability scanner, security scan, DAST,
     dynamic assessment, openapi scan, burp import, HAR import, whitebox scanning, SAST,
     javascript extension, custom scanner, module-tag, run extension
@@ -31,7 +31,7 @@ Operator's guide for the vigolium high-fidelity web vulnerability scanner. Cover
 Vigolium is a CLI-first vulnerability scanner that operates in multiple modes:
 - **Standalone scanner**: `scan`, `scan-url`, `scan-request`, `run`
 - **REST API server with traffic ingestion**: `server`, `ingest`
-- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous), `agent pipeline` (multi-phase)
+- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous), `agent pipeline` (multi-phase), `agent swarm` (targeted single-request)
 - **Extension runner**: `run extension --ext custom-check.js` for custom JS scanning logic
 
 This skill helps you pick the right command, flags, and workflow for any security testing task.
@@ -53,11 +53,13 @@ Use this to find the right command quickly:
 | Ingest traffic into database without scanning | `vigolium ingest -t <url> -I openapi -i spec.yaml` |
 | Start the API server | `vigolium server` |
 | Start server and auto-scan new traffic | `vigolium server -t <url> -S` |
-| Run AI code review on source code | `vigolium agent --prompt-template security-code-review --repo ./src` |
+| Run AI code review on source code | `vigolium agent --prompt-template security-code-review --source ./src` |
 | Run AI agent with inline prompt | `vigolium agent query 'review this code for vulnerabilities'` |
 | Autonomous AI-driven scanning | `vigolium agent autopilot -t <url>` |
 | Multi-phase AI pipeline scan | `vigolium agent pipeline -t <url>` |
-| Pipeline with focus area and source | `vigolium agent pipeline -t <url> --focus "auth bypass" --repo ./src` |
+| Pipeline with focus area and source | `vigolium agent pipeline -t <url> --focus "auth bypass" --source ./src` |
+| Deep single-request vulnerability scan | `vigolium agent swarm -t <url>` |
+| Swarm with curl command input | `vigolium agent swarm --input "curl -X POST <url> -d '...'"` |
 | Browse stored HTTP traffic | `vigolium traffic` or `vigolium traffic <search>` |
 | Browse findings/vulnerabilities | `vigolium finding` or `vigolium db ls --table findings` |
 | Filter findings by module type or source | `vigolium finding --module-type active --finding-source dynamic-assessment` |
@@ -82,7 +84,8 @@ Load detailed reference based on what you need:
 |-------|-----------|-----------|
 | Scanning commands | `references/scanning-commands.md` | scan, scan-url, scan-request, run flags and options |
 | Server & ingestion | `references/server-and-ingestion.md` | server, ingest, traffic command flags |
-| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent pipeline flags and templates |
+| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent pipeline, agent swarm flags and templates |
+| Session / auth config | `references/session-auth-config.md` | --auth-config YAML format, extract rules, authenticated scanning setup |
 | Data & management | `references/data-and-management.md` | db, module, extensions, config, scope, source, strategy, export, project |
 | Complete flag index | `references/flags-reference.md` | Looking up any specific flag by name |
 | Writing extensions | `references/writing-extensions.md` | Creating custom JS scanner modules, extension API |
@@ -262,10 +265,10 @@ vigolium ingest -t https://example.com -I openapi -i spec.yaml -S
 ### 11. AI Agent Code Review
 ```bash
 # Security code review
-vigolium agent --prompt-template security-code-review --repo ./src
+vigolium agent --prompt-template security-code-review --source ./src
 
 # Endpoint discovery from source
-vigolium agent --prompt-template endpoint-discovery --repo ./src
+vigolium agent --prompt-template endpoint-discovery --source ./src
 
 # List available templates
 vigolium agent --list-templates
@@ -283,7 +286,7 @@ vigolium agent query --agent claude --prompt-file custom-prompt.md
 vigolium agent autopilot -t https://example.com
 
 # With source code context and focus area
-vigolium agent autopilot -t https://api.example.com --repo ./src --focus "auth bypass"
+vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 
 # Custom limits
 vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
@@ -294,11 +297,11 @@ vigolium agent autopilot -t https://example.com --dry-run
 
 ### 13. AI Agent Pipeline (Multi-Phase)
 ```bash
-# Basic pipeline scan (discover → plan → scan → triage → rescan → report)
+# Basic pipeline scan (source-analysis → discover → plan → scan → triage → rescan → report)
 vigolium agent pipeline -t https://example.com
 
-# With focus and source code
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --repo ./src
+# With focus and source code (enables Phase 0: source analysis)
+vigolium agent pipeline -t https://example.com --focus "SQL injection" --source ./src
 
 # Control rescan iterations
 vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
@@ -313,7 +316,31 @@ vigolium agent pipeline -t https://example.com --profile deep
 vigolium agent pipeline -t https://example.com --dry-run
 ```
 
-### 14. Results Inspection
+### 14. AI Agent Swarm (Targeted Single-Request)
+```bash
+# Target a URL for deep analysis
+vigolium agent swarm -t https://example.com/api/users
+
+# Analyze a curl command
+vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
+
+# Pipe raw HTTP request from stdin
+echo -e "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test" | vigolium agent swarm --input -
+
+# Scan a record from the database
+vigolium agent swarm --record-uuid 550e8400-e29b-41d4-a716-446655440000
+
+# Focus on a specific vulnerability type
+vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
+
+# Specify modules explicitly
+vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
+
+# Preview master agent prompt
+vigolium agent swarm -t https://example.com/api/users --dry-run
+```
+
+### 15. Results Inspection
 ```bash
 # Browse HTTP traffic
 vigolium traffic
@@ -341,7 +368,7 @@ vigolium traffic --watch 5s
 vigolium db stats --watch 10
 ```
 
-### 15. Export and Reports
+### 16. Export and Reports
 ```bash
 # Full JSONL export
 vigolium export --format jsonl -o full-export.jsonl
@@ -359,7 +386,7 @@ vigolium db export -f markdown -o report.md
 vigolium db export --host example.com --from 2024-01-01
 ```
 
-### 16. Whitebox Scanning (Source-Aware)
+### 17. Whitebox Scanning (Source-Aware)
 ```bash
 # Link source code and scan
 vigolium scan -t https://example.com --source ./src --strategy whitebox
@@ -372,14 +399,14 @@ vigolium source add --hostname example.com --path ./src
 vigolium scan -t https://example.com --strategy whitebox
 
 # SAST-only phase
-vigolium run sast --repo /path/to/app
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --sast-adhoc /path/to/app
+vigolium run sast --sast-adhoc /path/to/app --rule gin
 
 # SAST from git URL (clones automatically)
-vigolium run sast --repo-url https://github.com/org/repo
+vigolium run sast --sast-adhoc https://github.com/org/repo
 ```
 
-### 17. Configuration Tuning
+### 18. Configuration Tuning
 ```bash
 # View all config
 vigolium config ls
@@ -403,7 +430,7 @@ vigolium scan -t https://example.com --scope-origin strict
 vigolium scan -t https://example.com --scanning-profile aggressive
 ```
 
-### 18. Project Management
+### 19. Project Management
 ```bash
 # Create a project
 vigolium project create my-project
@@ -421,7 +448,7 @@ vigolium scan -t https://example.com --project-name my-project
 VIGOLIUM_PROJECT=my-project vigolium db stats
 ```
 
-### 19. Writing and Running Custom Extensions
+### 20. Writing and Running Custom Extensions
 ```bash
 # Install preset examples
 vigolium ext preset
@@ -493,7 +520,7 @@ These flags are available on all commands (persistent flags on root):
 - `--format html` requires `-o/--output` and is only supported for discovery/spidering phases (in scan mode)
 - `--target/-t` and `--spec-url` are mutually exclusive for ingest
 - `--source` and `--source-url` are mutually exclusive
-- `--repo` and `--repo-url` are mutually exclusive
+- `--repo` is deprecated — use `--source` for agent modes and `--sast-adhoc` for ad-hoc SAST scans
 - `--ci-output-format` sets JSONL output, suppresses banners and color (implies `--json --silent`)
 - Server mode requires API key auth by default (use `--no-auth` to disable, or set `VIGOLIUM_API_KEY`)
 - Agent commands require agent backends configured in `vigolium-configs.yaml`

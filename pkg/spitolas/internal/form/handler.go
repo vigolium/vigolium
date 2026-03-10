@@ -566,15 +566,9 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 		// CRAWLJAX PARITY: Get element using XPath lookup via Identification
 		elem, err := h.getElementByIdentification(page, input)
 		if err != nil {
-			if h.config.Verbose {
-				zap.L().Error("Could not find element for form input",
-					zap.String("identification", idValue),
-					zap.Error(err))
-			} else {
-				zap.L().Debug("Could not find element for form input",
-					zap.String("identification", idValue),
-					zap.Error(err))
-			}
+			zap.L().Debug("Could not find element for form input",
+				zap.String("identification", idValue),
+				zap.Error(err))
 			continue // Skip but don't break
 		}
 

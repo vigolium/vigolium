@@ -1051,11 +1051,11 @@ func (r *Repository) DeleteOASTInteraction(ctx context.Context, id int64) error 
 	return nil
 }
 
-// DeduplicateDeparosRecords removes duplicate deparos HTTP records that share
+// DeduplicateRecordsBySource removes duplicate HTTP records for a given source that share
 // identical (hostname, method, status_code, response_content_length, response_hash).
 // Within each group, the record with the shortest path is kept.
 // Returns the number of deleted records.
-func (r *Repository) DeduplicateDeparosRecords(ctx context.Context, projectUUID string) (int64, error) {
+func (r *Repository) DeduplicateRecordsBySource(ctx context.Context, projectUUID, source string) (int64, error) {
 	projectUUID = defaultProjectUUID(projectUUID)
 
 	// Use ROW_NUMBER window function to identify duplicates, keeping the
@@ -1067,15 +1067,15 @@ func (r *Repository) DeduplicateDeparosRecords(ctx context.Context, projectUUID 
 				ORDER BY LENGTH(path) ASC, created_at ASC
 			) AS rn
 			FROM http_records
-			WHERE source = 'deparos'
+			WHERE source = ?
 			  AND project_uuid = ?
 			  AND has_response = true
 			  AND response_hash != ''
 		) sub WHERE rn > 1`
 
 	var uuids []string
-	if err := r.db.NewRaw(dupQuery, projectUUID).Scan(ctx, &uuids); err != nil {
-		return 0, fmt.Errorf("failed to identify duplicate deparos records: %w", err)
+	if err := r.db.NewRaw(dupQuery, source, projectUUID).Scan(ctx, &uuids); err != nil {
+		return 0, fmt.Errorf("failed to identify duplicate %s records: %w", source, err)
 	}
 
 	if len(uuids) == 0 {
@@ -1099,6 +1099,12 @@ func (r *Repository) DeduplicateDeparosRecords(ctx context.Context, projectUUID 
 	}
 
 	return int64(len(uuids)), nil
+}
+
+// DeduplicateDeparosRecords removes duplicate deparos HTTP records.
+// Delegates to DeduplicateRecordsBySource with source "deparos".
+func (r *Repository) DeduplicateDeparosRecords(ctx context.Context, projectUUID string) (int64, error) {
+	return r.DeduplicateRecordsBySource(ctx, projectUUID, "deparos")
 }
 
 // DeduplicateSoftDeparosRecords removes deparos HTTP records that are "soft duplicates":
@@ -1442,4 +1448,74 @@ func updateRiskScoreBatch(ctx context.Context, tx bun.Tx, scores map[string]int,
 		return fmt.Errorf("failed to batch update risk_scores: %w", err)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Agent Runs
+// ---------------------------------------------------------------------------
+
+// CreateAgentRun inserts a new agent run record.
+func (r *Repository) CreateAgentRun(ctx context.Context, run *AgentRun) error {
+	run.ProjectUUID = defaultProjectUUID(run.ProjectUUID)
+	if _, err := r.db.NewInsert().Model(run).Exec(ctx); err != nil {
+		return fmt.Errorf("failed to insert agent run: %w", err)
+	}
+	return nil
+}
+
+// GetAgentRun retrieves an agent run by UUID.
+func (r *Repository) GetAgentRun(ctx context.Context, uuid string) (*AgentRun, error) {
+	run := &AgentRun{}
+	err := r.db.NewSelect().Model(run).Where("uuid = ?", uuid).Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent run not found: %w", err)
+	}
+	return run, nil
+}
+
+// UpdateAgentRun updates an agent run record (full update by UUID).
+func (r *Repository) UpdateAgentRun(ctx context.Context, run *AgentRun) error {
+	_, err := r.db.NewUpdate().Model(run).Where("uuid = ?", run.UUID).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update agent run: %w", err)
+	}
+	return nil
+}
+
+// ListAgentRuns returns paginated agent runs for a project, ordered by created_at DESC.
+func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode string, limit, offset int) ([]*AgentRun, int64, error) {
+	projectUUID = defaultProjectUUID(projectUUID)
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var runs []*AgentRun
+	q := r.db.NewSelect().Model(&runs).
+		Where("project_uuid = ?", projectUUID).
+		OrderExpr("created_at DESC").
+		Limit(limit).
+		Offset(offset)
+
+	if mode != "" {
+		q = q.Where("mode = ?", mode)
+	}
+
+	if err := q.Scan(ctx); err != nil {
+		return nil, 0, fmt.Errorf("failed to list agent runs: %w", err)
+	}
+	return runs, int64(len(runs)), nil
+}
+
+// DeleteOldAgentRuns removes completed/failed agent runs older than the given duration.
+func (r *Repository) DeleteOldAgentRuns(ctx context.Context, olderThan time.Duration) (int, error) {
+	cutoff := time.Now().Add(-olderThan)
+	res, err := r.db.NewDelete().Model((*AgentRun)(nil)).
+		Where("status IN (?, ?)", "completed", "failed").
+		Where("completed_at < ?", cutoff).
+		Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old agent runs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

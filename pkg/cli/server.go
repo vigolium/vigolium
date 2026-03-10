@@ -115,7 +115,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	if serverOpts.NoAuth {
 		if !globalSilent {
 			fmt.Println()
-			fmt.Printf("  %s %s\n", terminal.WarnPrefix(), terminal.BoldYellow("Server running WITHOUT authentication"))
+			fmt.Printf("  %s %s\n", terminal.BoldRed(terminal.SymbolFailed), terminal.BoldRed("Server running WITHOUT authentication"))
 			fmt.Println()
 		}
 	} else {

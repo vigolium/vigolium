@@ -59,13 +59,13 @@ Module helper code lives in `pkg/modules/modkit/` (shared constants, default imp
 - **`pkg/core/`** — Executor, worker pool, rate limiter, network utilities, scan statistics
 - **`pkg/modules/`** — Module interfaces, registry, all active/passive scanner modules
 - **`pkg/deparos/`** — Spider & discovery engine: crawling (`discovery/`), JS analysis (`jsscan/`), fingerprinting (`fingerprint/`), Wayback integration (`wayback/`), scope enforcement (`scope/`), WAF detection (`waf/`), storage (`storage/`)
-- **`pkg/agent/`** — AI agent integration engine: prompt templates, context enrichment (`context.go`), agent execution via ACP (Agent Communication Protocol) with bidirectional streaming, terminal sandbox for autopilot mode (`acp_terminal.go`), multi-phase pipeline runner (`pipeline.go`), output parsing (findings/HTTP records/attack plans/triage results), and database ingestion. Supports Claude, OpenCode, Gemini, and custom CLI backends
+- **`pkg/agent/`** — AI agent integration engine: prompt templates, context enrichment (`context.go`), agent execution via ACP (Agent Communication Protocol) with bidirectional streaming, terminal sandbox for autopilot mode (`acp_terminal.go`), multi-phase pipeline runner (`pipeline.go`), output parsing (findings/HTTP records/attack plans/triage results/source analysis), and database ingestion. Supports Claude, OpenCode, Gemini, and custom CLI backends
 - **`pkg/jsext/`** — JavaScript extension engine (Grafana Sobek). Exposes `vigolium.http`, `vigolium.scan`, `vigolium.ingest`, `vigolium.source` APIs. TypeScript definitions in `vigolium.d.ts`
 - **`pkg/httpmsg/`** — HTTP request/response model, insertion points, serialization
 - **`pkg/http/`** — HTTP requester with middleware pipeline
 - **`pkg/input/`** — Input source adapters (OpenAPI, Swagger, Postman, Burp, cURL, Nuclei, HAR)
 - **`pkg/server/`** — REST API server (Fiber), Swagger UI, ingestion handlers, agent run API (`handlers_agent.go`)
-- **`pkg/database/`** — Repository pattern over SQLite (default) or PostgreSQL via Bun ORM
+- **`pkg/database/`** — Repository pattern over SQLite (default) or PostgreSQL via Bun ORM. Supports `SaveRecordBatch` for bulk HTTP record ingestion and `DeduplicateRecordsBySource` for per-source deduplication
 - **`pkg/queue/`** — Hybrid queue (in-memory + disk/Redis spillover)
 - **`pkg/output/`** — Result formatting, output handlers, and HTML report generation (`format_html.go`)
 - **`internal/config/`** — Configuration management, scope matcher, agent config (`agent.go`)
@@ -97,13 +97,26 @@ Custom scanning logic can be written in JavaScript using the embedded Sobek engi
 
 ### Agent Mode
 
-The `vigolium agent` command runs AI agents for security analysis. Three operational modes:
+The `vigolium agent` command runs AI agents for security analysis. The parent command only supports `--list-templates` and `--list-agents` flags — all execution requires a subcommand. Four operational modes:
 
-- **Run** (`vigolium agent` / `vigolium agent query`): Single-shot prompt execution with template-based prompts. Agent receives prompt via stdin, returns structured output (findings or HTTP records). Good for code review, endpoint discovery, secret detection.
-- **Autopilot** (`vigolium agent autopilot`): Interactive ACP (Agent Communication Protocol) session where the agent can execute scanner commands autonomously via a sandboxed terminal. The terminal manager (`acp_terminal.go`) enforces command allowlisting (only `vigolium` subcommands) and shell injection prevention. Supports warm session pooling for subprocess reuse.
-- **Pipeline** (`vigolium agent pipeline`): Fixed multi-phase scanning pipeline (discover → plan → scan → triage → rescan → report) where native Go code handles heavy lifting and AI agents only intervene at checkpoints (phases 2 and 4). The pipeline runner (`pipeline.go`) uses callback functions for native scan phases, keeping `pkg/agent/` decoupled from `internal/runner/`.
+- **Query** (`vigolium agent query`): Single-shot prompt execution with template-based or inline prompts. Supports `--source` for code path, `--source-label` for ingestion label. Agent receives prompt via stdin, returns structured output (findings or HTTP records). Good for code review, endpoint discovery, secret detection.
+- **Autopilot** (`vigolium agent autopilot`): Interactive ACP (Agent Communication Protocol) session where the agent can execute scanner commands autonomously via a sandboxed terminal. The terminal manager (`acp_terminal.go`) enforces command allowlisting (only `vigolium` subcommands) and shell injection prevention. Supports warm session pooling for subprocess reuse. Accepts `--input` (curl, raw HTTP, Burp XML, base64, URL) with auto-detection and stdin piping. When `--source` is provided, the agent receives source code in its system prompt and follows a source-aware workflow (route analysis, auth flow identification, targeted scanning).
+- **Pipeline** (`vigolium agent pipeline`): Fixed 7-phase scanning pipeline (source-analysis -> discover -> plan -> scan -> triage -> rescan -> report) where native Go code handles heavy lifting and AI agents only intervene at checkpoints (phases 0, 2, and 4). Phase 0 (source analysis) is conditional — it runs only when `--source` is provided and produces HTTP records (route extraction), session config (auth flow discovery), and custom JS scanner extensions. The pipeline runner (`pipeline.go`) uses callback functions for native scan phases, keeping `pkg/agent/` decoupled from `internal/runner/`. Source analysis logic lives in `Engine.RunSourceAnalysis()` for reuse by both pipeline and swarm modes.
+- **Swarm** (`vigolium agent swarm`): AI-guided targeted vulnerability swarm. The master agent analyzes inputs, selects scanner modules, generates custom JS extensions, executes scans, and triages results. Supports `--source` for source-aware route discovery — discovered routes are filtered by `--target` hostname and fed as additional inputs. When inputs exceed 5 records, master agent calls are batched (max 5 per batch) with plan merging (union of tags/IDs/focus areas, last-wins for extensions by filename). `--target` is required when `--source` is used.
 
-Prompt templates are Markdown files with YAML frontmatter stored in `~/.vigolium/prompts/` or embedded in the binary (`public/presets/prompts/`). Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`. Agent backends are configured in the `agent` section of `vigolium-configs.yaml`. REST API endpoints: `POST /api/agent/run/query`, `POST /api/agent/run/autopilot`, `POST /api/agent/run/pipeline`, `GET /api/agent/status/list`, `GET /api/agent/status/:id`. See `docs/agent-mode.md` for the full guide.
+Source code context is provided via the `--source` flag across all agent subcommands. The `Options.SourcePath` field carries this through the agent engine. The `TemplateData.SourcePath` variable is available in prompt templates. The legacy `--repo` flag has been removed entirely.
+
+All agent modes create a session directory under `sessions_dir` (configurable via `agent.sessions_dir` in `vigolium-configs.yaml`, defaults to `~/.vigolium/agent-sessions/`). Session dirs store agent artifacts: `output.txt`, `extensions/`, `session-config.json`, `plan.json`. The `EnsureSessionDir(baseDir, runID)` helper in `pkg/agent/pipeline_types.go` creates the directory structure.
+
+Prompt templates are Markdown files with YAML frontmatter stored in `~/.vigolium/prompts/` or embedded in the binary (`public/presets/prompts/`). Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`. Agent backends are configured in the `agent` section of `vigolium-configs.yaml`. REST API endpoints: `POST /api/agent/run/query`, `POST /api/agent/run/autopilot`, `POST /api/agent/run/pipeline`, `GET /api/agent/status/list`, `GET /api/agent/status/:id`. The agent request types use `EffectiveSourcePath()` methods for backward-compatible `source`/`repo_path` JSON field handling. See `docs/agents/agent-mode.md` for the full guide.
+
+### Source-Aware Scanning (Whitebox)
+
+The SAST and source-aware scanning features use `--source` (persistent, DB-linked) for ongoing source association and `--sast-adhoc` for one-off ad-hoc SAST scans on `vigolium scan`/`vigolium run` (accepts local path or Git URL, auto-detected via `looksLikeGitURL()`). The legacy `--repo`/`--repo-url` flags have been removed. Key components:
+
+- **Route parameterization** (`internal/runner/runner.go`): `resolveParameterizedPath()` substitutes route placeholders (`:param`, `{param}`, `<type:param>`) with probe values based on parameter name heuristics (UUID, email, slug, ID).
+- **Route probing**: `probeRoute()` sends live HTTP requests for whitebox-discovered routes, attaching responses for richer DB records. Uses concurrent probing with a semaphore-based worker pool (`maxConcurrency=10`).
+- **Batch ingestion**: `ingestRoutes()` converts ast-grep-discovered routes into HTTP records, probes them concurrently, and saves via `SaveRecordBatch()` followed by `DeduplicateRecordsBySource()`.
 
 ### Phase Aliases
 

@@ -2,13 +2,16 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"sort"
 	"strconv"
@@ -16,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -998,6 +1002,24 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		if err != nil {
 			zap.L().Warn("Discovery: failed to get DB hosts for deparos expansion", zap.Error(err))
 		}
+
+		// When enrich_targets is enabled, also include paths from prior phases
+		enrichTargets := false
+		if r.settings != nil {
+			enrichTargets = r.settings.Discovery.EnrichTargets
+		}
+		if enrichTargets && r.repository != nil {
+			pathTargets, pathErr := r.repository.GetDistinctPaths(ctx, r.options.ProjectUUID)
+			if pathErr != nil {
+				zap.L().Warn("Discovery: failed to get DB paths for enrichment", zap.Error(pathErr))
+			} else if len(pathTargets) > 0 {
+				pathURLs := buildDiscoveryTargetsFromPaths(pathTargets)
+				additionalTargets = dedupTargets(additionalTargets, pathURLs)
+				zap.L().Info("Discovery: enriched targets with paths from prior phases",
+					zap.Int("path_targets", len(pathURLs)))
+			}
+		}
+
 		discoveryTargets = dedupTargets(r.options.Targets, additionalTargets)
 		deparosCfg := r.buildDeparosConfig(additionalTargets)
 		discoverSrc, err = source.NewDeparosDiscoverySource(deparosCfg)
@@ -1040,6 +1062,16 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 	r.printPhaseDetail(speedDetail)
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 	r.printVerboseTargets(discoveryTargets)
+
+	enrichTargetsEnabled := false
+	if r.settings != nil {
+		enrichTargetsEnabled = r.settings.Discovery.EnrichTargets
+	}
+	if !enrichTargetsEnabled && !r.options.Silent {
+		fmt.Fprintf(os.Stderr, "  %s enrich discovery targets with discovered paths via %s\n",
+			terminal.TipPrefix(),
+			terminal.HiCyan("vigolium config discovery.enrich_targets=true"))
+	}
 
 	zap.L().Info("Discovery: ingesting input into database")
 
@@ -1864,6 +1896,43 @@ func buildSPAHostTargets(paths []database.PathTarget) []string {
 	return targets
 }
 
+// buildDiscoveryTargetsFromPaths returns deduplicated directory-level URLs from DB paths
+// for use as additional deparos discovery targets. Strips filenames, keeps directories.
+func buildDiscoveryTargetsFromPaths(paths []database.PathTarget) []string {
+	seen := make(map[string]struct{})
+	var targets []string
+
+	for _, p := range paths {
+		base := fmt.Sprintf("%s://%s", p.Scheme, p.Hostname)
+		if (p.Scheme == "https" && p.Port != 443) || (p.Scheme == "http" && p.Port != 80) {
+			base = fmt.Sprintf("%s://%s:%d", p.Scheme, p.Hostname, p.Port)
+		}
+
+		path := p.Path
+		if idx := strings.IndexAny(path, "?#"); idx != -1 {
+			path = path[:idx]
+		}
+		if path == "" {
+			path = "/"
+		}
+
+		// Strip last segment to get directory (e.g., /api/users/123 → /api/users/)
+		if !strings.HasSuffix(path, "/") {
+			if idx := strings.LastIndex(path, "/"); idx >= 0 {
+				path = path[:idx+1]
+			}
+		}
+
+		target := base + path
+		if _, ok := seen[target]; !ok {
+			seen[target] = struct{}{}
+			targets = append(targets, target)
+		}
+	}
+
+	return targets
+}
+
 // runSPA executes Security Posture Assessment using the nuclei Go library.
 func (r *Runner) runSPA(ctx context.Context, onResult func(*output.ResultEvent)) error {
 	if r.repository == nil {
@@ -2151,23 +2220,23 @@ func (r *Runner) runExternalHarvestPhase(ctx context.Context, infra *phaseInfra)
 
 // runSASTPhase runs ast-grep source code analysis to extract routes and parameters.
 // Discovered routes are printed to stdout and optionally ingested into the database.
-// When opts.SASTRepoPath is set, runs in ad-hoc mode (no DB ingestion).
+// When opts.SASTAdhoc is set, runs in ad-hoc mode (no DB ingestion).
 func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	phaseStart := time.Now()
 
 	r.printPhaseStart("SAST", "extract routes and parameters from application source code using ast-grep")
 
-	// Determine whether this is an ad-hoc scan (--repo flag, no DB ingestion)
-	adHocMode := r.options.SASTRepoPath != ""
+	// Determine whether this is an ad-hoc scan (--sast-adhoc flag, no DB ingestion)
+	adHocMode := r.options.SASTAdhoc != ""
 
 	// Collect source repo paths to scan
 	var repoPaths []sourceRepoInfo
 	if adHocMode {
-		repoInfo := sourceRepoInfo{path: r.options.SASTRepoPath}
+		repoInfo := sourceRepoInfo{path: r.options.SASTAdhoc}
 
 		// Create a SourceRepo DB record for the ad-hoc repo
 		if r.repository != nil {
-			absPath := r.options.SASTRepoPath
+			absPath := r.options.SASTAdhoc
 			if !filepath.IsAbs(absPath) {
 				if ap, err := filepath.Abs(absPath); err == nil {
 					absPath = ap
@@ -2180,7 +2249,7 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 				Hostname:    hostname,
 				Name:        filepath.Base(absPath),
 				RootPath:    absPath,
-				RepoURL:     r.options.SASTRepoURL,
+				RepoURL:     "",
 				RepoType:    "folder",
 			}
 			if err := r.repository.CreateSourceRepo(ctx, sr); err != nil {
@@ -2220,7 +2289,7 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	}
 
 	if len(repoPaths) == 0 {
-		r.printPhaseDetail("No source repos found. Use --repo <path>, --source <path>, or 'vigolium source add' to link a repo.")
+		r.printPhaseDetail("No source repos found. Use --sast-adhoc <path>, --source <path>, or 'vigolium source add' to link a repo.")
 		return nil
 	}
 
@@ -2508,7 +2577,7 @@ func (r *Runner) agentSASTOpts(cfg config.AgentSASTConfig, infra *phaseInfra, re
 
 	opts := agent.Options{
 		AgentName:    cfg.Agent,
-		RepoPath:     repo.path,
+		SourcePath:   repo.path,
 		Hostname:     hostname,
 		ScanUUID:     infra.scanUUID,
 		ProjectUUID:  r.options.ProjectUUID,
@@ -2583,8 +2652,90 @@ func (r *Runner) thirdPartyConfig() *config.ThirdPartyIntegrationConfig {
 	return &r.settings.SourceAware.ThirdPartyIntegration
 }
 
-// ingestRoutes converts discovered routes into HTTPRecord entries and saves to DB.
-func (r *Runner) ingestRoutes(ctx context.Context, _ *phaseInfra, routes []astgrep.Route, hostname string) {
+// routeParamPattern matches route parameter placeholders: :paramName, {paramName}, <type:paramName>
+var routeParamPattern = regexp.MustCompile(`:(\w+)|\{(\w+)\}|<\w+:(\w+)>`)
+
+// paramNamePatterns maps param name keywords to probe values.
+var uuidParamNames = map[string]bool{
+	"uuid": true, "guid": true,
+}
+
+var emailParamNames = map[string]bool{
+	"email": true, "mail": true, "e_mail": true, "email_address": true,
+}
+
+var slugParamNames = map[string]bool{
+	"slug": true, "handle": true, "username": true, "name": true, "title": true,
+}
+
+var pathParamNames = map[string]bool{
+	"path": true, "filepath": true, "file_path": true, "filename": true,
+}
+
+// resolveParameterizedPath substitutes route parameter placeholders with concrete probe values.
+func resolveParameterizedPath(path string) string {
+	return routeParamPattern.ReplaceAllStringFunc(path, func(match string) string {
+		// Extract the parameter name from whichever capture group matched
+		subs := routeParamPattern.FindStringSubmatch(match)
+		var paramName string
+		for _, s := range subs[1:] {
+			if s != "" {
+				paramName = s
+				break
+			}
+		}
+		if paramName == "" {
+			return match
+		}
+
+		lower := strings.ToLower(paramName)
+
+		// Match param name to a sensible probe value
+		if uuidParamNames[lower] || strings.HasSuffix(lower, "_uuid") || strings.HasSuffix(lower, "uuid") {
+			return uuid.New().String()
+		}
+		if emailParamNames[lower] {
+			return "test@example.com"
+		}
+		if slugParamNames[lower] || pathParamNames[lower] {
+			return "test"
+		}
+
+		// Default: numeric ID (covers id, userId, pk, etc.)
+		return "1"
+	})
+}
+
+// probeRoute sends an HTTP request for a whitebox-discovered route and attaches the response.
+func (r *Runner) probeRoute(httpRR *httpmsg.HttpRequestResponse, infra *phaseInfra) *httpmsg.HttpRequestResponse {
+	respChain, _, err := infra.httpRequester.Execute(httpRR, http.Options{})
+	if err != nil {
+		zap.L().Debug("whitebox probe failed",
+			zap.String("url", httpRR.Target()),
+			zap.Error(err))
+		return httpRR
+	}
+
+	// Copy response bytes before closing (buffer returned to pool on Close)
+	fullResp := respChain.FullResponse().Bytes()
+	rawCopy := make([]byte, len(fullResp))
+	copy(rawCopy, fullResp)
+	respChain.Close()
+
+	httpResp := httpmsg.NewHttpResponse(rawCopy)
+	return httpRR.WithResponse(httpResp)
+}
+
+// randomProbeToken generates a short random hex token for probe Authorization headers.
+func randomProbeToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "vigolium-probe-" + hex.EncodeToString(b)
+}
+
+// ingestRoutes converts discovered routes into HTTPRecord entries, probes them
+// with live HTTP requests when possible, and saves to DB.
+func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []astgrep.Route, hostname string) {
 	// Find a target URL matching the hostname for building full URLs
 	var baseURL string
 	for _, t := range r.options.Targets {
@@ -2599,6 +2750,20 @@ func (r *Runner) ingestRoutes(ctx context.Context, _ *phaseInfra, routes []astgr
 		baseURL = "https://" + hostname
 	}
 
+	canProbe := infra != nil && infra.httpRequester != nil
+
+	// Determine if a session is configured (auth headers already baked into httpRequester)
+	hasSession := len(r.options.Sessions) > 0 || r.options.AuthConfigPath != "" || len(r.options.SessionFiles) > 0
+
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		records []*httpmsg.HttpRequestResponse
+	)
+
 	for _, route := range routes {
 		if route.Path == "" {
 			continue
@@ -2609,18 +2774,57 @@ func (r *Runner) ingestRoutes(ctx context.Context, _ *phaseInfra, routes []astgr
 			method = "GET"
 		}
 
-		fullURL := baseURL + route.Path
+		resolvedPath := resolveParameterizedPath(route.Path)
+		fullURL := baseURL + resolvedPath
 
-		// Build a minimal HttpRequestResponse so we can use SaveRecord
-		// which handles UUID + RequestHash generation via FromHttpRequestResponse.
 		httpRR := r.buildMinimalRequest(method, fullURL)
 		if httpRR == nil {
 			continue
 		}
 
-		if _, err := r.repository.SaveRecord(ctx, httpRR, "ast-grep", r.options.ProjectUUID); err != nil {
-			zap.L().Debug("source-aware: failed to save route", zap.String("url", fullURL), zap.Error(err))
+		if canProbe {
+			// If no session is configured, add a random Authorization header
+			// to test for auth enforcement gaps
+			if !hasSession {
+				u, _ := neturl.Parse(fullURL)
+				if u != nil {
+					rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\n\r\n",
+						method, u.RequestURI(), u.Host, randomProbeToken())
+					if rr, err := httpmsg.ParseRawRequest(rawReq); err == nil {
+						httpRR = rr
+					}
+				}
+			}
+
+			wg.Add(1)
+			sem <- struct{}{} // acquire
+			go func(rr *httpmsg.HttpRequestResponse) {
+				defer wg.Done()
+				defer func() { <-sem }() // release
+
+				probed := r.probeRoute(rr, infra)
+				mu.Lock()
+				records = append(records, probed)
+				mu.Unlock()
+			}(httpRR)
+		} else {
+			records = append(records, httpRR)
 		}
+	}
+
+	wg.Wait()
+
+	if len(records) == 0 {
+		return
+	}
+
+	if _, err := r.repository.SaveRecordBatch(ctx, records, "ast-grep", r.options.ProjectUUID); err != nil {
+		zap.L().Debug("source-aware: failed to save probed routes", zap.Error(err))
+	}
+
+	// Deduplicate after probing to remove identical responses
+	if _, err := r.repository.DeduplicateRecordsBySource(ctx, r.options.ProjectUUID, "ast-grep"); err != nil {
+		zap.L().Debug("source-aware: failed to deduplicate ast-grep records", zap.Error(err))
 	}
 }
 

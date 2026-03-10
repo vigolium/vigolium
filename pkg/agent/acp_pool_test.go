@@ -57,7 +57,7 @@ func TestACPPoolPromptClosed(t *testing.T) {
 	pool := NewACPPool(cfg, agents)
 	pool.Close()
 
-	_, _, err := pool.Prompt(t.Context(), "test", "hello", ".")
+	_, err := pool.Prompt(t.Context(), "test", "hello", ".")
 	if err == nil {
 		t.Error("expected error when prompting a closed pool")
 	}
@@ -70,7 +70,7 @@ func TestACPPoolPromptUnknownAgent(t *testing.T) {
 	pool := NewACPPool(cfg, agents)
 	defer pool.Close()
 
-	_, _, err := pool.Prompt(t.Context(), "nonexistent", "hello", ".")
+	_, err := pool.Prompt(t.Context(), "nonexistent", "hello", ".")
 	if err == nil {
 		t.Error("expected error for unknown agent")
 	}

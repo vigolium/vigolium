@@ -87,34 +87,36 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	zap.L().Debug("prompt sent to agent", zap.String("prompt", prompt))
 
 	// Execute the agent using the configured protocol
-	var stdout, stderr string
+	var stdout, stderr, sessionID string
 	switch agentDef.EffectiveProtocol() {
 	case "acp":
 		var acpOpts []acpClientOption
-		if opts.RepoPath != "" {
-			acpOpts = append(acpOpts, withAllowedPaths(opts.RepoPath))
+		if opts.SourcePath != "" {
+			acpOpts = append(acpOpts, withAllowedPaths(opts.SourcePath))
 		}
 		if opts.StreamWriter != nil {
 			acpOpts = append(acpOpts, withStreamWriter(opts.StreamWriter))
 		}
 
+		var ar acpResult
 		if opts.Autopilot {
 			// Autopilot mode: use terminal-enabled ACP runner
 			cwd := "."
-			if opts.RepoPath != "" {
-				cwd = opts.RepoPath
+			if opts.SourcePath != "" {
+				cwd = opts.SourcePath
 			}
-			stdout, stderr, err = RunAgentAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
+			ar, err = RunAgentAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
 		} else if e.pool != nil {
 			// Determine cwd for session matching
 			cwd := "."
-			if opts.RepoPath != "" {
-				cwd = opts.RepoPath
+			if opts.SourcePath != "" {
+				cwd = opts.SourcePath
 			}
-			stdout, stderr, err = e.pool.Prompt(ctx, opts.AgentName, prompt, cwd, acpOpts...)
+			ar, err = e.pool.Prompt(ctx, opts.AgentName, prompt, cwd, acpOpts...)
 		} else {
-			stdout, stderr, err = RunAgentACP(ctx, *agentDef, prompt, acpOpts...)
+			ar, err = RunAgentACP(ctx, *agentDef, prompt, acpOpts...)
 		}
+		stdout, stderr, sessionID = ar.Stdout, ar.Stderr, ar.SessionID
 	default:
 		stdout, stderr, err = RunAgent(ctx, *agentDef, prompt, opts.StreamWriter)
 	}
@@ -122,6 +124,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		return &Result{
 			AgentName:  opts.AgentName,
 			TemplateID: templateID,
+			SessionID:  sessionID,
 			RawOutput:  stdout,
 			Stderr:     stderr,
 		}, fmt.Errorf("agent execution failed: %w", err)
@@ -139,6 +142,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	result := &Result{
 		AgentName:    opts.AgentName,
 		TemplateID:   templateID,
+		SessionID:    sessionID,
 		RawOutput:    stdout,
 		Stderr:       stderr,
 		OutputSchema: outputSchema,
@@ -176,9 +180,85 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			}
 			result.SavedCount = count
 		}
+
+	case "source_analysis":
+		// Parsing and ingestion are handled by the pipeline runner (runSourceAnalysis)
+		// to avoid double-ingestion. Engine only stores raw output for the caller.
+
+	case "swarm_plan":
+		// Parsing and ingestion are handled by the swarm runner (runMasterAgent)
+		// to avoid double-ingestion. Engine only stores raw output for the caller.
 	}
 
 	return result, nil
+}
+
+// RunWithExtra executes an agent run with additional extra template data injected.
+// This is used by swarm mode to pass request context and vuln type to the template.
+func (e *Engine) RunWithExtra(ctx context.Context, opts Options, extra map[string]string) (*Result, error) {
+	if extra != nil {
+		if opts.Extra == nil {
+			opts.Extra = make(map[string]string)
+		}
+		for k, v := range extra {
+			opts.Extra[k] = v
+		}
+	}
+	return e.Run(ctx, opts)
+}
+
+// RunSourceAnalysis executes the source analysis agent and returns parsed results.
+// It handles prompt rendering, agent execution, output parsing, and HTTP record ingestion.
+// The caller is responsible for processing extensions and session config via a callback.
+func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (*SourceAnalysisResult, error) {
+	if cfg.SourcePath == "" {
+		return nil, nil
+	}
+
+	opts := Options{
+		AgentName:      cfg.AgentName,
+		PromptTemplate: "pipeline-source-analysis",
+		TargetURL:      cfg.TargetURL,
+		SourcePath:     cfg.SourcePath,
+		Files:          cfg.Files,
+		DryRun:         cfg.DryRun,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		Source:         "pipeline-source-analysis",
+		StreamWriter:   cfg.StreamWriter,
+	}
+
+	result, err := e.Run(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("source analysis agent failed: %w", err)
+	}
+
+	if cfg.DryRun {
+		fmt.Fprint(os.Stdout, result.RawOutput)
+		return nil, nil
+	}
+
+	saResult, err := ParseSourceAnalysisResult(result.RawOutput)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse source analysis result: %w", err)
+	}
+
+	// Ingest discovered HTTP records into the database
+	if e.repo != nil && len(saResult.HTTPRecords) > 0 {
+		ingestOpts := Options{
+			Source:      "source-analysis",
+			ProjectUUID: cfg.ProjectUUID,
+			ScanUUID:    cfg.ScanUUID,
+		}
+		count, ingestErr := e.ingestHTTPRecords(ctx, saResult.HTTPRecords, ingestOpts)
+		if ingestErr != nil {
+			zap.L().Warn("Failed to ingest source-analysis HTTP records", zap.Error(ingestErr))
+		} else {
+			zap.L().Info("Ingested source-analysis HTTP records", zap.Int("count", count))
+		}
+	}
+
+	return saResult, nil
 }
 
 // resolveAgent looks up an agent definition by name from settings.
@@ -264,11 +344,28 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 // gatherContext reads source files and prepares template data.
 func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 	data := TemplateData{
-		RepoPath: opts.RepoPath,
-		Extra:    make(map[string]string),
+		SourcePath: opts.SourcePath,
+		Extra:      make(map[string]string),
 	}
 
-	if opts.RepoPath == "" {
+	// Set target context from options (always, regardless of SourcePath)
+	if opts.TargetURL != "" {
+		data.TargetURL = opts.TargetURL
+	}
+	if opts.Hostname != "" {
+		data.Hostname = opts.Hostname
+	} else if opts.TargetURL != "" {
+		data.Hostname = hostnameFromURL(opts.TargetURL)
+	}
+
+	// Inject extra template data from options
+	if opts.Extra != nil {
+		for k, v := range opts.Extra {
+			data.Extra[k] = v
+		}
+	}
+
+	if opts.SourcePath == "" {
 		return data, nil
 	}
 
@@ -278,7 +375,7 @@ func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 
 	if len(files) == 0 {
 		// Walk the repo and collect common source files
-		collected, err := collectSourceFiles(opts.RepoPath)
+		collected, err := collectSourceFiles(opts.SourcePath)
 		if err != nil {
 			zap.L().Warn("Failed to collect source files", zap.Error(err))
 		}
@@ -288,14 +385,14 @@ func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 	for _, f := range files {
 		path := f
 		if !filepath.IsAbs(f) {
-			path = filepath.Join(opts.RepoPath, f)
+			path = filepath.Join(opts.SourcePath, f)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			zap.L().Debug("Skipping unreadable file", zap.String("path", path), zap.Error(err))
 			continue
 		}
-		rel, _ := filepath.Rel(opts.RepoPath, path)
+		rel, _ := filepath.Rel(opts.SourcePath, path)
 		if rel == "" {
 			rel = f
 		}
@@ -307,16 +404,6 @@ func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 
 	data.SourceCode = sourceCode.String()
 	data.Language = detectLanguage(files)
-
-	// Set target context from options
-	if opts.TargetURL != "" {
-		data.TargetURL = opts.TargetURL
-	}
-	if opts.Hostname != "" {
-		data.Hostname = opts.Hostname
-	} else if opts.TargetURL != "" {
-		data.Hostname = hostnameFromURL(opts.TargetURL)
-	}
 
 	return data, nil
 }

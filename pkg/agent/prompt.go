@@ -239,7 +239,7 @@ func readEmbeddedTemplate(filename string) ([]byte, error) {
 		return data, nil
 	}
 	// Search subdirectories
-	subdirs := []string{"sast", "analysis", "autopilot", "pipeline"}
+	subdirs := []string{"sast", "analysis", "autopilot", "pipeline", "swarm"}
 	for _, sub := range subdirs {
 		if data, err := public.StaticFS.ReadFile("presets/prompts/" + sub + "/" + filename); err == nil {
 			return data, nil

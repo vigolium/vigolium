@@ -15,6 +15,7 @@ type DiscoveryConfig struct {
 	Engine                   DiscoveryEngineConfig    `yaml:"engine"`
 	SaveResponseBody         bool                     `yaml:"save_response_body"`
 	EnableMalformedPathProbe bool                     `yaml:"enable_malformed_path_probe"`
+	EnrichTargets            bool                     `yaml:"enrich_targets"` // enrich discovery targets with paths from previous phases (spidering, external harvest)
 }
 
 // DiscoveryRecursionConfig controls directory traversal depth.

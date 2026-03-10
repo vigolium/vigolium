@@ -94,10 +94,9 @@ func getBestSeverity(findings []*finding) severity.Severity {
 }
 
 // intToSeverity converts probe severity int to severity.Severity.
+// Capped at medium to match the module's declared severity.
 func intToSeverity(sev int) severity.Severity {
 	switch {
-	case sev >= 5:
-		return severity.High
 	case sev >= 4:
 		return severity.Medium
 	default:

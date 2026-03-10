@@ -73,8 +73,7 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--rule` | string | — | Filter SAST rules by fuzzy name match |
-| `--repo` | string | — | Local repo path for ad-hoc SAST scan (results not saved to database) |
-| `--repo-url` | string | — | Git URL to clone for ad-hoc SAST scan (results not saved to database) |
+| `--sast-adhoc` | string | — | Ad-hoc SAST scan: local path or git URL (auto-detected, results not saved to database) |
 
 ### OAST flags (scan & run)
 
@@ -260,8 +259,8 @@ vigolium run dynamic-assessment -t https://example.com --module-tag spring
 vigolium run external-harvest -t https://example.com
 vigolium run spa -t https://example.com
 vigolium run spa -t https://example.com --spa-tags cve --spa-severities critical,high
-vigolium run sast --repo /path/to/app
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --sast-adhoc /path/to/app
+vigolium run sast --sast-adhoc /path/to/app --rule gin
 vigolium run extension -t https://example.com --ext custom-check.js
 vigolium run ext -t https://example.com --ext ./my-scanner.js
 vigolium run deparos -t https://example.com
@@ -311,5 +310,5 @@ Speed settings have a layered precedence:
 
 ### SAST Constraints
 
-- `--repo` and `--repo-url` are mutually exclusive
-- `--repo-url` clones the git repository to a temp directory and sets `--repo` automatically
+- `--sast-adhoc` accepts either a local path or a git URL (auto-detected)
+- Git URLs are cloned to a temp directory automatically

@@ -169,6 +169,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	api.Post("/agent/run/query", handlers.HandleAgentQuery)
 	api.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
 	api.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
+	api.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
 	api.Post("/agent/chat/completions", handlers.HandleChatCompletions)
 	api.Get("/agent/status/list", handlers.HandleAgentRunList) // must be before :id
 	api.Get("/agent/status/:id", handlers.HandleAgentRunStatus)

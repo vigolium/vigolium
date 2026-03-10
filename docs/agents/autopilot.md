@@ -8,19 +8,29 @@ Autopilot gives an AI agent **full interactive control** of the vigolium scanner
 vigolium agent autopilot -t https://target.com
 ```
 
+### Source-Aware Scanning
+
+When `--source` is provided, the agent receives the application source code in its system prompt and follows a source-aware workflow — analyzing routes, auth flows, and vulnerability sinks before scanning:
+
+```bash
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
+```
+
 ### Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-t, --target` | (required) | Target URL |
 | `--agent` | from config | Agent backend to use |
-| `--repo` | — | Path to source code repository |
-| `--files` | — | Specific files to include |
+| `--source` | — | Path to application source code for source-aware scanning |
+| `--files` | — | Specific files to include (relative to `--source`) |
 | `--focus` | — | Focus area hint (e.g., "API injection") |
 | `--system-prompt` | — | Custom system prompt file |
 | `--timeout` | 30m | Overall timeout |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
 | `--dry-run` | false | Render system prompt without launching |
+
+> **Note:** `--repo` is accepted as a deprecated alias for `--source`.
 
 ## Step-by-Step Flow
 
@@ -32,6 +42,7 @@ vigolium agent autopilot -t https://target.com
 
 - Loads the `autopilot-system.md` template from `public/presets/prompts/autopilot/`
 - Enriches context from the database (discovered endpoints, findings, module list, scan stats)
+- If `--source` is provided, collects source code and injects it into the prompt along with a source-aware workflow guide
 - Renders the final system prompt via Go `text/template`
 - If `--dry-run`, prints rendered prompt and exits
 
@@ -59,7 +70,7 @@ The `terminalManager` enforces strict controls:
 
 ### 5. Agent Autonomous Loop
 
-The agent receives a workflow guide in the system prompt (7 steps):
+The agent receives a workflow guide in the system prompt. The standard workflow (7 steps):
 
 1. **Discover** — Run `vigolium scan --only discovery -t <target>`
 2. **Enumerate** — Check results with `vigolium traffic --json`
@@ -69,18 +80,29 @@ The agent receives a workflow guide in the system prompt (7 steps):
 6. **Iterate** — Based on results, discover more or scan deeper
 7. **Report** — Summarize findings
 
+#### Source-Aware Workflow
+
+When `--source` is provided, the system prompt includes an expanded workflow that precedes the standard steps:
+
+1. **Analyze Routes** — Identify all routes/endpoints from framework-specific patterns (Express `app.get()`, Flask `@app.route()`, Spring `@RequestMapping`, etc.)
+2. **Identify Auth Flow** — Find login/auth endpoints, understand credential format and token handling
+3. **Ingest Seed Requests** — For each discovered route, create seed requests with realistic parameters using `vigolium ingest`
+4. **Identify Sinks** — Look for dangerous patterns: raw SQL queries, command execution, template rendering with user input, file operations, SSRF-prone HTTP calls
+5. **Targeted Scanning** — Use specific module tags based on identified sinks (e.g., SQL concatenation -> `--module-tag sqli`)
+6. **Deep Testing** — Craft specific payloads using `vigolium scan-url` with `--method`, `--body`, and `-H` flags matching the exact parameter format the code expects
+
 Each time the agent wants to run a command, this happens:
 
 ```
-Agent → ACP CreateTerminal("vigolium scan-url ...")
-  → acpClient.CreateTerminal()
-    → terminalManager.validateCommand()  // allowlist + injection check
-    → terminalManager.createSession()    // exec.CommandContext, background start
-  ← returns terminal ID
+Agent -> ACP CreateTerminal("vigolium scan-url ...")
+  -> acpClient.CreateTerminal()
+    -> terminalManager.validateCommand()  // allowlist + injection check
+    -> terminalManager.createSession()    // exec.CommandContext, background start
+  <- returns terminal ID
 
-Agent → ACP WaitForTerminalExit(id)     // blocks until done
-Agent → ACP TerminalOutput(id)          // reads output
-Agent → ACP ReleaseTerminal(id)         // cleanup
+Agent -> ACP WaitForTerminalExit(id)     // blocks until done
+Agent -> ACP TerminalOutput(id)          // reads output
+Agent -> ACP ReleaseTerminal(id)         // cleanup
 ```
 
 ### 6. Cleanup
@@ -92,7 +114,7 @@ Agent → ACP ReleaseTerminal(id)         // cleanup
 
 For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startup overhead:
 
-- Maintains map of `agentName → acpSession`
+- Maintains map of `agentName -> acpSession`
 - Sessions are reused if still alive, same working directory, and not in use
 - LRU eviction when capacity is exceeded
 - Reaper goroutine kills idle sessions every 30 seconds
@@ -106,7 +128,7 @@ For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startu
 {
   "target": "https://target.com",
   "agent": "claude",
-  "repo": "/path/to/source",
+  "source": "/path/to/source",
   "files": ["src/auth.go"],
   "focus": "API injection",
   "timeout": "30m",
@@ -115,6 +137,8 @@ For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startu
   "dry_run": false
 }
 ```
+
+> **Backward compatibility:** `repo_path` is accepted as an alias for `source`.
 
 **Response modes:**
 - **Streaming (SSE):** Real-time events of type `data: {type, text, result, error}`

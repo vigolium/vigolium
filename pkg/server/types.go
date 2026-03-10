@@ -359,45 +359,100 @@ type AgentRunRequest struct {
 	PromptTemplate string   `json:"prompt_template,omitempty"`
 	PromptFile     string   `json:"prompt_file,omitempty"`
 	Prompt         string   `json:"prompt,omitempty"`
-	RepoPath       string   `json:"repo_path,omitempty"`
+	SourcePath     string   `json:"source,omitempty"`          // path to source code
+	RepoPath       string   `json:"repo_path,omitempty"`       // deprecated: use source
 	Files          []string `json:"files,omitempty"`
 	Append         string   `json:"append,omitempty"`
-	Source         string   `json:"source,omitempty"`
+	Source         string   `json:"source_label,omitempty"`
 	ScanUUID       string   `json:"scan_uuid,omitempty"`
 	Stream         bool     `json:"stream,omitempty"`
 }
 
+// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
+func (r AgentRunRequest) EffectiveSourcePath() string {
+	if r.SourcePath != "" {
+		return r.SourcePath
+	}
+	return r.RepoPath
+}
+
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
 type AgentAutopilotRequest struct {
-	Target       string   `json:"target"`                    // required: target URL
-	Agent        string   `json:"agent,omitempty"`           // agent backend name
-	RepoPath     string   `json:"repo_path,omitempty"`       // path to source code repository
-	Files        []string `json:"files,omitempty"`           // specific files to include
-	Focus        string   `json:"focus,omitempty"`           // focus area hint
-	SystemPrompt string   `json:"system_prompt,omitempty"`   // custom system prompt file path
-	Timeout      string   `json:"timeout,omitempty"`         // Go duration string, default "30m"
-	MaxCommands  int      `json:"max_commands,omitempty"`    // max CLI commands, default 100
-	DryRun       bool     `json:"dry_run,omitempty"`         // render prompt without executing
-	Stream       bool     `json:"stream,omitempty"`          // enable SSE streaming
-	ScanUUID     string   `json:"scan_uuid,omitempty"`       // optional scan UUID
+	Target       string   `json:"target,omitempty"`              // target URL (derived from input if not set)
+	Input        string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
+	Agent        string   `json:"agent,omitempty"`               // agent backend name
+	SourcePath   string   `json:"source,omitempty"`              // path to application source code
+	RepoPath     string   `json:"repo_path,omitempty"`           // deprecated: use source
+	Files        []string `json:"files,omitempty"`               // specific files to include
+	Focus        string   `json:"focus,omitempty"`               // focus area hint
+	SystemPrompt string   `json:"system_prompt,omitempty"`       // custom system prompt file path
+	Timeout      string   `json:"timeout,omitempty"`             // Go duration string, default "30m"
+	MaxCommands  int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
+	DryRun       bool     `json:"dry_run,omitempty"`             // render prompt without executing
+	Stream       bool     `json:"stream,omitempty"`              // enable SSE streaming
+	ScanUUID     string   `json:"scan_uuid,omitempty"`           // optional scan UUID
+}
+
+// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
+func (r AgentAutopilotRequest) EffectiveSourcePath() string {
+	if r.SourcePath != "" {
+		return r.SourcePath
+	}
+	return r.RepoPath
 }
 
 // AgentPipelineRequest is the request body for POST /api/agent/run/pipeline.
 type AgentPipelineRequest struct {
-	Target          string   `json:"target"`                      // required: target URL
-	Agent           string   `json:"agent,omitempty"`             // agent backend name
-	RepoPath        string   `json:"repo_path,omitempty"`         // path to source code repository
-	Files           []string `json:"files,omitempty"`             // specific files to include
-	Focus           string   `json:"focus,omitempty"`             // focus area hint for planning agent
-	Profile         string   `json:"profile,omitempty"`           // scanning profile name
-	Timeout         string   `json:"timeout,omitempty"`           // Go duration string, default "1h"
-	MaxRescanRounds int      `json:"max_rescan_rounds,omitempty"` // max triage→rescan iterations, default 2
-	SkipPhases      []string `json:"skip_phases,omitempty"`       // phases to skip
-	StartFrom       string   `json:"start_from,omitempty"`        // resume from a specific phase
-	DryRun          bool     `json:"dry_run,omitempty"`           // render prompts without executing
-	Stream          bool     `json:"stream,omitempty"`            // enable SSE streaming
-	ScanUUID        string   `json:"scan_uuid,omitempty"`         // optional scan UUID
-	ProjectUUID     string   `json:"project_uuid,omitempty"`      // optional project UUID
+	Target          string   `json:"target,omitempty"`                // target URL (derived from input if not set)
+	Input           string   `json:"input,omitempty"`                 // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
+	Agent           string   `json:"agent,omitempty"`                 // agent backend name
+	SourcePath      string   `json:"source,omitempty"`                // path to application source code
+	RepoPath        string   `json:"repo_path,omitempty"`             // deprecated: use source
+	Files           []string `json:"files,omitempty"`                 // specific files to include
+	Focus           string   `json:"focus,omitempty"`                 // focus area hint for planning agent
+	Profile         string   `json:"profile,omitempty"`               // scanning profile name
+	Timeout         string   `json:"timeout,omitempty"`               // Go duration string, default "1h"
+	MaxRescanRounds int      `json:"max_rescan_rounds,omitempty"`     // max triage->rescan iterations, default 2
+	SkipPhases      []string `json:"skip_phases,omitempty"`           // phases to skip
+	StartFrom       string   `json:"start_from,omitempty"`            // resume from a specific phase
+	DryRun          bool     `json:"dry_run,omitempty"`               // render prompts without executing
+	Stream          bool     `json:"stream,omitempty"`                // enable SSE streaming
+	ScanUUID        string   `json:"scan_uuid,omitempty"`             // optional scan UUID
+	ProjectUUID     string   `json:"project_uuid,omitempty"`          // optional project UUID
+}
+
+// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
+func (r AgentPipelineRequest) EffectiveSourcePath() string {
+	if r.SourcePath != "" {
+		return r.SourcePath
+	}
+	return r.RepoPath
+}
+
+// AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
+type AgentSwarmRequest struct {
+	Input         string   `json:"input,omitempty"`           // single input (URL, curl, raw HTTP, Burp XML, record UUID)
+	Inputs        []string `json:"inputs,omitempty"`          // multiple inputs (for auth flows)
+	VulnType      string   `json:"vuln_type,omitempty"`       // vulnerability type focus
+	ModuleNames   []string `json:"module_names,omitempty"`    // explicit module IDs
+	ScanningPhase string   `json:"scanning_phase,omitempty"`  // default "dynamic-assessment"
+	MaxIterations int      `json:"max_iterations,omitempty"`  // max triage-rescan rounds (default 3)
+	Agent         string   `json:"agent,omitempty"`           // agent backend name
+	ProjectUUID   string   `json:"project_uuid,omitempty"`    // optional project UUID
+	ScanUUID      string   `json:"scan_uuid,omitempty"`       // optional scan UUID
+	Stream        bool     `json:"stream,omitempty"`          // enable SSE streaming
+	Timeout       string   `json:"timeout,omitempty"`         // Go duration string
+	DryRun        bool     `json:"dry_run,omitempty"`         // render prompts without executing
+}
+
+// EffectiveInputs returns all inputs as a slice, merging Input and Inputs.
+func (r AgentSwarmRequest) EffectiveInputs() []string {
+	var result []string
+	if r.Input != "" {
+		result = append(result, r.Input)
+	}
+	result = append(result, r.Inputs...)
+	return result
 }
 
 // AgentRunResponse is the response for POST /api/agent/run/*.
@@ -508,4 +563,7 @@ type AgentRunStatusResponse struct {
 	CurrentPhase   string               `json:"current_phase,omitempty"`
 	PhasesRun      []string             `json:"phases_run,omitempty"`
 	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"`
+
+	// Swarm-specific result
+	SwarmResult *agent.SwarmResult `json:"swarm_result,omitempty"`
 }

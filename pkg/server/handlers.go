@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/queue"
+	"go.uber.org/zap"
 )
 
 // countCache caches expensive COUNT(*) query results with a TTL.
@@ -89,7 +90,7 @@ type Handlers struct {
 }
 
 // NewHandlers creates a new Handlers instance.
-// Starts a background goroutine to clean up completed agent run statuses after 1 hour.
+// Starts a background goroutine to clean up old agent run records from the database.
 func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *database.RecordWriter, cfg ServerConfig, settings *config.Settings, httpRequester *http.Requester) *Handlers {
 	h := &Handlers{
 		queue:            q,
@@ -105,15 +106,15 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		agentCleanupStop: make(chan struct{}),
 		counts:           newCountCache(10 * time.Second),
 	}
-	go h.agentStatusCleanupLoop()
+	go h.agentDBCleanupLoop()
 	return h
 }
 
-// agentStatusCleanupLoop periodically removes completed/failed agent run statuses
-// older than 1 hour to prevent unbounded map growth.
-func (h *Handlers) agentStatusCleanupLoop() {
-	const ttl = 1 * time.Hour
-	ticker := time.NewTicker(5 * time.Minute)
+// agentDBCleanupLoop periodically removes old completed/failed agent runs from the
+// database and prunes the in-memory map for completed runs.
+func (h *Handlers) agentDBCleanupLoop() {
+	const ttl = 24 * time.Hour
+	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -121,16 +122,64 @@ func (h *Handlers) agentStatusCleanupLoop() {
 		case <-h.agentCleanupStop:
 			return
 		case <-ticker.C:
+			// Prune in-memory map (completed runs older than 1h)
 			now := time.Now()
 			h.agentMu.Lock()
 			for id, status := range h.agentRunStatus {
-				if status.CompletedAt != nil && now.Sub(*status.CompletedAt) > ttl {
+				if status.CompletedAt != nil && now.Sub(*status.CompletedAt) > time.Hour {
 					delete(h.agentRunStatus, id)
 				}
 			}
 			h.agentMu.Unlock()
+
+			// Prune DB (completed/failed runs older than 24h)
+			if h.repo != nil {
+				if n, err := h.repo.DeleteOldAgentRuns(context.Background(), ttl); err == nil && n > 0 {
+					zap.L().Debug("Cleaned up old agent runs", zap.Int("count", n))
+				}
+			}
 		}
 	}
+}
+
+// persistAgentRun creates an agent_runs DB record for a new agent run.
+func (h *Handlers) persistAgentRun(runID, mode, agentName string) {
+	if h.repo == nil {
+		return
+	}
+	run := &database.AgentRun{
+		UUID:      runID,
+		Mode:      mode,
+		AgentName: agentName,
+		Status:    "running",
+		StartedAt: time.Now(),
+	}
+	if err := h.repo.CreateAgentRun(context.Background(), run); err != nil {
+		zap.L().Debug("Failed to persist agent run", zap.String("run_id", runID), zap.Error(err))
+	}
+}
+
+// persistAgentRunCompleted updates the DB record for a completed agent run.
+func (h *Handlers) persistAgentRunCompleted(runID string, status *AgentRunStatusResponse) {
+	if h.repo == nil {
+		return
+	}
+	run := &database.AgentRun{
+		UUID:         runID,
+		Status:       status.Status,
+		AgentName:    status.AgentName,
+		TemplateID:   status.TemplateID,
+		FindingCount: status.FindingCount,
+		RecordCount:  status.RecordCount,
+		SavedCount:   status.SavedCount,
+		ErrorMessage: status.Error,
+		CurrentPhase: status.CurrentPhase,
+		PhasesRun:    status.PhasesRun,
+	}
+	if status.CompletedAt != nil {
+		run.CompletedAt = *status.CompletedAt
+	}
+	_ = h.repo.UpdateAgentRun(context.Background(), run)
 }
 
 // HandleHealth handles GET /health.

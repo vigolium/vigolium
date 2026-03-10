@@ -122,8 +122,30 @@ vigolium module ls --type active --json
 {{if .SourceCode}}
 
 ## Source Code Context
-The following source code is available for analysis. Use it to identify
-routes, parameters, and potential vulnerability patterns:
+The following source code is available for analysis.
 
 {{.SourceCode}}
+
+## Source-Aware Workflow
+
+Since source code is available, adapt your workflow to leverage it:
+
+1. **Analyze Routes** — Identify all routes/endpoints from framework-specific patterns
+   (e.g., Express `app.get()`, Flask `@app.route()`, Spring `@RequestMapping`)
+2. **Identify Auth Flow** — Find login/auth endpoints, understand credential format and
+   token handling (JWT, cookies, API keys)
+3. **Ingest Seed Requests** — For each discovered route, create seed requests with
+   realistic parameters derived from the source code:
+   `vigolium ingest --format curl -i - <<< 'curl -X POST {{.TargetURL}}/api/endpoint -H "Content-Type: application/json" -d "{...}"'`
+4. **Identify Sinks** — Look for dangerous patterns: raw SQL queries, command execution,
+   template rendering with user input, file operations, SSRF-prone HTTP calls
+5. **Targeted Scanning** — Use specific module tags based on identified sinks:
+   - SQL concatenation → `--module-tag sqli`
+   - Command execution → `--module-tag injection`
+   - Template rendering → `--module-tag ssti`
+   - File operations → `--module-tag lfi,path-traversal`
+   - SSRF patterns → `--module-tag ssrf`
+6. **Deep Testing** — For the most dangerous sinks, craft specific payloads using
+   `vigolium scan-url` with `--method`, `--body`, and `-H` flags matching the exact
+   parameter format the code expects
 {{end}}

@@ -14,8 +14,8 @@ type Options struct {
 	Stdin          bool   // read prompt from stdin
 
 	// Context
-	RepoPath  string   // path to source code repository
-	Files     []string // specific files to include (relative to RepoPath)
+	SourcePath string   // path to source code repository (--source flag)
+	Files      []string // specific files to include (relative to SourcePath)
 	Source    string   // source identifier for findings
 	Append    string   // extra text appended to the rendered prompt
 	TargetURL string   // target URL for scanning context
@@ -28,6 +28,9 @@ type Options struct {
 	ProjectUUID  string    // project UUID for data scoping
 	StreamWriter io.Writer `json:"-"` // when non-nil, agent output is streamed here in real-time
 
+	// Extra template data (injected into {{.Extra}} in prompt templates)
+	Extra map[string]string `json:"-"`
+
 	// Autopilot mode
 	Autopilot    bool // enable terminal execution for autonomous scanning
 	MaxCommands  int  // max terminal commands the agent can run (0 = default 100)
@@ -37,6 +40,7 @@ type Options struct {
 type Result struct {
 	AgentName    string            `json:"agent_name"`
 	TemplateID   string            `json:"template_id,omitempty"`
+	SessionID    string            `json:"session_id,omitempty"` // ACP session ID for resume (e.g. claude --resume <id>)
 	RawOutput    string            `json:"raw_output"`
 	Stderr       string            `json:"stderr,omitempty"`
 	Findings     []AgentFinding    `json:"findings,omitempty"`
@@ -60,11 +64,11 @@ type PromptTemplate struct {
 
 // TemplateData holds the variables passed to a prompt template.
 type TemplateData struct {
-	SourceCode string
-	Language   string
-	Framework  string
-	FilePath   string
-	RepoPath   string
+	SourceCode  string
+	Language    string
+	Framework   string
+	FilePath    string
+	SourcePath  string
 	TargetURL  string
 	Hostname   string
 	Endpoints           string
@@ -73,6 +77,7 @@ type TemplateData struct {
 	DiscoveredEndpoints string // JSON array of HTTP records from DB
 	HighRiskEndpoints   string // JSON array of top risk-scored HTTP records from DB
 	ModuleList          string // JSON array of available scanner modules
+	ModuleTags          string // JSON array of unique module tags
 	ScanStats           string // JSON object of scan statistics
 	AvailableCommands   string // hardcoded CLI command reference
 }

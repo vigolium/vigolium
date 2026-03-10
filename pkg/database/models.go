@@ -274,6 +274,56 @@ type ScanLog struct {
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 }
 
+// AgentRun represents a single agent execution for debugging and status tracking.
+// It replaces the in-memory agent run status map with persistent DB storage.
+type AgentRun struct {
+	bun.BaseModel `bun:"table:agent_runs,alias:ar" json:"-"`
+
+	ID          int64  `bun:"id,pk,autoincrement" json:"id"`
+	UUID        string `bun:"uuid,notnull,unique" json:"uuid"`
+	ProjectUUID string `bun:"project_uuid,notnull" json:"project_uuid"`
+	ScanUUID    string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
+
+	// Config
+	Mode        string   `bun:"mode,notnull" json:"mode"`                                // query, autopilot, pipeline, scan
+	AgentName   string   `bun:"agent_name,notnull" json:"agent_name"`
+	InputRaw    string   `bun:"input_raw,nullzero" json:"input_raw,omitempty"`
+	InputType   string   `bun:"input_type,nullzero" json:"input_type,omitempty"`          // url, curl, burp, raw, record_uuid
+	TargetURL   string   `bun:"target_url,nullzero" json:"target_url,omitempty"`
+	VulnType    string   `bun:"vuln_type,nullzero" json:"vuln_type,omitempty"`
+	ModuleNames []string `bun:"module_names,type:jsonb,nullzero" json:"module_names,omitempty"`
+	TemplateID  string   `bun:"template_id,nullzero" json:"template_id,omitempty"`
+
+	// Execution
+	Status       string   `bun:"status,notnull,default:'pending'" json:"status"` // pending, running, completed, failed, cancelled
+	CurrentPhase string   `bun:"current_phase,nullzero" json:"current_phase,omitempty"`
+	PhasesRun    []string `bun:"phases_run,type:jsonb,nullzero" json:"phases_run,omitempty"`
+
+	// Results
+	FindingCount int `bun:"finding_count,default:0" json:"finding_count"`
+	RecordCount  int `bun:"record_count,default:0" json:"record_count"`
+	SavedCount   int `bun:"saved_count,default:0" json:"saved_count"`
+
+	// Agent session (ACP session ID for resume)
+	SessionID string `bun:"session_id,nullzero" json:"session_id,omitempty"`
+
+	// Debug (stored as JSON text blobs)
+	AttackPlan     string `bun:"attack_plan,nullzero" json:"attack_plan,omitempty"`
+	TriageResult   string `bun:"triage_result,nullzero" json:"triage_result,omitempty"`
+	PromptSent     string `bun:"prompt_sent,nullzero" json:"prompt_sent,omitempty"`
+	AgentRawOutput string `bun:"agent_raw_output,nullzero" json:"agent_raw_output,omitempty"`
+	ErrorMessage   string `bun:"error_message,nullzero" json:"error_message,omitempty"`
+
+	// Pipeline/scan result (JSON blob for full result objects)
+	ResultJSON string `bun:"result_json,nullzero" json:"result_json,omitempty"`
+
+	// Timing
+	StartedAt   time.Time `bun:"started_at,nullzero" json:"started_at,omitempty"`
+	CompletedAt time.Time `bun:"completed_at,nullzero" json:"completed_at,omitempty"`
+	DurationMs  int64     `bun:"duration_ms,default:0" json:"duration_ms"`
+	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+}
+
 // Scope defines URL/request scope rules (firewall-style: first match wins)
 type Scope struct {
 	bun.BaseModel `bun:"table:scopes,alias:s" json:"-"`

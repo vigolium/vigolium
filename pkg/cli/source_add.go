@@ -177,6 +177,11 @@ func runSourceAdd(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// looksLikeGitURL returns true if the value looks like a git URL rather than a local path.
+func looksLikeGitURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "git@")
+}
+
 // cloneGitRepo clones a git URL into the configured storage directory.
 // Returns the absolute path to the cloned directory.
 func cloneGitRepo(gitURL string) (string, error) {

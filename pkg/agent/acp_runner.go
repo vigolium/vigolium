@@ -26,15 +26,22 @@ type acpRunConfig struct {
 	MaxCalls int    // max terminal commands (only used when Terminal is true)
 }
 
+// acpResult holds the output of an ACP agent run.
+type acpResult struct {
+	Stdout    string
+	Stderr    string
+	SessionID string // ACP session ID for resume
+}
+
 // RunAgentACP executes an AI agent using the ACP protocol.
 // It returns the collected agent output, stderr, and any execution error.
-func RunAgentACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (stdout string, stderr string, err error) {
+func RunAgentACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (result acpResult, err error) {
 	return runACP(ctx, agentDef, prompt, acpRunConfig{}, opts...)
 }
 
 // RunAgentAutopilot executes an AI agent using the ACP protocol with terminal
 // capabilities enabled. The agent can run vigolium CLI commands via CreateTerminal.
-func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt string, cwd string, maxCalls int, opts ...acpClientOption) (stdout string, stderr string, err error) {
+func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt string, cwd string, maxCalls int, opts ...acpClientOption) (result acpResult, err error) {
 	opts = append(opts, withTerminal(cwd, maxCalls))
 	return runACP(ctx, agentDef, prompt, acpRunConfig{
 		Terminal: true,
@@ -44,14 +51,14 @@ func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt str
 }
 
 // runACP is the shared implementation for both RunAgentACP and RunAgentAutopilot.
-func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg acpRunConfig, opts ...acpClientOption) (stdout string, stderr string, err error) {
+func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg acpRunConfig, opts ...acpClientOption) (result acpResult, err error) {
 	if agentDef.Command == "" {
-		return "", "", fmt.Errorf("agent command is empty")
+		return acpResult{}, fmt.Errorf("agent command is empty")
 	}
 
 	cmdPath, err := exec.LookPath(agentDef.Command)
 	if err != nil {
-		return "", "", fmt.Errorf("agent command %q not found in PATH: %w", agentDef.Command, err)
+		return acpResult{}, fmt.Errorf("agent command %q not found in PATH: %w", agentDef.Command, err)
 	}
 
 	cmdLine := cmdPath + " " + strings.Join(agentDef.Args, " ")
@@ -76,12 +83,12 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create stdin pipe: %w", err)
+		return acpResult{}, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create stdout pipe: %w", err)
+		return acpResult{}, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	stderrReader, stderrWriter := io.Pipe()
@@ -89,7 +96,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 
 	if err := cmd.Start(); err != nil {
 		_ = stderrWriter.Close()
-		return "", "", fmt.Errorf("failed to start agent process: %w", err)
+		return acpResult{}, fmt.Errorf("failed to start agent process: %w", err)
 	}
 
 	// Drain stderr in background, logging each line in real-time
@@ -147,9 +154,9 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	})
 	if initErr != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", stderrBuf.String(), fmt.Errorf("ACP initialize timed out: %w", ctx.Err())
+			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP initialize timed out: %w", ctx.Err())
 		}
-		return "", stderrBuf.String(), fmt.Errorf("ACP initialize failed: %w", initErr)
+		return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP initialize failed: %w", initErr)
 	}
 
 	zap.L().Debug("ACP initialized successfully")
@@ -182,13 +189,15 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	})
 	if sessErr != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", stderrBuf.String(), fmt.Errorf("ACP session creation timed out: %w", ctx.Err())
+			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP session creation timed out: %w", ctx.Err())
 		}
-		return "", stderrBuf.String(), fmt.Errorf("ACP new session failed: %w", sessErr)
+		return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP new session failed: %w", sessErr)
 	}
 
+	sessionID := string(sess.SessionId)
+
 	zap.L().Debug("ACP session created",
-		zap.String("sessionId", string(sess.SessionId)))
+		zap.String("sessionId", sessionID))
 
 	zap.L().Debug("sending ACP prompt, waiting for agent completion...",
 		zap.Int("promptLength", len(prompt)))
@@ -199,10 +208,11 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 		Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
 	})
 	if promptErr != nil {
+		r := acpResult{Stdout: client.collectedOutput(), Stderr: stderrBuf.String(), SessionID: sessionID}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return client.collectedOutput(), stderrBuf.String(), fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
 		}
-		return client.collectedOutput(), stderrBuf.String(), fmt.Errorf("ACP prompt failed: %w", promptErr)
+		return r, fmt.Errorf("ACP prompt failed: %w", promptErr)
 	}
 
 	zap.L().Debug("ACP prompt completed",
@@ -212,7 +222,11 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	// Close stdin to signal EOF to the agent process
 	_ = stdinPipe.Close()
 
-	return client.collectedOutput(), stderrBuf.String(), nil
+	return acpResult{
+		Stdout:    client.collectedOutput(),
+		Stderr:    stderrBuf.String(),
+		SessionID: sessionID,
+	}, nil
 }
 
 // zapSlogHandler routes slog records through zap, downgrading everything to DEBUG level.

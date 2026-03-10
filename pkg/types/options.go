@@ -148,10 +148,9 @@ type Options struct {
 	SASTEnabled bool
 	// SASTRuleFilter is a fuzzy pattern for filtering SAST rules by name (from --rule flag)
 	SASTRuleFilter string
-	// SASTRepoPath is a local repo path for ad-hoc SAST scan (results not ingested to DB, from --repo flag)
-	SASTRepoPath string
-	// SASTRepoURL is a git URL to clone for ad-hoc SAST scan (from --repo-url flag)
-	SASTRepoURL string
+	// SASTAdhoc is a local path or git URL for ad-hoc SAST scan (results not saved to DB, from --sast-adhoc flag).
+	// Auto-detected: URLs (http://, https://, git@) are cloned; everything else is treated as a local path.
+	SASTAdhoc string
 	// SourcePath is the path to application source code (from --source flag)
 	SourcePath string
 	// SourceURL is a git URL to clone for source-aware scanning (from --source-url flag)

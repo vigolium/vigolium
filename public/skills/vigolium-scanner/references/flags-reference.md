@@ -13,6 +13,7 @@ Alphabetical index of all vigolium CLI flags across all commands.
 - [Agent Flags](#agent-flags)
 - [Agent Autopilot Flags](#agent-autopilot-flags)
 - [Agent Pipeline Flags](#agent-pipeline-flags)
+- [Agent Swarm Flags](#agent-swarm-flags)
 - [Traffic Flags](#traffic-flags)
 - [DB Flags](#db-flags)
 - [Export Flags](#export-flags)
@@ -102,8 +103,7 @@ Flags specific to `vigolium scan` and `vigolium run`.
 | `--no-forms` | — | bool | `false` | Disable automatic form detection and filling during spidering |
 | `--oast-url` | — | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
 | `--output` | `-o` | string | — | Output file path |
-| `--repo` | — | string | — | SAST repo path |
-| `--repo-url` | — | string | — | Git URL to clone for ad-hoc SAST scan |
+| `--sast-adhoc` | — | string | — | Ad-hoc SAST scan: local path or git URL (auto-detected) |
 | `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--retries` | — | int | `1` | Retry attempts |
 | `--rule` | — | string | — | SAST rule filter |
@@ -199,8 +199,7 @@ Flags specific to `vigolium agent`.
 | `--output` | string | — | Output file |
 | `--prompt-file` | string | — | Prompt template file |
 | `--prompt-template` | string | — | Prompt template ID |
-| `--repo` | string | — | Source code path |
-| `--source` | string | — | Label for records ingested from agent output (e.g. 'agent-review') |
+| `--source` | string | — | Path to application source code |
 
 Flags specific to `vigolium agent query`.
 
@@ -210,7 +209,7 @@ Flags specific to `vigolium agent query`.
 | `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution (0 = no limit) |
 | `--output` | — | string | — | Output file |
 | `--prompt` | `-p` | string | — | Prompt text to send to the agent |
-| `--source` | — | string | — | Label for records ingested from agent output (e.g. 'agent-review') |
+| `--source` | — | string | — | Path to application source code |
 | `--stdin` | — | bool | `false` | Read from stdin |
 
 ---
@@ -223,7 +222,7 @@ Flags specific to `vigolium agent autopilot`.
 |------|-------|------|---------|-------------|
 | `--target` | `-t` | string | — | Target URL (required) |
 | `--agent` | — | string | from config | Agent backend |
-| `--repo` | — | string | — | Source code repository path |
+| `--source` | — | string | — | Path to application source code |
 | `--files` | — | []string | — | Specific files to include |
 | `--focus` | — | string | — | Focus area hint |
 | `--system-prompt` | — | string | — | Custom system prompt file |
@@ -241,15 +240,34 @@ Flags specific to `vigolium agent pipeline`.
 |------|-------|------|---------|-------------|
 | `--target` | `-t` | string | — | Target URL (required) |
 | `--agent` | — | string | from config | Agent backend |
-| `--repo` | — | string | — | Source code repository path |
+| `--source` | — | string | — | Path to application source code (enables Phase 0) |
 | `--files` | — | []string | — | Specific files to include |
 | `--focus` | — | string | — | Focus area hint for planning |
 | `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
 | `--max-rescan-rounds` | — | int | `2` | Max triage→rescan iterations |
-| `--skip-phase` | — | []string | — | Skip phases (discover, plan, scan, triage, rescan, report) |
+| `--skip-phase` | — | []string | — | Skip phases (source-analysis, discover, plan, scan, triage, rescan, report) |
 | `--start-from` | — | string | — | Resume from a specific phase |
 | `--profile` | — | string | — | Scanning profile for scan phases |
 | `--dry-run` | — | bool | `false` | Preview agent prompts |
+
+---
+
+## Agent Swarm Flags
+
+Flags specific to `vigolium agent swarm`.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--target` | `-t` | string | — | Target URL |
+| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML). Use `-` for stdin |
+| `--record-uuid` | — | string | — | HTTP record UUID from database |
+| `--vuln-type` | — | string | — | Vulnerability type focus (e.g., sqli, xss, ssrf) |
+| `--modules` | `-m` | []string | — | Explicit module names to include |
+| `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
+| `--agent` | — | string | from config | Agent backend |
+| `--timeout` | — | duration | `15m` | Maximum swarm duration |
+| `--profile` | — | string | — | Scanning profile |
+| `--dry-run` | — | bool | `false` | Render prompts without executing |
 
 ---
 

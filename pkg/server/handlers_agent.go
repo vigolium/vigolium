@@ -14,7 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
-	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
 )
@@ -56,7 +56,7 @@ func (h *Handlers) buildQueryOpts(req AgentRunRequest) agent.Options {
 		PromptTemplate: req.PromptTemplate,
 		PromptFile:     req.PromptFile,
 		PromptInline:   req.Prompt,
-		RepoPath:       req.RepoPath,
+		SourcePath:     req.EffectiveSourcePath(),
 		Files:          req.Files,
 		Append:         req.Append,
 		Source:         req.Source,
@@ -75,6 +75,17 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error: "invalid request body: " + err.Error(),
 		})
+	}
+
+	// Derive target from input when target is not provided
+	if req.Target == "" && req.Input != "" {
+		targetURL, err := agent.TargetURLFromInput(context.Background(), req.Input, "", h.repo)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+				Error: "could not extract target URL from input: " + err.Error(),
+			})
+		}
+		req.Target = targetURL
 	}
 
 	if req.Target == "" {
@@ -105,7 +116,7 @@ func (h *Handlers) buildAutopilotOpts(req AgentAutopilotRequest) agent.Options {
 		AgentName:      agentName,
 		PromptTemplate: "autopilot-system",
 		TargetURL:      req.Target,
-		RepoPath:       req.RepoPath,
+		SourcePath:     req.EffectiveSourcePath(),
 		Files:          req.Files,
 		Source:         "autopilot",
 		Autopilot:      true,
@@ -139,6 +150,17 @@ func (h *Handlers) HandleAgentPipeline(c fiber.Ctx) error {
 		})
 	}
 
+	// Derive target from input when target is not provided
+	if req.Target == "" && req.Input != "" {
+		targetURL, err := agent.TargetURLFromInput(context.Background(), req.Input, "", h.repo)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+				Error: "could not extract target URL from input: " + err.Error(),
+			})
+		}
+		req.Target = targetURL
+	}
+
 	if req.Target == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error: ErrMissingTarget.Error(),
@@ -168,6 +190,13 @@ func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeo
 		Status: "running",
 	}
 	h.agentMu.Unlock()
+
+	// Persist to DB
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+	h.persistAgentRun(runID, "pipeline", agentName)
 
 	if req.Stream {
 		return h.handlePipelineSSE(c, runID, req, timeout)
@@ -220,7 +249,7 @@ func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.Pipeline
 		TargetURL:       req.Target,
 		AgentName:       agentName,
 		Focus:           req.Focus,
-		RepoPath:        req.RepoPath,
+		SourcePath:      req.EffectiveSourcePath(),
 		Files:           req.Files,
 		MaxRescanRounds: maxRescan,
 		SkipPhases:      skipPhases,
@@ -273,7 +302,7 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 		opts.OnlyPhase = "dynamic-assessment"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
-		opts.Modules = resolveModulesFromPlanAPI(moduleTags, moduleIDs)
+		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
@@ -288,32 +317,6 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 		scanRunner.SetRepository(h.repo)
 		return scanRunner.RunEnumeration()
 	}
-}
-
-// resolveModulesFromPlanAPI converts agent-suggested tags and IDs into module ID list.
-func resolveModulesFromPlanAPI(tags []string, ids []string) []string {
-	moduleSet := make(map[string]bool)
-
-	if len(tags) > 0 {
-		resolved := modules.ResolveModuleTags(tags)
-		for _, id := range resolved {
-			moduleSet[id] = true
-		}
-	}
-
-	for _, id := range ids {
-		moduleSet[id] = true
-	}
-
-	if len(moduleSet) == 0 {
-		return []string{"all"}
-	}
-
-	result := make([]string, 0, len(moduleSet))
-	for id := range moduleSet {
-		result = append(result, id)
-	}
-	return result
 }
 
 // handlePipelineSSE runs the pipeline synchronously while streaming SSE events.
@@ -412,6 +415,11 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 		}
 		h.agentMu.Unlock()
 
+		// Persist to DB
+		if status != nil {
+			h.persistAgentRunCompleted(runID, status)
+		}
+
 		_ = writeSSE(w, sseEvent{Type: "done", PipelineResult: res.result})
 		zap.L().Info("Pipeline run completed (streaming)",
 			zap.String("run_id", runID),
@@ -473,7 +481,292 @@ func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest,
 	status.PipelineResult = result
 	status.PhasesRun = pipelinePhasesToStrings(result.PhasesRun)
 
+	// Persist to DB
+	h.persistAgentRunCompleted(runID, status)
+
 	zap.L().Info("Pipeline run completed",
+		zap.String("run_id", runID),
+		zap.Int("findings", result.TotalFindings))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/run/swarm — AI-guided targeted vulnerability swarm
+// ---------------------------------------------------------------------------
+
+// HandleAgentSwarm handles POST /api/agent/run/swarm — launches an AI-guided targeted swarm.
+func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
+	var req AgentSwarmRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	inputs := req.EffectiveInputs()
+	if len(inputs) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "at least one input is required (input or inputs field)",
+		})
+	}
+
+	timeout := parseDurationOrDefault(req.Timeout, 15*time.Minute)
+	return h.startSwarmRun(c, req, timeout)
+}
+
+// startSwarmRun acquires the concurrency lock, creates status tracking, and runs the agent swarm.
+func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout time.Duration) error {
+	h.agentMu.Lock()
+	if h.agentRunning {
+		h.agentMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrAgentAlreadyRunning.Error(),
+		})
+	}
+	h.agentRunning = true
+
+	runID := "agt-" + uuid.New().String()
+	h.agentRunStatus[runID] = &AgentRunStatusResponse{
+		RunID:  runID,
+		Mode:   "swarm",
+		Status: "running",
+	}
+	h.agentMu.Unlock()
+
+	// Persist to DB
+	swarmAgentName := req.Agent
+	if swarmAgentName == "" {
+		swarmAgentName = h.settings.Agent.DefaultAgent
+	}
+	h.persistAgentRun(runID, "swarm", swarmAgentName)
+
+	if req.Stream {
+		return h.handleSwarmSSE(c, runID, req, timeout)
+	}
+
+	go h.runBackgroundAgentSwarm(runID, req, timeout)
+
+	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+		RunID:   runID,
+		Status:  "running",
+		Message: "agent swarm started",
+	})
+}
+
+// buildSwarmConfig creates an agent.SwarmConfig from an API request.
+func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+
+	maxIter := req.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 3
+	}
+
+	cfg := agent.SwarmConfig{
+		Inputs:        req.EffectiveInputs(),
+		VulnType:      req.VulnType,
+		ModuleNames:   req.ModuleNames,
+		ScanningPhase: req.ScanningPhase,
+		MaxIterations: maxIter,
+		AgentName:     agentName,
+		DryRun:        req.DryRun,
+		ProjectUUID:   req.ProjectUUID,
+		ScanUUID:      req.ScanUUID,
+	}
+
+	// Wire scan callback using the server's runner infrastructure
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(req.ProjectUUID, req.ScanUUID, h.settings)
+
+	return cfg
+}
+
+// buildServerAgentSwarmFunc creates a callback that runs dynamic assessment with extensions.
+func (h *Handlers) buildServerAgentSwarmFunc(projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
+	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
+		opts := types.DefaultOptions()
+		opts.ProjectUUID = projectUUID
+		opts.ScanUUID = scanUUID
+		opts.OnlyPhase = "dynamic-assessment"
+		opts.SkipIngestion = true
+		opts.HeuristicsCheck = "none"
+		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+		opts.PassiveModules = []string{"all"}
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		// Clone settings to apply extension dir without mutating global
+		settingsCopy := *settings
+		if extensionDir != "" {
+			settingsCopy.DynamicAssessment.Extensions.Enabled = true
+			settingsCopy.DynamicAssessment.Extensions.CustomDir = append(
+				settingsCopy.DynamicAssessment.Extensions.CustomDir,
+				extensionDir+"/*.js",
+			)
+		}
+
+		scanRunner, err := runner.New(opts)
+		if err != nil {
+			return err
+		}
+		defer scanRunner.Close()
+
+		scanRunner.SetSettings(&settingsCopy)
+		scanRunner.SetRepository(h.repo)
+		return scanRunner.RunEnumeration()
+	}
+}
+
+// handleSwarmSSE runs the agent swarm synchronously while streaming SSE events.
+func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmRequest, timeout time.Duration) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		defer func() {
+			h.agentMu.Lock()
+			h.agentRunning = false
+			h.agentMu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		cfg := h.buildSwarmConfig(req)
+
+		// Wire phase callback for SSE events
+		cfg.PhaseCallback = func(phase string) {
+			h.agentMu.Lock()
+			if status := h.agentRunStatus[runID]; status != nil {
+				status.CurrentPhase = phase
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "phase", Phase: phase})
+		}
+
+		// Set up stream writer pipe
+		pr, pw := io.Pipe()
+		cfg.StreamWriter = pw
+
+		type swarmRunResult struct {
+			result *agent.SwarmResult
+			err    error
+		}
+		done := make(chan swarmRunResult, 1)
+
+		swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
+		go func() {
+			result, runErr := swarmRunner.Run(ctx, cfg)
+			_ = pw.Close()
+			done <- swarmRunResult{result: result, err: runErr}
+		}()
+
+		// Stream chunks
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := pr.Read(buf)
+			if n > 0 {
+				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
+					_ = pr.Close()
+					<-done
+					return
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		res := <-done
+		now := time.Now()
+		h.agentMu.Lock()
+		status := h.agentRunStatus[runID]
+
+		if res.err != nil {
+			if status != nil {
+				status.Status = "failed"
+				status.Error = res.err.Error()
+				status.CompletedAt = &now
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			zap.L().Error("Agent swarm failed (streaming)",
+				zap.String("run_id", runID),
+				zap.Error(res.err))
+			return
+		}
+
+		if status != nil && res.result != nil {
+			status.Status = "completed"
+			status.CompletedAt = &now
+			status.FindingCount = res.result.TotalFindings
+			status.SwarmResult = res.result
+		}
+		h.agentMu.Unlock()
+
+		_ = writeSSE(w, sseEvent{Type: "done", SwarmResult: res.result})
+		zap.L().Info("Agent swarm completed (streaming)",
+			zap.String("run_id", runID),
+			zap.Int("findings", res.result.TotalFindings))
+	})
+}
+
+// runBackgroundAgentSwarm executes an agent swarm in a goroutine and updates status.
+func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, timeout time.Duration) {
+	defer func() {
+		h.agentMu.Lock()
+		h.agentRunning = false
+		h.agentMu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cfg := h.buildSwarmConfig(req)
+
+	// Wire phase callback for status updates
+	cfg.PhaseCallback = func(phase string) {
+		h.agentMu.Lock()
+		if status := h.agentRunStatus[runID]; status != nil {
+			status.CurrentPhase = phase
+		}
+		h.agentMu.Unlock()
+	}
+
+	swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
+	result, runErr := swarmRunner.Run(ctx, cfg)
+
+	h.agentMu.Lock()
+	defer h.agentMu.Unlock()
+
+	status := h.agentRunStatus[runID]
+	if status == nil {
+		return
+	}
+
+	now := time.Now()
+	if runErr != nil {
+		status.Status = "failed"
+		status.Error = runErr.Error()
+		status.CompletedAt = &now
+		h.persistAgentRunCompleted(runID, status)
+		zap.L().Error("Agent swarm failed",
+			zap.String("run_id", runID),
+			zap.Error(runErr))
+		return
+	}
+
+	status.Status = "completed"
+	status.CompletedAt = &now
+	status.FindingCount = result.TotalFindings
+	status.SwarmResult = result
+	h.persistAgentRunCompleted(runID, status)
+
+	zap.L().Info("Agent swarm completed",
 		zap.String("run_id", runID),
 		zap.Int("findings", result.TotalFindings))
 }
@@ -501,6 +794,9 @@ func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts age
 		Status: "running",
 	}
 	h.agentMu.Unlock()
+
+	// Persist to DB
+	h.persistAgentRun(runID, mode, opts.AgentName)
 
 	if stream {
 		return h.handleAgentSSE(c, runID, opts, timeout)
@@ -591,6 +887,11 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 		}
 		h.agentMu.Unlock()
 
+		// Persist to DB
+		if status != nil {
+			h.persistAgentRunCompleted(runID, status)
+		}
+
 		_ = writeSSE(w, sseEvent{Type: "done", Result: res.result})
 		zap.L().Info("Agent run completed (streaming)",
 			zap.String("run_id", runID),
@@ -641,6 +942,9 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 	status.CompletedAt = &now
 	status.Result = result
 
+	// Persist to DB
+	h.persistAgentRunCompleted(runID, status)
+
 	zap.L().Info("Agent run completed",
 		zap.String("run_id", runID),
 		zap.String("agent", result.AgentName),
@@ -658,6 +962,7 @@ type sseEvent struct {
 	Text           string                `json:"text,omitempty"`            // for "chunk" events
 	Result         *agent.Result         `json:"result,omitempty"`          // for "done" events (query/autopilot)
 	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"` // for "done" events (pipeline)
+	SwarmResult    *agent.SwarmResult     `json:"swarm_result,omitempty"`    // for "done" events (swarm)
 	Phase          string                `json:"phase,omitempty"`           // for "phase" events
 	Error          string                `json:"error,omitempty"`           // for "error" events
 }
@@ -679,7 +984,41 @@ func writeSSE(w *bufio.Writer, evt sseEvent) error {
 // ---------------------------------------------------------------------------
 
 // HandleAgentRunList handles GET /api/agent/status/list — returns all agent run statuses.
+// Returns from database for historical runs, merged with in-memory status for active runs.
 func (h *Handlers) HandleAgentRunList(c fiber.Ctx) error {
+	// Try DB first for comprehensive history
+	if h.repo != nil {
+		mode := c.Query("mode")
+		runs, _, err := h.repo.ListAgentRuns(context.Background(), "", mode, 100, 0)
+		if err == nil && len(runs) > 0 {
+			statuses := make([]*AgentRunStatusResponse, 0, len(runs))
+			for _, run := range runs {
+				statuses = append(statuses, agentRunToStatusResponse(run))
+			}
+			// Merge in-memory running statuses (they have richer data like Result objects)
+			h.agentMu.Lock()
+			for _, memStatus := range h.agentRunStatus {
+				if memStatus.Status == "running" {
+					// Replace DB entry with richer in-memory version
+					found := false
+					for i, s := range statuses {
+						if s.RunID == memStatus.RunID {
+							statuses[i] = memStatus
+							found = true
+							break
+						}
+					}
+					if !found {
+						statuses = append(statuses, memStatus)
+					}
+				}
+			}
+			h.agentMu.Unlock()
+			return c.JSON(statuses)
+		}
+	}
+
+	// Fallback to in-memory
 	h.agentMu.Lock()
 	statuses := make([]*AgentRunStatusResponse, 0, len(h.agentRunStatus))
 	for _, s := range h.agentRunStatus {
@@ -693,17 +1032,47 @@ func (h *Handlers) HandleAgentRunList(c fiber.Ctx) error {
 func (h *Handlers) HandleAgentRunStatus(c fiber.Ctx) error {
 	runID := c.Params("id")
 
+	// Check in-memory first (richer data for active runs)
 	h.agentMu.Lock()
 	status, ok := h.agentRunStatus[runID]
 	h.agentMu.Unlock()
 
-	if !ok {
-		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
-			Error: ErrAgentNotFound.Error(),
-		})
+	if ok {
+		return c.JSON(status)
 	}
 
-	return c.JSON(status)
+	// Fall back to DB for historical runs
+	if h.repo != nil {
+		run, err := h.repo.GetAgentRun(context.Background(), runID)
+		if err == nil {
+			return c.JSON(agentRunToStatusResponse(run))
+		}
+	}
+
+	return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+		Error: ErrAgentNotFound.Error(),
+	})
+}
+
+// agentRunToStatusResponse converts a database AgentRun to an API status response.
+func agentRunToStatusResponse(run *database.AgentRun) *AgentRunStatusResponse {
+	resp := &AgentRunStatusResponse{
+		RunID:        run.UUID,
+		Mode:         run.Mode,
+		Status:       run.Status,
+		AgentName:    run.AgentName,
+		TemplateID:   run.TemplateID,
+		FindingCount: run.FindingCount,
+		RecordCount:  run.RecordCount,
+		SavedCount:   run.SavedCount,
+		Error:        run.ErrorMessage,
+		CurrentPhase: run.CurrentPhase,
+		PhasesRun:    run.PhasesRun,
+	}
+	if !run.CompletedAt.IsZero() {
+		resp.CompletedAt = &run.CompletedAt
+	}
+	return resp
 }
 
 // ---------------------------------------------------------------------------
@@ -795,11 +1164,17 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 func (h *Handlers) updateStatusFailed(runID string, err error) {
 	now := time.Now()
 	h.agentMu.Lock()
-	defer h.agentMu.Unlock()
-	if status := h.agentRunStatus[runID]; status != nil {
+	status := h.agentRunStatus[runID]
+	if status != nil {
 		status.Status = "failed"
 		status.Error = err.Error()
 		status.CompletedAt = &now
+	}
+	h.agentMu.Unlock()
+
+	// Persist to DB
+	if status != nil {
+		h.persistAgentRunCompleted(runID, status)
 	}
 }
 

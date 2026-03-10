@@ -85,7 +85,7 @@ func TestGenerate_AllFixtures(t *testing.T) {
 			result, err := engine.Run(ctx, agentpkg.Options{
 				AgentName:      agentName,
 				PromptTemplate: m.template,
-				RepoPath:       stubDir,
+				SourcePath:     stubDir,
 			})
 			require.NoError(t, err, "agent run failed for %s × %s", m.stub, m.template)
 			require.NotEmpty(t, result.RawOutput, "agent returned empty output for %s × %s", m.stub, m.template)

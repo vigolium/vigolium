@@ -20,6 +20,7 @@ type moduleOptions struct {
 	ModuleType  string
 	ListEnabled bool
 	Verbose     bool
+	TagsOnly    bool
 }
 
 // Parent command: vigolium module
@@ -57,6 +58,8 @@ func init() {
 		"Show only enabled modules")
 	moduleLsCmd.Flags().BoolVarP(&moduleOpts.Verbose, "verbose", "v", false,
 		"Show long description and confirmation criteria")
+	moduleLsCmd.Flags().BoolVar(&moduleOpts.TagsOnly, "tags", false,
+		"Show only unique module tags")
 }
 
 // moduleMatchesFilter returns true if any of the module's ID, name, or short
@@ -153,6 +156,11 @@ func modulePrimaryScope(m modules.Module) modules.ScanScope {
 func printModuleTable(opts *moduleOptions, filter string) {
 	if globalJSON {
 		printModuleJSON(opts, filter)
+		return
+	}
+
+	if opts.TagsOnly {
+		printModuleTags(opts, filter)
 		return
 	}
 
@@ -394,6 +402,50 @@ func scanScopeNames(s modkit.ScanScope) []string {
 		names = append(names, "PER_HOST")
 	}
 	return names
+}
+
+func printModuleTags(opts *moduleOptions, filter string) {
+	tagCounts := make(map[string]int)
+
+	if opts.ModuleType == "all" || opts.ModuleType == "active" {
+		for _, m := range modules.GetActiveModules() {
+			if !moduleMatchesFilter(m, filter) {
+				continue
+			}
+			for _, tag := range m.Tags() {
+				tagCounts[tag]++
+			}
+		}
+	}
+	if opts.ModuleType == "all" || opts.ModuleType == "passive" {
+		for _, m := range modules.GetPassiveModules() {
+			if !moduleMatchesFilter(m, filter) {
+				continue
+			}
+			for _, tag := range m.Tags() {
+				tagCounts[tag]++
+			}
+		}
+	}
+
+	if len(tagCounts) == 0 {
+		fmt.Printf("%s No tags found.\n", terminal.InfoSymbol())
+		return
+	}
+
+	tags := make([]string, 0, len(tagCounts))
+	for tag := range tagCounts {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "TAG", "MODULES")
+	for _, tag := range tags {
+		tbl.AddRow(terminal.Cyan(tag), fmt.Sprintf("%d", tagCounts[tag]))
+	}
+	tbl.Print()
+	fmt.Printf("\n%s %d unique tags across modules\n", terminal.InfoSymbol(), len(tags))
+	fmt.Printf("%s Filter by tag: %s\n", terminal.InfoSymbol(), terminal.Gray("vigolium scan --module-tag <tag>"))
 }
 
 func printModuleVerbose(opts *moduleOptions, filter string) {

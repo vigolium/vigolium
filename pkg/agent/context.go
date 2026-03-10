@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"sort"
 
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -168,36 +169,66 @@ func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database
 	}
 }
 
-// enrichContextModules populates ModuleList with a compact JSON array of available
-// scanner modules. Only runs if the template declares the ModuleList variable.
+// enrichContextModules populates ModuleList and/or ModuleTags depending on which
+// variables the template declares. ModuleList is a compact JSON array of all modules.
+// ModuleTags is a compact JSON array of unique tag strings.
 func enrichContextModules(data *TemplateData, templateVars []string) {
-	if !variablesDeclared(templateVars, "ModuleList") {
+	needList := variablesDeclared(templateVars, "ModuleList")
+	needTags := variablesDeclared(templateVars, "ModuleTags")
+	if !needList && !needTags {
 		return
 	}
 
 	var entries []contextModuleEntry
+	tagSet := make(map[string]struct{})
 
 	for _, m := range modules.GetActiveModules() {
-		entries = append(entries, contextModuleEntry{
-			ID:          m.ID(),
-			Name:        m.Name(),
-			Type:        "active",
-			Description: m.ShortDescription(),
-			Severity:    m.Severity().String(),
-		})
+		if needList {
+			entries = append(entries, contextModuleEntry{
+				ID:          m.ID(),
+				Name:        m.Name(),
+				Type:        "active",
+				Description: m.ShortDescription(),
+				Severity:    m.Severity().String(),
+			})
+		}
+		if needTags {
+			for _, tag := range m.Tags() {
+				tagSet[tag] = struct{}{}
+			}
+		}
 	}
 	for _, m := range modules.GetPassiveModules() {
-		entries = append(entries, contextModuleEntry{
-			ID:          m.ID(),
-			Name:        m.Name(),
-			Type:        "passive",
-			Description: m.ShortDescription(),
-			Severity:    m.Severity().String(),
-		})
+		if needList {
+			entries = append(entries, contextModuleEntry{
+				ID:          m.ID(),
+				Name:        m.Name(),
+				Type:        "passive",
+				Description: m.ShortDescription(),
+				Severity:    m.Severity().String(),
+			})
+		}
+		if needTags {
+			for _, tag := range m.Tags() {
+				tagSet[tag] = struct{}{}
+			}
+		}
 	}
 
-	if b, err := json.Marshal(entries); err == nil {
-		data.ModuleList = string(b)
+	if needList {
+		if b, err := json.Marshal(entries); err == nil {
+			data.ModuleList = string(b)
+		}
+	}
+	if needTags {
+		tags := make([]string, 0, len(tagSet))
+		for tag := range tagSet {
+			tags = append(tags, tag)
+		}
+		sort.Strings(tags)
+		if b, err := json.Marshal(tags); err == nil {
+			data.ModuleTags = string(b)
+		}
 	}
 }
 

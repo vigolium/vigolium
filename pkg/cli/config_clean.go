@@ -39,7 +39,7 @@ func runConfigClean(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%s This will remove %s (config, database, and all local data)\n", terminal.WarnPrefix(), terminal.Cyan(displayDir))
+	fmt.Printf("%s This will remove %s (config, database, and all local data)\n", terminal.BoldRed(terminal.SymbolFailed), terminal.Cyan(displayDir))
 
 	if !globalForce {
 		fmt.Print("\nProceed? (type 'yes' to confirm): ")

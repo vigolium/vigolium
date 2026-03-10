@@ -7,6 +7,7 @@ type AgentConfig struct {
 	DefaultAgent string              `yaml:"default_agent"`
 	Agents       map[string]AgentDef `yaml:"agents"`
 	TemplatesDir string              `yaml:"templates_dir"`
+	SessionsDir  string              `yaml:"sessions_dir"` // directory for agent run session artifacts (default: ~/.vigolium/agent-sessions/)
 	Stream       *bool               `yaml:"stream,omitempty"`
 	LLM          LLMConfig           `yaml:"llm"`
 	WarmSession  WarmSessionConfig   `yaml:"warm_session"`
@@ -51,6 +52,14 @@ type LLMConfig struct {
 	Temperature float64 `yaml:"temperature"` // default: 0.0
 	CacheSize   int     `yaml:"cache_size"`  // LRU entries; default: 256, 0 = disabled
 	CacheTTL    int     `yaml:"cache_ttl"`   // seconds; default: 300
+}
+
+// EffectiveSessionsDir returns the sessions directory, defaulting to ~/.vigolium/agent-sessions/.
+func (c *AgentConfig) EffectiveSessionsDir() string {
+	if c.SessionsDir != "" {
+		return ExpandPath(c.SessionsDir)
+	}
+	return ExpandPath("~/.vigolium/agent-sessions/")
 }
 
 // StreamEnabled returns whether real-time output streaming is enabled.
@@ -176,6 +185,7 @@ func DefaultAgentConfig() *AgentConfig {
 			},
 		},
 		TemplatesDir: "~/.vigolium/prompts/",
+		SessionsDir:  "~/.vigolium/agent-sessions/",
 		LLM:          DefaultLLMConfig(),
 	}
 }
