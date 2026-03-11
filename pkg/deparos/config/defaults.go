@@ -65,8 +65,16 @@ func NewDefaultConfig() *Config {
 		Filenames: FilenameConfig{
 			Wordlists:            WordlistConfig{}, // All paths empty = disabled
 			UseObservedNames:     true,             // Spider link extraction
+			UseObservedPaths:     true,             // Test observed directory paths
 			UseObservedFiles:     true,             // Test full observed filenames
 			EnableNumericFuzzing: true,             // Numeric variant generation
+			WordlistExtraction: WordlistExtractConfig{
+				Enabled:         false, // Opt-in: extract words from response bodies
+				DelimExceptions: "-_",  // Common delimiters in web paths
+				MaxCombine:      2,     // Max segments to combine
+				MinLength:       3,     // Min token length
+				MaxLength:       64,    // Max token length
+			},
 		},
 		Extensions: ExtensionConfig{
 			TestCustom:      true,                     // did.java line 24
