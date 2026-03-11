@@ -308,9 +308,9 @@ func (f *Factory) CreateExtensionVariantTask(discoveredFile, schemeHost, path []
 		zap.ByteString("filename", filename),
 		zap.ByteString("extension", ext),
 		zap.Uint8("priority", PriorityExtensionVariants),
-		zap.Int("variant_count", len(f.config.Extensions.VariantList)))
+		zap.Int("backup_ext_count", len(f.config.Extensions.BackupExtensions)))
 
-	extProvider := payload.NewExtensionProviderWithVariants(f.config.Extensions.VariantList)
+	extProvider := payload.NewExtensionProviderWithVariants(f.config.Extensions.BackupExtensions)
 
 	return NewExtensionVariantTask(&ExtensionVariantTaskConfig{
 		SchemeHost:  schemeHost,

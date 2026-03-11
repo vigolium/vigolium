@@ -2031,7 +2031,7 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		EnableNumericFuzzing: false,
 		TestCustom:         true,
 		TestObserved:       true,
-		TestVariants:       true,
+		TestBackupExtensions:       true,
 		TestNoExtension:    true,
 		CaseSensitivity:    "auto_detect",
 	}
@@ -2073,8 +2073,8 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		cfg.TestCustom = dc.Extensions.TestCustom
 		cfg.CustomList = dc.Extensions.CustomList
 		cfg.TestObserved = dc.Extensions.TestObserved
-		cfg.TestVariants = dc.Extensions.TestVariants
-		cfg.VariantList = dc.Extensions.VariantList
+		cfg.TestBackupExtensions = dc.Extensions.TestBackupExtensions
+		cfg.BackupExtensions = dc.Extensions.BackupExtensions
 		cfg.TestNoExtension = dc.Extensions.TestNoExtension
 
 		// Engine

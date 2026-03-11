@@ -42,8 +42,8 @@ type DiscoveryExtensionConfig struct {
 	TestCustom      bool     `yaml:"test_custom"`
 	CustomList      []string `yaml:"custom_list"`
 	TestObserved    bool     `yaml:"test_observed"`
-	TestVariants    bool     `yaml:"test_variants"`
-	VariantList     []string `yaml:"variant_list"`
+	TestBackupExtensions bool     `yaml:"test_backup_extensions"`
+	BackupExtensions     []string `yaml:"backup_extensions"`
 	TestNoExtension bool     `yaml:"test_no_extension"`
 }
 
@@ -77,7 +77,7 @@ func DefaultDiscoveryConfig() *DiscoveryConfig {
 		Extensions: DiscoveryExtensionConfig{
 			TestCustom:      true,
 			TestObserved:    true,
-			TestVariants:    true,
+			TestBackupExtensions:    true,
 			TestNoExtension: true,
 		},
 		Engine: DiscoveryEngineConfig{

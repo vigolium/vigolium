@@ -17,7 +17,7 @@ var (
 	ErrInvalidDepth     = errors.New("max depth must be between 1 and 32767")
 	ErrInvalidThreads   = errors.New("invalid thread count")
 	ErrEmptyCustomList  = errors.New("custom extensions enabled but list is empty")
-	ErrEmptyVariantList = errors.New("variant extensions enabled but list is empty")
+	ErrEmptyBackupExtensions = errors.New("backup extensions enabled but list is empty")
 	ErrFileNotFound     = errors.New("file not found")
 	ErrNotRegularFile   = errors.New("path is not a regular file")
 	ErrFileNotReadable  = errors.New("file is not readable")
@@ -102,9 +102,9 @@ func (e *ExtensionConfig) Validate() error {
 		return ErrEmptyCustomList
 	}
 
-	// If variant extensions testing is enabled, the list must not be empty
-	if e.TestVariants && len(e.VariantList) == 0 {
-		return ErrEmptyVariantList
+	// If backup extensions testing is enabled, the list must not be empty
+	if e.TestBackupExtensions && len(e.BackupExtensions) == 0 {
+		return ErrEmptyBackupExtensions
 	}
 
 	return nil

@@ -22,14 +22,24 @@ discovery:
   recursion:
     enabled: true
     max_depth: 5
+  wordlists:
+    use_observed_names: true
+    use_observed_paths: true
+    use_observed_files: true
+    enable_numeric_fuzzing: false
   extensions:
     test_custom: true
     test_observed: true
-    test_variants: true
+    test_backup_extensions: true
     test_no_extension: true
   engine:
     case_sensitivity: auto_detect
     timeout: 10s
+    enable_cookie_jar: false
+    max_consecutive_errors: 20
+    max_consecutive_waf_blocks: 10
+    observed_max_items: 4000
+    disable_kingfisher: true
 
 spidering:
   max_depth: 0

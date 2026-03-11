@@ -57,8 +57,8 @@ type DeparosDiscoveryConfig struct {
 	TestCustom      bool
 	CustomList      []string
 	TestObserved    bool
-	TestVariants    bool
-	VariantList     []string
+	TestBackupExtensions    bool
+	BackupExtensions     []string
 	TestNoExtension bool
 
 	// Engine
@@ -261,9 +261,9 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 		cfg.Extensions.CustomList = d.cfg.CustomList
 	}
 	cfg.Extensions.TestObserved = d.cfg.TestObserved
-	cfg.Extensions.TestVariants = d.cfg.TestVariants
-	if len(d.cfg.VariantList) > 0 {
-		cfg.Extensions.VariantList = d.cfg.VariantList
+	cfg.Extensions.TestBackupExtensions = d.cfg.TestBackupExtensions
+	if len(d.cfg.BackupExtensions) > 0 {
+		cfg.Extensions.BackupExtensions = d.cfg.BackupExtensions
 	}
 	cfg.Extensions.TestNoExtension = d.cfg.TestNoExtension
 

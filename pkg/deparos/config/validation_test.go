@@ -355,8 +355,8 @@ func TestExtensionConfig_Validate(t *testing.T) {
 			extension: ExtensionConfig{
 				TestCustom:   true,
 				CustomList:   []string{"php", "asp", "aspx"},
-				TestVariants: true,
-				VariantList:  []string{"bak", "old", "tmp"},
+				TestBackupExtensions: true,
+				BackupExtensions:  []string{"bak", "old", "tmp"},
 			},
 			wantErr: nil,
 		},
@@ -371,8 +371,8 @@ func TestExtensionConfig_Validate(t *testing.T) {
 		{
 			name: "variants disabled with empty list is OK",
 			extension: ExtensionConfig{
-				TestVariants: false,
-				VariantList:  []string{},
+				TestBackupExtensions: false,
+				BackupExtensions:  []string{},
 			},
 			wantErr: nil,
 		},
@@ -395,25 +395,25 @@ func TestExtensionConfig_Validate(t *testing.T) {
 		{
 			name: "variants enabled with empty list is error",
 			extension: ExtensionConfig{
-				TestVariants: true,
-				VariantList:  []string{},
+				TestBackupExtensions: true,
+				BackupExtensions:  []string{},
 			},
-			wantErr: ErrEmptyVariantList,
+			wantErr: ErrEmptyBackupExtensions,
 		},
 		{
 			name: "variants enabled with nil list is error",
 			extension: ExtensionConfig{
-				TestVariants: true,
-				VariantList:  nil,
+				TestBackupExtensions: true,
+				BackupExtensions:  nil,
 			},
-			wantErr: ErrEmptyVariantList,
+			wantErr: ErrEmptyBackupExtensions,
 		},
 		{
 			name: "all tests disabled is valid",
 			extension: ExtensionConfig{
 				TestCustom:      false,
 				TestObserved:    false,
-				TestVariants:    false,
+				TestBackupExtensions:    false,
 				TestNoExtension: false,
 			},
 			wantErr: nil,

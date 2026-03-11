@@ -100,12 +100,12 @@ func (b *Builder) WithObservedExtensions(enabled bool) *Builder {
 	return b
 }
 
-// WithVariantExtensions configures variant extension testing (backups, temp files).
+// WithBackupExtensions configures backup extension testing (backups, temp files).
 // If enabled is true, extensions list must not be empty (validated in Build).
-func (b *Builder) WithVariantExtensions(enabled bool, extensions []string) *Builder {
-	b.config.Extensions.TestVariants = enabled
+func (b *Builder) WithBackupExtensions(enabled bool, extensions []string) *Builder {
+	b.config.Extensions.TestBackupExtensions = enabled
 	if extensions != nil {
-		b.config.Extensions.VariantList = extensions
+		b.config.Extensions.BackupExtensions = extensions
 	}
 	return b
 }

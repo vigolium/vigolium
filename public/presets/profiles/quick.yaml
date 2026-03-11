@@ -20,14 +20,24 @@ discovery:
   enable_malformed_path_probe: false
   recursion:
     enabled: false
+  wordlists:
+    use_observed_names: true
+    use_observed_paths: true
+    use_observed_files: true
+    enable_numeric_fuzzing: false
   extensions:
     test_custom: false
-    test_observed: false
-    test_variants: false
+    test_observed: true
+    test_backup_extensions: false
     test_no_extension: true
   engine:
     case_sensitivity: auto_detect
     timeout: 5s
+    enable_cookie_jar: false
+    max_consecutive_errors: 10
+    max_consecutive_waf_blocks: 5
+    observed_max_items: 1000
+    disable_kingfisher: true
 
 spa:
   enrich_targets: false

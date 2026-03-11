@@ -509,7 +509,7 @@ func (e *Engine) createFileDerivationTasks(filePath string, _, filename, basePat
 	derivationCount := 0
 
 	// Extension Variant Task
-	if e.config.Extensions.TestVariants && ShouldCreateVariantTask(filename) {
+	if e.config.Extensions.TestBackupExtensions && ShouldCreateVariantTask(filename) {
 		// Extract schemeHost and path from basePath (which is full URL without query)
 		schemeHost := []byte(extractSchemeHost(string(basePath)))
 		dirPath := []byte(extractPathFromURL(string(basePath)))

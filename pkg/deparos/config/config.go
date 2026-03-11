@@ -81,8 +81,8 @@ type ExtensionConfig struct {
 	TestCustom      bool     `json:"test_custom"`
 	CustomList      []string `json:"custom_list"`
 	TestObserved    bool     `json:"test_observed"`
-	TestVariants    bool     `json:"test_variants"`
-	VariantList     []string `json:"variant_list"`
+	TestBackupExtensions bool     `json:"test_backup_extensions"`
+	BackupExtensions     []string `json:"backup_extensions"`
 	TestNoExtension bool     `json:"test_no_extension"`
 }
 

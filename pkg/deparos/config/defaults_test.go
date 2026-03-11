@@ -60,11 +60,11 @@ func TestDefaultConfig(t *testing.T) {
 		// Observed extensions testing enabled
 		assert.True(t, cfg.Extensions.TestObserved, "observed extensions should be enabled")
 
-		// Variant extensions testing enabled
-		assert.True(t, cfg.Extensions.TestVariants, "variant extensions should be enabled")
+		// Backup extensions testing enabled
+		assert.True(t, cfg.Extensions.TestBackupExtensions, "backup extensions should be enabled")
 
-		// Variant extensions list should match DefaultVariantExtensions
-		assert.Equal(t, DefaultVariantExtensions, cfg.Extensions.VariantList, "variant extensions should match defaults")
+		// Backup extensions list should match DefaultBackupExtensions
+		assert.Equal(t, DefaultBackupExtensions, cfg.Extensions.BackupExtensions, "backup extensions should match defaults")
 
 		// Test no extension enabled
 		assert.True(t, cfg.Extensions.TestNoExtension, "no extension testing should be enabled")
@@ -122,28 +122,28 @@ func TestAllowedObservedExtensions(t *testing.T) {
 	}
 }
 
-func TestDefaultVariantExtensions(t *testing.T) {
+func TestDefaultBackupExtensions(t *testing.T) {
 	// Verify the exported default list has 36 items (did.java lines 100-137)
-	assert.Len(t, DefaultVariantExtensions, 36, "should have 36 variant extensions")
+	assert.Len(t, DefaultBackupExtensions, 36, "should have 36 backup extensions")
 
 	// Verify critical backup extensions are present
 	criticalBackups := []string{"bak", "old", "tmp", "backup"}
 	for _, ext := range criticalBackups {
-		assert.Contains(t, DefaultVariantExtensions, ext,
+		assert.Contains(t, DefaultBackupExtensions, ext,
 			"should contain critical backup extension: %s", ext)
 	}
 
 	// Verify archive formats are present
 	archiveFormats := []string{"zip", "tar", "gz"}
 	for _, ext := range archiveFormats {
-		assert.Contains(t, DefaultVariantExtensions, ext,
+		assert.Contains(t, DefaultBackupExtensions, ext,
 			"should contain archive format: %s", ext)
 	}
 
 	// Verify config file extensions are present
 	configExts := []string{"conf", "ini"}
 	for _, ext := range configExts {
-		assert.Contains(t, DefaultVariantExtensions, ext,
+		assert.Contains(t, DefaultBackupExtensions, ext,
 			"should contain config extension: %s", ext)
 	}
 }
@@ -197,9 +197,9 @@ func TestDefaultConfig_ExtensionListsNotEmpty(t *testing.T) {
 		assert.NotEmpty(t, cfg.Extensions.CustomList, "custom list should not be empty when enabled")
 	}
 
-	// If variant extensions are enabled, list must not be empty
-	if cfg.Extensions.TestVariants {
-		assert.NotEmpty(t, cfg.Extensions.VariantList, "variant list should not be empty when enabled")
+	// If backup extensions are enabled, list must not be empty
+	if cfg.Extensions.TestBackupExtensions {
+		assert.NotEmpty(t, cfg.Extensions.BackupExtensions, "backup extensions should not be empty when enabled")
 	}
 }
 

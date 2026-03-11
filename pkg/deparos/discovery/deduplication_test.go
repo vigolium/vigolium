@@ -501,8 +501,8 @@ func TestHashDeduplication_FileDiscovery_NoDuplicates(t *testing.T) {
 	defer server.Close()
 
 	cfg := testConfig(server.URL)
-	cfg.Extensions.TestVariants = true
-	cfg.Extensions.VariantList = []string{"bak", "old", "tmp"}
+	cfg.Extensions.TestBackupExtensions = true
+	cfg.Extensions.BackupExtensions = []string{"bak", "old", "tmp"}
 	cfg.Filenames.EnableNumericFuzzing = true
 
 	engine, err := NewEngine(cfg, nil)
@@ -530,7 +530,7 @@ func TestHashDeduplication_FileDiscovery_NoDuplicates(t *testing.T) {
 	assert.Equal(t, sizeAfterFirst, sizeAfterAll, "Duplicate calls should not add more tasks")
 
 	// Verify first call created some tasks (if features enabled)
-	if cfg.Extensions.TestVariants || cfg.Filenames.EnableNumericFuzzing {
+	if cfg.Extensions.TestBackupExtensions || cfg.Filenames.EnableNumericFuzzing {
 		assert.GreaterOrEqual(t, sizeAfterFirst, initialSize, "First call should create tasks if features enabled")
 	}
 }

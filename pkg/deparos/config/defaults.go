@@ -38,11 +38,9 @@ var (
 		"zip": {}, "~": {}, "rar": {}, "7z": {},
 	}
 
-	// Default variant extensions (did.java lines 100-137).
-	// "Interesting extensions" for extension mutation/derivation tasks.
-	// These are tested when a file is discovered (e.g., admin.php → admin.bak)
-	DefaultVariantExtensions = []string{
-		// Burp's exact list from did.java:100-137
+	// DefaultBackupExtensions (did.java lines 100-137).
+	// Backup/temp file extensions tested when a file is discovered (e.g., admin.php → admin.bak).
+	DefaultBackupExtensions = []string{
 		"~1", "$$$", "1", "bac", "backup", "bak", "conf", "cs", "csproj",
 		"gz", "inc", "ini", "java", "log", "old", "sav", "tar", "tmp", "zip",
 		"~bk", "0", "BAC", "BACKUP", "BAK", "OLD", "INC", "lst", "orig",
@@ -80,8 +78,8 @@ func NewDefaultConfig() *Config {
 			TestCustom:      true,                     // did.java line 24
 			CustomList:      DefaultCustomExtensions,  // did.java line 27
 			TestObserved:    true,                     // did.java line 25
-			TestVariants:    true,                     // did.java line 26
-			VariantList:     DefaultVariantExtensions, // did.java line 31
+			TestBackupExtensions: true,                    // did.java line 26
+			BackupExtensions:     DefaultBackupExtensions, // did.java line 31
 			TestNoExtension: true,                     // did.java line 28
 		},
 		Engine: EngineConfig{

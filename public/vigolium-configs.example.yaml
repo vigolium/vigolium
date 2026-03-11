@@ -839,9 +839,17 @@ discovery:
     # Default: true
     use_observed_names: true
 
+    # Use observed directory paths as wordlist entries.
+    # Default: true
+    use_observed_paths: true
+
     # Test full observed filenames (e.g., "app.b5ca88ec.js").
     # Default: true
     use_observed_files: true
+
+    # Enable numeric variant generation (e.g., page1 → page2, page3).
+    # Default: false
+    enable_numeric_fuzzing: false
 
   # File extension testing during discovery.
   extensions:
@@ -860,9 +868,16 @@ discovery:
     # Default: true
     test_observed: true
 
-    # Test backup/variant extensions (.bak, .old, .tmp, etc.).
+    # Test backup extensions (.bak, .old, .tmp, etc.).
     # Default: true
-    test_variants: true
+    test_backup_extensions: true
+
+    # Custom backup extension list (used when test_backup_extensions is true).
+    # Default: deparos built-in list (~1, $$$, bak, old, tmp, backup, etc.)
+    # backup_extensions:
+    #   - bak
+    #   - old
+    #   - tmp
 
     # Test files without extensions.
     # Default: true
@@ -888,6 +903,22 @@ discovery:
     # Enable cookie jar for session persistence during discovery.
     # Default: false
     enable_cookie_jar: false
+
+    # Exit after N consecutive network errors (0 = disabled).
+    # Default: 0
+    max_consecutive_errors: 50
+
+    # Exit after N consecutive WAF/CDN blocks (0 = disabled).
+    # Default: 0
+    max_consecutive_waf_blocks: 50
+
+    # Max items per observed provider.
+    # Default: 4000
+    observed_max_items: 4000
+
+    # Disable kingfisher secret scanning during discovery.
+    # Default: true
+    disable_kingfisher: true
 
 # ============================================================================
 # Browser-Based Spidering (Spitolas)

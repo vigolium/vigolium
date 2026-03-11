@@ -347,7 +347,7 @@ func TestBuilder_WithCustomExtensions(t *testing.T) {
 	}
 }
 
-func TestBuilder_WithVariantExtensions(t *testing.T) {
+func TestBuilder_WithBackupExtensions(t *testing.T) {
 	tests := []struct {
 		name       string
 		enabled    bool
@@ -378,16 +378,16 @@ func TestBuilder_WithVariantExtensions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, err := NewBuilder().
 				WithStartURL("http://example.com/").
-				WithVariantExtensions(tt.enabled, tt.extensions).
+				WithBackupExtensions(tt.enabled, tt.extensions).
 				Build()
 
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.enabled, cfg.Extensions.TestVariants)
+				assert.Equal(t, tt.enabled, cfg.Extensions.TestBackupExtensions)
 				if tt.extensions != nil {
-					assert.Equal(t, tt.extensions, cfg.Extensions.VariantList)
+					assert.Equal(t, tt.extensions, cfg.Extensions.BackupExtensions)
 				}
 			}
 		})
