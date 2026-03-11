@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
@@ -11,6 +12,10 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/wordlist"
 	"go.uber.org/zap"
 )
+
+// maxFormSubmissionsPerStructure is the maximum number of form submissions
+// allowed per unique endpoint + field structure combination.
+const maxFormSubmissionsPerStructure int32 = 3
 
 // pathDepth calculates depth from URL path segments.
 // /api/ = 1, /api/v1/ = 2, /api/v1/users/ = 3
@@ -324,12 +329,17 @@ func (e *Engine) queueFormSubmission(forms []*spider.FormRequest, sourceURL *url
 			continue
 		}
 
-		// Compute form hash: URL + Method + Body (NOT source page)
-		// This ensures same form action from different pages is deduplicated
-		formHash := dedup.HashFormRequest(form.URL.String(), form.Method, form.Body)
+		// Compute structural hash from sorted input field names (not values).
+		// This groups forms with same endpoint + same fields, regardless of option values.
+		inputNames := make([]string, 0, len(form.Inputs))
+		for _, input := range form.Inputs {
+			inputNames = append(inputNames, input.Name)
+		}
+		sort.Strings(inputNames)
+		formHash := dedup.HashFormStructure(form.URL.String(), form.Method, inputNames)
 
-		if e.seenFormHashes.IsSeen(formHash) {
-			logger.Debug("Form already seen, skipping",
+		if !e.formStructureCounter.IncrementAndCheck(formHash, maxFormSubmissionsPerStructure) {
+			logger.Debug("Form structure limit reached, skipping",
 				zap.String("action", form.URL.String()),
 				zap.String("method", form.Method))
 			continue

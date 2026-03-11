@@ -119,7 +119,7 @@ type Engine struct {
 	taskHashes         *dedup.DiskSet
 	seenExtensions     *dedup.DiskSet
 	seenDiscoveredURLs *dedup.DiskSet // Global dedup for all discovered URLs
-	seenFormHashes     *dedup.DiskSet // Dedup form submissions globally
+	formStructureCounter *dedup.Counter // Dedup form submissions by structure (max N per endpoint+structure)
 	seenJSURLs         *dedup.DiskSet // Dedup JS URLs across batches
 	seenBodyHashes     *dedup.DiskSet // Dedup response body content for jsscan on script tags
 
@@ -306,19 +306,8 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		return nil, fmt.Errorf("create seen discovered urls: %w", err)
 	}
 
-	seenFormHashesDS, err := newDiskSet(dedupBasePath, "seen-form-hashes")
-	if err != nil {
-		_ = seenDiscoveredURLsDS.Close()
-		_ = seenExtensionsDS.Close()
-		_ = taskHashesDS.Close()
-		_ = reqCache.Close()
-		_ = os.RemoveAll(dedupBasePath)
-		return nil, fmt.Errorf("create seen form hashes: %w", err)
-	}
-
 	seenJSURLsDS, err := newDiskSet(dedupBasePath, "seen-js-urls")
 	if err != nil {
-		_ = seenFormHashesDS.Close()
 		_ = seenDiscoveredURLsDS.Close()
 		_ = seenExtensionsDS.Close()
 		_ = taskHashesDS.Close()
@@ -330,7 +319,6 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 	seenBodyHashesDS, err := newDiskSet(dedupBasePath, "seen-body-hashes")
 	if err != nil {
 		_ = seenJSURLsDS.Close()
-		_ = seenFormHashesDS.Close()
 		_ = seenDiscoveredURLsDS.Close()
 		_ = seenExtensionsDS.Close()
 		_ = taskHashesDS.Close()
@@ -347,7 +335,6 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 	if err != nil {
 		_ = seenBodyHashesDS.Close()
 		_ = seenJSURLsDS.Close()
-		_ = seenFormHashesDS.Close()
 		_ = seenDiscoveredURLsDS.Close()
 		_ = seenExtensionsDS.Close()
 		_ = taskHashesDS.Close()
@@ -365,7 +352,6 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		_ = testedDirsTracker.Close()
 		_ = seenBodyHashesDS.Close()
 		_ = seenJSURLsDS.Close()
-		_ = seenFormHashesDS.Close()
 		_ = seenDiscoveredURLsDS.Close()
 		_ = seenExtensionsDS.Close()
 		_ = taskHashesDS.Close()
@@ -398,7 +384,7 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		taskHashes:         taskHashesDS,
 		seenExtensions:     seenExtensionsDS,
 		seenDiscoveredURLs: seenDiscoveredURLsDS,
-		seenFormHashes:     seenFormHashesDS,
+		formStructureCounter: dedup.NewCounter(),
 		seenJSURLs:         seenJSURLsDS,
 		seenBodyHashes:     seenBodyHashesDS,
 		dedupBasePath:      dedupBasePath,
@@ -1204,10 +1190,8 @@ func (e *Engine) cleanup() {
 			logger.Warn("Failed to close seen spider links", zap.Error(err))
 		}
 	}
-	if e.seenFormHashes != nil {
-		if err := e.seenFormHashes.Close(); err != nil {
-			logger.Warn("Failed to close seen form hashes", zap.Error(err))
-		}
+	if e.formStructureCounter != nil {
+		_ = e.formStructureCounter.Close()
 	}
 	if e.seenJSURLs != nil {
 		if err := e.seenJSURLs.Close(); err != nil {

@@ -53,11 +53,20 @@ func HashRequest(method, rawURL, body string) string {
 	return method + "|" + NormalizeURL(rawURL) + "|" + hashFNV64aHex(body)
 }
 
-// HashFormRequest creates a hash key for form request deduplication.
-// Hash = URL + Method + Body (not including source page URL).
-// This ensures same form action from different pages is deduplicated.
-func HashFormRequest(actionURL, method, body string) string {
-	return HashRequest(method, actionURL, body)
+// HashFormStructure creates a structural hash for form deduplication.
+// Uses sorted input field names (not values) to identify structurally identical forms.
+// The caller must pass sortedInputNames already sorted.
+// Format: normalizedURL|method|FNV64a(sorted_input_names)
+func HashFormStructure(actionURL, method string, sortedInputNames []string) string {
+	h := fnv.New64a()
+	for i, name := range sortedInputNames {
+		if i > 0 {
+			h.Write([]byte{','})
+		}
+		h.Write([]byte(name))
+	}
+	inputHash := strconv.FormatUint(h.Sum64(), 16)
+	return NormalizeURL(actionURL) + "|" + method + "|" + inputHash
 }
 
 // normalizePath normalizes a URL path.
