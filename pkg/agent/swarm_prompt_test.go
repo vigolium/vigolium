@@ -321,7 +321,7 @@ func TestSwarmPrompt_GatherContext_NoSourcePath(t *testing.T) {
 
 	// Create a minimal engine (no settings/repo needed for gatherContext)
 	e := &Engine{}
-	data, err := e.gatherContext(opts)
+	data, err := e.gatherContext(opts, nil)
 	if err != nil {
 		t.Fatalf("gatherContext failed: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestSwarmPrompt_GatherContext_HostnameFromURL(t *testing.T) {
 	}
 
 	e := &Engine{}
-	data, err := e.gatherContext(opts)
+	data, err := e.gatherContext(opts, nil)
 	if err != nil {
 		t.Fatalf("gatherContext failed: %v", err)
 	}
@@ -435,7 +435,7 @@ func renderSwarmTemplate(t *testing.T, opts Options) string {
 
 	// Build TemplateData the same way gatherContext does
 	e := &Engine{}
-	data, err := e.gatherContext(opts)
+	data, err := e.gatherContext(opts, nil)
 	if err != nil {
 		t.Fatalf("gatherContext failed: %v", err)
 	}

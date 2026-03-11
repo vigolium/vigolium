@@ -12,8 +12,9 @@ import (
 
 // extractJSON attempts to extract a JSON object or array from raw text using multiple strategies:
 // 1. Try parsing the raw string directly
-// 2. Strip markdown code fences and retry
-// 3. Scan for the first '{' or '[' and extract from there
+// 2. Strip markdown code fences (at start) and retry
+// 3. Extract content from markdown code fences found anywhere in text
+// 4. Scan for balanced '{}'/'[]' blocks and try each
 func extractJSON(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 
@@ -22,18 +23,80 @@ func extractJSON(raw string) (string, error) {
 		return raw, nil
 	}
 
-	// Strategy 2: strip markdown fences
+	// Strategy 2: strip markdown fences at start
 	stripped := stripMarkdownFences(raw)
 	if stripped != raw && isJSON(stripped) {
 		return stripped, nil
 	}
 
-	// Strategy 3: find first { or [ and extract balanced JSON
-	if extracted := findJSONBlock(raw); extracted != "" && isJSON(extracted) {
-		return extracted, nil
+	// Strategy 3: extract content from ``` fences anywhere in text
+	for _, fenced := range extractFencedBlocks(raw) {
+		fenced = strings.TrimSpace(fenced)
+		if fenced != "" && isJSON(fenced) {
+			return fenced, nil
+		}
+		// Also try finding a JSON block within the fenced content
+		if block := findJSONBlock(fenced); block != "" && isJSON(block) {
+			return block, nil
+		}
 	}
 
+	// Strategy 4: lazily scan for balanced JSON blocks and try each
+	var bestCandidate string
+	var bestCandidateErr error
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if ch == '{' || ch == '[' {
+			block := findJSONBlockFrom(raw, i)
+			if block != "" {
+				if isJSON(block) {
+					return block, nil
+				}
+				// Track the first (largest) candidate for error reporting
+				if bestCandidate == "" {
+					bestCandidate = block
+					var v interface{}
+					bestCandidateErr = json.Unmarshal([]byte(block), &v)
+				}
+				i += len(block) - 1 // skip past this block, loop increments
+			}
+		}
+	}
+
+	if bestCandidate != "" {
+		snippet := bestCandidate
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
+		return "", fmt.Errorf("found JSON-like block but it contains syntax errors: %w (snippet: %s)", bestCandidateErr, snippet)
+	}
 	return "", fmt.Errorf("no valid JSON found in agent output")
+}
+
+// extractFencedBlocks extracts content from all markdown code fences (```...```) in the text.
+func extractFencedBlocks(s string) []string {
+	var blocks []string
+	for {
+		openIdx := strings.Index(s, "```")
+		if openIdx < 0 {
+			break
+		}
+		// Skip past the opening fence line
+		afterOpen := s[openIdx+3:]
+		nlIdx := strings.Index(afterOpen, "\n")
+		if nlIdx < 0 {
+			break
+		}
+		content := afterOpen[nlIdx+1:]
+		// Find closing fence
+		closeIdx := strings.Index(content, "```")
+		if closeIdx < 0 {
+			break
+		}
+		blocks = append(blocks, content[:closeIdx])
+		s = content[closeIdx+3:]
+	}
+	return blocks
 }
 
 // isJSON returns true if the string is valid JSON.
@@ -68,7 +131,13 @@ func stripMarkdownFences(s string) string {
 
 // findJSONBlock scans for the first '{' or '[' and returns the balanced JSON block.
 func findJSONBlock(s string) string {
-	for i, ch := range s {
+	return findJSONBlockFrom(s, 0)
+}
+
+// findJSONBlockFrom scans for the first balanced '{}'/'[]' block starting at position start.
+func findJSONBlockFrom(s string, start int) string {
+	for i := start; i < len(s); i++ {
+		ch := rune(s[i])
 		if ch == '{' || ch == '[' {
 			closing := matchingBrace(ch)
 			depth := 0
@@ -100,9 +169,30 @@ func findJSONBlock(s string) string {
 					}
 				}
 			}
+			// Unbalanced block starting at i — skip past this opener
+			return ""
 		}
 	}
 	return ""
+}
+
+// findAllJSONBlocks returns all balanced JSON blocks (objects or arrays) found in s, in order.
+func findAllJSONBlocks(s string) []string {
+	var blocks []string
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		if ch == '{' || ch == '[' {
+			block := findJSONBlockFrom(s, i)
+			if block != "" {
+				blocks = append(blocks, block)
+				i += len(block)
+				continue
+			}
+		}
+		i++
+	}
+	return blocks
 }
 
 func matchingBrace(open rune) rune {

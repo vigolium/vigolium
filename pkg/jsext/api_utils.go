@@ -464,6 +464,109 @@ func setupUtilsAPI(vm *sobek.Runtime, opts APIOptions) {
 		return vm.ToValue(results)
 	})
 
+	// --- Diff and similarity ---
+
+	// vigolium.utils.diff(a, b) -> {added: string[], removed: string[], similarity: number}
+	_ = utilsObj.Set("diff", func(call sobek.FunctionCall) sobek.Value {
+		a := call.Argument(0).String()
+		b := call.Argument(1).String()
+
+		// Cap input size at 1MB
+		const maxSize = 1 << 20
+		if len(a) > maxSize {
+			a = a[:maxSize]
+		}
+		if len(b) > maxSize {
+			b = b[:maxSize]
+		}
+
+		linesA := strings.Split(a, "\n")
+		linesB := strings.Split(b, "\n")
+
+		setA := make(map[string]bool, len(linesA))
+		setB := make(map[string]bool, len(linesB))
+		for _, l := range linesA {
+			setA[l] = true
+		}
+		for _, l := range linesB {
+			setB[l] = true
+		}
+
+		var added, removed []interface{}
+		for _, l := range linesB {
+			if !setA[l] {
+				added = append(added, l)
+			}
+		}
+		for _, l := range linesA {
+			if !setB[l] {
+				removed = append(removed, l)
+			}
+		}
+
+		// Dice coefficient on lines
+		common := 0
+		for l := range setA {
+			if setB[l] {
+				common++
+			}
+		}
+		similarity := 0.0
+		if len(setA)+len(setB) > 0 {
+			similarity = float64(2*common) / float64(len(setA)+len(setB))
+		}
+
+		result := vm.NewObject()
+		if added == nil {
+			added = []interface{}{}
+		}
+		if removed == nil {
+			removed = []interface{}{}
+		}
+		_ = result.Set("added", vm.ToValue(added))
+		_ = result.Set("removed", vm.ToValue(removed))
+		_ = result.Set("similarity", similarity)
+		return result
+	})
+
+	// vigolium.utils.similarity(a, b) -> number (0.0 to 1.0)
+	// Jaccard similarity on word-level tokens
+	_ = utilsObj.Set("similarity", func(call sobek.FunctionCall) sobek.Value {
+		a := call.Argument(0).String()
+		b := call.Argument(1).String()
+
+		wordRe := regexp.MustCompile(`\w+`)
+		tokensA := wordRe.FindAllString(a, -1)
+		tokensB := wordRe.FindAllString(b, -1)
+
+		setA := make(map[string]bool, len(tokensA))
+		for _, t := range tokensA {
+			setA[strings.ToLower(t)] = true
+		}
+		setB := make(map[string]bool, len(tokensB))
+		for _, t := range tokensB {
+			setB[strings.ToLower(t)] = true
+		}
+
+		intersection := 0
+		for t := range setA {
+			if setB[t] {
+				intersection++
+			}
+		}
+
+		// Union = |A| + |B| - |intersection|
+		union := len(setA) + len(setB) - intersection
+		if union == 0 {
+			return vm.ToValue(1.0) // both empty = identical
+		}
+
+		return vm.ToValue(float64(intersection) / float64(union))
+	})
+
+	// Register extractToken API
+	registerUtilsTokenAPI(vm, utilsObj)
+
 	vigolium := vm.Get("vigolium").ToObject(vm)
 	_ = vigolium.Set("utils", utilsObj)
 }

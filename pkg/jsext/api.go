@@ -47,4 +47,12 @@ func SetupAPI(vm *sobek.Runtime, opts APIOptions) {
 	if opts.Repository != nil {
 		setupDBAPI(vm, opts)
 	}
+
+	// Set up OAST API when service is available
+	if opts.OASTService != nil {
+		setupOASTAPI(vm, opts)
+	}
+
+	// Set up built-in payload wordlists
+	setupPayloadsAPI(vm)
 }

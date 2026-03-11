@@ -31,6 +31,7 @@ var (
 	agentListTemplates  bool
 	agentListAgents     bool
 	agentDryRun         bool
+	agentShowPrompt     bool
 	agentPromptInline   string
 	agentStdin          bool
 	agentTimeout        time.Duration
@@ -104,6 +105,7 @@ func init() {
 	rf.StringVar(&agentOutput, "output", "", "Write agent output to this file")
 	rf.StringVar(&agentSourceLabel, "source-label", "", "Label for records ingested from agent output (e.g. 'agent-review')")
 	rf.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
+	rf.BoolVar(&agentShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
 }
 
@@ -156,6 +158,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 		OutputPath:     agentOutput,
 		Source:         agentSourceLabel,
 		DryRun:         agentDryRun,
+		ShowPrompt:     agentShowPrompt,
 		ScanUUID:       globalScanID,
 	}
 	if settings.Agent.StreamEnabled() {

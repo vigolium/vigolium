@@ -154,12 +154,13 @@ func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConf
 		SourcePath:   cfg.SourcePath,
 		Files:        cfg.Files,
 		DryRun:       cfg.DryRun,
+		ShowPrompt:   cfg.ShowPrompt,
 		ScanUUID:     cfg.ScanUUID,
 		ProjectUUID:  cfg.ProjectUUID,
 		StreamWriter: cfg.StreamWriter,
 	}
 
-	saResult, err := p.engine.RunSourceAnalysis(ctx, saCfg)
+	saResult, _, err := p.engine.RunSourceAnalysis(ctx, saCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +192,7 @@ func baseAgentOpts(cfg PipelineConfig, template string) Options {
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		Source:         template,

@@ -4,6 +4,65 @@ Swarm is a **multi-agent targeted vulnerability scanning** mode. A master AI age
 
 Unlike pipeline (which scans an entire target), swarm focuses on a **single request** and applies deep, targeted analysis to it.
 
+## Architecture
+
+```
+  URL · curl · Raw HTTP · Burp XML · Record UUID
+                      │
+                      ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  1 · NORMALIZE                                      │
+  │  Auto-detect format → HttpRequestResponse[] → DB    │
+  └──────────────────────┬──────────────────────────────┘
+                         │
+            --source?  ──┤
+           ┌─yes─────┐   │no
+           │ 1.5 SRC │   │  Route extraction, auth flow
+           │ ANALYSIS │   │  discovery, JS ext generation,
+           │ (opt.)  │   │  filter by --target hostname
+           └────┬────┘   │
+                └────────┤
+                         ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  2 · PLAN  ◆ AI                                     │
+  │  Master agent → SwarmPlan                           │
+  │    module_tags + module_ids + JS extensions          │
+  │  >5 inputs: batched (max 5), plans merged           │
+  └──────────────────────┬──────────────────────────────┘
+                         │
+                         ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  3 · EXTENSIONS — Write .js to disk                 │
+  └──────────────────────┬──────────────────────────────┘
+                         │
+                         ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  4 · SCAN  (native Go — no AI cost)                 │
+  │  Agent-selected modules + extensions + passives     │
+  └──────────────────────┬──────────────────────────────┘
+                         │
+                         ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  5 · TRIAGE  ◆ AI                                   │
+  │  Review extension findings only                     │
+  │  → confirmed[] · false_positives[] · follow_ups[]   │
+  └──────────┬─────────────────────┬────────────────────┘
+    verdict  │            verdict  │
+    = done   │            = rescan │
+             │                     ▼
+             │  ┌──────────────────────────────────────┐
+             │  │  6 · RESCAN → loop to 5              │
+             │  │  Until: done / no follow-ups /       │
+             │  │         --max-iterations (default 3) │
+             │  └──────────────┬───────────────────────┘
+             │                 │
+             ▼                 ▼
+  ┌─────────────────────────────────────────────────────┐
+  │  RESULT — SwarmResult                               │
+  │  plan · triage · findings · confirmed · iterations  │
+  └─────────────────────────────────────────────────────┘
+```
+
 ## CLI Usage
 
 ```bash
@@ -18,6 +77,17 @@ echo -e "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test" | vigoliu
 
 # Scan a record already in the database
 vigolium agent swarm --record-uuid 550e8400-e29b-41d4-a716-446655440000
+
+# Source-aware: extract routes from code, filter by target, then swarm
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app
+
+# Source-aware with specific files and vuln focus
+vigolium agent swarm -t http://localhost:8080 --source ./backend \
+  --files src/routes/api.js,src/models/user.js --vuln-type sqli
+
+# Source-aware with a Git URL (auto-cloned)
+vigolium agent swarm -t https://staging.example.com \
+  --source https://github.com/org/repo.git
 
 # Focus on a specific vulnerability type
 vigolium agent swarm -t https://example.com/api/users --vuln-type sqli

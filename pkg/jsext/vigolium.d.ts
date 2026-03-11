@@ -44,6 +44,15 @@ declare namespace vigolium {
     function toSet(csv: string): Record<string, boolean>;
     /** Extract deduplicated, lowercased parameter names from a query/body string. */
     function extractParamNames(str: string): string[];
+    /** Compare two strings line-by-line and return added/removed lines with a similarity score. */
+    function diff(a: string, b: string): DiffResult;
+    /** Compute Jaccard similarity (0.0–1.0) between two strings on word-level tokens. */
+    function similarity(a: string, b: string): number;
+    /**
+     * Extract tokens from an HTTP response using configurable rules.
+     * Returns a map of extracted values keyed by rule name/path/index.
+     */
+    function extractToken(response: HttpResponse, rules: TokenExtractRule[]): Record<string, string>;
   }
 
   namespace parse {
@@ -63,6 +72,8 @@ declare namespace vigolium {
     function json(str: string): any | null;
     /** Parse a URL-encoded form body into a flat name→value map. */
     function form(body: string): Record<string, string>;
+    /** Parse HTML and extract forms, links, scripts, and meta tags. Returns null on parse error. */
+    function html(htmlStr: string): HTMLParseResult | null;
   }
 
   namespace http {
@@ -70,6 +81,38 @@ declare namespace vigolium {
     function post(url: string, body: string, opts?: RequestOptions): HttpResponse;
     function request(opts: FullRequestOptions): HttpResponse;
     function send(rawRequest: string): HttpResponse;
+    /** Clone and modify a raw HTTP request. Override method, path, headers, body, or query params. */
+    function buildRequest(rawRequest: string, overrides: RequestOverrides): string;
+
+    /**
+     * Create a persistent HTTP session with shared cookie jar and default headers.
+     * Cookies from Set-Cookie responses are automatically stored and sent on subsequent requests.
+     */
+    function session(opts?: SessionOptions): HttpSession;
+
+    /**
+     * Execute a login flow: send credentials, extract auth tokens from the response,
+     * and return an authenticated session ready to use.
+     */
+    function login(opts: LoginOptions): HttpSession;
+
+    /**
+     * Send multiple HTTP requests in parallel and return all responses.
+     * Useful for IDOR/BOLA testing or race condition checks.
+     */
+    function batch(requests: FullRequestOptions[], opts?: BatchOptions): HttpResponse[];
+
+    /**
+     * Replay a raw HTTP request with multiple variations (header overrides, body swaps, etc.).
+     * Returns one response per variation, in order.
+     */
+    function replay(rawRequest: string, variations: ReplayVariation[]): HttpResponse[];
+
+    /**
+     * Execute a sequence of HTTP requests where each step can extract variables
+     * (from response body, headers, cookies) for use in subsequent steps via {{varName}} placeholders.
+     */
+    function sequence(steps: SequenceStep[]): SequenceResult;
   }
 
   namespace scan {
@@ -117,6 +160,15 @@ declare namespace vigolium {
     function run(opts: AgentRunOpts): AgentRunResult;
   }
 
+  namespace oast {
+    /** Returns true if the OAST service is active and available. */
+    function enabled(): boolean;
+    /** Generate a unique OAST callback URL for out-of-band testing. Returns null if OAST is unavailable. */
+    function payload(targetURL?: string, paramName?: string, injectionType?: string): OASTPayload | null;
+    /** Wait for the specified timeout then return all OAST interactions from the current scan. */
+    function poll(timeoutMs?: number): OASTInteraction[];
+  }
+
   namespace db {
     namespace records {
       /** Query HTTP records with optional filters. Returns up to limit results. */
@@ -150,11 +202,19 @@ declare namespace vigolium {
   const config: Record<string, string>;
 
   /**
+   * Return built-in payload wordlists by vulnerability type.
+   * Types: "xss", "sqli", "ssti", "ssrf", "lfi", "path_traversal", "xxe", "cmdi", "open_redirect", "crlf"
+   */
+  function payloads(type: PayloadType): string[];
+
+  /**
    * Current HTTP record context (alias for ctx.record).
    * Set per scan invocation — only available inside scanPerRequest / scanPerHost / scanPerInsertionPoint.
    */
   const record: RecordContext;
 }
+
+type PayloadType = "xss" | "sqli" | "ssti" | "ssrf" | "lfi" | "path_traversal" | "xxe" | "cmdi" | "open_redirect" | "crlf";
 
 interface AnomalyInput {
   status: number;
@@ -165,6 +225,15 @@ interface AnomalyInput {
 interface AnomalyResult {
   index: number;
   score: number;
+}
+
+interface DiffResult {
+  /** Lines present in b but not in a. */
+  added: string[];
+  /** Lines present in a but not in b. */
+  removed: string[];
+  /** Dice coefficient similarity (0.0–1.0) on unique lines. */
+  similarity: number;
 }
 
 interface RequestOptions {
@@ -178,11 +247,71 @@ interface FullRequestOptions {
   body?: string;
 }
 
+interface RequestOverrides {
+  method?: string;
+  path?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  query?: Record<string, string>;
+}
+
 interface HttpResponse {
   status: number;
   body: string;
   raw: string;
   headers: Record<string, string>;
+  /** Response time in milliseconds. */
+  elapsed_ms: number;
+}
+
+interface OASTPayload {
+  /** The unique OAST callback URL to inject. */
+  url: string;
+}
+
+interface OASTInteraction {
+  protocol: string;
+  unique_id: string;
+  full_id: string;
+  remote_address: string;
+  target_url: string;
+  parameter_name: string;
+  module_id: string;
+  interacted_at: string;
+}
+
+interface HTMLParseResult {
+  forms: HTMLForm[];
+  links: HTMLLink[];
+  scripts: HTMLScript[];
+  meta: HTMLMeta[];
+}
+
+interface HTMLForm {
+  action: string;
+  method: string;
+  inputs: HTMLFormInput[];
+}
+
+interface HTMLFormInput {
+  name: string;
+  type: string;
+  value: string;
+}
+
+interface HTMLLink {
+  href: string;
+  text: string;
+}
+
+interface HTMLScript {
+  src: string;
+  content: string;
+}
+
+interface HTMLMeta {
+  name: string;
+  content: string;
 }
 
 interface ModuleInfo {
@@ -528,6 +657,116 @@ interface RecordContext {
   addRiskScore(delta: number): boolean;
   /** Append remarks with deduplication (existing remarks are preserved). Returns true on success. */
   addRemarks(remarks: string[]): boolean;
+}
+
+// ── vigolium.http session types ───────────────────────────────────────────────
+
+interface SessionOptions {
+  /** Default headers applied to every request in this session. */
+  headers?: Record<string, string>;
+  /** Initial cookies (name=value) seeded into the session. */
+  cookies?: Record<string, string>;
+}
+
+interface HttpSession {
+  get(url: string, opts?: RequestOptions): HttpResponse;
+  post(url: string, body: string, opts?: RequestOptions): HttpResponse;
+  request(opts: FullRequestOptions): HttpResponse;
+  send(rawRequest: string): HttpResponse;
+  /** Set or update a default header for this session. */
+  setHeader(name: string, value: string): void;
+  /** Remove a default header by name (case-insensitive). */
+  removeHeader(name: string): void;
+  /** Get all current default headers (including Cookie). */
+  getHeaders(): Record<string, string>;
+  /** Get all cookies currently stored in this session. */
+  getCookies(): Record<string, string>;
+  /** Set or update a cookie in this session. */
+  setCookie(name: string, value: string): void;
+}
+
+interface LoginOptions {
+  /** Login endpoint URL. */
+  url: string;
+  /** HTTP method. Default: "POST". */
+  method?: string;
+  /** Request headers for the login request. */
+  headers?: Record<string, string>;
+  /** Request body (form data or JSON). */
+  body?: string;
+  /** Content-Type override. Auto-detected from body if omitted. */
+  content_type?: string;
+  /** Rules for extracting auth tokens from the login response. */
+  extract: LoginExtractRule[];
+}
+
+interface LoginExtractRule {
+  /** Where to extract from: "cookie", "json", or "header". */
+  source: "cookie" | "json" | "header";
+  /** Cookie name or header name to extract. */
+  name?: string;
+  /** JSON dot-path for json source (e.g. "data.access_token"). */
+  path?: string;
+  /** Header template for applying the extracted value, e.g. "Authorization: Bearer {value}". */
+  apply_as?: string;
+}
+
+interface BatchOptions {
+  /** Maximum parallel requests. Default: 5, max: 20. */
+  concurrency?: number;
+}
+
+interface ReplayVariation extends RequestOverrides {
+  /** Headers to remove from the original request before applying overrides. */
+  remove_headers?: string[];
+}
+
+interface SequenceStep {
+  /** Raw HTTP request template. Supports {{varName}} substitution. */
+  request?: string;
+  /** HTTP method (alternative to raw request). Supports {{varName}}. */
+  method?: string;
+  /** URL (alternative to raw request). Supports {{varName}}. */
+  url?: string;
+  /** Request headers. Values support {{varName}}. */
+  headers?: Record<string, string>;
+  /** Request body. Supports {{varName}}. */
+  body?: string;
+  /** Variable extraction rules. Keys become variable names for subsequent steps. */
+  extract?: Record<string, SequenceExtractRule>;
+}
+
+interface SequenceExtractRule {
+  /** Where to extract from. */
+  source: "json" | "header" | "cookie" | "regex" | "body";
+  /** JSON dot-path (for json source). */
+  path?: string;
+  /** Header or cookie name (for header/cookie source). */
+  name?: string;
+  /** Regex pattern with capture group (for regex source). */
+  pattern?: string;
+}
+
+interface SequenceResult {
+  /** Array of responses, one per step. Undefined entries indicate failed requests. */
+  responses: HttpResponse[];
+  /** All extracted variables accumulated across steps. */
+  variables: Record<string, string>;
+  /** True if all steps completed with valid responses. */
+  success: boolean;
+}
+
+// ── vigolium.utils token extraction types ────────────────────────────────────
+
+interface TokenExtractRule {
+  /** Where to extract from. */
+  source: "json" | "header" | "cookie" | "regex";
+  /** Header or cookie name. */
+  name?: string;
+  /** JSON dot-path (for json source). */
+  path?: string;
+  /** Regex pattern with capture group (for regex source). */
+  pattern?: string;
 }
 
 /** Context object passed to extension scanPerRequest / scanPerHost / scanPerInsertionPoint. */

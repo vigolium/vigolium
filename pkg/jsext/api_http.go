@@ -2,7 +2,9 @@ package jsext
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -60,11 +62,25 @@ func setupHTTPAPI(vm *sobek.Runtime, httpClient *http.Requester) {
 		return doRequest(vm, httpClient, method, urlStr, body, headers)
 	})
 
-	// vigolium.http.send(rawRequest) -> {status, headers, body}
+	// vigolium.http.send(rawRequest) -> {status, headers, body, elapsed_ms}
 	_ = httpObj.Set("send", func(call sobek.FunctionCall) sobek.Value {
 		rawReq := call.Argument(0).String()
 		return doRawRequest(vm, httpClient, rawReq)
 	})
+
+	// vigolium.http.buildRequest(rawRequest, overrides) -> modified raw request string
+	// overrides: {method?, path?, headers?, body?, query?}
+	_ = httpObj.Set("buildRequest", func(call sobek.FunctionCall) sobek.Value {
+		rawReq := call.Argument(0).String()
+		overridesVal := call.Argument(1)
+		if sobek.IsUndefined(overridesVal) || sobek.IsNull(overridesVal) {
+			return vm.ToValue(rawReq)
+		}
+		return vm.ToValue(applyRequestOverrides(vm, rawReq, overridesVal.ToObject(vm)))
+	})
+
+	// Register session/login/batch/replay/sequence APIs
+	registerHTTPSessionAPIs(vm, httpObj, httpClient)
 
 	vigolium := vm.Get("vigolium").ToObject(vm)
 	_ = vigolium.Set("http", httpObj)
@@ -126,7 +142,10 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 
 	hrr := httpmsg.NewHttpRequestResponse(req, nil)
 
+	start := time.Now()
 	respChain, _, err := httpClient.Execute(hrr, http.Options{})
+	elapsedMs := time.Since(start).Milliseconds()
+
 	if err != nil {
 		zap.L().Debug("JS HTTP request failed", zap.Error(err))
 		return sobek.Undefined()
@@ -143,6 +162,7 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 	_ = result.Set("status", httpResp.StatusCode())
 	_ = result.Set("body", string(httpResp.Body()))
 	_ = result.Set("raw", string(rawResponseCopy))
+	_ = result.Set("elapsed_ms", elapsedMs)
 
 	// Parse response headers into JS object
 	headersObj := vm.NewObject()
@@ -152,6 +172,109 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 	_ = result.Set("headers", headersObj)
 
 	return result
+}
+
+// applyRequestOverrides modifies a raw HTTP request string with the given overrides.
+// Supported overrides: method, path, headers (merge), body (replace), query (merge).
+func applyRequestOverrides(vm *sobek.Runtime, rawReq string, overrides *sobek.Object) string {
+	headerSection, body := splitHTTPMessage(rawReq)
+	lines := splitHeaderLines(headerSection)
+	if len(lines) == 0 {
+		return rawReq
+	}
+
+	// Parse request line
+	parts := strings.Fields(lines[0])
+	method := ""
+	fullPath := ""
+	httpVer := "HTTP/1.1"
+	if len(parts) >= 3 {
+		method, fullPath, httpVer = parts[0], parts[1], parts[2]
+	} else if len(parts) >= 2 {
+		method, fullPath = parts[0], parts[1]
+	}
+
+	pathOnly, queryStr := splitPathQuery(fullPath)
+
+	// Apply overrides
+	if v := overrides.Get("method"); v != nil && !sobek.IsUndefined(v) {
+		method = strings.ToUpper(v.String())
+	}
+	if v := overrides.Get("path"); v != nil && !sobek.IsUndefined(v) {
+		newPath := v.String()
+		// If the override path contains a query string, split it
+		if idx := strings.IndexByte(newPath, '?'); idx >= 0 {
+			pathOnly = newPath[:idx]
+			queryStr = newPath[idx+1:]
+		} else {
+			pathOnly = newPath
+		}
+	}
+	if v := overrides.Get("body"); v != nil && !sobek.IsUndefined(v) {
+		body = v.String()
+	}
+
+	// Merge query params
+	if v := overrides.Get("query"); v != nil && !sobek.IsUndefined(v) {
+		existingParams, _ := url.ParseQuery(queryStr)
+		queryObj := v.ToObject(vm)
+		for _, key := range queryObj.Keys() {
+			existingParams.Set(key, queryObj.Get(key).String())
+		}
+		queryStr = existingParams.Encode()
+	}
+
+	// Collect existing headers (preserving order)
+	type header struct{ name, value string }
+	var headers []header
+	for i := 1; i < len(lines); i++ {
+		if idx := strings.Index(lines[i], ":"); idx > 0 {
+			headers = append(headers, header{
+				name:  strings.TrimSpace(lines[i][:idx]),
+				value: strings.TrimSpace(lines[i][idx+1:]),
+			})
+		}
+	}
+
+	// Merge override headers
+	if v := overrides.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+		headersObj := v.ToObject(vm)
+		overrideKeys := headersObj.Keys()
+		// Build lookup of override header names (case-insensitive)
+		overrideLower := make(map[string]string, len(overrideKeys))
+		for _, key := range overrideKeys {
+			overrideLower[strings.ToLower(key)] = key
+		}
+		// Update existing headers in place
+		for i, h := range headers {
+			if origKey, ok := overrideLower[strings.ToLower(h.name)]; ok {
+				headers[i].value = headersObj.Get(origKey).String()
+				delete(overrideLower, strings.ToLower(h.name))
+			}
+		}
+		// Append new headers
+		for _, key := range overrideKeys {
+			if _, remaining := overrideLower[strings.ToLower(key)]; remaining {
+				headers = append(headers, header{name: key, value: headersObj.Get(key).String()})
+			}
+		}
+	}
+
+	// Rebuild request
+	var sb strings.Builder
+	reqPath := pathOnly
+	if queryStr != "" {
+		reqPath += "?" + queryStr
+	}
+	fmt.Fprintf(&sb, "%s %s %s\r\n", method, reqPath, httpVer)
+	for _, h := range headers {
+		fmt.Fprintf(&sb, "%s: %s\r\n", h.name, h.value)
+	}
+	sb.WriteString("\r\n")
+	if body != "" {
+		sb.WriteString(body)
+	}
+	return sb.String()
 }
 
 func extractHost(rawURL string) string {

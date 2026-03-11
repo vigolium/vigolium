@@ -32,6 +32,7 @@ var (
 	pipelineFocus           string
 	pipelineTimeout         time.Duration
 	pipelineDryRun          bool
+	pipelineShowPrompt      bool
 	pipelineMaxRescanRounds int
 	pipelineSkipPhases      []string
 	pipelineStartFrom       string
@@ -80,6 +81,7 @@ func init() {
 	f.StringVar(&pipelineFocus, "focus", "", "Focus area hint for the planning agent (e.g. 'API injection', 'auth bypass')")
 	f.DurationVar(&pipelineTimeout, "timeout", 1*time.Hour, "Maximum total pipeline duration")
 	f.BoolVar(&pipelineDryRun, "dry-run", false, "Render agent prompts without executing (shows plan and triage prompts)")
+	f.BoolVar(&pipelineShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
 	f.IntVar(&pipelineMaxRescanRounds, "max-rescan-rounds", 2, "Maximum number of triage->rescan iterations")
 	f.StringSliceVar(&pipelineSkipPhases, "skip-phase", nil, "Skip specific phases (source-analysis, discover, plan, scan, triage, rescan, report)")
 	f.StringVar(&pipelineStartFrom, "start-from", "", "Resume pipeline from a specific phase")
@@ -192,6 +194,7 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 		SkipPhases:      skipPhases,
 		StartFrom:       agent.PipelinePhase(pipelineStartFrom),
 		DryRun:          pipelineDryRun,
+		ShowPrompt:      pipelineShowPrompt,
 		ProjectUUID:     pipelineProjectUUID,
 		ScanUUID:        globalScanID,
 	}

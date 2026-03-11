@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -127,14 +128,52 @@ type GeneratedExtension struct {
 	Reason   string `json:"reason"`
 }
 
+// QuickCheck is a declarative shorthand for simple payload-and-match scan checks.
+// The swarm runner auto-generates a full JS extension from each QuickCheck.
+type QuickCheck struct {
+	ID       string              `json:"id"`
+	Severity string              `json:"severity,omitempty"` // default: "medium"
+	Scan     string              `json:"scan"`               // "per_insertion_point", "per_request", "per_host"
+	Payloads []string            `json:"payloads,omitempty"` // for per_insertion_point: payloads to inject
+	Requests []QuickCheckRequest `json:"requests,omitempty"` // for per_request/per_host: requests to send
+	Match    QuickCheckMatch     `json:"match"`
+}
+
+// QuickCheckRequest defines a request to send in per_request/per_host quick checks.
+type QuickCheckRequest struct {
+	Method  string            `json:"method"`
+	Path    string            `json:"path"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
+}
+
+// QuickCheckMatch defines match conditions for a quick check (OR logic).
+type QuickCheckMatch struct {
+	BodyContains   string `json:"body_contains,omitempty"`
+	BodyRegex      string `json:"body_regex,omitempty"`
+	Status         int    `json:"status,omitempty"`
+	HeaderContains string `json:"header_contains,omitempty"`
+}
+
+// Snippet is a shorthand extension where only the scan function body is provided.
+// The swarm runner wraps it in a full module scaffold with access to ctx, insertion, and vigolium.* APIs.
+type Snippet struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity,omitempty"` // default: "medium"
+	Scan     string `json:"scan"`               // "per_insertion_point", "per_request", "per_host"
+	Body     string `json:"body"`               // JS function body
+}
+
 // SwarmPlan is the structured output from the master agent in agent swarm mode.
 // The agent analyzes the target request, selects modules, and generates custom extensions.
 type SwarmPlan struct {
-	ModuleTags []string             `json:"module_tags"`
-	ModuleIDs  []string             `json:"module_ids,omitempty"`
-	Extensions []GeneratedExtension `json:"extensions,omitempty"`
-	FocusAreas []string             `json:"focus_areas,omitempty"`
-	Notes      string               `json:"notes,omitempty"`
+	ModuleTags  []string             `json:"module_tags"`
+	ModuleIDs   []string             `json:"module_ids,omitempty"`
+	Extensions  []GeneratedExtension `json:"extensions,omitempty"`
+	QuickChecks []QuickCheck         `json:"quick_checks,omitempty"`
+	Snippets    []Snippet            `json:"snippets,omitempty"`
+	FocusAreas  []string             `json:"focus_areas,omitempty"`
+	Notes       string               `json:"notes,omitempty"`
 }
 
 // SwarmResult holds the outcome of an agent swarm run.
@@ -164,30 +203,82 @@ type swarmPlanWrapper struct {
 //     followed by fenced ```javascript code blocks for extensions. Each extension
 //     is preceded by a heading like "#### filename.js" and optionally "Reason: ...".
 func ParseSwarmPlan(raw string) (*SwarmPlan, error) {
-	// Try hybrid format first: JSONL plan line + fenced code blocks for extensions
+	// Try markdown section format first (most robust for LLM output)
+	if plan, err := parseSwarmPlanMarkdown(raw); err == nil && len(plan.ModuleTags) > 0 {
+		return plan, nil
+	}
+
+	// Try hybrid format: JSONL plan line + fenced code blocks for extensions
 	if plan, err := parseSwarmPlanHybrid(raw); err == nil && len(plan.ModuleTags) > 0 {
 		return plan, nil
 	}
 
-	// Fall back to legacy all-in-one JSON format
-	jsonStr, err := extractJSON(raw)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
+	// Try all valid JSON blocks looking for one with module_tags
+	for _, block := range findAllJSONBlocks(raw) {
+		if !isJSON(block) {
+			continue
+		}
+		var wrapper swarmPlanWrapper
+		if json.Unmarshal([]byte(block), &wrapper) == nil && len(wrapper.Plan.ModuleTags) > 0 {
+			return &wrapper.Plan, nil
+		}
+		var plan SwarmPlan
+		if json.Unmarshal([]byte(block), &plan) == nil && len(plan.ModuleTags) > 0 {
+			return &plan, nil
+		}
 	}
 
-	// Try wrapped format: {"swarm_plan": {...}}
-	var wrapper swarmPlanWrapper
-	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.Plan.ModuleTags) > 0 {
-		return &wrapper.Plan, nil
+	// Last resort: regex-extract module_tags from garbled JSON.
+	// The module_tags array is usually at the start and tends to survive token-level corruption.
+	if plan := extractSwarmPlanRegex(raw); plan != nil {
+		zap.L().Info("Recovered swarm plan via regex fallback",
+			zap.Int("module_tags", len(plan.ModuleTags)))
+		return plan, nil
 	}
 
-	// Try direct format: {...}
-	var plan SwarmPlan
-	if err := json.Unmarshal([]byte(jsonStr), &plan); err == nil && len(plan.ModuleTags) > 0 {
-		return &plan, nil
+	return nil, fmt.Errorf("failed to parse swarm plan: no valid JSON with module_tags found")
+}
+
+// moduleTagsRegex matches a "module_tags" JSON array in possibly garbled text.
+var moduleTagsRegex = regexp.MustCompile(`"module_tags"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
+
+// focusAreasRegex matches a "focus_areas" JSON array.
+var focusAreasRegex = regexp.MustCompile(`"focus_areas"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
+
+// notesRegex matches a "notes" JSON string.
+var notesRegex = regexp.MustCompile(`"notes"\s*:\s*"([^"]*)"`)
+
+// extractSwarmPlanRegex attempts to recover a minimal SwarmPlan from garbled JSON
+// by regex-extracting individual fields. Returns nil if module_tags cannot be found.
+func extractSwarmPlanRegex(raw string) *SwarmPlan {
+	m := moduleTagsRegex.FindStringSubmatch(raw)
+	if len(m) < 2 {
+		return nil
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte("["+m[1]+"]"), &tags); err != nil || len(tags) == 0 {
+		return nil
 	}
 
-	return nil, fmt.Errorf("failed to parse swarm plan from JSON: invalid structure (expected module_tags)")
+	plan := &SwarmPlan{ModuleTags: tags}
+
+	// Best-effort extraction of other fields
+	if fm := focusAreasRegex.FindStringSubmatch(raw); len(fm) >= 2 {
+		var fa []string
+		if json.Unmarshal([]byte("["+fm[1]+"]"), &fa) == nil {
+			plan.FocusAreas = fa
+		}
+	}
+	if nm := notesRegex.FindStringSubmatch(raw); len(nm) >= 2 {
+		plan.Notes = nm[1]
+	}
+
+	// Extract code block extensions (hybrid format)
+	if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+		plan.Extensions = codeExts
+	}
+
+	return plan
 }
 
 // parseSwarmPlanHybrid parses the hybrid output format where the plan JSON is a
@@ -216,14 +307,179 @@ func parseSwarmPlanHybrid(raw string) (*SwarmPlan, error) {
 		}
 	}
 
+	// Fallback: try all JSON blocks in the full text (handles corrupted first block + valid later block)
+	if !planFound {
+		for _, block := range findAllJSONBlocks(raw) {
+			if json.Unmarshal([]byte(block), &plan) == nil && len(plan.ModuleTags) > 0 {
+				planFound = true
+				break
+			}
+		}
+	}
+
 	if !planFound {
 		return nil, fmt.Errorf("no plan JSON line found")
 	}
 
-	// Step 2: Extract fenced JavaScript code blocks as extensions
-	plan.Extensions = extractCodeBlockExtensions(raw)
+	// Step 2: Extract fenced JavaScript code blocks as extensions (supplement, don't overwrite)
+	if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+		plan.Extensions = append(plan.Extensions, codeExts...)
+	}
 
 	return &plan, nil
+}
+
+// parseSwarmPlanMarkdown parses the markdown section format where the LLM outputs
+// structured sections with ## headings instead of a single JSON blob.
+// This format is inherently more robust against LLM token-level corruption.
+func parseSwarmPlanMarkdown(raw string) (*SwarmPlan, error) {
+	sections := splitMarkdownSections(raw)
+
+	tagsRaw, ok := sections["MODULE_TAGS"]
+	if !ok {
+		return nil, fmt.Errorf("no ## MODULE_TAGS section found")
+	}
+
+	tags := parseCommaSeparated(tagsRaw)
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("## MODULE_TAGS section is empty")
+	}
+
+	plan := &SwarmPlan{
+		ModuleTags: tags,
+	}
+
+	if idsRaw, ok := sections["MODULE_IDS"]; ok {
+		plan.ModuleIDs = parseCommaSeparated(idsRaw)
+	}
+
+	if faRaw, ok := sections["FOCUS_AREAS"]; ok {
+		plan.FocusAreas = parseBulletList(faRaw)
+	}
+
+	if notes, ok := sections["NOTES"]; ok {
+		plan.Notes = strings.TrimSpace(notes)
+	}
+
+	// Extract extensions from fenced code blocks (existing logic handles #### headings)
+	if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+		plan.Extensions = codeExts
+	}
+
+	// Extract quick_checks from JSON — try keyed field first, then standalone arrays in fences
+	if qcBlock := findJSONArrayInSection(raw, "quick_checks"); qcBlock != "" {
+		var qcs []QuickCheck
+		if json.Unmarshal([]byte(qcBlock), &qcs) == nil {
+			plan.QuickChecks = qcs
+		}
+	}
+	if len(plan.QuickChecks) == 0 {
+		// Try fenced JSON blocks as standalone quick check arrays
+		for _, fenced := range extractFencedBlocks(raw) {
+			fenced = strings.TrimSpace(fenced)
+			if fenced == "" || fenced[0] != '[' {
+				continue
+			}
+			var qcs []QuickCheck
+			if json.Unmarshal([]byte(fenced), &qcs) == nil && len(qcs) > 0 && qcs[0].ID != "" {
+				plan.QuickChecks = qcs
+				break
+			}
+		}
+	}
+
+	return plan, nil
+}
+
+// splitMarkdownSections splits text by ## headings and returns a map of section name to content.
+func splitMarkdownSections(raw string) map[string]string {
+	sections := make(map[string]string)
+	lines := strings.Split(raw, "\n")
+
+	var currentSection string
+	var content strings.Builder
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") && !strings.HasPrefix(trimmed, "### ") {
+			// Save previous section
+			if currentSection != "" {
+				sections[currentSection] = content.String()
+			}
+			currentSection = strings.TrimSpace(trimmed[3:])
+			content.Reset()
+			continue
+		}
+		if currentSection != "" {
+			if content.Len() > 0 {
+				content.WriteByte('\n')
+			}
+			content.WriteString(line)
+		}
+	}
+	// Save last section
+	if currentSection != "" {
+		sections[currentSection] = content.String()
+	}
+	return sections
+}
+
+// parseCommaSeparated splits a string by commas and returns trimmed, non-empty tokens.
+func parseCommaSeparated(s string) []string {
+	var result []string
+	for _, token := range strings.Split(s, ",") {
+		token = strings.TrimSpace(token)
+		if token != "" {
+			result = append(result, token)
+		}
+	}
+	return result
+}
+
+// parseBulletList extracts items from a bulleted markdown list.
+func parseBulletList(s string) []string {
+	var result []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- ") {
+			item := strings.TrimSpace(line[2:])
+			if item != "" {
+				result = append(result, item)
+			}
+		} else if strings.HasPrefix(line, "* ") {
+			item := strings.TrimSpace(line[2:])
+			if item != "" {
+				result = append(result, item)
+			}
+		} else if line != "" {
+			// Plain text line (not bulleted)
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+// findJSONArrayInSection searches for a JSON array associated with a key name in the raw text.
+func findJSONArrayInSection(raw, key string) string {
+	pattern := `"` + key + `"`
+	idx := strings.Index(raw, pattern)
+	if idx < 0 {
+		return ""
+	}
+	// Find the '[' after the key
+	rest := raw[idx+len(pattern):]
+	for i, ch := range rest {
+		if ch == '[' {
+			block := findJSONBlockFrom(rest, i)
+			if block != "" {
+				return block
+			}
+		}
+		if ch != ':' && ch != ' ' && ch != '\t' {
+			break
+		}
+	}
+	return ""
 }
 
 // extractCodeBlockExtensions extracts GeneratedExtension entries from fenced
@@ -343,14 +599,16 @@ func extractFilenameFromCode(code string) string {
 
 // SourceAnalysisConfig configures a source analysis run. Used by both pipeline and swarm.
 type SourceAnalysisConfig struct {
-	AgentName    string
-	TargetURL    string
-	SourcePath   string
-	Files        []string
-	DryRun       bool
-	ScanUUID     string
-	ProjectUUID  string
-	StreamWriter io.Writer
+	AgentName      string
+	TargetURL      string
+	SourcePath     string
+	Files          []string
+	PromptTemplate string // override template ID (default: "pipeline-source-analysis")
+	DryRun         bool
+	ShowPrompt     bool // print rendered prompt to stderr before executing
+	ScanUUID       string
+	ProjectUUID    string
+	StreamWriter   io.Writer
 }
 
 // EnsureSessionDir creates the session directory for a given run ID under the specified base directory.
@@ -404,6 +662,7 @@ type PipelineConfig struct {
 	SkipPhases      map[PipelinePhase]bool
 	StartFrom       PipelinePhase
 	DryRun          bool
+	ShowPrompt      bool // print rendered prompts to stderr before executing
 	StreamWriter    io.Writer
 	ProjectUUID     string
 	ScanUUID        string
@@ -499,7 +758,17 @@ func ParseTriageResult(raw string) (*TriageResult, error) {
 }
 
 // ParseSourceAnalysisResult extracts a SourceAnalysisResult from raw agent output.
+// It supports two formats:
+//  1. Hybrid: JSON object containing http_records and session_config, followed by
+//     fenced ```javascript code blocks for extensions (preferred — avoids escaping issues).
+//  2. Legacy: a single JSON object containing all fields including extensions[].code.
 func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
+	// Try hybrid format first: JSON with records/session_config + fenced code blocks for extensions
+	if result, err := parseSourceAnalysisHybrid(raw); err == nil && len(result.HTTPRecords) > 0 {
+		return result, nil
+	}
+
+	// Fall back to legacy all-in-one JSON format
 	jsonStr, err := extractJSON(raw)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
@@ -515,6 +784,45 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	var result SourceAnalysisResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse source analysis result from JSON: %w", err)
+	}
+
+	return &result, nil
+}
+
+// parseSourceAnalysisHybrid parses the hybrid output format where the JSON contains
+// http_records and session_config, and extensions are in fenced ```javascript code blocks.
+func parseSourceAnalysisHybrid(raw string) (*SourceAnalysisResult, error) {
+	// Extract the JSON block containing http_records (and optionally session_config)
+	jsonStr, err := extractJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("no JSON block found: %w", err)
+	}
+
+	// Try wrapped format first
+	var wrapper sourceAnalysisWrapper
+	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.SourceAnalysis.HTTPRecords) > 0 {
+		result := &wrapper.SourceAnalysis
+		// Extract extensions from fenced code blocks (not from JSON)
+		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+			result.Extensions = codeExts
+		}
+		return result, nil
+	}
+
+	// Try direct format
+	var result SourceAnalysisResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	if len(result.HTTPRecords) == 0 {
+		return nil, fmt.Errorf("no http_records found in JSON")
+	}
+
+	// If JSON had no extensions (or empty), try extracting from fenced code blocks
+	if len(result.Extensions) == 0 {
+		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+			result.Extensions = codeExts
+		}
 	}
 
 	return &result, nil

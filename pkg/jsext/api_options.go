@@ -5,6 +5,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent/llm"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/oast"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
@@ -35,6 +36,9 @@ type APIOptions struct {
 	LLMClient llm.Client
 	// AgentDefs provides subprocess agent backends for vigolium.agent.run()
 	AgentDefs map[string]config.AgentDef
+
+	// OASTService enables vigolium.oast.* API (nil = disabled)
+	OASTService *oast.Service
 }
 
 // EngineOptions provides scanner context to the JS engine.
@@ -49,4 +53,7 @@ type EngineOptions struct {
 	LLMClient llm.Client
 	// AgentDefs provides subprocess agent backends for vigolium.agent.run()
 	AgentDefs map[string]config.AgentDef
+
+	// OASTService enables vigolium.oast.* API (nil = disabled)
+	OASTService *oast.Service
 }

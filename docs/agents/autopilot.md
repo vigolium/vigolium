@@ -13,7 +13,23 @@ vigolium agent autopilot -t https://target.com
 When `--source` is provided, the agent receives the application source code in its system prompt and follows a source-aware workflow — analyzing routes, auth flows, and vulnerability sinks before scanning:
 
 ```bash
+# Local source directory
 vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
+
+# Only include specific files for faster context loading
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app \
+  --files src/routes/auth.js,src/routes/api.js
+
+# Combine with a focus hint to guide the agent's strategy
+vigolium agent autopilot -t http://localhost:8080 --source ./backend \
+  --focus "IDOR and broken access control in REST API"
+
+# Git URL (auto-cloned)
+vigolium agent autopilot -t https://staging.example.com \
+  --source https://github.com/org/repo.git
+
+# Preview the rendered system prompt without launching
+vigolium agent autopilot -t http://localhost:3000 --source ./src --dry-run
 ```
 
 ### Flags

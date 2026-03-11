@@ -84,6 +84,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		}, nil
 	}
 
+	// Show rendered prompt on stderr when --show-prompt is active
+	if opts.ShowPrompt {
+		fmt.Fprintf(os.Stderr, "\n── rendered prompt (%s) ──\n%s\n── end prompt ──\n\n", templateID, prompt)
+	}
+
 	zap.L().Debug("prompt sent to agent", zap.String("prompt", prompt))
 
 	// Execute the agent using the configured protocol
@@ -207,40 +212,49 @@ func (e *Engine) RunWithExtra(ctx context.Context, opts Options, extra map[strin
 	return e.Run(ctx, opts)
 }
 
-// RunSourceAnalysis executes the source analysis agent and returns parsed results.
-// It handles prompt rendering, agent execution, output parsing, and HTTP record ingestion.
+// RunSourceAnalysis executes the source analysis agent and returns parsed results
+// along with the raw agent output. It handles prompt rendering, agent execution,
+// output parsing, and HTTP record ingestion.
 // The caller is responsible for processing extensions and session config via a callback.
-func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (*SourceAnalysisResult, error) {
+func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (*SourceAnalysisResult, string, error) {
 	if cfg.SourcePath == "" {
-		return nil, nil
+		return nil, "", nil
+	}
+
+	templateID := cfg.PromptTemplate
+	if templateID == "" {
+		templateID = "pipeline-source-analysis"
 	}
 
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		PromptTemplate: "pipeline-source-analysis",
+		PromptTemplate: templateID,
 		TargetURL:      cfg.TargetURL,
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
-		Source:         "pipeline-source-analysis",
+		Source:         templateID,
 		StreamWriter:   cfg.StreamWriter,
 	}
 
 	result, err := e.Run(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("source analysis agent failed: %w", err)
+		return nil, "", fmt.Errorf("source analysis agent failed: %w", err)
 	}
+
+	rawOutput := result.RawOutput
 
 	if cfg.DryRun {
-		fmt.Fprint(os.Stdout, result.RawOutput)
-		return nil, nil
+		fmt.Fprint(os.Stdout, rawOutput)
+		return nil, rawOutput, nil
 	}
 
-	saResult, err := ParseSourceAnalysisResult(result.RawOutput)
+	saResult, err := ParseSourceAnalysisResult(rawOutput)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse source analysis result: %w", err)
+		return nil, rawOutput, fmt.Errorf("failed to parse source analysis result: %w", err)
 	}
 
 	// Ingest discovered HTTP records into the database
@@ -258,7 +272,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		}
 	}
 
-	return saResult, nil
+	return saResult, rawOutput, nil
 }
 
 // resolveAgent looks up an agent definition by name from settings.
@@ -303,7 +317,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if loadErr != nil {
 			return "", "", "", fmt.Errorf("failed to load prompt file: %w", loadErr)
 		}
-		templateData, gatherErr := e.gatherContext(opts)
+		templateData, gatherErr := e.gatherContext(opts, tmpl.Variables)
 		if gatherErr != nil {
 			return "", "", "", gatherErr
 		}
@@ -323,7 +337,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if loadErr != nil {
 			return "", "", "", loadErr
 		}
-		templateData, gatherErr := e.gatherContext(opts)
+		templateData, gatherErr := e.gatherContext(opts, tmpl.Variables)
 		if gatherErr != nil {
 			return "", "", "", gatherErr
 		}
@@ -342,7 +356,11 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 }
 
 // gatherContext reads source files and prepares template data.
-func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
+// templateVars controls what gets populated: if "SourceCode" is declared,
+// source files are read into the prompt; if only "SourcePath"/"DirectoryTree"
+// are declared, just a directory listing is generated (letting the agent
+// explore the codebase itself via tool use).
+func (e *Engine) gatherContext(opts Options, templateVars []string) (TemplateData, error) {
 	data := TemplateData{
 		SourcePath: opts.SourcePath,
 		Extra:      make(map[string]string),
@@ -369,12 +387,13 @@ func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 		return data, nil
 	}
 
-	// Collect source code from specified files or all files in repo
-	var sourceCode strings.Builder
-	files := opts.Files
+	// Check if the template wants embedded source code or just the path
+	wantsSourceCode := hasVar(templateVars, "SourceCode")
+	wantsDirectoryTree := hasVar(templateVars, "DirectoryTree")
 
+	// Collect file list for language detection and (optionally) source code
+	files := opts.Files
 	if len(files) == 0 {
-		// Walk the repo and collect common source files
 		collected, err := collectSourceFiles(opts.SourcePath)
 		if err != nil {
 			zap.L().Warn("Failed to collect source files", zap.Error(err))
@@ -382,30 +401,132 @@ func (e *Engine) gatherContext(opts Options) (TemplateData, error) {
 		files = collected
 	}
 
+	data.Language = detectLanguage(files)
+
+	// Generate directory tree listing if requested (lightweight context for agent exploration)
+	if wantsDirectoryTree {
+		tree, err := generateDirectoryTree(opts.SourcePath)
+		if err != nil {
+			zap.L().Warn("Failed to generate directory tree", zap.Error(err))
+		} else {
+			data.DirectoryTree = tree
+		}
+	}
+
+	// Only embed full source code if the template declares SourceCode variable
+	if wantsSourceCode {
+		data.SourceCode = e.collectSourceCode(opts.SourcePath, files)
+	}
+
+	return data, nil
+}
+
+// hasVar checks whether a variable name exists in the template variables list.
+func hasVar(vars []string, name string) bool {
+	for _, v := range vars {
+		if v == name {
+			return true
+		}
+	}
+	return false
+}
+
+// collectSourceCode reads source files and returns concatenated content with file headers.
+func (e *Engine) collectSourceCode(sourcePath string, files []string) string {
+	var sourceCode strings.Builder
+
+	const maxSourceBytes = 128 * 1024 // 128KB limit for source code context
+
+	var skipped int
 	for _, f := range files {
 		path := f
 		if !filepath.IsAbs(f) {
-			path = filepath.Join(opts.SourcePath, f)
+			path = filepath.Join(sourcePath, f)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			zap.L().Debug("Skipping unreadable file", zap.String("path", path), zap.Error(err))
 			continue
 		}
-		rel, _ := filepath.Rel(opts.SourcePath, path)
+		if sourceCode.Len()+len(content) > maxSourceBytes {
+			skipped++
+			continue
+		}
+		rel, _ := filepath.Rel(sourcePath, path)
 		if rel == "" {
 			rel = f
 		}
 		fmt.Fprintf(&sourceCode, "// --- %s ---\n", rel)
 		sourceCode.Write(content)
 		sourceCode.WriteString("\n\n")
-		data.FilePath = rel // last file becomes the primary file path
+	}
+	if skipped > 0 {
+		zap.L().Warn("Source context truncated due to size limit",
+			zap.Int("files_included", len(files)-skipped),
+			zap.Int("files_skipped", skipped),
+			zap.Int("max_bytes", maxSourceBytes))
+		fmt.Fprintf(&sourceCode, "\n// --- %d additional files skipped (context limit: %dKB) ---\n", skipped, maxSourceBytes/1024)
 	}
 
-	data.SourceCode = sourceCode.String()
-	data.Language = detectLanguage(files)
+	return sourceCode.String()
+}
 
-	return data, nil
+// generateDirectoryTree produces a compact tree listing of a source directory,
+// showing the structure up to 3 levels deep with file counts for deeper directories.
+func generateDirectoryTree(root string) (string, error) {
+	const maxDepth = 4
+	const maxEntries = 500
+
+	var sb strings.Builder
+	entries := 0
+
+	skipDirs := map[string]bool{
+		"node_modules": true, ".git": true, "vendor": true, "__pycache__": true,
+		".venv": true, "dist": true, "build": true, ".next": true, ".nuxt": true,
+		"coverage": true, ".tox": true, ".mypy_cache": true, ".pytest_cache": true,
+	}
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entries >= maxEntries {
+			return filepath.SkipAll
+		}
+
+		rel, _ := filepath.Rel(root, path)
+		if rel == "." {
+			return nil
+		}
+
+		depth := strings.Count(rel, string(filepath.Separator))
+
+		if d.IsDir() {
+			if skipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			if depth >= maxDepth {
+				return filepath.SkipDir
+			}
+			indent := strings.Repeat("  ", depth)
+			fmt.Fprintf(&sb, "%s%s/\n", indent, d.Name())
+			entries++
+			return nil
+		}
+
+		if depth < maxDepth {
+			indent := strings.Repeat("  ", depth)
+			fmt.Fprintf(&sb, "%s%s\n", indent, d.Name())
+			entries++
+		}
+		return nil
+	})
+
+	if entries >= maxEntries {
+		sb.WriteString("... (truncated)\n")
+	}
+
+	return sb.String(), err
 }
 
 // ingestFindings saves parsed findings to the database.

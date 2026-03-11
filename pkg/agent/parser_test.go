@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -180,6 +183,213 @@ func TestToDBFinding_Defaults(t *testing.T) {
 	}
 	if finding.Confidence != "tentative" {
 		t.Errorf("Confidence should default to 'tentative', got %q", finding.Confidence)
+	}
+}
+
+func TestFindAllJSONBlocks(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		count  int
+		first  string
+	}{
+		{
+			name:  "single object",
+			input: `some text {"key": "val"} more text`,
+			count: 1,
+			first: `{"key": "val"}`,
+		},
+		{
+			name:  "multiple blocks",
+			input: `{"a":1} text {"b":2} more [3,4]`,
+			count: 3,
+			first: `{"a":1}`,
+		},
+		{
+			name:  "corrupted first then valid second",
+			input: `{"broken": "no closing brace {"module_tags":["xss"]}`,
+			count: 1,
+			first: `{"module_tags":["xss"]}`,
+		},
+		{
+			name:  "nested braces",
+			input: `{"outer":{"inner":"val"}} done`,
+			count: 1,
+			first: `{"outer":{"inner":"val"}}`,
+		},
+		{
+			name:  "no blocks",
+			input: "no json here at all",
+			count: 0,
+		},
+		{
+			name:  "array block",
+			input: `prefix [{"a":1},{"b":2}] suffix`,
+			count: 1,
+			first: `[{"a":1},{"b":2}]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blocks := findAllJSONBlocks(tt.input)
+			if len(blocks) != tt.count {
+				t.Fatalf("expected %d blocks, got %d: %v", tt.count, len(blocks), blocks)
+			}
+			if tt.count > 0 && blocks[0] != tt.first {
+				t.Errorf("first block = %q, want %q", blocks[0], tt.first)
+			}
+		})
+	}
+}
+
+func TestExtractJSON_InnerFencedBlock(t *testing.T) {
+	// JSON is inside a markdown fence in the middle of other text
+	input := "Here is the plan:\n\n```json\n{\"module_tags\": [\"xss\"]}\n```\n\nDone."
+	result, err := extractJSON(input)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+	if result != `{"module_tags": ["xss"]}` {
+		t.Errorf("expected JSON from fenced block, got %q", result)
+	}
+}
+
+func TestExtractJSON_GarbledReportsSpecificError(t *testing.T) {
+	// Garbled JSON: balanced braces but invalid content
+	input := `{"key": "val",, "broken": }`
+	_, err := extractJSON(input)
+	if err == nil {
+		t.Fatal("expected error for garbled JSON")
+	}
+	if !strings.Contains(err.Error(), "syntax errors") {
+		t.Errorf("expected error to mention syntax errors, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "snippet:") {
+		t.Errorf("expected error to include snippet, got: %v", err)
+	}
+}
+
+func TestExtractJSON_CorruptedFirstValidSecond(t *testing.T) {
+	// First JSON block is corrupted (unbalanced), second is valid
+	input := `Here is the plan: {"broken": "missing close brace
+And here is the real one: {"module_tags": ["xss", "sqli"]}`
+	result, err := extractJSON(input)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+	if result != `{"module_tags": ["xss", "sqli"]}` {
+		t.Errorf("expected valid second block, got %q", result)
+	}
+}
+
+func TestGenerateDirectoryTree(t *testing.T) {
+	// Create a temp directory structure
+	dir := t.TempDir()
+	// Create some files and dirs
+	for _, p := range []string{
+		"src/main.go",
+		"src/handlers/auth.go",
+		"src/handlers/users.go",
+		"pkg/utils/helpers.go",
+		"README.md",
+		"go.mod",
+	} {
+		full := filepath.Join(dir, p)
+		if mkErr := os.MkdirAll(filepath.Dir(full), 0755); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+		if wErr := os.WriteFile(full, []byte("// "+p), 0644); wErr != nil {
+			t.Fatal(wErr)
+		}
+	}
+
+	// Also create node_modules (should be skipped)
+	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
+	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("//"), 0644)
+
+	tree, err := generateDirectoryTree(dir)
+	if err != nil {
+		t.Fatalf("generateDirectoryTree() error = %v", err)
+	}
+
+	// Should contain our source dirs
+	if !strings.Contains(tree, "src/") {
+		t.Errorf("tree should contain src/, got:\n%s", tree)
+	}
+	if !strings.Contains(tree, "handlers/") {
+		t.Errorf("tree should contain handlers/, got:\n%s", tree)
+	}
+	if !strings.Contains(tree, "go.mod") {
+		t.Errorf("tree should contain go.mod, got:\n%s", tree)
+	}
+	// Should NOT contain node_modules
+	if strings.Contains(tree, "node_modules") {
+		t.Errorf("tree should skip node_modules, got:\n%s", tree)
+	}
+}
+
+func TestHasVar(t *testing.T) {
+	vars := []string{"TargetURL", "Hostname", "SourcePath", "DirectoryTree"}
+	if !hasVar(vars, "SourcePath") {
+		t.Error("expected true for SourcePath")
+	}
+	if hasVar(vars, "SourceCode") {
+		t.Error("expected false for SourceCode")
+	}
+	if hasVar(nil, "anything") {
+		t.Error("expected false for nil vars")
+	}
+}
+
+func TestGatherContext_SkipsSourceCode(t *testing.T) {
+	// When template only declares SourcePath+DirectoryTree (not SourceCode),
+	// gatherContext should NOT read source files
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
+
+	e := &Engine{}
+	data, err := e.gatherContext(Options{
+		SourcePath: dir,
+		TargetURL:  "http://localhost:3000",
+	}, []string{"TargetURL", "SourcePath", "DirectoryTree"})
+
+	if err != nil {
+		t.Fatalf("gatherContext error: %v", err)
+	}
+	if data.SourceCode != "" {
+		t.Errorf("expected empty SourceCode when not in templateVars, got %d bytes", len(data.SourceCode))
+	}
+	if data.DirectoryTree == "" {
+		t.Error("expected non-empty DirectoryTree")
+	}
+	if data.SourcePath != dir {
+		t.Errorf("SourcePath = %q, want %q", data.SourcePath, dir)
+	}
+}
+
+func TestGatherContext_IncludesSourceCode(t *testing.T) {
+	// When template declares SourceCode, files should be read
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
+
+	e := &Engine{}
+	data, err := e.gatherContext(Options{
+		SourcePath: dir,
+		TargetURL:  "http://localhost:3000",
+	}, []string{"TargetURL", "SourceCode", "Language"})
+
+	if err != nil {
+		t.Fatalf("gatherContext error: %v", err)
+	}
+	if data.SourceCode == "" {
+		t.Error("expected non-empty SourceCode when declared in templateVars")
+	}
+	if !strings.Contains(data.SourceCode, "package main") {
+		t.Errorf("SourceCode should contain file content, got %q", data.SourceCode)
+	}
+	if data.DirectoryTree != "" {
+		t.Error("expected empty DirectoryTree when not in templateVars")
 	}
 }
 

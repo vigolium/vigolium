@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/database"
+	"golang.org/x/net/html"
 )
 
 // setupParseAPI registers vigolium.parse.* functions on the VM.
@@ -298,8 +299,146 @@ func setupParseAPI(vm *sobek.Runtime) {
 		return result
 	})
 
+	// parse.html(htmlStr) — parse HTML and extract forms, links, scripts, and meta tags.
+	// Returns {forms: [...], links: [...], scripts: [...], meta: [...]}.
+	_ = parseObj.Set("html", func(call sobek.FunctionCall) sobek.Value {
+		htmlStr := call.Argument(0).String()
+
+		// Cap input at 2MB
+		const maxSize = 2 << 20
+		if len(htmlStr) > maxSize {
+			htmlStr = htmlStr[:maxSize]
+		}
+
+		doc, err := html.Parse(strings.NewReader(htmlStr))
+		if err != nil {
+			return sobek.Null()
+		}
+
+		var forms, links, scripts, metas []interface{}
+
+		var walk func(*html.Node)
+		walk = func(n *html.Node) {
+			if n.Type == html.ElementNode {
+				switch n.Data {
+				case "form":
+					forms = append(forms, extractForm(vm, n))
+				case "a":
+					href := getAttr(n, "href")
+					text := extractText(n)
+					obj := vm.NewObject()
+					_ = obj.Set("href", href)
+					_ = obj.Set("text", strings.TrimSpace(text))
+					links = append(links, obj)
+				case "script":
+					obj := vm.NewObject()
+					_ = obj.Set("src", getAttr(n, "src"))
+					_ = obj.Set("content", extractText(n))
+					scripts = append(scripts, obj)
+				case "meta":
+					name := getAttr(n, "name")
+					if name == "" {
+						name = getAttr(n, "property")
+					}
+					if name == "" {
+						name = getAttr(n, "http-equiv")
+					}
+					content := getAttr(n, "content")
+					if name != "" || content != "" {
+						obj := vm.NewObject()
+						_ = obj.Set("name", name)
+						_ = obj.Set("content", content)
+						metas = append(metas, obj)
+					}
+				}
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				walk(c)
+			}
+		}
+		walk(doc)
+
+		if forms == nil {
+			forms = []interface{}{}
+		}
+		if links == nil {
+			links = []interface{}{}
+		}
+		if scripts == nil {
+			scripts = []interface{}{}
+		}
+		if metas == nil {
+			metas = []interface{}{}
+		}
+
+		result := vm.NewObject()
+		_ = result.Set("forms", vm.ToValue(forms))
+		_ = result.Set("links", vm.ToValue(links))
+		_ = result.Set("scripts", vm.ToValue(scripts))
+		_ = result.Set("meta", vm.ToValue(metas))
+		return result
+	})
+
 	vigolium := vm.Get("vigolium").ToObject(vm)
 	_ = vigolium.Set("parse", parseObj)
+}
+
+// extractForm extracts form attributes and input fields from a <form> node.
+func extractForm(vm *sobek.Runtime, n *html.Node) interface{} {
+	obj := vm.NewObject()
+	_ = obj.Set("action", getAttr(n, "action"))
+	_ = obj.Set("method", strings.ToUpper(getAttr(n, "method")))
+
+	var inputs []interface{}
+	var walkInputs func(*html.Node)
+	walkInputs = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "input", "textarea", "select":
+				inp := vm.NewObject()
+				_ = inp.Set("name", getAttr(node, "name"))
+				_ = inp.Set("type", getAttr(node, "type"))
+				_ = inp.Set("value", getAttr(node, "value"))
+				inputs = append(inputs, inp)
+			}
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walkInputs(c)
+		}
+	}
+	walkInputs(n)
+
+	if inputs == nil {
+		inputs = []interface{}{}
+	}
+	_ = obj.Set("inputs", vm.ToValue(inputs))
+	return obj
+}
+
+// getAttr returns the value of an attribute on an HTML node, or empty string.
+func getAttr(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+// extractText returns the concatenated text content of all descendant text nodes.
+func extractText(n *html.Node) string {
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.TextNode {
+			sb.WriteString(node.Data)
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return sb.String()
 }
 
 // splitHTTPMessage splits a raw HTTP message into its header section and body.

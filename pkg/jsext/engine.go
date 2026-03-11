@@ -46,6 +46,7 @@ func NewEngine(cfg *config.ExtensionsConfig, httpClient *http.Requester, engineO
 		opts.Repository = engineOpts.Repository
 		opts.LLMClient = engineOpts.LLMClient
 		opts.AgentDefs = engineOpts.AgentDefs
+		opts.OASTService = engineOpts.OASTService
 	}
 
 	e := &Engine{

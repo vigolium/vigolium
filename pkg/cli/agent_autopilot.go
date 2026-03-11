@@ -28,6 +28,7 @@ var (
 	autopilotSystemPrompt string
 	autopilotTimeout      time.Duration
 	autopilotDryRun       bool
+	autopilotShowPrompt   bool
 	autopilotMaxCommands  int
 )
 
@@ -70,6 +71,7 @@ func init() {
 	f.StringVar(&autopilotSystemPrompt, "system-prompt", "", "Custom system prompt file (overrides default)")
 	f.DurationVar(&autopilotTimeout, "timeout", 30*time.Minute, "Maximum duration for the autopilot session")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
+	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	f.IntVar(&autopilotMaxCommands, "max-commands", 100, "Maximum number of CLI commands the agent can execute")
 }
 
@@ -134,6 +136,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		TargetURL:      autopilotTarget,
 		Source:         "autopilot",
 		DryRun:         autopilotDryRun,
+		ShowPrompt:     autopilotShowPrompt,
 		ScanUUID:       globalScanID,
 		Autopilot:      true,
 		MaxCommands:    autopilotMaxCommands,

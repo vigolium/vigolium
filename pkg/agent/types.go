@@ -24,6 +24,7 @@ type Options struct {
 	// Output
 	OutputPath   string    // write agent output to this file
 	DryRun       bool      // render prompt and print it, don't execute agent
+	ShowPrompt   bool      // print rendered prompt to stderr before executing
 	ScanUUID     string    // scan UUID to attach findings to
 	ProjectUUID  string    // project UUID for data scoping
 	StreamWriter io.Writer `json:"-"` // when non-nil, agent output is streamed here in real-time
@@ -64,11 +65,12 @@ type PromptTemplate struct {
 
 // TemplateData holds the variables passed to a prompt template.
 type TemplateData struct {
-	SourceCode  string
-	Language    string
-	Framework   string
-	FilePath    string
-	SourcePath  string
+	SourceCode    string
+	Language      string
+	Framework     string
+	FilePath      string
+	SourcePath    string
+	DirectoryTree string
 	TargetURL  string
 	Hostname   string
 	Endpoints           string

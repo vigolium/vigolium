@@ -31,9 +31,11 @@ var (
 	swarmModules       []string
 	swarmMaxIterations int
 	swarmAgentName     string
-	swarmDryRun        bool
-	swarmTimeout       time.Duration
-	swarmProfile       string
+	swarmDryRun            bool
+	swarmShowPrompt        bool
+	swarmSourceAnalysisOnly bool
+	swarmTimeout           time.Duration
+	swarmProfile           string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -71,6 +73,8 @@ func init() {
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentName, "agent", "", "Agent backend to use (default from config)")
 	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing")
+	f.BoolVar(&swarmShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
+	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
 	f.DurationVar(&swarmTimeout, "timeout", 15*time.Minute, "Maximum swarm duration")
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 }
@@ -87,6 +91,11 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	// --source requires --target for hostname mapping
 	if swarmSource != "" && swarmTarget == "" && swarmInput == "" && swarmRecordUUID == "" && !stdinIsPiped() {
 		return fmt.Errorf("--target is required when using --source (used to filter discovered routes by hostname)")
+	}
+
+	// --source-analysis-only requires --source
+	if swarmSourceAnalysisOnly && swarmSource == "" {
+		return fmt.Errorf("--source-analysis-only requires --source")
 	}
 
 	settings, err := config.LoadSettings(globalConfig)
@@ -151,8 +160,10 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		ModuleNames:   swarmModules,
 		MaxIterations: swarmMaxIterations,
 		AgentName:     swarmAgentName,
-		DryRun:        swarmDryRun,
-		SessionsDir:   settings.Agent.EffectiveSessionsDir(),
+		DryRun:             swarmDryRun,
+		ShowPrompt:         swarmShowPrompt,
+		SourceAnalysisOnly: swarmSourceAnalysisOnly,
+		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
 		ProjectUUID:   projectUUID,
 		ScanUUID:      globalScanID,
 	}
@@ -171,6 +182,12 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		defer cancel()
 	}
 
+	// Resolve effective agent name for display
+	effectiveAgent := cfg.AgentName
+	if effectiveAgent == "" {
+		effectiveAgent = settings.Agent.DefaultAgent
+	}
+
 	// Print banner
 	inputDesc := swarmTarget
 	if inputDesc == "" && swarmInput != "" {
@@ -181,6 +198,12 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "%s Starting agent swarm: %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(inputDesc))
+	fmt.Fprintf(os.Stderr, "%s Agent: %s\n",
+		terminal.InfoSymbol(), terminal.Cyan(effectiveAgent))
+	fmt.Fprintf(os.Stderr, "%s Prompt: %s\n",
+		terminal.InfoSymbol(), terminal.Gray(agent.SwarmPromptMaster))
+	fmt.Fprintf(os.Stderr, "%s Sessions dir: %s\n",
+		terminal.InfoSymbol(), terminal.Gray(settings.Agent.EffectiveSessionsDir()))
 	if swarmSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
 			terminal.InfoSymbol(), swarmSource)
@@ -188,6 +211,18 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	if swarmVulnType != "" {
 		fmt.Fprintf(os.Stderr, "%s Vulnerability focus: %s\n",
 			terminal.InfoSymbol(), swarmVulnType)
+	}
+
+	// Wire phase callback for verbose output
+	cfg.PhaseCallback = func(phase string) {
+		promptName := agent.SwarmPhasePrompt(phase)
+		if promptName != "" {
+			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] — prompt: %s\n",
+				terminal.InfoSymbol(), terminal.Cyan(phase), terminal.Gray(promptName))
+		} else {
+			fmt.Fprintf(os.Stderr, "\n%s Phase [%s]\n",
+				terminal.InfoSymbol(), terminal.Cyan(phase))
+		}
 	}
 
 	// Run swarm

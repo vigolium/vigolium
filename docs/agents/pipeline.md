@@ -13,7 +13,31 @@ vigolium agent pipeline -t https://target.com
 When `--source` is provided, Phase 0 (Source Analysis) runs an AI agent to analyze the application source code before any network scanning begins. The agent extracts routes, generates session configuration, and writes custom scanner extensions:
 
 ```bash
+# Local source directory — runs Phase 0 (route extraction, auth flow, extensions)
 vigolium agent pipeline -t http://localhost:3000 --source ~/projects/juice-shop
+
+# Only include specific files for targeted analysis
+vigolium agent pipeline -t http://localhost:3000 --source ~/projects/juice-shop \
+  --files server.js,routes/api.js,models/user.js
+
+# Git URL (auto-cloned before Phase 0)
+vigolium agent pipeline -t https://staging.example.com \
+  --source https://github.com/org/repo.git
+
+# Skip discovery — rely entirely on source-extracted routes
+vigolium agent pipeline -t http://localhost:8080 --source ./backend \
+  --skip-phase discovery
+
+# Start from the plan phase (reuse previously ingested source routes)
+vigolium agent pipeline -t http://localhost:3000 --source ./src \
+  --start-from plan
+
+# Combine with a scanning profile and focus hint
+vigolium agent pipeline -t http://localhost:3000 --source ./src \
+  --profile thorough --focus "SQL injection in ORM bypass patterns"
+
+# Dry-run to inspect what the source analysis agent will receive
+vigolium agent pipeline -t http://localhost:3000 --source ./src --dry-run
 ```
 
 ### Flags
