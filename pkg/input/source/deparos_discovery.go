@@ -43,27 +43,34 @@ type DeparosDiscoveryConfig struct {
 	SaveResponseBody bool              // default: true
 
 	// Wordlists
-	ShortFilePath    string
-	LongFilePath     string
-	ShortDirPath     string
-	LongDirPath      string
-	FuzzWordlistPath string
-	UseObservedNames bool
-	UseObservedFiles bool
+	ShortFilePath      string
+	LongFilePath       string
+	ShortDirPath       string
+	LongDirPath        string
+	FuzzWordlistPath   string
+	UseObservedNames   bool
+	UseObservedPaths   bool
+	UseObservedFiles   bool
+	EnableNumericFuzzing bool
 
 	// Extensions
 	TestCustom      bool
 	CustomList      []string
 	TestObserved    bool
 	TestVariants    bool
+	VariantList     []string
 	TestNoExtension bool
 
 	// Engine
-	CaseSensitivity   string // "auto_detect" | "sensitive" | "insensitive"
-	EngineTimeout     time.Duration
-	CustomHeaders     map[string]string
-	EnableCookieJar bool
-	ProxyURL        string // HTTP proxy URL for discovery requests
+	CaseSensitivity         string // "auto_detect" | "sensitive" | "insensitive"
+	EngineTimeout           time.Duration
+	CustomHeaders           map[string]string
+	EnableCookieJar         bool
+	ProxyURL                string // HTTP proxy URL for discovery requests
+	MaxConsecutiveErrors    int
+	MaxConsecutiveWAFBlocks int
+	ObservedMaxItems        int
+	DisableKingfisher       bool
 
 	// Malformed path probe
 	EnableMalformedPathProbe bool
@@ -244,7 +251,9 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 		cfg.Filenames.Wordlists.FuzzWordlistPath = d.cfg.FuzzWordlistPath
 	}
 	cfg.Filenames.UseObservedNames = d.cfg.UseObservedNames
+	cfg.Filenames.UseObservedPaths = d.cfg.UseObservedPaths
 	cfg.Filenames.UseObservedFiles = d.cfg.UseObservedFiles
+	cfg.Filenames.EnableNumericFuzzing = d.cfg.EnableNumericFuzzing
 
 	// Extensions
 	cfg.Extensions.TestCustom = d.cfg.TestCustom
@@ -253,6 +262,9 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	}
 	cfg.Extensions.TestObserved = d.cfg.TestObserved
 	cfg.Extensions.TestVariants = d.cfg.TestVariants
+	if len(d.cfg.VariantList) > 0 {
+		cfg.Extensions.VariantList = d.cfg.VariantList
+	}
 	cfg.Extensions.TestNoExtension = d.cfg.TestNoExtension
 
 	// Engine settings
@@ -274,6 +286,12 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	if d.cfg.ProxyURL != "" {
 		cfg.Engine.ProxyURL = d.cfg.ProxyURL
 	}
+	cfg.Engine.MaxConsecutiveErrors = d.cfg.MaxConsecutiveErrors
+	cfg.Engine.MaxConsecutiveWAFBlocks = d.cfg.MaxConsecutiveWAFBlocks
+	if d.cfg.ObservedMaxItems > 0 {
+		cfg.Engine.ObservedMaxItems = d.cfg.ObservedMaxItems
+	}
+	cfg.Engine.DisableKingfisher = d.cfg.DisableKingfisher
 
 	// Malformed path probe
 	cfg.Filenames.EnableMalformedPathProbe = d.cfg.EnableMalformedPathProbe

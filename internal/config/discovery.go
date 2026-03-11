@@ -26,13 +26,15 @@ type DiscoveryRecursionConfig struct {
 
 // DiscoveryWordlistConfig holds paths to wordlist files.
 type DiscoveryWordlistConfig struct {
-	ShortFilePath    string `yaml:"short_file_path"`
-	LongFilePath     string `yaml:"long_file_path"`
-	ShortDirPath     string `yaml:"short_dir_path"`
-	LongDirPath      string `yaml:"long_dir_path"`
-	FuzzWordlistPath string `yaml:"fuzz_wordlist_path"`
-	UseObservedNames bool   `yaml:"use_observed_names"`
-	UseObservedFiles bool   `yaml:"use_observed_files"`
+	ShortFilePath      string `yaml:"short_file_path"`
+	LongFilePath       string `yaml:"long_file_path"`
+	ShortDirPath       string `yaml:"short_dir_path"`
+	LongDirPath        string `yaml:"long_dir_path"`
+	FuzzWordlistPath   string `yaml:"fuzz_wordlist_path"`
+	UseObservedNames   bool   `yaml:"use_observed_names"`
+	UseObservedPaths   bool   `yaml:"use_observed_paths"`
+	UseObservedFiles   bool   `yaml:"use_observed_files"`
+	EnableNumericFuzzing bool `yaml:"enable_numeric_fuzzing"`
 }
 
 // DiscoveryExtensionConfig controls file extension testing.
@@ -41,15 +43,20 @@ type DiscoveryExtensionConfig struct {
 	CustomList      []string `yaml:"custom_list"`
 	TestObserved    bool     `yaml:"test_observed"`
 	TestVariants    bool     `yaml:"test_variants"`
+	VariantList     []string `yaml:"variant_list"`
 	TestNoExtension bool     `yaml:"test_no_extension"`
 }
 
 // DiscoveryEngineConfig controls discovery execution settings.
 type DiscoveryEngineConfig struct {
-	CaseSensitivity   string            `yaml:"case_sensitivity"`
-	Timeout           string            `yaml:"timeout"`
-	CustomHeaders   map[string]string `yaml:"custom_headers"`
-	EnableCookieJar bool              `yaml:"enable_cookie_jar"`
+	CaseSensitivity        string            `yaml:"case_sensitivity"`
+	Timeout                string            `yaml:"timeout"`
+	CustomHeaders          map[string]string `yaml:"custom_headers"`
+	EnableCookieJar        bool              `yaml:"enable_cookie_jar"`
+	MaxConsecutiveErrors   int               `yaml:"max_consecutive_errors"`
+	MaxConsecutiveWAFBlocks int              `yaml:"max_consecutive_waf_blocks"`
+	ObservedMaxItems       int               `yaml:"observed_max_items"`
+	DisableKingfisher      bool              `yaml:"disable_kingfisher"`
 }
 
 // DefaultDiscoveryConfig returns default discovery configuration.
@@ -62,8 +69,10 @@ func DefaultDiscoveryConfig() *DiscoveryConfig {
 			MaxDepth: 5,
 		},
 		Wordlists: DiscoveryWordlistConfig{
-			UseObservedNames: true,
-			UseObservedFiles: true,
+			UseObservedNames:     true,
+			UseObservedPaths:     true,
+			UseObservedFiles:     true,
+			EnableNumericFuzzing: false,
 		},
 		Extensions: DiscoveryExtensionConfig{
 			TestCustom:      true,
@@ -74,6 +83,7 @@ func DefaultDiscoveryConfig() *DiscoveryConfig {
 		Engine: DiscoveryEngineConfig{
 			CaseSensitivity: "auto_detect",
 			Timeout:         "10s",
+			ObservedMaxItems: 4000,
 		},
 		SaveResponseBody: true,
 	}

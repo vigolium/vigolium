@@ -2022,16 +2022,18 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		MaxDuration:   r.options.DiscoverMaxDuration,
 		EnableModules: r.options.Modules,
 		// Defaults that match deparos defaults
-		RecursionEnabled: true,
-		RecursionDepth:   5,
-		SaveResponseBody: true,
-		UseObservedNames: true,
-		UseObservedFiles: true,
-		TestCustom:       true,
-		TestObserved:     true,
-		TestVariants:     true,
-		TestNoExtension:  true,
-		CaseSensitivity:  "auto_detect",
+		RecursionEnabled:   true,
+		RecursionDepth:     5,
+		SaveResponseBody:   true,
+		UseObservedNames:   true,
+		UseObservedPaths:   true,
+		UseObservedFiles:   true,
+		EnableNumericFuzzing: false,
+		TestCustom:         true,
+		TestObserved:       true,
+		TestVariants:       true,
+		TestNoExtension:    true,
+		CaseSensitivity:    "auto_detect",
 	}
 
 	// Apply YAML settings if available
@@ -2063,13 +2065,16 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 			cfg.FuzzWordlistPath = config.ExpandPath(dc.Wordlists.FuzzWordlistPath)
 		}
 		cfg.UseObservedNames = dc.Wordlists.UseObservedNames
+		cfg.UseObservedPaths = dc.Wordlists.UseObservedPaths
 		cfg.UseObservedFiles = dc.Wordlists.UseObservedFiles
+		cfg.EnableNumericFuzzing = dc.Wordlists.EnableNumericFuzzing
 
 		// Extensions
 		cfg.TestCustom = dc.Extensions.TestCustom
 		cfg.CustomList = dc.Extensions.CustomList
 		cfg.TestObserved = dc.Extensions.TestObserved
 		cfg.TestVariants = dc.Extensions.TestVariants
+		cfg.VariantList = dc.Extensions.VariantList
 		cfg.TestNoExtension = dc.Extensions.TestNoExtension
 
 		// Engine
@@ -2077,6 +2082,12 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		cfg.EngineTimeout = dc.EngineTimeoutParsed()
 		cfg.CustomHeaders = dc.Engine.CustomHeaders
 		cfg.EnableCookieJar = dc.Engine.EnableCookieJar
+		cfg.MaxConsecutiveErrors = dc.Engine.MaxConsecutiveErrors
+		cfg.MaxConsecutiveWAFBlocks = dc.Engine.MaxConsecutiveWAFBlocks
+		if dc.Engine.ObservedMaxItems > 0 {
+			cfg.ObservedMaxItems = dc.Engine.ObservedMaxItems
+		}
+		cfg.DisableKingfisher = dc.Engine.DisableKingfisher
 
 		// Malformed path probe
 		cfg.EnableMalformedPathProbe = dc.EnableMalformedPathProbe
@@ -2093,6 +2104,7 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 	if r.repository != nil {
 		cfg.Repository = r.repository
 	}
+	cfg.ProjectUUID = r.options.ProjectUUID
 
 	return cfg
 }

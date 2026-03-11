@@ -67,7 +67,7 @@ func NewDefaultConfig() *Config {
 			UseObservedNames:     true,             // Spider link extraction
 			UseObservedPaths:     true,             // Test observed directory paths
 			UseObservedFiles:     true,             // Test full observed filenames
-			EnableNumericFuzzing: true,             // Numeric variant generation
+			EnableNumericFuzzing: false,            // Opt-in: numeric variant generation
 			WordlistExtraction: WordlistExtractConfig{
 				Enabled:         false, // Opt-in: extract words from response bodies
 				DelimExceptions: "-_",  // Common delimiters in web paths
@@ -88,7 +88,7 @@ func NewDefaultConfig() *Config {
 			CaseSensitivity:  CaseAutoDetect,   // ang.java default (auto-detect)
 			DiscoveryThreads: 40,               // did.java line 33
 			Timeout:          10 * time.Second, // HTTP per-request timeout
-			ObservedMaxItems: 50000,            // Max items per observed provider
+			ObservedMaxItems: 4000,             // Max items per observed provider
 		},
 		Modules: DefaultModuleConfig(),
 	}
