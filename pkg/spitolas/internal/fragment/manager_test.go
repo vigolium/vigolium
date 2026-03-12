@@ -426,10 +426,11 @@ func TestManagerPropagateInfluence(t *testing.T) {
 		t.Errorf("child influence = %f, want 0.0", childInf)
 	}
 
-	// Parent should have reduced influence (equivalent access = -0.25)
+	// CRAWLJAX PARITY: Java propagates SAME access type to parent chain.
+	// DIRECT access (-1.0) propagates to parent, so parent also gets -1.0
 	parentInf := m.GetFragmentInfluence("parent")
-	if parentInf != 0.75 {
-		t.Errorf("parent influence = %f, want 0.75", parentInf)
+	if parentInf != 0.0 {
+		t.Errorf("parent influence = %f, want 0.0", parentInf)
 	}
 }
 

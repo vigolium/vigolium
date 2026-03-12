@@ -180,6 +180,13 @@ func (e *CandidateElementExtractor) Extract(ctx context.Context, page *browser.P
 		zap.Bool("randomize", e.randomizeElements),
 		zap.Bool("click_once", e.clickOnce))
 
+	// CRAWLJAX PARITY: Check crawl condition before extraction.
+	// Java: if (!checkedElements.checkCrawlCondition(browser)) return empty
+	if e.checkedElements != nil && !e.checkedElements.CheckCrawlCondition(page) {
+		zap.L().Debug("Crawl condition not met, skipping extraction")
+		return nil, nil
+	}
+
 	// CRITICAL FIX: Single shared seen map for global deduplication across all methods
 	seen := make(map[string]bool)
 
@@ -378,6 +385,11 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 			// CRAWLJAX PARITY: Apply global ClickOnce filtering
 			if e.markChecked(candidate) {
 				candidates = append(candidates, candidate)
+				// CRAWLJAX PARITY: Java calls checkedElements.increaseElementsCounter()
+				// for each candidate added during extraction.
+				if e.checkedElements != nil {
+					e.checkedElements.IncreaseElementsCounter()
+				}
 			}
 		}
 	}
@@ -451,6 +463,10 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 		// CRAWLJAX PARITY: Apply global ClickOnce filtering
 		if e.markChecked(candidate) {
 			candidates = append(candidates, candidate)
+			// CRAWLJAX PARITY: Java calls checkedElements.increaseElementsCounter()
+			if e.checkedElements != nil {
+				e.checkedElements.IncreaseElementsCounter()
+			}
 		}
 	}
 

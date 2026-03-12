@@ -68,6 +68,12 @@ type InputValue struct {
 	Checked bool   `json:"checked"`
 }
 
+// Equals checks equality of InputValue.
+// CRAWLJAX PARITY: Matches Java InputValue.equals() — compares value and checked.
+func (iv InputValue) Equals(other InputValue) bool {
+	return iv.Value == other.Value && iv.Checked == other.Checked
+}
+
 // NewFormInput creates a new FormInput.
 func NewFormInput(inputType InputType, identification *Identification) *FormInput {
 	return &FormInput{
@@ -78,12 +84,13 @@ func NewFormInput(inputType InputType, identification *Identification) *FormInpu
 }
 
 // NewFormInputWithValue creates a new FormInput with a value.
-// CRAWLJAX PARITY: Java InputValue(String value) constructor always sets checked=true.
+// CRAWLJAX PARITY: Java InputValue(String value, boolean checked) constructor.
+// Java: new InputValue(value, value.equals("1")) — only checked when value is "1"
 func NewFormInputWithValue(inputType InputType, identification *Identification, value string) *FormInput {
 	return &FormInput{
 		Type:           inputType,
 		Identification: identification,
-		InputValues:    []InputValue{{Value: value, Checked: true}},
+		InputValues:    []InputValue{{Value: value, Checked: value == "1"}},
 	}
 }
 
@@ -131,11 +138,20 @@ func GetTypeFromStr(typeStr string) InputType {
 	}
 }
 
+// AddInputValue adds a value to the input values list.
+// CRAWLJAX PARITY: Java uses HashSet<InputValue> but InputValue has NO equals()/hashCode()
+// override, so Java uses identity-based equality (effectively no content dedup).
+// Go matches this by simply appending without checking for duplicates.
+func (f *FormInput) AddInputValue(iv InputValue) {
+	f.InputValues = append(f.InputValues, iv)
+}
+
 // SetInputValues sets values from string slice.
 // CRAWLJAX PARITY: Matches Java FormInput.inputValues(String... values)
+// Java: new InputValue(value, value.equals("1")) — only checked when value is "1"
 func (f *FormInput) SetInputValues(values ...string) {
 	for _, value := range values {
-		f.InputValues = append(f.InputValues, InputValue{Value: value, Checked: true})
+		f.AddInputValue(InputValue{Value: value, Checked: value == "1"})
 	}
 }
 
@@ -143,7 +159,7 @@ func (f *FormInput) SetInputValues(values ...string) {
 // CRAWLJAX PARITY: Matches Java FormInput.inputValues(boolean... values)
 func (f *FormInput) SetInputValuesChecked(checks ...bool) {
 	for _, checked := range checks {
-		f.InputValues = append(f.InputValues, InputValue{Checked: checked})
+		f.AddInputValue(InputValue{Checked: checked})
 	}
 }
 
@@ -294,6 +310,14 @@ func (c *CandidateElement) GetIdentification() *Identification {
 	return c.Identification
 }
 
+// GetIdentificationPair returns how and value for the state.CandidateElementIface interface.
+func (c *CandidateElement) GetIdentificationPair() (string, string) {
+	if c.Identification == nil {
+		return "", ""
+	}
+	return string(c.Identification.How), c.Identification.Value
+}
+
 // GetRelatedFrame returns the related frame.
 // Matches Java getRelatedFrame()
 func (c *CandidateElement) GetRelatedFrame() string {
@@ -435,6 +459,34 @@ func (c *CandidateElement) WasExplored() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.directAccess || c.duplicateAccess > 0 || c.equivalentAccess > 0
+}
+
+// ConditionChecker interface for checking eventable conditions.
+// This avoids import cycle with condition package.
+// CRAWLJAX PARITY: Matches Java EventableCondition.checkAllConditionsSatisfied(browser).
+type ConditionChecker interface {
+	CheckAllConditionsSatisfied(page interface{}) bool
+}
+
+// AllConditionsSatisfied checks if all eventable conditions are satisfied.
+// CRAWLJAX PARITY: Matches Java CandidateElement.allConditionsSatisfied(browser).
+// Java: return eventableCondition == null || eventableCondition.checkAllConditionsSatisfied(browser)
+func (c *CandidateElement) AllConditionsSatisfied(page interface{}) bool {
+	c.mu.RLock()
+	ec := c.EventableCondition
+	c.mu.RUnlock()
+
+	if ec == nil {
+		return true
+	}
+
+	// Try to cast to ConditionChecker interface
+	if checker, ok := ec.(ConditionChecker); ok {
+		return checker.CheckAllConditionsSatisfied(page)
+	}
+
+	// No checker available, allow by default
+	return true
 }
 
 // GetEventableCondition returns the eventable condition.

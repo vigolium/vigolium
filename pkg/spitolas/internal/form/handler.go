@@ -601,10 +601,13 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 		failing = nil
 	}
 
-	// CRAWLJAX PARITY: Add failing input at end if any (Java line 341)
+	// CRAWLJAX PARITY: Always append a final element (Java line 341)
 	// Java: handled.add(Objects.requireNonNullElseGet(failing, () -> new FormInput(null, null)));
+	// On error: appends the failing input. On success: appends empty sentinel FormInput.
 	if failing != nil {
 		handled = append(handled, failing)
+	} else {
+		handled = append(handled, &action.FormInput{})
 	}
 
 	return handled

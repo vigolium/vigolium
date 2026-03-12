@@ -74,10 +74,6 @@ type Crawler struct {
 	// Used to determine if we need to add final reload edge when crawl finishes.
 	resetCalled bool
 
-	// CRAWLJAX PARITY: crawlDepth counter - reset to 0 on each reset()
-	// Java: Crawler.java line 318: crawlDepth.set(0)
-	crawlDepth int
-
 	// Metrics collector for benchmark tracking (optional)
 	metricsCollector *metrics.Collector
 
@@ -119,7 +115,6 @@ func New(cfg *config.Config) (*Crawler, error) {
 		SkipExploredActions:   true,
 		ApplyNonSelAdvantage:  false,
 		RestoreConnectedEdges: false,
-		QueueBufferSize:       1000,
 	}
 
 	c := &Crawler{
@@ -517,10 +512,20 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 
 	// CRAWLJAX PARITY: BLOCK 1 - If at crawlTask, crawl first (NO EARLY RETURN!)
 	// Java: if (crawlTask.getId() == stateMachine.getCurrentState().getId())
+	// Java wraps this in try-catch: if crawlThroughActions throws, it catches and continues
 	if currentState != nil && currentState.ID == crawlTask.ID {
 		zap.L().Debug("Already at target state, crawling through actions first")
 		c.crawlPath.MarkSuccess()
-		c.crawlThroughActions(ctx)
+		// CRAWLJAX PARITY: Java try-catch around first crawlThroughActions (lines 394-401)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					zap.L().Error("crawlThroughActions panicked in same-state block, recovering",
+						zap.Any("panic", r))
+				}
+			}()
+			c.crawlThroughActions(ctx)
+		}()
 		zap.L().Debug("crawlThroughActions completed (same state)")
 		// CRITICAL: Java does NOT return here! It continues to reset+reachFromHome+crawlThroughActions
 	}
@@ -598,13 +603,13 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 	}
 
 	// CRAWLJAX PARITY: Step 2 - Get onURLSet + previousState from OLD StateMachine
-	var onURLSet map[string]*state.State
+	var onURLSet []*state.State
 	var previousState *state.State
 	if c.stateMachine != nil {
 		onURLSet = c.stateMachine.GetOnURLSet()
 		previousState = c.stateMachine.GetCurrentState()
 	} else {
-		onURLSet = make(map[string]*state.State)
+		onURLSet = make([]*state.State, 0)
 	}
 
 	// CRAWLJAX PARITY: Step 3 - Create NEW StateMachine BEFORE navigate
@@ -657,8 +662,8 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 	// Java: checkOnURLState(previousState) - uses stateMachine.newStateFor(browser)
 	c.checkOnURLState(ctx, page, previousState, resetURL)
 
-	// CRAWLJAX PARITY: Step 8 - Reset crawlDepth (Java line 318: crawlDepth.set(0))
-	c.crawlDepth = 0
+	// CRAWLJAX PARITY: Step 8 - Java resets crawlDepth.set(0).
+	// Go uses newState.Depth for maxDepth check instead of a per-crawler counter.
 
 	c.resetCalled = true
 	c.stats.BacktrackCount++
@@ -895,10 +900,21 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 			}
 		}
 
-		// Update current state to edge target
+		// CRAWLJAX PARITY: Use ChangeState (with bidirectional canGoTo check) instead of SetCurrentState.
+		// Java followOld (Crawler.java:587): stateMachine.changeState(clickable.getTargetStateVertex())
+		// If ChangeState returns false, the path is invalid (edge no longer exists).
 		targetState, ok := c.graph.GetState(edge.TargetStateID)
-		if ok {
-			c.stateMachine.SetCurrentState(targetState)
+		if !ok {
+			return fmt.Errorf("target state %s not found in graph during path follow", edge.TargetStateID)
+		}
+		if !c.stateMachine.ChangeState(targetState) {
+			return fmt.Errorf("could not switch states during path follow: %s -> %s", edge.SourceStateID, edge.TargetStateID)
+		}
+
+		// CRAWLJAX PARITY: Java changeState() helper (Crawler.java:885) adds edge to crawlPath.
+		// crawlpath.add(clickable);
+		if c.crawlPath != nil {
+			c.crawlPath.Add(edge)
 		}
 	}
 
@@ -1072,8 +1088,9 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 			c.fragManager.RecordElementAccess(element, currentState.ID)
 		}
 
-		// Record successful event in crawl path
-		c.crawlPath.Add(eventable)
+		// CRAWLJAX PARITY: crawlPath.Add is done INSIDE inspectNewState (inspectNewDom in Java),
+		// ONLY when DOM actually changed. NOT here unconditionally.
+		// Java Crawler.java:1408: crawlpath.add(event) is inside inspectNewDom()
 
 		c.candidates.MarkExecuted(act)
 		c.stats.ActionsExecuted++
@@ -1347,15 +1364,16 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 
 	// CRAWLJAX PARITY: Inspect new state (inspectNewState in Java)
 	zap.L().Debug("Inspecting new state after action")
-	newActionsCount = c.inspectNewState(ctx, page, crawlAction)
+	newActionsCount = c.inspectNewState(ctx, page, eventable)
 
 	return newActionsCount, filledInputs, nil
 }
 
 // inspectNewState checks if the DOM changed after an action and handles new/clone states.
-// CRAWLJAX PARITY: This matches Java Crawljax Crawler.inspectNewState()
-// Returns the number of new actions discovered (for MAK reward and metrics).
-func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, crawlAction *action.CandidateCrawlAction) int {
+// CRAWLJAX PARITY: This matches Java Crawljax Crawler.inspectNewState() + inspectNewDom()
+// Returns the number of new actions discovered (for MAB reward and metrics).
+// The eventable parameter is the FIRED eventable with correct ID (including DUPLICATE_EVENT_SEED).
+func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, eventable *action.Eventable) int {
 	// CRAWLJAX PARITY: handlePopups() as FIRST operation
 	// Java line 1372: browser.handlePopups()
 	_ = page.HandlePopups()
@@ -1407,15 +1425,44 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, crawl
 		return 0
 	}
 
-	// Check if this state already exists (clone detection)
+	// CRAWLJAX PARITY: DOM changed! Add event to crawl path.
+	// Java inspectNewDom (line 1408): crawlpath.add(event) — ONLY when DOM changed.
+	if eventable.ID <= 0 {
+		zap.L().Warn("Adding Eventable to Crawlpath has id less than zero", zap.Int64("id", eventable.ID))
+	}
+	c.crawlPath.Add(eventable)
+
 	// CRAWLJAX PARITY: Use StateMachine.SwitchToStateAndCheckIfClone
-	existingState, isClone := c.stateMachine.SwitchToStateAndCheckIfClone(newState)
+	// This handles: AddState (putIfAbsent), AddEdge, and ChangeState all in one call.
+	// Matches Java StateMachine.switchToStateAndCheckIfClone(event, newState, context).
+	existingState, isClone := c.stateMachine.SwitchToStateAndCheckIfClone(newState, eventable)
 	if isClone {
-		// Clone state - add edge but don't discover new state
+		// Clone state detected
 		zap.L().Debug("State already exists (clone detected)",
 			zap.String("state", existingState.Name),
 			zap.String("state_id", existingState.ID))
-		c.graph.AddEdge(currentState.ID, existingState.ID, action.NewEventableFromCandidateCrawlAction(crawlAction))
+
+		// CRAWLJAX PARITY: Clone-edge ID=-1 fix-up (Java lines 1420-1438)
+		// When addEdge detects a duplicate, it sets eventable.ID = -1.
+		// We must fix the crawlPath by replacing the clone edge with the real graph edge.
+		if eventable.ID == -1 {
+			zap.L().Debug("Removing Clone Edge from crawlPath")
+			c.crawlPath.RemoveLast()
+			fixed := false
+			for _, edge := range c.graph.AllEdges() {
+				if edge.Equals(eventable) {
+					c.crawlPath.Add(edge)
+					zap.L().Debug("CrawlPath fixed with existing graph edge", zap.Int64("edge_id", edge.ID))
+					fixed = true
+					break
+				}
+			}
+			if !fixed {
+				// Fallback: re-add the original eventable
+				zap.L().Debug("Crawlpath could not be fixed with graph, using removed eventable")
+				c.crawlPath.Add(eventable)
+			}
+		}
 
 		// CRAWLJAX PARITY: Rediscover and restore logic
 		// Java line 1442: candidateActionCache.rediscoveredState(stateMachine.getCurrentState())
@@ -1425,25 +1472,19 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, crawl
 			zap.L().Debug("Restored expired state and its incoming edges", zap.String("state_id", existingState.ID))
 		}
 
-		c.stateMachine.SetCurrentState(existingState)
 		c.stats.StatesDuplicate++
 		return 0
 	}
 
 	// New state discovered!
 	zap.L().Debug("New state discovered", zap.String("state", newState.Name), zap.Int("depth", newState.Depth))
-	c.graph.AddState(newState)
 	c.candidates.RecordStateCreation(newState.ID) // CRAWLJAX PARITY: Track state order for OLDEST_FIRST mode
-	c.graph.AddEdge(currentState.ID, newState.ID, action.NewEventableFromCandidateCrawlAction(crawlAction))
 
 	// RLCRAWLER PARITY: Register new state with MAB policy
 	if c.mabPolicy != nil {
 		c.mabPolicy.AddState(newState.ID)
 	}
 	c.stats.StatesDiscovered++
-
-	// Update current state to the new state (DFS)
-	c.stateMachine.SetCurrentState(newState)
 	zap.L().Debug("Current state updated to new state", zap.String("state_id", newState.ID))
 
 	// Extract fragments
@@ -1509,12 +1550,12 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 	// Create new state object (like Java stateFlowGraph.newStateFor())
 	newState := state.New(currentURL, combinedDOM, strippedDOM, 1)
 
-	// CRAWLJAX PARITY: Check if clone (like Java putIfAbsent)
-	existingState, isClone := c.stateMachine.SwitchToStateAndCheckIfClone(newState)
+	// CRAWLJAX PARITY: Check if clone via graph.AddState (putIfAbsent).
+	// checkOnURLState does NOT use switchToStateAndCheckIfClone — it's a direct putIfAbsent.
+	isNew := c.graph.AddState(newState)
 
-	if !isClone {
+	if isNew {
 		// NEW STATE discovered after URL reload!
-		c.graph.AddState(newState)
 		c.candidates.RecordStateCreation(newState.ID)
 
 		// RLCRAWLER PARITY: Register new state with MAB policy
@@ -1545,6 +1586,11 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 		c.stats.StatesDiscovered++
 	} else {
 		// EXISTING STATE (clone)
+		existingState, _ := c.graph.GetState(newState.ID)
+		if existingState == nil {
+			existingState = newState
+		}
+
 		// CRAWLJAX PARITY: Java - stateMachine.setCurrentState(clone)
 		c.stateMachine.SetCurrentState(existingState)
 

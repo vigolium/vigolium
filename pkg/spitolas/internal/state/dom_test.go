@@ -385,35 +385,38 @@ func TestGetTitleFromDomtest(t *testing.T) {
 }
 
 func TestNormalizeWhitespace(t *testing.T) {
+	// CRAWLJAX PARITY: Java SimpleComparator preserves interior text spacing.
+	// Only control whitespace (\t\n\f\r) is removed. Spaces in text content are preserved.
+	// Spaces around tags ("> " and " <") are removed.
 	tests := []struct {
 		name  string
 		input string
 		want  string
 	}{
 		{
-			name:  "multiple spaces",
+			name:  "multiple spaces preserved",
 			input: "hello    world",
-			want:  "hello world",
+			want:  "hello    world", // CRAWLJAX PARITY: interior spaces preserved
 		},
 		{
-			name:  "newlines",
+			name:  "newlines removed",
 			input: "hello\n\n\nworld",
-			want:  "hello world",
+			want:  "helloworld", // CRAWLJAX PARITY: \n removed, no space replacement
 		},
 		{
-			name:  "tabs",
+			name:  "tabs removed",
 			input: "hello\t\t\tworld",
-			want:  "hello world",
+			want:  "helloworld", // CRAWLJAX PARITY: \t removed, no space replacement
 		},
 		{
 			name:  "mixed whitespace",
 			input: "hello  \n\t  world",
-			want:  "hello world",
+			want:  "hello    world", // \n and \t removed, spaces preserved
 		},
 		{
 			name:  "whitespace between tags",
 			input: "<div>  </div>  <span>",
-			want:  "<div></div><span>", // normalizeWhitespace removes space between tags with ><
+			want:  "<div></div><span>", // spaces after > removed, spaces before < removed
 		},
 		{
 			name:  "leading and trailing",

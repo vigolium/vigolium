@@ -76,3 +76,1490 @@ PLANNING-*.md
 INTERNAL.md
 INTERNAL-*.md
 
+ignore_folder/crawljax-master/.gitignore
+ignore_folder/crawljax-master/.java-version
+ignore_folder/crawljax-master/CHANGELOG.md
+ignore_folder/crawljax-master/README.md
+ignore_folder/crawljax-master/cli/pom.xml
+ignore_folder/crawljax-master/cli/README.md
+ignore_folder/crawljax-master/cli/src/main/java/com/crawljax/cli/JarRunner.java
+ignore_folder/crawljax-master/cli/src/main/java/com/crawljax/cli/LogUtil.java
+ignore_folder/crawljax-master/cli/src/main/java/com/crawljax/cli/ParameterInterpeter.java
+ignore_folder/crawljax-master/cli/src/main/resources/jar-with-dependencies.xml
+ignore_folder/crawljax-master/cli/src/main/resources/logback.xml
+ignore_folder/crawljax-master/cli/src/main/resources/project.version
+ignore_folder/crawljax-master/cli/src/test/java/com/crawljax/cli/JarRunnerTest.java
+ignore_folder/crawljax-master/cli/src/test/java/com/crawljax/cli/LogUtilTest.java
+ignore_folder/crawljax-master/cli/src/test/java/com/crawljax/test/util/CaptureSystemStreams.java
+ignore_folder/crawljax-master/core/pom.xml
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/browser/EmbeddedBrowser.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/browser/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/browser/WebDriverBackedEmbeddedBrowser.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/browser/WebDriverBrowserBuilder.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/clickabledetection/ClickableDetectorPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/Condition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/ConditionType.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/ConditionTypeChecker.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/CountCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/JavaScriptCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/Logic.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/NotRegexCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/NotUrlCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/NotVisibleCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/NotXPathCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/RegexCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/UrlCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/VisibleCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/XPathCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/ExpectedCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/ExpectedElementCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/ExpectedVisibleCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/WaitCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/browserwaiter/WaitConditionChecker.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/crawlcondition/CrawlCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/crawlcondition/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/eventablecondition/EventableCondition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/eventablecondition/EventableConditionChecker.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/eventablecondition/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/invariant/Invariant.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/condition/invariant/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CandidateCrawlAction.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CandidateElement.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CandidateElementExtractor.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CandidateElementManager.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlController.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/Crawler.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlerContext.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlerLeftDomainException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawljaxException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawljaxRunner.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlPathInfo.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlQueue.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlSession.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlSessionNotSetupYetException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/CrawlTaskConsumer.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/ExitNotifier.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/ExtractorManager.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/FragmentTransition.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/StateUnreachableException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/UnfiredCandidateActions.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/UnfiredFragmentCandidates.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/AcceptAllFramesChecker.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/BrowserConfiguration.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/BrowserOptions.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/ConfigurationHelper.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/CrawlActionsBuilder.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/CrawlElement.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/CrawljaxConfiguration.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/CrawlRules.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/CrawlScope.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/DefaultCrawlScope.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/Form.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/FormAction.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/IgnoreFrameChecker.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/InputSpecification.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/PreCrawlConfiguration.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/configuration/ProxyConfiguration.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/exception/BrowserConnectionException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/exception/CrawlPathToException.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/exception/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/GeneratesOutput.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/HostInterface.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/HostInterfaceImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnBrowserClosePlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnBrowserCreatedPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnFireEventFailedPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnInvariantViolationPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnNewStatePlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnRevisitStatePlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnUrlFirstLoadPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/OnUrlLoadPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/Plugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/Plugins.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/PostCrawlingPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/PreCrawlingPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/PreStateCrawlingPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/Parameter.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/PluginDescriptor.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/ObjectFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/OptionList.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/Parameter.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/ParameterList.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/PluginDescriptor.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/plugin/descriptor/jaxb/generated/VersionList.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/CrawlPath.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/DefaultStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/Element.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/Eventable.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/Identification.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/InMemoryStateFlowGraph.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StateFlowGraph.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StateMachine.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StatePair.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StateVertex.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/core/state/StateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/di/ConfigurationModule.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/di/CoreModule.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/di/CrawlSessionProvider.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/FormHandler.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/FormInput.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/FormInputValueHelper.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/InputValue.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/InputValueBoolean.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/RandomInputValueGenerator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/forms/TrainingFormHandler.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/Fragment.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/FragmentationPlugin.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/FragmentManager.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/FragmentOutput.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/FragmentPair.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/fragmentation/FragmentRules.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/metrics/MetricsModule.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/AbstractComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/Comparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/OracleComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/StateComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/AttributeComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/DateComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/DummyComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/EditDistanceComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/PlainStructureComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/RegexComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/ScriptComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/SimpleComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/StyleComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/oraclecomparator/comparators/XPathExpressionComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/DOMConfiguration.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/LevenshteinStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/LevenshteinStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTEDStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTEDStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/TLSHStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/TLSHStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTED/InfoTree.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTED/LabelDictionary.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTED/LblTree.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTED/RTED_InfoTree_Opt.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/RTED/RTEDUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/costmodel/CostModel.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/costmodel/PerEditOperationStringNodeDataCostModel.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/costmodel/StringUnitCostModel.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/distance/AllPossibleMappingsTED.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/distance/APTED.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/node/AptedNode.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/node/NodeIndexer.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/node/StringNodeData.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/parser/BracketStringInputParser.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/parser/InputParser.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/util/AptedUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/util/CommandLine.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/dom/apted/util/FormatUtilities.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/DOMElementWithVisualInfo.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/FragGenStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/HybridStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/StateVertexForElementsWithVisualInfo.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/StructuralVisualStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/hybrid/structuralvisualdiff/StructuralVisualDiff.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/ColorHistogram.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/ColorHistogramStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/ColorHistogramStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/OpenCVLoad.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/PDiffComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/PDiffStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/PDiffStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/PerceptualImageDifferencing.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SIFTComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SIFTStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SIFTStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SSIM.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SSIMComparator.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SSIMStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/SSIMStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/AverageImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/AverageImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/AverageImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/BlockMeanImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/BlockMeanImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/BlockMeanImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/ColorMomentImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/ColorMomentImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/ColorMomentImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/DHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/DHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/DHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/MarrHildrethImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/MarrHildrethImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/MarrHildrethImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/PerceptualImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/PerceptualImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/PerceptualImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/RadialVarianceImageHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/RadialVarianceImageHashStateVertexFactory.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/RadialVarianceImageHashStateVertexImpl.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/stateabstractions/visual/imagehashes/VisHash.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/DOMComparer.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/DomDifferenceListener.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/DomHistoryElement.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/DomUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/ElementResolver.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/FSUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/HtmlNamespace.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/ImageUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/package-info.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/UrlUtils.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/XMLObject.java
+ignore_folder/crawljax-master/core/src/main/java/com/crawljax/util/XPathHelper.java
+ignore_folder/crawljax-master/core/src/main/resources/logback.xml
+ignore_folder/crawljax-master/core/src/main/resources/vipsScript.js
+ignore_folder/crawljax-master/core/src/main/resources/com/crawljax/core/plugin/descriptor/jaxb/plugin-descriptor.xsd
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/Scripts.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/Separator.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsBrowserAttributes.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsOutput.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsRectangle.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsSelenium.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsSeleniumParser.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsSeparatorDetector.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsSeparatorGraphicsDetector.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsSeparatorNonGraphicsDetector.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VipsUtils.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VisualStructure.java
+ignore_folder/crawljax-master/core/src/main/resources/vips_selenium/VisualStructureConstructor.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/BrowserClosesDownloadPopUp.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/BrowserProvider.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/ChromeProxyConfig.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/WebDriverBackedEmbeddedBrowserNoCrashTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/WebDriverBackedEmbeddedBrowserTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/browser/matchers/StateFlowGraphMatchers.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/condition/BrowserDoesNotLeaveUrlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/condition/ConditionTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/condition/browserwaiter/WaitConditionTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CandidateElementExtractorTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CandidateElementManagerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CandidateElementTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CrawlControllerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CrawlerStopTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/CrawlerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/ExitNotifierTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/IFrameTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/NestedFramesTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/PassBasicHttpAuthTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/PopUpTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/CrawlActionsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/CrawlElementMatcher.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/CrawljaxConfigurationBuilderTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/DefaultCrawlScopeTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/UnderXPathTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/configuration/XPathEscapeApostropheTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/largetests/LargeChromeTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/largetests/LargeClickableTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/largetests/LargeEdgeTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/largetests/LargeFirefoxTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/largetests/LargeTestBase.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/plugin/OnFireEventFailedPluginTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/plugin/PluginsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/plugin/PluginsWithCrawlerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/CrawlPathTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/ElementTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/EventableTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/PostCrawlStateGraphChecker.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/StateFlowGraphTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/StateMachineTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/StatesContainElementsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/StateVertexFactoryTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/core/state/StateVertexTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/crawls/CrawlClickablesTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/crawls/CrawlHiddenElementsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/crawls/CrawlWithCustomScopeTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/forms/FormHandlerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/forms/RandomInputValueGeneratorTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/oracle/OracleTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/oraclecomparator/comparators/EditDistanceTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/hybrid/FragGenLivePageComparisonTests.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/hybrid/FragGenTests.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/hybrid/TreeDiffParamTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/visual/OpenCVTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/visual/StateFlowGraphVisualTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/visual/VisualDHashTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/stateabstractions/visual/opencvimagehashes/OpenCVImageHashTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/BaseCrawler.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/BrowserTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/RunWithWebServer.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleCrawlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleInputSiteCrawl.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleInputSiteCrawlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleJsSiteCrawl.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleJsSiteCrawlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleSiteCrawl.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleSiteCrawlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleXpathCrawl.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/SimpleXpathCrawlTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/WarchiveServer.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/WarchiveServerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/WebServer.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/WebServerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/matchers/FileMatcher.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/test/rules/TempDirInTargetFolder.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/DOMComparerTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/DomUtilsBrowserTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/DomUtilsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/HtmlNamespaceTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/UrlUtilsTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/XMLObjectTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/XmlUnitDifferenceTest.java
+ignore_folder/crawljax-master/core/src/test/java/com/crawljax/util/XPathHelperTest.java
+ignore_folder/crawljax-master/core/src/test/resources/logback-test.xml
+ignore_folder/crawljax-master/core/src/test/resources/realm.properties
+ignore_folder/crawljax-master/core/src/test/resources/candidateElementExtractorTest/domWithFourTypeDownloadLink.html
+ignore_folder/crawljax-master/core/src/test/resources/candidateElementExtractorTest/domWithOneExternalAndTwoInternal.html
+ignore_folder/crawljax-master/core/src/test/resources/configuration/crawljax.properties
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state6.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state40.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state296.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state297.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state408.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state487.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state503.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state610.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state628.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state652.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/frag_state653.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state6.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state6.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state40.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state40.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state296.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state297.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state652.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state653.png
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state729.html
+ignore_folder/crawljax-master/core/src/test/resources/crawls/state802.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/conditions.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/crawlConditions.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/customInput.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/forms.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/home.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/info.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/invariants.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/oracleComparators.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/papers.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/plugins.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/randomInput.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/select.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/style.css
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/waitConditions.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/clickable/clicked.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/clickable/index.html
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/img/nav.gif
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/js/general.js
+ignore_folder/crawljax-master/core/src/test/resources/demo-site/lib/jquery-2.0.3.min.js
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/bookobject.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/bookscene.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/index_small.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/index.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/oracle.png
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/PetClinicND1.png
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/PetClinicND2.png
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/state1.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/state3.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/state6.jpg
+ignore_folder/crawljax-master/core/src/test/resources/screenshots/test.png
+ignore_folder/crawljax-master/core/src/test/resources/site/home.html
+ignore_folder/crawljax-master/core/src/test/resources/site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/infinite.html
+ignore_folder/crawljax-master/core/src/test/resources/site/navigate_other_urls.html
+ignore_folder/crawljax-master/core/src/test/resources/site/simple.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testCrawlconditions.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testCrawlElementCondition.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testCrawlElements.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testInvariants.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testOracleComparators.html
+ignore_folder/crawljax-master/core/src/test/resources/site/testWaitCondition.html
+ignore_folder/crawljax-master/core/src/test/resources/site/underxpath.html
+ignore_folder/crawljax-master/core/src/test/resources/site/clickable/clicked.html
+ignore_folder/crawljax-master/core/src/test/resources/site/clickable/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlconditions/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_2.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_3.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_4.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_5.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_6.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_7.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_8.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_9.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_10.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawler/payload_11.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlscope/in_scope_inner.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlscope/in_scope.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlscope/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlscope/out_of_scope_inner.html
+ignore_folder/crawljax-master/core/src/test/resources/site/crawlscope/out_of_scope.html
+ignore_folder/crawljax-master/core/src/test/resources/site/download/download.blob
+ignore_folder/crawljax-master/core/src/test/resources/site/download/download.html
+ignore_folder/crawljax-master/core/src/test/resources/site/formhandler/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/hidden-elements-site/a.html
+ignore_folder/crawljax-master/core/src/test/resources/site/hidden-elements-site/b.html
+ignore_folder/crawljax-master/core/src/test/resources/site/hidden-elements-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/iframe.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/iframe2.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/page0-0-0.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/page0-0.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/page0.html
+ignore_folder/crawljax-master/core/src/test/resources/site/iframe/subiframe.html
+ignore_folder/crawljax-master/core/src/test/resources/site/js/general.js
+ignore_folder/crawljax-master/core/src/test/resources/site/lib/jquery-2.0.3.min.js
+ignore_folder/crawljax-master/core/src/test/resources/site/popup/index.html
+ignore_folder/crawljax-master/core/src/test/resources/site/simplelink/simplelink.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/lib/jquery-2.0.3.min.js
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-input-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-input-site/otherState.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_2.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_3.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_4.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_5.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_6.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_7.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_8.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_9.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_10.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-js-site/payload_11.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-site/a.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-site/b.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-site/c.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-xpath-site/a.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-xpath-site/b.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-xpath-site/index-iframe.html
+ignore_folder/crawljax-master/core/src/test/resources/sites/simple-xpath-site/index.html
+ignore_folder/crawljax-master/core/src/test/resources/util/domtest.html
+ignore_folder/crawljax-master/core/src/test/resources/util/state-10.html
+ignore_folder/crawljax-master/core/src/test/resources/warchives/petclinic/petclinic_owners2.warc.gz
+ignore_folder/crawljax-master/core/src/test/resources/warchives/petclinic/petclinic_owners10.warc.gz
+ignore_folder/crawljax-master/examples/pom.xml
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/AshotsExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/ClickableDetectorExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/CrawlExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/CrawlMazeExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/CrawlScopeExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/FragCrawlExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/InvariantExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/MetricPluginExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/Plugin.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/PluginExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/RemoteExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/SimplestExample.java
+ignore_folder/crawljax-master/examples/src/main/java/com/crawljax/examples/VisualCrawlExample.java
+ignore_folder/crawljax-master/examples/src/main/resources/expected-results.json
+ignore_folder/crawljax-master/examples/src/main/resources/logback.xml
+ignore_folder/crawljax-master/examples/src/main/resources/vipsScript.js
+ignore_folder/crawljax-master/plugins/pom.xml
+ignore_folder/crawljax-master/plugins/README.md
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/.gitignore
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/.travis.yml
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/pom.xml
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/README.md
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/BeanToReadableMap.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/CrawlOverview.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/CrawlOverviewException.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/ImageWriter.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/OutputBuilder.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/OutPutModelCache.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/StateBuilder.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/StateWriter.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/AlchemyEdge.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/AlchemyGraphModel.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/CandidateElementPosition.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/Edge.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/OutPutModel.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/Serializer.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/State.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/StateCounter.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/StateStatistics.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/java/com/crawljax/plugins/crawloverview/model/Statistics.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/config.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/header.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/index.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/nav.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/plugin-descriptor.xml
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/state.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/statistics.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/urls.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/version.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/css/bootstrap-responsive.min.css
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/css/bootstrap.min.css
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/css/shCore.css
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/css/shCoreDefault.css
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/img/glyphicons-halflings-white.png
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/img/glyphicons-halflings.png
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/js/graphbuilder.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/bootstrap.min.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/jquery-2.0.3.min.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/jquery-3.2.1.min.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/shBrushXml.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/shCore.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/main/resources/skeleton/lib/vivagraph-0.12.0.min.js
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/matchers/IsValidJson.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/BeanToReadableMapTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/CandidateElementMatcher.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/HoverTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/ImageWriterTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/OutputBuilderTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/OverviewIntegrationTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/RunHoverCrawl.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/SimpleSiteCrawlTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/TestBean.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/java/com/crawljax/plugins/crawloverview/model/SerializeTest.java
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/logback-test.xml
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/sampleOutModel.json
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/screenshot.png
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/hover-test-site/a.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/hover-test-site/b.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/hover-test-site/c.html
+ignore_folder/crawljax-master/plugins/crawloverview-plugin/src/test/resources/hover-test-site/index.html
+ignore_folder/crawljax-master/plugins/test-plugin/pom.xml
+ignore_folder/crawljax-master/plugins/test-plugin/src/main/java/com/crawljax/plugins/testplugin/Runner.java
+ignore_folder/crawljax-master/plugins/test-plugin/src/main/java/com/crawljax/plugins/testplugin/TestPlugin.java
+ignore_folder/crawljax-master/plugins/test-plugin/src/main/resources/plugin-descriptor.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/pom.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/ImageWriter.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/JavaTestGenerator.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/OfflineTestGenerator.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/package-info.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestConfiguration.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestMethod.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestMethodEvent.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestSuiteGenerator.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestSuiteGeneratorHelper.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/TestSuiteHelper.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/crawlPlugins/AddressbookCleanup.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/crawlPlugins/ClarolineCleanup.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/examples/CrawlExample.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/fragDiff/FragDiff.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/fragDiff/ImageAnnotation.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/fragDiff/ImageAnnotations.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/EventableResult.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/MethodResult.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/ReportBuilder.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/StateVertexResult.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/TestRecord.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/report/TestStateDiff.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/util/GsonUtils.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/util/WorkDirManager.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/ObjectDetection.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/ObjectDiff.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/AveragePageObjectFactory.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/IPageObjectFactory.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/MD5PageObjectFactory.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/Page.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/PageObject.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/PageObjectAverage.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/java/com/crawljax/plugins/testcasegenerator/visualdiff/pageobjects/PageObjectMD5.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/plugin-descriptor.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/pom_template.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/RunnerScriptPosix.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/RunnerScriptWindows.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/TestCase.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/TestCaseNG.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/testng.xml.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/TestResults.html.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/TestResults2.html.vm
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/vipsScript.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/css/diff.css
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diff-first.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diff-last.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diff-next.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diff-previous.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diffconflict.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diffmin.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diffplus.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/images/diffunderline.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/diff.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/dojo.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/event.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/experimental.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/event/__package__.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/event/browser.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/event/common.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/event/topic.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/__package__.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/color.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/common.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/display.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/layout.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/metrics.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/selection.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/shadow.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/style.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/html/util.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/__package__.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/array.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/assert.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/common.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/declare.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/extras.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/func.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/repr.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/type.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/timing/__package__.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/timing/Streamer.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/dojo/src/lang/timing/Timer.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/wz_tooltip.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/b.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/background.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/l.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/lb.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/lt.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/r.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/rb.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/rt.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/stemb.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/stemt.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/daisydiff/js/tooltip/tip_balloon/t.gif
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/webapp/app.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/webapp/compiled.js
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/webapp/index.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/webapp/css/report.css
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/main/resources/webapp/js/app.jsx
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/java/com/crawljax/plugins/testcasegenerator/JavaTestGeneratorTests.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/java/testcasegenerator/ObjectDetectionTest.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/java/testcasegenerator/ObjectDiffTest.java
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/crawljax-dst.jpg
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/crawljax-src.jpg
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/huawei-mobile_new.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/huawei-mobile_old.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-introduction_old.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-main_old.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-rover-operator_new.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-rover-operator.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-rover-weather_new.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/mct-rover-weather.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/scikit-image.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/state1.jpg
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/state12.jpg
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/townshoes-dst.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/townshoes-src.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/townshoes.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/001 Add text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/002 Add Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/003 Add Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/004 remove text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/005 remove Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/006 remove Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/007 remove-add Text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/008 remove-add Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/009 remove-add Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/010 Add formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/011 Add formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/012 Add formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/013 Remove formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/014 Remove formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/015 Remove formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/016 Change formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/017 Change formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/018 Change formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/019 Add double formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/020 Add double formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/021 Add double formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/022 Remove double formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/023 Remove double formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/024  Remove double formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/025 Change double formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/026 Change double formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/027 Change double formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/028 Add Different formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/029 Add Different formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/030 Add Different formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/031 Remove Different formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/032 Remove Different formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/033  Remove Different formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/034 Change Different formatting start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/035 Change Different formatting middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/036 Change Different formatting end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/037 Add formatted text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/038 Add formatted Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/039 Add formatted Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/040 remove formatted text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/041 remove formatted Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/042 remove formatted Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/043 remove-add formatted Text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/044 remove-add formatted Text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/045 remove-add formatted Text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/046 Add text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/047 Add Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/048 Add Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/049 remove text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/050 remove Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/051 remove Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/052 remove-add Text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/053 remove-add Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/054 remove-add Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/055 Add formatted text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/056 Add formatted Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/057 Add formatted Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/058 remove formatted text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/059 remove formatted Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/060 remove formatted Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/061 remove-add formatted Text start of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/062 remove-add formatted Text middle of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/063 remove-add formatted Text end of formatting_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/100 Adding text and changing format at the same position_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/101 Changing format at the same position_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/102 Overlapping format changes_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/103 Adding new formatted text in the same position_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/114 Add formatted text around unformatted text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/114 Add formatted text around unformatted text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/114 Add formatted text around unformatted text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/114 Add formatted text around unformatted text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/115 Add formatted text around unformatted text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/115 Add formatted text around unformatted text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/115 Add formatted text around unformatted text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/115 Add formatted text around unformatted text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/116 Remove formatted text around unformatted text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/116 Remove formatted text around unformatted text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/116 Remove formatted text around unformatted text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/116 Remove formatted text around unformatted text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/117 Remove formatted text around unformatted text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/117 Remove formatted text around unformatted text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/117 Remove formatted text around unformatted text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/117 Remove formatted text around unformatted text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/118 Remove formatted text around unformatted text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/118 Remove formatted text around unformatted text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/118 Remove formatted text around unformatted text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/118 Remove formatted text around unformatted text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/119 Add Double split Format start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/119 Add Double split Format start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/119 Add Double split Format start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/119 Add Double split Format start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/120 Add Double split Format middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/120 Add Double split Format middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/120 Add Double split Format middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/120 Add Double split Format middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/121 Add Double split Format end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/121 Add Double split Format end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/121 Add Double split Format end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/121 Add Double split Format end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/122 Remove Double split Format start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/122 Remove Double split Format start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/122 Remove Double split Format start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/122 Remove Double split Format start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/123 Remove Double split Format middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/123 Remove Double split Format middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/123 Remove Double split Format middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/123 Remove Double split Format middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/124 Remove Double split Format end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/124 Remove Double split Format end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/124 Remove Double split Format end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/124 Remove Double split Format end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/125 Add bold using span/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/125 Add bold using span/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/125 Add bold using span/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/125 Add bold using span/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/126 Add italic format using span/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/126 Add italic format using span/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/126 Add italic format using span/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/126 Add italic format using span/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/127 Format Changes using span/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/127 Format Changes using span/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/127 Format Changes using span/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/127 Format Changes using span/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/128 Remove span format/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/128 Remove span format/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/128 Remove span format/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/128 Remove span format/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/129 Remove formatting and text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/130 Remove formmatting and text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/131 Remove formatting and text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/132 Remove formatting add text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/133 Remove formatting add text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/134 Remove formatting add text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/135 Add formatting and text start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/136 Add formatting and text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/137 Add formatting and text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/138 Add formatting remove test start_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/139 Add formatting remove text middle_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end_variant_1/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end_variant_1/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end_variant_1/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Paragraphs/140 Add formatting remove text end_variant_1/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/04 table border/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/05 table row re-order/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/07 Table reverse attributes/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/09 Multiple text changes/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/10 Attributes remove text/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/17 Table cell scope/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/35 Table cell extend/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/36 Convert table/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/38 Change rows/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/39 Change columns/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/40 Table attributes/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/result.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/41 col width/Thumbs.db
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/a.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/b.xml
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/modified.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/orig.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/result.png
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/42 Multiple table changes/Thumbs.db
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/63 Tables_opening-closing td simple example/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/63 Tables_opening-closing td simple example/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/63 Tables_opening-closing td simple example/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/63 Tables_opening-closing td simple example/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/64 Tables_opening-closing td simple example 2/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/64 Tables_opening-closing td simple example 2/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/64 Tables_opening-closing td simple example 2/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/64 Tables_opening-closing td simple example 2/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/72 Table with List/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/72 Table with List/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/72 Table with List/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/72 Table with List/expected_old.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/modify_and_append_row/a.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/modify_and_append_row/b.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/modify_and_append_row/expected_new.html
+ignore_folder/crawljax-master/plugins/testcasegenerator-plugin/src/test/resources/testdata/Tables/modify_and_append_row/expected_old.html
+ignore_folder/crawljax-master/vips_selenium/pom.xml
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/DomUtils.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/Scripts.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/Separator.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsBrowserAttributes.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsOutput.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsRectangle.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSelenium.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSeleniumParser.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSeparatorDetector.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSeparatorGraphicsDetector.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSeparatorNonGraphicsDetector.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsUtils.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VisualStructure.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/VisualStructureConstructor.java
+ignore_folder/crawljax-master/vips_selenium/src/main/java/com/crawljax/vips_selenium/XPathHelper.java
+ignore_folder/crawljax-master/vips_selenium/src/main/resources/logback-test.xml
+ignore_folder/crawljax-master/vips_selenium/src/test/java/vips_selenium/VipsSeleniumTests.java
+ignore_folder/crawljax-master/vips_selenium/src/test/java/vips_selenium/WarchiveServer.java
+ignore_folder/crawljax-master/vips_selenium/src/test/resources/warchives/petclinic/petclinic_owners2.warc.gz

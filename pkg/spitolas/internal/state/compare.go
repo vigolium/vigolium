@@ -216,25 +216,50 @@ func (c *Comparator) compareWithFragments(s1, s2 *State) CompareResult {
 }
 
 // compareWithDistance uses Levenshtein distance comparison.
-// CRAWLJAX PARITY: Uses configurable ND1/ND2 thresholds.
+// CRAWLJAX PARITY: Uses Java EditDistanceComparator.isClone() formula:
+//
+//	threshold = 2 * max(len1, len2) * (1 - p)
+//	isClone = distance <= threshold
+//
+// Where p is the threshold parameter (e.g., 0.95 for ND1, 0.80 for ND2).
 func (c *Comparator) compareWithDistance(s1, s2 *State) CompareResult {
-	distance := c.CalculateDistance(s1, s2)
+	dom1 := s1.StrippedDOM
+	dom2 := s2.StrippedDOM
 
-	if distance == 0 {
+	if dom1 == dom2 {
 		return ResultDuplicate
 	}
 
-	// Calculate similarity (1 - distance)
-	similarity := 1.0 - distance
+	// Calculate raw Levenshtein distance
+	maxLen := max(len(dom1), len(dom2))
+	if maxLen == 0 {
+		return ResultDuplicate
+	}
 
-	// CRAWLJAX PARITY: Use configurable thresholds
-	// ND1: Very similar (default 95%)
-	if similarity >= c.nd1Threshold {
+	var dist int
+	const maxCompareLen = 10000
+	if len(dom1) > maxCompareLen || len(dom2) > maxCompareLen {
+		// Use sampled distance for very long strings
+		sampledNorm := c.calculateDistanceSampled(dom1, dom2, maxCompareLen)
+		dist = int(sampledNorm * float64(maxLen))
+	} else {
+		dist = levenshteinDistance(dom1, dom2)
+	}
+
+	if dist == 0 {
+		return ResultDuplicate
+	}
+
+	// CRAWLJAX PARITY: Java EditDistanceComparator formula:
+	//   threshold = 2 * max(len1, len2) * (1 - p)
+	//   isClone = distance <= threshold
+	nd1Threshold := 2.0 * float64(maxLen) * (1.0 - c.nd1Threshold)
+	if float64(dist) <= nd1Threshold {
 		return ResultNearDuplicate1
 	}
 
-	// ND2: Moderately similar (default 80%)
-	if similarity >= c.nd2Threshold {
+	nd2Threshold := 2.0 * float64(maxLen) * (1.0 - c.nd2Threshold)
+	if float64(dist) <= nd2Threshold {
 		return ResultNearDuplicate2
 	}
 

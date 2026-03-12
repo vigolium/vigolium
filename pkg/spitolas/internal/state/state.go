@@ -3,11 +3,21 @@ package state
 import (
 	"crypto/sha256"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 var stateCounter uint64
+
+// CandidateElementIface represents a candidate element for state storage.
+// Uses interface to avoid import cycle with action package.
+// At runtime, stored values are *action.CandidateElement.
+type CandidateElementIface interface {
+	GetIdentificationPair() (how string, value string)
+	WasExplored() bool
+	SetDirectAccess(direct bool)
+}
 
 // State represents a crawl state (DOM snapshot).
 // CRAWLJAX PARITY: Matches Java StateVertex structure.
@@ -31,7 +41,7 @@ type State struct {
 
 	// CRAWLJAX PARITY: Unexplored actions flag
 	// In Java: boolean unexploredActions = true
-	HasUnexploredActions bool
+	unexploredActions bool
 
 	// CRAWLJAX PARITY: URL navigation flag
 	// In Java: boolean onURL
@@ -39,6 +49,13 @@ type State struct {
 
 	// CRAWLJAX PARITY: Root fragment hash for fragment-based comparison
 	RootFragmentHash string
+
+	// CRAWLJAX PARITY: Candidate element storage
+	// In Java: transient ImmutableList<CandidateElement> candidateElements
+	// In Java: transient HashMap<Node, List<CandidateElement>> nodeCandidateMapping
+	mu                   sync.RWMutex
+	candidateElements    []CandidateElementIface
+	xpathCandidateMap    map[string][]CandidateElementIface // XPath -> candidates (replaces Java's Node-keyed map)
 }
 
 // New creates a new state from URL, raw HTML, and stripped DOM.
@@ -56,20 +73,20 @@ func New(url, rawHTML, strippedDOM string, depth int) *State {
 	clusterID := int(num)
 
 	return &State{
-		ID:                   id,
-		Name:                 name,
-		URL:                  url,
-		StrippedDOM:          strippedDOM,
-		RawHTML:              rawHTML,
-		Depth:                depth,
-		CreatedAt:            time.Now(),
-		NearestStateID:       "",
-		DistToNearest:        0,
-		IsNearDuplicate:      false,
-		ClusterID:            clusterID,
-		HasUnexploredActions: true, // CRAWLJAX PARITY: Default true
-		OnURL:                false,
-		RootFragmentHash:     "",
+		ID:                id,
+		Name:              name,
+		URL:               url,
+		StrippedDOM:       strippedDOM,
+		RawHTML:           rawHTML,
+		Depth:             depth,
+		CreatedAt:         time.Now(),
+		NearestStateID:    "",
+		DistToNearest:     0,
+		IsNearDuplicate:   false,
+		ClusterID:         clusterID,
+		unexploredActions: true, // CRAWLJAX PARITY: Default true
+		OnURL:             false,
+		RootFragmentHash:  "",
 	}
 }
 
@@ -110,7 +127,7 @@ func (s *State) Clone() *State {
 		DistToNearest:        s.DistToNearest,
 		IsNearDuplicate:      s.IsNearDuplicate,
 		ClusterID:            s.ClusterID,
-		HasUnexploredActions: s.HasUnexploredActions,
+		unexploredActions: s.unexploredActions,
 		OnURL:                s.OnURL,
 		RootFragmentHash:     s.RootFragmentHash,
 	}
@@ -135,7 +152,114 @@ func (s *State) SetHasNearDuplicate(hasND bool) {
 
 // SetUnexploredActions sets whether state has unexplored actions.
 func (s *State) SetUnexploredActions(hasUnexplored bool) {
-	s.HasUnexploredActions = hasUnexplored
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unexploredActions = hasUnexplored
+}
+
+// HasUnexploredActions returns whether this state has unexplored candidate actions.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.hasUnexploredActions() exactly.
+// Java: short-circuits on cached flag, iterates candidateElements, permanently caches false.
+func (s *State) HasUnexploredActions() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.unexploredActions {
+		return false
+	}
+
+	// If no candidates stored yet, assume unexplored
+	if s.candidateElements == nil {
+		return true
+	}
+
+	for _, element := range s.candidateElements {
+		if !element.WasExplored() {
+			return true
+		}
+	}
+
+	// All candidates explored — cache permanently
+	s.unexploredActions = false
+	return false
+}
+
+// SetElementsFound stores candidate elements for this state and builds the XPath index.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.setElementsFound(LinkedList<CandidateElement>).
+func (s *State) SetElementsFound(elements []CandidateElementIface) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.candidateElements = make([]CandidateElementIface, len(elements))
+	copy(s.candidateElements, elements)
+
+	// Build XPath -> candidate mapping (replaces Java's Node-keyed nodeCandidateMapping)
+	s.xpathCandidateMap = make(map[string][]CandidateElementIface)
+	for _, candidate := range s.candidateElements {
+		_, value := candidate.GetIdentificationPair()
+		if value != "" {
+			s.xpathCandidateMap[value] = append(s.xpathCandidateMap[value], candidate)
+		}
+	}
+}
+
+// GetCandidateElements returns all candidate elements for this state.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElements().
+func (s *State) GetCandidateElements() []CandidateElementIface {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.candidateElements
+}
+
+// GetCandidateElementByXPath returns the first candidate element matching the given XPath.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElement(Eventable).
+// Java resolves eventable's XPath against DOM, then looks up in nodeCandidateMapping.
+// Go uses the pre-built xpathCandidateMap since we don't have live DOM.
+func (s *State) GetCandidateElementByXPath(xpath string) CandidateElementIface {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.xpathCandidateMap == nil {
+		return nil
+	}
+
+	candidates, ok := s.xpathCandidateMap[xpath]
+	if !ok || len(candidates) == 0 {
+		return nil
+	}
+	return candidates[0]
+}
+
+// GetCandidateElementsByXPath returns all candidate elements matching the given XPath.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElement(Node).
+func (s *State) GetCandidateElementsByXPath(xpath string) []CandidateElementIface {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.xpathCandidateMap == nil {
+		return nil
+	}
+	return s.xpathCandidateMap[xpath]
+}
+
+// SetDirectAccessByXPath marks all candidates with matching XPath as directly accessed.
+// CRAWLJAX PARITY: Matches Java StateVertexImpl.setDirectAccess(CandidateElement).
+// Java: iterates nodeCandidateMapping.get(element.getElement()) and calls setDirectAccess(true).
+func (s *State) SetDirectAccessByXPath(xpath string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.xpathCandidateMap == nil {
+		return
+	}
+
+	candidates, ok := s.xpathCandidateMap[xpath]
+	if !ok {
+		return
+	}
+	for _, candidate := range candidates {
+		candidate.SetDirectAccess(true)
+	}
 }
 
 // SetOnURL sets whether state was reached via URL navigation.

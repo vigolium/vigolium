@@ -134,14 +134,24 @@ func filterAttributes(attrs []html.Attribute, patterns []*regexp.Regexp) []html.
 	return filtered
 }
 
-// normalizeWhitespace collapses multiple whitespace characters.
+// normalizeWhitespace normalizes whitespace to match Java SimpleComparator behavior.
+// CRAWLJAX PARITY: Java SimpleComparator.normalize():
+//  1. Removes [\t\n\x0B\f\r] (tab, newline, vertical-tab, form-feed, carriage-return)
+//  2. ">[ ]*" → ">" (removes spaces after closing angle bracket)
+//  3. "[ ]*<" → "<" (removes spaces before opening angle bracket)
+//  4. Interior text spacing is PRESERVED ("hello   world" stays)
+// Go previously collapsed ALL \s+ to single space, which differs from Java.
 func normalizeWhitespace(s string) string {
-	// Replace multiple whitespace with single space
-	re := regexp.MustCompile(`\s+`)
-	s = re.ReplaceAllString(s, " ")
+	// Step 1: Remove control whitespace (tab, newline, form-feed, carriage-return, vertical-tab)
+	// but preserve regular spaces within text content
+	re := regexp.MustCompile(`[\t\n\x0B\f\r]+`)
+	s = re.ReplaceAllString(s, "")
 
-	// Remove whitespace around tags
-	s = regexp.MustCompile(`>\s+<`).ReplaceAllString(s, "><")
+	// Step 2: Remove spaces immediately after closing angle bracket: ">[ ]*" → ">"
+	s = regexp.MustCompile(`>[ ]+`).ReplaceAllString(s, ">")
+
+	// Step 3: Remove spaces immediately before opening angle bracket: "[ ]*<" → "<"
+	s = regexp.MustCompile(`[ ]+<`).ReplaceAllString(s, "<")
 
 	// Trim
 	s = strings.TrimSpace(s)

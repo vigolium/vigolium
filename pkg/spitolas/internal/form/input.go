@@ -8,9 +8,16 @@ import (
 )
 
 // FillText fills a text-like input element.
+// CRAWLJAX PARITY: Java handleText() skips empty/null values.
 func FillText(elem *browser.Element, value string) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
+	}
+
+	// CRAWLJAX PARITY: Java (FormHandler.java:161-168):
+	// if (null == text || text.length() == 0) return;
+	if value == "" {
+		return nil
 	}
 
 	// Check if input already has the correct value - skip if so to avoid double fill
@@ -34,17 +41,20 @@ func FillText(elem *browser.Element, value string) error {
 }
 
 // FillHidden fills a hidden input element via JavaScript.
+// CRAWLJAX PARITY: Java uses element.setAttribute("value", value) which sets the HTML attribute.
+// Go sets BOTH the HTML attribute and DOM property to match Java and ensure form submission works.
 func FillHidden(elem *browser.Element, value string) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
 	}
 
-	// Hidden inputs can only be set via JavaScript
-	// Use () => this syntax for rod's Element.Eval
+	// CRAWLJAX PARITY: Set both setAttribute (HTML attribute) and .value (DOM property)
+	// Java: element.setAttribute("value", value)
 	script := fmt.Sprintf(`() => {
+		this.setAttribute('value', %q);
 		this.value = %q;
 		this.dispatchEvent(new Event('change', { bubbles: true }));
-	}`, value)
+	}`, value, value)
 
 	if err := elem.Eval(script); err != nil {
 		return fmt.Errorf("failed to set hidden value: %w", err)

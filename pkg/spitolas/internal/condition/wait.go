@@ -1,7 +1,7 @@
 package condition
 
 import (
-	"regexp"
+	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
@@ -41,7 +41,8 @@ func NewWaitCondition(selector string, timeout time.Duration) *WaitCondition {
 func NewWaitConditionFromConfig(cfg config.WaitConditionConfig) *WaitCondition {
 	timeout := cfg.Timeout
 	if timeout == 0 {
-		timeout = 10 * time.Second
+		// CRAWLJAX PARITY: Java WaitCondition.WAIT_TIME = 500ms
+		timeout = 500 * time.Millisecond
 	}
 
 	return &WaitCondition{
@@ -77,15 +78,15 @@ func (w *WaitCondition) WithPolling(d time.Duration) *WaitCondition {
 //   - WaitTimeout (0): condition timed out
 //   - WaitURLMismatch (-1): URL pattern didn't match
 func (w *WaitCondition) Wait(page *browser.Page) WaitResult {
-	// Check URL pattern if specified
+	// CRAWLJAX PARITY: Java uses case-insensitive substring containment:
+	// browser.getCurrentUrl().toLowerCase().contains(expectedURL.toLowerCase())
 	if w.URLPattern != "" {
 		url, err := page.URL()
 		if err != nil {
 			return WaitURLMismatch
 		}
 
-		matched, err := regexp.MatchString(w.URLPattern, url)
-		if err != nil || !matched {
+		if !strings.Contains(strings.ToLower(url), strings.ToLower(w.URLPattern)) {
 			return WaitURLMismatch
 		}
 	}
@@ -146,13 +147,13 @@ func WaitAny(page *browser.Page, conditions ...*WaitCondition) WaitResult {
 	for time.Now().Before(deadline) {
 		for _, c := range conditions {
 			// Check URL pattern if specified
+			// CRAWLJAX PARITY: Case-insensitive substring containment
 			if c.URLPattern != "" {
 				url, err := page.URL()
 				if err != nil {
 					continue
 				}
-				matched, err := regexp.MatchString(c.URLPattern, url)
-				if err != nil || !matched {
+				if !strings.Contains(strings.ToLower(url), strings.ToLower(c.URLPattern)) {
 					continue
 				}
 			}

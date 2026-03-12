@@ -4,6 +4,8 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+
+	"github.com/vigolium/vigolium/pkg/spitolas/internal/action"
 )
 
 // StateMachine manages state transitions for a single crawler.
@@ -18,8 +20,9 @@ type StateMachine struct {
 	initialState *State // State after reset() - may differ from index due to session changes
 
 	// onURLSet - states reachable by direct URL navigation
-	// CRAWLJAX PARITY: Inherited from previous StateMachine on reset()
-	onURLSet map[string]*State // URL -> State
+	// CRAWLJAX PARITY: Java uses List<StateVertex> — ordered, allows multiple states for same URL,
+	// dedup by equals() (strippedDom comparison). Inherited from previous StateMachine on reset().
+	onURLSet []*State
 
 	// Reference to GLOBAL graph (shared across all crawlers)
 	// NOTE: Graph is NOT reset - it persists across all backtrack attempts
@@ -28,17 +31,18 @@ type StateMachine struct {
 
 // NewStateMachine creates a new state machine with initial state.
 // CRAWLJAX PARITY: This is called during crawler initialization.
+// Java: if (onURLSet.isEmpty()) { onURLSet.add(initialState); }
 func NewStateMachine(graph *Graph, initialState *State) *StateMachine {
 	sm := &StateMachine{
 		graph:        graph,
 		initialState: initialState,
 		currentState: initialState,
-		onURLSet:     make(map[string]*State),
+		onURLSet:     make([]*State, 0),
 	}
 
-	// CRAWLJAX PARITY: Add initial state to onURLSet if it has a URL
-	if initialState != nil && initialState.URL != "" {
-		sm.onURLSet[initialState.URL] = initialState
+	// CRAWLJAX PARITY: Add initial state to onURLSet
+	if initialState != nil {
+		sm.onURLSet = append(sm.onURLSet, initialState)
 	}
 
 	zap.L().Debug("StateMachine created",
@@ -49,24 +53,22 @@ func NewStateMachine(graph *Graph, initialState *State) *StateMachine {
 
 // NewStateMachineWithOnURLSet creates a new state machine inheriting onURLSet from previous.
 // CRAWLJAX PARITY: Used during reset() to preserve URL-reachable states.
-func NewStateMachineWithOnURLSet(graph *Graph, initialState *State, onURLSet map[string]*State) *StateMachine {
+// Java: stateMachine = new StateMachine(graphProvider.get(), ..., onURLSetTemp)
+func NewStateMachineWithOnURLSet(graph *Graph, initialState *State, onURLSet []*State) *StateMachine {
 	sm := &StateMachine{
 		graph:        graph,
 		initialState: initialState,
 		currentState: initialState,
-		onURLSet:     make(map[string]*State),
+		onURLSet:     make([]*State, 0, len(onURLSet)),
 	}
 
 	// Copy onURLSet from previous StateMachine
-	for url, state := range onURLSet {
-		sm.onURLSet[url] = state
-	}
+	sm.onURLSet = append(sm.onURLSet, onURLSet...)
 
-	// Ensure initial state is in onURLSet
-	if initialState != nil && initialState.URL != "" {
-		if _, exists := sm.onURLSet[initialState.URL]; !exists {
-			sm.onURLSet[initialState.URL] = initialState
-		}
+	// CRAWLJAX PARITY: Ensure initial state is in onURLSet if empty
+	// Java: if (onURLSet.isEmpty()) { onURLSet.add(initialState); }
+	if len(sm.onURLSet) == 0 && initialState != nil {
+		sm.onURLSet = append(sm.onURLSet, initialState)
 	}
 
 	zap.L().Debug("StateMachine created with inherited onURLSet",
@@ -109,60 +111,63 @@ func (sm *StateMachine) GetGraph() *Graph {
 	return sm.graph
 }
 
-// GetOnURLSet returns a copy of the onURLSet map.
+// GetOnURLSet returns a copy of the onURLSet slice.
 // CRAWLJAX PARITY: Returns copy to prevent external modification.
-func (sm *StateMachine) GetOnURLSet() map[string]*State {
+func (sm *StateMachine) GetOnURLSet() []*State {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	result := make(map[string]*State, len(sm.onURLSet))
-	for url, state := range sm.onURLSet {
-		result[url] = state
-	}
+	result := make([]*State, len(sm.onURLSet))
+	copy(result, sm.onURLSet)
 	return result
 }
 
-// GetOnURLSetSlice returns onURLSet as a slice of states.
+// GetOnURLSetSlice returns onURLSet as a slice of states (same as GetOnURLSet).
+// CRAWLJAX PARITY: Java returns the list directly; Go returns a copy.
 func (sm *StateMachine) GetOnURLSetSlice() []*State {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	states := make([]*State, 0, len(sm.onURLSet))
-	for _, state := range sm.onURLSet {
-		states = append(states, state)
-	}
-	return states
+	return sm.GetOnURLSet()
 }
 
 // AddToOnURLSet adds a state to the URL-reachable set.
-// CRAWLJAX PARITY: Only states that can be directly navigated to via URL are added.
+// CRAWLJAX PARITY: Java uses List.contains() which calls equals() — dedup by strippedDom (state ID).
 func (sm *StateMachine) AddToOnURLSet(s *State) {
-	if s == nil || s.URL == "" {
+	if s == nil {
 		return
 	}
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if _, exists := sm.onURLSet[s.URL]; !exists {
-		sm.onURLSet[s.URL] = s
-		zap.L().Debug("State added to onURLSet",
-			zap.String("state", s.Name),
-			zap.String("url", s.URL))
+	// CRAWLJAX PARITY: Java List.contains() uses equals() which compares strippedDom
+	// Our state ID is SHA-256(strippedDom), so dedup by ID
+	for _, existing := range sm.onURLSet {
+		if existing.ID == s.ID {
+			return // Already in set
+		}
 	}
+
+	sm.onURLSet = append(sm.onURLSet, s)
+	zap.L().Debug("State added to onURLSet",
+		zap.String("state", s.Name),
+		zap.String("url", s.URL))
 }
 
 // IsInOnURLSet checks if a state is in the onURLSet.
+// CRAWLJAX PARITY: Java uses List.contains() which calls equals() (strippedDom comparison).
 func (sm *StateMachine) IsInOnURLSet(s *State) bool {
-	if s == nil || s.URL == "" {
+	if s == nil {
 		return false
 	}
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	_, exists := sm.onURLSet[s.URL]
-	return exists
+	for _, existing := range sm.onURLSet {
+		if existing.ID == s.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // ChangeState attempts to change to a new state.
@@ -184,7 +189,7 @@ func (sm *StateMachine) ChangeState(target *State) bool {
 		return false
 	}
 
-	// Check if we can go from current to target (edge exists)
+	// Check if we can go from current to target (edge exists in either direction)
 	if sm.currentState != nil && sm.currentState.ID != target.ID {
 		canGo := sm.canGoTo(sm.currentState.ID, target.ID)
 		if !canGo {
@@ -195,45 +200,93 @@ func (sm *StateMachine) ChangeState(target *State) bool {
 		}
 	}
 
+	fromName := "<nil>"
+	if sm.currentState != nil {
+		fromName = sm.currentState.Name
+	}
 	zap.L().Debug("ChangeState: success",
-		zap.String("from", sm.currentState.Name),
+		zap.String("from", fromName),
 		zap.String("to", target.Name))
 
 	sm.currentState = target
 	return true
 }
 
-// canGoTo checks if there's a direct edge from source to target.
+// canGoTo checks if there's a direct edge between source and target in EITHER direction.
+// CRAWLJAX PARITY: Java InMemoryStateFlowGraph.canGoTo() checks BIDIRECTIONAL:
+//
+//	sfg.containsEdge(source, target) || sfg.containsEdge(target, source)
 func (sm *StateMachine) canGoTo(sourceID, targetID string) bool {
-	edges := sm.graph.OutgoingEdges(sourceID)
-	for _, edge := range edges {
+	// Check source -> target
+	for _, edge := range sm.graph.OutgoingEdges(sourceID) {
 		if edge.TargetStateID == targetID {
+			return true
+		}
+	}
+	// CRAWLJAX PARITY: Also check target -> source (bidirectional)
+	for _, edge := range sm.graph.OutgoingEdges(targetID) {
+		if edge.TargetStateID == sourceID {
 			return true
 		}
 	}
 	return false
 }
 
-// SwitchToStateAndCheckIfClone checks if newState is a clone of existing state.
-// CRAWLJAX PARITY: This matches Java Crawljax StateMachine.switchToStateAndCheckIfClone()
+// addStateToCurrentState adds a new state and edge to the graph.
+// CRAWLJAX PARITY: Matches Java StateMachine.addStateToCurrentState() (private).
+// Returns the existing clone state if the state already existed, nil if new.
+func (sm *StateMachine) addStateToCurrentState(newState *State, eventable *action.Eventable) *State {
+	// putIfAbsent — add state to graph if not already present
+	isNew := sm.graph.AddState(newState)
+
+	if !isNew {
+		// State already exists — it's a clone
+		cloneState, _ := sm.graph.GetState(newState.ID)
+		// Add edge from current state to clone
+		if sm.currentState != nil && cloneState != nil && eventable != nil {
+			sm.graph.AddEdge(sm.currentState.ID, cloneState.ID, eventable)
+		}
+		return cloneState
+	}
+
+	// New state — add edge from current state to new state
+	if sm.currentState != nil && eventable != nil {
+		sm.graph.AddEdge(sm.currentState.ID, newState.ID, eventable)
+	}
+	return nil
+}
+
+// SwitchToStateAndCheckIfClone adds newState to graph, adds edge, and switches.
+// CRAWLJAX PARITY: Matches Java StateMachine.switchToStateAndCheckIfClone().
 // Returns (existingState, isClone):
-//   - If newState is a clone, returns the existing state and true
-//   - If newState is new, returns nil and false
-func (sm *StateMachine) SwitchToStateAndCheckIfClone(newState *State) (*State, bool) {
+//   - If newState is a clone, switches to existing state and returns (existing, true)
+//   - If newState is new, switches to new state and returns (nil, false)
+func (sm *StateMachine) SwitchToStateAndCheckIfClone(newState *State, eventable *action.Eventable) (*State, bool) {
 	if newState == nil {
 		return nil, false
 	}
 
-	// Check if state already exists in graph (by ID which is hash of stripped DOM)
-	existingState, exists := sm.graph.GetState(newState.ID)
-	if exists {
-		zap.L().Debug("Clone state detected",
-			zap.String("new_state", newState.Name),
-			zap.String("existing_state", existingState.Name))
-		return existingState, true
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	cloneState := sm.addStateToCurrentState(newState, eventable)
+
+	// TODO: runOnInvariantViolationPlugins(context) — requires invariant checker
+
+	if cloneState == nil {
+		// New state
+		sm.currentState = newState
+		zap.L().Debug("Switched to new state",
+			zap.String("state", newState.Name))
+		return nil, false
 	}
 
-	return nil, false
+	// Clone — switch to the existing clone
+	sm.currentState = cloneState
+	zap.L().Debug("Switched to clone state",
+		zap.String("new_state", newState.Name),
+		zap.String("clone_state", cloneState.Name))
+	return cloneState, true
 }
 
 // Rewind resets the state machine to initial state (internal state only).
@@ -262,8 +315,10 @@ func (sm *StateMachine) FindClosestOnURLState(target *State) *State {
 	defer sm.mu.RUnlock()
 
 	// First check if target itself is URL-reachable
-	if _, exists := sm.onURLSet[target.URL]; exists {
-		return target
+	for _, s := range sm.onURLSet {
+		if s.ID == target.ID {
+			return target
+		}
 	}
 
 	// Find the URL-reachable state with shortest path to target

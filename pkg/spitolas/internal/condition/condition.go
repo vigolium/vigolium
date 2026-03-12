@@ -232,14 +232,17 @@ func (c *Condition) checkXPathExists(page *browser.Page) bool {
 }
 
 // checkDOMRegex checks if the DOM content matches a regex pattern.
-// MEDIUM PRIORITY: DOM regex condition support from Crawljax's RegexCondition.
-// HIGH PRIORITY: Uses cached compiled regex for performance.
+// CRAWLJAX PARITY: Matches Java RegexCondition which uses
+// Pattern.compile(regex, Pattern.CASE_INSENSITIVE).
+// Go equivalent: prepend (?i) for case-insensitive matching.
 func (c *Condition) checkDOMRegex(page *browser.Page) bool {
 	html, err := page.HTML()
 	if err != nil {
 		return false
 	}
-	re := getCachedRegex(c.Value)
+	// CRAWLJAX PARITY: Java uses Pattern.CASE_INSENSITIVE flag
+	pattern := "(?i)" + c.Value
+	re := getCachedRegex(pattern)
 	if re == nil {
 		return false
 	}
