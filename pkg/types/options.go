@@ -135,11 +135,11 @@ type Options struct {
 	ScanningProfile string
 	// HeuristicsCheck controls the pre-scan heuristics check level: "none", "basic", "advanced".
 	HeuristicsCheck string
-	// SkipDynamicAssessment disables the dynamic assessment phase when set by a strategy
-	SkipDynamicAssessment bool
+	// SkipAudit disables the audit phase when set by a strategy
+	SkipAudit bool
 	// SkipIngestion disables the discovery/ingestion phase when set by --only
 	SkipIngestion bool
-	// OnlyPhase isolates a single scanning phase (discover, external-harvest, dynamic-assessment, sast)
+	// OnlyPhase isolates a single scanning phase (discover, external-harvest, audit, sast)
 	OnlyPhase string
 	// SkipPhases disables one or more phases while keeping all others enabled
 	SkipPhases []string

@@ -204,19 +204,19 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	// Apply --ext / --ext-dir overrides before validation
 	if len(globalExtScripts) > 0 {
-		settings.DynamicAssessment.Extensions.Enabled = true
-		settings.DynamicAssessment.Extensions.CustomDir = append(
-			settings.DynamicAssessment.Extensions.CustomDir,
+		settings.Audit.Extensions.Enabled = true
+		settings.Audit.Extensions.CustomDir = append(
+			settings.Audit.Extensions.CustomDir,
 			globalExtScripts...,
 		)
 	}
 	if globalExtDir != "" {
-		settings.DynamicAssessment.Extensions.Enabled = true
-		settings.DynamicAssessment.Extensions.ExtensionDir = globalExtDir
+		settings.Audit.Extensions.Enabled = true
+		settings.Audit.Extensions.ExtensionDir = globalExtDir
 	}
 
 	// Validate extensions config
-	if err := settings.DynamicAssessment.Extensions.Validate(); err != nil {
+	if err := settings.Audit.Extensions.Validate(); err != nil {
 		return fmt.Errorf("invalid extensions configuration: %w", err)
 	}
 
@@ -263,8 +263,8 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		if phases.SourceAware {
 			scanOpts.SASTEnabled = true
 		}
-		if !phases.DynamicAssessment {
-			scanOpts.SkipDynamicAssessment = true
+		if !phases.Audit {
+			scanOpts.SkipAudit = true
 		}
 		zap.L().Debug("Applied scanning strategy", zap.String("strategy", strategyName))
 	}
@@ -287,7 +287,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--only and --skip are mutually exclusive; use one or the other")
 	}
 
-	// Normalize phase aliases (deparos→discover, spitolas→spidering, audit→dynamic-assessment)
+	// Normalize phase aliases (deparos→discover, spitolas→spidering, dynamic-assessment→audit)
 	scanOpts.OnlyPhase = normalizePhase(scanOpts.OnlyPhase)
 
 	// --only overrides strategy and individual phase flags
@@ -298,41 +298,41 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
-			scanOpts.SkipDynamicAssessment = true
+			scanOpts.SkipAudit = true
 		case "discovery":
 			scanOpts.DiscoverEnabled = true
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
-			scanOpts.SkipDynamicAssessment = true
+			scanOpts.SkipAudit = true
 		case "external-harvest":
 			scanOpts.ExternalHarvestEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = true
+			scanOpts.SkipAudit = true
 		case "spidering":
 			scanOpts.SpideringEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SPAEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = true
+			scanOpts.SkipAudit = true
 		case "spa":
 			scanOpts.SPAEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = true
-		case "dynamic-assessment":
+			scanOpts.SkipAudit = true
+		case "audit":
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = false
+			scanOpts.SkipAudit = false
 		case "sast":
 			scanOpts.SASTEnabled = true
 			scanOpts.DiscoverEnabled = false
@@ -340,18 +340,18 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = true
+			scanOpts.SkipAudit = true
 		case "extension":
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
 			scanOpts.SPAEnabled = false
 			scanOpts.SkipIngestion = true
-			scanOpts.SkipDynamicAssessment = false
+			scanOpts.SkipAudit = false
 			scanOpts.ExtensionsOnly = true
-			settings.DynamicAssessment.Extensions.Enabled = true
+			settings.Audit.Extensions.Enabled = true
 		default:
-			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, dynamic-assessment (audit), extension (ext)", scanOpts.OnlyPhase)
+			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit (dynamic-assessment), extension (ext)", scanOpts.OnlyPhase)
 		}
 		scanOpts.HeuristicsCheck = "none"
 		zap.L().Info("Phase isolation active", zap.String("only", scanOpts.OnlyPhase))
@@ -372,10 +372,10 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 				scanOpts.SPAEnabled = false
 			case "sast":
 				scanOpts.SASTEnabled = false
-			case "dynamic-assessment":
-				scanOpts.SkipDynamicAssessment = true
+			case "audit":
+				scanOpts.SkipAudit = true
 			default:
-				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, dynamic-assessment (audit)", phase)
+				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit (dynamic-assessment)", phase)
 			}
 		}
 		zap.L().Info("Phases skipped", zap.Strings("skip", scanOpts.SkipPhases))
@@ -847,8 +847,8 @@ func normalizePhase(phase string) string {
 		return "discovery"
 	case "spitolas":
 		return "spidering"
-	case "audit":
-		return "dynamic-assessment"
+	case "dynamic-assessment":
+		return "audit"
 	case "ext":
 		return "extension"
 	default:
@@ -917,7 +917,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	discoveryEnabled := opts.DiscoverEnabled
 	spideringEnabled := opts.SpideringEnabled
 	spaEnabled := opts.SPAEnabled
-	daEnabled := !opts.SkipDynamicAssessment
+	daEnabled := !opts.SkipAudit
 	ehEnabled := opts.ExternalHarvestEnabled
 
 	// Strategy name
@@ -972,7 +972,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		phaseLabel("Discovery", "discovery", discoveryEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("SPA", "spa", spaEnabled),
-		phaseLabel("DynamicAssessment", "dynamic_assessment", daEnabled),
+		phaseLabel("Auditing", "audit", daEnabled),
 		phaseLabel("SAST", "sast", sastEnabled))
 	if sastEnabled && opts.SASTAdhoc != "" {
 		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTAdhoc))

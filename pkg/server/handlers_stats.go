@@ -28,11 +28,11 @@ func (h *Handlers) HandleStats(c fiber.Ctx) error {
 	// Determine enabled counts from settings
 	if h.settings != nil {
 		resp.Modules.Active.Enabled = countEnabledModules(
-			h.settings.DynamicAssessment.EnabledModules.ActiveModules,
+			h.settings.Audit.EnabledModules.ActiveModules,
 			len(activeModules),
 		)
 		resp.Modules.Passive.Enabled = countEnabledModules(
-			h.settings.DynamicAssessment.EnabledModules.PassiveModules,
+			h.settings.Audit.EnabledModules.PassiveModules,
 			len(passiveModules),
 		)
 	} else {

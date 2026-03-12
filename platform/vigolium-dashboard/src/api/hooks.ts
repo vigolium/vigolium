@@ -48,6 +48,9 @@ import type {
   ExtensionDocsResponse,
   AgentRunStatusResponse,
   AgentRunListResponse,
+  AgentSession,
+  AgentSessionDetail,
+  AgentSessionsQueryParams,
   ScanLogsResponse,
   ScanLogsQueryParams,
 } from './types';
@@ -533,6 +536,25 @@ export function useAgentRuns() {
     queryKey: projectKey('agent-runs'),
     queryFn: () => apiGet<AgentRunListResponse>('/api/agent/status/list'),
     refetchInterval: 10_000,
+  });
+}
+
+export function useAgentSessions(params: AgentSessionsQueryParams) {
+  return useQuery({
+    queryKey: projectKey('agent-sessions', params),
+    queryFn: () => apiGet<PaginatedResponse<AgentSession>>('/api/agent/sessions', params as Record<string, string | number | undefined>),
+    placeholderData: keepPreviousData,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useAgentSessionDetail(uuid: string | null) {
+  return useQuery({
+    queryKey: projectKey('agent-session-detail', uuid),
+    queryFn: () => apiGet<AgentSessionDetail>(`/api/agent/sessions/${uuid}`),
+    enabled: uuid !== null,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'running' ? 5_000 : false,
   });
 }
 

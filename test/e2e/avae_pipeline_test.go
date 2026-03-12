@@ -571,7 +571,7 @@ func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
 		t.Skip("secret-detect module not registered, skipping filter test")
 	}
 
-	// Simulate the filtering that runDynamicAssessmentPhase does when SPA is enabled
+	// Simulate the filtering that runAuditPhase does when SPA is enabled
 	filtered := filterOutPassiveModuleTest(passiveModules, secret_detect.ModuleID)
 
 	// Verify it was removed

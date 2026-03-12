@@ -219,21 +219,21 @@ scanning_strategy:
     discovery: false
     spidering: false
     spa: false
-    dynamic_assessment: true
+    audit: true
 
   balanced:
     external_harvesting: false
     discovery: true
     spidering: true
     spa: true
-    dynamic_assessment: true
+    audit: true
 
   deep:
     external_harvesting: true
     discovery: true
     spidering: true
     spa: true
-    dynamic_assessment: true
+    audit: true
 
   whitebox:
     external_harvesting: false
@@ -241,7 +241,7 @@ scanning_strategy:
     discovery: true
     spidering: false
     spa: true
-    dynamic_assessment: true
+    audit: true
 
 # ============================================================================
 # Scanning Pace (Speed Control)
@@ -275,7 +275,7 @@ scanning_pace:
     duration_factor: 0.1          # 0.08x base → 6m
   external_harvester:
     duration_factor: 0.1          # 0.08x base → 6m
-  dynamic_assessment:
+  audit:
     duration_factor: 1.0          # 1x base → 1h
 
 # ============================================================================
@@ -314,7 +314,7 @@ notify:
 # ============================================================================
 # Settings for the dynamic assessment scan phase (Phase 4): which scanner
 # modules are enabled and JavaScript extension configuration.
-dynamic_assessment:
+audit:
   # Maximum findings emitted per module before suppression.
   # Prevents noisy modules from flooding results. Set to 0 for unlimited.
   # Override with CLI flag: --max-findings-per-module

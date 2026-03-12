@@ -78,7 +78,7 @@ List database records with filtering, sorting, and display options.
 | `--min-risk` | int | `0` | Show only records with risk score at or above this value |
 | `--remark` | string | — | Filter records containing this text in remarks |
 | `--module-type` | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
-| `--finding-source` | string | — | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--finding-source` | string | — | Filter findings by source (audit, spa, agent, oast, source-tools, extension) |
 | `--from` | string | — | Records after date (YYYY-MM-DD) |
 | `--to` | string | — | Records before date |
 | `--header` | string | — | Search within HTTP header names and values |
@@ -224,7 +224,7 @@ Browse vulnerability findings with fuzzy search, filtering, raw display, and col
 | `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
 | `--scan-id` | — | string | — | Filter by scan session ID |
 | `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
-| `--finding-source` | — | string | — | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--finding-source` | — | string | — | Filter by finding source (audit, spa, agent, oast, source-tools, extension) |
 | `--id` | — | int | `0` | Filter by finding ID |
 
 ### Display flags
@@ -251,7 +251,7 @@ vigolium finding
 vigolium finding --severity high,critical
 vigolium finding --search "sql injection"
 vigolium finding --module-type active
-vigolium finding --finding-source dynamic-assessment
+vigolium finding --finding-source audit
 vigolium finding --id 42
 vigolium finding --burp
 vigolium finding --raw
@@ -413,7 +413,7 @@ vigolium config ls --force         # show sensitive values (unredacted)
 
 vigolium config set scanning_strategy.default_strategy deep
 vigolium config set scope.origin.mode strict
-vigolium config set dynamic_assessment.extensions.enabled true
+vigolium config set audit.extensions.enabled true
 vigolium config set notify.enabled true
 ```
 

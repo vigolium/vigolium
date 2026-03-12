@@ -79,10 +79,10 @@ func newScanRunnerWithSettings(t *testing.T, opts *types.Options, settings *conf
 
 // --- Tests ---
 
-// TestScanRunner_VAmPI_OnlyDynamicAssessment validates --only dynamic-assessment
+// TestScanRunner_VAmPI_OnlyAudit validates --only audit
 // flag behavior via the Runner. Discovery, external harvest, and SPA are disabled;
-// only the dynamic assessment phase runs against known vulnerable endpoints.
-func TestScanRunner_VAmPI_OnlyDynamicAssessment(t *testing.T) {
+// only the audit phase runs against known vulnerable endpoints.
+func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
 	}
@@ -95,8 +95,8 @@ func TestScanRunner_VAmPI_OnlyDynamicAssessment(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	// --only dynamic-assessment equivalent
-	opts.SkipDynamicAssessment = false
+	// --only audit equivalent
+	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SPAEnabled = false
@@ -110,16 +110,16 @@ func TestScanRunner_VAmPI_OnlyDynamicAssessment(t *testing.T) {
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(findings), 1,
-		"Expected at least 1 finding from dynamic assessment against VAmPI")
+		"Expected at least 1 finding from audit against VAmPI")
 
-	t.Logf("Dynamic assessment found %d findings", len(findings))
+	t.Logf("Audit found %d findings", len(findings))
 	for _, f := range findings {
 		t.Logf("  [%s] %s — %s", f.Severity, f.ModuleID, f.ModuleName)
 	}
 }
 
 // TestScanRunner_VAmPI_OnlyDiscover validates --only discovery: discovery runs
-// and ingests HTTP records, but dynamic assessment is skipped (no findings).
+// and ingests HTTP records, but audit is skipped (no findings).
 func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
@@ -137,7 +137,7 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 	opts.DiscoverEnabled = true
 	opts.ExternalHarvestEnabled = false
 	opts.SPAEnabled = false
-	opts.SkipDynamicAssessment = true
+	opts.SkipAudit = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -151,11 +151,11 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 		"Expected at least one host in DB after discovery")
 	t.Logf("Discover phase ingested %d distinct hosts", len(hosts))
 
-	// Assert: no findings (dynamic assessment was skipped)
+	// Assert: no findings (audit was skipped)
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(findings),
-		"Expected 0 findings when dynamic assessment is skipped")
+		"Expected 0 findings when audit is skipped")
 }
 
 // TestScanRunner_JuiceShop_FullPipeline validates the full pipeline (no --only)
@@ -173,8 +173,8 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipDynamicAssessment = false
-	// No OnlyPhase, no strategy override — default dynamic assessment
+	opts.SkipAudit = false
+	// No OnlyPhase, no strategy override — default audit
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SPAEnabled = false
@@ -201,7 +201,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 }
 
 // TestScanRunner_VAmPI_StrategyLite validates the "lite" strategy preset:
-// dynamic assessment only, no discovery, no external harvest, no SPA.
+// audit only, no discovery, no external harvest, no SPA.
 func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
@@ -215,11 +215,11 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	// Lite strategy fields: dynamic assessment only
+	// Lite strategy fields: audit only
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SPAEnabled = false
-	opts.SkipDynamicAssessment = false
+	opts.SkipAudit = false
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -266,7 +266,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 	opts.ExternalHarvestEnabled = true
 	opts.DiscoverEnabled = false
 	opts.SPAEnabled = false
-	opts.SkipDynamicAssessment = true
+	opts.SkipAudit = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -280,7 +280,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 		"Expected at least one host in DB from original targets")
 	t.Logf("External harvest: %d distinct hosts ingested", len(hosts))
 
-	// Assert: no findings (dynamic assessment was skipped)
+	// Assert: no findings (audit was skipped)
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(findings),
@@ -288,7 +288,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 }
 
 // TestScanRunner_VAmPI_OnlySPA validates --only spa: the SPA phase runs nuclei
-// and kingfisher batch scans after ingesting targets, but dynamic assessment is skipped.
+// and kingfisher batch scans after ingesting targets, but audit is skipped.
 func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
@@ -306,7 +306,7 @@ func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 	opts.SPAEnabled = true
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SkipDynamicAssessment = true
+	opts.SkipAudit = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -334,7 +334,7 @@ func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 
 // TestScanRunner_VAmPI_SourceAwareDA validates source-aware scanning via the
 // Runner: a JS extension module reads files from a registered SourceRepo and
-// produces findings based on source code analysis during the dynamic assessment.
+// produces findings based on source code analysis during the audit.
 func TestScanRunner_VAmPI_SourceAwareDA(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
@@ -401,9 +401,9 @@ module.exports = {
 
 	// --- Build custom settings with extensions enabled ---
 	settings := config.DefaultSettings()
-	settings.DynamicAssessment.Extensions.Enabled = true
-	settings.DynamicAssessment.Extensions.Scripts = []string{scriptPath}
-	settings.DynamicAssessment.Extensions.Limits = config.ScriptLimits{
+	settings.Audit.Extensions.Enabled = true
+	settings.Audit.Extensions.Scripts = []string{scriptPath}
+	settings.Audit.Extensions.Limits = config.ScriptLimits{
 		Timeout:     "60s",
 		MaxMemoryMB: 128,
 	}
@@ -414,7 +414,7 @@ module.exports = {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipDynamicAssessment = false
+	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SPAEnabled = false

@@ -111,7 +111,7 @@ func init() {
 	pf.StringVar(&findingSeverity, "severity", "", "Filter by severity: critical,high,medium,low,info (comma-separated)")
 	pf.StringVar(&findingScanUUID, "scan-id", "", "Filter by scan session ID")
 	pf.StringVar(&findingModuleType, "module-type", "", "Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
-	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
+	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (audit, spa, agent, oast, source-tools, extension)")
 	pf.IntVar(&findingID, "id", 0, "Filter by finding ID")
 
 	// Display-only flags

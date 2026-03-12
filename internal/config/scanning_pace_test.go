@@ -71,14 +71,14 @@ func TestResolvePhase_ExplicitOverridesFactor(t *testing.T) {
 	cfg := &ScanningPaceConfig{
 		Concurrency: 50,
 		MaxDuration: "30m",
-		DynamicAssessment: PhasePace{
+		Audit: PhasePace{
 			Concurrency:       30,
 			ConcurrencyFactor: 0.8, // ignored because concurrency is set
 			MaxDuration:       "1h",
 			DurationFactor:    2.0, // ignored because max_duration is set
 		},
 	}
-	resolved := cfg.ResolvePhase("dynamic_assessment")
+	resolved := cfg.ResolvePhase("audit")
 	if resolved.Concurrency != 30 {
 		t.Errorf("expected concurrency 30 (explicit), got %d", resolved.Concurrency)
 	}
@@ -197,7 +197,7 @@ func TestDefaultScanningPaceConfig(t *testing.T) {
 		{"spa", 3.0},
 		{"spidering", 0.15},
 		{"external_harvester", 0.2},
-		{"dynamic_assessment", 1.0},
+		{"audit", 1.0},
 	}
 	for _, tt := range tests {
 		resolved := cfg.ResolvePhase(tt.phase)

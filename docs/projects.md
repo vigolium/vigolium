@@ -120,7 +120,7 @@ scanning_pace:
   concurrency: 30
   rate_limit: 50
 
-dynamic_assessment:
+audit:
   extensions:
     enabled: true
     variables:

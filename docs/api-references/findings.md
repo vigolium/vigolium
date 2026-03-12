@@ -15,7 +15,7 @@ Returns paginated vulnerability findings.
 | `scan_id`     | string |            | Filter by scan UUID                               |
 | `module_name` | string |            | Filter by module name                             |
 | `module_type`    | string |            | Filter by module type: `active` or `passive`      |
-| `finding_source` | string |            | Filter by finding source: `dynamic-assessment`, `spa`, `agent`, `oast`, `source-tools`, `extension` |
+| `finding_source` | string |            | Filter by finding source: `audit`, `spa`, `agent`, `oast`, `source-tools`, `extension` |
 | `search`      | string |            | Search across description, module ID, matched_at  |
 | `sort`        | string | `found_at` | Sort field: `found_at`, `created_at`, `severity`, `module_name`, `module_id`, `confidence` |
 | `order`       | string | `desc`     | Sort order: `asc` or `desc`                       |
@@ -34,7 +34,7 @@ curl -s 'http://localhost:9002/api/findings?domain=example.com&module_name=xss' 
 curl -s 'http://localhost:9002/api/findings?module_type=passive' | jq .
 
 # Filter by finding source
-curl -s 'http://localhost:9002/api/findings?finding_source=dynamic-assessment' | jq .
+curl -s 'http://localhost:9002/api/findings?finding_source=audit' | jq .
 
 # Search findings
 curl -s 'http://localhost:9002/api/findings?search=reflected' | jq .
@@ -51,7 +51,7 @@ curl -s 'http://localhost:9002/api/findings?search=reflected' | jq .
       "module_name": "XSS Scanner",
       "module_type": "active",
       "module_short": "Detects reflected cross-site scripting via parameter injection",
-      "finding_source": "dynamic-assessment",
+      "finding_source": "audit",
       "description": "Reflected XSS via parameter 'q'",
       "severity": "high",
       "confidence": "firm",
@@ -94,7 +94,7 @@ curl -s http://localhost:9002/api/findings/1 | jq .
   "module_name": "XSS Scanner",
   "module_type": "active",
   "module_short": "Detects reflected cross-site scripting via parameter injection",
-  "finding_source": "dynamic-assessment",
+  "finding_source": "audit",
   "description": "Reflected XSS via parameter 'q'",
   "severity": "high",
   "confidence": "firm",

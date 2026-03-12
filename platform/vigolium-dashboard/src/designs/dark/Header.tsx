@@ -4,12 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useProjectContext } from '@/contexts/ProjectContext';
 import type { ServerInfoResponse } from '@/api/types';
-
-const TOAST_COLORS: Record<string, string> = {
-  success: '#98bc37',
-  error: '#ef2f27',
-  info: '#68a8e4',
-};
+import { getUserInfo } from '@/api/client';
 
 interface HeaderProps {
   serverInfo?: ServerInfoResponse;
@@ -49,25 +44,26 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
   };
 
   return (
-    <header className="border-b border-[#2e2b26] bg-[#1c1b19] sticky top-0 z-40">
+    <header className="border-b sticky top-0 z-40" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
       <div className="px-4 h-8 flex items-center justify-between text-xs">
         <div className="flex items-center gap-4">
-          <span className="text-[#7fd962] font-bold">&gt; VIGOLIUM</span>
+          <span className="font-bold" style={{ color: 'var(--v-accent)' }}>&gt; VIGOLIUM</span>
           {serverInfo && (
-            <span className="text-[#918175]">{serverInfo.version}</span>
+            <span style={{ color: 'var(--v-text-muted)' }}>{serverInfo.version}</span>
           )}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="text-[#68a8e4] hover:text-[#a8e892] transition-colors"
+              className="v-header-link transition-colors"
             >
               {isAllProjects && <ShieldCheck className="w-3 h-3 inline mr-1" />}[PROJECT: {displayName} ▼]
             </button>
             {dropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 bg-[#272520] border border-[#2e2b26] min-w-[200px] z-50 shadow-lg">
+              <div className="absolute top-full left-0 mt-1 min-w-[200px] z-50 shadow-lg border" style={{ backgroundColor: 'var(--v-surface)', borderColor: 'var(--v-border)' }}>
                 <button
                   onClick={() => { setProject(null); setDropdownOpen(false); }}
-                  className={`flex items-center gap-1.5 w-full text-left px-3 py-1.5 hover:bg-[#2e2b26] ${!projectUUID ? 'text-[#98bc37]' : 'text-[#fce8c3]'}`}
+                  className="flex items-center gap-1.5 w-full text-left px-3 py-1.5 v-dropdown-item"
+                  style={{ color: !projectUUID ? 'var(--v-success)' : 'var(--v-text)' }}
                 >
                   <ShieldCheck className="w-3 h-3" /> ALL PROJECTS
                 </button>
@@ -75,12 +71,13 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                   <button
                     key={p.uuid}
                     onClick={() => { setProject(p.uuid); setDropdownOpen(false); }}
-                    className={`block w-full text-left px-3 py-1.5 hover:bg-[#2e2b26] ${projectUUID === p.uuid ? 'text-[#98bc37]' : 'text-[#fce8c3]'}`}
+                    className="block w-full text-left px-3 py-1.5 v-dropdown-item"
+                    style={{ color: projectUUID === p.uuid ? 'var(--v-success)' : 'var(--v-text)' }}
                   >
                     {p.name}
                   </button>
                 ))}
-                <div className="border-t border-[#2e2b26]">
+                <div className="border-t" style={{ borderColor: 'var(--v-border)' }}>
                   {creating ? (
                     <div className="flex items-center px-2 py-1.5 gap-1">
                       <input
@@ -89,14 +86,16 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                         onChange={(e) => setNewName(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                         placeholder="project name"
-                        className="bg-[#1c1b19] border border-[#2e2b26] text-[#fce8c3] px-1.5 py-0.5 text-xs flex-1 outline-none"
+                        className="px-1.5 py-0.5 text-xs flex-1 outline-none border"
+                        style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
                       />
-                      <button onClick={handleCreate} className="text-[#98bc37] hover:text-[#a8e892]">OK</button>
+                      <button onClick={handleCreate} style={{ color: 'var(--v-success)' }}>OK</button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setCreating(true)}
-                      className="block w-full text-left px-3 py-1.5 text-[#68a8e4] hover:bg-[#2e2b26]"
+                      className="block w-full text-left px-3 py-1.5 v-dropdown-item"
+                      style={{ color: 'var(--v-secondary)' }}
                     >
                       + New Project
                     </button>
@@ -108,33 +107,41 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
         </div>
         <div className="flex items-center gap-4">
           {serverInfo?.proxy_addr && (
-            <span className="text-[#918175]">proxy:{serverInfo.proxy_addr}</span>
+            <span style={{ color: 'var(--v-text-muted)' }}>proxy:{serverInfo.proxy_addr}</span>
           )}
-          {toasts.map((t) => (
-            <span
-              key={t.id}
-              className="animate-toast-in flex items-center gap-1 bg-[#272520] border px-2 py-0.5"
-              style={{ color: TOAST_COLORS[t.type], borderColor: TOAST_COLORS[t.type] }}
-            >
-              {t.message}
-              <button onClick={() => dismiss(t.id)} className="text-[#918175] hover:text-[#fce8c3]">[x]</button>
-            </span>
-          ))}
-          <span className={isConnected ? 'text-[#98bc37]' : 'text-[#ef2f27]'}>
+          {toasts.map((t) => {
+            const toastColor = t.type === 'success' ? 'var(--v-success)' : t.type === 'error' ? 'var(--v-error)' : 'var(--v-secondary)';
+            return (
+              <span
+                key={t.id}
+                className="animate-toast-in flex items-center gap-1 border px-2 py-0.5"
+                style={{ color: toastColor, borderColor: toastColor, backgroundColor: 'var(--v-surface)' }}
+              >
+                {t.message}
+                <button onClick={() => dismiss(t.id)} className="v-header-btn">[x]</button>
+              </span>
+            );
+          })}
+          <span style={{ color: isConnected ? 'var(--v-success)' : 'var(--v-error)' }}>
             {isConnected ? '[CONNECTED]' : '[OFFLINE]'}
           </span>
+          {isConnected && getUserInfo() && (
+            <span style={{ color: 'var(--v-secondary)' }}>
+              [Login as {getUserInfo()!.name}]
+            </span>
+          )}
           {isConnected && (
             <button
               onClick={() => document.getElementById('vigolium-logout')?.click()}
-              className="text-[#918175] hover:text-[#ef2f27] transition-colors"
+              className="v-header-btn-danger transition-colors"
             >
               [LOG OUT]
             </button>
           )}
           <button
             onClick={toggleTheme}
-            className="text-[#918175] hover:text-[#a8e892] transition-colors"
-            title="Switch to Editorial theme"
+            className="v-header-btn transition-colors"
+            title="Toggle theme"
           >
             <Sun className="w-3.5 h-3.5" />
           </button>

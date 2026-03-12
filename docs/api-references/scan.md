@@ -159,7 +159,7 @@ The `scanning_max_duration` field sets the global max duration. Each phase deriv
 |--------------------|---------------|---------------------|
 | Spidering          | 0.15          | 18m                 |
 | External Harvester | 0.20          | 24m                 |
-| Dynamic Assessment | 1.00          | 2h                  |
+| Audit              | 1.00          | 2h                  |
 | SPA                | 3.00          | 6h                  |
 
 Per-phase `max_duration` overrides in the YAML config take precedence over the factor calculation.
@@ -170,7 +170,7 @@ Per-phase `max_duration` overrides in the YAML config take precedence over the f
 |----------------------|--------------------------|
 | `discovery`          | `deparos`, `discover`    |
 | `spidering`          | `spitolas`               |
-| `dynamic-assessment` | `audit`                  |
+| `audit`              | `dynamic-assessment`     |
 | `extension`          | `ext`                    |
 | `ingestion`          | —                        |
 | `external-harvest`   | —                        |
@@ -291,7 +291,7 @@ When a scan starts (via API or CLI), the runner logs a configuration summary to 
   ℹ Project: my-project-uuid
   ℹ Strategy: balanced
   ℹ Phases: ✓ ExternalHarvest (24m0s, x0.2) | ✓ Spidering (18m0s, x0.2) | ✓ Discovery
-            ✓ SPA (6h0m0s, x3.0) | ✓ DynamicAssessment (2h0m0s, x1.0) | ✗ SAST
+            ✓ SPA (6h0m0s, x3.0) | ✓ Audit (2h0m0s, x1.0) | ✗ SAST
   ℹ Speed: concurrency=50 | rate-limit=100 | max-per-host=10
   ℹ Modules: 42 active, 12 passive
 ```
@@ -555,15 +555,19 @@ curl -s -X POST http://localhost:9002/api/scans/scan-abc123/resume \
 
 ### GET /api/scans/:uuid/logs — Get Scan Logs
 
-Returns structured log entries for a scan, ordered by creation time ascending. Log entries are recorded at key lifecycle points: scan start/finish, phase transitions (start, complete, fail), pause/resume events, and panic recovery.
+Returns log entries for a scan, ordered by creation time ascending. Logs are captured at multiple levels:
+
+- **Structured events** (`info`, `warn`, `error`): Phase lifecycle events (start, complete, fail, skip), scan start/finish, pause/resume, configuration snapshots, and panic recovery.
+- **Raw console output** (`trace`): Every line printed to the terminal during the scan, with ANSI color codes stripped. This includes phase headers, traffic lines (`❯ spider │ [200] GET ...`), progress feedback, and scan configuration banners.
 
 **Query parameters:**
 
-| Parameter | Type   | Default | Description                                      |
-|-----------|--------|---------|--------------------------------------------------|
-| `limit`   | int    | 100     | Number of log entries to return                  |
-| `offset`  | int    | 0       | Offset for pagination                            |
-| `level`   | string |         | Filter by log level (`info`, `warn`, `error`)    |
+| Parameter | Type   | Default | Description                                                                                                   |
+|-----------|--------|---------|---------------------------------------------------------------------------------------------------------------|
+| `limit`   | int    | 100     | Number of log entries to return                                                                               |
+| `offset`  | int    | 0       | Offset for pagination                                                                                         |
+| `level`   | string |         | Filter by log level: `trace`, `info`, `warn`, `error`. Use `trace` to replay raw console output.              |
+| `phase`   | string |         | Filter by scan phase: `config`, `heuristics`, `harvest`, `spidering`, `discovery`, `spa`, `audit`, `sast`, `seed`. Use `config` to retrieve the scan configuration snapshot. |
 
 ```bash
 # Get all logs for a scan
@@ -573,7 +577,25 @@ curl -s http://localhost:9002/api/scans/scan-abc123/logs \
 # Filter by level with pagination
 curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=error&limit=20' \
   -H "X-Project-UUID: my-project-uuid" | jq .
+
+# Replay raw console output (terminal log)
+curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=trace' \
+  -H "X-Project-UUID: my-project-uuid" | jq .
+
+# Get only spidering phase logs
+curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?phase=spidering' \
+  -H "X-Project-UUID: my-project-uuid" | jq .
+
+# Get scan configuration snapshot
+curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?phase=config' \
+  -H "X-Project-UUID: my-project-uuid" | jq .
+
+# Combine filters: structured discovery events only
+curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=info&phase=discovery' \
+  -H "X-Project-UUID: my-project-uuid" | jq .
 ```
+
+**Response — structured events (`level=info`):**
 
 ```json
 {
@@ -590,72 +612,209 @@ curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=error&limit=20' 
       "id": 2,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "phase": "discovery",
-      "message": "phase started",
-      "created_at": "2026-02-16T15:00:01Z"
+      "phase": "config",
+      "message": "scan configuration snapshot",
+      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"spa_enabled\":false,\"sast_enabled\":false}",
+      "created_at": "2026-02-16T15:00:00Z"
     },
     {
       "id": 3,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "phase": "discovery",
-      "message": "phase completed",
-      "created_at": "2026-02-16T15:01:30Z"
+      "phase": "heuristics",
+      "message": "phase started",
+      "created_at": "2026-02-16T15:00:01Z"
     },
     {
       "id": 4,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "phase": "dynamic-assessment",
-      "message": "phase started",
-      "metadata": "{\"active_modules\":42,\"passive_modules\":12}",
-      "created_at": "2026-02-16T15:01:31Z"
+      "phase": "heuristics",
+      "message": "phase completed",
+      "created_at": "2026-02-16T15:00:02Z"
     },
     {
       "id": 5,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "message": "scan paused",
-      "created_at": "2026-02-16T15:02:00Z"
+      "phase": "spidering",
+      "message": "phase started",
+      "created_at": "2026-02-16T15:00:02Z"
     },
     {
       "id": 6,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "message": "scan resumed",
-      "created_at": "2026-02-16T15:03:00Z"
+      "phase": "spidering",
+      "message": "phase completed",
+      "created_at": "2026-02-16T15:01:30Z"
     },
     {
       "id": 7,
       "scan_uuid": "scan-abc123",
       "level": "info",
-      "phase": "dynamic-assessment",
-      "message": "phase completed",
-      "created_at": "2026-02-16T15:05:00Z"
+      "phase": "discovery",
+      "message": "phase started",
+      "created_at": "2026-02-16T15:01:31Z"
     },
     {
       "id": 8,
       "scan_uuid": "scan-abc123",
       "level": "info",
+      "phase": "discovery",
+      "message": "soft-deduplicated 42 similar records",
+      "created_at": "2026-02-16T15:02:30Z"
+    },
+    {
+      "id": 9,
+      "scan_uuid": "scan-abc123",
+      "level": "info",
+      "phase": "discovery",
+      "message": "phase completed",
+      "created_at": "2026-02-16T15:03:00Z"
+    },
+    {
+      "id": 10,
+      "scan_uuid": "scan-abc123",
+      "level": "info",
+      "phase": "audit",
+      "message": "phase started",
+      "metadata": "{\"active_modules\":127,\"passive_modules\":85}",
+      "created_at": "2026-02-16T15:03:01Z"
+    },
+    {
+      "id": 11,
+      "scan_uuid": "scan-abc123",
+      "level": "info",
+      "phase": "audit",
+      "message": "phase completed",
+      "created_at": "2026-02-16T15:10:00Z"
+    },
+    {
+      "id": 12,
+      "scan_uuid": "scan-abc123",
+      "level": "info",
       "message": "scan finished",
-      "created_at": "2026-02-16T15:05:01Z"
+      "created_at": "2026-02-16T15:10:01Z"
     }
   ],
-  "total": 8
+  "total": 12
+}
+```
+
+**Response — raw console output (`level=trace`):**
+
+```json
+{
+  "project_uuid": "my-project-uuid",
+  "logs": [
+    {
+      "id": 100,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "heuristics",
+      "message": "✦ HeuristicsCheck  probing CLI target root pages to optimize phase selection",
+      "created_at": "2026-02-16T15:00:01Z"
+    },
+    {
+      "id": 101,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "heuristics",
+      "message": "◆ Level: basic | Targets: 1",
+      "created_at": "2026-02-16T15:00:01Z"
+    },
+    {
+      "id": 102,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "spider",
+      "message": "✦ Spidering  browser-based crawling to discover dynamic content and API endpoints",
+      "created_at": "2026-02-16T15:00:02Z"
+    },
+    {
+      "id": 103,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "spider",
+      "message": "❯ spider │ [200] GET text/html http://localhost:3000/",
+      "created_at": "2026-02-16T15:00:03Z"
+    },
+    {
+      "id": 104,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "spider",
+      "message": "❯ spider │ [200] GET application/json http://localhost:9002/api/projects",
+      "created_at": "2026-02-16T15:00:04Z"
+    },
+    {
+      "id": 105,
+      "scan_uuid": "scan-abc123",
+      "level": "trace",
+      "phase": "discovery",
+      "message": "✦ Discovery  ingest input + content discovery into database",
+      "created_at": "2026-02-16T15:01:31Z"
+    }
+  ],
+  "total": 580
+}
+```
+
+**Response — configuration snapshot (`phase=config`):**
+
+```json
+{
+  "project_uuid": "my-project-uuid",
+  "logs": [
+    {
+      "id": 2,
+      "scan_uuid": "scan-abc123",
+      "level": "info",
+      "phase": "config",
+      "message": "scan configuration snapshot",
+      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"scanning_profile\":\"\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"heuristics_check\":\"basic\",\"scope_origin_mode\":\"relaxed\",\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"spa_enabled\":false,\"sast_enabled\":false,\"external_harvest\":false,\"skip_dynamic\":false}",
+      "created_at": "2026-02-16T15:00:00Z"
+    }
+  ],
+  "total": 1
 }
 ```
 
 **Log entry fields:**
 
-| Field       | Type   | Description                                                              |
-|-------------|--------|--------------------------------------------------------------------------|
-| `id`        | int    | Auto-incrementing log entry ID                                           |
-| `scan_uuid` | string | UUID of the scan this log belongs to                                     |
-| `level`     | string | Log level: `info`, `warn`, or `error`                                    |
-| `phase`     | string | Scan phase name (e.g. `discovery`, `spidering`, `dynamic-assessment`), empty for global events |
-| `message`   | string | Human-readable log message                                               |
-| `metadata`  | string | Optional JSON blob with structured context (e.g. module counts)          |
-| `created_at`| string | ISO 8601 timestamp                                                       |
+| Field        | Type   | Description                                                                                       |
+|--------------|--------|---------------------------------------------------------------------------------------------------|
+| `id`         | int    | Auto-incrementing log entry ID                                                                    |
+| `scan_uuid`  | string | UUID of the scan this log belongs to                                                              |
+| `level`      | string | Log level: `trace`, `info`, `warn`, or `error`                                                    |
+| `phase`      | string | Scan phase (see table below), or empty for global events (scan start/finish, pause/resume)        |
+| `message`    | string | Human-readable log message. For `trace` entries, this is the raw console line with ANSI codes stripped. |
+| `metadata`   | string | Optional JSON blob with structured context. Present on config snapshots and phase-start events.   |
+| `created_at` | string | ISO 8601 timestamp                                                                                |
+
+**Phase values:**
+
+| Phase                | Description                                                       |
+|----------------------|-------------------------------------------------------------------|
+| `config`             | Scan configuration snapshot (logged once at scan start)           |
+| `heuristics`         | Target root page probing to optimize phase selection              |
+| `harvest`            | External URL harvesting from intelligence sources                 |
+| `spidering`          | Browser-based crawling                                            |
+| `sast`               | Static analysis / route extraction from source code               |
+| `discovery`          | Input ingestion + content discovery                               |
+| `seed`               | CLI target seeding (when discovery is skipped)                    |
+| `spa`                | Security posture assessment (Nuclei + Kingfisher)                 |
+| `audit`              | Active/passive module scanning                                    |
+
+**Log levels:**
+
+| Level   | Description                                                                                       |
+|---------|---------------------------------------------------------------------------------------------------|
+| `trace` | Raw console output lines (ANSI-stripped). High volume — includes traffic lines, phase banners, progress feedback. Buffered and batch-inserted every 2 seconds. |
+| `info`  | Structured lifecycle events: phase start/complete/skip, config snapshots, scan start/finish.       |
+| `warn`  | Non-fatal issues: phase deduplication failures, heuristics warnings.                              |
+| `error` | Phase failures, panic recovery, critical errors.                                                  |
 
 **Error responses:**
 

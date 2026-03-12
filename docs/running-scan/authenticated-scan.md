@@ -33,8 +33,8 @@ All three flags can be combined. If no session is explicitly marked as `primary`
 
 Each session has a **role** that determines how it is used during the scan:
 
-- **`primary`** — The main session. Used for discovery, spidering, and as the default requester during dynamic assessment. There should be exactly one primary session.
-- **`compare`** — Comparison sessions for IDOR/BOLA testing. During dynamic assessment, every request made by the primary session is replayed with each compare session's credentials. If a compare session can access resources it shouldn't, the `authz-compare` module flags it.
+- **`primary`** — The main session. Used for discovery, spidering, and as the default requester during the audit phase. There should be exactly one primary session.
+- **`compare`** — Comparison sessions for IDOR/BOLA testing. During the audit phase, every request made by the primary session is replayed with each compare session's credentials. If a compare session can access resources it shouldn't, the `authz-compare` module flags it.
 
 ## Inline Sessions
 
@@ -375,7 +375,7 @@ vigolium scan https://app.com \
 | Phase | Session Usage |
 |-------|---------------|
 | Discovery / Spidering | Primary session only (controlled by `use_in_discovery`) |
-| Dynamic Assessment | Primary session for main scanning; compare sessions for IDOR/BOLA replay (controlled by `compare_enabled`) |
+| Audit | Primary session for main scanning; compare sessions for IDOR/BOLA replay (controlled by `compare_enabled`) |
 
 ## Session Strategy Configuration
 
@@ -392,7 +392,7 @@ scanning_strategy:
 
     # Apply primary session headers during discovery and spidering phases.
     # When false, those phases run unauthenticated and credentials are only
-    # used during dynamic assessment.
+    # used during the audit phase.
     # Default: true
     use_in_discovery: true
 
@@ -463,7 +463,7 @@ scanning_strategy:
     use_in_discovery: false
 ```
 
-Crawls the public-facing site first, then applies session headers only during dynamic assessment. This is useful when you want to see what an unauthenticated attacker can discover before testing the authenticated surface.
+Crawls the public-facing site first, then applies session headers only during the audit phase. This is useful when you want to see what an unauthenticated attacker can discover before testing the authenticated surface.
 
 **Authenticated scanning without IDOR testing:**
 
@@ -565,7 +565,7 @@ Auth flags work with all other scan options:
 vigolium scan https://app.example.com \
   --auth-config ./auth-config.json \
   --strategy blackbox \
-  --only dynamic-assessment \
+  --only audit \
   --concurrency 10 \
   --format html -o report.html
 ```

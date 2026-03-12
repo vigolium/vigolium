@@ -97,7 +97,7 @@ vigolium scan -T targets.txt
 vigolium scan -t https://example.com --strategy deep
 
 # Phase isolation
-vigolium scan -t https://example.com --only dynamic-assessment
+vigolium scan -t https://example.com --only audit
 vigolium scan -t https://example.com --only ext --ext ./custom-check.js
 vigolium scan -t https://example.com --skip discovery,spidering
 
@@ -244,7 +244,7 @@ Run a single scan phase directly. Equivalent to `vigolium scan --only <phase>`.
 | `spidering` | `spitolas` |
 | `spa` | — |
 | `sast` | — |
-| `dynamic-assessment` | `audit` |
+| `audit` | `dynamic-assessment` |
 | `extension` | `ext` |
 
 The `run` command accepts the same flags as `scan` (output, discovery, spidering, SPA, SAST, OAST flags).
@@ -254,8 +254,8 @@ The `run` command accepts the same flags as `scan` (output, discovery, spidering
 ```bash
 vigolium run discover -t https://example.com
 vigolium run spidering -t https://example.com
-vigolium run dynamic-assessment -t https://example.com
-vigolium run dynamic-assessment -t https://example.com --module-tag spring
+vigolium run audit -t https://example.com
+vigolium run audit -t https://example.com --module-tag spring
 vigolium run external-harvest -t https://example.com
 vigolium run spa -t https://example.com
 vigolium run spa -t https://example.com --spa-tags cve --spa-severities critical,high

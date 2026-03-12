@@ -241,7 +241,7 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 	opts.ExternalHarvestEnabled = false
 	opts.SpideringEnabled = false
 	opts.SPAEnabled = false
-	opts.SkipDynamicAssessment = false
+	opts.SkipAudit = false
 
 	concurrency := h.config.Concurrency
 	if concurrency <= 0 {

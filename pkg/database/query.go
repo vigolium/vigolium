@@ -37,7 +37,7 @@ type QueryFilters struct {
 	Severity      []string // Finding severity (critical, high, medium, low, info)
 	ModuleName    string   // Filter findings by module name
 	ModuleType    string   // Filter findings by module type (active, passive, nuclei, etc.)
-	FindingSource string   // Filter findings by source (dynamic-assessment, spa, agent, etc.)
+	FindingSource string   // Filter findings by source (audit, spa, agent, etc.)
 
 	// Date range filtering
 	DateFrom *time.Time

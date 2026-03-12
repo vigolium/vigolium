@@ -2,15 +2,19 @@
 
 ## Overview
 
-The agent API provides three run modes that mirror the `vigolium agent` CLI subcommands:
+The agent API provides three run modes that mirror the `vigolium agent` CLI subcommands, plus session history and status endpoints:
 
 | Endpoint                         | CLI Equivalent              | Description                              |
 |----------------------------------|-----------------------------|------------------------------------------|
 | `POST /api/agent/run/query`      | `vigolium agent [query]`    | Single-shot prompt execution             |
 | `POST /api/agent/run/autopilot`  | `vigolium agent autopilot`  | Autonomous AI-driven scanning session    |
 | `POST /api/agent/run/pipeline`   | `vigolium agent pipeline`   | Multi-phase scanning pipeline            |
+| `GET /api/agent/status/list`     | —                           | List runs with in-memory status          |
+| `GET /api/agent/status/:id`      | —                           | Get run status by ID                     |
+| `GET /api/agent/sessions`        | `vigolium agent sessions`   | Paginated session history from DB        |
+| `GET /api/agent/sessions/:id`    | —                           | Full session detail with debug fields    |
 
-All three modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
+All three run modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
 
 ---
 
@@ -369,6 +373,140 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400-e29b-41d4-a716-44665
   "completed_at": "2026-02-16T15:08:00Z"
 }
 ```
+
+---
+
+## GET /api/agent/sessions — List Agent Sessions
+
+Returns a paginated list of agent sessions from the database. Unlike `/api/agent/status/list` (which includes in-memory running state), this endpoint returns persisted historical sessions with structured metadata — but without the large debug fields (`prompt_sent`, `agent_raw_output`, etc.) to keep responses lightweight.
+
+**Query parameters:**
+
+| Parameter | Type   | Default | Description                                      |
+|-----------|--------|---------|--------------------------------------------------|
+| `mode`    | string | —       | Filter by mode: `query`, `autopilot`, `pipeline`, `swarm` |
+| `limit`   | int    | `50`    | Page size (max `500`)                            |
+| `offset`  | int    | `0`     | Offset for pagination                            |
+
+**Headers:**
+
+| Header           | Description                                |
+|------------------|--------------------------------------------|
+| `X-Project-UUID` | Scope to a specific project (optional)     |
+
+```bash
+# List all sessions
+curl -s http://localhost:9002/api/agent/sessions | jq .
+
+# Filter by mode with pagination
+curl -s "http://localhost:9002/api/agent/sessions?mode=swarm&limit=10&offset=0" | jq .
+```
+
+**Response (200):**
+
+```json
+{
+  "project_uuid": "default",
+  "data": [
+    {
+      "uuid": "agt-550e8400-e29b-41d4-a716-446655440000",
+      "mode": "pipeline",
+      "status": "completed",
+      "agent_name": "claude",
+      "template_id": "",
+      "target_url": "https://example.com",
+      "input_type": "url",
+      "current_phase": "report",
+      "phases_run": ["discover", "plan", "scan", "triage", "report"],
+      "finding_count": 5,
+      "record_count": 42,
+      "saved_count": 42,
+      "duration_ms": 271200,
+      "started_at": "2026-02-16T15:00:00Z",
+      "completed_at": "2026-02-16T15:04:31Z",
+      "created_at": "2026-02-16T15:00:00Z"
+    },
+    {
+      "uuid": "agt-661f9511-f3ac-52e5-b827-557766551111",
+      "mode": "query",
+      "status": "completed",
+      "agent_name": "claude",
+      "template_id": "code-review",
+      "finding_count": 3,
+      "saved_count": 3,
+      "duration_ms": 18500,
+      "started_at": "2026-02-16T14:50:00Z",
+      "completed_at": "2026-02-16T14:50:18Z",
+      "created_at": "2026-02-16T14:50:00Z"
+    }
+  ],
+  "total": 24,
+  "limit": 50,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+---
+
+## GET /api/agent/sessions/:id — Agent Session Detail
+
+Returns the full detail of a single agent session, including the large debug fields omitted from the list endpoint: `prompt_sent`, `agent_raw_output`, `attack_plan`, `triage_result`, and `result_json`.
+
+```bash
+curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446655440000 | jq .
+```
+
+**Response fields (in addition to all list fields):**
+
+| Field              | Type     | Description                                            |
+|--------------------|----------|--------------------------------------------------------|
+| `input_raw`        | string   | Raw input provided to the agent run                    |
+| `module_names`     | string[] | Scanner modules used or selected                       |
+| `session_id`       | string   | ACP session ID (for autopilot resume)                  |
+| `prompt_sent`      | string   | Full prompt text sent to the agent                     |
+| `agent_raw_output` | string   | Complete raw output from the agent                     |
+| `attack_plan`      | string   | JSON attack plan (pipeline/swarm modes)                |
+| `triage_result`    | string   | JSON triage result (pipeline mode)                     |
+| `result_json`      | string   | Full result object as JSON                             |
+
+**Response (200):**
+
+```json
+{
+  "uuid": "agt-550e8400-e29b-41d4-a716-446655440000",
+  "mode": "pipeline",
+  "status": "completed",
+  "agent_name": "claude",
+  "target_url": "https://example.com",
+  "input_type": "url",
+  "current_phase": "report",
+  "phases_run": ["discover", "plan", "scan", "triage", "report"],
+  "finding_count": 5,
+  "record_count": 42,
+  "saved_count": 42,
+  "duration_ms": 271200,
+  "started_at": "2026-02-16T15:00:00Z",
+  "completed_at": "2026-02-16T15:04:31Z",
+  "created_at": "2026-02-16T15:00:00Z",
+  "input_raw": "https://example.com",
+  "module_names": ["xss-reflected", "sqli-error"],
+  "session_id": "",
+  "prompt_sent": "You are a security scanning agent...",
+  "agent_raw_output": "I'll analyze the target for vulnerabilities...",
+  "attack_plan": "{\"module_tags\":[\"xss\",\"sqli\"],\"focus_areas\":[\"auth\"]}",
+  "triage_result": "{\"confirmed\":3,\"false_positives\":2}",
+  "result_json": "{...}"
+}
+```
+
+**Error responses:**
+
+| Status | Condition                |
+|--------|--------------------------|
+| `400`  | Missing session ID       |
+| `404`  | Session not found        |
+| `503`  | Database not configured  |
 
 ---
 

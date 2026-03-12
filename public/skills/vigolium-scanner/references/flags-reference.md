@@ -296,7 +296,7 @@ Flags specific to `vigolium finding` (aliases: `findings`).
 | `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
 | `--scan-id` | — | string | — | Filter by scan session ID |
 | `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
-| `--finding-source` | — | string | — | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--finding-source` | — | string | — | Filter by finding source (audit, spa, agent, oast, source-tools, extension) |
 | `--id` | — | int | `0` | Filter by finding ID |
 
 ### Finding display flags
@@ -385,7 +385,7 @@ DB list flags.
 | `--min-risk` | — | int | `0` | Show only records with risk score at or above this value |
 | `--remark` | — | string | — | Filter records containing this text in remarks |
 | `--module-type` | — | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
-| `--finding-source` | — | string | — | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
+| `--finding-source` | — | string | — | Filter findings by source (audit, spa, agent, oast, source-tools, extension) |
 | `--from` | — | string | — | Records after date |
 | `--to` | — | string | — | Records before date |
 | `--header` | — | string | — | Search within HTTP headers |

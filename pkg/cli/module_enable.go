@@ -141,9 +141,9 @@ func runModuleEnable(cmd *cobra.Command, args []string) error {
 	for _, m := range matches {
 		var modified bool
 		if m.moduleType == "active" {
-			settings.DynamicAssessment.EnabledModules.ActiveModules, modified = addModuleToList(settings.DynamicAssessment.EnabledModules.ActiveModules, m.id)
+			settings.Audit.EnabledModules.ActiveModules, modified = addModuleToList(settings.Audit.EnabledModules.ActiveModules, m.id)
 		} else {
-			settings.DynamicAssessment.EnabledModules.PassiveModules, modified = addModuleToList(settings.DynamicAssessment.EnabledModules.PassiveModules, m.id)
+			settings.Audit.EnabledModules.PassiveModules, modified = addModuleToList(settings.Audit.EnabledModules.PassiveModules, m.id)
 		}
 		if modified {
 			enabled = append(enabled, m.id)
@@ -186,11 +186,11 @@ func runModuleDisable(cmd *cobra.Command, args []string) error {
 	for _, m := range matches {
 		var modified bool
 		if m.moduleType == "active" {
-			settings.DynamicAssessment.EnabledModules.ActiveModules, modified = removeModuleFromList(
-				settings.DynamicAssessment.EnabledModules.ActiveModules, m.id, m.moduleType)
+			settings.Audit.EnabledModules.ActiveModules, modified = removeModuleFromList(
+				settings.Audit.EnabledModules.ActiveModules, m.id, m.moduleType)
 		} else {
-			settings.DynamicAssessment.EnabledModules.PassiveModules, modified = removeModuleFromList(
-				settings.DynamicAssessment.EnabledModules.PassiveModules, m.id, m.moduleType)
+			settings.Audit.EnabledModules.PassiveModules, modified = removeModuleFromList(
+				settings.Audit.EnabledModules.PassiveModules, m.id, m.moduleType)
 		}
 		if modified {
 			disabled = append(disabled, m.id)

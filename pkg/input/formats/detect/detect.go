@@ -42,10 +42,7 @@ func DetectStdinFormat(content string) StdinFormat {
 	}
 
 	// Check curl: strip leading "$ " prompt, then check for "curl " prefix
-	trimmed := firstLine
-	if strings.HasPrefix(trimmed, "$ ") {
-		trimmed = strings.TrimPrefix(trimmed, "$ ")
-	}
+	trimmed := strings.TrimPrefix(firstLine, "$ ")
 	trimmed = strings.TrimSpace(trimmed)
 	if strings.HasPrefix(trimmed, "curl ") || trimmed == "curl" {
 		return FormatCurl
@@ -66,10 +63,7 @@ func ParseStdinContent(content string, format StdinFormat) ([]*httpmsg.HttpReque
 
 	case FormatCurl:
 		// Strip leading "$ " prompt if present
-		cmd := strings.TrimSpace(content)
-		if strings.HasPrefix(cmd, "$ ") {
-			cmd = strings.TrimPrefix(cmd, "$ ")
-		}
+		cmd := strings.TrimPrefix(strings.TrimSpace(content), "$ ")
 		rr, err := curl.ParseSingleCommand(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse curl command: %w", err)

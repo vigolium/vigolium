@@ -57,7 +57,7 @@ curl -s 'http://localhost:9002/api/config?show_sensitive=true' | jq .
 
 Updates one or more configuration values using dot-notation keys. Values are coerced to match the existing field type (bool, int, float, string, or comma-separated list). Changes are persisted to the config file on disk.
 
-Reloadable sections (scope, notify, dynamic_assessment, mutation_strategy) take effect immediately. Server and database changes require a restart.
+Reloadable sections (scope, notify, audit, mutation_strategy) take effect immediately. Server and database changes require a restart.
 
 **Request body:** JSON object mapping dot-notation keys to string values.
 
@@ -75,14 +75,14 @@ curl -s -X POST http://localhost:9002/api/config \
   -d '{
     "notify.enabled": "true",
     "scope.applied_on_ingest": "true",
-    "dynamic_assessment.extensions.enabled": "false"
+    "audit.extensions.enabled": "false"
   }' | jq .
 
 # Update a list value (comma-separated)
 curl -s -X POST http://localhost:9002/api/config \
   -H "Content-Type: application/json" \
   -d '{
-    "dynamic_assessment.enabled_modules.active_modules": "xss-scanner,sqli-error-based,lfi-path-traversal"
+    "audit.enabled_modules.active_modules": "xss-scanner,sqli-error-based,lfi-path-traversal"
   }' | jq .
 ```
 
@@ -120,7 +120,7 @@ If some keys are valid and others are not, valid keys are still applied. The res
 
 The server watches the config file (`~/.vigolium/vigolium-configs.yaml`) for changes. When the file is modified — whether by a text editor, the CLI (`vigolium config set`), or any other tool — reloadable sections are automatically applied without restarting the server.
 
-**Reloadable sections:** `scope`, `notify`, `dynamic_assessment`, `mutation_strategy`
+**Reloadable sections:** `scope`, `notify`, `audit`, `mutation_strategy`
 
 **Non-reloadable sections:** `server`, `database` (a warning is logged; restart required)
 

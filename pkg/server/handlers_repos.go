@@ -77,7 +77,7 @@ func (h *Handlers) HandleRepoUpload(c fiber.Ctx) error {
 			Error: "failed to open uploaded file: " + err.Error(),
 		})
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	// Save to temp file for extraction (zip needs random access)
 	tmpFile, err := os.CreateTemp("", "vigolium-upload-*")
@@ -88,16 +88,16 @@ func (h *Handlers) HandleRepoUpload(c fiber.Ctx) error {
 		})
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err := io.Copy(tmpFile, src); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		_ = os.RemoveAll(destDir)
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to save uploaded file: " + err.Error(),
 		})
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Extract
 	switch archiveType {
@@ -243,7 +243,7 @@ func extractZip(zipPath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		target := filepath.Join(destDir, f.Name)
@@ -275,13 +275,13 @@ func extractZipFile(f *zip.File, target string) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, rc)
 	return err
@@ -292,13 +292,13 @@ func extractTarGz(archivePath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	return extractTarReader(tar.NewReader(gz), destDir)
 }
@@ -308,7 +308,7 @@ func extractTar(archivePath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return extractTarReader(tar.NewReader(f), destDir)
 }
@@ -343,10 +343,10 @@ func extractTarReader(tr *tar.Reader, destDir string) error {
 				return err
 			}
 			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
+				_ = out.Close()
 				return err
 			}
-			out.Close()
+			_ = out.Close()
 		}
 	}
 	return nil

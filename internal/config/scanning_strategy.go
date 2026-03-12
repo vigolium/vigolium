@@ -36,7 +36,7 @@ type SessionStrategyConfig struct {
 	UseInDiscovery bool `yaml:"use_in_discovery"`
 
 	// CompareEnabled controls whether compare sessions are activated for
-	// cross-session IDOR/BOLA replay during dynamic assessment. Default: true.
+	// cross-session IDOR/BOLA replay during the audit phase. Default: true.
 	CompareEnabled bool `yaml:"compare_enabled"`
 
 	// ReauthInterval re-executes login flows at this interval to refresh
@@ -69,7 +69,7 @@ type StrategyPhases struct {
 	Discovery          bool `yaml:"discovery"`
 	Spidering          bool `yaml:"spidering"`
 	SPA                bool `yaml:"spa"`
-	DynamicAssessment  bool `yaml:"dynamic_assessment"`
+	Audit  bool `yaml:"audit"`
 	SourceAware        bool `yaml:"source_aware"`
 }
 
@@ -84,28 +84,28 @@ func DefaultScanningStrategyConfig() *ScanningStrategyConfig {
 			ExternalHarvesting: false,
 			Discovery:          false,
 			SPA:                false,
-			DynamicAssessment:  true,
+			Audit:  true,
 		},
 		Balanced: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          true,
 			Spidering:          true,
 			SPA:                true,
-			DynamicAssessment:  true,
+			Audit:  true,
 		},
 		Deep: StrategyPhases{
 			ExternalHarvesting: true,
 			Discovery:          true,
 			Spidering:          true,
 			SPA:                true,
-			DynamicAssessment:  true,
+			Audit:  true,
 		},
 		Whitebox: StrategyPhases{
 			ExternalHarvesting: false,
 			SourceAware:        true,
 			Discovery:          true,
 			SPA:                true,
-			DynamicAssessment:  true,
+			Audit:  true,
 		},
 	}
 }

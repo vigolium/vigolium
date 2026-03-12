@@ -59,7 +59,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// maxFeedbackRounds limits re-scanning of newly discovered URLs in the dynamic assessment phase.
+// maxFeedbackRounds limits re-scanning of newly discovered URLs in the audit phase.
 const maxFeedbackRounds = 3
 
 // kingfisherBatchSize is the number of records per batch when scanning response bodies for secrets.
@@ -75,6 +75,7 @@ type Runner struct {
 	repository        *database.Repository // Optional: database storage
 	heuristicsResults map[string]*HeuristicsResult
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
+	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
 
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
@@ -221,10 +222,14 @@ func setupUserAgents() {
 	useragent.UserAgents = userAgents
 }
 
-// setPhaseTag sets the phase label on the output writer for console prefix.
+// setPhaseTag sets the phase label on the output writer for console prefix,
+// and updates the teeWriter's phase for trace-level log entries.
 func (r *Runner) setPhaseTag(tag string) {
 	if sw, ok := r.output.(*output.StandardWriter); ok {
 		sw.PhaseTag = tag
+	}
+	if r.teeWriter != nil {
+		r.teeWriter.SetPhase(tag)
 	}
 }
 
@@ -243,6 +248,7 @@ func (r *Runner) printPhaseDetail(detail string) {
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), detail)
 }
+
 
 // formatTargetCounts builds a standardized "Targets: N (M CLI | K HTTP Records)" string.
 // Only HTTP records whose hostname matches the CLI targets are counted.
@@ -494,7 +500,7 @@ func fmtDuration(d time.Duration) string {
 //	Spidering         — browser-based crawling (opt-in)
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
 //	SPA               — nuclei + kingfisher batch (opt-in via --spa)
-//	DynamicAssessment — modules + extensions scan DB records
+//	Auditing — modules + extensions scan DB records
 // printScanConfig prints a human-readable scan configuration summary to stderr.
 // This provides the same information the CLI's printScanSummary shows, ensuring
 // API-triggered scans also display the effective configuration.
@@ -566,7 +572,7 @@ func (r *Runner) printScanConfig() {
 		phaseLabel("Discovery", "discovery", opts.DiscoverEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("SPA", "spa", opts.SPAEnabled),
-		phaseLabel("DynamicAssessment", "dynamic_assessment", !opts.SkipDynamicAssessment),
+		phaseLabel("Auditing", "audit", !opts.SkipAudit),
 		phaseLabel("SAST", "sast", opts.SASTEnabled))
 
 	// Speed
@@ -591,6 +597,50 @@ func (r *Runner) printScanConfig() {
 		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
 }
 
+// logConfigSnapshot stores the effective scan configuration as a structured
+// metadata entry in the scan logs. This allows API consumers to inspect what
+// settings were active for any historical scan.
+func (r *Runner) logConfigSnapshot() {
+	opts := r.options
+	settings := r.settings
+
+	strategy := ""
+	rateLimit := 0
+	if settings != nil {
+		strategy = settings.ScanningStrategy.DefaultStrategy
+		rateLimit = settings.ScanningPace.RateLimit
+	}
+
+	var activeCount int
+	if len(opts.Modules) > 0 && opts.Modules[0] == "all" {
+		activeCount = len(modules.GetActiveModules())
+	} else {
+		activeCount = len(modules.GetActiveModulesByIDs(opts.Modules))
+	}
+	passiveCount := len(modules.GetPassiveModules())
+
+	meta := map[string]interface{}{
+		"project_uuid":        opts.ProjectUUID,
+		"targets":             opts.Targets,
+		"strategy":            strategy,
+		"scanning_profile":    opts.ScanningProfile,
+		"concurrency":         opts.Concurrency,
+		"rate_limit":          rateLimit,
+		"max_per_host":        opts.MaxPerHost,
+		"heuristics_check":    opts.HeuristicsCheck,
+		"scope_origin_mode":   opts.ScopeOriginMode,
+		"active_modules":      activeCount,
+		"passive_modules":     passiveCount,
+		"spidering_enabled":   opts.SpideringEnabled,
+		"discovery_enabled":   opts.DiscoverEnabled,
+		"spa_enabled":         opts.SPAEnabled,
+		"sast_enabled":        opts.SASTEnabled,
+		"external_harvest":    opts.ExternalHarvestEnabled,
+		"skip_dynamic":        opts.SkipAudit,
+	}
+	r.scanLogger.InfoWithMeta("config", "scan configuration snapshot", meta)
+}
+
 func (r *Runner) RunEnumeration() error {
 	defer close(r.done)
 	ctx := r.ctx
@@ -601,12 +651,79 @@ func (r *Runner) RunEnumeration() error {
 	}
 	defer infra.Close()
 
+	// Initialize scan logger (must happen before printScanConfig so the tee captures it)
+	r.scanLogger = database.NewScanLogger(r.repository, infra.scanUUID)
+	r.scanLogger.StartBatcher()
+	defer r.scanLogger.Close()
+
+	// Create scan record in the database so every scan is tracked with its lifecycle.
+	if r.repository != nil {
+		target := strings.Join(r.options.Targets, ", ")
+		scan := &database.Scan{
+			UUID:        infra.scanUUID,
+			ProjectUUID: r.options.ProjectUUID,
+			Name:        "cli-scan",
+			Status:      "running",
+			Target:      target,
+			Threads:     r.options.Concurrency,
+			ScanSource:  "cli",
+			ScanMode:    "full",
+			StartedAt:   time.Now(),
+		}
+		if err := r.repository.CreateScan(ctx, scan); err != nil {
+			zap.L().Warn("Failed to create scan record", zap.Error(err))
+		} else {
+			// Defer scan completion so the record is updated when RunEnumeration finishes.
+			defer func() {
+				var errMsg string
+				if r.ctx.Err() != nil {
+					errMsg = "cancelled"
+				}
+				if completeErr := r.repository.CompleteScan(ctx, infra.scanUUID, errMsg); completeErr != nil {
+					zap.L().Warn("Failed to complete scan record", zap.Error(completeErr))
+				}
+			}()
+		}
+	}
+
+	// Set up TeeWriter to capture raw stderr output as trace-level scan logs.
+	if r.repository != nil {
+		origStderr := os.Stderr
+		r.teeWriter = newTeeWriter(origStderr, r.scanLogger)
+		pr, pw, err := os.Pipe()
+		if err == nil {
+			os.Stderr = pw
+			// Goroutine reads from the pipe and writes through the tee.
+			go func() {
+				buf := make([]byte, 4096)
+				for {
+					n, readErr := pr.Read(buf)
+					if n > 0 {
+						_, _ = r.teeWriter.Write(buf[:n])
+					}
+					if readErr != nil {
+						break
+					}
+				}
+			}()
+			defer func() {
+				_ = pw.Close()
+				// Allow goroutine to drain.
+				time.Sleep(50 * time.Millisecond)
+				_ = pr.Close()
+				os.Stderr = origStderr
+				r.teeWriter.Flush()
+			}()
+		}
+	}
+
 	// Print scan configuration summary
 	r.printScanConfig()
 
-	// Initialize scan logger
-	r.scanLogger = database.NewScanLogger(r.repository, infra.scanUUID)
 	r.scanLogger.Info("", "scan started")
+
+	// Log scan configuration snapshot as structured metadata.
+	r.logConfigSnapshot()
 
 	// Panic recovery with notification
 	defer func() {
@@ -706,7 +823,7 @@ func (r *Runner) RunEnumeration() error {
 		}
 	} else {
 		// Discovery skipped — still seed CLI targets if SPA or DA will run
-		needsDBRecords := r.options.SPAEnabled || !r.options.SkipDynamicAssessment
+		needsDBRecords := r.options.SPAEnabled || !r.options.SkipAudit
 		if needsDBRecords {
 			r.setPhaseTag("seed")
 			r.scanLogger.Info("seed", "seeding CLI targets")
@@ -736,28 +853,28 @@ func (r *Runner) RunEnumeration() error {
 		}
 	}
 
-	// DynamicAssessment — runs if modules exist and not skipped by strategy
-	if !r.options.SkipDynamicAssessment {
+	// Auditing — runs if modules exist and not skipped by strategy
+	if !r.options.SkipAudit {
 		r.setPhaseTag("audit")
 		activeModules, passiveModules := r.resolveAllModules(infra)
 		if len(activeModules) > 0 || len(passiveModules) > 0 {
-			r.scanLogger.InfoWithMeta("dynamic-assessment", "phase started", map[string]interface{}{
+			r.scanLogger.InfoWithMeta("audit", "phase started", map[string]interface{}{
 				"active_modules":  len(activeModules),
 				"passive_modules": len(passiveModules),
 			})
-			if err := r.runDynamicAssessmentPhase(ctx, infra, activeModules, passiveModules); err != nil {
-				zap.L().Error("DynamicAssessment phase failed", zap.Error(err))
-				r.scanLogger.Error("dynamic-assessment", "phase failed: "+err.Error())
+			if err := r.runAuditPhase(ctx, infra, activeModules, passiveModules); err != nil {
+				zap.L().Error("Auditing phase failed", zap.Error(err))
+				r.scanLogger.Error("audit", "phase failed: "+err.Error())
 			} else {
-				r.scanLogger.Info("dynamic-assessment", "phase completed")
+				r.scanLogger.Info("audit", "phase completed")
 			}
 		} else {
 			zap.L().Info("No modules to execute")
-			r.scanLogger.Info("dynamic-assessment", "skipped, no modules to execute")
+			r.scanLogger.Info("audit", "skipped, no modules to execute")
 		}
 	} else {
-		zap.L().Info("DynamicAssessment skipped by scanning strategy")
-		r.scanLogger.Info("dynamic-assessment", "skipped by scanning strategy")
+		zap.L().Info("Auditing skipped by scanning strategy")
+		r.scanLogger.Info("audit", "skipped by scanning strategy")
 	}
 
 	r.scanLogger.Info("", "scan finished")
@@ -766,8 +883,15 @@ func (r *Runner) RunEnumeration() error {
 
 // buildInfrastructure extracts common setup from the old RunEnumeration into a reusable struct.
 func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
+	// Auto-generate scan UUID when not provided via --scan-id
+	scanUUID := r.options.ScanUUID
+	if scanUUID == "" {
+		scanUUID = uuid.New().String()
+		r.options.ScanUUID = scanUUID
+	}
+
 	infra := &phaseInfra{
-		scanUUID: r.options.ScanUUID,
+		scanUUID: scanUUID,
 	}
 
 	// Create notifier with backends
@@ -851,7 +975,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 	}
 
 	// Initialize JS extension engine
-	if r.settings != nil && r.settings.DynamicAssessment.Extensions.Enabled {
+	if r.settings != nil && r.settings.Audit.Extensions.Enabled {
 		jsEngineOpts := &jsext.EngineOptions{
 			ScanUUID:   r.options.ScanUUID,
 			Repository: r.repository,
@@ -861,7 +985,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 			jsEngineOpts.ScopeConfig = &scopeCfg
 			jsEngineOpts.ScopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
 		}
-		jsEngine, err := jsext.NewEngine(&r.settings.DynamicAssessment.Extensions, httpRequester, jsEngineOpts)
+		jsEngine, err := jsext.NewEngine(&r.settings.Audit.Extensions, httpRequester, jsEngineOpts)
 		if err != nil {
 			zap.L().Warn("Failed to initialize JS extensions", zap.Error(err))
 		} else {
@@ -938,7 +1062,7 @@ func (r *Runner) initSessions(infra *phaseInfra) error {
 
 	// Merge primary session headers into the main requester's options.
 	// When use_in_discovery is false, primary headers are only applied to the
-	// dynamic assessment requester (handled downstream), not the main one used
+	// audit phase requester (handled downstream), not the main one used
 	// for discovery and spidering.
 	primaryHeaders := mgr.PrimaryHeaders()
 	if len(primaryHeaders) > 0 && sessionCfg.UseInDiscovery {
@@ -1124,7 +1248,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 }
 
 // seedCLITargets ingests CLI targets into the database without running deparos or modules.
-// This is used when discovery is skipped but downstream phases (SPA, DynamicAssessment)
+// This is used when discovery is skipped but downstream phases (SPA, Auditing)
 // need DB records to operate on.
 func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	r.printPhaseStart("Seed", "ingest CLI targets into database (discovery skipped)")
@@ -1465,15 +1589,15 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 	return nil
 }
 
-// runDynamicAssessmentPhase runs all modules on DB records with a feedback loop for newly discovered URLs.
-func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfra, activeModules []modules.ActiveModule, passiveModules []modules.PassiveModule) error {
+// runAuditPhase runs all modules on DB records with a feedback loop for newly discovered URLs.
+func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeModules []modules.ActiveModule, passiveModules []modules.PassiveModule) error {
 	phaseStart := time.Now()
 
 	if r.repository == nil {
-		return fmt.Errorf("DynamicAssessment: database repository required")
+		return fmt.Errorf("auditing: database repository required")
 	}
 
-	r.printPhaseStart("DynamicAssessment", "execute dynamic security assessments through coordinated active and passive scanning modules")
+	r.printPhaseStart("Auditing", "execute dynamic security assessments through coordinated active and passive scanning modules")
 	r.printPhaseDetail(fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", len(activeModules))),
 		terminal.Orange(fmt.Sprintf("%d", len(passiveModules)))))
@@ -1482,7 +1606,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		terminal.HiBlue(fmt.Sprintf("%d", r.options.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", r.options.MaxPerHost)))
 	if r.settings != nil {
-		daPace := r.settings.ScanningPace.ResolvePhase("dynamic_assessment")
+		daPace := r.settings.ScanningPace.ResolvePhase("audit")
 		if daPace.MaxDuration > 0 {
 			daSpeedDetail += fmt.Sprintf(", max-duration=%s", terminal.HiTeal(daPace.MaxDuration.String()))
 		}
@@ -1493,7 +1617,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	r.printPhaseDetail(daSpeedDetail)
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 
-	zap.L().Info("DynamicAssessment: running modules on database records",
+	zap.L().Info("Auditing: running modules on database records",
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
@@ -1518,25 +1642,21 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		}
 	}
 
-	// Create scan record for cursor tracking
-	scan := &database.Scan{
-		UUID:        fmt.Sprintf("scan-phase3-%d", time.Now().UnixNano()),
-		ProjectUUID: r.options.ProjectUUID,
-		Name:        "phase3-analysis",
-		Status:      "running",
-		Modules:     r.buildModulesString(activeModules, passiveModules),
-		ScanSource:  "cli",
-		ScanMode:    "full",
-		StartedAt:   time.Now(),
-	}
-	if err := r.repository.CreateScanWithCursor(ctx, scan); err != nil {
-		return fmt.Errorf("DynamicAssessment: failed to create scan: %w", err)
+	// Update the top-level scan record with module info for cursor tracking.
+	// The scan record was already created at the start of RunEnumeration().
+	if _, err := r.repository.DB().NewUpdate().
+		Model((*database.Scan)(nil)).
+		Set("modules = ?", r.buildModulesString(activeModules, passiveModules)).
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("uuid = ?", infra.scanUUID).
+		Exec(ctx); err != nil {
+		zap.L().Warn("Failed to update scan modules", zap.Error(err))
 	}
 
-	// Resolve DA concurrency: scanning_pace.dynamic_assessment overrides global when CLI not explicit
+	// Resolve audit concurrency: scanning_pace.audit overrides global when CLI not explicit
 	daConcurrency := r.options.Concurrency
 	if r.settings != nil && !r.options.ConcurrencyExplicitlySet {
-		daPace := r.settings.ScanningPace.ResolvePhase("dynamic_assessment")
+		daPace := r.settings.ScanningPace.ResolvePhase("audit")
 		if daPace.Concurrency > 0 {
 			daConcurrency = daPace.Concurrency
 		}
@@ -1553,7 +1673,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		var err error
 		oastService, err = oast.New(&r.settings.OAST, onOASTResult, r.repository, infra.scanUUID, r.options.ProjectUUID, nil)
 		if err != nil {
-			zap.L().Warn("DynamicAssessment: OAST initialization failed, continuing without OAST", zap.Error(err))
+			zap.L().Warn("Auditing: OAST initialization failed, continuing without OAST", zap.Error(err))
 		}
 		if oastService != nil {
 			oastService.Start()
@@ -1568,7 +1688,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
 		roundStart := time.Now()
-		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, scan.UUID).
+		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 			WithHostnames(inScopeHostnames)
 
 		executorCfg := core.ExecutorConfig{
@@ -1602,38 +1722,39 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		}
 		_, err := executor.Execute(ctx)
 		if err != nil {
-			zap.L().Error("DynamicAssessment: executor error", zap.Error(err), zap.Int("round", round))
+			zap.L().Error("Auditing: executor error", zap.Error(err), zap.Int("round", round))
 			break
 		}
 
 		roundElapsed := time.Since(roundStart)
-		r.printPhaseComplete("DynamicAssessment",
+		r.printPhaseComplete("Auditing",
 			fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", executor.Processed())), terminal.HiPurple(fmtDuration(roundElapsed))))
-		zap.L().Info("DynamicAssessment: round completed",
+		zap.L().Info("Auditing: round completed",
 			zap.Int("round", round+1),
 			zap.Int64("processed", executor.Processed()))
 
 		// Deduplicate findings after each audit round
-		r.deduplicateFindings(ctx, "DynamicAssessment")
+		r.deduplicateFindings(ctx, "Auditing")
 
-		// Check for newly discovered records
+		// Check for newly discovered records by reading the current cursor from the scan record.
 		if round < maxFeedbackRounds-1 {
-			newCount, countErr := r.repository.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID, inScopeHostnames...)
+			currentScan, scanErr := r.repository.GetScanByUUID(ctx, infra.scanUUID)
+			if scanErr != nil {
+				break
+			}
+			newCount, countErr := r.repository.CountRecordsAfterCursor(ctx, currentScan.CursorAt, currentScan.CursorUUID, inScopeHostnames...)
 			if countErr != nil || newCount == 0 {
 				break
 			}
-			r.printPhaseFeedback("DynamicAssessment",
+			r.printPhaseFeedback("Auditing",
 				fmt.Sprintf("%s new records discovered, starting round %d", terminal.Orange(fmt.Sprintf("%d", newCount)), round+2))
-			zap.L().Info("DynamicAssessment: new records discovered, starting next round",
+			zap.L().Info("Auditing: new records discovered, starting next round",
 				zap.Int64("new_records", newCount))
 		}
 	}
 
 	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("DynamicAssessment", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
-
-	// Complete scan record
-	_ = r.repository.CompleteScan(ctx, scan.UUID, "")
+	r.printPhaseComplete("Auditing", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 
 	return nil
 }
@@ -1693,14 +1814,14 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 
 	// Filter modules based on enabled_modules config (only when CLI uses "all")
 	if r.settings != nil {
-		if activeUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.ActiveModules) {
-			activeModules = modules.GetActiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.ActiveModules)
-			zap.L().Info("Active modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.ActiveModules))
+		if activeUsingAll && !isAllModules(r.settings.Audit.EnabledModules.ActiveModules) {
+			activeModules = modules.GetActiveModulesByIDs(r.settings.Audit.EnabledModules.ActiveModules)
+			zap.L().Info("Active modules filtered by config", zap.Strings("ids", r.settings.Audit.EnabledModules.ActiveModules))
 		}
 
-		if passiveUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.PassiveModules) {
-			passiveModules = modules.GetPassiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.PassiveModules)
-			zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.PassiveModules))
+		if passiveUsingAll && !isAllModules(r.settings.Audit.EnabledModules.PassiveModules) {
+			passiveModules = modules.GetPassiveModulesByIDs(r.settings.Audit.EnabledModules.PassiveModules)
+			zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.Audit.EnabledModules.PassiveModules))
 		}
 	}
 
@@ -1862,10 +1983,7 @@ func buildSPATargetsFromPaths(paths []database.PathTarget) []string {
 		}
 
 		target := base + path
-		// Remove trailing slash unless it's the root path
-		if path != "/" {
-			target = strings.TrimRight(target, "/")
-		}
+		target = strings.TrimRight(target, "/")
 		if _, ok := seen[target]; !ok {
 			seen[target] = struct{}{}
 			targets = append(targets, target)
@@ -1886,7 +2004,7 @@ func buildSPAHostTargets(paths []database.PathTarget) []string {
 		if (p.Scheme == "https" && p.Port != 443) || (p.Scheme == "http" && p.Port != 80) {
 			base = fmt.Sprintf("%s://%s:%d", p.Scheme, p.Hostname, p.Port)
 		}
-		target := base + "/"
+		target := base
 		if _, ok := seen[target]; !ok {
 			seen[target] = struct{}{}
 			targets = append(targets, target)
@@ -2918,7 +3036,7 @@ func (r *Runner) ingestAstGrepFindings(ctx context.Context, scanUUID string, mat
 
 		if isRouteCategory {
 			// Route categories: show routes table, put raw ast-grep JSON in evidence
-			desc.WriteString(fmt.Sprintf("## Routes found in %s\n\n", astGrepCategoryName(cat)))
+			fmt.Fprintf(&desc, "## Routes found in %s\n\n", astGrepCategoryName(cat))
 			desc.WriteString("| Method | Path | Params | Source |\n")
 			desc.WriteString("|--------|------|--------|--------|\n")
 			var matches []astgrep.Match
@@ -2932,12 +3050,12 @@ func (r *Runner) ingestAstGrepFindings(ctx context.Context, scanUUID string, mat
 					if len(e.route.Params) > 0 {
 						params = strings.Join(e.route.Params, ", ")
 					}
-					desc.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+					fmt.Fprintf(&desc, "| %s | %s | %s | %s |\n",
 						escapeMarkdownTable(method),
 						escapeMarkdownTable(e.route.Path),
 						escapeMarkdownTable(params),
 						escapeMarkdownTable(e.location),
-					))
+					)
 				}
 				matches = append(matches, e.match)
 			}
@@ -2946,16 +3064,16 @@ func (r *Runner) ingestAstGrepFindings(ctx context.Context, scanUUID string, mat
 			}
 		} else {
 			// Security categories: show findings table, put raw ast-grep JSON in evidence
-			desc.WriteString(fmt.Sprintf("## %s\n\n", astGrepCategoryName(cat)))
+			fmt.Fprintf(&desc, "## %s\n\n", astGrepCategoryName(cat))
 			desc.WriteString("| Rule | Message | Source |\n")
 			desc.WriteString("|------|---------|--------|\n")
 			var matches []astgrep.Match
 			for _, e := range entries {
-				desc.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
+				fmt.Fprintf(&desc, "| %s | %s | %s |\n",
 					escapeMarkdownTable(e.match.ID),
 					escapeMarkdownTable(e.match.Message),
 					escapeMarkdownTable(e.location),
-				))
+				)
 				matches = append(matches, e.match)
 			}
 			if j, err := json.Marshal(matches); err == nil {

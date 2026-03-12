@@ -692,7 +692,7 @@ type PipelineConfig struct {
 	// It should populate the database with HTTP records.
 	DiscoverFunc func(ctx context.Context) error
 
-	// ScanFunc runs the dynamic assessment phase with the given module filters.
+	// ScanFunc runs the audit phase with the given module filters.
 	// moduleTags and moduleIDs come from the agent's attack plan.
 	ScanFunc func(ctx context.Context, moduleTags []string, moduleIDs []string) error
 

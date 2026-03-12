@@ -173,7 +173,7 @@ func (is *interceptorSession) doInterceptedHTTP(vm *sobek.Runtime, method, urlSt
 		}
 	}
 
-	resp := is.jsSession.doSessionHTTP(method, urlStr, body, headers)
+	resp := is.doSessionHTTP(method, urlStr, body, headers)
 
 	// Run onResponse interceptor
 	if is.onResponseFn != nil {
@@ -185,7 +185,7 @@ func (is *interceptorSession) doInterceptedHTTP(vm *sobek.Runtime, method, urlSt
 
 	// Auto-refresh on trigger status
 	resp = is.handleAutoRefresh(vm, resp, func() sobek.Value {
-		return is.jsSession.doSessionHTTP(method, urlStr, body, headers)
+		return is.doSessionHTTP(method, urlStr, body, headers)
 	})
 
 	return resp
@@ -205,7 +205,7 @@ func (is *interceptorSession) doInterceptedRaw(vm *sobek.Runtime, rawReq string)
 		}
 	}
 
-	resp := is.jsSession.doSessionRawRequest(rawReq)
+	resp := is.doSessionRawRequest(rawReq)
 
 	// Run onResponse interceptor
 	if is.onResponseFn != nil {
@@ -216,7 +216,7 @@ func (is *interceptorSession) doInterceptedRaw(vm *sobek.Runtime, rawReq string)
 
 	// Auto-refresh
 	resp = is.handleAutoRefresh(vm, resp, func() sobek.Value {
-		return is.jsSession.doSessionRawRequest(rawReq)
+		return is.doSessionRawRequest(rawReq)
 	})
 
 	return resp
@@ -259,9 +259,9 @@ func (is *interceptorSession) handleAutoRefresh(vm *sobek.Runtime, resp sobek.Va
 
 		// Apply the new token to the session header
 		if is.autoRefreshHeader != "" {
-			is.jsSession.defaultHeaders[is.autoRefreshHeader] = newToken
+			is.defaultHeaders[is.autoRefreshHeader] = newToken
 		} else {
-			is.jsSession.defaultHeaders["Authorization"] = fmt.Sprintf("Bearer %s", newToken)
+			is.defaultHeaders["Authorization"] = fmt.Sprintf("Bearer %s", newToken)
 		}
 
 		// Retry the request

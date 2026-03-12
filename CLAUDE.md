@@ -120,7 +120,7 @@ The SAST and source-aware scanning features use `--source` (persistent, DB-linke
 
 ### Phase Aliases
 
-Scan phases accept aliases: `deparos` = `discovery`, `discover` = `discovery`, `spitolas` = `spidering`, `audit` = `dynamic-assessment`. These work with `--only` and `--skip` flags.
+Scan phases accept aliases: `deparos` = `discovery`, `discover` = `discovery`, `spitolas` = `spidering`, `dynamic-assessment` = `audit`. These work with `--only` and `--skip` flags.
 
 ### Output Formats
 

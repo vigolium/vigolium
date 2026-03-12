@@ -74,6 +74,9 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	// Prometheus metrics (before auth so monitoring can scrape without tokens)
 	app.Get("/metrics", handlers.HandleMetrics)
 
+	// Login endpoint (before auth — publicly accessible)
+	app.Post("/api/auth/login", handlers.HandleLogin)
+
 	// Dashboard UI (before auth so static assets are publicly accessible).
 	// Fiber's static middleware calls c.Next() for paths with no matching file,
 	// so /api/*, /health, /metrics, /swagger all pass through to their handlers.
@@ -83,95 +86,88 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 		IndexNames: []string{"index.html"},
 	}))
 
-	// Bearer auth
-	if !cfg.NoAuth && len(cfg.APIKeys) > 0 {
-		app.Use(BearerAuth(cfg.APIKeys))
+	// Bearer auth with user store
+	if !cfg.NoAuth && (len(cfg.APIKeys) > 0 || cfg.UserStore != nil) {
+		app.Use(BearerAuth(cfg.APIKeys, cfg.UserStore))
 	}
 
 	// Project UUID extraction from X-Project-UUID header
 	app.Use(ProjectUUIDMiddleware())
 
-	// Routes
+	// Routes (public — no role guard needed, auth already skips these)
 	app.Get("/health", handlers.HandleHealth)
 	app.Get("/server-info", handlers.HandleServerInfo)
 
 	// API group
 	api := app.Group("/api")
-	api.Get("/info", handlers.HandleAppInfo)
-	api.Get("/modules", handlers.HandleListModules)
-	api.Get("/http-records", handlers.HandleListRecords)
-	api.Get("/http-records/:uuid", handlers.HandleGetRecord)
-	api.Get("/findings", handlers.HandleListFindings)
-	api.Get("/findings/:id", handlers.HandleGetFinding)
-	api.Post("/ingest-http", handlers.HandleIngestHTTP)
-	api.Get("/stats", handlers.HandleStats)
-	api.Get("/scope", handlers.HandleGetScope)
-	api.Post("/scope", handlers.HandleUpdateScope)
-	api.Get("/config", handlers.HandleGetConfig)
-	api.Post("/config", handlers.HandleUpdateConfig)
 
-	// Scan management
-	api.Post("/scans/run", handlers.HandleRunScan)
-	api.Get("/scan/status", handlers.HandleScanStatus)
-	api.Delete("/scan", handlers.HandleCancelScan)
+	// --- Viewer routes (admin + operator + viewer) ---
+	// Read-only access to records, findings, stats, and scan history
+	viewer := api.Group("", RoleGuard(RoleAdmin, RoleOperator, RoleViewer))
+	viewer.Get("/info", handlers.HandleAppInfo)
+	viewer.Get("/user/info", handlers.HandleUserInfo)
+	viewer.Get("/modules", handlers.HandleListModules)
+	viewer.Get("/http-records", handlers.HandleListRecords)
+	viewer.Get("/http-records/:uuid", handlers.HandleGetRecord)
+	viewer.Get("/findings", handlers.HandleListFindings)
+	viewer.Get("/findings/:id", handlers.HandleGetFinding)
+	viewer.Get("/stats", handlers.HandleStats)
+	viewer.Get("/scans", handlers.HandleListScans)
+	viewer.Get("/scans/:uuid", handlers.HandleGetScan)
+	viewer.Get("/scan/status", handlers.HandleScanStatus)
+	viewer.Get("/scans/:uuid/logs", handlers.HandleGetScanLogs)
+	viewer.Get("/scope", handlers.HandleGetScope)
+	viewer.Get("/config", handlers.HandleGetConfig)
+	viewer.Get("/source-repos", handlers.HandleListSourceRepos)
+	viewer.Get("/source-repos/:id", handlers.HandleGetSourceRepo)
+	viewer.Get("/oast-interactions", handlers.HandleListOASTInteractions)
+	viewer.Get("/oast-interactions/:id", handlers.HandleGetOASTInteraction)
+	viewer.Get("/extensions/docs", handlers.HandleListExtensionAPI)
+	viewer.Get("/extensions", handlers.HandleListExtensions)
+	viewer.Get("/extensions/:name", handlers.HandleGetExtension)
+	viewer.Get("/projects", handlers.HandleListProjects)
+	viewer.Get("/projects/:uuid", handlers.HandleGetProject)
+	viewer.Get("/agent/status/list", handlers.HandleAgentRunList) // must be before :id
+	viewer.Get("/agent/status/:id", handlers.HandleAgentRunStatus)
+	viewer.Get("/agent/sessions", handlers.HandleAgentSessionList)
+	viewer.Get("/agent/sessions/:id", handlers.HandleAgentSessionDetail)
 
-	// Scan history
-	api.Get("/scans", handlers.HandleListScans)
-	api.Get("/scans/:uuid", handlers.HandleGetScan)
-	api.Delete("/scans/:uuid", handlers.HandleDeleteScan)
-	api.Post("/scans/:uuid/stop", handlers.HandleStopScan)
-	api.Post("/scans/:uuid/pause", handlers.HandlePauseScan)
-	api.Post("/scans/:uuid/resume", handlers.HandleResumeScan)
-	api.Get("/scans/:uuid/logs", handlers.HandleGetScanLogs)
+	// --- Operator routes (admin + operator) ---
+	// Scan execution, ingestion, and agent operations
+	operator := api.Group("", RoleGuard(RoleAdmin, RoleOperator))
+	operator.Post("/scans/run", handlers.HandleRunScan)
+	operator.Post("/scan-records", handlers.HandleScanRecords)
+	operator.Post("/scan-all-records", handlers.HandleScanAllRecords)
+	operator.Post("/scan-url", handlers.HandleScanURL)
+	operator.Post("/scan-request", handlers.HandleScanRequest)
+	operator.Post("/scans/:uuid/stop", handlers.HandleStopScan)
+	operator.Post("/scans/:uuid/pause", handlers.HandlePauseScan)
+	operator.Post("/scans/:uuid/resume", handlers.HandleResumeScan)
+	operator.Post("/ingest-http", handlers.HandleIngestHTTP)
+	operator.Post("/agent/run/query", handlers.HandleAgentQuery)
+	operator.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
+	operator.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
+	operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
+	operator.Post("/agent/chat/completions", handlers.HandleChatCompletions)
 
-	// Record-based scans
-	api.Post("/scan-records", handlers.HandleScanRecords)
-	api.Post("/scan-all-records", handlers.HandleScanAllRecords)
-
-	// Delete operations
-	api.Delete("/http-records/:uuid", handlers.HandleDeleteRecord)
-	api.Delete("/findings/:id", handlers.HandleDeleteFinding)
-
-	// Single-target scans
-	api.Post("/scan-url", handlers.HandleScanURL)
-	api.Post("/scan-request", handlers.HandleScanRequest)
-
-	// Repo management (SAST upload/cleanup)
-	api.Post("/repos/upload", handlers.HandleRepoUpload)
-	api.Delete("/repos/:id", handlers.HandleRepoDelete)
-
-	// Source repos
-	api.Get("/source-repos", handlers.HandleListSourceRepos)
-	api.Post("/source-repos", handlers.HandleCreateSourceRepo)
-	api.Get("/source-repos/:id", handlers.HandleGetSourceRepo)
-	api.Put("/source-repos/:id", handlers.HandleUpdateSourceRepo)
-	api.Delete("/source-repos/:id", handlers.HandleDeleteSourceRepo)
-
-	// OAST interactions
-	api.Get("/oast-interactions", handlers.HandleListOASTInteractions)
-	api.Get("/oast-interactions/:id", handlers.HandleGetOASTInteraction)
-	api.Delete("/oast-interactions/:id", handlers.HandleDeleteOASTInteraction)
-
-	// Extensions
-	api.Get("/extensions/docs", handlers.HandleListExtensionAPI)
-	api.Get("/extensions", handlers.HandleListExtensions)
-	api.Get("/extensions/:name", handlers.HandleGetExtension)
-	api.Put("/extensions/:name", handlers.HandleEditExtension)
-
-	// Projects
-	api.Get("/projects", handlers.HandleListProjects)
-	api.Post("/projects", handlers.HandleCreateProject)
-	api.Get("/projects/:uuid", handlers.HandleGetProject)
-	api.Put("/projects/:uuid", handlers.HandleUpdateProject)
-	api.Delete("/projects/:uuid", handlers.HandleDeleteProject)
-
-	// Agent
-	api.Post("/agent/run/query", handlers.HandleAgentQuery)
-	api.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
-	api.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
-	api.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
-	api.Post("/agent/chat/completions", handlers.HandleChatCompletions)
-	api.Get("/agent/status/list", handlers.HandleAgentRunList) // must be before :id
-	api.Get("/agent/status/:id", handlers.HandleAgentRunStatus)
+	// --- Admin routes (admin only) ---
+	// Destructive operations, config changes, project/resource management
+	admin := api.Group("", RoleGuard(RoleAdmin))
+	admin.Delete("/scan", handlers.HandleCancelScan)
+	admin.Delete("/scans/:uuid", handlers.HandleDeleteScan)
+	admin.Delete("/http-records/:uuid", handlers.HandleDeleteRecord)
+	admin.Delete("/findings/:id", handlers.HandleDeleteFinding)
+	admin.Delete("/oast-interactions/:id", handlers.HandleDeleteOASTInteraction)
+	admin.Delete("/repos/:id", handlers.HandleRepoDelete)
+	admin.Delete("/source-repos/:id", handlers.HandleDeleteSourceRepo)
+	admin.Delete("/projects/:uuid", handlers.HandleDeleteProject)
+	admin.Post("/scope", handlers.HandleUpdateScope)
+	admin.Post("/config", handlers.HandleUpdateConfig)
+	admin.Post("/repos/upload", handlers.HandleRepoUpload)
+	admin.Post("/source-repos", handlers.HandleCreateSourceRepo)
+	admin.Put("/source-repos/:id", handlers.HandleUpdateSourceRepo)
+	admin.Put("/extensions/:name", handlers.HandleEditExtension)
+	admin.Post("/projects", handlers.HandleCreateProject)
+	admin.Put("/projects/:uuid", handlers.HandleUpdateProject)
 
 }

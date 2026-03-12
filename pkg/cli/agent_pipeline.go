@@ -210,8 +210,8 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 			if writeErr != nil {
 				return fmt.Errorf("failed to write generated extensions: %w", writeErr)
 			}
-			settings.DynamicAssessment.Extensions.Enabled = true
-			settings.DynamicAssessment.Extensions.CustomDir = append(settings.DynamicAssessment.Extensions.CustomDir, filepath.Join(dir, "*.js"))
+			settings.Audit.Extensions.Enabled = true
+			settings.Audit.Extensions.CustomDir = append(settings.Audit.Extensions.CustomDir, filepath.Join(dir, "*.js"))
 		}
 
 		// Write session config to session directory
@@ -387,14 +387,14 @@ func buildDiscoverFunc(settings *config.Settings, repo *database.Repository, aut
 	}
 }
 
-// buildScanFunc creates a callback that runs dynamic assessment with specified module filters.
+// buildScanFunc creates a callback that runs audit with specified module filters.
 func buildScanFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
 	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
 		opts, err := pipelineBaseOpts()
 		if err != nil {
 			return err
 		}
-		opts.OnlyPhase = "dynamic-assessment"
+		opts.OnlyPhase = "audit"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
 		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)

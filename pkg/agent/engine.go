@@ -286,7 +286,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 	renderedPrompt = result.RenderedPrompt
 
 	if cfg.DryRun {
-		fmt.Fprint(os.Stdout, rawOutput)
+		_, _ = fmt.Fprint(os.Stdout, rawOutput)
 		return nil, rawOutput, renderedPrompt, nil
 	}
 

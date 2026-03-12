@@ -11,7 +11,7 @@ var runCmd = &cobra.Command{
 	Short: "Run a single scan phase (alias for scan --only <phase>)",
 	Long: `Run a single scan phase directly. Equivalent to "vigolium scan --only <phase>".
 
-Valid phases: ingestion, discovery (deparos), external-harvest, spa, spidering (spitolas), sast, dynamic-assessment (audit), extension (ext)`,
+Valid phases: ingestion, discovery (deparos), external-harvest, spa, spidering (spitolas), sast, audit (dynamic-assessment), extension (ext)`,
 	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"r"},
 	RunE: func(cmd *cobra.Command, args []string) error {

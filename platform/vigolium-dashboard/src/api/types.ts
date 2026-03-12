@@ -560,6 +560,26 @@ export interface ChatCompletionResponse {
   };
 }
 
+// POST /api/agent/run/swarm
+export interface AgentSwarmRequest {
+  input?: string;
+  inputs?: string[];
+  http_request_base64?: string;
+  http_response_base64?: string;
+  url?: string;
+  vuln_type?: string;
+  module_names?: string[];
+  scanning_phase?: string;
+  max_iterations?: number;
+  agent?: string;
+  source?: string;
+  project_uuid?: string;
+  scan_uuid?: string;
+  stream?: boolean;
+  timeout?: string;
+  dry_run?: boolean;
+}
+
 /** @deprecated Use AgentQueryRequest instead */
 export interface AgentRunRequest {
   agent_name?: string;
@@ -630,6 +650,44 @@ export interface AgentRunListResponse {
   total: number;
 }
 
+// Agent session types (GET /api/agent/sessions)
+export interface AgentSession {
+  uuid: string;
+  mode: string;
+  status: string;
+  agent_name: string;
+  template_id?: string;
+  target_url?: string;
+  input_type?: string;
+  current_phase?: string;
+  phases_run?: string[];
+  finding_count: number;
+  record_count: number;
+  saved_count: number;
+  duration_ms: number;
+  started_at: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+// GET /api/agent/sessions/:id
+export interface AgentSessionDetail extends AgentSession {
+  input_raw?: string;
+  module_names?: string[];
+  session_id?: string;
+  prompt_sent?: string;
+  agent_raw_output?: string;
+  attack_plan?: string;
+  triage_result?: string;
+  result_json?: string;
+}
+
+export interface AgentSessionsQueryParams {
+  mode?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // Project types
 export interface Project {
   uuid: string;
@@ -678,4 +736,5 @@ export interface ScanLogsQueryParams {
   limit?: number;
   offset?: number;
   level?: string;
+  phase?: string;
 }

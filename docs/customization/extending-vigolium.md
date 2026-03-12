@@ -99,7 +99,7 @@ Full TypeScript definitions: [`pkg/jsext/vigolium.d.ts`](../../pkg/jsext/vigoliu
 
 ```yaml
 # vigolium-configs.yaml
-dynamic_assessment:
+audit:
   extensions:
     enabled: true
     extension_dir: ~/.vigolium/extensions/
@@ -526,7 +526,7 @@ scanning_pace:
   concurrency: 100
   rate_limit: 200
   max_per_host: 20
-  dynamic_assessment:
+  audit:
     concurrency: 100
     max_duration: 60m
 
@@ -541,7 +541,7 @@ spidering:
   headless: true
   strategy: aggressive
 
-dynamic_assessment:
+audit:
   enabled_modules:
     active_modules:
       - all
@@ -846,7 +846,7 @@ The main `vigolium-configs.yaml` is the central control plane for all scan behav
 |---|---|
 | `scanning_strategy` | Phase presets: `lite`, `balanced`, `deep`, `whitebox` |
 | `scanning_pace` | Concurrency, rate limits, per-phase duration caps |
-| `dynamic_assessment` | Active/passive module selection, extension config |
+| `audit` | Active/passive module selection, extension config |
 | `discovery` | Content discovery mode, recursion, wordlists |
 | `spidering` | Browser crawling depth, strategy, headless mode |
 | `scope` | Host/path/status/content-type filtering |

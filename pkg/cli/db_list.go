@@ -91,7 +91,7 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&listMinRisk, "min-risk", 0, "Show only records with risk score at or above this value")
 	cmd.Flags().StringVar(&listRemark, "remark", "", "Filter records containing this text in remarks")
 	cmd.Flags().StringVar(&listModuleType, "module-type", "", "Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
-	cmd.Flags().StringVar(&listFindingSource, "finding-source", "", "Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
+	cmd.Flags().StringVar(&listFindingSource, "finding-source", "", "Filter findings by source (audit, spa, agent, oast, source-tools, extension)")
 
 	// Date range flags
 	cmd.Flags().StringVar(&listFrom, "from", "", "Show records created after this date (YYYY-MM-DD or RFC3339)")

@@ -139,7 +139,7 @@ func buildRawRequest(req *harRequest) string {
 	var sb strings.Builder
 
 	// Request line
-	sb.WriteString(fmt.Sprintf("%s %s %s\r\n", req.Method, path, httpVersion))
+	fmt.Fprintf(&sb, "%s %s %s\r\n", req.Method, path, httpVersion)
 
 	// Headers
 	hasHost := false
@@ -152,12 +152,12 @@ func buildRawRequest(req *harRequest) string {
 		if strings.EqualFold(name, "Host") {
 			hasHost = true
 		}
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", name, h.Value))
+		fmt.Fprintf(&sb, "%s: %s\r\n", name, h.Value)
 	}
 
 	// Add Host header if missing
 	if !hasHost && parsedURL.Host != "" {
-		sb.WriteString(fmt.Sprintf("Host: %s\r\n", parsedURL.Host))
+		fmt.Fprintf(&sb, "Host: %s\r\n", parsedURL.Host)
 	}
 
 	// Body
@@ -186,14 +186,14 @@ func buildRawResponse(resp *harResponse) string {
 	var sb strings.Builder
 
 	// Status line
-	sb.WriteString(fmt.Sprintf("%s %d %s\r\n", httpVersion, resp.Status, statusText))
+	fmt.Fprintf(&sb, "%s %d %s\r\n", httpVersion, resp.Status, statusText)
 
 	// Headers
 	for _, h := range resp.Headers {
 		if strings.HasPrefix(h.Name, ":") {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", h.Name, h.Value))
+		fmt.Fprintf(&sb, "%s: %s\r\n", h.Name, h.Value)
 	}
 
 	// Body

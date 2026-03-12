@@ -10,51 +10,63 @@ import {
   GitBranch,
   Blocks,
   Puzzle,
-  Settings,
   Target,
   Import,
   Radar,
   Bot,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { href: '/', label: 'DASHBOARD', icon: LayoutDashboard },
-  { href: '/findings', label: 'FINDINGS', icon: ShieldAlert },
-  { href: '/http-records', label: 'HTTP RECORDS', icon: Network },
-  { href: '/oast-interactions', label: 'OAST', icon: Radio },
-  { href: '/source-repos', label: 'REPOS', icon: GitBranch },
-  { href: '/modules', label: 'MODULES', icon: Blocks },
-  { href: '/extensions', label: 'EXTENSIONS', icon: Puzzle },
-  { href: '/config', label: 'CONFIG', icon: Settings },
-  { href: '/scope', label: 'SCOPE', icon: Target },
-  { href: '/ingest', label: 'INGEST', icon: Import },
-  { href: '/scan', label: 'SCAN', icon: Radar },
-  { href: '/agents', label: 'AGENTS', icon: Bot },
+  { href: '/', label: 'DASHBOARD', icon: LayoutDashboard, group: 'default' as const },
+  { href: '/findings', label: 'FINDINGS', icon: ShieldAlert, group: 'default' as const },
+  { href: '/http-records', label: 'HTTP RECORDS', icon: Network, group: 'default' as const },
+  { href: '/oast-interactions', label: 'OAST', icon: Radio, group: 'default' as const },
+  { href: '/source-repos', label: 'REPOS', icon: GitBranch, group: 'default' as const },
+  { href: '/modules', label: 'MODULES', icon: Blocks, group: 'blue' as const },
+  { href: '/extensions', label: 'EXTENSIONS', icon: Puzzle, group: 'blue' as const },
+  { href: '/scope', label: 'SCOPE', icon: Target, group: 'blue' as const },
+  { href: '/ingest', label: 'INGEST', icon: Import, group: 'orange' as const },
+  { href: '/scan', label: 'SCAN', icon: Radar, group: 'orange' as const },
+  { href: '/agents', label: 'AGENTS', icon: Bot, group: 'orange' as const },
+  { href: '/settings', label: 'SETTINGS', icon: SlidersHorizontal, group: 'blue' as const },
 ];
+
+const GROUP_VAR: Record<string, string> = {
+  default: '--v-accent',
+  blue: '--v-secondary',
+  orange: '--v-tertiary',
+};
 
 export default function Navigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="border-b border-[#bbc3c4] bg-[#f6edda]">
+    <nav className="border-b" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
       <div className="px-4 min-h-7 py-0.5 flex flex-wrap items-center text-xs leading-tight">
-        <span className="text-[#bbc3c4] mr-2">&gt;</span>
-        {NAV_ITEMS.map((item, i) => (
-          <span key={item.href} className="flex items-center">
-            {i > 0 && <span className="text-[#bbc3c4] mx-2">|</span>}
-            <Link
-              href={item.href}
-              className={`flex items-center gap-1 transition-colors ${
-                (item.href === '/' ? pathname === '/' : pathname.startsWith(item.href))
-                  ? 'text-[#9333ea] font-bold bg-[#9333ea]/10 px-1.5 py-0.5 -my-0.5'
-                  : 'text-[#708e8e] hover:text-[#005661]'
-              }`}
-            >
-              <item.icon className="w-3 h-3" />
-              {item.label}
-            </Link>
-          </span>
-        ))}
+        <span style={{ color: 'var(--v-border)' }} className="mr-2">&gt;</span>
+        {NAV_ITEMS.map((item, i) => {
+          const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+          const colorVar = `var(${GROUP_VAR[item.group]})`;
+          return (
+            <span key={item.href} className="flex items-center">
+              {i > 0 && <span style={{ color: 'var(--v-border)' }} className="mx-2">|</span>}
+              <Link
+                href={item.href}
+                className={`flex items-center gap-1 transition-colors ${
+                  isActive ? 'font-bold px-1.5 py-0.5 -my-0.5' : 'v-nav-link'
+                }`}
+                style={isActive ? {
+                  color: colorVar,
+                  backgroundColor: `color-mix(in srgb, ${colorVar} 10%, transparent)`,
+                } : undefined}
+              >
+                <item.icon className="w-3 h-3" />
+                {item.label}
+              </Link>
+            </span>
+          );
+        })}
       </div>
     </nav>
   );

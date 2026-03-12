@@ -28,8 +28,8 @@ func normalizePhase(phase string) string {
 		return "discovery"
 	case "spitolas":
 		return "spidering"
-	case "audit":
-		return "dynamic-assessment"
+	case "dynamic-assessment":
+		return "audit"
 	case "ext":
 		return "extension"
 	default:
@@ -87,7 +87,7 @@ func resolveAPIModules(modulePatterns, moduleTags []string) []string {
 // validPhases is the set of valid phase names for --only validation.
 var validPhases = map[string]struct{}{
 	"ingestion": {}, "discovery": {}, "external-harvest": {},
-	"spidering": {}, "spa": {}, "dynamic-assessment": {},
+	"spidering": {}, "spa": {}, "audit": {},
 	"sast": {}, "extension": {},
 }
 
@@ -104,7 +104,7 @@ func validateRunScanRequest(req RunScanRequest) error {
 	if req.Only != "" {
 		normalized := normalizePhase(req.Only)
 		if _, ok := validPhases[normalized]; !ok {
-			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, dynamic-assessment (audit), extension (ext)", req.Only)
+			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit (dynamic-assessment), extension (ext)", req.Only)
 		}
 	}
 
@@ -116,9 +116,9 @@ func validateRunScanRequest(req RunScanRequest) error {
 		for _, phase := range req.Skip {
 			normalized := normalizePhase(phase)
 			switch normalized {
-			case "discovery", "ingestion", "external-harvest", "spidering", "spa", "sast", "dynamic-assessment":
+			case "discovery", "ingestion", "external-harvest", "spidering", "spa", "sast", "audit":
 			default:
-				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, dynamic-assessment (audit)", phase)
+				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit (dynamic-assessment)", phase)
 			}
 		}
 	}
@@ -258,8 +258,8 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 		if phases.SourceAware {
 			opts.SASTEnabled = true
 		}
-		if !phases.DynamicAssessment {
-			opts.SkipDynamicAssessment = true
+		if !phases.Audit {
+			opts.SkipAudit = true
 		}
 	}
 
@@ -281,41 +281,41 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
-			opts.SkipDynamicAssessment = true
+			opts.SkipAudit = true
 		case "discovery":
 			opts.DiscoverEnabled = true
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
-			opts.SkipDynamicAssessment = true
+			opts.SkipAudit = true
 		case "external-harvest":
 			opts.ExternalHarvestEnabled = true
 			opts.DiscoverEnabled = false
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = true
+			opts.SkipAudit = true
 		case "spidering":
 			opts.SpideringEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SPAEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = true
+			opts.SkipAudit = true
 		case "spa":
 			opts.SPAEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = true
-		case "dynamic-assessment":
+			opts.SkipAudit = true
+		case "audit":
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = false
+			opts.SkipAudit = false
 		case "sast":
 			opts.SASTEnabled = true
 			opts.DiscoverEnabled = false
@@ -323,14 +323,14 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = true
+			opts.SkipAudit = true
 		case "extension":
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SPAEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipDynamicAssessment = false
+			opts.SkipAudit = false
 			opts.ExtensionsOnly = true
 		}
 		opts.HeuristicsCheck = "none"
@@ -350,8 +350,8 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.SPAEnabled = false
 		case "sast":
 			opts.SASTEnabled = false
-		case "dynamic-assessment":
-			opts.SkipDynamicAssessment = true
+		case "audit":
+			opts.SkipAudit = true
 		}
 	}
 
@@ -919,8 +919,9 @@ func (h *Handlers) HandleGetScanLogs(c fiber.Ctx) error {
 		}
 	}
 	level := c.Query("level")
+	phase := c.Query("phase")
 
-	logs, total, err := h.repo.ListScanLogs(c.Context(), scanUUID, level, limit, offset)
+	logs, total, err := h.repo.ListScanLogs(c.Context(), scanUUID, level, phase, limit, offset)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to retrieve scan logs: " + err.Error(),

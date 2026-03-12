@@ -1,5 +1,15 @@
 package terminal
 
+import "regexp"
+
+// ansiEscapeRe matches ANSI escape sequences (color codes, cursor movements, etc.).
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// StripANSI removes all ANSI escape sequences from s.
+func StripANSI(s string) string {
+	return ansiEscapeRe.ReplaceAllString(s, "")
+}
+
 // ANSI color codes
 const (
 	colorReset     = "\033[0m"

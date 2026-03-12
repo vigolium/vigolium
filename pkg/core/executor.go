@@ -295,7 +295,7 @@ drainLoop:
 					continue
 				}
 				r.ModuleType = database.ModuleTypePassive
-				r.FindingSource = database.FindingSourceDynamicAssessment
+				r.FindingSource = database.FindingSourceAudit
 				e.emitResult(r)
 			}
 		}
@@ -863,7 +863,7 @@ func (e *Executor) processResults(results []*output.ResultEvent, m modules.Modul
 			continue
 		}
 		result.ModuleType = moduleType
-		result.FindingSource = database.FindingSourceDynamicAssessment
+		result.FindingSource = database.FindingSourceAudit
 		e.assignModuleInfo(result, m)
 
 		// Backfill request/response from original item when the module

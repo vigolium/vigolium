@@ -55,7 +55,7 @@ func executeLogin(sess *Session) error {
 	if err != nil {
 		return fmt.Errorf("session %q: login request failed: %w", sess.Name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024)) // 1MB limit
 	if err != nil {

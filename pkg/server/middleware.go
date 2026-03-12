@@ -32,9 +32,12 @@ func getProjectUUID(c fiber.Ctx) string {
 	return database.DefaultProjectUUID
 }
 
-// BearerAuth returns fiber middleware that validates Bearer tokens.
-// Skips authentication for public endpoints: /, /health, /swagger/*.
-func BearerAuth(validKeys []string) fiber.Handler {
+const authUserLocalsKey = "auth_user"
+
+// BearerAuth returns fiber middleware that validates Bearer tokens and resolves user identity.
+// Checks the UserStore first (file-based users), then falls back to legacy API keys (admin role).
+// Skips authentication for public endpoints: /, /health, /swagger/*, /metrics.
+func BearerAuth(validKeys []string, store *UserStore) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		path := c.Path()
 		// Skip auth for public endpoints
@@ -58,13 +61,57 @@ func BearerAuth(validKeys []string) fiber.Handler {
 			})
 		}
 
-		if !slices.Contains(validKeys, token) {
-			return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
-				Error: ErrInvalidAuthToken.Error(),
-				Code:  fiber.StatusUnauthorized,
-			})
+		// 1. Try file-based user store first
+		if user := store.Lookup(token); user != nil {
+			c.Locals(authUserLocalsKey, user)
+			return c.Next()
 		}
 
+		// 2. Fall back to legacy API key → admin
+		if slices.Contains(validKeys, token) {
+			c.Locals(authUserLocalsKey, &ResolvedUser{
+				UUID: database.DefaultUserUUID,
+				Name: "vigolium-admin",
+				Role: RoleAdmin,
+			})
+			return c.Next()
+		}
+
+		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
+			Error: ErrInvalidAuthToken.Error(),
+			Code:  fiber.StatusUnauthorized,
+		})
+	}
+}
+
+// getAuthUser retrieves the resolved user from Fiber context locals.
+func getAuthUser(c fiber.Ctx) *ResolvedUser {
+	if v, ok := c.Locals(authUserLocalsKey).(*ResolvedUser); ok {
+		return v
+	}
+	return nil
+}
+
+// RoleGuard returns middleware that rejects requests from users whose role
+// is not in the allowed set. Must be applied after BearerAuth.
+// When no auth user is present (--no-auth mode), requests are allowed through.
+func RoleGuard(allowed ...string) fiber.Handler {
+	set := make(map[string]bool, len(allowed))
+	for _, r := range allowed {
+		set[r] = true
+	}
+	return func(c fiber.Ctx) error {
+		user := getAuthUser(c)
+		if user == nil {
+			// No user means auth was skipped (--no-auth) → allow
+			return c.Next()
+		}
+		if !set[user.Role] {
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error: ErrForbidden.Error(),
+				Code:  fiber.StatusForbidden,
+			})
+		}
 		return c.Next()
 	}
 }

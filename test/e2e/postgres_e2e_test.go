@@ -190,7 +190,7 @@ func TestPg_SeedDefaults(t *testing.T) {
 		Where("uuid = ?", database.DefaultUserUUID).
 		Scan(ctx, &userName)
 	require.NoError(t, err)
-	assert.Equal(t, "local-user", userName)
+	assert.Equal(t, "vigolium-admin", userName)
 
 	var projectName string
 	err = db.NewSelect().TableExpr("projects").Column("name").

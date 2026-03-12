@@ -1,52 +1,79 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import {
+  type ColorScheme,
+  COLOR_SCHEMES,
+  DEFAULT_DARK_SCHEME,
+  DEFAULT_LIGHT_SCHEME,
+  getScheme,
+  applySchemeVars,
+} from '@/lib/colorSchemes';
 
 export type ThemeId = 'dark' | 'light';
 
 interface ThemeContextValue {
   themeId: ThemeId;
+  schemeId: string;
+  scheme: ColorScheme;
+  setScheme: (id: string) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-const STORAGE_KEY = 'vigolium_theme';
+const SCHEME_KEY = 'vigolium_scheme';
+const LAST_DARK_KEY = 'vigolium_last_dark';
+const LAST_LIGHT_KEY = 'vigolium_last_light';
+const OLD_THEME_KEY = 'vigolium_theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeId, setThemeId] = useState<ThemeId>('dark');
+  const [schemeId, setSchemeId] = useState(DEFAULT_DARK_SCHEME);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    // Migrate from old design picker key
-    const legacy = localStorage.getItem('vigolium_last_design');
-    if (stored === 'dark' || stored === 'light') {
-      setThemeId(stored);
-    } else if (stored === 'editorial' || legacy === '6') {
-      setThemeId('light');
-      localStorage.setItem(STORAGE_KEY, 'light');
+    const stored = localStorage.getItem(SCHEME_KEY);
+    if (stored && COLOR_SCHEMES.some(s => s.id === stored)) {
+      setSchemeId(stored);
+      applySchemeVars(getScheme(stored).colors);
     } else {
-      // default dark or migrated from 'terminal'/'4'
-      setThemeId('dark');
-      localStorage.setItem(STORAGE_KEY, 'dark');
+      // Migrate from old theme key
+      const old = localStorage.getItem(OLD_THEME_KEY);
+      const migrated = old === 'light' ? DEFAULT_LIGHT_SCHEME : DEFAULT_DARK_SCHEME;
+      setSchemeId(migrated);
+      localStorage.setItem(SCHEME_KEY, migrated);
+      const s = getScheme(migrated);
+      applySchemeVars(s.colors);
+      localStorage.setItem(s.base === 'dark' ? LAST_DARK_KEY : LAST_LIGHT_KEY, migrated);
     }
     setMounted(true);
   }, []);
 
-  const toggleTheme = () => {
-    setThemeId((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      localStorage.setItem(STORAGE_KEY, next);
-      return next;
-    });
+  const scheme = getScheme(schemeId);
+  const themeId = scheme.base;
+
+  const setScheme = (id: string) => {
+    const s = getScheme(id);
+    setSchemeId(s.id);
+    localStorage.setItem(SCHEME_KEY, s.id);
+    localStorage.setItem(s.base === 'dark' ? LAST_DARK_KEY : LAST_LIGHT_KEY, s.id);
+    applySchemeVars(s.colors);
   };
 
-  // Avoid hydration mismatch by not rendering until mounted
+  const toggleTheme = () => {
+    if (themeId === 'dark') {
+      const target = localStorage.getItem(LAST_LIGHT_KEY) || DEFAULT_LIGHT_SCHEME;
+      setScheme(target);
+    } else {
+      const target = localStorage.getItem(LAST_DARK_KEY) || DEFAULT_DARK_SCHEME;
+      setScheme(target);
+    }
+  };
+
   if (!mounted) return null;
 
   return (
-    <ThemeContext.Provider value={{ themeId, toggleTheme }}>
+    <ThemeContext.Provider value={{ themeId, schemeId, scheme, setScheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

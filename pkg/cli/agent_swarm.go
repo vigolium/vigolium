@@ -37,6 +37,8 @@ var (
 	swarmSourceAnalysisOnly bool
 	swarmTimeout            time.Duration
 	swarmProfile            string
+	swarmOnlyPhase          string
+	swarmSkipPhases         []string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -79,6 +81,8 @@ func init() {
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
 	f.DurationVar(&swarmTimeout, "timeout", 15*time.Minute, "Maximum swarm duration")
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
+	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
+	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
 }
 
 func runAgentSwarm(_ *cobra.Command, _ []string) error {
@@ -161,6 +165,8 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		Files:              swarmFiles,
 		VulnType:           swarmVulnType,
 		ModuleNames:        swarmModules,
+		OnlyPhase:          swarmOnlyPhase,
+		SkipPhases:         swarmSkipPhases,
 		MaxIterations:      swarmMaxIterations,
 		AgentName:          swarmAgentName,
 		AgentACPCmd:        swarmAgentACPCmd,
@@ -177,7 +183,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	}
 
 	// Wire scan callback
-	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo)
+	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo, swarmOnlyPhase, swarmSkipPhases)
 
 	// Set up timeout
 	if swarmTimeout > 0 {
@@ -275,9 +281,12 @@ func buildSwarmInputs() ([]string, error) {
 	return inputs, nil
 }
 
-// buildAgentSwarmScanFunc creates a callback that runs dynamic assessment with specified modules and extensions.
-func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
+// buildAgentSwarmScanFunc creates a callback that runs the scan.
+// When rescan=false, it runs a full scan (all phases, all modules) by default.
+// When rescan=true, it restricts to audit with targeted modules.
+// The onlyPhase and skipPhases parameters allow user control via --only/--skip flags.
+func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
+	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{swarmTarget}
 		opts.ScanUUID = globalScanID
@@ -287,20 +296,34 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		}
 		opts.ProjectUUID = projectUUID
 		opts.ConfigPath = globalConfig
-		opts.OnlyPhase = "dynamic-assessment"
-		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
 
+		if rescan {
+			// Triage rescans: targeted audit only
+			opts.OnlyPhase = "audit"
+			opts.SkipIngestion = true
+			opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+		} else {
+			// Initial scan: full scan with all modules
+			opts.Modules = []string{"all"}
+			// Apply user-specified phase control
+			if onlyPhase != "" {
+				opts.OnlyPhase = onlyPhase
+			}
+			if len(skipPhases) > 0 {
+				opts.SkipPhases = skipPhases
+			}
+		}
+
 		// Clone settings to avoid mutating shared config
 		settingsCopy := *settings
 		if extensionDir != "" {
-			settingsCopy.DynamicAssessment.Extensions.Enabled = true
-			settingsCopy.DynamicAssessment.Extensions.CustomDir = append(
-				settingsCopy.DynamicAssessment.Extensions.CustomDir,
+			settingsCopy.Audit.Extensions.Enabled = true
+			settingsCopy.Audit.Extensions.CustomDir = append(
+				settingsCopy.Audit.Extensions.CustomDir,
 				filepath.Join(extensionDir, "*.js"),
 			)
 		}

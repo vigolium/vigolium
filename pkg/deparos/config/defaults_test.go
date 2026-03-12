@@ -47,7 +47,7 @@ func TestDefaultConfig(t *testing.T) {
 		// Observed and derived names enabled
 		// Source: did.java lines 20-21
 		assert.True(t, cfg.Filenames.UseObservedNames, "observed names should be enabled")
-		assert.True(t, cfg.Filenames.EnableNumericFuzzing, "derived names should be enabled")
+		assert.False(t, cfg.Filenames.EnableNumericFuzzing, "numeric fuzzing should be opt-in (disabled by default)")
 	})
 
 	t.Run("extension defaults", func(t *testing.T) {

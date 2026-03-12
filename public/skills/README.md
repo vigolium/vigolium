@@ -6,7 +6,7 @@ Claude Code skill for operating the [Vigolium](https://github.com/vigolium/vigol
 
 Vigolium is a high-fidelity web vulnerability scanner built for security professionals. It combines traditional DAST scanning with AI-powered analysis to find vulnerabilities in web applications. Key capabilities:
 
-- **Multi-phase scanning** — discovery, spidering, SPA analysis, dynamic assessment, and SAST
+- **Multi-phase scanning** — discovery, spidering, SPA analysis, audit, and SAST
 - **Flexible input** — scan URLs directly, or import from OpenAPI specs, Burp exports, HAR files, cURL commands, and more
 - **AI agent modes** — autonomous scanning, multi-phase pipelines, and AI-assisted code review
 - **Extensible** — write custom scanner modules in JavaScript
@@ -336,14 +336,14 @@ vigolium scan -t https://example.com --only discovery
 vigolium run spidering -t https://example.com
 ```
 
-**Run only dynamic assessment (vulnerability scanning):**
+**Run only audit (vulnerability scanning):**
 ```
 > Skip discovery, just run the vulnerability modules
 ```
 ```bash
 vigolium run audit -t https://example.com
 # or
-vigolium scan -t https://example.com --only dynamic-assessment
+vigolium scan -t https://example.com --only audit
 ```
 
 **Run only SPA (security posture assessment via Nuclei):**
@@ -940,10 +940,10 @@ vigolium finding --severity high,critical
 
 **Filter findings by module type or source:**
 ```
-> Show only active module findings from dynamic assessment
+> Show only active module findings from audit
 ```
 ```bash
-vigolium finding --module-type active --finding-source dynamic-assessment
+vigolium finding --module-type active --finding-source audit
 ```
 
 **View a specific finding in Burp-style format:**
@@ -1474,10 +1474,10 @@ vigolium config set scope.origin.mode strict
 
 **Enable extensions globally:**
 ```
-> Enable extensions in dynamic assessment
+> Enable extensions in audit
 ```
 ```bash
-vigolium config set dynamic_assessment.extensions.enabled true
+vigolium config set audit.extensions.enabled true
 ```
 
 **View scope rules:**

@@ -32,7 +32,7 @@ Extensions plug into the scanner pipeline at four points:
 
 | Type | Runs when | Use for |
 |---|---|---|
-| `active` | During dynamic assessment | Send payloads, detect vulnerabilities |
+| `active` | During audit phase | Send payloads, detect vulnerabilities |
 | `passive` | Analyzing captured traffic | Inspect request/response without new traffic |
 | `pre_hook` | Before each request is sent | Modify requests, skip assets, inject headers |
 | `post_hook` | After a finding is emitted | Escalate severity, drop false positives |
@@ -45,10 +45,10 @@ Both JS and YAML extensions support all four types. YAML is simpler for straight
 
 ### 1. Enable extensions in your config
 
-Add or uncomment the `extensions` block under `dynamic_assessment` in your `vigolium-configs.yaml`:
+Add or uncomment the `extensions` block under `audit` in your `vigolium-configs.yaml`:
 
 ```yaml
-dynamic_assessment:
+audit:
   extensions:
     enabled: true
     extension_dir: ~/.vigolium/extensions/   # scan this dir for .js and .vgm.yaml files
@@ -608,7 +608,7 @@ vigolium scan --config vigolium-configs.yaml --only extension
 vigolium scan --config vigolium-configs.yaml --only ext
 ```
 
-This skips discovery, spidering, and standard dynamic-assessment modules — only your extensions run against traffic already in the database.
+This skips discovery, spidering, and standard audit modules — only your extensions run against traffic already in the database.
 
 ### Test against a live target
 
@@ -636,7 +636,7 @@ vigolium scan -u https://example.com \
 With `my-test-config.yaml`:
 
 ```yaml
-dynamic_assessment:
+audit:
   extensions:
     enabled: true
     custom_dir:
@@ -694,7 +694,7 @@ vigolium extensions preset reflected_param_scanner
 Full `extensions` block options in `vigolium-configs.yaml`:
 
 ```yaml
-dynamic_assessment:
+audit:
   extensions:
     # Enable the extension engine. Default: false
     enabled: true

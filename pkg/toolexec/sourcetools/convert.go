@@ -155,7 +155,7 @@ func extractSourceContext(rootPath, filePath string, startLine int) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fromLine := startLine - 10
 	if fromLine < 1 {

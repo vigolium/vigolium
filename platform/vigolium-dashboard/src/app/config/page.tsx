@@ -1,10 +1,12 @@
 'use client';
 
-import { useTheme } from '@/contexts/ThemeContext';
-import DarkConfigPage from '@/designs/dark/ConfigPage';
-import LightConfigPage from '@/designs/light/ConfigPage';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function ConfigRoute() {
-  const { themeId } = useTheme();
-  return themeId === 'dark' ? <DarkConfigPage /> : <LightConfigPage />;
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/settings');
+  }, [router]);
+  return null;
 }

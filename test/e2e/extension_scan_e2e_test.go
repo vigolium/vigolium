@@ -128,15 +128,15 @@ func TestExtensionOnlyPhase(t *testing.T) {
 	writeScript(t, scriptDir, "canary_active.js", canaryActiveScript)
 
 	settings := config.DefaultSettings()
-	settings.DynamicAssessment.Extensions.Enabled = true
-	settings.DynamicAssessment.Extensions.ExtensionDir = scriptDir
+	settings.Audit.Extensions.Enabled = true
+	settings.Audit.Extensions.ExtensionDir = scriptDir
 
 	opts := types.DefaultOptions()
 	opts.Targets = []string{fmt.Sprintf("%s/get?a=1", httpbinApp.BaseURL)}
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipDynamicAssessment = false
+	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SpideringEnabled = false
@@ -201,15 +201,15 @@ func TestExtensionScanWithExtraScript(t *testing.T) {
 	extraPath := writeScript(t, extraDir, "canary_passive.js", canaryPassiveScript)
 
 	settings := config.DefaultSettings()
-	settings.DynamicAssessment.Extensions.Enabled = true
-	settings.DynamicAssessment.Extensions.CustomDir = []string{extraPath} // --ext equivalent
+	settings.Audit.Extensions.Enabled = true
+	settings.Audit.Extensions.CustomDir = []string{extraPath} // --ext equivalent
 
 	opts := types.DefaultOptions()
 	opts.Targets = []string{fmt.Sprintf("%s/get?a=1", httpbinApp.BaseURL)}
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipDynamicAssessment = false
+	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SpideringEnabled = false

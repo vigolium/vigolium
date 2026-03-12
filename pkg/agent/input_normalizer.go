@@ -121,9 +121,7 @@ func normalizeCurl(input string) ([]*httpmsg.HttpRequestResponse, error) {
 	trimmed := strings.TrimSpace(input)
 
 	// Strip leading "$ " if present
-	if strings.HasPrefix(trimmed, "$ ") {
-		trimmed = trimmed[2:]
-	}
+	trimmed = strings.TrimPrefix(trimmed, "$ ")
 
 	rr, err := parseCurlCommand(trimmed)
 	if err != nil {

@@ -59,11 +59,3 @@ func TestProbePaths(t *testing.T) {
 	}
 }
 
-type mockFeeder struct {
-	items []*httpmsg.HttpRequestResponse
-}
-
-func (f *mockFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
-	f.items = append(f.items, rr)
-	return true
-}

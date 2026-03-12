@@ -1,6 +1,6 @@
 # Vigolium API Reference — Extensions
 
-Manage JavaScript (`.js`) and YAML (`.vgm.yaml`) extensions that add custom scanning logic. Extensions must be enabled and configured in `vigolium-configs.yaml` under `dynamic_assessment.extensions`.
+Manage JavaScript (`.js`) and YAML (`.vgm.yaml`) extensions that add custom scanning logic. Extensions must be enabled and configured in `vigolium-configs.yaml` under `audit.extensions`.
 
 ## GET /api/extensions — List Extensions
 

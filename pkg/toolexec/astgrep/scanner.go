@@ -141,7 +141,7 @@ func (s *Scanner) executeScan(ctx context.Context, binaryPath, targetDir, rulesD
 	// Remove any stale ast-grep-config.yaml inside the rules directory.
 	// ast-grep treats all .yaml files in ruleDirs as rules; the config file
 	// is not a valid rule and causes parse errors.
-	os.Remove(filepath.Join(rulesDir, "ast-grep-config.yaml"))
+	_ = os.Remove(filepath.Join(rulesDir, "ast-grep-config.yaml"))
 
 	// Generate a temp config file outside the rules directory so that ast-grep
 	// does not try to parse it as a rule (all .yaml files in ruleDirs are scanned).
@@ -154,14 +154,14 @@ func (s *Scanner) executeScan(ctx context.Context, binaryPath, targetDir, rulesD
 		return nil, fmt.Errorf("create temp config: %w", err)
 	}
 	configPath := tmpConfig.Name()
-	defer os.Remove(configPath)
+	defer func() { _ = os.Remove(configPath) }()
 
 	configContent := fmt.Sprintf("ruleDirs:\n  - %s\n", absRulesDir)
 	if _, err := tmpConfig.WriteString(configContent); err != nil {
-		tmpConfig.Close()
+		_ = tmpConfig.Close()
 		return nil, fmt.Errorf("write temp config: %w", err)
 	}
-	tmpConfig.Close()
+	_ = tmpConfig.Close()
 
 	result, err := toolexec.Run(ctx, binaryPath, "scan", "--config", configPath, "--json", targetDir)
 	if err != nil {
@@ -175,8 +175,8 @@ func (s *Scanner) executeScan(ctx context.Context, binaryPath, targetDir, rulesD
 	// Write output to a temp file for later review and parse from it.
 	if len(result.Stdout) > 0 {
 		if f, tmpErr := os.CreateTemp("", "sast-astgrep-*.json"); tmpErr == nil {
-			f.Write(result.Stdout)
-			f.Close()
+			_, _ = f.Write(result.Stdout)
+			_ = f.Close()
 			zap.L().Debug("ast-grep output file",
 				zap.String("output_file", f.Name()),
 				zap.Int("bytes", len(result.Stdout)))

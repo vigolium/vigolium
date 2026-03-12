@@ -19,6 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dedup"
+	"github.com/vigolium/vigolium/public"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/queue"
@@ -177,6 +178,39 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Load file-based users for role-based access control.
+	// Bootstrap from embedded default template on first run.
+	var userStore *server.UserStore
+	usersFilePath := config.ExpandPath(settings.Server.UsersFile)
+	if created, err := server.BootstrapUsersFile(usersFilePath, public.DefaultUsersJSON); err != nil {
+		zap.L().Warn("Failed to bootstrap users file", zap.Error(err))
+	} else if created && !globalSilent {
+		fmt.Printf("  %s Created default users file at %s\n",
+			terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(usersFilePath)))
+	}
+	if fileUsers, err := server.LoadUsersFile(usersFilePath); err != nil {
+		zap.L().Fatal("Failed to load users file", zap.String("path", usersFilePath), zap.Error(err))
+	} else if fileUsers != nil {
+		userStore = server.NewUserStore(fileUsers)
+		// Upsert file users into DB (name/email only — access_code and role stay in memory)
+		if repo != nil {
+			for _, fu := range fileUsers {
+				u := &database.User{
+					UUID:  userStore.Lookup(fu.AccessCode).UUID,
+					Name:  fu.Name,
+					Email: fu.Email,
+				}
+				if err := repo.UpsertUser(context.Background(), u); err != nil {
+					zap.L().Warn("Failed to upsert file user", zap.String("name", fu.Name), zap.Error(err))
+				}
+			}
+		}
+		if !globalSilent {
+			fmt.Printf("  %s Loaded %d users from %s\n",
+				terminal.InfoSymbol(), len(fileUsers), terminal.Cyan(config.ContractPath(usersFilePath)))
+		}
+	}
+
 	// Create hybrid task queue (in-memory buffer + disk spillover)
 	queueDir := filepath.Join(os.TempDir(), "vigolium-server-queue")
 	taskQueue, err := queue.NewQueue(queue.Config{
@@ -240,6 +274,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		ServiceAddr:          serviceAddr,
 		IngestProxyAddr:      ingestProxyAddr,
 		APIKeys:              apiKeys,
+		UserStore:            userStore,
 		NoAuth:               serverOpts.NoAuth,
 		ScanOnReceive:        globalScanOnReceive,
 		DisableFetchResponse: globalDisableFetchResponse,

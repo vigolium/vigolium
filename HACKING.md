@@ -34,7 +34,7 @@ It scans for reflected XSS, SQL injection, SSTI, LFI, CRLF injection, open redir
 │  Phase 2: Content Discovery ───── Deparos (dir/file brute-force)   │
 │  Phase 3: Browser Spidering ───── Spitolas (Chromium + CDP)        │
 │  Phase 4: SPA ─────────────────── Nuclei templates + Kingfisher    │
-│  Phase 5: Dynamic Assessment ──── Executor + scanner modules       │
+│  Phase 5: Audit ───────────────── Executor + scanner modules       │
 │                                                                      │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▼
@@ -335,5 +335,5 @@ Notification backends live in `pkg/notify/`. Implement the backend interface and
 | Deparos configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
 | Browser spider (Spitolas) | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
 | SPA scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Dynamic assessment | [docs/scan-layers/dynamic-assessment.md](docs/scan-layers/dynamic-assessment.md) |
+| Auditing | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | Example config | [public/vigolium-configs.example.yaml](public/vigolium-configs.example.yaml) |

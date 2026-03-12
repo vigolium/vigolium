@@ -253,13 +253,13 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	// Resolve cwd to absolute path before spawning the process.
 	// A relative "." is meaningless for a long-running server whose CWD may not exist.
 	absCwd := cwd
-	if filepath.IsAbs(cwd) {
-		absCwd = cwd
-	} else if abs, absErr := filepath.Abs(cwd); absErr == nil {
-		absCwd = abs
-	} else {
-		// Fallback: use os.TempDir() if we can't resolve the CWD (e.g., it was deleted)
-		absCwd = os.TempDir()
+	if !filepath.IsAbs(cwd) {
+		if abs, absErr := filepath.Abs(cwd); absErr == nil {
+			absCwd = abs
+		} else {
+			// Fallback: use os.TempDir() if we can't resolve the CWD (e.g., it was deleted)
+			absCwd = os.TempDir()
+		}
 	}
 
 	zap.L().Debug("spawning ACP warm session",

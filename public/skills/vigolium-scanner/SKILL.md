@@ -15,7 +15,7 @@ metadata:
     vigolium, scan, scan-url, scan-request, run, ingest, server, agent, agent query,
     agent autopilot, agent pipeline, agent swarm, traffic, db, module, extensions, export, strategy,
     scope, source, config, project, vulnerability scanner, security scan, DAST,
-    dynamic assessment, openapi scan, burp import, HAR import, whitebox scanning, SAST,
+    audit, openapi scan, burp import, HAR import, whitebox scanning, SAST,
     javascript extension, custom scanner, module-tag, run extension
   role: operator
   scope: usage
@@ -62,7 +62,7 @@ Use this to find the right command quickly:
 | Swarm with curl command input | `vigolium agent swarm --input "curl -X POST <url> -d '...'"` |
 | Browse stored HTTP traffic | `vigolium traffic` or `vigolium traffic <search>` |
 | Browse findings/vulnerabilities | `vigolium finding` or `vigolium db ls --table findings` |
-| Filter findings by module type or source | `vigolium finding --module-type active --finding-source dynamic-assessment` |
+| Filter findings by module type or source | `vigolium finding --module-type active --finding-source audit` |
 | View database statistics | `vigolium db stats` |
 | Export results to JSONL/HTML | `vigolium export --format jsonl -o results.jsonl` |
 | Clean database records | `vigolium db clean --host <hostname>` |
@@ -117,7 +117,7 @@ Vigolium runs up to 8 phases. Use `--only <phase>` to isolate one, or `--skip <p
 | `spidering` | `spitolas` | Headless browser crawling for JS-driven routes and dynamic content |
 | `spa` | — | Security posture assessment via Nuclei templates |
 | `sast` | — | Static analysis on linked source code (requires `--source`) |
-| `dynamic-assessment` | `audit` | Core vulnerability scanning with active and passive modules |
+| `audit` | `dynamic-assessment` | Core vulnerability scanning with active and passive modules |
 | `extension` | `ext` | Run only JavaScript extension modules (enables extensions, skips built-in modules) |
 
 - `--only` and `--skip` are **mutually exclusive**
@@ -353,7 +353,7 @@ vigolium traffic --host api.example.com --method POST
 vigolium finding
 vigolium finding --severity high,critical
 vigolium finding --module-type active
-vigolium finding --finding-source dynamic-assessment
+vigolium finding --finding-source audit
 vigolium finding --burp         # Burp-style format
 vigolium finding --id 42        # specific finding by ID
 vigolium finding --columns ID,SEVERITY,MODULE,MATCHED_AT,TAGS
@@ -418,7 +418,7 @@ vigolium config ls scanning_pace
 # Set values
 vigolium config set scanning_strategy.default_strategy deep
 vigolium config set scope.origin.mode strict
-vigolium config set dynamic_assessment.extensions.enabled true
+vigolium config set audit.extensions.enabled true
 
 # Speed tuning
 vigolium scan -t https://example.com -c 100 --rate-limit 200 --max-per-host 5
@@ -528,6 +528,6 @@ These flags are available on all commands (persistent flags on root):
 - `db clean --all` requires `--force` for safety
 - `db clean --force` with no filter flags resets the entire database (SQLite only)
 - Whitebox/SAST phases require `--source <path>` or `--source-url <git-url>` to link application source code
-- Phase aliases: `deparos`/`discover` = `discovery`, `spitolas` = `spidering`, `audit` = `dynamic-assessment`, `ext` = `extension`
+- Phase aliases: `deparos`/`discover` = `discovery`, `spitolas` = `spidering`, `dynamic-assessment` = `audit`, `ext` = `extension`
 - `--module-tag` uses OR logic: modules matching any specified tag are included
 - `-m` and `--module-tag` merge results (union)

@@ -30,17 +30,18 @@ It operates as a CLI scanner, an API server with traffic ingestion, or a standal
 - **149 scanner modules** — 89 active (fuzzing) and 60 passive (pattern matching) modules covering OWASP Top 10 and beyond
 - **Out-of-band testing (OAST)** — detect blind vulnerabilities (blind XSS, SSRF, command injection) via interactsh callback URLs with automatic payload correlation
 - **Value-aware mutation** — classify parameter values by semantic type (integer, UUID, JWT, email, etc.) and generate intelligent mutations per intent (neighbor, boundary, escalation)
-- **Multi-phase pipeline** — external harvesting, content discovery, SPA crawling, and dynamic assessment controlled by strategy presets
+- **Multi-phase pipeline** — external harvesting, content discovery, SPA crawling, and audit controlled by strategy presets
 - **Scanning profiles** — bundle strategy, pace, scope, and module config into a single YAML file (`--scanning-profile`)
 - **Multiple input formats** — URLs, OpenAPI/Swagger, Postman, Burp Suite, cURL, Nuclei JSONL, CrawlerX
 - **API server mode** — REST API with Swagger UI, multi-format ingestion, transparent HTTP proxy, OpenAI-compatible agent endpoint
 - **Browser-based spider** — Chromium-driven crawler (Spitolas) with SPA support, form filling, and JS analysis
 - **Content discovery** — adaptive directory/file enumeration engine (Deparos) with soft-404 detection
 - **Header injection** — automatic fuzzing of existing and synthetic headers (X-Forwarded-For, X-Forwarded-Host, True-Client-IP, Referer)
-- **JavaScript extensions** — custom modules and hooks via embedded JS engine (`vigolium.http`, `vigolium.scan`, `vigolium.source`)
+- **Multi-session authentication** — inline sessions (`--session`), session files (`--session-file`), or full auth configs (`--auth-config`) with login flows, token extraction, and IDOR/BOLA testing
+- **JavaScript extensions** — custom modules and hooks via embedded JS engine (`vigolium.http`, `vigolium.scan`, `vigolium.source`) with session-aware HTTP APIs (login flows, cookie jars, CSRF extraction, auth testing, request sequencing)
 - **Source code awareness** — link repos to hostnames for source-aware scanning with `vigolium.source.*` API
 - **Concurrent architecture** — configurable worker pool with per-host rate limiting and hybrid in-memory/disk/Redis queue
-- **AI agent integration** — run Claude, Gemini, OpenCode, or custom AI agents for security code review, endpoint discovery, and secret detection via CLI or REST API (with SSE streaming). Includes autopilot mode (autonomous sandboxed scanning) and pipeline mode (multi-phase AI-guided vulnerability assessment)
+- **AI agent integration** — run Claude, Gemini, OpenCode, or custom AI agents for security code review, endpoint discovery, and secret detection via CLI or REST API (with SSE streaming). Four modes: query (single-shot), autopilot (autonomous sandboxed scanning), pipeline (multi-phase AI-guided assessment), and swarm (targeted vulnerability hunting with module selection and custom JS extension generation)
 - **HTML reports** — generate self-contained HTML reports with sortable/filterable ag-grid tables (`--format html`)
 
 ## Installation
@@ -104,22 +105,47 @@ vigolium ingest -s http://localhost:9002 -i api.yaml -I openapi
 
 See [docs/server-and-ingestion.md](docs/server-and-ingestion.md) for ingestion workflows and [docs/api-overview.md](docs/api-overview.md) for the full REST API reference.
 
+## Authenticated Scanning
+
+Vigolium supports multi-session authenticated scanning for IDOR/BOLA testing and privilege escalation checks:
+
+```bash
+# Inline session via CLI flag (name:Header:value)
+vigolium scan -t https://example.com \
+  --session "admin:Cookie:session_id=abc123" \
+  --session "user:Cookie:session_id=xyz789"
+
+# Load session from YAML/JSON file
+vigolium scan -t https://example.com --session-file ./admin-session.yaml
+
+# Full auth configuration with login flows
+vigolium scan -t https://example.com --auth-config ./auth-config.yaml
+
+# Add custom headers (works with sessions)
+vigolium scan -t https://example.com -H "Authorization: Bearer token123"
+```
+
+Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs/running-scan/authenticated-scan.md](docs/running-scan/authenticated-scan.md) for the full guide.
+
 ## Agent Mode
 
 Run AI agents for automated security analysis — code review, endpoint discovery, autonomous scanning, and more:
 
 ```bash
 # Security code review of a repository
-vigolium agent --prompt-template security-code-review --repo ./myapp
+vigolium agent --prompt-template security-code-review --source ./myapp
 
 # Run with specific files
-vigolium agent --prompt-template injection-sinks --repo ./myapp --files auth.go,db.go
+vigolium agent --prompt-template injection-sinks --source ./myapp --files auth.go,db.go
 
 # Send a freeform prompt to the default agent
 vigolium agent query --prompt "Explain the OWASP Top 10 in one sentence each"
 
+# Use a custom ACP agent command with timeout
+vigolium agent query --prompt "Review this code" --agent-acp-cmd "traecli acp" --agent-timeout 10m
+
 # Dry run — render prompt without executing
-vigolium agent --prompt-template endpoint-discovery --repo ./myapp --dry-run
+vigolium agent --prompt-template endpoint-discovery --source ./myapp --dry-run
 
 # Autopilot: agent autonomously runs scanner commands in a sandboxed terminal
 vigolium agent autopilot -t https://example.com
@@ -127,18 +153,29 @@ vigolium agent autopilot -t https://example.com
 # Pipeline: multi-phase AI-guided scanning (discover → plan → scan → triage → report)
 vigolium agent pipeline -t https://example.com
 vigolium agent pipeline -t https://example.com --focus 'API injection'
-vigolium agent pipeline -t https://example.com --repo ./src --max-rescan-rounds 3
+vigolium agent pipeline -t https://example.com --source ./src --max-rescan-rounds 3
 vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
+
+# Swarm: AI-guided targeted vulnerability swarm
+vigolium agent swarm -t https://example.com
+vigolium agent swarm -t https://example.com --source ./src --vuln-type sqli
+vigolium agent swarm -t https://example.com -m xss-reflected,sqli-error --max-iterations 5
+vigolium agent swarm -t https://example.com --source ./src --source-analysis-only --profile deep
+
+# Browse agent sessions
+vigolium agent session list --mode pipeline --limit 20
+vigolium agent session list --mode swarm --offset 10
 
 # List available agents and templates
 vigolium agent --list-agents
 vigolium agent --list-templates
 ```
 
-Three operational modes:
-- **Run** — single-shot template-based prompts for code review, endpoint discovery, secret detection
+Four operational modes:
+- **Query** — single-shot template-based prompts for code review, endpoint discovery, secret detection. Supports `--source` for code path and `--source-label` for ingestion labeling
 - **Autopilot** — interactive ACP session where the agent autonomously executes scanner commands via a sandboxed terminal with command allowlisting
-- **Pipeline** — fixed multi-phase scanning pipeline where native Go code handles discovery and scanning, while AI agents plan attack strategy (phase 2) and triage findings (phase 4)
+- **Pipeline** — fixed multi-phase scanning pipeline (source-analysis → discover → plan → scan → triage → rescan → report) where native Go code handles discovery and scanning, while AI agents intervene at checkpoints
+- **Swarm** — AI-guided targeted vulnerability swarm where the master agent analyzes inputs, selects modules, generates custom JS extensions, executes scans, and triages results. Supports `--source` for source-aware route discovery and batched execution for large input sets
 
 Configure agent backends in `~/.vigolium/vigolium-configs.yaml`. Custom prompt templates go in `~/.vigolium/prompts/`. See [docs/agent-mode.md](docs/agent-mode.md) for the full guide.
 
@@ -151,7 +188,7 @@ Vigolium's scanning pipeline is composed of modular layers, each documented sepa
 | **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs/scan-layers/deparos.md](docs/scan-layers/deparos.md) |
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
 | **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| **Dynamic Assessment** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/dynamic-assessment.md](docs/scan-layers/dynamic-assessment.md) |
+| **Auditing** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | **Scanner Modules** | 89 active and 60 passive modules covering OWASP Top 10 and beyond | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
 
 Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md)
@@ -163,6 +200,7 @@ Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-l
 | Scanning Guide | [docs/scanning-guide.md](docs/scanning-guide.md) |
 | Scanning Modes Overview | [docs/running-scan/scanning-modes-overview.md](docs/running-scan/scanning-modes-overview.md) |
 | Blackbox Scanning | [docs/running-scan/blackbox-scan.md](docs/running-scan/blackbox-scan.md) |
+| Authenticated Scanning | [docs/running-scan/authenticated-scan.md](docs/running-scan/authenticated-scan.md) |
 | Whitebox Scanning (SAST) | [docs/running-scan/whitebox-scan.md](docs/running-scan/whitebox-scan.md) |
 | Whitebox Agent Scanning | [docs/running-scan/whitebox-agent-scan.md](docs/running-scan/whitebox-agent-scan.md) |
 | Full Scan Pipeline | [docs/running-scan/full-scan.md](docs/running-scan/full-scan.md) |
@@ -173,7 +211,7 @@ Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-l
 | Deparos Configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
 | Browser Spider (Spitolas) | [docs/scan-layers/spidering-with-spitolas.md](docs/scan-layers/spidering-with-spitolas.md) |
 | SPA Scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Dynamic Assessment | [docs/scan-layers/dynamic-assessment.md](docs/scan-layers/dynamic-assessment.md) |
+| Auditing | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | Scan Scope & Module Dispatch | [docs/scan-layers/scan-scope.md](docs/scan-layers/scan-scope.md) |
 | Scanner Modules Reference | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
 | Writing Extensions | [docs/development/writing-extensions.md](docs/development/writing-extensions.md) |
@@ -182,17 +220,65 @@ Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-l
 | Project Structure | [docs/development/project-structure.md](docs/development/project-structure.md) |
 | Benchmark Testing | [docs/development/benchmark-testing.md](docs/development/benchmark-testing.md) |
 
-## Extensions
+## JavaScript Engine
 
-Write custom scan modules and hooks in JavaScript without recompiling:
+Run JavaScript/TypeScript code directly or write custom scan modules and hooks without recompiling:
 
 ```bash
+# Execute inline JavaScript
+vigolium js --code 'let r = vigolium.http.get(TARGET); console.log(r.statusCode)' -t https://example.com
+
+# Run a JS file with timeout
+vigolium js --code-file ./my-script.js -t https://example.com --timeout 60s
+
+# Manage extensions
 vigolium ext ls                # list loaded extensions
 vigolium ext docs --example    # browse API with code examples
 vigolium ext preset            # install starter scripts
 ```
 
-See [docs/development/writing-extensions.md](docs/development/writing-extensions.md) for the extension authoring guide.
+The JS engine exposes session-aware HTTP APIs for authenticated testing:
+
+```javascript
+// Create a persistent session with shared cookie jar
+let session = vigolium.http.session();
+session.post("https://app.example.com/login", { user: "admin", pass: "secret" });
+session.get("https://app.example.com/dashboard"); // cookies auto-sent
+
+// Automated login flow with token extraction
+let authed = vigolium.http.login({
+  url: "https://app.example.com/api/auth",
+  method: "POST",
+  body: JSON.stringify({ username: "admin", password: "pass" }),
+  extract: [{ source: "json", path: "$.token", apply_as: "Authorization: Bearer {value}" }]
+});
+
+// IDOR/BOLA testing across multiple sessions
+let results = vigolium.http.authTest({
+  sessions: { admin: adminSession, user: userSession },
+  requests: [{ method: "GET", url: "https://app.example.com/api/users/1" }]
+});
+
+// Multi-step authentication sequences
+let result = vigolium.http.sequence([
+  { url: "/csrf", extract: [{ source: "cookie", name: "csrf_token", as: "token" }] },
+  { url: "/login", method: "POST", body: "csrf={token}&user=admin" }
+]);
+
+// Parallel request batching (race conditions, IDOR)
+let responses = vigolium.http.batch([req1, req2, req3], { concurrency: 10 });
+
+// CSRF token extraction
+let csrf = vigolium.http.csrf("https://app.example.com/form");
+
+// HTTP request replay with variations
+let varied = vigolium.http.replay(rawRequest, [
+  { headers: { "Authorization": "Bearer admin_token" } },
+  { headers: { "Authorization": "Bearer user_token" } }
+]);
+```
+
+See [docs/development/writing-extensions.md](docs/development/writing-extensions.md) for the extension authoring guide and `pkg/jsext/vigolium.d.ts` for the full TypeScript API definitions.
 
 ## CLI Reference
 
@@ -206,7 +292,13 @@ Scanning:
       --strategy         Strategy preset: lite, balanced, deep, whitebox
       --scanning-profile Scanning profile name or YAML path
       --only             Single phase: ingestion, discover (deparos), spidering (spitolas),
-                         external-harvest, spa, sast, dynamic-assessment (audit)
+                         external-harvest, spa, sast, audit (dynamic-assessment)
+
+Authentication:
+      --session           Inline session definition (name:Header:value, repeatable)
+      --session-file      Session YAML/JSON file path (repeatable)
+      --auth-config       Full auth configuration file path
+  -H, --header           Custom HTTP header (repeatable)
 
 Performance:
   -c, --concurrency      Concurrent workers (default: 50)
@@ -214,6 +306,20 @@ Performance:
       --max-per-host     Per-host concurrency cap (default: 2)
       --proxy            HTTP/SOCKS5 proxy URL
       --timeout          HTTP request timeout (default: 15s)
+
+Agent:
+      --source             Path to source code for source-aware scanning
+      --source-label       Label for source code ingestion
+      --agent-acp-cmd      Custom ACP agent command (overrides --agent)
+      --agent-timeout      Max agent execution time (default: 5m, 0 = no limit)
+      --vuln-type          Vulnerability type focus (sqli, xss, ssrf, etc.)
+      --max-iterations     Max triage-rescan iterations (default: 3)
+      --source-analysis-only  Run only source analysis phase and exit
+
+JavaScript:
+      --code             Inline JavaScript to execute
+      --code-file        Path to JS/TS file to execute
+      --timeout          Execution timeout (default: 30s)
 
 Output:
   -j, --json             JSON output

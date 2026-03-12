@@ -222,7 +222,7 @@ func (p *PipelineRunner) runPlan(ctx context.Context, cfg PipelineConfig) (*Atta
 	}
 
 	if cfg.DryRun {
-		fmt.Fprint(os.Stdout, result.RawOutput)
+		_, _ = fmt.Fprint(os.Stdout, result.RawOutput)
 		return nil, nil
 	}
 
@@ -248,7 +248,7 @@ func (p *PipelineRunner) runPlan(ctx context.Context, cfg PipelineConfig) (*Atta
 	return plan, nil
 }
 
-// runScan executes phase 3: dynamic assessment with plan-selected modules.
+// runScan executes phase 3: audit with plan-selected modules.
 func (p *PipelineRunner) runScan(ctx context.Context, cfg PipelineConfig, plan *AttackPlan) error {
 	if cfg.DryRun {
 		return nil
@@ -332,7 +332,7 @@ func (p *PipelineRunner) runTriage(ctx context.Context, cfg PipelineConfig, roun
 	}
 
 	if cfg.DryRun {
-		fmt.Fprint(os.Stdout, result.RawOutput)
+		_, _ = fmt.Fprint(os.Stdout, result.RawOutput)
 		return &TriageResult{Verdict: "done"}, nil
 	}
 

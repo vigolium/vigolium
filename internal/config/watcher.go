@@ -33,7 +33,7 @@ type ConfigWatcher struct {
 var reloadableSections = map[string]bool{
 	"scope":              true,
 	"notify":             true,
-	"dynamic_assessment": true,
+	"audit": true,
 	"mutation_strategy":  true,
 	"scanning_strategy":  true,
 	"scanning_pace":      true,
@@ -192,8 +192,8 @@ func (cw *ConfigWatcher) reload() {
 			cw.settings.Scope = newSettings.Scope
 		case "notify":
 			cw.settings.Notify = newSettings.Notify
-		case "dynamic_assessment":
-			cw.settings.DynamicAssessment = newSettings.DynamicAssessment
+		case "audit":
+			cw.settings.Audit = newSettings.Audit
 		case "mutation_strategy":
 			cw.settings.MutationStrategy = newSettings.MutationStrategy
 		case "scanning_strategy":

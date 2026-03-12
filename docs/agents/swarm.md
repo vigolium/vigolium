@@ -150,7 +150,7 @@ At least one input is required: `--target`, `--input`, `--record-uuid`, or `--so
 Phase 1: Normalize    — Parse input(s) into HttpRequestResponse objects
 Phase 2: Plan         — Master agent analyzes request, selects modules, generates extensions
 Phase 3: Extension    — Write generated JS extensions to temp directory
-Phase 4: Scan         — Dynamic assessment with selected modules + extensions
+Phase 4: Scan         — Audit with selected modules + extensions
 Phase 5: Triage       — Agent reviews extension-generated findings
 Phase 6: Rescan       — Targeted rescan based on triage follow-ups (loop)
 ```
@@ -224,7 +224,7 @@ The directory is passed to the scan phase and cleaned up when the swarm exits.
 
 ### Phase 4: Scan (Native — No AI)
 
-Dynamic assessment runs with:
+The audit phase runs with:
 
 - **Only the modules** selected by the master agent (resolved from tags + IDs)
 - **Plus the generated extensions** loaded from the temp directory
@@ -284,7 +284,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 | `url` | string | No | URL hint for parsing the base64 request (used when the raw request lacks a full URL) |
 | `vuln_type` | string | No | Vulnerability type focus (e.g., `sqli`, `xss`) |
 | `module_names` | string[] | No | Explicit module IDs to include |
-| `scanning_phase` | string | No | Scan phase to run (default `dynamic-assessment`) |
+| `scanning_phase` | string | No | Scan phase to run (default `audit`) |
 | `max_iterations` | int | No | Max triage-rescan rounds (default 3) |
 | `agent` | string | No | Agent backend name |
 | `project_uuid` | string | No | Project UUID for data scoping |

@@ -60,7 +60,7 @@ vigolium scan -t https://example.com --ext-dir ~/extensions/ --ext ./extra-check
 Enable and configure extensions in `vigolium-configs.yaml`:
 
 ```yaml
-dynamic_assessment:
+audit:
   extensions:
     enabled: true
     extension_dir: "~/.vigolium/extensions/"   # Default extensions directory

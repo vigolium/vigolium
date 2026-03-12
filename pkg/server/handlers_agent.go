@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -294,14 +295,14 @@ func (h *Handlers) buildServerDiscoverFunc(target, projectUUID, scanUUID string,
 	}
 }
 
-// buildServerScanFunc creates a callback that runs dynamic assessment with specified module filters.
+// buildServerScanFunc creates a callback that runs audit with specified module filters.
 func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
 	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{target}
 		opts.ProjectUUID = projectUUID
 		opts.ScanUUID = scanUUID
-		opts.OnlyPhase = "dynamic-assessment"
+		opts.OnlyPhase = "audit"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
 		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
@@ -640,7 +641,8 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		Inputs:        req.EffectiveInputs(),
 		VulnType:      req.VulnType,
 		ModuleNames:   req.ModuleNames,
-		ScanningPhase: req.ScanningPhase,
+		OnlyPhase:     req.OnlyPhase,
+		SkipPhases:    req.SkipPhases,
 		MaxIterations: maxIter,
 		AgentName:     agentName,
 		DryRun:        req.DryRun,
@@ -653,34 +655,49 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 	targetURL := h.resolveSwarmTargetURL(req)
 
 	// Wire scan callback using the server's runner infrastructure
-	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, h.settings)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, h.settings)
 
 	return cfg
 }
 
-// buildServerAgentSwarmFunc creates a callback that runs dynamic assessment with extensions.
-func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
+// buildServerAgentSwarmFunc creates a callback that runs the scan.
+// When rescan=false, it runs a full scan (all phases, all modules) by default.
+// When rescan=true, it restricts to audit with targeted modules.
+func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, onlyPhase string, skipPhases []string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
+	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
 		opts := types.DefaultOptions()
 		if targetURL != "" {
 			opts.Targets = []string{targetURL}
 		}
 		opts.ProjectUUID = projectUUID
 		opts.ScanUUID = scanUUID
-		opts.OnlyPhase = "dynamic-assessment"
-		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
 
+		if rescan {
+			// Triage rescans: targeted audit only
+			opts.OnlyPhase = "audit"
+			opts.SkipIngestion = true
+			opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+		} else {
+			// Initial scan: full scan with all modules
+			opts.Modules = []string{"all"}
+			if onlyPhase != "" {
+				opts.OnlyPhase = onlyPhase
+			}
+			if len(skipPhases) > 0 {
+				opts.SkipPhases = skipPhases
+			}
+		}
+
 		// Clone settings to apply extension dir without mutating global
 		settingsCopy := *settings
 		if extensionDir != "" {
-			settingsCopy.DynamicAssessment.Extensions.Enabled = true
-			settingsCopy.DynamicAssessment.Extensions.CustomDir = append(
-				settingsCopy.DynamicAssessment.Extensions.CustomDir,
+			settingsCopy.Audit.Extensions.Enabled = true
+			settingsCopy.Audit.Extensions.CustomDir = append(
+				settingsCopy.Audit.Extensions.CustomDir,
 				extensionDir+"/*.js",
 			)
 		}
@@ -1184,6 +1201,129 @@ func agentRunToStatusResponse(run *database.AgentRun) *AgentRunStatusResponse {
 		resp.CompletedAt = &run.CompletedAt
 	}
 	return resp
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/agent/sessions — Paginated list of agent sessions
+// ---------------------------------------------------------------------------
+
+// HandleAgentSessionList returns a paginated list of agent sessions from the database.
+func (h *Handlers) HandleAgentSessionList(c fiber.Ctx) error {
+	if h.repo == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	projectUUID := getProjectUUID(c)
+	mode := c.Query("mode")
+	limit := 50
+	offset := 0
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	runs, total, err := h.repo.ListAgentRuns(c.Context(), projectUUID, mode, limit, offset)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to list agent sessions: " + err.Error(),
+		})
+	}
+
+	summaries := make([]*AgentSessionSummary, len(runs))
+	for i, run := range runs {
+		summaries[i] = agentRunToSessionSummary(run)
+	}
+
+	return c.JSON(PaginatedResponse{
+		ProjectUUID: projectUUID,
+		Data:        summaries,
+		Total:       total,
+		Limit:       limit,
+		Offset:      offset,
+		HasMore:     int64(offset+len(runs)) < total,
+	})
+}
+
+// HandleAgentSessionDetail returns full details for a single agent session.
+func (h *Handlers) HandleAgentSessionDetail(c fiber.Ctx) error {
+	if h.repo == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	runID := c.Params("id")
+	if runID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "missing session id",
+		})
+	}
+
+	run, err := h.repo.GetAgentRun(c.Context(), runID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error: ErrAgentNotFound.Error(),
+		})
+	}
+
+	return c.JSON(agentRunToSessionDetail(run))
+}
+
+// agentRunToSessionSummary converts a database AgentRun to a lightweight session summary.
+func agentRunToSessionSummary(run *database.AgentRun) *AgentSessionSummary {
+	s := &AgentSessionSummary{
+		UUID:         run.UUID,
+		Mode:         run.Mode,
+		Status:       run.Status,
+		AgentName:    run.AgentName,
+		TemplateID:   run.TemplateID,
+		TargetURL:    run.TargetURL,
+		VulnType:     run.VulnType,
+		InputType:    run.InputType,
+		CurrentPhase: run.CurrentPhase,
+		PhasesRun:    run.PhasesRun,
+		FindingCount: run.FindingCount,
+		RecordCount:  run.RecordCount,
+		SavedCount:   run.SavedCount,
+		ErrorMessage: run.ErrorMessage,
+		DurationMs:   run.DurationMs,
+		CreatedAt:    run.CreatedAt,
+	}
+	if !run.StartedAt.IsZero() {
+		s.StartedAt = &run.StartedAt
+	}
+	if !run.CompletedAt.IsZero() {
+		s.CompletedAt = &run.CompletedAt
+	}
+	return s
+}
+
+// agentRunToSessionDetail converts a database AgentRun to a full session detail response.
+func agentRunToSessionDetail(run *database.AgentRun) *AgentSessionDetail {
+	return &AgentSessionDetail{
+		AgentSessionSummary: *agentRunToSessionSummary(run),
+		InputRaw:            run.InputRaw,
+		ModuleNames:         run.ModuleNames,
+		SessionID:           run.SessionID,
+		PromptSent:          run.PromptSent,
+		AgentRawOutput:      run.AgentRawOutput,
+		AttackPlan:          run.AttackPlan,
+		TriageResult:        run.TriageResult,
+		ResultJSON:          run.ResultJSON,
+	}
 }
 
 // ---------------------------------------------------------------------------

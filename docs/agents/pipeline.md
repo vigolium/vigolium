@@ -64,7 +64,7 @@ vigolium agent pipeline -t http://localhost:3000 --source ./src --dry-run
 Phase 0: Source Analysis  (AI Checkpoint)   — Extract routes, session config, extensions from source code
 Phase 1: Discover         (Native)          — Content discovery + spidering
 Phase 2: Plan             (AI Checkpoint)   — Agent selects modules and prioritizes targets
-Phase 3: Scan             (Native)          — Dynamic assessment with selected modules
+Phase 3: Scan             (Native)          — Audit with selected modules
 Phase 4: Triage           (AI Checkpoint)   — Agent classifies findings
 Phase 5: Rescan           (Native, Loop)    — Targeted rescan based on triage follow-ups
 Phase 6: Report           (Native)          — Aggregate results
@@ -165,7 +165,7 @@ For each dangerous code pattern (sink) the agent identifies, it generates a Java
 }
 ```
 
-The callback writes these to a temp directory and adds it to `settings.DynamicAssessment.Extensions.CustomDir`, so they are **loaded by the scanner in Phase 3** alongside built-in modules.
+The callback writes these to a temp directory and adds it to `settings.Audit.Extensions.CustomDir`, so they are **loaded by the scanner in Phase 3** alongside built-in modules.
 
 **Cleanup:** Temp extension directory and auth config file are removed when the pipeline exits.
 
@@ -229,7 +229,7 @@ Agent returns an **AttackPlan** JSON:
 ### Phase 3: Scan (Native — No AI)
 
 ```go
-opts.OnlyPhase = "dynamic-assessment"
+opts.OnlyPhase = "audit"
 opts.SkipIngestion = true
 opts.Modules = resolveModulesFromPlan(plan.ModuleTags, plan.ModuleIDs)
 opts.PassiveModules = []string{"all"}  // passive always enabled
@@ -237,7 +237,7 @@ opts.PassiveModules = []string{"all"}  // passive always enabled
 runPipelinePhaseRunner(opts, settings, repo)
 ```
 
-- Runs dynamic assessment with **only the modules the AI selected** in Phase 2
+- Runs audit with **only the modules the AI selected** in Phase 2
 - **Plus any agent-generated extensions** from Phase 0
 - If Phase 0 generated session config, authenticated scanning is used
 - Passive modules always run alongside

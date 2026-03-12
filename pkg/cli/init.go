@@ -154,7 +154,7 @@ func bootstrapSASTRules(vigoliumDir string) {
 	for _, e := range entries {
 		if e.IsDir() {
 			// Already bootstrapped; clean up stale config if present
-			os.Remove(filepath.Join(astgrepDir, "ast-grep-config.yaml"))
+			_ = os.Remove(filepath.Join(astgrepDir, "ast-grep-config.yaml"))
 			return
 		}
 	}

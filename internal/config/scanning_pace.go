@@ -19,7 +19,7 @@ type ScanningPaceConfig struct {
 	Spidering         PhasePace `yaml:"spidering"`
 	SPA               PhasePace `yaml:"spa"`
 	ExternalHarvester PhasePace `yaml:"external_harvester"`
-	DynamicAssessment PhasePace `yaml:"dynamic_assessment"`
+	Audit PhasePace `yaml:"audit"`
 }
 
 // PhasePace holds per-phase speed overrides.
@@ -55,7 +55,7 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		SPA:               PhasePace{DurationFactor: 3.0},
 		Spidering:         PhasePace{DurationFactor: 0.15},
 		ExternalHarvester: PhasePace{DurationFactor: 0.2},
-		DynamicAssessment: PhasePace{DurationFactor: 1.0},
+		Audit: PhasePace{DurationFactor: 1.0},
 	}
 }
 
@@ -98,8 +98,8 @@ func (c *ScanningPaceConfig) ResolvePhase(phase string) ResolvedPhasePace {
 		pp = c.SPA
 	case "external_harvester":
 		pp = c.ExternalHarvester
-	case "dynamic_assessment":
-		pp = c.DynamicAssessment
+	case "audit":
+		pp = c.Audit
 	}
 
 	resolved := ResolvedPhasePace{
@@ -159,7 +159,7 @@ func (c *ScanningPaceConfig) Validate() error {
 		"spidering":          &c.Spidering,
 		"spa":                &c.SPA,
 		"external_harvester": &c.ExternalHarvester,
-		"dynamic_assessment": &c.DynamicAssessment,
+		"audit": &c.Audit,
 	}
 	for name, pp := range phases {
 		if pp.Concurrency < 0 {

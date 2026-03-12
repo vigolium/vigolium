@@ -73,14 +73,14 @@ export default function HttpRecordsChart({ records }: Props) {
       .slice(0, 6);
   }, [records]);
 
-  const maxBarWidth = 24;
+  const maxBarWidth = 16;
   const hasData = (records?.length ?? 0) > 0;
 
   return (
     <div className="border border-[#2e2b26] bg-[#1c1b19] p-3">
       <div className="text-[#7fd962] text-xs font-bold mb-2">HTTP RECORDS BREAKDOWN</div>
       {hasData ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {/* Status Code Distribution */}
           <div>
             <div className="text-[#918175] text-[10px] font-bold uppercase mb-1">By Status Code</div>
@@ -95,11 +95,11 @@ export default function HttpRecordsChart({ records }: Props) {
                   const bar = '\u2588'.repeat(barLen);
                   const color = STATUS_COLORS[label] || '#918175';
                   return (
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[#918175] w-[72px] text-right">{label}</span>
+                    <div key={label} className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[#918175] w-[72px] shrink-0 text-right truncate">{label}</span>
                       <span style={{ color }} className="whitespace-pre">{bar || '\u2591'}</span>
-                      <span className="text-[#baa67f]">{count}</span>
-                      <span className="text-[#918175]">({pct}%)</span>
+                      <span className="text-[#baa67f] shrink-0">{count}</span>
+                      <span className="text-[#918175] shrink-0">({pct}%)</span>
                     </div>
                   );
                 })}
@@ -121,11 +121,11 @@ export default function HttpRecordsChart({ records }: Props) {
                   const bar = '\u2588'.repeat(barLen);
                   const color = CHART_COLORS[i % CHART_COLORS.length];
                   return (
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[#918175] w-[130px] text-right truncate" title={label}>{label}</span>
+                    <div key={label} className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[#918175] w-[90px] shrink-0 text-right truncate" title={label}>{label}</span>
                       <span style={{ color }} className="whitespace-pre">{bar || '\u2591'}</span>
-                      <span className="text-[#baa67f]">{count}</span>
-                      <span className="text-[#918175]">({pct}%)</span>
+                      <span className="text-[#baa67f] shrink-0">{count}</span>
+                      <span className="text-[#918175] shrink-0">({pct}%)</span>
                     </div>
                   );
                 })}

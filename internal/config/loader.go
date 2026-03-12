@@ -15,7 +15,7 @@ type Settings struct {
 	Server             ServerConfig             `yaml:"server"`
 	Database           DatabaseConfig           `yaml:"database"`
 	Notify             NotifyConfig             `yaml:"notify"`
-	DynamicAssessment  DynamicAssessmentConfig  `yaml:"dynamic_assessment"`
+	Audit              AuditConfig              `yaml:"audit"`
 	MutationStrategy   MutationStrategyConfig   `yaml:"mutation_strategy"`
 	Scope              ScopeConfig              `yaml:"scope"`
 	SourceAware      SourceAwareConfig      `yaml:"source_aware"`
@@ -37,7 +37,7 @@ type ProfileSettings struct {
 	Discovery         *DiscoveryConfig         `yaml:"discovery,omitempty"`
 	Spidering         *SpideringConfig         `yaml:"spidering,omitempty"`
 	SPA               *SPAConfig               `yaml:"spa,omitempty"`
-	DynamicAssessment *DynamicAssessmentConfig `yaml:"dynamic_assessment,omitempty"`
+	Audit             *AuditConfig             `yaml:"audit,omitempty"`
 	ExternalHarvester *ExternalHarvesterConfig `yaml:"external_harvester,omitempty"`
 	MutationStrategy  *MutationStrategyConfig  `yaml:"mutation_strategy,omitempty"`
 	Scope             *ScopeConfig             `yaml:"scope,omitempty"`
@@ -86,8 +86,8 @@ func ApplyProfile(settings *Settings, profile *ProfileSettings) error {
 	if profile.SPA != nil {
 		overlays = append(overlays, overlay{profile.SPA, &settings.SPA})
 	}
-	if profile.DynamicAssessment != nil {
-		overlays = append(overlays, overlay{profile.DynamicAssessment, &settings.DynamicAssessment})
+	if profile.Audit != nil {
+		overlays = append(overlays, overlay{profile.Audit, &settings.Audit})
 	}
 	if profile.ExternalHarvester != nil {
 		overlays = append(overlays, overlay{profile.ExternalHarvester, &settings.ExternalHarvester})
@@ -172,7 +172,7 @@ func DefaultSettings() *Settings {
 		Server:            *DefaultServerConfig(),
 		Database:          *DefaultDatabaseConfig(),
 		Notify:            *DefaultNotifyConfig(),
-		DynamicAssessment: *DefaultDynamicAssessmentConfig(),
+		Audit:             *DefaultAuditConfig(),
 		MutationStrategy:  *DefaultMutationStrategyConfig(),
 		Scope:             *DefaultScopeConfig(),
 		SourceAware:      *DefaultSourceAwareConfig(),

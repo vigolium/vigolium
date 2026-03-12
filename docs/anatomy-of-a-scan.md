@@ -26,7 +26,7 @@ CLI invocation
 │  Runner Orchestration│  internal/runner/runner.go
 │  7-phase pipeline:   │  Heuristics → Harvest → Spider →
 │  build infra, run    │  SAST → Discovery → SPA →
-│  phases in order     │  Dynamic Assessment
+│  phases in order     │  Audit
 └────────┬────────────┘
          │
          ▼
@@ -76,7 +76,7 @@ CLI invocation
 4. **Resolve scanning profile**: precedence is `--scanning-profile` flag > `settings.ScanningStrategy.ScanningProfile`. Profiles are loaded from `~/.vigolium/profiles/` or embedded presets, and applied via `config.ApplyProfile()`.
 5. **Resolve scanning strategy**: precedence is `--strategy` flag > `settings.ScanningStrategy.DefaultStrategy`. Strategy determines which phases are enabled (discovery, spidering, SPA, etc.).
 6. **Resolve heuristics check level**: `--skip-heuristics` > `--heuristics-check` > config > default `"basic"`.
-7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`, `audit` → `dynamic-assessment`.
+7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`, `dynamic-assessment` → `audit`.
 8. **Validate HTML output**: `--format html` requires `--output` and is only allowed with `--only discovery` or `--only spidering`.
 9. **Apply scanning pace**: concurrency and max-per-host from config are applied unless explicitly set on CLI.
 10. **Initialize database**: `database.NewDB()` → `CreateSchema()` → `database.NewRepository()`.
@@ -305,7 +305,7 @@ RunEnumeration()
 │    to avoid duplicates in DA phase.
 │    Post-phase: DeduplicateFindings() groups same-module/URL findings.
 │
-└─── Phase 6: Dynamic Assessment   [guard: !SkipDynamicAssessment]
+└─── Phase 6: Audit                [guard: !SkipAudit]
      THE CORE SCANNING PHASE. Reads records from DB, dispatches
      active + passive modules. Per-module finding cap suppresses
      noisy modules. Feedback loop (up to 3 rounds) re-scans
@@ -322,7 +322,7 @@ Phases 0-5 populate the database with HTTP records. Phase 6 reads those records 
 3. Runs Nuclei templates + Kingfisher secret scanning against targets.
 4. **Post-phase dedup**: calls `DeduplicateFindings()` to group findings with identical `(module_id, severity, matched_at URL)`.
 
-### Phase 6 Detail: Dynamic Assessment
+### Phase 6 Detail: Audit
 
 1. Creates a `database.Scan` record with cursor tracking.
 2. Resolves DA concurrency from config (separate from discovery concurrency).
@@ -408,7 +408,7 @@ for item := range itemCh {
 
 ```
 if SkipBaseline && response already attached:
-    use existing response (DB-sourced items in Dynamic Assessment phase)
+    use existing response (DB-sourced items in audit phase)
 else:
     httpClient.Execute(request) → response
     copy response bytes from pool before Close()
@@ -905,7 +905,7 @@ Three levels of deduplication prevent noise and redundancy:
 
 2. **Finding-level (inline)**: `finding_hash` unique constraint in the database uses `INSERT ON CONFLICT DO NOTHING`. When a duplicate hash is detected at insert time, `appendRecordsToFinding()` appends the new HTTP record UUIDs and request/response pair (as `AdditionalEvidence`) to the existing finding instead of creating a new row.
 
-3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the SPA and Dynamic Assessment phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
+3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the SPA and audit phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
 
    The grouping process:
    - Partitions findings by `module_id || severity || matched_at[0]` and orders by `created_at ASC`
@@ -915,7 +915,7 @@ Three levels of deduplication prevent noise and redundancy:
    - Returns counts of deleted findings and merged groups for user feedback
 
 ```
-Phase completes (SPA or Dynamic Assessment)
+Phase completes (SPA or audit)
   │
   ▼
 DeduplicateFindings(projectUUID)

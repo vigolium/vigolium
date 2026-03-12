@@ -114,7 +114,7 @@ func (r *Runner) RunTool(ctx context.Context, name string, tool config.ToolConfi
 			return nil, fmt.Errorf("tool %s: create temp output file: %w", name, err)
 		}
 		outputPath = f.Name()
-		f.Close()
+		_ = f.Close()
 	}
 
 	// Build args, expanding {{output}} placeholder if present.
@@ -178,14 +178,14 @@ func (r *Runner) RunMultiStepTool(ctx context.Context, name string, tool config.
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp db dir: %w", err)
 	}
-	defer os.RemoveAll(dbDir)
+	defer func() { _ = os.RemoveAll(dbDir) }()
 
 	outputFile, err := os.CreateTemp("", fmt.Sprintf("sast-%s-*.sarif", name))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp output file: %w", err)
 	}
 	outputPath := outputFile.Name()
-	outputFile.Close()
+	_ = outputFile.Close()
 
 	language := tool.Language
 	if language == "" || strings.EqualFold(language, "auto") {

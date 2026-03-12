@@ -567,8 +567,23 @@ func (r *Repository) CreateScanLog(ctx context.Context, log *ScanLog) error {
 	return nil
 }
 
+// CreateScanLogBatch inserts multiple scan log entries in a single bulk insert.
+func (r *Repository) CreateScanLogBatch(ctx context.Context, logs []*ScanLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	for _, l := range logs {
+		l.ProjectUUID = defaultProjectUUID(l.ProjectUUID)
+	}
+	if _, err := r.db.NewInsert().Model(&logs).Exec(ctx); err != nil {
+		return fmt.Errorf("failed to batch insert scan logs: %w", err)
+	}
+	return nil
+}
+
 // ListScanLogs returns log entries for a scan, ordered by created_at ascending.
-func (r *Repository) ListScanLogs(ctx context.Context, scanUUID string, level string, limit, offset int) ([]*ScanLog, int64, error) {
+// Both level and phase are optional filters; pass "" to skip.
+func (r *Repository) ListScanLogs(ctx context.Context, scanUUID string, level, phase string, limit, offset int) ([]*ScanLog, int64, error) {
 	var logs []*ScanLog
 	q := r.db.NewSelect().
 		Model(&logs).
@@ -577,6 +592,9 @@ func (r *Repository) ListScanLogs(ctx context.Context, scanUUID string, level st
 
 	if level != "" {
 		q = q.Where("level = ?", level)
+	}
+	if phase != "" {
+		q = q.Where("phase = ?", phase)
 	}
 
 	q = q.Limit(limit).Offset(offset)
@@ -650,6 +668,23 @@ func (r *Repository) ListUsers(ctx context.Context) ([]*User, error) {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 	return users, nil
+}
+
+// UpsertUser inserts a new user or updates name/email if the UUID already exists.
+// Returns the user's UUID.
+func (r *Repository) UpsertUser(ctx context.Context, user *User) error {
+	if user == nil || user.UUID == "" {
+		return fmt.Errorf("invalid User: UUID is required")
+	}
+	q := r.db.NewInsert().Model(user).
+		On("CONFLICT (uuid) DO UPDATE").
+		Set("name = EXCLUDED.name").
+		Set("email = EXCLUDED.email").
+		Set("updated_at = CURRENT_TIMESTAMP")
+	if _, err := q.Exec(ctx); err != nil {
+		return fmt.Errorf("failed to upsert user: %w", err)
+	}
+	return nil
 }
 
 // --- Project CRUD ---
@@ -1489,6 +1524,14 @@ func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode
 		limit = 50
 	}
 
+	// Count total matching rows (without LIMIT/OFFSET).
+	countQ := r.db.NewSelect().Model((*AgentRun)(nil)).
+		Where("project_uuid = ?", projectUUID)
+	if mode != "" {
+		countQ = countQ.Where("mode = ?", mode)
+	}
+	total, countErr := countQ.Count(ctx)
+
 	var runs []*AgentRun
 	q := r.db.NewSelect().Model(&runs).
 		Where("project_uuid = ?", projectUUID).
@@ -1503,7 +1546,12 @@ func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode
 	if err := q.Scan(ctx); err != nil {
 		return nil, 0, fmt.Errorf("failed to list agent runs: %w", err)
 	}
-	return runs, int64(len(runs)), nil
+
+	// Fall back to page size if count query failed.
+	if countErr != nil {
+		total = len(runs)
+	}
+	return runs, int64(total), nil
 }
 
 // DeleteOldAgentRuns removes completed/failed agent runs older than the given duration.

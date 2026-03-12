@@ -33,7 +33,8 @@ type SwarmConfig struct {
 	// Scanning parameters
 	VulnType      string   // optional: focus on specific vulnerability type
 	ModuleNames   []string // optional: explicit module IDs to use
-	ScanningPhase string   // default "dynamic-assessment"
+	OnlyPhase     string   // isolate a single phase (empty = all phases)
+	SkipPhases    []string // skip specific phases (empty = skip none)
 	MaxIterations int      // max triage-rescan loops (default 3)
 
 	// Agent
@@ -53,10 +54,12 @@ type SwarmConfig struct {
 	// Streaming
 	StreamWriter io.Writer
 
-	// ScanFunc runs the dynamic assessment phase with the given module filters.
+	// ScanFunc runs the scan with the given module filters and extensions.
 	// moduleTags and moduleIDs come from the agent's swarm plan.
 	// extensionDir is the path to generated JS extensions (empty if none).
-	ScanFunc func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error
+	// When rescan is true, the callback should restrict to audit only
+	// with targeted modules; when false, it runs a full scan with all modules.
+	ScanFunc func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error
 
 	// PhaseCallback is called when a swarm phase starts.
 	PhaseCallback func(phase string)
@@ -115,10 +118,6 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 3
 	}
-	if cfg.ScanningPhase == "" {
-		cfg.ScanningPhase = "dynamic-assessment"
-	}
-
 	// Create agent run record
 	runUUID := "agt-" + uuid.New().String()
 	agentRun := &database.AgentRun{
@@ -145,8 +144,7 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	result := &SwarmResult{AgentRunUUID: runUUID}
 
 	// Execute phases
-	var err error
-	err = s.runSwarmPipeline(ctx, cfg, agentRun, result)
+	err := s.runSwarmPipeline(ctx, cfg, agentRun, result)
 
 	// Finalize
 	result.Duration = time.Since(start)
@@ -365,15 +363,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		extensionDir = sourceExtensionDir
 	}
 
-	// Phase 4: Execute scan
+	// Phase 4: Execute scan (full scan with all modules by default)
 	if cfg.ScanFunc != nil {
 		s.emitPhase(cfg, SwarmPhaseScan)
 		agentRun.CurrentPhase = SwarmPhaseScan
 
-		// Merge user-specified modules with agent-selected ones
-		tags, ids := s.mergeModules(cfg, plan)
-
-		if err := cfg.ScanFunc(ctx, tags, ids, extensionDir); err != nil {
+		if err := cfg.ScanFunc(ctx, nil, nil, extensionDir, false); err != nil {
 			return fmt.Errorf("scan execution failed: %w", err)
 		}
 	}
@@ -815,20 +810,6 @@ func sortedKeys(s map[string]bool) []string {
 	return result
 }
 
-func (s *SwarmRunner) mergeModules(cfg SwarmConfig, plan *SwarmPlan) (tags []string, ids []string) {
-	if plan != nil {
-		tags = plan.ModuleTags
-		ids = plan.ModuleIDs
-	}
-
-	// Add user-specified modules as explicit IDs
-	if len(cfg.ModuleNames) > 0 {
-		ids = append(ids, cfg.ModuleNames...)
-	}
-
-	return tags, ids
-}
-
 func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string) error {
 	// Only triage extension-generated findings
 	// We query findings with finding_source = 'extension' for this scan
@@ -890,7 +871,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 			break
 		}
 
-		// Rescan with follow-up modules
+		// Rescan with follow-up modules (targeted, audit only)
 		if cfg.ScanFunc != nil {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
@@ -901,7 +882,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 				followIDs = append(followIDs, fu.ModuleIDs...)
 			}
 
-			if err := cfg.ScanFunc(ctx, followTags, followIDs, ""); err != nil {
+			if err := cfg.ScanFunc(ctx, followTags, followIDs, "", true); err != nil {
 				zap.L().Warn("Rescan failed", zap.Int("round", round+1), zap.Error(err))
 				break
 			}

@@ -1,4 +1,4 @@
-# description: Full scan — deep discovery, spidering, enriched SPA targets, thorough dynamic assessment (slow)
+# description: Full scan — deep discovery, spidering, enriched SPA targets, thorough audit (slow)
 scanning_strategy:
   default_strategy: deep
 
@@ -14,7 +14,7 @@ scanning_pace:
   spa:
     max_duration: 3h
     duration_factor: 3.0
-  dynamic_assessment:
+  audit:
     concurrency: 30
 
 discovery:
@@ -59,7 +59,7 @@ spa:
   exclude_tags:
     - dos
 
-dynamic_assessment:
+audit:
   enabled_modules:
     active_modules:
       - all

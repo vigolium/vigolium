@@ -23,14 +23,14 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 			paths: []database.PathTarget{
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/"},
 			},
-			want: []string{"http://localhost:3000/"},
+			want: []string{"http://localhost:3000"},
 		},
 		{
 			name: "empty path normalizes to root",
 			paths: []database.PathTarget{
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: ""},
 			},
-			want: []string{"http://localhost:3000/"},
+			want: []string{"http://localhost:3000"},
 		},
 		{
 			name: "strip last segment",
@@ -51,7 +51,7 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 			paths: []database.PathTarget{
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/file.txt"},
 			},
-			want: []string{"http://localhost:3000/"},
+			want: []string{"http://localhost:3000"},
 		},
 		{
 			name: "deep path strips last segment",
@@ -65,7 +65,7 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 			paths: []database.PathTarget{
 				{Scheme: "http", Hostname: "localhost", Port: 80, Path: "/search?q=foo"},
 			},
-			want: []string{"http://localhost/"},
+			want: []string{"http://localhost"},
 		},
 		{
 			name: "standard ports omitted",
@@ -73,7 +73,7 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 				{Scheme: "http", Hostname: "example.com", Port: 80, Path: "/"},
 				{Scheme: "https", Hostname: "example.com", Port: 443, Path: "/api/v1/users"},
 			},
-			want: []string{"http://example.com/", "https://example.com/api/v1"},
+			want: []string{"http://example.com", "https://example.com/api/v1"},
 		},
 		{
 			name: "deduplication",
@@ -82,14 +82,14 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/ftp/file2.txt"},
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/"},
 			},
-			want: []string{"http://localhost:3000/ftp", "http://localhost:3000/"},
+			want: []string{"http://localhost:3000/ftp", "http://localhost:3000"},
 		},
 		{
 			name: "fragment stripped",
 			paths: []database.PathTarget{
 				{Scheme: "http", Hostname: "localhost", Port: 8080, Path: "/page#section"},
 			},
-			want: []string{"http://localhost:8080/"},
+			want: []string{"http://localhost:8080"},
 		},
 	}
 
@@ -134,7 +134,7 @@ func TestBuildSPAHostTargets(t *testing.T) {
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/api/Challenges/"},
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/"},
 			},
-			want: []string{"http://localhost:3000/"},
+			want: []string{"http://localhost:3000"},
 		},
 		{
 			name: "multiple hosts",
@@ -142,7 +142,7 @@ func TestBuildSPAHostTargets(t *testing.T) {
 				{Scheme: "http", Hostname: "localhost", Port: 3000, Path: "/a"},
 				{Scheme: "https", Hostname: "example.com", Port: 443, Path: "/b/c"},
 			},
-			want: []string{"http://localhost:3000/", "https://example.com/"},
+			want: []string{"http://localhost:3000", "https://example.com"},
 		},
 		{
 			name: "standard ports omitted",
@@ -150,7 +150,7 @@ func TestBuildSPAHostTargets(t *testing.T) {
 				{Scheme: "http", Hostname: "example.com", Port: 80, Path: "/foo"},
 				{Scheme: "https", Hostname: "example.com", Port: 443, Path: "/bar"},
 			},
-			want: []string{"http://example.com/", "https://example.com/"},
+			want: []string{"http://example.com", "https://example.com"},
 		},
 	}
 

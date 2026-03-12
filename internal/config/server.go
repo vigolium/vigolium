@@ -8,6 +8,7 @@ import (
 // ServerConfig holds API server configuration
 type ServerConfig struct {
 	AuthAPIKey         string `yaml:"auth_api_key"`
+	UsersFile          string `yaml:"users_file"`
 	ServicePort        int    `yaml:"service_port"`
 	IngestProxyPort    int    `yaml:"ingest_proxy_port"`
 	CORSAllowedOrigins string `yaml:"cors_allowed_origins"`
@@ -19,6 +20,7 @@ type ServerConfig struct {
 func DefaultServerConfig() *ServerConfig {
 	return &ServerConfig{
 		AuthAPIKey:         GenerateRandomHex(20),
+		UsersFile:          "~/.vigolium/users.json",
 		ServicePort:        9002,
 		CORSAllowedOrigins: "reflect-origin",
 		EnableMetrics:      true,

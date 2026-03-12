@@ -172,21 +172,21 @@ func printExtensionsTable(opts *extensionOptions, filter string) {
 		return
 	}
 
-	if !settings.DynamicAssessment.Extensions.Enabled {
+	if !settings.Audit.Extensions.Enabled {
 		fmt.Printf("%s Extensions not enabled. Enable with: %s\n",
 			terminal.WarningSymbol(),
-			terminal.Gray("vigolium config set dynamic_assessment.extensions.enabled true"))
+			terminal.Gray("vigolium config set audit.extensions.enabled true"))
 		fmt.Println()
 		return
 	}
 
-	loadedScripts, err := jsext.LoadScripts(&settings.DynamicAssessment.Extensions)
+	loadedScripts, err := jsext.LoadScripts(&settings.Audit.Extensions)
 	if err != nil {
 		fmt.Printf("%s Failed to load JS extensions: %v\n", terminal.ErrorSymbol(), err)
 		return
 	}
 
-	loadedYAML, _ := yamlext.LoadFromConfig(&settings.DynamicAssessment.Extensions)
+	loadedYAML, _ := yamlext.LoadFromConfig(&settings.Audit.Extensions)
 
 	if len(loadedScripts) == 0 && len(loadedYAML) == 0 {
 		fmt.Printf("%s No extensions found. Configure %s or %s in config.\n",
@@ -690,7 +690,7 @@ func installPresets(filter string) {
 		return
 	}
 
-	targetDir := config.ExpandPath(settings.DynamicAssessment.Extensions.ExtensionDir)
+	targetDir := config.ExpandPath(settings.Audit.Extensions.ExtensionDir)
 	if targetDir == "" {
 		targetDir = config.ExpandPath("~/.vigolium/extensions/")
 	}
@@ -756,11 +756,11 @@ func installPresets(filter string) {
 		fmt.Printf("%s No presets matching %q\n", terminal.WarningSymbol(), filter)
 	}
 
-	if !settings.DynamicAssessment.Extensions.Enabled {
+	if !settings.Audit.Extensions.Enabled {
 		fmt.Println()
 		fmt.Printf("%s Extensions not enabled. Enable with: %s\n",
 			terminal.WarningSymbol(),
-			terminal.Gray("vigolium config set dynamic_assessment.extensions.enabled true"))
+			terminal.Gray("vigolium config set audit.extensions.enabled true"))
 	}
 	fmt.Println()
 }

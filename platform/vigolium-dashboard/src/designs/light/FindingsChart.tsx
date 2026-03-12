@@ -71,14 +71,14 @@ export default function FindingsChart({ findings }: Props) {
       .slice(0, 8);
   }, [findings]);
 
-  const maxBarWidth = 24;
+  const maxBarWidth = 16;
   const hasData = (findings?.length ?? 0) > 0;
 
   return (
     <div className="border border-[#bbc3c4] bg-[#f6edda] p-3">
       <div className="text-[#0078c8] text-xs font-bold mb-2">FINDINGS BREAKDOWN</div>
       {hasData ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {/* Confidence Distribution */}
           <div>
             <div className="text-[#708e8e] text-[10px] font-bold uppercase mb-1">By Confidence</div>
@@ -93,11 +93,11 @@ export default function FindingsChart({ findings }: Props) {
                   const bar = '\u2588'.repeat(barLen);
                   const color = CONFIDENCE_COLORS[label] || '#708e8e';
                   return (
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[#708e8e] w-[72px] text-right">{label}</span>
+                    <div key={label} className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[#708e8e] w-[72px] shrink-0 text-right truncate">{label}</span>
                       <span style={{ color }} className="whitespace-pre">{bar || '\u2591'}</span>
-                      <span className="text-[#004d57]">{count}</span>
-                      <span className="text-[#708e8e]">({pct}%)</span>
+                      <span className="text-[#004d57] shrink-0">{count}</span>
+                      <span className="text-[#708e8e] shrink-0">({pct}%)</span>
                     </div>
                   );
                 })}
@@ -118,13 +118,12 @@ export default function FindingsChart({ findings }: Props) {
                   const barLen = Math.round((count / max) * maxBarWidth);
                   const bar = '\u2588'.repeat(barLen);
                   const color = CHART_COLORS[i % CHART_COLORS.length];
-                  const displayName = label.length > 20 ? label.slice(0, 18) + '..' : label;
                   return (
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[#708e8e] w-[130px] text-right truncate" title={label}>{displayName}</span>
+                    <div key={label} className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[#708e8e] w-[90px] shrink-0 text-right truncate" title={label}>{label}</span>
                       <span style={{ color }} className="whitespace-pre">{bar || '\u2591'}</span>
-                      <span className="text-[#004d57]">{count}</span>
-                      <span className="text-[#708e8e]">({pct}%)</span>
+                      <span className="text-[#004d57] shrink-0">{count}</span>
+                      <span className="text-[#708e8e] shrink-0">({pct}%)</span>
                     </div>
                   );
                 })}

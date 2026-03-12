@@ -57,4 +57,4 @@ export const MODULE_TYPE_COLORS: Record<string, string> = {
   passive: '#005661',
 };
 
-export const AG_GRID_THEME = 'ag-theme-light';
+export const AG_GRID_THEME = 'ag-theme-vigolium';

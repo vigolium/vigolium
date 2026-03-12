@@ -67,7 +67,7 @@ Ingestion ──► Database (SQLite/PostgreSQL)
 │  Phase 2: Content Discovery — Deparos       │
 │  Phase 3: Browser Spidering — Spitolas      │
 │  Phase 4: SPA — Nuclei + Kingfisher         │
-│  Phase 5: Dynamic Assessment — Executor     │
+│  Phase 5: Audit — Executor                   │
 └──────────────────┬──────────────────────────┘
                    ▼
 ┌─────────────────────────────────────────────┐
@@ -100,7 +100,7 @@ Configuration management: loads YAML files with environment variable expansion, 
 | `scope.go`, `scope_matcher.go` | Scope rules and pattern matching (host, path, status, content-type) |
 | `discovery.go` | Deparos discovery settings (wordlists, recursion, extensions) |
 | `spidering.go` | Browser automation settings (depth, states, duration, engine) |
-| `dynamic_assessment.go` | Module selection and enabled module lists |
+| `audit.go` | Module selection and enabled module lists |
 | `extensions.go` | JavaScript extension config (timeout, memory, sandbox) |
 | `server.go`, `database.go` | Server and database connection settings |
 | `notify.go` | Notification backend configuration |

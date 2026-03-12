@@ -20,9 +20,10 @@ type ServerConfig struct {
 	IdleTimeout          time.Duration
 	ShutdownTimeout      time.Duration
 	CORSAllowedOrigins   string
-	EnableMetrics        bool   // Enable Prometheus /metrics endpoint
-	Debug                bool   // Log raw request body, query params, and headers
-	Version              string // Injected version string for /server-info
+	UserStore            *UserStore // File-based user store (nil = legacy auth only)
+	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
+	Debug                bool       // Log raw request body, query params, and headers
+	Version              string     // Injected version string for /server-info
 	Author               string
 	Commit               string
 	BuildTime            string
@@ -38,6 +39,28 @@ func DefaultServerConfig() ServerConfig {
 		ShutdownTimeout: 30 * time.Second,
 		CORSAllowedOrigins: "",
 	}
+}
+
+// --- Auth Types ---
+
+// LoginRequest is the request body for POST /api/auth/login.
+type LoginRequest struct {
+	Username   string `json:"username"`
+	AccessCode string `json:"access_code"`
+}
+
+// LoginResponse is the response for POST /api/auth/login.
+type LoginResponse struct {
+	Token string    `json:"token"`
+	User  LoginUser `json:"user"`
+}
+
+// LoginUser is the user info returned in a login response.
+type LoginUser struct {
+	UUID  string `json:"uuid"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
 }
 
 // --- Request / Response Types ---
@@ -438,7 +461,8 @@ type AgentSwarmRequest struct {
 	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
 	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
 	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
-	ScanningPhase      string   `json:"scanning_phase,omitempty"`       // default "dynamic-assessment"
+	OnlyPhase          string   `json:"only_phase,omitempty"`           // isolate a single phase
+	SkipPhases         []string `json:"skip_phases,omitempty"`          // skip specific phases
 	MaxIterations      int      `json:"max_iterations,omitempty"`       // max triage-rescan rounds (default 3)
 	Agent              string   `json:"agent,omitempty"`                // agent backend name
 	ProjectUUID        string   `json:"project_uuid,omitempty"`         // optional project UUID
@@ -569,4 +593,39 @@ type AgentRunStatusResponse struct {
 
 	// Swarm-specific result
 	SwarmResult *agent.SwarmResult `json:"swarm_result,omitempty"`
+}
+
+// AgentSessionSummary is a lightweight representation of an agent run for list responses.
+type AgentSessionSummary struct {
+	UUID         string   `json:"uuid"`
+	Mode         string   `json:"mode"`
+	Status       string   `json:"status"`
+	AgentName    string   `json:"agent_name,omitempty"`
+	TemplateID   string   `json:"template_id,omitempty"`
+	TargetURL    string   `json:"target_url,omitempty"`
+	VulnType     string   `json:"vuln_type,omitempty"`
+	InputType    string   `json:"input_type,omitempty"`
+	CurrentPhase string   `json:"current_phase,omitempty"`
+	PhasesRun    []string `json:"phases_run,omitempty"`
+	FindingCount int      `json:"finding_count,omitempty"`
+	RecordCount  int      `json:"record_count,omitempty"`
+	SavedCount   int      `json:"saved_count,omitempty"`
+	ErrorMessage string   `json:"error_message,omitempty"`
+	DurationMs   int64    `json:"duration_ms,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// AgentSessionDetail is the full representation of an agent run including debug fields.
+type AgentSessionDetail struct {
+	AgentSessionSummary
+	InputRaw       string   `json:"input_raw,omitempty"`
+	ModuleNames    []string `json:"module_names,omitempty"`
+	SessionID      string   `json:"session_id,omitempty"`
+	PromptSent     string   `json:"prompt_sent,omitempty"`
+	AgentRawOutput string   `json:"agent_raw_output,omitempty"`
+	AttackPlan     string   `json:"attack_plan,omitempty"`
+	TriageResult   string   `json:"triage_result,omitempty"`
+	ResultJSON     string   `json:"result_json,omitempty"`
 }

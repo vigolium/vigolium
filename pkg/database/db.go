@@ -558,14 +558,14 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 	if db.driver == "postgres" {
 		_, _ = db.ExecContext(ctx,
 			"INSERT INTO users (uuid, name, email, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (uuid) DO NOTHING",
-			DefaultUserUUID, "local-user")
+			DefaultUserUUID, "vigolium-admin")
 		_, _ = db.ExecContext(ctx,
 			"INSERT INTO projects (uuid, name, description, owner_uuid, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (uuid) DO NOTHING",
 			DefaultProjectUUID, "Default Project", "Auto-created default project", DefaultUserUUID)
 	} else {
 		_, _ = db.ExecContext(ctx,
 			"INSERT OR IGNORE INTO users (uuid, name, email, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-			DefaultUserUUID, "local-user")
+			DefaultUserUUID, "vigolium-admin")
 		_, _ = db.ExecContext(ctx,
 			"INSERT OR IGNORE INTO projects (uuid, name, description, owner_uuid, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
 			DefaultProjectUUID, "Default Project", "Auto-created default project", DefaultUserUUID)

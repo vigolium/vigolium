@@ -397,65 +397,6 @@ func runScanWithRR(rr *httpmsg.HttpRequestResponse, target, method string) error
 	return outputScanResult(result)
 }
 
-// runScanWithRRCollect executes a scan and returns findings instead of printing.
-// Used by agent loop to collect scan results programmatically.
-func runScanWithRRCollect(rr *httpmsg.HttpRequestResponse, target, method string) ([]*output.ResultEvent, error) {
-	resolvedModules := resolveModules()
-
-	// Set up HTTP stack
-	httpRequester, svc, cleanup, err := setupScanHTTPStack()
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-
-	// Get modules
-	active, passive := getFilteredModules(resolvedModules, scanURLNoPassive)
-
-	// Optional database
-	var repo *database.Repository
-	db, dbErr := getDB()
-	if dbErr == nil {
-		ctx := context.Background()
-		if schemaErr := db.CreateSchema(ctx); schemaErr != nil {
-			zap.L().Warn("Failed to create schema", zap.Error(schemaErr))
-		}
-		repo = database.NewRepository(db)
-	}
-
-	// Create source
-	src := source.NewSingleSource(rr, resolvedModules)
-
-	// Collect findings
-	var mu sync.Mutex
-	var findings []*output.ResultEvent
-
-	executorCfg := core.ExecutorConfig{
-		Workers:              globalConcurrency,
-		Services:             svc,
-		HTTPRequester:        httpRequester,
-		Repository:           repo,
-		ScanUUID:             globalScanID,
-		MaxFindingsPerModule: globalMaxFindingsPerModule,
-		OnResult: func(result *output.ResultEvent) {
-			mu.Lock()
-			findings = append(findings, result)
-			mu.Unlock()
-		},
-	}
-
-	executor := core.NewExecutor(executorCfg, src, active, passive)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if _, execErr := executor.Execute(ctx); execErr != nil {
-		return findings, execErr
-	}
-
-	return findings, nil
-}
-
 // --- Phase mode: delegates to the Runner for full-pipeline phases ---
 
 // buildPhaseOptions creates a *types.Options populated from global flags and phase flags.
@@ -623,8 +564,8 @@ func outputScanResult(result *scanResult) error {
 			if err != nil {
 				return err
 			}
-			os.Stdout.Write(data)
-			os.Stdout.Write([]byte("\n"))
+			_, _ = os.Stdout.Write(data)
+			_, _ = os.Stdout.Write([]byte("\n"))
 		}
 		return nil
 	}

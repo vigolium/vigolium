@@ -11,7 +11,7 @@ type Role string
 const (
 	// RolePrimary drives discovery and spidering — the "owner" of the resources.
 	RolePrimary Role = "primary"
-	// RoleCompare is replayed during dynamic assessment for cross-session comparison.
+	// RoleCompare is replayed during audit phase for cross-session comparison.
 	RoleCompare Role = "compare"
 )
 

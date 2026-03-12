@@ -305,8 +305,8 @@ func TestGenerateDirectoryTree(t *testing.T) {
 	}
 
 	// Also create node_modules (should be skipped)
-	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
-	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("//"), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("//"), 0644)
 
 	tree, err := generateDirectoryTree(dir)
 	if err != nil {
@@ -346,7 +346,7 @@ func TestGatherContext_SkipsSourceCode(t *testing.T) {
 	// When template only declares SourcePath+DirectoryTree (not SourceCode),
 	// gatherContext should NOT read source files
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
 
 	e := &Engine{}
 	data, err := e.gatherContext(Options{
@@ -371,7 +371,7 @@ func TestGatherContext_SkipsSourceCode(t *testing.T) {
 func TestGatherContext_IncludesSourceCode(t *testing.T) {
 	// When template declares SourceCode, files should be read
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
 
 	e := &Engine{}
 	data, err := e.gatherContext(Options{
