@@ -123,10 +123,10 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	if serverOpts.AgentACPCmd != "" {
 		if def := agent.ParseACPCmd(serverOpts.AgentACPCmd); def != nil {
 			def.Description = "Custom ACP agent from --agent-acp-cmd"
-			if settings.Agent.Agents == nil {
-				settings.Agent.Agents = make(map[string]config.AgentDef)
+			if settings.Agent.Backends == nil {
+				settings.Agent.Backends = make(map[string]config.AgentDef)
 			}
-			settings.Agent.Agents["custom-acp"] = *def
+			settings.Agent.Backends["custom-acp"] = *def
 			settings.Agent.DefaultAgent = "custom-acp"
 		}
 	}
@@ -343,7 +343,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			terminal.InfoSymbol(),
 			terminal.Cyan(fmt.Sprintf("%d", globalConcurrency)))
 		if agentName := settings.Agent.DefaultAgent; agentName != "" {
-			if agentDef, ok := settings.Agent.Agents[agentName]; ok {
+			if agentDef, ok := settings.Agent.Backends[agentName]; ok {
 				warmLabel := "off"
 				if settings.Agent.WarmSession.IsEnabled() {
 					warmLabel = "on"

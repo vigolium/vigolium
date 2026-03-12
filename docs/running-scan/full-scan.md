@@ -231,10 +231,10 @@ source_aware:
 
 agent:
   default_agent: claude
-  agents:
+  backends:
     claude:
       command: npx
-      args: ["-y", "@zed-industries/claude-code-acp@latest"]
+      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       protocol: acp
 
 scanning_pace:

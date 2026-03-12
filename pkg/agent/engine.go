@@ -30,7 +30,7 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 		repo:     repo,
 	}
 	if settings != nil && settings.Agent.WarmSession.IsEnabled() {
-		e.pool = NewACPPool(settings.Agent.WarmSession, settings.Agent.Agents)
+		e.pool = NewACPPool(settings.Agent.WarmSession, settings.Agent.Backends)
 	}
 	return e
 }
@@ -59,7 +59,7 @@ func (e *Engine) EnsureWarmSessions() {
 		enabled := true
 		cfg.Enable = &enabled
 	}
-	e.pool = NewACPPool(cfg, e.settings.Agent.Agents)
+	e.pool = NewACPPool(cfg, e.settings.Agent.Backends)
 	zap.L().Debug("warm session pool auto-enabled for multi-call mode")
 }
 
@@ -315,7 +315,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 
 // resolveAgent looks up an agent definition by name from settings.
 func (e *Engine) resolveAgent(name string) (*config.AgentDef, error) {
-	def, ok := e.settings.Agent.Agents[name]
+	def, ok := e.settings.Agent.Backends[name]
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found in configuration", name)
 	}

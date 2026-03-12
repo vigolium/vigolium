@@ -534,7 +534,7 @@ Fixture generation runs the real agent against source stubs and writes the JSON 
 ```yaml
 agent:
   default_agent: claude
-  agents:
+  backends:
     claude:
       command: claude
       args: ["-p", "-"]
@@ -839,7 +839,7 @@ The generator requires a configured agent backend. Create or update `~/.vigolium
 ```yaml
 agent:
   default_agent: claude
-  agents:
+  backends:
     claude:
       command: claude
       args: ["-p", "-"]

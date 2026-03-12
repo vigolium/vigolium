@@ -252,4 +252,4 @@ See [docs/development/building.md](docs/development/building.md) for the full bu
 
 ## License
 
-Vigolium is made with ♥ by [@j3ssie](https://twitter.com/j3ssie) with [@theblackturtle](https://github.com/theblackturtle) as a core original contributor.
+Vigolium is made with ♥ by [@j3ssie](https://twitter.com/j3ssie) & [@theblackturtle](https://github.com/theblackturtle).

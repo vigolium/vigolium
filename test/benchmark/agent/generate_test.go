@@ -36,7 +36,7 @@ func TestGenerate_AllFixtures(t *testing.T) {
 	require.NoError(t, err, "failed to load settings (set VIGOLIUM_CONFIG if needed)")
 
 	// Verify agent is configured
-	_, ok := settings.Agent.Agents[agentName]
+	_, ok := settings.Agent.Backends[agentName]
 	require.True(t, ok, "agent %q not found in configuration", agentName)
 
 	// Create output directory

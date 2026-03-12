@@ -22,9 +22,10 @@ import (
 
 // acpRunConfig holds optional configuration that varies between scanner and autopilot modes.
 type acpRunConfig struct {
-	Terminal bool   // enable terminal capability in ACP
-	Cwd      string // explicit working directory (bypasses probe extraction from opts)
-	MaxCalls int    // max terminal commands (only used when Terminal is true)
+	Terminal    bool   // enable terminal capability in ACP
+	Cwd         string // explicit working directory (bypasses probe extraction from opts)
+	MaxCalls    int    // max terminal commands (only used when Terminal is true)
+	SessionMeta *config.ACPSessionMeta // optional session metadata passed via NewSessionRequest._meta
 }
 
 // acpResult holds the output of an ACP agent run.
@@ -37,7 +38,9 @@ type acpResult struct {
 // RunAgentACP executes an AI agent using the ACP protocol.
 // It returns the collected agent output, stderr, and any execution error.
 func RunAgentACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (result acpResult, err error) {
-	return runACP(ctx, agentDef, prompt, acpRunConfig{}, opts...)
+	return runACP(ctx, agentDef, prompt, acpRunConfig{
+		SessionMeta: agentDef.SessionMeta,
+	}, opts...)
 }
 
 // RunAgentAutopilot executes an AI agent using the ACP protocol with terminal
@@ -45,9 +48,10 @@ func RunAgentACP(ctx context.Context, agentDef config.AgentDef, prompt string, o
 func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt string, cwd string, maxCalls int, opts ...acpClientOption) (result acpResult, err error) {
 	opts = append(opts, withTerminal(cwd, maxCalls))
 	return runACP(ctx, agentDef, prompt, acpRunConfig{
-		Terminal: true,
-		Cwd:      cwd,
-		MaxCalls: maxCalls,
+		Terminal:    true,
+		Cwd:         cwd,
+		MaxCalls:    maxCalls,
+		SessionMeta: agentDef.SessionMeta,
 	}, opts...)
 }
 
@@ -184,10 +188,14 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	zap.L().Debug("creating ACP session", zap.String("cwd", cwd))
 
 	// Create a new session
-	sess, sessErr := conn.NewSession(ctx, acp.NewSessionRequest{
+	sessReq := acp.NewSessionRequest{
 		Cwd:        cwd,
 		McpServers: []acp.McpServer{},
-	})
+	}
+	if cfg.SessionMeta != nil {
+		sessReq.Meta = cfg.SessionMeta
+	}
+	sess, sessErr := conn.NewSession(ctx, sessReq)
 	if sessErr != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP session creation timed out: %w", ctx.Err())

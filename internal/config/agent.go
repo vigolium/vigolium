@@ -5,7 +5,7 @@ import "fmt"
 // AgentConfig holds AI agent integration settings.
 type AgentConfig struct {
 	DefaultAgent string              `yaml:"default_agent"`
-	Agents       map[string]AgentDef `yaml:"agents"`
+	Backends     map[string]AgentDef `yaml:"backends"`
 	TemplatesDir string              `yaml:"templates_dir"`
 	SessionsDir  string              `yaml:"sessions_dir"` // directory for agent run session artifacts (default: ~/.vigolium/agent-sessions/)
 	Stream       *bool               `yaml:"stream,omitempty"`
@@ -71,6 +71,39 @@ func (c *AgentConfig) StreamEnabled() bool {
 	return *c.Stream
 }
 
+// ACPSessionMeta holds agent-specific session metadata passed via the _meta
+// extension point in NewSessionRequest. This allows configuring agent behavior
+// (system prompts, thinking mode, disallowed tools, etc.) at session creation.
+type ACPSessionMeta struct {
+	SystemPrompt   *ACPSystemPrompt   `yaml:"system_prompt,omitempty" json:"systemPrompt,omitempty"`
+	ClaudeCode     *ClaudeCodeMeta    `yaml:"claude_code,omitempty" json:"claudeCode,omitempty"`
+}
+
+// ACPSystemPrompt configures system prompt modifications for the session.
+type ACPSystemPrompt struct {
+	Append string `yaml:"append,omitempty" json:"append,omitempty"`
+}
+
+// ClaudeCodeMeta holds Claude Code-specific session options.
+type ClaudeCodeMeta struct {
+	Options *ClaudeCodeOptions `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
+// ClaudeCodeOptions configures Claude Code agent behavior.
+type ClaudeCodeOptions struct {
+	SettingSources    *[]string          `yaml:"setting_sources,omitempty" json:"settingSources,omitempty"`
+	PromptSuggestions *bool              `yaml:"prompt_suggestions,omitempty" json:"promptSuggestions,omitempty"`
+	Thinking          *ClaudeThinking    `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+	Effort            string             `yaml:"effort,omitempty" json:"effort,omitempty"`
+	DisallowedTools   []string           `yaml:"disallowed_tools,omitempty" json:"disallowedTools,omitempty"`
+	ExtraArgs         map[string]string  `yaml:"extra_args,omitempty" json:"extraArgs,omitempty"`
+}
+
+// ClaudeThinking configures the thinking mode for Claude Code.
+type ClaudeThinking struct {
+	Type string `yaml:"type" json:"type"` // "adaptive" or "disabled"
+}
+
 // AgentDef defines a single AI agent backend.
 type AgentDef struct {
 	Command     string            `yaml:"command"`
@@ -79,6 +112,7 @@ type AgentDef struct {
 	Env         map[string]string `yaml:"env,omitempty"`
 	Protocol    string            `yaml:"protocol,omitempty"`
 	Enable      *bool             `yaml:"enable,omitempty"`
+	SessionMeta *ACPSessionMeta   `yaml:"session_meta,omitempty"`
 }
 
 // IsEnabled returns whether this agent is enabled. Defaults to true when nil.
@@ -99,22 +133,22 @@ func (c *AgentConfig) Validate() error {
 	if c.DefaultAgent == "" {
 		return fmt.Errorf("agent.default_agent must not be empty")
 	}
-	def, ok := c.Agents[c.DefaultAgent]
+	def, ok := c.Backends[c.DefaultAgent]
 	if !ok {
 		return fmt.Errorf("agent.default_agent %q not found in agents map", c.DefaultAgent)
 	}
 	if !def.IsEnabled() {
 		return fmt.Errorf("agent.default_agent %q is disabled", c.DefaultAgent)
 	}
-	for name, d := range c.Agents {
+	for name, d := range c.Backends {
 		if d.Command == "" {
-			return fmt.Errorf("agent.agents[%q].command must not be empty", name)
+			return fmt.Errorf("agent.backends[%q].command must not be empty", name)
 		}
 		switch d.Protocol {
 		case "", "pipe", "acp":
 			// valid
 		default:
-			return fmt.Errorf("agent.agents[%q].protocol %q is invalid (must be \"pipe\" or \"acp\")", name, d.Protocol)
+			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\" or \"acp\")", name, d.Protocol)
 		}
 	}
 	if ws := &c.WarmSession; ws.IsEnabled() {
@@ -139,16 +173,46 @@ func DefaultLLMConfig() LLMConfig {
 	}
 }
 
+// DefaultClaudeSessionMeta returns the default ACP session metadata for Claude Code.
+// This configures the agent for autonomous scanner operation: no interactive prompts,
+// adaptive thinking, and restricted tool access.
+func DefaultClaudeSessionMeta() *ACPSessionMeta {
+	noPromptSuggestions := false
+	emptySettings := []string{}
+	return &ACPSessionMeta{
+		ClaudeCode: &ClaudeCodeMeta{
+			Options: &ClaudeCodeOptions{
+				SettingSources:    &emptySettings,
+				PromptSuggestions: &noPromptSuggestions,
+				Thinking:          &ClaudeThinking{Type: "adaptive"},
+				Effort:            "medium",
+				DisallowedTools: []string{
+					"AskUserQuestion",
+					"EnterWorktree",
+					"EnterPlanMode",
+					"ExitPlanMode",
+					"Bash(curl:*)",
+				},
+				ExtraArgs: map[string]string{
+					"permission-mode":              "bypassPermissions",
+					"dangerously-skip-permissions": "",
+				},
+			},
+		},
+	}
+}
+
 // DefaultAgentConfig returns sensible defaults with claude, opencode, and gemini.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
 		DefaultAgent: "claude",
-		Agents: map[string]AgentDef{
+		Backends: map[string]AgentDef{
 			"claude": {
 				Command:     "npx",
-				Args:        []string{"-y", "@zed-industries/claude-code-acp@latest"},
+				Args:        []string{"-y", "@zed-industries/claude-agent-acp@latest"},
 				Description: "Anthropic Claude Code (ACP)",
 				Protocol:    "acp",
+				SessionMeta: DefaultClaudeSessionMeta(),
 			},
 			"claude-cli": {
 				Command:     "claude",
@@ -156,8 +220,8 @@ func DefaultAgentConfig() *AgentConfig {
 				Description: "Anthropic Claude Code (pipe mode)",
 			},
 			"codex": {
-				Command:     "npx",
-				Args:        []string{"-y", "@zed-industries/codex-acp"},
+				Command:     "codex",
+				Args:        []string{"app-server"},
 				Description: "OpenAI Codex CLI (ACP)",
 				Protocol:    "acp",
 			},

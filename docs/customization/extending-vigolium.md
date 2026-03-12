@@ -754,8 +754,8 @@ Agent backends are external processes that Vigolium invokes for AI-driven analys
 
 | Backend | Protocol | Command |
 |---|---|---|
-| Claude Code (ACP) | `acp` | `npx -y @zed-industries/claude-code-acp@latest` |
-| Codex (ACP) | `acp` | `npx -y @zed-industries/codex-acp` |
+| Claude Code (ACP) | `acp` | `npx -y @zed-industries/claude-agent-acp@latest` |
+| Codex (ACP) | `acp` | `codex app-server` |
 | OpenCode (ACP) | `acp` | `npx -y opencode-acp` |
 | Gemini (ACP) | `acp` | `gemini --experimental-acp` |
 | Claude CLI (pipe) | `pipe` | `claude --dangerously-skip-permissions -p` |
@@ -765,7 +765,7 @@ Agent backends are external processes that Vigolium invokes for AI-driven analys
 ```yaml
 # vigolium-configs.yaml
 agent:
-  agents:
+  backends:
     my-agent:
       command: my-tool
       args: ["--json", "--security-mode"]

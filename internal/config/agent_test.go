@@ -8,13 +8,13 @@ func TestDefaultAgentConfig(t *testing.T) {
 	if cfg.DefaultAgent != "claude" {
 		t.Errorf("expected default_agent=claude, got %s", cfg.DefaultAgent)
 	}
-	if len(cfg.Agents) != 7 {
-		t.Errorf("expected 7 agents, got %d", len(cfg.Agents))
+	if len(cfg.Backends) != 7 {
+		t.Errorf("expected 7 agents, got %d", len(cfg.Backends))
 	}
 
 	// Check all expected agents exist
 	for _, name := range []string{"claude", "claude-cli", "codex", "opencode", "opencode-cli", "gemini", "gemini-cli"} {
-		def, ok := cfg.Agents[name]
+		def, ok := cfg.Backends[name]
 		if !ok {
 			t.Errorf("expected agent %q to exist", name)
 			continue
@@ -47,7 +47,7 @@ func TestDefaultAgentConfig_Protocols(t *testing.T) {
 
 	acpAgents := []string{"claude", "codex", "opencode", "gemini"}
 	for _, name := range acpAgents {
-		def := cfg.Agents[name]
+		def := cfg.Backends[name]
 		if def.EffectiveProtocol() != "acp" {
 			t.Errorf("%s protocol = %q, want %q", name, def.EffectiveProtocol(), "acp")
 		}
@@ -55,7 +55,7 @@ func TestDefaultAgentConfig_Protocols(t *testing.T) {
 
 	pipeAgents := []string{"claude-cli", "opencode-cli", "gemini-cli"}
 	for _, name := range pipeAgents {
-		def := cfg.Agents[name]
+		def := cfg.Backends[name]
 		if def.EffectiveProtocol() != "pipe" {
 			t.Errorf("%s protocol = %q, want %q", name, def.EffectiveProtocol(), "pipe")
 		}
@@ -109,7 +109,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "empty default_agent",
 			config: AgentConfig{
 				DefaultAgent: "",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"claude": {Command: "claude", Args: []string{"-p"}},
 				},
 			},
@@ -119,7 +119,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "default_agent not in map",
 			config: AgentConfig{
 				DefaultAgent: "missing",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"claude": {Command: "claude", Args: []string{"-p"}},
 				},
 			},
@@ -129,7 +129,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "agent with empty command",
 			config: AgentConfig{
 				DefaultAgent: "bad",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"bad": {Command: "", Args: nil},
 				},
 			},
@@ -139,7 +139,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "single valid agent",
 			config: AgentConfig{
 				DefaultAgent: "custom",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"custom": {Command: "my-agent", Args: []string{"run"}},
 				},
 			},
@@ -149,7 +149,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "valid acp protocol",
 			config: AgentConfig{
 				DefaultAgent: "claude",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"claude": {Command: "claude", Protocol: "acp"},
 				},
 			},
@@ -159,7 +159,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "valid pipe protocol",
 			config: AgentConfig{
 				DefaultAgent: "claude",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"claude": {Command: "claude", Protocol: "pipe"},
 				},
 			},
@@ -169,7 +169,7 @@ func TestAgentConfig_Validate(t *testing.T) {
 			name: "invalid protocol",
 			config: AgentConfig{
 				DefaultAgent: "claude",
-				Agents: map[string]AgentDef{
+				Backends: map[string]AgentDef{
 					"claude": {Command: "claude", Protocol: "grpc"},
 				},
 			},

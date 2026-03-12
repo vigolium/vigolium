@@ -52,7 +52,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	settings := &config.Settings{
 		Agent: config.AgentConfig{
 			DefaultAgent: "fake-agent",
-			Agents: map[string]config.AgentDef{
+			Backends: map[string]config.AgentDef{
 				"fake-agent": {
 					Command:     "cat",
 					Description: "Fake agent for testing (echoes stdin)",
@@ -278,7 +278,7 @@ func TestAgentAPI_Run_ConcurrencyLock(t *testing.T) {
 
 	// Start an agent run with a slow command
 	// Use "sleep 2" as a slow agent so it stays running while we test
-	env.settings.Agent.Agents["slow-agent"] = config.AgentDef{
+	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
 		Command: "sleep",
 		Args:    []string{"2"},
 	}
@@ -454,7 +454,7 @@ func TestAgentAPI_ChatCompletions_ConcurrencyLock(t *testing.T) {
 	env := newAgentTestEnv(t)
 
 	// Start a slow agent run via the /run endpoint
-	env.settings.Agent.Agents["slow-agent"] = config.AgentDef{
+	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
 		Command: "sleep",
 		Args:    []string{"2"},
 	}
@@ -537,7 +537,7 @@ func TestAgentAPI_ChatCompletions_BlocksAgentRun(t *testing.T) {
 	env := newAgentTestEnv(t)
 
 	// Use a slow agent via chat completions by configuring a slow command
-	env.settings.Agent.Agents["slow-chat"] = config.AgentDef{
+	env.settings.Agent.Backends["slow-chat"] = config.AgentDef{
 		Command: "sleep",
 		Args:    []string{"2"},
 	}

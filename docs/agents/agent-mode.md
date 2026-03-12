@@ -538,15 +538,15 @@ agent:
     idle_timeout: 300
     max_sessions: 2
 
-  agents:
+  backends:
     claude:
       command: npx
-      args: ["-y", "@zed-industries/claude-code-acp@latest"]
+      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       protocol: acp
 
     codex:
-      command: npx
-      args: ["-y", "@zed-industries/codex-acp"]
+      command: codex
+      args: ["app-server"]
       protocol: acp
 
     gemini:

@@ -16,7 +16,7 @@ import (
 var (
 	Name        = "vigolium"
 	Description = "High-fidelity vulnerability scanner that combines speed, modularity, and precision"
-	Author      = "@j3ssie"
+	Author      = "@j3ssie & @theblackturtle"
 	Version     = "v0.0.1-alpha"
 	Commit      = ""
 	BuildTime   = ""

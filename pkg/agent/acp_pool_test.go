@@ -215,7 +215,7 @@ func TestAgentDefIsEnabled(t *testing.T) {
 func TestAgentConfigValidateDisabledDefault(t *testing.T) {
 	cfg := config.AgentConfig{
 		DefaultAgent: "test",
-		Agents: map[string]config.AgentDef{
+		Backends: map[string]config.AgentDef{
 			"test": {Command: "echo", Enable: boolPtr(false)},
 		},
 	}
@@ -228,7 +228,7 @@ func TestAgentConfigValidateDisabledDefault(t *testing.T) {
 func TestAgentConfigValidateWarmSession(t *testing.T) {
 	cfg := config.AgentConfig{
 		DefaultAgent: "test",
-		Agents: map[string]config.AgentDef{
+		Backends: map[string]config.AgentDef{
 			"test": {Command: "echo"},
 		},
 		WarmSession: config.WarmSessionConfig{

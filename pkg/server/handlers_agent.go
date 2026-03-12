@@ -1214,7 +1214,7 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 	}
 
 	agentName := h.settings.Agent.DefaultAgent
-	if _, ok := h.settings.Agent.Agents[req.Model]; ok {
+	if _, ok := h.settings.Agent.Backends[req.Model]; ok {
 		agentName = req.Model
 	}
 

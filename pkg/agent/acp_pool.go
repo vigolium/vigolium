@@ -340,10 +340,14 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	}
 
 	// Create session
-	sessResp, sessErr := conn.NewSession(ctx, acp.NewSessionRequest{
+	sessReq := acp.NewSessionRequest{
 		Cwd:        absCwd,
 		McpServers: []acp.McpServer{},
-	})
+	}
+	if agentDef.SessionMeta != nil {
+		sessReq.Meta = agentDef.SessionMeta
+	}
+	sessResp, sessErr := conn.NewSession(ctx, sessReq)
 	if sessErr != nil {
 		sess.kill()
 		return nil, fmt.Errorf("ACP new session failed for warm session: %w", sessErr)

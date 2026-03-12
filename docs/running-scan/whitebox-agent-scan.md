@@ -30,10 +30,10 @@ agent:
   sessions_dir: ~/.vigolium/agent-sessions/  # Agent run session artifacts
   stream: true                   # Stream agent output in real-time
 
-  agents:
+  backends:
     claude:
       command: npx
-      args: ["-y", "@zed-industries/claude-code-acp@latest"]
+      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       description: "Anthropic Claude Code (ACP)"
       protocol: acp
 
@@ -44,8 +44,8 @@ agent:
       protocol: pipe
 
     codex:
-      command: npx
-      args: ["-y", "@zed-industries/codex-acp"]
+      command: codex
+      args: ["app-server"]
       description: "OpenAI Codex CLI (ACP)"
       protocol: acp
 

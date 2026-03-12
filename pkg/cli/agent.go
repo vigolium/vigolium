@@ -218,7 +218,7 @@ func printAgentList(settings *config.Settings) error {
 			IsDefault   bool   `json:"is_default"`
 		}
 		var entries []agentEntry
-		for name, def := range settings.Agent.Agents {
+		for name, def := range settings.Agent.Backends {
 			cmdStr := def.Command
 			if len(def.Args) > 0 {
 				cmdStr += " " + fmt.Sprintf("%v", def.Args)
@@ -240,14 +240,14 @@ func printAgentList(settings *config.Settings) error {
 	}
 
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "NAME", "COMMAND", "PROTOCOL", "DESCRIPTION", "DEFAULT")
-	names := make([]string, 0, len(settings.Agent.Agents))
-	for name := range settings.Agent.Agents {
+	names := make([]string, 0, len(settings.Agent.Backends))
+	for name := range settings.Agent.Backends {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
 	for _, name := range names {
-		def := settings.Agent.Agents[name]
+		def := settings.Agent.Backends[name]
 		isDefault := ""
 		if name == settings.Agent.DefaultAgent {
 			isDefault = terminal.BoldGreen("*")

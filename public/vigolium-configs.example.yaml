@@ -1079,7 +1079,7 @@ external_harvester:
 #   GET  /api/agent/status/:id     — check a specific run
 agent:
   # Default agent backend to use when none is specified.
-  # Must match a key in the agents map below.
+  # Must match a key in the backends map below.
   # Default: claude
   default_agent: claude
 
@@ -1168,24 +1168,46 @@ agent:
   # Agent backend definitions.
   # Each entry defines an external command that acts as an AI agent.
   # Set "protocol" to "acp" or "pipe" (default is "pipe" if omitted).
-  agents:
-    # Default: uses ACP protocol via @zed-industries/claude-code-acp bridge.
+  # ACP backends support "session_meta" for agent-specific session configuration
+  # (system prompt, thinking mode, disallowed tools, etc.).
+  backends:
+    # Default: uses ACP protocol via @zed-industries/claude-agent-acp bridge.
     # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
     claude:
       command: npx
-      args: ["-y", "@zed-industries/claude-code-acp@latest"]
+      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       description: "Anthropic Claude Code (ACP)"
       protocol: acp
+      # Session metadata passed via the _meta extension point in the ACP
+      # NewSession request. Configures Claude Code agent behavior.
+      session_meta:
+        # system_prompt:
+        #   append: "Extra instructions appended to the system prompt"
+        claude_code:
+          options:
+            setting_sources: []          # ignore global Claude Code settings
+            prompt_suggestions: false    # no interactive prompt suggestions
+            thinking:
+              type: adaptive             # "adaptive" or "disabled"
+            effort: medium               # "low", "medium", or "high"
+            disallowed_tools:
+              - AskUserQuestion
+              - EnterWorktree
+              - EnterPlanMode
+              - ExitPlanMode
+              - "Bash(curl:*)"
+            extra_args:
+              permission-mode: bypassPermissions
+              dangerously-skip-permissions: ""
     # Pipe-mode fallback for environments where ACP or npx is not available.
     claude-cli:
       command: claude
       args: ["--dangerously-skip-permissions", "-p"]
       description: "Anthropic Claude Code (pipe mode)"
-    # Uses Codex CLI via ACP bridge.
-    # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
+    # Uses Codex CLI's native ACP support.
     codex:
-      command: npx
-      args: ["-y", "@zed-industries/codex-acp"]
+      command: codex
+      args: ["app-server"]
       description: "OpenAI Codex CLI (ACP)"
       protocol: acp
     # Uses OpenCode's native ACP support.
