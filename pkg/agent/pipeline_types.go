@@ -128,6 +128,17 @@ type GeneratedExtension struct {
 	Reason   string `json:"reason"`
 }
 
+// sanitizeExtensionFilename ensures a filename is safe for writing to disk.
+// It strips path components to prevent traversal and falls back to a
+// numbered default for empty or dot-only names.
+func sanitizeExtensionFilename(name string, index int) string {
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == ".." {
+		return fmt.Sprintf("extension-%d.js", index)
+	}
+	return name
+}
+
 // QuickCheck is a declarative shorthand for simple payload-and-match scan checks.
 // The swarm runner auto-generates a full JS extension from each QuickCheck.
 type QuickCheck struct {
@@ -188,7 +199,8 @@ type SwarmResult struct {
 	Iterations     int             `json:"iterations"`
 	Duration       time.Duration   `json:"duration"`
 	AgentRunUUID   string          `json:"agent_run_uuid"`
-	SessionID      string          `json:"session_id,omitempty"` // ACP session ID for resume
+	SessionID      string          `json:"session_id,omitempty"`  // last ACP session ID (for single or last batch)
+	SessionIDs     []string        `json:"session_ids,omitempty"` // all ACP session IDs when batched (>5 records); nil for single-batch runs
 	SessionDir     string          `json:"session_dir,omitempty"`
 }
 
@@ -247,7 +259,7 @@ var moduleTagsRegex = regexp.MustCompile(`"module_tags"\s*:\s*\[((?:"[^"]*"(?:\s
 var focusAreasRegex = regexp.MustCompile(`"focus_areas"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
 
 // notesRegex matches a "notes" JSON string.
-var notesRegex = regexp.MustCompile(`"notes"\s*:\s*"([^"]*)"`)
+var notesRegex = regexp.MustCompile(`"notes"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 
 // extractSwarmPlanRegex attempts to recover a minimal SwarmPlan from garbled JSON
 // by regex-extracting individual fields. Returns nil if module_tags cannot be found.
@@ -489,6 +501,7 @@ func findJSONArrayInSection(raw, key string) string {
 // "Reason: ..." lines for the reason field.
 func extractCodeBlockExtensions(raw string) []GeneratedExtension {
 	var extensions []GeneratedExtension
+	unnamedCounter := 0
 	lines := strings.Split(raw, "\n")
 
 	for i := 0; i < len(lines); i++ {
@@ -527,6 +540,10 @@ func extractCodeBlockExtensions(raw string) []GeneratedExtension {
 		// If no heading filename, try to extract from module id in the code
 		if filename == "" {
 			filename = extractFilenameFromCode(codeStr)
+		}
+		if filename == "extension.js" {
+			filename = fmt.Sprintf("extension-%d.js", unnamedCounter)
+			unnamedCounter++
 		}
 
 		extensions = append(extensions, GeneratedExtension{
@@ -638,8 +655,9 @@ func WriteExtensionsToSessionDir(extensions []GeneratedExtension, sessionDir str
 	if err := os.MkdirAll(extDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create extensions dir: %w", err)
 	}
-	for _, ext := range extensions {
-		path := filepath.Join(extDir, ext.Filename)
+	for i, ext := range extensions {
+		filename := sanitizeExtensionFilename(ext.Filename, i)
+		path := filepath.Join(extDir, filename)
 		if writeErr := os.WriteFile(path, []byte(ext.Code), 0644); writeErr != nil {
 			zap.L().Warn("Failed to write extension",
 				zap.String("filename", ext.Filename), zap.Error(writeErr))
@@ -696,9 +714,10 @@ type PipelineResult struct {
 	Confirmed      int                   `json:"confirmed"`
 	FalsePositives int                   `json:"false_positives"`
 	RescanRounds   int                   `json:"rescan_rounds"`
-	PhasesRun      []PipelinePhase       `json:"phases_run"`
-	Duration       time.Duration         `json:"duration"`
-	SessionID      string                `json:"session_id,omitempty"` // ACP session ID for resume
+	PhasesRun      []PipelinePhase                `json:"phases_run"`
+	PhaseTimings   map[PipelinePhase]time.Duration `json:"phase_timings,omitempty"`
+	Duration       time.Duration                  `json:"duration"`
+	SessionID      string                         `json:"session_id,omitempty"` // ACP session ID for resume
 }
 
 // attackPlanWrapper wraps AttackPlan for JSON parsing flexibility.
@@ -870,8 +889,9 @@ func WriteExtensionsToTempDir(extensions []GeneratedExtension, prefix string) (s
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	for _, ext := range extensions {
-		path := filepath.Join(dir, ext.Filename)
+	for i, ext := range extensions {
+		filename := sanitizeExtensionFilename(ext.Filename, i)
+		path := filepath.Join(dir, filename)
 		if writeErr := os.WriteFile(path, []byte(ext.Code), 0644); writeErr != nil {
 			zap.L().Warn("Failed to write extension",
 				zap.String("filename", ext.Filename),

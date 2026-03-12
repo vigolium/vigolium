@@ -257,6 +257,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				zap.L().Info("Appending source-discovered routes",
 					zap.Int("total_discovered", len(saResult.HTTPRecords)),
 					zap.Int("hostname_matched", len(sourceRecords)))
+
 				records = append(records, sourceRecords...)
 				result.TotalRecords = len(records)
 			}
@@ -294,10 +295,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	var masterRawOutput string
 	var masterRenderedPrompt string
 
+	var sessionIDs []string
 	if len(records) <= masterBatchSize {
 		plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, records, targetURL)
 	} else {
-		plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
+		plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
 	}
 
 	// Save rendered prompt and raw output to session dir regardless of parse success
@@ -311,6 +313,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 
 	result.SessionID = sessionID
+	result.SessionIDs = sessionIDs
 
 	if cfg.DryRun {
 		result.SwarmPlan = plan
@@ -687,16 +690,17 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 
 // runMasterAgentBatched calls the master agent in batches when there are many records.
 // Each batch produces a SwarmPlan; plans are merged by deduplicating tags, IDs, and extensions.
-func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, error) {
+func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, []string, error) {
 	var plans []*SwarmPlan
 	var lastSessionID string
+	var allSessionIDs []string
 	var allRawOutputs []string
 	var allRenderedPrompts []string
 
 	for i := 0; i < len(records); i += batchSize {
 		select {
 		case <-ctx.Done():
-			return nil, lastSessionID, "", "", ctx.Err()
+			return nil, lastSessionID, "", "", nil, ctx.Err()
 		default:
 		}
 
@@ -713,10 +717,11 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 
 		plan, sid, rawOutput, prompt, err := s.runMasterAgent(ctx, cfg, batch, targetURL)
 		if err != nil {
-			return nil, lastSessionID, "", "", fmt.Errorf("master agent batch %d-%d failed: %w", i, end, err)
+			return nil, lastSessionID, "", "", nil, fmt.Errorf("master agent batch %d-%d failed: %w", i, end, err)
 		}
 		if sid != "" {
 			lastSessionID = sid
+			allSessionIDs = append(allSessionIDs, sid)
 		}
 		if rawOutput != "" {
 			allRawOutputs = append(allRawOutputs, rawOutput)
@@ -737,14 +742,14 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 	}
 
 	if len(plans) == 0 {
-		return nil, lastSessionID, combinedRaw, lastPrompt, nil
+		return nil, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
 	}
 	if len(plans) == 1 {
-		return plans[0], lastSessionID, combinedRaw, lastPrompt, nil
+		return plans[0], lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
 	}
 
 	merged := mergeSwarmPlans(plans)
-	return merged, lastSessionID, combinedRaw, lastPrompt, nil
+	return merged, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
 }
 
 // mergeSwarmPlans combines multiple SwarmPlans by deduplicating module tags,

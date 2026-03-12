@@ -224,7 +224,7 @@ func (tm *terminalManager) getOutput(id string) (string, bool) {
 	const maxOutput = 256 * 1024 // 256KB
 	truncated := false
 	if len(output) > maxOutput {
-		output = output[len(output)-maxOutput:]
+		output = "[output truncated — showing last 256KB]\n" + output[len(output)-maxOutput:]
 		truncated = true
 	}
 	return output, truncated

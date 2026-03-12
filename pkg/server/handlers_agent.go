@@ -177,13 +177,13 @@ func (h *Handlers) HandleAgentPipeline(c fiber.Ctx) error {
 // startPipelineRun acquires the concurrency lock, creates status tracking, and runs the pipeline.
 func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeout time.Duration) error {
 	h.agentMu.Lock()
-	if h.agentRunning {
+	if h.agentHeavyRunning {
 		h.agentMu.Unlock()
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentAlreadyRunning.Error(),
+			Error: ErrAgentHeavyAlreadyRunning.Error(),
 		})
 	}
-	h.agentRunning = true
+	h.agentHeavyRunning = true
 
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
@@ -330,7 +330,7 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		defer func() {
 			h.agentMu.Lock()
-			h.agentRunning = false
+			h.agentHeavyRunning = false
 			h.agentMu.Unlock()
 		}()
 
@@ -433,7 +433,7 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
-		h.agentRunning = false
+		h.agentHeavyRunning = false
 		h.agentMu.Unlock()
 	}()
 
@@ -588,13 +588,13 @@ func (h *Handlers) ingestSwarmBase64(c fiber.Ctx, req *AgentSwarmRequest) (strin
 // startSwarmRun acquires the concurrency lock, creates status tracking, and runs the agent swarm.
 func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout time.Duration) error {
 	h.agentMu.Lock()
-	if h.agentRunning {
+	if h.agentHeavyRunning {
 		h.agentMu.Unlock()
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentAlreadyRunning.Error(),
+			Error: ErrAgentHeavyAlreadyRunning.Error(),
 		})
 	}
-	h.agentRunning = true
+	h.agentHeavyRunning = true
 
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
@@ -738,7 +738,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		defer func() {
 			h.agentMu.Lock()
-			h.agentRunning = false
+			h.agentHeavyRunning = false
 			h.agentMu.Unlock()
 		}()
 
@@ -830,7 +830,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
-		h.agentRunning = false
+		h.agentHeavyRunning = false
 		h.agentMu.Unlock()
 	}()
 
@@ -890,13 +890,13 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 // It acquires the concurrency lock, creates status tracking, and runs the agent.
 func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
 	h.agentMu.Lock()
-	if h.agentRunning {
+	if h.agentLightRunning {
 		h.agentMu.Unlock()
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentAlreadyRunning.Error(),
+			Error: ErrAgentLightAlreadyRunning.Error(),
 		})
 	}
-	h.agentRunning = true
+	h.agentLightRunning = true
 
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
@@ -931,7 +931,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		defer func() {
 			h.agentMu.Lock()
-			h.agentRunning = false
+			h.agentLightRunning = false
 			h.agentMu.Unlock()
 		}()
 
@@ -1016,7 +1016,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
-		h.agentRunning = false
+		h.agentLightRunning = false
 		h.agentMu.Unlock()
 	}()
 
@@ -1219,18 +1219,18 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 	}
 
 	h.agentMu.Lock()
-	if h.agentRunning {
+	if h.agentLightRunning {
 		h.agentMu.Unlock()
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentAlreadyRunning.Error(),
+			Error: ErrAgentLightAlreadyRunning.Error(),
 		})
 	}
-	h.agentRunning = true
+	h.agentLightRunning = true
 	h.agentMu.Unlock()
 
 	defer func() {
 		h.agentMu.Lock()
-		h.agentRunning = false
+		h.agentLightRunning = false
 		h.agentMu.Unlock()
 	}()
 

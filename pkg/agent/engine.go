@@ -599,13 +599,13 @@ func (e *Engine) ingestHTTPRecords(ctx context.Context, records []AgentHTTPRecor
 	for _, rec := range records {
 		httpRR, err := ToHTTPRequestResponse(rec)
 		if err != nil {
-			zap.L().Debug("Skipping invalid HTTP record",
+			zap.L().Warn("Skipping invalid HTTP record",
 				zap.String("url", rec.URL),
 				zap.Error(err))
 			continue
 		}
 		if _, saveErr := e.repo.SaveRecord(ctx, httpRR, source, opts.ProjectUUID); saveErr != nil {
-			zap.L().Debug("Failed to save HTTP record",
+			zap.L().Warn("Failed to save HTTP record",
 				zap.String("url", rec.URL),
 				zap.Error(saveErr))
 			continue

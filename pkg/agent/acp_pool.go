@@ -147,15 +147,15 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		p.mu.Lock()
 		// Another goroutine may have inserted a session while we were spawning.
 		if existing, raced := p.sessions[agentName]; raced && existing.alive() {
-			p.mu.Unlock()
-			newSess.kill() // discard the duplicate we just spawned
-			p.mu.Lock()
 			sess = existing
+			p.mu.Unlock()
+			// Kill the duplicate outside the lock (kill() is safe to call independently)
+			newSess.kill()
 		} else {
 			p.sessions[agentName] = newSess
 			sess = newSess
+			p.mu.Unlock()
 		}
-		p.mu.Unlock()
 	}
 
 	// Mark in-use

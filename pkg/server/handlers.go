@@ -78,9 +78,10 @@ type Handlers struct {
 	agentEngine *agent.Engine
 
 	// Agent run state for API-triggered agent runs
-	agentMu        sync.Mutex
-	agentRunning   bool
-	agentRunStatus map[string]*AgentRunStatusResponse
+	agentMu           sync.Mutex
+	agentHeavyRunning bool // pipeline, swarm (only 1 at a time)
+	agentLightRunning bool // query, autopilot, chat completions (only 1 at a time)
+	agentRunStatus    map[string]*AgentRunStatusResponse
 
 	// Background cleanup for completed agent run statuses
 	agentCleanupStop chan struct{}

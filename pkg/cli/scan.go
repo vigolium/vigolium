@@ -469,6 +469,10 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if scanOpts.ExternalHarvestEnabled {
+		if len(settings.ExternalHarvester.Sources) == 0 {
+			defaults := config.DefaultExternalHarvesterConfig()
+			settings.ExternalHarvester.Sources = defaults.Sources
+		}
 		if err := settings.ExternalHarvester.Validate(); err != nil {
 			return fmt.Errorf("invalid external harvester configuration: %w", err)
 		}

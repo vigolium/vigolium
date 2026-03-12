@@ -37,7 +37,9 @@ func NewPipelineRunner(engine *Engine, repo *database.Repository) *PipelineRunne
 // Run executes the full pipeline.
 func (p *PipelineRunner) Run(ctx context.Context, cfg PipelineConfig) (*PipelineResult, error) {
 	start := time.Now()
-	result := &PipelineResult{}
+	result := &PipelineResult{
+		PhaseTimings: make(map[PipelinePhase]time.Duration),
+	}
 
 	phases := p.resolvePhases(cfg)
 
@@ -79,6 +81,7 @@ func (p *PipelineRunner) Run(ctx context.Context, cfg PipelineConfig) (*Pipeline
 		}
 
 		result.PhasesRun = append(result.PhasesRun, phase)
+		result.PhaseTimings[phase] = time.Since(phaseStart)
 		zap.L().Info("Pipeline phase completed",
 			zap.String("phase", string(phase)),
 			zap.Duration("duration", time.Since(phaseStart)))
@@ -178,6 +181,9 @@ func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConf
 
 // runDiscover executes phase 1: discovery and spidering.
 func (p *PipelineRunner) runDiscover(ctx context.Context, cfg PipelineConfig) error {
+	if cfg.DryRun {
+		return nil
+	}
 	if cfg.DiscoverFunc == nil {
 		return fmt.Errorf("no discover function configured")
 	}
@@ -244,6 +250,9 @@ func (p *PipelineRunner) runPlan(ctx context.Context, cfg PipelineConfig) (*Atta
 
 // runScan executes phase 3: dynamic assessment with plan-selected modules.
 func (p *PipelineRunner) runScan(ctx context.Context, cfg PipelineConfig, plan *AttackPlan) error {
+	if cfg.DryRun {
+		return nil
+	}
 	if cfg.ScanFunc == nil {
 		return fmt.Errorf("no scan function configured")
 	}
@@ -300,7 +309,7 @@ func (p *PipelineRunner) runTriageLoop(ctx context.Context, cfg PipelineConfig, 
 
 		result.RescanRounds++
 		if err := p.runRescan(ctx, cfg, triage.FollowUps); err != nil {
-			zap.L().Warn("Rescan failed, continuing with triage results",
+			zap.L().Error("Rescan failed, continuing with triage results",
 				zap.Int("round", round+1),
 				zap.Error(err))
 			break
@@ -337,6 +346,9 @@ func (p *PipelineRunner) runTriage(ctx context.Context, cfg PipelineConfig, roun
 
 // runRescan executes follow-up scans recommended by the triage agent.
 func (p *PipelineRunner) runRescan(ctx context.Context, cfg PipelineConfig, followUps []FollowUpScan) error {
+	if cfg.DryRun {
+		return nil
+	}
 	if cfg.ScanFunc == nil {
 		return fmt.Errorf("no scan function configured")
 	}
