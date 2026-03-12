@@ -223,6 +223,103 @@ func TestSessionHeaderSlice(t *testing.T) {
 	assert.True(t, found["Authorization: Bearer token"])
 }
 
+func TestLoadFromConfigJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("json by extension", func(t *testing.T) {
+		configPath := filepath.Join(dir, "auth.json")
+		content := `{
+  "sessions": [
+    {
+      "name": "admin",
+      "role": "primary",
+      "headers": {"Cookie": "session=abc"}
+    },
+    {
+      "name": "user2",
+      "role": "compare",
+      "login": {
+        "url": "https://app.com/api/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"email\":\"test@test.com\",\"password\":\"pass\"}",
+        "extract": [
+          {"source": "json", "path": "$.token", "apply_as": "Authorization: Bearer {value}"}
+        ]
+      }
+    }
+  ]
+}`
+		require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+
+		sessions, err := LoadFromConfig(configPath)
+		require.NoError(t, err)
+		assert.Len(t, sessions, 2)
+		assert.Equal(t, "admin", sessions[0].Name)
+		assert.Equal(t, RolePrimary, sessions[0].Role)
+		assert.Equal(t, "session=abc", sessions[0].Headers["Cookie"])
+		assert.Equal(t, "user2", sessions[1].Name)
+		require.NotNil(t, sessions[1].Login)
+		assert.Equal(t, "https://app.com/api/login", sessions[1].Login.URL)
+		assert.Equal(t, "POST", sessions[1].Login.Method)
+		assert.Equal(t, "application/json", sessions[1].Login.ContentType)
+		assert.Len(t, sessions[1].Login.Extract, 1)
+		assert.Equal(t, ExtractJSON, sessions[1].Login.Extract[0].Source)
+		assert.Equal(t, "$.token", sessions[1].Login.Extract[0].Path)
+		assert.Equal(t, "Authorization: Bearer {value}", sessions[1].Login.Extract[0].ApplyAs)
+	})
+
+	t.Run("json by content sniffing", func(t *testing.T) {
+		// No .json extension but content starts with {
+		configPath := filepath.Join(dir, "auth-config")
+		content := `{"sessions": [{"name": "api", "role": "primary", "headers": {"X-API-Key": "secret"}}]}`
+		require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+
+		sessions, err := LoadFromConfig(configPath)
+		require.NoError(t, err)
+		assert.Len(t, sessions, 1)
+		assert.Equal(t, "api", sessions[0].Name)
+		assert.Equal(t, "secret", sessions[0].Headers["X-API-Key"])
+	})
+}
+
+func TestLoadFromSessionFilesJSON(t *testing.T) {
+	dir := t.TempDir()
+	sessionPath := filepath.Join(dir, "session.json")
+	content := `{"name": "admin", "role": "primary", "headers": {"Cookie": "sid=abc"}}`
+	require.NoError(t, os.WriteFile(sessionPath, []byte(content), 0644))
+
+	sessions, err := LoadFromSessionFiles([]string{sessionPath}, "")
+	require.NoError(t, err)
+	assert.Len(t, sessions, 1)
+	assert.Equal(t, "admin", sessions[0].Name)
+	assert.Equal(t, "sid=abc", sessions[0].Headers["Cookie"])
+}
+
+func TestIsJSON(t *testing.T) {
+	assert.True(t, isJSON("config.json", "anything"))
+	assert.True(t, isJSON("config.yaml", `{"sessions": []}`))
+	assert.True(t, isJSON("config.yaml", `  { "sessions": [] }`))
+	assert.False(t, isJSON("config.yaml", "sessions:\n  - name: x"))
+	assert.False(t, isJSON("config.yml", ""))
+}
+
+func TestResolveSessionPathJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a .json session file in the directory
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "my-session.json"), []byte(`{}`), 0644))
+
+	// Should find .json when no .yaml/.yml exists
+	resolved := resolveSessionPath("my-session", dir)
+	assert.Equal(t, filepath.Join(dir, "my-session.json"), resolved)
+
+	// .yaml takes precedence when both exist
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "my-session.yaml"), []byte(`name: x`), 0644))
+	resolved = resolveSessionPath("my-session", dir)
+	assert.Equal(t, filepath.Join(dir, "my-session.yaml"), resolved)
+}
+
 func TestLoadFromInlineFlags(t *testing.T) {
 	flags := []string{
 		"admin:Cookie:session=abc",

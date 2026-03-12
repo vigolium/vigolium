@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/grafana/sobek"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestVM creates a Sobek VM with vigolium.utils, vigolium.parse, vigolium.payloads, and vigolium.http.buildRequest set up.
@@ -13,11 +15,16 @@ func newTestVM(t *testing.T) *sobek.Runtime {
 	vm := sobek.New()
 	vigolium := vm.NewObject()
 	_ = vm.Set("vigolium", vigolium)
-	setupUtilsAPI(vm, APIOptions{})
-	setupParseAPI(vm)
-	setupPayloadsAPI(vm)
+
+	// Register utils, parse, and payloads via the declarative registry
+	var defs []JSFuncDef
+	defs = append(defs, utilsFuncDefs()...)
+	defs = append(defs, parseFuncDefs()...)
+	defs = append(defs, payloadsFuncDefs()...)
+	registerFuncs(vm, APIOptions{}, defs)
+
 	// Set up http namespace with buildRequest only (no actual HTTP client)
-	httpObj := vm.NewObject()
+	httpObj := getOrCreateNS(vm, map[string]*sobek.Object{NsRoot: vigolium}, NsHTTP)
 	_ = httpObj.Set("buildRequest", func(call sobek.FunctionCall) sobek.Value {
 		rawReq := call.Argument(0).String()
 		overridesVal := call.Argument(1)
@@ -26,7 +33,6 @@ func newTestVM(t *testing.T) *sobek.Runtime {
 		}
 		return vm.ToValue(applyRequestOverrides(vm, rawReq, overridesVal.ToObject(vm)))
 	})
-	_ = vigolium.Set("http", httpObj)
 	return vm
 }
 
@@ -394,4 +400,224 @@ func TestParseHTMLEmpty(t *testing.T) {
 	if s != `{"f":0,"l":0,"s":0,"m":0}` {
 		t.Errorf("expected all empty arrays, got: %s", s)
 	}
+}
+
+// ── JWT tests ────────────────────────────────────────────────────────────────
+
+func TestJWTDecode(t *testing.T) {
+	vm := newTestVM(t)
+	// Standard JWT: {"alg":"HS256","typ":"JWT"}.{"sub":"1234567890","name":"John Doe","iat":1516239022}
+	val, err := vm.RunString(`
+		var decoded = vigolium.utils.jwtDecode("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c");
+		JSON.stringify({
+			alg: decoded.header.alg,
+			sub: decoded.payload.sub,
+			name: decoded.payload.name,
+			sig: decoded.signature
+		})
+	`)
+	require.NoError(t, err)
+	assert.Contains(t, val.String(), `"alg":"HS256"`)
+	assert.Contains(t, val.String(), `"sub":"1234567890"`)
+	assert.Contains(t, val.String(), `"name":"John Doe"`)
+}
+
+func TestJWTDecodeInvalid(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`vigolium.utils.jwtDecode("not.a.jwt!!!")`)
+	require.NoError(t, err)
+	assert.True(t, sobek.IsNull(val))
+}
+
+func TestJWTDecodeMalformed(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`vigolium.utils.jwtDecode("only.two")`)
+	require.NoError(t, err)
+	assert.True(t, sobek.IsNull(val))
+}
+
+func TestJWTEncode(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var token = vigolium.utils.jwtEncode({sub: "1234", role: "admin"}, {algorithm: "HS256", secret: "mysecret"});
+		var decoded = vigolium.utils.jwtDecode(token);
+		JSON.stringify({sub: decoded.payload.sub, role: decoded.payload.role, alg: decoded.header.alg})
+	`)
+	require.NoError(t, err)
+	assert.Contains(t, val.String(), `"sub":"1234"`)
+	assert.Contains(t, val.String(), `"role":"admin"`)
+	assert.Contains(t, val.String(), `"alg":"HS256"`)
+}
+
+func TestJWTEncodeNone(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var token = vigolium.utils.jwtEncode({admin: true}, {algorithm: "none"});
+		token.endsWith(".")  // none algorithm = empty signature
+	`)
+	require.NoError(t, err)
+	assert.True(t, val.ToBoolean())
+}
+
+func TestJWTExpired(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var token = vigolium.utils.jwtEncode({sub: "1", exp: 1000000000}, {secret: "s"});
+		vigolium.utils.jwtExpired(token)
+	`)
+	require.NoError(t, err)
+	assert.True(t, val.ToBoolean())
+}
+
+func TestJWTNotExpired(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var token = vigolium.utils.jwtEncode({sub: "1", exp: 9999999999}, {secret: "s"});
+		vigolium.utils.jwtExpired(token)
+	`)
+	require.NoError(t, err)
+	assert.False(t, val.ToBoolean())
+}
+
+func TestJWTNoExpClaim(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var token = vigolium.utils.jwtEncode({sub: "1"}, {secret: "s"});
+		vigolium.utils.jwtExpired(token)
+	`)
+	require.NoError(t, err)
+	assert.False(t, val.ToBoolean()) // no exp = never expires
+}
+
+// ── Multipart tests ──────────────────────────────────────────────────────────
+
+func TestMultipartTextFields(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var result = vigolium.utils.multipart([
+			{name: "username", value: "admin"},
+			{name: "password", value: "secret"}
+		]);
+		JSON.stringify({hasBody: result.body.length > 0, hasContentType: result.contentType.indexOf("multipart/form-data") >= 0})
+	`)
+	require.NoError(t, err)
+	assert.Contains(t, val.String(), `"hasBody":true`)
+	assert.Contains(t, val.String(), `"hasContentType":true`)
+}
+
+func TestMultipartFileUpload(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`
+		var result = vigolium.utils.multipart([
+			{name: "file", filename: "shell.php", contentType: "application/php", data: "<?php system($_GET['cmd']); ?>"},
+			{name: "action", value: "upload"}
+		]);
+		var hasFilename = result.body.indexOf('filename="shell.php"') >= 0;
+		var hasContent = result.body.indexOf("system") >= 0;
+		var hasBoundary = result.contentType.indexOf("boundary=") >= 0;
+		JSON.stringify({hasFilename: hasFilename, hasContent: hasContent, hasBoundary: hasBoundary})
+	`)
+	require.NoError(t, err)
+	assert.Contains(t, val.String(), `"hasFilename":true`)
+	assert.Contains(t, val.String(), `"hasContent":true`)
+	assert.Contains(t, val.String(), `"hasBoundary":true`)
+}
+
+func TestMultipartEmpty(t *testing.T) {
+	vm := newTestVM(t)
+	val, err := vm.RunString(`vigolium.utils.multipart([]).body`)
+	require.NoError(t, err)
+	assert.Equal(t, "", val.String())
+}
+
+// ── Condition evaluation tests ───────────────────────────────────────────────
+
+func TestEvaluateConditionEquals(t *testing.T) {
+	assert.True(t, evaluateCondition("200 == 200"))
+	assert.False(t, evaluateCondition("200 == 401"))
+}
+
+func TestEvaluateConditionNotEquals(t *testing.T) {
+	assert.True(t, evaluateCondition("hello != ''"))
+	assert.False(t, evaluateCondition("'' != ''"))
+}
+
+func TestEvaluateConditionQuoted(t *testing.T) {
+	assert.True(t, evaluateCondition("'admin' == 'admin'"))
+	assert.False(t, evaluateCondition("'admin' == 'user'"))
+}
+
+func TestEvaluateConditionTruthy(t *testing.T) {
+	assert.True(t, evaluateCondition("somevalue"))
+	assert.False(t, evaluateCondition(""))
+	assert.False(t, evaluateCondition("''"))
+}
+
+// ── extractDynamicValues tests ───────────────────────────────────────────────
+
+func TestExtractDynamicValues(t *testing.T) {
+	values := extractDynamicValues("/api/users/123/orders/456", "/api/users/*/orders/*")
+	assert.Equal(t, []string{"123", "456"}, values)
+}
+
+func TestExtractDynamicValuesNoDynamic(t *testing.T) {
+	values := extractDynamicValues("/api/users", "/api/users")
+	assert.Empty(t, values)
+}
+
+// ── stripQuotes tests ────────────────────────────────────────────────────────
+
+func TestStripQuotes(t *testing.T) {
+	assert.Equal(t, "hello", stripQuotes("'hello'"))
+	assert.Equal(t, "hello", stripQuotes(`"hello"`))
+	assert.Equal(t, "hello", stripQuotes("hello"))
+	assert.Equal(t, "", stripQuotes("''"))
+}
+
+// ── base64URL tests ──────────────────────────────────────────────────────────
+
+func TestBase64URLRoundTrip(t *testing.T) {
+	original := []byte(`{"alg":"HS256","typ":"JWT"}`)
+	encoded := base64URLEncode(original)
+	decoded, err := base64URLDecode(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, original, decoded)
+}
+
+// ── jaccardSimilarity tests ─────────────────────────────────────────────────
+
+func TestJaccardSimilarityIdentical(t *testing.T) {
+	assert.Equal(t, 1.0, jaccardSimilarity("hello world", "hello world"))
+}
+
+func TestJaccardSimilarityDifferent(t *testing.T) {
+	sim := jaccardSimilarity("hello world", "foo bar baz")
+	assert.Equal(t, 0.0, sim)
+}
+
+func TestJaccardSimilarityPartial(t *testing.T) {
+	sim := jaccardSimilarity("hello world foo", "hello world bar")
+	assert.True(t, sim > 0.3 && sim < 0.8)
+}
+
+func TestJaccardSimilarityEmpty(t *testing.T) {
+	assert.Equal(t, 1.0, jaccardSimilarity("", ""))
+}
+
+// ── injectSessionHeaders tests ──────────────────────────────────────────────
+
+func TestInjectSessionHeadersBasic(t *testing.T) {
+	rawReq := "GET /api/test HTTP/1.1\r\nHost: example.com\r\nAccept: */*\r\n\r\n"
+
+	vm := sobek.New()
+	sessObj := vm.NewObject()
+	_ = sessObj.Set("getHeaders", func(call sobek.FunctionCall) sobek.Value {
+		h := vm.NewObject()
+		_ = h.Set("Authorization", "Bearer token123")
+		return h
+	})
+
+	result := injectSessionHeaders(vm, rawReq, sessObj)
+	assert.Contains(t, result, "Authorization: Bearer token123")
+	assert.Contains(t, result, "Host: example.com")
 }

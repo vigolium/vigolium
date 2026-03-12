@@ -1,0 +1,36 @@
+{
+  "sessions": [
+    {
+      "name": "admin",
+      "role": "primary",
+      "login": {
+        "url": "https://app.example.com/api/auth/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"username\":\"admin\",\"password\":\"admin123\"}",
+        "extract": [
+          {
+            "source": "json",
+            "path": "$.token",
+            "apply_as": "Authorization: Bearer {value}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regular_user",
+      "role": "compare",
+      "login": {
+        "url": "https://app.example.com/login",
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded",
+        "body": "username=user1&password=pass123",
+        "extract": [
+          {
+            "source": "cookie"
+          }
+        ]
+      }
+    }
+  ]
+}

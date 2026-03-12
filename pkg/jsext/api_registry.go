@@ -27,19 +27,17 @@ func APIRegistry() []APIFunction {
 	return funcs
 }
 
-// APINamespaces returns the ordered list of unique namespaces.
-func APINamespaces() []string { return apiNamespaces }
-
-var apiNamespaces = []string{
-	"vigolium.log",
-	"vigolium.utils",
-	"vigolium.http",
-	"vigolium.scan",
-	"vigolium.ingest",
-	"vigolium.source",
-	"vigolium.db",
-	"vigolium.db.records",
-	"vigolium.db.findings",
-	"vigolium.record",
-	"vigolium.config",
+// APINamespaces returns the ordered list of unique namespaces,
+// derived from allFuncDefs() to stay in sync automatically.
+func APINamespaces() []string {
+	defs := allFuncDefs()
+	seen := make(map[string]bool)
+	var namespaces []string
+	for _, d := range defs {
+		if d.Namespace != NsRoot && !seen[d.Namespace] {
+			seen[d.Namespace] = true
+			namespaces = append(namespaces, d.Namespace)
+		}
+	}
+	return namespaces
 }

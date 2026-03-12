@@ -16,10 +16,10 @@ type Options struct {
 	// Context
 	SourcePath string   // path to source code repository (--source flag)
 	Files      []string // specific files to include (relative to SourcePath)
-	Source    string   // source identifier for findings
-	Append    string   // extra text appended to the rendered prompt
-	TargetURL string   // target URL for scanning context
-	Hostname  string   // target hostname (derived from TargetURL if empty)
+	Source     string   // source identifier for findings
+	Append     string   // extra text appended to the rendered prompt
+	TargetURL  string   // target URL for scanning context
+	Hostname   string   // target hostname (derived from TargetURL if empty)
 
 	// Output
 	OutputPath   string    // write agent output to this file
@@ -32,47 +32,51 @@ type Options struct {
 	// Extra template data (injected into {{.Extra}} in prompt templates)
 	Extra map[string]string `json:"-"`
 
+	// Agent override
+	AgentACPCmd string // ad-hoc ACP command override (e.g. "traecli acp"), takes precedence over AgentName
+
 	// Autopilot mode
-	Autopilot    bool // enable terminal execution for autonomous scanning
-	MaxCommands  int  // max terminal commands the agent can run (0 = default 100)
+	Autopilot   bool // enable terminal execution for autonomous scanning
+	MaxCommands int  // max terminal commands the agent can run (0 = default 100)
 }
 
 // Result holds the outcome of an agent run.
 type Result struct {
-	AgentName    string            `json:"agent_name"`
-	TemplateID   string            `json:"template_id,omitempty"`
-	SessionID    string            `json:"session_id,omitempty"` // ACP session ID for resume (e.g. claude --resume <id>)
-	RawOutput    string            `json:"raw_output"`
-	Stderr       string            `json:"stderr,omitempty"`
-	Findings     []AgentFinding    `json:"findings,omitempty"`
-	HTTPRecords  []AgentHTTPRecord `json:"http_records,omitempty"`
-	OutputSchema string            `json:"output_schema,omitempty"` // "findings" or "http_records"
-	SavedCount   int               `json:"saved_count"`
-	SkippedCount int               `json:"skipped_count"`
-	DryRun       bool              `json:"dry_run,omitempty"`
+	AgentName      string            `json:"agent_name"`
+	TemplateID     string            `json:"template_id,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"` // ACP session ID for resume (e.g. claude --resume <id>)
+	RawOutput      string            `json:"raw_output"`
+	RenderedPrompt string            `json:"-"` // rendered prompt sent to agent (not serialized)
+	Stderr         string            `json:"stderr,omitempty"`
+	Findings       []AgentFinding    `json:"findings,omitempty"`
+	HTTPRecords    []AgentHTTPRecord `json:"http_records,omitempty"`
+	OutputSchema   string            `json:"output_schema,omitempty"` // "findings" or "http_records"
+	SavedCount     int               `json:"saved_count"`
+	SkippedCount   int               `json:"skipped_count"`
+	DryRun         bool              `json:"dry_run,omitempty"`
 }
 
 // PromptTemplate represents a parsed prompt template with frontmatter metadata.
 type PromptTemplate struct {
-	ID           string            `yaml:"id"`
-	Name         string            `yaml:"name"`
-	Description  string            `yaml:"description"`
-	OutputSchema string            `yaml:"output_schema"` // "findings" or "http_records"
-	Variables    []string          `yaml:"variables"`
-	Body         string            `yaml:"-"`
-	Source       string            `yaml:"-"` // "embedded", "user", "config"
+	ID           string   `yaml:"id"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description"`
+	OutputSchema string   `yaml:"output_schema"` // "findings" or "http_records"
+	Variables    []string `yaml:"variables"`
+	Body         string   `yaml:"-"`
+	Source       string   `yaml:"-"` // "embedded", "user", "config"
 }
 
 // TemplateData holds the variables passed to a prompt template.
 type TemplateData struct {
-	SourceCode    string
-	Language      string
-	Framework     string
-	FilePath      string
-	SourcePath    string
-	DirectoryTree string
-	TargetURL  string
-	Hostname   string
+	SourceCode          string
+	Language            string
+	Framework           string
+	FilePath            string
+	SourcePath          string
+	DirectoryTree       string
+	TargetURL           string
+	Hostname            string
 	Endpoints           string
 	Extra               map[string]string
 	PreviousFindings    string // JSON array of findings from DB
@@ -115,4 +119,3 @@ type AgentHTTPRecord struct {
 type AgentHTTPRecordsOutput struct {
 	HTTPRecords []AgentHTTPRecord `json:"http_records"`
 }
-

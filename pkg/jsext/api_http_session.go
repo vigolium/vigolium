@@ -193,7 +193,7 @@ func (s *jsSession) extractCallHeaders(optsVal sobek.Value) map[string]string {
 
 // doSessionHTTP builds a raw request with session headers merged, sends it, and updates the cookie jar.
 func (s *jsSession) doSessionHTTP(method, urlStr, body string, perRequestHeaders map[string]string) sobek.Value {
-	// Merge: session defaults → per-request headers (per-request wins)
+	// Merge: session defaults -> per-request headers (per-request wins)
 	merged := make(map[string]string, len(s.defaultHeaders)+len(perRequestHeaders))
 	for k, v := range s.defaultHeaders {
 		merged[k] = v
@@ -340,422 +340,550 @@ func extractURLFromRaw(rawReq string) string {
 	return "http://" + host + path
 }
 
-// registerHTTPSessionAPIs adds session/login/batch/replay/sequence to the existing httpObj.
-func registerHTTPSessionAPIs(vm *sobek.Runtime, httpObj *sobek.Object, httpClient *gohttp.Requester) {
-	// vigolium.http.session(opts?) -> Session
-	_ = httpObj.Set("session", func(call sobek.FunctionCall) sobek.Value {
-		var headers map[string]string
-		var cookies map[string]string
+// httpSessionFuncDefs returns JSFuncDefs for session/login/batch/replay/sequence.
+func httpSessionFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace:   NsHTTP,
+			Name:        "session",
+			Category:    CatHTTP,
+			Signature:   ".session(opts?: {headers, cookies})",
+			Returns:     "HttpSession",
+			Description: "Create an HTTP session with persistent cookies and default headers.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					var headers map[string]string
+					var cookies map[string]string
 
-		optsVal := call.Argument(0)
-		if optsVal != nil && !sobek.IsUndefined(optsVal) && !sobek.IsNull(optsVal) {
-			opts := optsVal.ToObject(vm)
-			if v := opts.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-				headers = make(map[string]string)
-				headersObj := v.ToObject(vm)
-				for _, key := range headersObj.Keys() {
-					headers[key] = headersObj.Get(key).String()
-				}
-			}
-			if v := opts.Get("cookies"); v != nil && !sobek.IsUndefined(v) {
-				cookies = make(map[string]string)
-				cookiesObj := v.ToObject(vm)
-				for _, key := range cookiesObj.Keys() {
-					cookies[key] = cookiesObj.Get(key).String()
-				}
-			}
-		}
-
-		sess := newJSSession(vm, httpClient, headers, cookies)
-		return sess.toJSObject()
-	})
-
-	// vigolium.http.login(opts) -> Session
-	_ = httpObj.Set("login", func(call sobek.FunctionCall) sobek.Value {
-		optsVal := call.Argument(0)
-		if sobek.IsUndefined(optsVal) || sobek.IsNull(optsVal) {
-			zap.L().Debug("http.login: missing options")
-			return sobek.Undefined()
-		}
-		opts := optsVal.ToObject(vm)
-
-		loginURL := ""
-		if v := opts.Get("url"); v != nil && !sobek.IsUndefined(v) {
-			loginURL = v.String()
-		}
-		if loginURL == "" {
-			zap.L().Debug("http.login: url is required")
-			return sobek.Undefined()
-		}
-
-		method := "POST"
-		if v := opts.Get("method"); v != nil && !sobek.IsUndefined(v) {
-			method = strings.ToUpper(v.String())
-		}
-
-		body := ""
-		if v := opts.Get("body"); v != nil && !sobek.IsUndefined(v) {
-			body = v.String()
-		}
-
-		contentType := ""
-		if v := opts.Get("content_type"); v != nil && !sobek.IsUndefined(v) {
-			contentType = v.String()
-		}
-		if contentType == "" && body != "" {
-			// Auto-detect
-			if strings.HasPrefix(strings.TrimSpace(body), "{") {
-				contentType = "application/json"
-			} else {
-				contentType = "application/x-www-form-urlencoded"
-			}
-		}
-
-		headers := make(map[string]string)
-		if v := opts.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-			headersObj := v.ToObject(vm)
-			for _, key := range headersObj.Keys() {
-				headers[key] = headersObj.Get(key).String()
-			}
-		}
-		if contentType != "" {
-			headers["Content-Type"] = contentType
-		}
-
-		// Extract rules
-		var extractRules []jsExtractRule
-		if v := opts.Get("extract"); v != nil && !sobek.IsUndefined(v) {
-			rulesArr := v.ToObject(vm)
-			length := int(rulesArr.Get("length").ToInteger())
-			for i := range length {
-				item := rulesArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
-				rule := jsExtractRule{}
-				if rv := item.Get("source"); rv != nil && !sobek.IsUndefined(rv) {
-					rule.Source = rv.String()
-				}
-				if rv := item.Get("name"); rv != nil && !sobek.IsUndefined(rv) {
-					rule.Name = rv.String()
-				}
-				if rv := item.Get("path"); rv != nil && !sobek.IsUndefined(rv) {
-					rule.Path = rv.String()
-				}
-				if rv := item.Get("apply_as"); rv != nil && !sobek.IsUndefined(rv) {
-					rule.ApplyAs = rv.String()
-				}
-				extractRules = append(extractRules, rule)
-			}
-		}
-
-		// Create session and send login request
-		sess := newJSSession(vm, httpClient, nil, nil)
-		resp := doRequest(vm, httpClient, method, loginURL, body, headers)
-		if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
-			zap.L().Debug("http.login: login request failed")
-			return sobek.Undefined()
-		}
-
-		// Update cookie jar from response
-		sess.updateJarFromResponse(loginURL, resp)
-
-		// Apply extraction rules
-		respObj := resp.ToObject(vm)
-		respBody := ""
-		if v := respObj.Get("body"); v != nil && !sobek.IsUndefined(v) {
-			respBody = v.String()
-		}
-		respRaw := ""
-		if v := respObj.Get("raw"); v != nil && !sobek.IsUndefined(v) {
-			respRaw = v.String()
-		}
-		respHeaders := make(map[string]string)
-		if v := respObj.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-			headersObj := v.ToObject(vm)
-			for _, key := range headersObj.Keys() {
-				respHeaders[key] = headersObj.Get(key).String()
-			}
-		}
-
-		for _, rule := range extractRules {
-			value := extractTokenValue(rule, respBody, respRaw, respHeaders)
-			if value == "" {
-				zap.L().Debug("http.login: extraction returned empty value",
-					zap.String("source", rule.Source), zap.String("name", rule.Name))
-				continue
-			}
-
-			if rule.ApplyAs != "" {
-				applySessionHeaderTemplate(sess, rule.ApplyAs, value)
-			} else if rule.Source == "cookie" {
-				// Append to Cookie header
-				pair := rule.Name + "=" + value
-				if existing, ok := sess.defaultHeaders["Cookie"]; ok && existing != "" {
-					sess.defaultHeaders["Cookie"] = existing + "; " + pair
-				} else {
-					sess.defaultHeaders["Cookie"] = pair
-				}
-			} else if rule.Name != "" {
-				sess.defaultHeaders[rule.Name] = value
-			}
-		}
-
-		return sess.toJSObject()
-	})
-
-	// vigolium.http.batch(requests, opts?) -> HttpResponse[]
-	_ = httpObj.Set("batch", func(call sobek.FunctionCall) sobek.Value {
-		reqsVal := call.Argument(0)
-		if sobek.IsUndefined(reqsVal) || sobek.IsNull(reqsVal) {
-			return vm.NewArray()
-		}
-		reqsArr := reqsVal.ToObject(vm)
-		length := int(reqsArr.Get("length").ToInteger())
-		if length == 0 {
-			return vm.NewArray()
-		}
-
-		concurrency := 5
-		if optsVal := call.Argument(1); optsVal != nil && !sobek.IsUndefined(optsVal) && !sobek.IsNull(optsVal) {
-			opts := optsVal.ToObject(vm)
-			if v := opts.Get("concurrency"); v != nil && !sobek.IsUndefined(v) {
-				c := int(v.ToInteger())
-				if c > 0 && c <= 20 {
-					concurrency = c
-				}
-			}
-		}
-
-		// Parse all requests first (on the VM goroutine)
-		type batchReq struct {
-			method  string
-			urlStr  string
-			body    string
-			headers map[string]string
-		}
-		reqs := make([]batchReq, length)
-		for i := range length {
-			item := reqsArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
-			r := batchReq{method: "GET", headers: make(map[string]string)}
-			if v := item.Get("method"); v != nil && !sobek.IsUndefined(v) {
-				r.method = strings.ToUpper(v.String())
-			}
-			if v := item.Get("url"); v != nil && !sobek.IsUndefined(v) {
-				r.urlStr = v.String()
-			}
-			if v := item.Get("body"); v != nil && !sobek.IsUndefined(v) {
-				r.body = v.String()
-			}
-			if v := item.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-				headersObj := v.ToObject(vm)
-				for _, key := range headersObj.Keys() {
-					r.headers[key] = headersObj.Get(key).String()
-				}
-			}
-			reqs[i] = r
-		}
-
-		// Build raw requests (on VM goroutine) then send concurrently
-		rawReqs := make([]string, length)
-		for i, r := range reqs {
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "%s %s HTTP/1.1\r\n", r.method, r.urlStr)
-			host := extractHost(r.urlStr)
-			fmt.Fprintf(&sb, "Host: %s\r\n", host)
-			for k, v := range r.headers {
-				if strings.EqualFold(k, "host") {
-					continue
-				}
-				fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
-			}
-			if r.body != "" && r.headers["Content-Length"] == "" {
-				fmt.Fprintf(&sb, "Content-Length: %d\r\n", len(r.body))
-			}
-			sb.WriteString("\r\n")
-			if r.body != "" {
-				sb.WriteString(r.body)
-			}
-			rawReqs[i] = sb.String()
-		}
-
-		// Send concurrently, collect raw response bytes
-		slots := make([]respSlot, length)
-		sem := make(chan struct{}, concurrency)
-		var wg sync.WaitGroup
-
-		for i, rawReq := range rawReqs {
-			wg.Add(1)
-			go func(idx int, raw string) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				resp := doRawRequestBytes(httpClient, raw)
-				slots[idx] = resp
-			}(i, rawReq)
-		}
-		wg.Wait()
-
-		// Build JS response objects back on the VM goroutine
-		results := make([]interface{}, length)
-		for i, slot := range slots {
-			if slot.err {
-				results[i] = sobek.Undefined()
-				continue
-			}
-			results[i] = buildResponseObject(vm, slot.raw, slot.elapsed)
-		}
-		return vm.ToValue(results)
-	})
-
-	// vigolium.http.replay(rawRequest, variations) -> HttpResponse[]
-	_ = httpObj.Set("replay", func(call sobek.FunctionCall) sobek.Value {
-		rawReq := call.Argument(0).String()
-		variationsVal := call.Argument(1)
-		if sobek.IsUndefined(variationsVal) || sobek.IsNull(variationsVal) {
-			return vm.NewArray()
-		}
-		variationsArr := variationsVal.ToObject(vm)
-		length := int(variationsArr.Get("length").ToInteger())
-		if length == 0 {
-			return vm.NewArray()
-		}
-
-		results := make([]interface{}, length)
-		for i := range length {
-			variation := variationsArr.Get(fmt.Sprintf("%d", i))
-			if sobek.IsUndefined(variation) || sobek.IsNull(variation) {
-				results[i] = doRawRequest(vm, httpClient, rawReq)
-				continue
-			}
-
-			overridesObj := variation.ToObject(vm)
-
-			// Handle remove_headers: build a modified overrides that sets removed headers to empty
-			if v := overridesObj.Get("remove_headers"); v != nil && !sobek.IsUndefined(v) {
-				removeArr := v.ToObject(vm)
-				removeLen := int(removeArr.Get("length").ToInteger())
-				if removeLen > 0 {
-					// We need to strip these headers from the raw request before applying other overrides
-					rawReq = removeHeadersFromRaw(rawReq, vm, removeArr, removeLen)
-				}
-			}
-
-			modifiedReq := applyRequestOverrides(vm, rawReq, overridesObj)
-			results[i] = doRawRequest(vm, httpClient, modifiedReq)
-		}
-		return vm.ToValue(results)
-	})
-
-	// vigolium.http.sequence(steps) -> {responses: HttpResponse[], variables: Record<string,string>, success: bool}
-	_ = httpObj.Set("sequence", func(call sobek.FunctionCall) sobek.Value {
-		stepsVal := call.Argument(0)
-		if sobek.IsUndefined(stepsVal) || sobek.IsNull(stepsVal) {
-			return sobek.Undefined()
-		}
-		stepsArr := stepsVal.ToObject(vm)
-		length := int(stepsArr.Get("length").ToInteger())
-		if length == 0 {
-			return sobek.Undefined()
-		}
-
-		variables := make(map[string]string)
-		responses := make([]interface{}, 0, length)
-		success := true
-
-		for i := range length {
-			step := stepsArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
-
-			var resp sobek.Value
-
-			// Check if raw request template is provided
-			if v := step.Get("request"); v != nil && !sobek.IsUndefined(v) {
-				rawReq := substituteVars(v.String(), variables)
-				resp = doRawRequest(vm, httpClient, rawReq)
-			} else {
-				// Build from method/url/headers/body
-				method := "GET"
-				if v := step.Get("method"); v != nil && !sobek.IsUndefined(v) {
-					method = strings.ToUpper(substituteVars(v.String(), variables))
-				}
-				urlStr := ""
-				if v := step.Get("url"); v != nil && !sobek.IsUndefined(v) {
-					urlStr = substituteVars(v.String(), variables)
-				}
-				body := ""
-				if v := step.Get("body"); v != nil && !sobek.IsUndefined(v) {
-					body = substituteVars(v.String(), variables)
-				}
-				headers := make(map[string]string)
-				if v := step.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-					headersObj := v.ToObject(vm)
-					for _, key := range headersObj.Keys() {
-						headers[key] = substituteVars(headersObj.Get(key).String(), variables)
-					}
-				}
-				resp = doRequest(vm, httpClient, method, urlStr, body, headers)
-			}
-
-			if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
-				responses = append(responses, sobek.Undefined())
-				success = false
-				break
-			}
-
-			responses = append(responses, resp)
-
-			// Apply extraction rules
-			if v := step.Get("extract"); v != nil && !sobek.IsUndefined(v) {
-				respObj := resp.ToObject(vm)
-				respBody := ""
-				if bv := respObj.Get("body"); bv != nil && !sobek.IsUndefined(bv) {
-					respBody = bv.String()
-				}
-				respRaw := ""
-				if rv := respObj.Get("raw"); rv != nil && !sobek.IsUndefined(rv) {
-					respRaw = rv.String()
-				}
-				respHeaders := make(map[string]string)
-				if hv := respObj.Get("headers"); hv != nil && !sobek.IsUndefined(hv) {
-					headersObj := hv.ToObject(vm)
-					for _, key := range headersObj.Keys() {
-						respHeaders[key] = headersObj.Get(key).String()
-					}
-				}
-
-				extractObj := v.ToObject(vm)
-				for _, varName := range extractObj.Keys() {
-					ruleObj := extractObj.Get(varName).ToObject(vm)
-					rule := jsExtractRule{}
-					if rv := ruleObj.Get("source"); rv != nil && !sobek.IsUndefined(rv) {
-						rule.Source = rv.String()
-					}
-					if rv := ruleObj.Get("path"); rv != nil && !sobek.IsUndefined(rv) {
-						rule.Path = rv.String()
-					}
-					if rv := ruleObj.Get("name"); rv != nil && !sobek.IsUndefined(rv) {
-						rule.Name = rv.String()
-					}
-					if rv := ruleObj.Get("pattern"); rv != nil && !sobek.IsUndefined(rv) {
-						rule.Pattern = rv.String()
+					optsVal := call.Argument(0)
+					if optsVal != nil && !sobek.IsUndefined(optsVal) && !sobek.IsNull(optsVal) {
+						o := optsVal.ToObject(vm)
+						if v := o.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+							headers = make(map[string]string)
+							headersObj := v.ToObject(vm)
+							for _, key := range headersObj.Keys() {
+								headers[key] = headersObj.Get(key).String()
+							}
+						}
+						if v := o.Get("cookies"); v != nil && !sobek.IsUndefined(v) {
+							cookies = make(map[string]string)
+							cookiesObj := v.ToObject(vm)
+							for _, key := range cookiesObj.Keys() {
+								cookies[key] = cookiesObj.Get(key).String()
+							}
+						}
 					}
 
-					value := extractTokenValue(rule, respBody, respRaw, respHeaders)
-					if value != "" {
-						variables[varName] = value
-					}
+					sess := newJSSession(vm, opts.HTTPClient, headers, cookies)
+					obj := sess.toJSObject().ToObject(vm)
+					registerInterceptorsOnSession(vm, obj, sess)
+					return obj
 				}
-			}
-		}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "login",
+			Category:    CatHTTP,
+			Signature:   ".login(opts: {url, method?, body?, content_type?, headers?, extract?})",
+			Returns:     "HttpSession",
+			Description: "Perform a login request and return a session with extracted tokens applied.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					optsVal := call.Argument(0)
+					if sobek.IsUndefined(optsVal) || sobek.IsNull(optsVal) {
+						zap.L().Debug("http.login: missing options")
+						return sobek.Undefined()
+					}
+					o := optsVal.ToObject(vm)
 
-		result := vm.NewObject()
-		_ = result.Set("responses", vm.ToValue(responses))
-		varsObj := vm.NewObject()
-		for k, v := range variables {
-			_ = varsObj.Set(k, v)
-		}
-		_ = result.Set("variables", varsObj)
-		_ = result.Set("success", success)
-		return result
-	})
+					loginURL := ""
+					if v := o.Get("url"); v != nil && !sobek.IsUndefined(v) {
+						loginURL = v.String()
+					}
+					if loginURL == "" {
+						zap.L().Debug("http.login: url is required")
+						return sobek.Undefined()
+					}
+
+					method := "POST"
+					if v := o.Get("method"); v != nil && !sobek.IsUndefined(v) {
+						method = strings.ToUpper(v.String())
+					}
+
+					body := ""
+					if v := o.Get("body"); v != nil && !sobek.IsUndefined(v) {
+						body = v.String()
+					}
+
+					contentType := ""
+					if v := o.Get("content_type"); v != nil && !sobek.IsUndefined(v) {
+						contentType = v.String()
+					}
+					if contentType == "" && body != "" {
+						// Auto-detect
+						if strings.HasPrefix(strings.TrimSpace(body), "{") {
+							contentType = "application/json"
+						} else {
+							contentType = "application/x-www-form-urlencoded"
+						}
+					}
+
+					headers := make(map[string]string)
+					if v := o.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+						headersObj := v.ToObject(vm)
+						for _, key := range headersObj.Keys() {
+							headers[key] = headersObj.Get(key).String()
+						}
+					}
+					if contentType != "" {
+						headers["Content-Type"] = contentType
+					}
+
+					// Extract rules
+					var extractRules []jsExtractRule
+					if v := o.Get("extract"); v != nil && !sobek.IsUndefined(v) {
+						rulesArr := v.ToObject(vm)
+						length := int(rulesArr.Get("length").ToInteger())
+						for i := range length {
+							item := rulesArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
+							rule := jsExtractRule{}
+							if rv := item.Get("source"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Source = rv.String()
+							}
+							if rv := item.Get("name"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Name = rv.String()
+							}
+							if rv := item.Get("path"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Path = rv.String()
+							}
+							if rv := item.Get("apply_as"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.ApplyAs = rv.String()
+							}
+							extractRules = append(extractRules, rule)
+						}
+					}
+
+					// Create session and send login request
+					sess := newJSSession(vm, opts.HTTPClient, nil, nil)
+					resp := doRequest(vm, opts.HTTPClient, method, loginURL, body, headers)
+					if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
+						zap.L().Debug("http.login: login request failed")
+						return sobek.Undefined()
+					}
+
+					// Update cookie jar from response
+					sess.updateJarFromResponse(loginURL, resp)
+
+					// Apply extraction rules
+					respObj := resp.ToObject(vm)
+					respBody := ""
+					if v := respObj.Get("body"); v != nil && !sobek.IsUndefined(v) {
+						respBody = v.String()
+					}
+					respRaw := ""
+					if v := respObj.Get("raw"); v != nil && !sobek.IsUndefined(v) {
+						respRaw = v.String()
+					}
+					respHeaders := make(map[string]string)
+					if v := respObj.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+						headersObj := v.ToObject(vm)
+						for _, key := range headersObj.Keys() {
+							respHeaders[key] = headersObj.Get(key).String()
+						}
+					}
+
+					for _, rule := range extractRules {
+						value := extractTokenValue(rule, respBody, respRaw, respHeaders)
+						if value == "" {
+							zap.L().Debug("http.login: extraction returned empty value",
+								zap.String("source", rule.Source), zap.String("name", rule.Name))
+							continue
+						}
+
+						if rule.ApplyAs != "" {
+							applySessionHeaderTemplate(sess, rule.ApplyAs, value)
+						} else if rule.Source == "cookie" {
+							// Append to Cookie header
+							pair := rule.Name + "=" + value
+							if existing, ok := sess.defaultHeaders["Cookie"]; ok && existing != "" {
+								sess.defaultHeaders["Cookie"] = existing + "; " + pair
+							} else {
+								sess.defaultHeaders["Cookie"] = pair
+							}
+						} else if rule.Name != "" {
+							sess.defaultHeaders[rule.Name] = value
+						}
+					}
+
+					obj := sess.toJSObject().ToObject(vm)
+					registerInterceptorsOnSession(vm, obj, sess)
+					return obj
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "batch",
+			Category:    CatHTTP,
+			Signature:   ".batch(requests: FullRequestOptions[], opts?: {concurrency})",
+			Returns:     "HttpResponse[]",
+			Description: "Send multiple HTTP requests concurrently.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					reqsVal := call.Argument(0)
+					if sobek.IsUndefined(reqsVal) || sobek.IsNull(reqsVal) {
+						return vm.NewArray()
+					}
+					reqsArr := reqsVal.ToObject(vm)
+					length := int(reqsArr.Get("length").ToInteger())
+					if length == 0 {
+						return vm.NewArray()
+					}
+
+					concurrency := 5
+					if optsVal := call.Argument(1); optsVal != nil && !sobek.IsUndefined(optsVal) && !sobek.IsNull(optsVal) {
+						o := optsVal.ToObject(vm)
+						if v := o.Get("concurrency"); v != nil && !sobek.IsUndefined(v) {
+							c := int(v.ToInteger())
+							if c > 0 && c <= 20 {
+								concurrency = c
+							}
+						}
+					}
+
+					// Parse all requests first (on the VM goroutine)
+					type batchReq struct {
+						method  string
+						urlStr  string
+						body    string
+						headers map[string]string
+					}
+					reqs := make([]batchReq, length)
+					for i := range length {
+						item := reqsArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
+						r := batchReq{method: "GET", headers: make(map[string]string)}
+						if v := item.Get("method"); v != nil && !sobek.IsUndefined(v) {
+							r.method = strings.ToUpper(v.String())
+						}
+						if v := item.Get("url"); v != nil && !sobek.IsUndefined(v) {
+							r.urlStr = v.String()
+						}
+						if v := item.Get("body"); v != nil && !sobek.IsUndefined(v) {
+							r.body = v.String()
+						}
+						if v := item.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+							headersObj := v.ToObject(vm)
+							for _, key := range headersObj.Keys() {
+								r.headers[key] = headersObj.Get(key).String()
+							}
+						}
+						reqs[i] = r
+					}
+
+					// Build raw requests (on VM goroutine) then send concurrently
+					rawReqs := make([]string, length)
+					for i, r := range reqs {
+						var sb strings.Builder
+						fmt.Fprintf(&sb, "%s %s HTTP/1.1\r\n", r.method, r.urlStr)
+						host := extractHost(r.urlStr)
+						fmt.Fprintf(&sb, "Host: %s\r\n", host)
+						for k, v := range r.headers {
+							if strings.EqualFold(k, "host") {
+								continue
+							}
+							fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
+						}
+						if r.body != "" && r.headers["Content-Length"] == "" {
+							fmt.Fprintf(&sb, "Content-Length: %d\r\n", len(r.body))
+						}
+						sb.WriteString("\r\n")
+						if r.body != "" {
+							sb.WriteString(r.body)
+						}
+						rawReqs[i] = sb.String()
+					}
+
+					// Send concurrently, collect raw response bytes
+					slots := make([]respSlot, length)
+					sem := make(chan struct{}, concurrency)
+					var wg sync.WaitGroup
+
+					for i, rawReq := range rawReqs {
+						wg.Add(1)
+						go func(idx int, raw string) {
+							defer wg.Done()
+							sem <- struct{}{}
+							defer func() { <-sem }()
+
+							resp := doRawRequestBytes(opts.HTTPClient, raw)
+							slots[idx] = resp
+						}(i, rawReq)
+					}
+					wg.Wait()
+
+					// Build JS response objects back on the VM goroutine
+					results := make([]interface{}, length)
+					for i, slot := range slots {
+						if slot.err {
+							results[i] = sobek.Undefined()
+							continue
+						}
+						results[i] = buildResponseObject(vm, slot.raw, slot.elapsed)
+					}
+					return vm.ToValue(results)
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "replay",
+			Category:    CatHTTP,
+			Signature:   ".replay(rawRequest: string, variations: object[])",
+			Returns:     "HttpResponse[]",
+			Description: "Replay a raw HTTP request with multiple variations.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					rawReq := call.Argument(0).String()
+					variationsVal := call.Argument(1)
+					if sobek.IsUndefined(variationsVal) || sobek.IsNull(variationsVal) {
+						return vm.NewArray()
+					}
+					variationsArr := variationsVal.ToObject(vm)
+					length := int(variationsArr.Get("length").ToInteger())
+					if length == 0 {
+						return vm.NewArray()
+					}
+
+					results := make([]interface{}, length)
+					for i := range length {
+						variation := variationsArr.Get(fmt.Sprintf("%d", i))
+						if sobek.IsUndefined(variation) || sobek.IsNull(variation) {
+							results[i] = doRawRequest(vm, opts.HTTPClient, rawReq)
+							continue
+						}
+
+						overridesObj := variation.ToObject(vm)
+
+						// Handle remove_headers: build a modified overrides that sets removed headers to empty
+						currentRaw := rawReq
+						if v := overridesObj.Get("remove_headers"); v != nil && !sobek.IsUndefined(v) {
+							removeArr := v.ToObject(vm)
+							removeLen := int(removeArr.Get("length").ToInteger())
+							if removeLen > 0 {
+								// We need to strip these headers from the raw request before applying other overrides
+								currentRaw = removeHeadersFromRaw(currentRaw, vm, removeArr, removeLen)
+							}
+						}
+
+						modifiedReq := applyRequestOverrides(vm, currentRaw, overridesObj)
+						results[i] = doRawRequest(vm, opts.HTTPClient, modifiedReq)
+					}
+					return vm.ToValue(results)
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "sequence",
+			Category:    CatHTTP,
+			Signature:   ".sequence(steps: SequenceStep[])",
+			Returns:     "{responses, variables, success}",
+			Description: "Execute a sequence of HTTP requests with variable extraction and conditions.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					stepsVal := call.Argument(0)
+					if sobek.IsUndefined(stepsVal) || sobek.IsNull(stepsVal) {
+						return sobek.Undefined()
+					}
+					stepsArr := stepsVal.ToObject(vm)
+					length := int(stepsArr.Get("length").ToInteger())
+					if length == 0 {
+						return sobek.Undefined()
+					}
+
+					variables := make(map[string]string)
+					responses := make([]interface{}, 0, length)
+					success := true
+
+					httpClient := opts.HTTPClient
+
+					// executeStep executes a single step and returns the response
+					executeStep := func(step *sobek.Object) sobek.Value {
+						if v := step.Get("request"); v != nil && !sobek.IsUndefined(v) {
+							rawReq := substituteVars(v.String(), variables)
+							return doRawRequest(vm, httpClient, rawReq)
+						}
+						method := "GET"
+						if v := step.Get("method"); v != nil && !sobek.IsUndefined(v) {
+							method = strings.ToUpper(substituteVars(v.String(), variables))
+						}
+						urlStr := ""
+						if v := step.Get("url"); v != nil && !sobek.IsUndefined(v) {
+							urlStr = substituteVars(v.String(), variables)
+						}
+						body := ""
+						if v := step.Get("body"); v != nil && !sobek.IsUndefined(v) {
+							body = substituteVars(v.String(), variables)
+						}
+						headers := make(map[string]string)
+						if v := step.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+							headersObj := v.ToObject(vm)
+							for _, key := range headersObj.Keys() {
+								headers[key] = substituteVars(headersObj.Get(key).String(), variables)
+							}
+						}
+						return doRequest(vm, httpClient, method, urlStr, body, headers)
+					}
+
+					// extractVars applies extraction rules from a step to a response
+					extractVars := func(step *sobek.Object, resp sobek.Value) {
+						v := step.Get("extract")
+						if v == nil || sobek.IsUndefined(v) {
+							return
+						}
+						respObj := resp.ToObject(vm)
+						respBody := ""
+						if bv := respObj.Get("body"); bv != nil && !sobek.IsUndefined(bv) {
+							respBody = bv.String()
+						}
+						respRaw := ""
+						if rv := respObj.Get("raw"); rv != nil && !sobek.IsUndefined(rv) {
+							respRaw = rv.String()
+						}
+						respHeaders := make(map[string]string)
+						if hv := respObj.Get("headers"); hv != nil && !sobek.IsUndefined(hv) {
+							headersObj := hv.ToObject(vm)
+							for _, key := range headersObj.Keys() {
+								respHeaders[key] = headersObj.Get(key).String()
+							}
+						}
+						// Store prev_status for condition evaluation
+						if sv := respObj.Get("status"); sv != nil && !sobek.IsUndefined(sv) {
+							variables["prev_status"] = sv.String()
+						}
+
+						extractObj := v.ToObject(vm)
+						for _, varName := range extractObj.Keys() {
+							ruleObj := extractObj.Get(varName).ToObject(vm)
+							rule := jsExtractRule{}
+							if rv := ruleObj.Get("source"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Source = rv.String()
+							}
+							if rv := ruleObj.Get("path"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Path = rv.String()
+							}
+							if rv := ruleObj.Get("name"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Name = rv.String()
+							}
+							if rv := ruleObj.Get("pattern"); rv != nil && !sobek.IsUndefined(rv) {
+								rule.Pattern = rv.String()
+							}
+
+							value := extractTokenValue(rule, respBody, respRaw, respHeaders)
+							if value != "" {
+								variables[varName] = value
+							}
+						}
+					}
+
+					for i := range length {
+						step := stepsArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
+
+						// Check condition
+						if v := step.Get("condition"); v != nil && !sobek.IsUndefined(v) {
+							condStr := substituteVars(v.String(), variables)
+							if !evaluateCondition(condStr) {
+								responses = append(responses, sobek.Undefined())
+								continue // skip this step
+							}
+						}
+
+						// Handle repeat
+						repeatTimes := 1
+						repeatDelayMs := 0
+						repeatUntil := ""
+						if v := step.Get("repeat"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+							repeatObj := v.ToObject(vm)
+							if tv := repeatObj.Get("times"); tv != nil && !sobek.IsUndefined(tv) {
+								rt := int(tv.ToInteger())
+								if rt > 1 && rt <= 100 { // cap at 100
+									repeatTimes = rt
+								}
+							}
+							if dv := repeatObj.Get("delay_ms"); dv != nil && !sobek.IsUndefined(dv) {
+								rd := int(dv.ToInteger())
+								if rd > 0 && rd <= 30000 { // cap at 30s
+									repeatDelayMs = rd
+								}
+							}
+							if uv := repeatObj.Get("until"); uv != nil && !sobek.IsUndefined(uv) {
+								repeatUntil = uv.String()
+							}
+						}
+
+						var resp sobek.Value
+						for attempt := range repeatTimes {
+							if attempt > 0 && repeatDelayMs > 0 {
+								time.Sleep(time.Duration(repeatDelayMs) * time.Millisecond)
+							}
+
+							resp = executeStep(step)
+
+							if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
+								break
+							}
+
+							// Extract vars from this attempt
+							extractVars(step, resp)
+
+							// Check until condition
+							if repeatUntil != "" {
+								untilStr := substituteVars(repeatUntil, variables)
+								if evaluateCondition(untilStr) {
+									break // condition met, stop repeating
+								}
+							}
+						}
+
+						if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
+							// Try fallback step
+							if v := step.Get("fallback"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+								fallbackStep := v.ToObject(vm)
+								resp = executeStep(fallbackStep)
+								if !sobek.IsUndefined(resp) && !sobek.IsNull(resp) {
+									extractVars(fallbackStep, resp)
+								}
+							}
+						}
+
+						if sobek.IsUndefined(resp) || sobek.IsNull(resp) {
+							responses = append(responses, sobek.Undefined())
+							success = false
+							break
+						}
+
+						responses = append(responses, resp)
+					}
+
+					result := vm.NewObject()
+					_ = result.Set("responses", vm.ToValue(responses))
+					varsObj := vm.NewObject()
+					for k, v := range variables {
+						_ = varsObj.Set(k, v)
+					}
+					_ = result.Set("variables", varsObj)
+					_ = result.Set("success", success)
+					return result
+				}
+			},
+		},
+	}
 }
 
 // ── Token extraction helpers ─────────────────────────────────────────────────
@@ -885,6 +1013,41 @@ func substituteVars(s string, vars map[string]string) string {
 	return s
 }
 
+// evaluateCondition evaluates a simple condition string.
+// Supports: "value != ''", "value == 'expected'", "value != 'expected'"
+// Also supports bare truthy checks: non-empty string = true, empty = false.
+func evaluateCondition(cond string) bool {
+	cond = strings.TrimSpace(cond)
+	if cond == "" {
+		return false
+	}
+
+	// Try "lhs != rhs" or "lhs == rhs"
+	if idx := strings.Index(cond, "!="); idx >= 0 {
+		lhs := strings.TrimSpace(cond[:idx])
+		rhs := strings.TrimSpace(cond[idx+2:])
+		return stripQuotes(lhs) != stripQuotes(rhs)
+	}
+	if idx := strings.Index(cond, "=="); idx >= 0 {
+		lhs := strings.TrimSpace(cond[:idx])
+		rhs := strings.TrimSpace(cond[idx+2:])
+		return stripQuotes(lhs) == stripQuotes(rhs)
+	}
+
+	// Bare value: truthy if non-empty
+	return stripQuotes(cond) != ""
+}
+
+// stripQuotes removes surrounding single or double quotes from a string.
+func stripQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
+
 // removeHeadersFromRaw removes specified headers from a raw HTTP request.
 func removeHeadersFromRaw(rawReq string, vm *sobek.Runtime, removeArr *sobek.Object, removeLen int) string {
 	toRemove := make(map[string]bool, removeLen)
@@ -980,69 +1143,81 @@ func buildResponseObject(vm *sobek.Runtime, rawResponse []byte, elapsedMs int64)
 	return result
 }
 
-// ── registerUtilsTokenAPI adds extractToken to the utils namespace ───────────
+// ── tokenUtilsFuncDefs adds extractToken to the utils namespace ───────────
 
-func registerUtilsTokenAPI(vm *sobek.Runtime, utilsObj *sobek.Object) {
-	// vigolium.utils.extractToken(response, rules) -> Record<string, string>
-	_ = utilsObj.Set("extractToken", func(call sobek.FunctionCall) sobek.Value {
-		respVal := call.Argument(0)
-		rulesVal := call.Argument(1)
+func tokenUtilsFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace:   NsUtils,
+			Name:        "extractToken",
+			Category:    "Utils",
+			Signature:   ".extractToken(response: HttpResponse, rules: ExtractRule[])",
+			Returns:     "Record<string, string>",
+			Description: "Extract tokens from an HTTP response using extraction rules.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					respVal := call.Argument(0)
+					rulesVal := call.Argument(1)
 
-		if sobek.IsUndefined(respVal) || sobek.IsNull(respVal) ||
-			sobek.IsUndefined(rulesVal) || sobek.IsNull(rulesVal) {
-			return vm.NewObject()
-		}
+					if sobek.IsUndefined(respVal) || sobek.IsNull(respVal) ||
+						sobek.IsUndefined(rulesVal) || sobek.IsNull(rulesVal) {
+						return vm.NewObject()
+					}
 
-		respObj := respVal.ToObject(vm)
-		body := ""
-		if v := respObj.Get("body"); v != nil && !sobek.IsUndefined(v) {
-			body = v.String()
-		}
-		raw := ""
-		if v := respObj.Get("raw"); v != nil && !sobek.IsUndefined(v) {
-			raw = v.String()
-		}
-		headers := make(map[string]string)
-		if v := respObj.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-			headersObj := v.ToObject(vm)
-			for _, key := range headersObj.Keys() {
-				headers[key] = headersObj.Get(key).String()
-			}
-		}
+					respObj := respVal.ToObject(vm)
+					body := ""
+					if v := respObj.Get("body"); v != nil && !sobek.IsUndefined(v) {
+						body = v.String()
+					}
+					raw := ""
+					if v := respObj.Get("raw"); v != nil && !sobek.IsUndefined(v) {
+						raw = v.String()
+					}
+					headers := make(map[string]string)
+					if v := respObj.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+						headersObj := v.ToObject(vm)
+						for _, key := range headersObj.Keys() {
+							headers[key] = headersObj.Get(key).String()
+						}
+					}
 
-		rulesArr := rulesVal.ToObject(vm)
-		length := int(rulesArr.Get("length").ToInteger())
+					rulesArr := rulesVal.ToObject(vm)
+					length := int(rulesArr.Get("length").ToInteger())
 
-		result := vm.NewObject()
-		for i := range length {
-			ruleObj := rulesArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
-			rule := jsExtractRule{}
-			if v := ruleObj.Get("source"); v != nil && !sobek.IsUndefined(v) {
-				rule.Source = v.String()
-			}
-			if v := ruleObj.Get("name"); v != nil && !sobek.IsUndefined(v) {
-				rule.Name = v.String()
-			}
-			if v := ruleObj.Get("path"); v != nil && !sobek.IsUndefined(v) {
-				rule.Path = v.String()
-			}
-			if v := ruleObj.Get("pattern"); v != nil && !sobek.IsUndefined(v) {
-				rule.Pattern = v.String()
-			}
+					result := vm.NewObject()
+					for i := range length {
+						ruleObj := rulesArr.Get(fmt.Sprintf("%d", i)).ToObject(vm)
+						rule := jsExtractRule{}
+						if v := ruleObj.Get("source"); v != nil && !sobek.IsUndefined(v) {
+							rule.Source = v.String()
+						}
+						if v := ruleObj.Get("name"); v != nil && !sobek.IsUndefined(v) {
+							rule.Name = v.String()
+						}
+						if v := ruleObj.Get("path"); v != nil && !sobek.IsUndefined(v) {
+							rule.Path = v.String()
+						}
+						if v := ruleObj.Get("pattern"); v != nil && !sobek.IsUndefined(v) {
+							rule.Pattern = v.String()
+						}
 
-			value := extractTokenValue(rule, body, raw, headers)
+						value := extractTokenValue(rule, body, raw, headers)
 
-			// Use name/path as key, fall back to index
-			key := rule.Name
-			if key == "" {
-				key = rule.Path
-			}
-			if key == "" {
-				key = fmt.Sprintf("%d", i)
-			}
-			_ = result.Set(key, value)
-		}
+						// Use name/path as key, fall back to index
+						key := rule.Name
+						if key == "" {
+							key = rule.Path
+						}
+						if key == "" {
+							key = fmt.Sprintf("%d", i)
+						}
+						_ = result.Set(key, value)
+					}
 
-		return result
-	})
+					return result
+				}
+			},
+		},
+	}
 }

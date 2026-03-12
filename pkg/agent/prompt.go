@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
 	"gopkg.in/yaml.v3"
 )
@@ -117,6 +118,53 @@ func LoadTemplate(templateID string, templatesDir string) (*PromptTemplate, erro
 
 	return nil, fmt.Errorf("template %q not found in any search path", templateID)
 }
+
+// ResolveTemplatePath returns a display-friendly path for a template ID.
+// It checks the same search order as LoadTemplate and returns the resolved path
+// (with ~ for home dir) or "(embedded)" if only the built-in copy exists.
+func ResolveTemplatePath(templateID string, templatesDir string) string {
+	filename := templateID + ".md"
+
+	// 1. Config-specified templates dir
+	if templatesDir != "" {
+		path := filepath.Join(config.ExpandPath(templatesDir), filename)
+		if _, err := os.Stat(path); err == nil {
+			return terminal.ShortenHome(path)
+		}
+	}
+
+	// 2. ~/.vigolium/prompts/ (flat and subdirs)
+	home, err := os.UserHomeDir()
+	if err == nil {
+		baseDir := filepath.Join(home, ".vigolium", "prompts")
+		// Check flat
+		path := filepath.Join(baseDir, filename)
+		if _, err := os.Stat(path); err == nil {
+			return "~/.vigolium/prompts/" + filename
+		}
+		// Check known subdirectories
+		for _, sub := range []string{"sast", "analysis", "autopilot", "pipeline", "swarm"} {
+			path := filepath.Join(baseDir, sub, filename)
+			if _, err := os.Stat(path); err == nil {
+				return "~/.vigolium/prompts/" + sub + "/" + filename
+			}
+		}
+	}
+
+	// 3. Embedded — determine which subdir
+	subdirs := []string{"sast", "analysis", "autopilot", "pipeline", "swarm"}
+	if _, readErr := public.StaticFS.ReadFile("presets/prompts/" + filename); readErr == nil {
+		return "(embedded)"
+	}
+	for _, sub := range subdirs {
+		if _, readErr := public.StaticFS.ReadFile("presets/prompts/" + sub + "/" + filename); readErr == nil {
+			return "(embedded: " + sub + "/" + filename + ")"
+		}
+	}
+
+	return ""
+}
+
 
 // loadAndStatTemplate loads a template from a file and returns its modification time.
 func loadAndStatTemplate(path string) (*PromptTemplate, time.Time, error) {

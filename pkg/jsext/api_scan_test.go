@@ -16,7 +16,7 @@ func setupScanTestVM(t *testing.T, opts APIOptions) *sobek.Runtime {
 	vm := sobek.New()
 	vigolium := vm.NewObject()
 	_ = vm.Set("vigolium", vigolium)
-	setupScanAPI(vm, opts)
+	registerFuncs(vm, opts, scanFuncDefs())
 	return vm
 }
 

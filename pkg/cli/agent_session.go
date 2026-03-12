@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -61,8 +61,8 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 	if globalJSON {
 		output := map[string]interface{}{
 			"total":    total,
-			"offset":  sessionOffset,
-			"limit":   sessionLimit,
+			"offset":   sessionOffset,
+			"limit":    sessionLimit,
 			"sessions": runs,
 		}
 		encoder := json.NewEncoder(os.Stdout)
@@ -80,7 +80,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		min(sessionOffset+len(runs), int(total)),
 		total)
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "UUID", "MODE", "AGENT", "STATUS", "TARGET", "FINDINGS", "RECORDS", "PHASE", "DURATION", "CREATED")
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "UUID", "MODE", "AGENT", "STATUS", "SESSION ID", "TARGET", "FINDINGS", "RECORDS", "PHASE", "DURATION", "CREATED")
 	for _, r := range runs {
 		status := r.Status
 		switch status {
@@ -113,6 +113,11 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 			uuid = uuid[:8]
 		}
 
+		sid := r.SessionID
+		if len(sid) > 12 {
+			sid = sid[:12] + "…"
+		}
+
 		phase := r.CurrentPhase
 
 		created := r.CreatedAt.Format("2006-01-02 15:04")
@@ -122,6 +127,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 			terminal.Cyan(r.Mode),
 			r.AgentName,
 			status,
+			terminal.Gray(sid),
 			target,
 			fmt.Sprintf("%d", r.FindingCount),
 			fmt.Sprintf("%d", r.RecordCount),

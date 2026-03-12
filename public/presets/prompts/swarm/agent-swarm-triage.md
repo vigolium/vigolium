@@ -43,16 +43,23 @@ Review each **extension-generated** finding and classify it as confirmed or fals
 
 ### Triage Criteria
 
+Extensions are often generated in **multiple versions** targeting the same sink with different detection techniques (e.g., `agent-sqli-users-error`, `agent-sqli-users-time`, `agent-sqli-users-boolean`). When triaging:
+- **Cross-reference versions**: If multiple versions of the same extension flag the same endpoint, this strongly increases confidence. Note which techniques confirmed and which didn't.
+- **Deduplicate findings**: Report a single confirmed finding per sink even if multiple versions detected it. Mention all confirming techniques in the `reason` field (e.g., "Confirmed by error-based and time-based variants").
+- **Technique-specific false positives**: A version may be a false positive while another version for the same sink is confirmed — classify each independently but note the relationship.
+
 **Confirmed findings** — evidence suggests a real vulnerability:
 - The extension provided concrete proof (error messages, response differences, time delays)
 - The payload matched a real behavior change in the application
 - The vulnerability class matches the endpoint's technology and behavior
+- Multiple extension versions for the same sink independently confirm the issue
 
 **False positives** — likely not a real vulnerability:
 - The extension matched on static content, error pages, or default responses
 - Response difference is cosmetic (different timestamps, CSRF tokens) not behavioral
 - The technology stack doesn't support this vulnerability class
 - The extension's detection logic was too broad
+- Only one version flagged the issue and its detection logic is weak (while other versions for the same sink found nothing)
 
 ### Follow-up Scan Decisions
 
@@ -60,6 +67,7 @@ Recommend rescans when:
 - A confirmed vulnerability suggests deeper testing with different payloads
 - Related parameters or endpoints deserve the same test
 - The extension's initial payload was imprecise and a refined scan would confirm
+- Only one version of a multi-version extension confirmed — rescan with refined variants to increase confidence
 
 Set verdict to "done" when:
 - All extension findings have been reviewed

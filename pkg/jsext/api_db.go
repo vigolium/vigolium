@@ -13,155 +13,230 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupDBAPI installs vigolium.db.* on the sobek VM.
-// Requires opts.Repository != nil.
-func setupDBAPI(vm *sobek.Runtime, opts APIOptions) {
-	dbObj := vm.NewObject()
-	repo := opts.Repository
+// dbFuncDefs returns the JSFuncDef entries for vigolium.db.*.
+func dbFuncDefs() []JSFuncDef {
+	defs := []JSFuncDef{
+		// ── vigolium.db.records ───────────────────────────────────────────────
 
-	// ── records sub-namespace ──────────────────────────────────────────────
+		{
+			Namespace: NsDBRecords, Name: "query",
+			Category:    CatDBRecords,
+			Signature:   ".query(filters?: {hostname?, path?, methods?, status_codes?, limit?, offset?, sort_by?, sort_asc?})",
+			Returns:     "DBRecord[]",
+			Description: "Query HTTP records from the database with optional filters.",
+			Example:     exDBRecordsQuery,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					filters := jsToQueryFilters(vm, call.Argument(0))
+					qb := database.NewQueryBuilder(repo.DB(), filters)
+					records, err := qb.Execute(context.Background())
+					if err != nil {
+						zap.L().Debug("db.records.query failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return httpRecordsToJS(vm, records)
+				}
+			},
+		},
+		{
+			Namespace: NsDBRecords, Name: "get",
+			Category:    CatDBRecords,
+			Signature:   ".get(uuid: string)",
+			Returns:     "DBRecord | null",
+			Description: "Get a single HTTP record by UUID.",
+			Example:     exDBRecordsGet,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					uuid := call.Argument(0).String()
+					record, err := repo.GetRecordByUUID(context.Background(), uuid)
+					if err != nil {
+						return sobek.Null()
+					}
+					return vm.ToValue(httpRecordToMap(record))
+				}
+			},
+		},
+		{
+			Namespace: NsDBRecords, Name: "getRelated",
+			Category:    CatDBRecords,
+			Signature:   ".getRelated(uuid: string, opts?: {limit?: number})",
+			Returns:     "DBRecord[]",
+			Description: "Get HTTP records related to a given record UUID.",
+			Example:     exDBRecordsGetRelated,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					uuid := call.Argument(0).String()
+					limit := 10
+					optsArg := call.Argument(1)
+					if !sobek.IsUndefined(optsArg) && !sobek.IsNull(optsArg) {
+						obj := optsArg.ToObject(vm)
+						if v := obj.Get("limit"); v != nil && !sobek.IsUndefined(v) {
+							limit = int(v.ToInteger())
+						}
+					}
+					records, err := repo.GetRelatedRecords(context.Background(), uuid, limit)
+					if err != nil {
+						zap.L().Debug("db.records.getRelated failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return httpRecordsToJS(vm, records)
+				}
+			},
+		},
+		{
+			Namespace: NsDBRecords, Name: "annotate",
+			Category:    CatDBRecords,
+			Signature:   ".annotate(uuid: string, patch: {risk_score?, remarks?})",
+			Returns:     "bool",
+			Description: "Update annotations (risk score, remarks) on an HTTP record.",
+			Example:     exDBRecordsAnnotate,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					uuid := call.Argument(0).String()
+					patchArg := call.Argument(1)
+					if sobek.IsUndefined(patchArg) || sobek.IsNull(patchArg) {
+						return vm.ToValue(false)
+					}
+					patchObj := patchArg.ToObject(vm)
 
-	recordsObj := vm.NewObject()
+					var riskScore *int
+					var remarks []string
 
-	// vigolium.db.records.query(filters?) -> DBRecord[]
-	_ = recordsObj.Set("query", func(call sobek.FunctionCall) sobek.Value {
-		filters := jsToQueryFilters(vm, call.Argument(0))
-		qb := database.NewQueryBuilder(repo.DB(), filters)
-		records, err := qb.Execute(context.Background())
-		if err != nil {
-			zap.L().Debug("db.records.query failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return httpRecordsToJS(vm, records)
-	})
+					if v := patchObj.Get("risk_score"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+						rs := int(v.ToInteger())
+						riskScore = &rs
+					}
+					if v := patchObj.Get("remarks"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+						raw, _ := json.Marshal(v.Export())
+						var strs []string
+						if err := json.Unmarshal(raw, &strs); err == nil {
+							remarks = strs
+						}
+					}
 
-	// vigolium.db.records.get(uuid) -> DBRecord | null
-	_ = recordsObj.Set("get", func(call sobek.FunctionCall) sobek.Value {
-		uuid := call.Argument(0).String()
-		record, err := repo.GetRecordByUUID(context.Background(), uuid)
-		if err != nil {
-			return sobek.Null()
-		}
-		return vm.ToValue(httpRecordToMap(record))
-	})
+					if err := repo.UpdateRecordAnnotations(context.Background(), uuid, riskScore, remarks); err != nil {
+						zap.L().Debug("db.records.annotate failed", zap.Error(err))
+						return vm.ToValue(false)
+					}
+					return vm.ToValue(true)
+				}
+			},
+		},
 
-	// vigolium.db.records.getRelated(uuid, opts?) -> DBRecord[]
-	_ = recordsObj.Set("getRelated", func(call sobek.FunctionCall) sobek.Value {
-		uuid := call.Argument(0).String()
-		limit := 10
-		optsArg := call.Argument(1)
-		if !sobek.IsUndefined(optsArg) && !sobek.IsNull(optsArg) {
-			obj := optsArg.ToObject(vm)
-			if v := obj.Get("limit"); v != nil && !sobek.IsUndefined(v) {
-				limit = int(v.ToInteger())
-			}
-		}
-		records, err := repo.GetRelatedRecords(context.Background(), uuid, limit)
-		if err != nil {
-			zap.L().Debug("db.records.getRelated failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return httpRecordsToJS(vm, records)
-	})
+		// ── vigolium.db.findings ──────────────────────────────────────────────
 
-	// vigolium.db.records.annotate(uuid, patch) -> bool
-	_ = recordsObj.Set("annotate", func(call sobek.FunctionCall) sobek.Value {
-		uuid := call.Argument(0).String()
-		patchArg := call.Argument(1)
-		if sobek.IsUndefined(patchArg) || sobek.IsNull(patchArg) {
-			return vm.ToValue(false)
-		}
-		patchObj := patchArg.ToObject(vm)
+		{
+			Namespace: NsDBFindings, Name: "query",
+			Category:    CatDBFindings,
+			Signature:   ".query(filters?: {severity?, module_name?, scan_uuid?, limit?, offset?})",
+			Returns:     "DBFinding[]",
+			Description: "Query findings from the database with optional filters.",
+			Example:     exDBFindingsQuery,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					filters := jsToQueryFilters(vm, call.Argument(0))
+					fqb := database.NewFindingsQueryBuilder(repo.DB(), filters)
+					findings, err := fqb.Execute(context.Background())
+					if err != nil {
+						zap.L().Debug("db.findings.query failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return findingsToJS(vm, findings)
+				}
+			},
+		},
+		{
+			Namespace: NsDBFindings, Name: "get",
+			Category:    CatDBFindings,
+			Signature:   ".get(id: number)",
+			Returns:     "DBFinding | null",
+			Description: "Get a single finding by ID.",
+			Example:     exDBFindingsGet,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					id := call.Argument(0).ToInteger()
+					finding, err := repo.GetFindingByID(context.Background(), id)
+					if err != nil {
+						return sobek.Null()
+					}
+					return vm.ToValue(findingToMap(finding))
+				}
+			},
+		},
+		{
+			Namespace: NsDBFindings, Name: "getByRecord",
+			Category:    CatDBFindings,
+			Signature:   ".getByRecord(uuid: string)",
+			Returns:     "DBFinding[]",
+			Description: "Get all findings associated with an HTTP record UUID.",
+			Example:     exDBFindingsGetByRecord,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					uuid := call.Argument(0).String()
+					findings, err := repo.GetFindingsByRecordUUID(context.Background(), uuid)
+					if err != nil {
+						zap.L().Debug("db.findings.getByRecord failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return findingsToJS(vm, findings)
+				}
+			},
+		},
+		{
+			Namespace: NsDBFindings, Name: "create",
+			Category:    CatDBFindings,
+			Signature:   ".create(finding: {module_id, module_name, severity?, confidence?, description?, ...})",
+			Returns:     "bool",
+			Description: "Create a new finding in the database.",
+			Example:     exDBFindingsCreate,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				repo := opts.Repository
+				return func(call sobek.FunctionCall) sobek.Value {
+					fArg := call.Argument(0)
+					if sobek.IsUndefined(fArg) || sobek.IsNull(fArg) {
+						return vm.ToValue(false)
+					}
+					finding := jsToFinding(vm, fArg.ToObject(vm))
+					if finding == nil {
+						return vm.ToValue(false)
+					}
+					if err := repo.SaveFindingDirect(context.Background(), finding); err != nil {
+						zap.L().Debug("db.findings.create failed", zap.Error(err))
+						return vm.ToValue(false)
+					}
+					return vm.ToValue(true)
+				}
+			},
+		},
 
-		var riskScore *int
-		var remarks []string
+		// ── vigolium.db (top-level) ──────────────────────────────────────────
 
-		if v := patchObj.Get("risk_score"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-			rs := int(v.ToInteger())
-			riskScore = &rs
-		}
-		if v := patchObj.Get("remarks"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-			raw, _ := json.Marshal(v.Export())
-			var strs []string
-			if err := json.Unmarshal(raw, &strs); err == nil {
-				remarks = strs
-			}
-		}
+		{
+			Namespace: NsDB, Name: "compareResponses",
+			Category:    CatDBAnalysis,
+			Signature:   ".compareResponses(records: object[])",
+			Returns:     "{all_similar, scores, variant_count, summary}",
+			Description: "Compare HTTP responses by anomaly score. Each input should have {uuid, status_code, response_body, response_headers}.",
+			Example:     exDBCompareResponses,
+			MakeHandler: func(vm *sobek.Runtime, _ APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return dbCompareResponses(vm, call)
+				}
+			},
+		},
+	}
 
-		if err := repo.UpdateRecordAnnotations(context.Background(), uuid, riskScore, remarks); err != nil {
-			zap.L().Debug("db.records.annotate failed", zap.Error(err))
-			return vm.ToValue(false)
-		}
-		return vm.ToValue(true)
-	})
+	// Append grouped record functions from api_db_grouped.go.
+	defs = append(defs, dbGroupedFuncDefs()...)
 
-	_ = dbObj.Set("records", recordsObj)
-
-	// ── findings sub-namespace ─────────────────────────────────────────────
-
-	findingsObj := vm.NewObject()
-
-	// vigolium.db.findings.query(filters?) -> DBFinding[]
-	_ = findingsObj.Set("query", func(call sobek.FunctionCall) sobek.Value {
-		filters := jsToQueryFilters(vm, call.Argument(0))
-		fqb := database.NewFindingsQueryBuilder(repo.DB(), filters)
-		findings, err := fqb.Execute(context.Background())
-		if err != nil {
-			zap.L().Debug("db.findings.query failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return findingsToJS(vm, findings)
-	})
-
-	// vigolium.db.findings.get(id) -> DBFinding | null
-	_ = findingsObj.Set("get", func(call sobek.FunctionCall) sobek.Value {
-		id := call.Argument(0).ToInteger()
-		finding, err := repo.GetFindingByID(context.Background(), id)
-		if err != nil {
-			return sobek.Null()
-		}
-		return vm.ToValue(findingToMap(finding))
-	})
-
-	// vigolium.db.findings.getByRecord(uuid) -> DBFinding[]
-	_ = findingsObj.Set("getByRecord", func(call sobek.FunctionCall) sobek.Value {
-		uuid := call.Argument(0).String()
-		findings, err := repo.GetFindingsByRecordUUID(context.Background(), uuid)
-		if err != nil {
-			zap.L().Debug("db.findings.getByRecord failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return findingsToJS(vm, findings)
-	})
-
-	// vigolium.db.findings.create(finding) -> bool
-	_ = findingsObj.Set("create", func(call sobek.FunctionCall) sobek.Value {
-		fArg := call.Argument(0)
-		if sobek.IsUndefined(fArg) || sobek.IsNull(fArg) {
-			return vm.ToValue(false)
-		}
-		finding := jsToFinding(vm, fArg.ToObject(vm))
-		if finding == nil {
-			return vm.ToValue(false)
-		}
-		if err := repo.SaveFindingDirect(context.Background(), finding); err != nil {
-			zap.L().Debug("db.findings.create failed", zap.Error(err))
-			return vm.ToValue(false)
-		}
-		return vm.ToValue(true)
-	})
-
-	_ = dbObj.Set("findings", findingsObj)
-
-	// ── compareResponses ───────────────────────────────────────────────────
-
-	// vigolium.db.compareResponses(records) -> DBCompareResult
-	_ = dbObj.Set("compareResponses", func(call sobek.FunctionCall) sobek.Value {
-		return dbCompareResponses(vm, call)
-	})
-
-	vigolium := vm.Get("vigolium").ToObject(vm)
-	_ = vigolium.Set("db", dbObj)
+	return defs
 }
 
 // dbCompareResponses implements vigolium.db.compareResponses.

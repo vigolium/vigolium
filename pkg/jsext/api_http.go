@@ -12,78 +12,116 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupHTTPAPI registers vigolium.http.* functions on the VM.
-// These bridge JS HTTP calls to the Go Requester.
-func setupHTTPAPI(vm *sobek.Runtime, httpClient *http.Requester) {
-	httpObj := vm.NewObject()
+// httpCoreFuncDefs returns JSFuncDefs for the core vigolium.http.* functions.
+func httpCoreFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace:   NsHTTP,
+			Name:        "get",
+			Category:    CatHTTP,
+			Signature:   ".get(url: string, opts?: {headers})",
+			Returns:     "{status, headers, body, raw}",
+			Description: "Send an HTTP GET request.",
+			Example:     exHTTPGet,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					urlStr := call.Argument(0).String()
+					return doSimpleRequest(vm, opts.HTTPClient, "GET", urlStr, "", call.Argument(1))
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "post",
+			Category:    CatHTTP,
+			Signature:   ".post(url: string, body: string, opts?: {headers})",
+			Returns:     "{status, headers, body, raw}",
+			Description: "Send an HTTP POST request.",
+			Example:     exHTTPPost,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					urlStr := call.Argument(0).String()
+					body := call.Argument(1).String()
+					return doSimpleRequest(vm, opts.HTTPClient, "POST", urlStr, body, call.Argument(2))
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "request",
+			Category:    CatHTTP,
+			Signature:   ".request({method, url, headers, body})",
+			Returns:     "{status, headers, body, raw}",
+			Description: "Send a custom HTTP request with full control over method, headers, and body.",
+			Example:     exHTTPRequest,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					optsVal := call.Argument(0)
+					if sobek.IsUndefined(optsVal) || sobek.IsNull(optsVal) {
+						return sobek.Undefined()
+					}
+					o := optsVal.ToObject(vm)
 
-	// vigolium.http.get(url, opts?) -> {status, headers, body}
-	_ = httpObj.Set("get", func(call sobek.FunctionCall) sobek.Value {
-		urlStr := call.Argument(0).String()
-		return doSimpleRequest(vm, httpClient, "GET", urlStr, "", call.Argument(1))
-	})
+					method := "GET"
+					if v := o.Get("method"); v != nil && !sobek.IsUndefined(v) {
+						method = strings.ToUpper(v.String())
+					}
+					urlStr := ""
+					if v := o.Get("url"); v != nil && !sobek.IsUndefined(v) {
+						urlStr = v.String()
+					}
+					body := ""
+					if v := o.Get("body"); v != nil && !sobek.IsUndefined(v) {
+						body = v.String()
+					}
 
-	// vigolium.http.post(url, body, opts?) -> {status, headers, body}
-	_ = httpObj.Set("post", func(call sobek.FunctionCall) sobek.Value {
-		urlStr := call.Argument(0).String()
-		body := call.Argument(1).String()
-		return doSimpleRequest(vm, httpClient, "POST", urlStr, body, call.Argument(2))
-	})
+					headers := make(map[string]string)
+					if v := o.Get("headers"); v != nil && !sobek.IsUndefined(v) {
+						headersObj := v.ToObject(vm)
+						for _, key := range headersObj.Keys() {
+							headers[key] = headersObj.Get(key).String()
+						}
+					}
 
-	// vigolium.http.request({method, url, headers, body}) -> {status, headers, body}
-	_ = httpObj.Set("request", func(call sobek.FunctionCall) sobek.Value {
-		optsVal := call.Argument(0)
-		if sobek.IsUndefined(optsVal) || sobek.IsNull(optsVal) {
-			return sobek.Undefined()
-		}
-		opts := optsVal.ToObject(vm)
-
-		method := "GET"
-		if v := opts.Get("method"); v != nil && !sobek.IsUndefined(v) {
-			method = strings.ToUpper(v.String())
-		}
-		urlStr := ""
-		if v := opts.Get("url"); v != nil && !sobek.IsUndefined(v) {
-			urlStr = v.String()
-		}
-		body := ""
-		if v := opts.Get("body"); v != nil && !sobek.IsUndefined(v) {
-			body = v.String()
-		}
-
-		headers := make(map[string]string)
-		if v := opts.Get("headers"); v != nil && !sobek.IsUndefined(v) {
-			headersObj := v.ToObject(vm)
-			for _, key := range headersObj.Keys() {
-				headers[key] = headersObj.Get(key).String()
-			}
-		}
-
-		return doRequest(vm, httpClient, method, urlStr, body, headers)
-	})
-
-	// vigolium.http.send(rawRequest) -> {status, headers, body, elapsed_ms}
-	_ = httpObj.Set("send", func(call sobek.FunctionCall) sobek.Value {
-		rawReq := call.Argument(0).String()
-		return doRawRequest(vm, httpClient, rawReq)
-	})
-
-	// vigolium.http.buildRequest(rawRequest, overrides) -> modified raw request string
-	// overrides: {method?, path?, headers?, body?, query?}
-	_ = httpObj.Set("buildRequest", func(call sobek.FunctionCall) sobek.Value {
-		rawReq := call.Argument(0).String()
-		overridesVal := call.Argument(1)
-		if sobek.IsUndefined(overridesVal) || sobek.IsNull(overridesVal) {
-			return vm.ToValue(rawReq)
-		}
-		return vm.ToValue(applyRequestOverrides(vm, rawReq, overridesVal.ToObject(vm)))
-	})
-
-	// Register session/login/batch/replay/sequence APIs
-	registerHTTPSessionAPIs(vm, httpObj, httpClient)
-
-	vigolium := vm.Get("vigolium").ToObject(vm)
-	_ = vigolium.Set("http", httpObj)
+					return doRequest(vm, opts.HTTPClient, method, urlStr, body, headers)
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "send",
+			Category:    CatHTTP,
+			Signature:   ".send(rawRequest: string)",
+			Returns:     "{status, headers, body, raw}",
+			Description: "Send a raw HTTP request string (as built by insertion.buildRequest).",
+			Example:     exHTTPSend,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					rawReq := call.Argument(0).String()
+					return doRawRequest(vm, opts.HTTPClient, rawReq)
+				}
+			},
+		},
+		{
+			Namespace:   NsHTTP,
+			Name:        "buildRequest",
+			Category:    CatHTTP,
+			Signature:   ".buildRequest(rawRequest: string, overrides: {method?, path?, headers?, body?, query?})",
+			Returns:     "string",
+			Description: "Modify a raw HTTP request string with the given overrides.",
+			Example:     "",
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					rawReq := call.Argument(0).String()
+					overridesVal := call.Argument(1)
+					if sobek.IsUndefined(overridesVal) || sobek.IsNull(overridesVal) {
+						return vm.ToValue(rawReq)
+					}
+					return vm.ToValue(applyRequestOverrides(vm, rawReq, overridesVal.ToObject(vm)))
+				}
+			},
+		},
+	}
 }
 
 func doSimpleRequest(vm *sobek.Runtime, httpClient *http.Requester, method, urlStr, body string, optsVal sobek.Value) sobek.Value {

@@ -91,11 +91,13 @@ Priority sinks:
 - **Deserialization**: Unsafe deserialization of user data
 - **Auth bypass**: Missing auth middleware, JWT weaknesses, role checks
 
+**Generate multiple versions** of each extension when a sink supports different detection techniques. For example, a SQL injection sink should have separate extensions for error-based, time-based, and boolean-based detection. Each version is a separate file with a version suffix (e.g., `agent-sqli-users-error.js`, `agent-sqli-users-time.js`). This maximizes detection coverage — if one technique is blocked by WAF or doesn't apply, another may succeed.
+
 Each extension must follow this exact format:
 ```javascript
 module.exports = {
-  id: "agent-<vuln-type>-<context>",
-  name: "Description of what it tests",
+  id: "agent-<vuln-type>-<context>-<version>",
+  name: "Description of what it tests (technique)",
   type: "active",
   severity: "high",
   scanTypes: ["per_request"],
@@ -130,13 +132,13 @@ Available vigolium extension APIs:
 
 ## Output Format
 
-Your response MUST use this exact two-part format. Start your response immediately with the JSON — no preamble, no explanation, no markdown fences around the JSON.
+Your response MUST use this exact two-part format.
 
 ### Part 1: JSON (records + session config)
 
-Output a single valid JSON object containing `http_records` and optionally `session_config`. Do NOT include extensions in the JSON — they go in Part 2.
+Output a single valid JSON object containing `http_records` and optionally `session_config`, wrapped in a ` ```json ` code block. Do NOT include extensions in the JSON — they go in Part 2.
 
-```
+```json
 {"http_records":[{"method":"POST","url":"{{.TargetURL}}/api/endpoint","headers":{"Content-Type":"application/json"},"body":"{\"param\":\"value\"}","notes":"Description of endpoint and relevant sinks"}],"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
 ```
 
@@ -144,26 +146,45 @@ Output a single valid JSON object containing `http_records` and optionally `sess
 
 After the JSON, for each vulnerability-targeted extension, output a markdown heading with the filename and reason, followed by a fenced JavaScript code block:
 
-#### agent-sqli-users.js
-Reason: Raw SQL concatenation found in users.js:42
+#### agent-sqli-users-error.js
+Reason: Raw SQL concatenation found in users.js:42 — error-based detection
 
 ```javascript
 module.exports = {
-  id: "agent-sqli-users",
-  name: "SQL Injection in users endpoint",
+  id: "agent-sqli-users-error",
+  name: "SQL Injection in users endpoint (error-based)",
   type: "active",
   severity: "high",
   scanTypes: ["per_request"],
   tags: ["sqli", "agent-generated"],
   scanPerRequest: function(ctx) {
-    // ... scan logic
+    // Error-based: inject syntax errors, check for SQL error messages
+    return [];
+  }
+};
+```
+
+#### agent-sqli-users-time.js
+Reason: Raw SQL concatenation found in users.js:42 — time-based detection
+
+```javascript
+module.exports = {
+  id: "agent-sqli-users-time",
+  name: "SQL Injection in users endpoint (time-based)",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  tags: ["sqli", "agent-generated"],
+  scanPerRequest: function(ctx) {
+    // Time-based: inject SLEEP/WAITFOR, measure response time delta
     return [];
   }
 };
 ```
 
 **Rules:**
-- **Start your response with `{`** — the very first character must be the opening brace of the JSON
+- **Wrap the JSON object in a ` ```json ` code block** — this is required for reliable parsing
+- You may include explanatory text before or after the code blocks
 - `http_records` is required — extract every route matching the target hostname
 - `session_config` is optional — only include if you find auth/login code
 - Do NOT embed extension code inside the JSON object — use Part 2 code blocks only
@@ -173,3 +194,4 @@ module.exports = {
 - In extension `reason`, include the source file and line number where the sink was found
 - For request bodies, use realistic values that match the code's expected types
 - Keep each extension focused and under 80 lines
+- **Generate multiple versions per sink** — use different detection techniques (e.g., error-based, time-based, boolean-based for SQLi; reflected vs DOM-based for XSS; different encoding/bypass strategies). Append a technique suffix to the filename (e.g., `agent-sqli-users-error.js`, `agent-sqli-users-time.js`)

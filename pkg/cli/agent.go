@@ -34,6 +34,7 @@ var (
 	agentShowPrompt     bool
 	agentPromptInline   string
 	agentStdin          bool
+	agentACPCmd         string
 	agentTimeout        time.Duration
 )
 
@@ -104,6 +105,7 @@ func init() {
 	rf.BoolVar(&agentStdin, "stdin", false, "Read prompt from stdin")
 	rf.StringVar(&agentOutput, "output", "", "Write agent output to this file")
 	rf.StringVar(&agentSourceLabel, "source-label", "", "Label for records ingested from agent output (e.g. 'agent-review')")
+	rf.StringVar(&agentACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	rf.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
 	rf.BoolVar(&agentShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
@@ -148,6 +150,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 
 	opts := agent.Options{
 		AgentName:      agentName,
+		AgentACPCmd:    agentACPCmd,
 		PromptTemplate: agentPromptTemplate,
 		PromptFile:     agentPromptFile,
 		PromptInline:   agentPromptInline,
@@ -192,7 +195,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 
 	// Save raw output to session directory
 	if sessionDir != "" && result.RawOutput != "" {
-		_ = os.WriteFile(sessionDir+"/output.txt", []byte(result.RawOutput), 0644)
+		_ = os.WriteFile(sessionDir+"/output.md", []byte(result.RawOutput), 0644)
 	}
 
 	// For inline runs without a template, print raw output (skip if already streamed)

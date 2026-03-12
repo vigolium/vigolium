@@ -10,32 +10,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
 // agent swarm command flags
 var (
-	swarmTarget        string
-	swarmInput         string
-	swarmRecordUUID    string
-	swarmSource        string
-	swarmFiles         []string
-	swarmVulnType      string
-	swarmModules       []string
-	swarmMaxIterations int
-	swarmAgentName     string
-	swarmDryRun            bool
-	swarmShowPrompt        bool
+	swarmTarget             string
+	swarmInput              string
+	swarmRecordUUID         string
+	swarmSource             string
+	swarmFiles              []string
+	swarmVulnType           string
+	swarmModules            []string
+	swarmMaxIterations      int
+	swarmAgentName          string
+	swarmAgentACPCmd        string
+	swarmDryRun             bool
+	swarmShowPrompt         bool
 	swarmSourceAnalysisOnly bool
-	swarmTimeout           time.Duration
-	swarmProfile           string
+	swarmTimeout            time.Duration
+	swarmProfile            string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -72,6 +73,7 @@ func init() {
 	f.StringSliceVarP(&swarmModules, "modules", "m", nil, "Explicit module names to include")
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentName, "agent", "", "Agent backend to use (default from config)")
+	f.StringVar(&swarmAgentACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing")
 	f.BoolVar(&swarmShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
@@ -135,8 +137,9 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	}
 	repo := database.NewRepository(db)
 
-	// Create agent engine
+	// Create agent engine with warm sessions for subprocess reuse across swarm phases
 	engine := agent.NewEngine(settings, repo)
+	engine.EnsureWarmSessions()
 	defer engine.Close()
 
 	// Resolve project UUID
@@ -153,19 +156,20 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 
 	// Build swarm config
 	cfg := agent.SwarmConfig{
-		Inputs:        inputs,
-		SourcePath:    swarmSource,
-		Files:         swarmFiles,
-		VulnType:      swarmVulnType,
-		ModuleNames:   swarmModules,
-		MaxIterations: swarmMaxIterations,
-		AgentName:     swarmAgentName,
+		Inputs:             inputs,
+		SourcePath:         swarmSource,
+		Files:              swarmFiles,
+		VulnType:           swarmVulnType,
+		ModuleNames:        swarmModules,
+		MaxIterations:      swarmMaxIterations,
+		AgentName:          swarmAgentName,
+		AgentACPCmd:        swarmAgentACPCmd,
 		DryRun:             swarmDryRun,
 		ShowPrompt:         swarmShowPrompt,
 		SourceAnalysisOnly: swarmSourceAnalysisOnly,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
-		ProjectUUID:   projectUUID,
-		ScanUUID:      globalScanID,
+		ProjectUUID:        projectUUID,
+		ScanUUID:           globalScanID,
 	}
 
 	if settings.Agent.StreamEnabled() {
@@ -184,7 +188,9 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 
 	// Resolve effective agent name for display
 	effectiveAgent := cfg.AgentName
-	if effectiveAgent == "" {
+	if cfg.AgentACPCmd != "" {
+		effectiveAgent = cfg.AgentACPCmd
+	} else if effectiveAgent == "" {
 		effectiveAgent = settings.Agent.DefaultAgent
 	}
 
@@ -196,17 +202,16 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	if inputDesc == "" && swarmRecordUUID != "" {
 		inputDesc = "record:" + swarmRecordUUID
 	}
+	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
 	fmt.Fprintf(os.Stderr, "%s Starting agent swarm: %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(inputDesc))
 	fmt.Fprintf(os.Stderr, "%s Agent: %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(effectiveAgent))
-	fmt.Fprintf(os.Stderr, "%s Prompt: %s\n",
-		terminal.InfoSymbol(), terminal.Gray(agent.SwarmPromptMaster))
-	fmt.Fprintf(os.Stderr, "%s Sessions dir: %s\n",
-		terminal.InfoSymbol(), terminal.Gray(settings.Agent.EffectiveSessionsDir()))
+	fmt.Fprintf(os.Stderr, "%s Prompt: %s %s\n",
+		terminal.InfoSymbol(), terminal.Gray(agent.SwarmPromptMaster), terminal.Muted(promptPath))
 	if swarmSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), swarmSource)
+			terminal.InfoSymbol(), terminal.ShortenHome(swarmSource))
 	}
 	if swarmVulnType != "" {
 		fmt.Fprintf(os.Stderr, "%s Vulnerability focus: %s\n",
@@ -217,11 +222,12 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	cfg.PhaseCallback = func(phase string) {
 		promptName := agent.SwarmPhasePrompt(phase)
 		if promptName != "" {
-			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] — prompt: %s\n",
-				terminal.InfoSymbol(), terminal.Cyan(phase), terminal.Gray(promptName))
+			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
+			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] — prompt: %s %s\n",
+				terminal.InfoSymbol(), terminal.BoldCyan(phase), terminal.Gray(promptName), terminal.Muted(pp))
 		} else {
 			fmt.Fprintf(os.Stderr, "\n%s Phase [%s]\n",
-				terminal.InfoSymbol(), terminal.Cyan(phase))
+				terminal.InfoSymbol(), terminal.BoldCyan(phase))
 		}
 	}
 
@@ -331,6 +337,9 @@ func printSwarmResult(result *agent.SwarmResult) {
 	fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Agent run:"), terminal.Gray(result.AgentRunUUID))
 	if result.SessionID != "" {
 		fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Session ID:"), terminal.Gray(result.SessionID))
+	}
+	if result.SessionDir != "" {
+		fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Session dir:"), terminal.Gray(terminal.ShortenHome(result.SessionDir)))
 	}
 
 	// Records summary

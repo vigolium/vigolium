@@ -2,17 +2,21 @@
 
 Vigolium supports multi-session authenticated scanning via the `--session`, `--session-file`, and `--auth-config` flags. This enables scanning behind login walls and detecting authorization bypass vulnerabilities (IDOR/BOLA).
 
+Session config files can be written in **YAML or JSON** — the format is auto-detected by file extension (`.json`) or by content sniffing (leading `{` or `[`).
+
 ## Quick Start
 
 ```bash
 # Inline session (simplest)
 vigolium scan https://app.com --session "admin:Cookie:session_id=abc123"
 
-# Session YAML file
+# Session file (YAML or JSON)
 vigolium scan https://app.com --session-file ./admin-session.yaml
+vigolium scan https://app.com --session-file ./admin-session.json
 
 # Full auth config with multiple sessions
 vigolium scan https://app.com --auth-config ./auth-config.yaml
+vigolium scan https://app.com --auth-config ./auth-config.json
 ```
 
 ## Authentication Flags
@@ -20,8 +24,8 @@ vigolium scan https://app.com --auth-config ./auth-config.yaml
 | Flag | Description |
 |------|-------------|
 | `--session` | Inline session in `name:Header:value` format. Repeatable. |
-| `--session-file` | Path to an individual session YAML file. Repeatable. |
-| `--auth-config` | Path to auth-config YAML file with all session definitions. |
+| `--session-file` | Path to an individual session file (YAML or JSON). Repeatable. |
+| `--auth-config` | Path to auth-config file with all session definitions (YAML or JSON). |
 
 All three flags can be combined. If no session is explicitly marked as `primary`, the first session loaded is used as the primary.
 
@@ -51,13 +55,13 @@ vigolium scan https://app.com \
 
 Values containing colons are handled correctly — only the first two colons are used as delimiters.
 
-## Session YAML Files
+## Session Files
 
-For sessions with multiple headers or login flows, use YAML files.
+For sessions with multiple headers or login flows, use files. Both YAML and JSON formats are supported.
 
 ### Static Headers
 
-The simplest session file provides fixed headers:
+**YAML:**
 
 ```yaml
 name: admin
@@ -67,17 +71,33 @@ headers:
   Authorization: "Bearer mytoken"
 ```
 
+**JSON:**
+
+```json
+{
+  "name": "admin",
+  "role": "primary",
+  "headers": {
+    "Cookie": "session_id=abc123",
+    "Authorization": "Bearer mytoken"
+  }
+}
+```
+
 Use with:
 
 ```bash
 vigolium scan https://app.com --session-file ./admin-session.yaml
+vigolium scan https://app.com --session-file ./admin-session.json
 ```
 
 Session files are resolved from the configured `session_dir` (default `~/.vigolium/sessions/`) if the path is not absolute. See [Session Strategy Configuration](#session-strategy-configuration) below.
 
 ### Login Flows
 
-Session files can define automated login flows. The scanner executes the login request at scan start and extracts credentials from the response:
+Session files can define automated login flows. The scanner executes the login request at scan start and extracts credentials from the response.
+
+**YAML:**
 
 ```yaml
 name: admin
@@ -93,7 +113,29 @@ login:
       apply_as: "Authorization: Bearer {value}"
 ```
 
-#### Extraction Sources
+**JSON:**
+
+```json
+{
+  "name": "admin",
+  "role": "primary",
+  "login": {
+    "url": "https://app.com/api/auth/login",
+    "method": "POST",
+    "content_type": "application/json",
+    "body": "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}",
+    "extract": [
+      {
+        "source": "json",
+        "path": "$.token",
+        "apply_as": "Authorization: Bearer {value}"
+      }
+    ]
+  }
+}
+```
+
+### Extraction Sources
 
 | Source | Description | Example |
 |--------|-------------|---------|
@@ -105,7 +147,9 @@ The `apply_as` field defines how the extracted value is applied as a request hea
 
 ## Auth Config File
 
-An auth-config YAML file defines all sessions in one place under a `sessions` key:
+An auth-config file defines all sessions in one place under a `sessions` key.
+
+### YAML Format
 
 ```yaml
 sessions:
@@ -140,27 +184,129 @@ sessions:
       X-API-Key: "${API_KEY}"
 ```
 
+### JSON Format
+
+```json
+{
+  "sessions": [
+    {
+      "name": "admin",
+      "role": "primary",
+      "login": {
+        "url": "https://app.com/api/auth/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}",
+        "extract": [
+          {
+            "source": "json",
+            "path": "$.token",
+            "apply_as": "Authorization: Bearer {value}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "regular_user",
+      "role": "compare",
+      "login": {
+        "url": "https://app.com/login",
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded",
+        "body": "username=${USER_NAME}&password=${USER_PASS}",
+        "extract": [
+          {
+            "source": "cookie"
+          }
+        ]
+      }
+    },
+    {
+      "name": "api_key_user",
+      "role": "compare",
+      "headers": {
+        "X-API-Key": "${API_KEY}"
+      }
+    }
+  ]
+}
+```
+
 Use with:
 
 ```bash
 vigolium scan https://app.com --auth-config ./auth-config.yaml
+vigolium scan https://app.com --auth-config ./auth-config.json
 ```
+
+### When to Use JSON
+
+JSON is a good choice when:
+
+- **AI agents generate session configs** — most LLMs produce cleaner JSON than YAML, and agent modes (pipeline, swarm) already output session config as JSON natively.
+- **Programmatic generation** — scripts, CI pipelines, or tools that build session configs are often simpler in JSON.
+- **Embedding in other JSON payloads** — e.g., the REST API `POST /api/agent/run/pipeline` body includes session config as a nested JSON object.
+
+YAML remains convenient for hand-written configs where comments and multi-line strings help readability.
+
+### Format Detection
+
+The format is detected automatically:
+
+1. **File extension** — `.json` files are parsed as JSON; `.yaml` / `.yml` as YAML.
+2. **Content sniffing** — if the extension is ambiguous (or missing), content starting with `{` or `[` (after whitespace trimming) is parsed as JSON.
+3. **Fallback** — everything else is parsed as YAML.
+
+This means extensionless files work too — pipe JSON directly and it will be detected:
+
+```bash
+# Generate config from a script, write to a temp file, scan
+./gen-auth-config.sh > /tmp/auth-config
+vigolium scan https://app.com --auth-config /tmp/auth-config
+```
+
+## Session Config Schema Reference
+
+Both YAML and JSON use the same field names. Here is the full schema:
+
+```
+SessionConfig
+├── sessions[]              # Array of session definitions
+│   ├── name                # (string, required) Unique session name
+│   ├── role                # (string) "primary" or "compare"
+│   ├── headers             # (map) Static headers, e.g. {"Cookie": "sid=abc"}
+│   ├── login               # (object) Automated login flow
+│   │   ├── url             # (string, required) Login endpoint URL
+│   │   ├── method          # (string, required) HTTP method (POST, GET, etc.)
+│   │   ├── content_type    # (string) Request Content-Type
+│   │   ├── body            # (string) Request body
+│   │   └── extract[]       # (array, required) Credential extraction rules
+│   │       ├── source      # (string) "json", "cookie", or "header"
+│   │       ├── name        # (string) Cookie/header name to extract
+│   │       ├── path        # (string) JSONPath for json source
+│   │       └── apply_as    # (string) Header template, e.g. "Authorization: Bearer {value}"
+│   └── login_request       # (string) Raw HTTP request for login (alternative to login)
+```
+
+Only one of `headers`, `login`, or `login_request` can be set per session.
 
 ## Environment Variables
 
-Session YAML files support `${VAR}` syntax for secrets. This keeps credentials out of config files:
+Session files (both YAML and JSON) support `${VAR}` syntax for secrets. This keeps credentials out of config files:
 
 ```bash
 export ADMIN_USER=admin
 export ADMIN_PASS=s3cret
-vigolium scan https://app.com --auth-config ./auth-config.yaml
+vigolium scan https://app.com --auth-config ./auth-config.json
 ```
 
-All `${VAR}` references in session files are expanded from the environment at load time.
+All `${VAR}` references are expanded from the environment at load time, before format parsing.
 
 ## IDOR/BOLA Testing
 
-To test for authorization bypass vulnerabilities, define at least two sessions — one primary and one or more compare sessions:
+To test for authorization bypass vulnerabilities, define at least two sessions — one primary and one or more compare sessions.
+
+**YAML:**
 
 ```yaml
 sessions:
@@ -179,11 +325,38 @@ sessions:
     role: compare
 ```
 
+**JSON:**
+
+```json
+{
+  "sessions": [
+    {
+      "name": "admin",
+      "role": "primary",
+      "headers": {
+        "Cookie": "${ADMIN_SESSION_COOKIE}"
+      }
+    },
+    {
+      "name": "regular_user",
+      "role": "compare",
+      "headers": {
+        "Cookie": "${USER_SESSION_COOKIE}"
+      }
+    },
+    {
+      "name": "unauthenticated",
+      "role": "compare"
+    }
+  ]
+}
+```
+
 The built-in `authz-compare` module automatically activates when compare sessions are present. It replays primary session requests with compare session credentials and flags responses that indicate broken access control.
 
 ### How Detection Works
 
-1. The primary session makes a request and gets a response (e.g., `GET /api/users/42` → 200 OK with user data).
+1. The primary session makes a request and gets a response (e.g., `GET /api/users/42` -> 200 OK with user data).
 2. The same request is replayed with each compare session's credentials.
 3. If a compare session also receives a successful response with similar content, the module reports a potential IDOR/BOLA finding with **High** severity.
 
@@ -193,7 +366,7 @@ To run only authorization testing without other active modules:
 
 ```bash
 vigolium scan https://app.com \
-  --auth-config ./auth-config.yaml \
+  --auth-config ./auth-config.json \
   --module-tag access-control
 ```
 
@@ -211,9 +384,9 @@ Session behavior is configured under `scanning_strategy.session` in `vigolium-co
 ```yaml
 scanning_strategy:
   session:
-    # Directory where session YAML files are stored.
+    # Directory where session files are stored.
     # When --session-file receives a bare name (e.g. "myapp"), the scanner
-    # resolves it as <session_dir>/myapp.yaml.
+    # resolves it as <session_dir>/myapp.yaml (or .yml, .json).
     # Default: ~/.vigolium/sessions/
     session_dir: ~/.vigolium/sessions/
 
@@ -252,7 +425,7 @@ scanning_strategy:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `session_dir` | string | `~/.vigolium/sessions/` | Directory for session YAML file lookup. `--session-file myapp` resolves to `<session_dir>/myapp.yaml`. Supports `~` expansion. |
+| `session_dir` | string | `~/.vigolium/sessions/` | Directory for session file lookup. `--session-file myapp` resolves to `<session_dir>/myapp.yaml` (tries `.yaml`, `.yml`, `.json` in order). Supports `~` expansion. |
 | `use_in_discovery` | bool | `true` | When `true`, the primary session's headers are injected into the requester used for discovery and spidering. When `false`, those phases run unauthenticated — useful for mapping the public attack surface first, then scanning authenticated. |
 | `compare_enabled` | bool | `true` | When `true`, compare sessions are created and the `authz-compare` module is activated for IDOR/BOLA testing. When `false`, compare sessions are ignored even if defined — handy when you only need authenticated scanning without authorization comparison. |
 | `reauth_interval` | duration | `""` (disabled) | Go duration string (e.g. `"15m"`, `"1h"`). When set, login flows are re-executed at this interval to refresh tokens that expire mid-scan. |
@@ -261,15 +434,16 @@ scanning_strategy:
 
 ### Session Directory Resolution
 
-When `--session-file` receives a bare name (no path separators), the scanner resolves it from `session_dir`:
+When `--session-file` receives a bare name (no path separators), the scanner resolves it from `session_dir`. Extensions are tried in order: `.yaml`, `.yml`, `.json`.
 
 ```bash
-# These are equivalent when session_dir is ~/.vigolium/sessions/
+# These are all equivalent when session_dir is ~/.vigolium/sessions/
 vigolium scan https://app.com --session-file myapp
 vigolium scan https://app.com --session-file ~/.vigolium/sessions/myapp.yaml
+vigolium scan https://app.com --session-file ~/.vigolium/sessions/myapp.json
 ```
 
-The `.yaml` extension is appended automatically if missing. Absolute paths and relative paths with directory separators (e.g. `./sessions/myapp.yaml`) bypass `session_dir` and are used as-is.
+If the bare name has no matching file with any extension, `.yaml` is appended as the default. Absolute paths and relative paths with directory separators (e.g. `./sessions/myapp.json`) bypass `session_dir` and are used as-is.
 
 To change the lookup directory:
 
@@ -325,6 +499,26 @@ Point all team members to a shared directory so `--session-file staging-admin` r
 
 Scanning profiles (`~/.vigolium/profiles/`) can also override session strategy values — useful for having a "quick unauthenticated" profile alongside a "deep authenticated" profile.
 
+## Using Session Config with Agent Modes
+
+Agent modes (`pipeline`, `swarm`, `autopilot`) can auto-generate session configs from source code analysis. The generated configs are always written as JSON to the session directory.
+
+When running agent pipeline or swarm with `--source`, the source analysis phase discovers authentication flows in the codebase and produces a `session-config.json` (or `auth-config.yaml` in pipeline mode) in the session directory. This config is then fed into subsequent scan phases automatically.
+
+You can also pass a pre-built session config to agent modes the same way as regular scans:
+
+```bash
+# Pipeline with pre-configured auth
+vigolium agent pipeline \
+  --target https://app.com \
+  --auth-config ./auth-config.json
+
+# Swarm with pre-configured auth
+vigolium agent swarm \
+  --target https://app.com \
+  --auth-config ./auth-config.json
+```
+
 ## Examples
 
 ### Scan a REST API with Bearer Token
@@ -341,7 +535,7 @@ vigolium scan https://app.example.com \
   --session "user:Cookie:PHPSESSID=abc123; csrftoken=xyz"
 ```
 
-### Full IDOR Test with Login Automation
+### Full IDOR Test with Login Automation (YAML)
 
 ```bash
 export ADMIN_USER=admin ADMIN_PASS=admin123
@@ -352,15 +546,69 @@ vigolium scan https://app.example.com \
   --module-tag access-control
 ```
 
+### Full IDOR Test with Login Automation (JSON)
+
+```bash
+export ADMIN_USER=admin ADMIN_PASS=admin123
+export USER_NAME=user1 USER_PASS=user123
+
+vigolium scan https://app.example.com \
+  --auth-config ./auth-config.json \
+  --module-tag access-control
+```
+
 ### Combine with Other Scan Options
 
 Auth flags work with all other scan options:
 
 ```bash
 vigolium scan https://app.example.com \
-  --auth-config ./auth-config.yaml \
+  --auth-config ./auth-config.json \
   --strategy blackbox \
   --only dynamic-assessment \
   --concurrency 10 \
   --format html -o report.html
+```
+
+### One-Liner JSON Auth Config
+
+For quick testing or CI scripts, you can write a JSON config inline:
+
+```bash
+echo '{"sessions":[{"name":"admin","role":"primary","headers":{"Authorization":"Bearer '"$TOKEN"'"}}]}' > /tmp/auth.json
+vigolium scan https://app.com --auth-config /tmp/auth.json
+```
+
+### Agent-Generated Session Config
+
+When an AI agent discovers auth flows in source code, it produces JSON like:
+
+```json
+{
+  "sessions": [
+    {
+      "name": "default_user",
+      "role": "primary",
+      "login": {
+        "url": "https://app.com/api/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"email\":\"test@test.com\",\"password\":\"testpassword\"}",
+        "extract": [
+          {
+            "source": "json",
+            "path": "$.token",
+            "apply_as": "Authorization: Bearer {value}"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+This can be saved and reused across scans:
+
+```bash
+vigolium scan https://app.com --auth-config ./agent-generated-auth.json
 ```

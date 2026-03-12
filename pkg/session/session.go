@@ -26,37 +26,37 @@ const (
 
 // ExtractRule defines how to extract an auth token from a login response.
 type ExtractRule struct {
-	Source  ExtractSource `yaml:"source"`
-	Name   string        `yaml:"name,omitempty"`     // Cookie name or header name
-	Path   string        `yaml:"path,omitempty"`     // JSONPath for json source
-	ApplyAs string       `yaml:"apply_as,omitempty"` // Header template, e.g. "Authorization: Bearer {value}"
+	Source  ExtractSource `yaml:"source" json:"source"`
+	Name   string        `yaml:"name,omitempty" json:"name,omitempty"`       // Cookie name or header name
+	Path   string        `yaml:"path,omitempty" json:"path,omitempty"`       // JSONPath for json source
+	ApplyAs string       `yaml:"apply_as,omitempty" json:"apply_as,omitempty"` // Header template, e.g. "Authorization: Bearer {value}"
 }
 
 // LoginFlow defines how to authenticate to get session credentials.
 type LoginFlow struct {
-	URL         string        `yaml:"url"`
-	Method      string        `yaml:"method"`
-	ContentType string        `yaml:"content_type,omitempty"`
-	Body        string        `yaml:"body,omitempty"`
-	Extract     []ExtractRule `yaml:"extract"`
+	URL         string        `yaml:"url" json:"url"`
+	Method      string        `yaml:"method" json:"method"`
+	ContentType string        `yaml:"content_type,omitempty" json:"content_type,omitempty"`
+	Body        string        `yaml:"body,omitempty" json:"body,omitempty"`
+	Extract     []ExtractRule `yaml:"extract" json:"extract"`
 }
 
 // Session represents a named authentication identity used during scanning.
 type Session struct {
-	Name    string            `yaml:"name"`
-	Role    Role              `yaml:"role"`
-	Headers map[string]string `yaml:"headers,omitempty"`
-	Login   *LoginFlow        `yaml:"login,omitempty"`
+	Name    string            `yaml:"name" json:"name"`
+	Role    Role              `yaml:"role" json:"role"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Login   *LoginFlow        `yaml:"login,omitempty" json:"login,omitempty"`
 	// LoginRequest is a raw HTTP request string for the login flow.
-	LoginRequest string `yaml:"login_request,omitempty"`
+	LoginRequest string `yaml:"login_request,omitempty" json:"login_request,omitempty"`
 
 	// hydrated indicates whether the login flow has been executed.
 	hydrated bool
 }
 
-// SessionConfig holds multiple sessions, used for --auth-config YAML files.
+// SessionConfig holds multiple sessions, used for --auth-config files (YAML or JSON).
 type SessionConfig struct {
-	Sessions []Session `yaml:"sessions"`
+	Sessions []Session `yaml:"sessions" json:"sessions"`
 }
 
 // Validate checks that the session definition is well-formed.

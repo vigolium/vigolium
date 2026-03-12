@@ -5,36 +5,56 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupLogAPI registers vigolium.log.* functions on the VM.
-func setupLogAPI(vm *sobek.Runtime, scriptID string) {
-	logObj := vm.NewObject()
-
-	logger := zap.L().With(zap.String("ext", scriptID))
-
-	_ = logObj.Set("info", func(call sobek.FunctionCall) sobek.Value {
-		msg := call.Argument(0).String()
-		logger.Info(msg)
-		return sobek.Undefined()
-	})
-
-	_ = logObj.Set("warn", func(call sobek.FunctionCall) sobek.Value {
-		msg := call.Argument(0).String()
-		logger.Warn(msg)
-		return sobek.Undefined()
-	})
-
-	_ = logObj.Set("error", func(call sobek.FunctionCall) sobek.Value {
-		msg := call.Argument(0).String()
-		logger.Error(msg)
-		return sobek.Undefined()
-	})
-
-	_ = logObj.Set("debug", func(call sobek.FunctionCall) sobek.Value {
-		msg := call.Argument(0).String()
-		logger.Debug(msg)
-		return sobek.Undefined()
-	})
-
-	vigolium := vm.Get("vigolium").ToObject(vm)
-	_ = vigolium.Set("log", logObj)
+// logFuncDefs returns the JSFuncDef entries for vigolium.log.*.
+func logFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace: NsLog, Name: "info",
+			Category: CatLogging, Signature: ".info(msg: string)", Returns: "void",
+			Description: "Log an informational message.", Example: exLogInfo,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				logger := zap.L().With(zap.String("ext", opts.ScriptID))
+				return func(call sobek.FunctionCall) sobek.Value {
+					logger.Info(call.Argument(0).String())
+					return sobek.Undefined()
+				}
+			},
+		},
+		{
+			Namespace: NsLog, Name: "warn",
+			Category: CatLogging, Signature: ".warn(msg: string)", Returns: "void",
+			Description: "Log a warning message.", Example: exLogWarn,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				logger := zap.L().With(zap.String("ext", opts.ScriptID))
+				return func(call sobek.FunctionCall) sobek.Value {
+					logger.Warn(call.Argument(0).String())
+					return sobek.Undefined()
+				}
+			},
+		},
+		{
+			Namespace: NsLog, Name: "error",
+			Category: CatLogging, Signature: ".error(msg: string)", Returns: "void",
+			Description: "Log an error message.", Example: exLogError,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				logger := zap.L().With(zap.String("ext", opts.ScriptID))
+				return func(call sobek.FunctionCall) sobek.Value {
+					logger.Error(call.Argument(0).String())
+					return sobek.Undefined()
+				}
+			},
+		},
+		{
+			Namespace: NsLog, Name: "debug",
+			Category: CatLogging, Signature: ".debug(msg: string)", Returns: "void",
+			Description: "Log a debug message (only visible at debug log level).", Example: exLogDebug,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				logger := zap.L().With(zap.String("ext", opts.ScriptID))
+				return func(call sobek.FunctionCall) sobek.Value {
+					logger.Debug(call.Argument(0).String())
+					return sobek.Undefined()
+				}
+			},
+		},
+	}
 }

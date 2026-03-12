@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
 )
@@ -502,15 +504,85 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 		})
 	}
 
+	// If base64 HTTP request is provided, ingest it and use the record UUID as input.
+	if req.HTTPRequestBase64 != "" {
+		recordUUID, err := h.ingestSwarmBase64(c, &req)
+		if err != nil {
+			return err // already sent HTTP response
+		}
+		req.Inputs = append(req.Inputs, recordUUID)
+	}
+
 	inputs := req.EffectiveInputs()
 	if len(inputs) == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "at least one input is required (input or inputs field)",
+			Error: "at least one input is required (input, inputs, or http_request_base64 field)",
 		})
 	}
 
 	timeout := parseDurationOrDefault(req.Timeout, 15*time.Minute)
 	return h.startSwarmRun(c, req, timeout)
+}
+
+// ingestSwarmBase64 decodes the base64-encoded HTTP request (and optional response),
+// saves it as an http_record, and returns the record UUID.
+func (h *Handlers) ingestSwarmBase64(c fiber.Ctx, req *AgentSwarmRequest) (string, error) {
+	if h.repo == nil {
+		return "", c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	rawReq, err := base64.StdEncoding.DecodeString(req.HTTPRequestBase64)
+	if err != nil {
+		return "", c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid base64 in http_request_base64: " + err.Error(),
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	var rr *httpmsg.HttpRequestResponse
+	if req.URL != "" {
+		rr, err = httpmsg.ParseRawRequestWithURL(string(rawReq), req.URL)
+	} else {
+		rr, err = httpmsg.ParseRawRequest(string(rawReq))
+	}
+	if err != nil {
+		return "", c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "failed to parse raw request: " + err.Error(),
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	// Attach response if provided.
+	if req.HTTPResponseBase64 != "" {
+		rawResp, decErr := base64.StdEncoding.DecodeString(req.HTTPResponseBase64)
+		if decErr == nil {
+			resp := httpmsg.NewHttpResponse(rawResp)
+			if resp != nil {
+				rr = rr.WithResponse(resp)
+			}
+		}
+	}
+
+	rr = h.fetchResponseIfNeeded(rr)
+
+	projectUUID := req.ProjectUUID
+	if projectUUID == "" {
+		projectUUID = getProjectUUID(c)
+	}
+
+	recordUUID, err := h.saveRecord(c.Context(), rr, "agent-swarm", projectUUID)
+	if err != nil {
+		zap.L().Error("Failed to save ingested record for swarm", zap.Error(err))
+		return "", c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to save record: " + err.Error(),
+			Code:  fiber.StatusInternalServerError,
+		})
+	}
+
+	return recordUUID, nil
 }
 
 // startSwarmRun acquires the concurrency lock, creates status tracking, and runs the agent swarm.
@@ -576,16 +648,23 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		ScanUUID:      req.ScanUUID,
 	}
 
+	// Resolve a target URL for the scan runner.
+	// The runner needs at least one target to create an input source.
+	targetURL := h.resolveSwarmTargetURL(req)
+
 	// Wire scan callback using the server's runner infrastructure
-	cfg.ScanFunc = h.buildServerAgentSwarmFunc(req.ProjectUUID, req.ScanUUID, h.settings)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, h.settings)
 
 	return cfg
 }
 
 // buildServerAgentSwarmFunc creates a callback that runs dynamic assessment with extensions.
-func (h *Handlers) buildServerAgentSwarmFunc(projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
+func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
 	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string) error {
 		opts := types.DefaultOptions()
+		if targetURL != "" {
+			opts.Targets = []string{targetURL}
+		}
 		opts.ProjectUUID = projectUUID
 		opts.ScanUUID = scanUUID
 		opts.OnlyPhase = "dynamic-assessment"
@@ -616,6 +695,38 @@ func (h *Handlers) buildServerAgentSwarmFunc(projectUUID, scanUUID string, setti
 		scanRunner.SetRepository(h.repo)
 		return scanRunner.RunEnumeration()
 	}
+}
+
+// resolveSwarmTargetURL extracts a target URL from the swarm request.
+// It checks the URL hint, then tries each input to find a usable target.
+func (h *Handlers) resolveSwarmTargetURL(req AgentSwarmRequest) string {
+	// The URL field is an explicit hint — use it directly if provided.
+	if req.URL != "" {
+		return req.URL
+	}
+
+	// Try each input: if it looks like a URL, use it.
+	// If it looks like a record UUID, look up its host from the DB.
+	for _, input := range req.EffectiveInputs() {
+		if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+			return input
+		}
+		if h.repo != nil && len(input) == 36 && strings.Count(input, "-") == 4 {
+			if rec, err := h.repo.GetRecordByUUID(context.Background(), input); err == nil && rec != nil {
+				scheme := rec.Scheme
+				if scheme == "" {
+					scheme = "https"
+				}
+				host := rec.Hostname
+				if rec.Port > 0 && rec.Port != 80 && rec.Port != 443 {
+					host = fmt.Sprintf("%s:%d", host, rec.Port)
+				}
+				return scheme + "://" + host
+			}
+		}
+	}
+
+	return ""
 }
 
 // handleSwarmSSE runs the agent swarm synchronously while streaming SSE events.

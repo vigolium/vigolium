@@ -27,6 +27,7 @@ var (
 	autopilotFocus        string
 	autopilotSystemPrompt string
 	autopilotTimeout      time.Duration
+	autopilotACPCmd       string
 	autopilotDryRun       bool
 	autopilotShowPrompt   bool
 	autopilotMaxCommands  int
@@ -65,6 +66,7 @@ func init() {
 	f.StringVarP(&autopilotTarget, "target", "t", "", "Target URL (derived from --input if not set)")
 	f.StringVar(&autopilotInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
 	f.StringVar(&autopilotAgent, "agent", "", "Agent backend to use (default from config)")
+	f.StringVar(&autopilotACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	f.StringVar(&autopilotSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --source)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
@@ -130,6 +132,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	// Build agent options
 	opts := agent.Options{
 		AgentName:      autopilotAgent,
+		AgentACPCmd:    autopilotACPCmd,
 		PromptTemplate: "autopilot-system",
 		SourcePath:     autopilotSource,
 		Files:          autopilotFiles,
@@ -175,11 +178,11 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		terminal.InfoSymbol(), terminal.Cyan(autopilotTarget))
 	if autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), autopilotSource)
+			terminal.InfoSymbol(), terminal.ShortenHome(autopilotSource))
 	}
 	if sessionDir != "" {
 		fmt.Fprintf(os.Stderr, "%s Session: %s\n",
-			terminal.InfoSymbol(), terminal.Gray(sessionDir))
+			terminal.InfoSymbol(), terminal.Gray(terminal.ShortenHome(sessionDir)))
 	}
 
 	result, err := engine.Run(ctx, opts)
@@ -195,7 +198,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 
 	// Save raw output to session directory
 	if sessionDir != "" && result.RawOutput != "" {
-		_ = os.WriteFile(sessionDir+"/output.txt", []byte(result.RawOutput), 0644)
+		_ = os.WriteFile(sessionDir+"/output.md", []byte(result.RawOutput), 0644)
 	}
 
 	if result.DryRun {

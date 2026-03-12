@@ -10,6 +10,56 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
+// extractJSONFromFencedBlock extracts JSON content specifically from ```json fenced code blocks,
+// ignoring ```javascript/```js blocks. This provides a reliable anchor for structured data
+// when the agent output contains both JSON and JavaScript code blocks.
+// Returns the first valid JSON found in a ```json block, or an error if none found.
+func extractJSONFromFencedBlock(raw string) (string, error) {
+	lines := strings.Split(raw, "\n")
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+
+		// Look for ```json fence (but not ```javascript or ```js-something)
+		if !strings.HasPrefix(trimmed, "```json") {
+			continue
+		}
+		// Ensure it's actually ```json and not ```jsonl or ```jsonc etc.
+		rest := strings.TrimPrefix(trimmed, "```json")
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			continue
+		}
+
+		// Collect content until closing ```
+		var content strings.Builder
+		i++
+		for i < len(lines) {
+			if strings.TrimSpace(lines[i]) == "```" {
+				break
+			}
+			if content.Len() > 0 {
+				content.WriteByte('\n')
+			}
+			content.WriteString(lines[i])
+			i++
+		}
+
+		candidate := strings.TrimSpace(content.String())
+		if candidate == "" {
+			continue
+		}
+
+		if isJSON(candidate) {
+			return candidate, nil
+		}
+
+		// Try finding a JSON block within the fenced content (handles extra whitespace/comments)
+		if block := findJSONBlock(candidate); block != "" && isJSON(block) {
+			return block, nil
+		}
+	}
+	return "", fmt.Errorf("no valid JSON found in ```json fenced blocks")
+}
+
 // extractJSON attempts to extract a JSON object or array from raw text using multiple strategies:
 // 1. Try parsing the raw string directly
 // 2. Strip markdown code fences (at start) and retry

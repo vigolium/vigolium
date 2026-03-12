@@ -14,205 +14,237 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupSourceAPI registers vigolium.source.* functions on the VM.
-func setupSourceAPI(vm *sobek.Runtime, opts APIOptions) {
-	sourceObj := vm.NewObject()
+// sourceFuncDefs returns the JSFuncDef entries for vigolium.source.*.
+func sourceFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace: NsSource, Name: "list",
+			Category: CatSource, Signature: ".list(hostname?: string)", Returns: "SourceRepo[]",
+			Description: "List source repos, optionally filtered by hostname.", Example: exSourceList,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return vm.NewArray()
+					}
 
-	repo := opts.Repository
+					ctx := context.Background()
+					hostnameArg := call.Argument(0)
 
-	// vigolium.source.list(hostname?) -> [{id, hostname, name, root_path, ...}]
-	_ = sourceObj.Set("list", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return vm.NewArray()
-		}
+					if !sobek.IsUndefined(hostnameArg) && !sobek.IsNull(hostnameArg) {
+						hostname := strings.TrimSpace(hostnameArg.String())
+						if hostname != "" {
+							repos, err := repo.GetSourceReposByHostname(ctx, opts.ProjectUUID, hostname)
+							if err != nil {
+								zap.L().Debug("source.list failed", zap.Error(err))
+								return vm.NewArray()
+							}
+							return sourceReposToJSValue(vm, repos)
+						}
+					}
 
-		ctx := context.Background()
-		hostnameArg := call.Argument(0)
-
-		if !sobek.IsUndefined(hostnameArg) && !sobek.IsNull(hostnameArg) {
-			hostname := strings.TrimSpace(hostnameArg.String())
-			if hostname != "" {
-				repos, err := repo.GetSourceReposByHostname(ctx, opts.ProjectUUID, hostname)
-				if err != nil {
-					zap.L().Debug("source.list failed", zap.Error(err))
-					return vm.NewArray()
+					repos, _, err := repo.ListSourceRepos(ctx, opts.ProjectUUID, 100, 0)
+					if err != nil {
+						zap.L().Debug("source.list failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return sourceReposToJSValue(vm, repos)
 				}
-				return sourceReposToJSValue(vm, repos)
-			}
-		}
+			},
+		},
+		{
+			Namespace: NsSource, Name: "get",
+			Category: CatSource, Signature: ".get(id: number)", Returns: "SourceRepo | null",
+			Description: "Get a source repo by ID.", Example: exSourceGet,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return sobek.Null()
+					}
 
-		repos, _, err := repo.ListSourceRepos(ctx, opts.ProjectUUID, 100, 0)
-		if err != nil {
-			zap.L().Debug("source.list failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return sourceReposToJSValue(vm, repos)
-	})
-
-	// vigolium.source.get(id) -> {id, hostname, name, root_path, ...}
-	_ = sourceObj.Set("get", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return sobek.Null()
-		}
-
-		id := call.Argument(0).ToInteger()
-		sr, err := repo.GetSourceRepoByID(context.Background(), id)
-		if err != nil {
-			return sobek.Null()
-		}
-		return sourceRepoToJSValue(vm, sr)
-	})
-
-	// vigolium.source.getByHostname(hostname) -> [{...}]
-	_ = sourceObj.Set("getByHostname", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return vm.NewArray()
-		}
-
-		hostname := strings.TrimSpace(call.Argument(0).String())
-		if hostname == "" {
-			return vm.NewArray()
-		}
-
-		repos, err := repo.GetSourceReposByHostname(context.Background(), opts.ProjectUUID, hostname)
-		if err != nil {
-			zap.L().Debug("source.getByHostname failed", zap.Error(err))
-			return vm.NewArray()
-		}
-		return sourceReposToJSValue(vm, repos)
-	})
-
-	// vigolium.source.readFile(hostname, relativePath) -> string
-	_ = sourceObj.Set("readFile", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return vm.ToValue("")
-		}
-
-		hostname := strings.TrimSpace(call.Argument(0).String())
-		relPath := call.Argument(1).String()
-
-		sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
-		if err != nil {
-			return vm.ToValue("")
-		}
-
-		absPath, err := safeResolvePath(sr.RootPath, relPath)
-		if err != nil {
-			zap.L().Debug("source.readFile path traversal blocked", zap.String("path", relPath))
-			return vm.ToValue("")
-		}
-
-		data, err := os.ReadFile(absPath)
-		if err != nil {
-			return vm.ToValue("")
-		}
-		return vm.ToValue(string(data))
-	})
-
-	// vigolium.source.listFiles(hostname, glob?) -> string[]
-	_ = sourceObj.Set("listFiles", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return vm.NewArray()
-		}
-
-		hostname := strings.TrimSpace(call.Argument(0).String())
-		sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
-		if err != nil {
-			return vm.NewArray()
-		}
-
-		globPattern := ""
-		globArg := call.Argument(1)
-		if !sobek.IsUndefined(globArg) && !sobek.IsNull(globArg) {
-			globPattern = strings.TrimSpace(globArg.String())
-		}
-
-		var files []interface{}
-		root := sr.RootPath
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil || d.IsDir() {
-				return nil
-			}
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return nil
-			}
-			if globPattern != "" {
-				matched, matchErr := filepath.Match(globPattern, filepath.Base(rel))
-				if matchErr != nil || !matched {
-					return nil
+					id := call.Argument(0).ToInteger()
+					sr, err := repo.GetSourceRepoByID(context.Background(), id)
+					if err != nil {
+						return sobek.Null()
+					}
+					return sourceRepoToJSValue(vm, sr)
 				}
-			}
-			files = append(files, rel)
-			return nil
-		})
+			},
+		},
+		{
+			Namespace: NsSource, Name: "getByHostname",
+			Category: CatSource, Signature: ".getByHostname(hostname: string)", Returns: "SourceRepo[]",
+			Description: "Get source repos for a hostname.", Example: exSourceGetByHostname,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return vm.NewArray()
+					}
 
-		return vm.ToValue(files)
-	})
+					hostname := strings.TrimSpace(call.Argument(0).String())
+					if hostname == "" {
+						return vm.NewArray()
+					}
 
-	// vigolium.source.searchFiles(hostname, pattern) -> [{path, line, match}]
-	_ = sourceObj.Set("searchFiles", func(call sobek.FunctionCall) sobek.Value {
-		if repo == nil {
-			return vm.NewArray()
-		}
+					repos, err := repo.GetSourceReposByHostname(context.Background(), opts.ProjectUUID, hostname)
+					if err != nil {
+						zap.L().Debug("source.getByHostname failed", zap.Error(err))
+						return vm.NewArray()
+					}
+					return sourceReposToJSValue(vm, repos)
+				}
+			},
+		},
+		{
+			Namespace: NsSource, Name: "readFile",
+			Category: CatSource, Signature: ".readFile(hostname: string, path: string)", Returns: "string",
+			Description: "Read a file from the source repo for a hostname (path-traversal protected).", Example: exSourceReadFile,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return vm.ToValue("")
+					}
 
-		hostname := strings.TrimSpace(call.Argument(0).String())
-		pattern := call.Argument(1).String()
+					hostname := strings.TrimSpace(call.Argument(0).String())
+					relPath := call.Argument(1).String()
 
-		sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
-		if err != nil {
-			return vm.NewArray()
-		}
+					sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
+					if err != nil {
+						return vm.ToValue("")
+					}
 
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			zap.L().Debug("source.searchFiles invalid regex", zap.String("pattern", pattern), zap.Error(err))
-			return vm.NewArray()
-		}
+					absPath, err := safeResolvePath(sr.RootPath, relPath)
+					if err != nil {
+						zap.L().Debug("source.readFile path traversal blocked", zap.String("path", relPath))
+						return vm.ToValue("")
+					}
 
-		var results []interface{}
-		root := sr.RootPath
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil || d.IsDir() {
-				return nil
-			}
-			if isBinaryExt(filepath.Ext(path)) {
-				return nil
-			}
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return nil
-			}
-			f, fErr := os.Open(path)
-			if fErr != nil {
-				return nil
-			}
-			defer func() { _ = f.Close() }()
+					data, err := os.ReadFile(absPath)
+					if err != nil {
+						return vm.ToValue("")
+					}
+					return vm.ToValue(string(data))
+				}
+			},
+		},
+		{
+			Namespace: NsSource, Name: "listFiles",
+			Category: CatSource, Signature: ".listFiles(hostname: string, glob?: string)", Returns: "string[]",
+			Description: "List files in a source repo for a hostname, optionally filtered by glob.", Example: exSourceListFiles,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return vm.NewArray()
+					}
 
-			scanner := bufio.NewScanner(f)
-			lineNum := 0
-			for scanner.Scan() {
-				lineNum++
-				line := scanner.Text()
-				if re.MatchString(line) {
-					results = append(results, map[string]interface{}{
-						"path":  rel,
-						"line":  lineNum,
-						"match": strings.TrimSpace(line),
+					hostname := strings.TrimSpace(call.Argument(0).String())
+					sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
+					if err != nil {
+						return vm.NewArray()
+					}
+
+					globPattern := ""
+					globArg := call.Argument(1)
+					if !sobek.IsUndefined(globArg) && !sobek.IsNull(globArg) {
+						globPattern = strings.TrimSpace(globArg.String())
+					}
+
+					var files []interface{}
+					root := sr.RootPath
+					_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+						if walkErr != nil || d.IsDir() {
+							return nil
+						}
+						rel, relErr := filepath.Rel(root, path)
+						if relErr != nil {
+							return nil
+						}
+						if globPattern != "" {
+							matched, matchErr := filepath.Match(globPattern, filepath.Base(rel))
+							if matchErr != nil || !matched {
+								return nil
+							}
+						}
+						files = append(files, rel)
+						return nil
 					})
-				}
-				if len(results) >= 1000 {
-					return fmt.Errorf("result limit reached")
-				}
-			}
-			return nil
-		})
 
-		return vm.ToValue(results)
-	})
+					return vm.ToValue(files)
+				}
+			},
+		},
+		{
+			Namespace: NsSource, Name: "searchFiles",
+			Category: CatSource, Signature: ".searchFiles(hostname: string, pattern: string)", Returns: "SearchMatch[]",
+			Description: "Grep source files for a hostname's repo using a regex pattern. Returns matches with file path and line number.", Example: exSourceSearchFiles,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					repo := opts.Repository
+					if repo == nil {
+						return vm.NewArray()
+					}
 
-	vigolium := vm.Get("vigolium").ToObject(vm)
-	_ = vigolium.Set("source", sourceObj)
+					hostname := strings.TrimSpace(call.Argument(0).String())
+					pattern := call.Argument(1).String()
+
+					sr, err := resolveSourceRepoByHostname(repo, opts.ProjectUUID, hostname)
+					if err != nil {
+						return vm.NewArray()
+					}
+
+					re, err := regexp.Compile(pattern)
+					if err != nil {
+						zap.L().Debug("source.searchFiles invalid regex", zap.String("pattern", pattern), zap.Error(err))
+						return vm.NewArray()
+					}
+
+					var results []interface{}
+					root := sr.RootPath
+					_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+						if walkErr != nil || d.IsDir() {
+							return nil
+						}
+						if isBinaryExt(filepath.Ext(path)) {
+							return nil
+						}
+						rel, relErr := filepath.Rel(root, path)
+						if relErr != nil {
+							return nil
+						}
+						f, fErr := os.Open(path)
+						if fErr != nil {
+							return nil
+						}
+						defer func() { _ = f.Close() }()
+
+						scanner := bufio.NewScanner(f)
+						lineNum := 0
+						for scanner.Scan() {
+							lineNum++
+							line := scanner.Text()
+							if re.MatchString(line) {
+								results = append(results, map[string]interface{}{
+									"path":  rel,
+									"line":  lineNum,
+									"match": strings.TrimSpace(line),
+								})
+							}
+							if len(results) >= 1000 {
+								return fmt.Errorf("result limit reached")
+							}
+						}
+						return nil
+					})
+
+					return vm.ToValue(results)
+				}
+			},
+		},
+	}
 }
 
 // resolveSourceRepoByHostname looks up the most recent source repo for a hostname.

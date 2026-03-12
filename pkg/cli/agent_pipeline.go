@@ -31,6 +31,7 @@ var (
 	pipelineFiles           []string
 	pipelineFocus           string
 	pipelineTimeout         time.Duration
+	pipelineACPCmd          string
 	pipelineDryRun          bool
 	pipelineShowPrompt      bool
 	pipelineMaxRescanRounds int
@@ -76,6 +77,7 @@ func init() {
 	f.StringVarP(&pipelineTarget, "target", "t", "", "Target URL (derived from --input if not set)")
 	f.StringVar(&pipelineInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
 	f.StringVar(&pipelineAgent, "agent", "", "Agent backend to use (default from config)")
+	f.StringVar(&pipelineACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	f.StringVar(&pipelineSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&pipelineFiles, "files", nil, "Specific source files to include (relative to --source)")
 	f.StringVar(&pipelineFocus, "focus", "", "Focus area hint for the planning agent (e.g. 'API injection', 'auth bypass')")
@@ -187,6 +189,7 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 	cfg := agent.PipelineConfig{
 		TargetURL:       pipelineTarget,
 		AgentName:       pipelineAgent,
+		AgentACPCmd:     pipelineACPCmd,
 		Focus:           pipelineFocus,
 		SourcePath:      pipelineSource,
 		Files:           pipelineFiles,

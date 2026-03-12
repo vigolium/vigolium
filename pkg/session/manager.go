@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -109,7 +110,8 @@ func (m *Manager) PrimaryHeaders() []string {
 	return m.primary.HeaderSlice()
 }
 
-// LoadFromConfig loads sessions from an auth-config YAML file.
+// LoadFromConfig loads sessions from an auth-config file (YAML or JSON).
+// Format is detected by file extension (.json) or by content sniffing.
 func LoadFromConfig(path string) ([]*Session, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -120,8 +122,14 @@ func LoadFromConfig(path string) ([]*Session, error) {
 	content := os.ExpandEnv(string(data))
 
 	var cfg SessionConfig
-	if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse auth config %s: %w", path, err)
+	if isJSON(path, content) {
+		if err := json.Unmarshal([]byte(content), &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse auth config %s as JSON: %w", path, err)
+		}
+	} else {
+		if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse auth config %s: %w", path, err)
+		}
 	}
 
 	if len(cfg.Sessions) == 0 {
@@ -135,7 +143,7 @@ func LoadFromConfig(path string) ([]*Session, error) {
 	return result, nil
 }
 
-// LoadFromSessionFiles loads sessions from individual YAML files.
+// LoadFromSessionFiles loads sessions from individual session files (YAML or JSON).
 // An optional sessionDir overrides the default ~/.vigolium/sessions/ lookup directory.
 func LoadFromSessionFiles(paths []string, sessionDir string) ([]*Session, error) {
 	var sessions []*Session
@@ -148,8 +156,14 @@ func LoadFromSessionFiles(paths []string, sessionDir string) ([]*Session, error)
 		}
 		content := os.ExpandEnv(string(data))
 		var s Session
-		if err := yaml.Unmarshal([]byte(content), &s); err != nil {
-			return nil, fmt.Errorf("failed to parse session file %s: %w", resolved, err)
+		if isJSON(resolved, content) {
+			if err := json.Unmarshal([]byte(content), &s); err != nil {
+				return nil, fmt.Errorf("failed to parse session file %s as JSON: %w", resolved, err)
+			}
+		} else {
+			if err := yaml.Unmarshal([]byte(content), &s); err != nil {
+				return nil, fmt.Errorf("failed to parse session file %s: %w", resolved, err)
+			}
 		}
 		sessions = append(sessions, &s)
 	}
@@ -180,15 +194,17 @@ func resolveSessionPath(path string, sessionDir string) string {
 	if strings.Contains(path, string(filepath.Separator)) || strings.Contains(path, "/") {
 		return path
 	}
-	// Add .yaml extension if missing
-	if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml") {
-		path += ".yaml"
-	}
+	// If the path already has a known extension, use it as-is for lookup
+	hasExt := strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".json")
+
 	// Use configured session dir or default to ~/.vigolium/sessions/
 	dir := sessionDir
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
+			if !hasExt {
+				return path + ".yaml"
+			}
 			return path
 		}
 		dir = filepath.Join(home, ".vigolium", "sessions")
@@ -197,13 +213,38 @@ func resolveSessionPath(path string, sessionDir string) string {
 	if strings.HasPrefix(dir, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
+			if !hasExt {
+				return path + ".yaml"
+			}
 			return path
 		}
 		dir = filepath.Join(home, dir[2:])
 	}
-	candidate := filepath.Join(dir, path)
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
+
+	if hasExt {
+		candidate := filepath.Join(dir, path)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		return path
 	}
-	return path
+
+	// Try extensions in order: .yaml, .yml, .json
+	for _, ext := range []string{".yaml", ".yml", ".json"} {
+		candidate := filepath.Join(dir, path+ext)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return path + ".yaml"
+}
+
+// isJSON returns true if the file should be parsed as JSON.
+// Checks file extension first, then falls back to content sniffing.
+func isJSON(path string, content string) bool {
+	if strings.HasSuffix(path, ".json") {
+		return true
+	}
+	trimmed := strings.TrimSpace(content)
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }

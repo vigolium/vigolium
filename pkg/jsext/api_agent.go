@@ -13,35 +13,90 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupAgentAPI installs vigolium.agent.* on the sobek VM.
-// Requires opts.LLMClient != nil.
-func setupAgentAPI(vm *sobek.Runtime, opts APIOptions) {
-	agentObj := vm.NewObject()
+// ─── examples ────────────────────────────────────────────────────────────────
 
-	agentObj.Set("complete", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentComplete(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("ask", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentAsk(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("chat", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentChat(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("generatePayloads", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentGeneratePayloads(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("analyzeResponse", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentAnalyzeResponse(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("confirmFinding", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentConfirmFinding(vm, opts.LLMClient, call)
-	})
-	agentObj.Set("run", func(call sobek.FunctionCall) sobek.Value { //nolint:errcheck
-		return agentRun(vm, opts, call)
-	})
+const exAgentComplete = `var resp = vigolium.agent.complete({messages: [{role: "user", content: "hello"}], max_tokens: 256})`
+const exAgentAsk = `var answer = vigolium.agent.ask("Is this response vulnerable to XSS?")`
+const exAgentChat = `var reply = vigolium.agent.chat([{role: "user", content: "Analyze this header"}])`
+const exAgentGeneratePayloads = `var payloads = vigolium.agent.generatePayloads({type: "xss", count: 10})`
+const exAgentAnalyzeResponse = `var result = vigolium.agent.analyzeResponse({request: req, response: resp, vulnerability_type: "sqli", payload: "' OR 1=1--"})`
+const exAgentConfirmFinding = `var result = vigolium.agent.confirmFinding({name: "SQL Injection", request: req, response: resp})`
+const exAgentRun = `var result = vigolium.agent.run({agent: "claude", prompt: "Analyze this target", timeout: 120})`
 
-	vigolium := vm.Get("vigolium").ToObject(vm)
-	vigolium.Set("agent", agentObj) //nolint:errcheck
+// agentFuncDefs returns the JSFuncDef entries for vigolium.agent.*.
+func agentFuncDefs() []JSFuncDef {
+	return []JSFuncDef{
+		{
+			Namespace: NsAgent, Name: "complete",
+			Category: CatAgent, Signature: ".complete(opts: {messages, model?, max_tokens?, temperature?, json_schema?})", Returns: "{content, model, tokens_in, tokens_out}",
+			Description: "Low-level LLM completion with full control over messages and parameters.", Example: exAgentComplete,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentComplete(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "ask",
+			Category: CatAgent, Signature: ".ask(prompt: string, opts?: {system?, model?, max_tokens?})", Returns: "string",
+			Description: "Send a single prompt to the LLM and get a text response.", Example: exAgentAsk,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentAsk(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "chat",
+			Category: CatAgent, Signature: ".chat(messages: {role, content}[], opts?: {model?, max_tokens?})", Returns: "string",
+			Description: "Multi-turn chat completion with an array of messages.", Example: exAgentChat,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentChat(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "generatePayloads",
+			Category: CatAgent, Signature: ".generatePayloads(opts: {type?, parameter?, context?, technology?, waf?, count?})", Returns: "string[]",
+			Description: "Generate security test payloads using the LLM.", Example: exAgentGeneratePayloads,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentGeneratePayloads(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "analyzeResponse",
+			Category: CatAgent, Signature: ".analyzeResponse(opts: {request, response, vulnerability_type, payload, baseline_response?})", Returns: "{vulnerable, confidence, evidence, details}",
+			Description: "Analyze an HTTP exchange for vulnerability exploitation evidence.", Example: exAgentAnalyzeResponse,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentAnalyzeResponse(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "confirmFinding",
+			Category: CatAgent, Signature: ".confirmFinding(opts: {name, request, response, matched?, baseline_response?})", Returns: "{confirmed, confidence, reasoning, false_positive_indicators}",
+			Description: "Verify whether a security finding is a true positive or false positive.", Example: exAgentConfirmFinding,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentConfirmFinding(vm, opts.LLMClient, call)
+				}
+			},
+		},
+		{
+			Namespace: NsAgent, Name: "run",
+			Category: CatAgent, Signature: ".run(opts: {agent: string, prompt: string, timeout?: number})", Returns: "{output, findings, http_records}",
+			Description: "Run a named agent subprocess and collect structured output.", Example: exAgentRun,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					return agentRun(vm, opts, call)
+				}
+			},
+		},
+	}
 }
 
 // ── low-level: complete ──────────────────────────────────────────────────────
@@ -90,10 +145,10 @@ func agentComplete(vm *sobek.Runtime, client llm.Client, call sobek.FunctionCall
 	}
 
 	result := vm.NewObject()
-	result.Set("content", resp.Content)       //nolint:errcheck
-	result.Set("model", resp.Model)           //nolint:errcheck
-	result.Set("tokens_in", resp.TokensIn)    //nolint:errcheck
-	result.Set("tokens_out", resp.TokensOut)  //nolint:errcheck
+	result.Set("content", resp.Content)      //nolint:errcheck
+	result.Set("model", resp.Model)          //nolint:errcheck
+	result.Set("tokens_in", resp.TokensIn)   //nolint:errcheck
+	result.Set("tokens_out", resp.TokensOut) //nolint:errcheck
 	return result
 }
 
@@ -276,10 +331,10 @@ Output JSON: {"vulnerable": bool, "confidence": "high"|"medium"|"low", "evidence
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(resp.Content), &result); err != nil {
 		errObj := vm.NewObject()
-		errObj.Set("vulnerable", false)          //nolint:errcheck
-		errObj.Set("confidence", "low")           //nolint:errcheck
-		errObj.Set("evidence", "parse error")     //nolint:errcheck
-		errObj.Set("details", resp.Content)       //nolint:errcheck
+		errObj.Set("vulnerable", false)      //nolint:errcheck
+		errObj.Set("confidence", "low")      //nolint:errcheck
+		errObj.Set("evidence", "parse error") //nolint:errcheck
+		errObj.Set("details", resp.Content)  //nolint:errcheck
 		return errObj
 	}
 	return vm.ToValue(result)
@@ -333,10 +388,10 @@ Output JSON: {"confirmed": bool, "confidence": "high"|"medium"|"low", "reasoning
 	var result map[string]interface{}
 	if parseErr := json.Unmarshal([]byte(resp.Content), &result); parseErr != nil {
 		errObj := vm.NewObject()
-		errObj.Set("confirmed", false)                             //nolint:errcheck
-		errObj.Set("confidence", "low")                           //nolint:errcheck
-		errObj.Set("reasoning", resp.Content)                     //nolint:errcheck
-		errObj.Set("false_positive_indicators", []string{})       //nolint:errcheck
+		errObj.Set("confirmed", false)                       //nolint:errcheck
+		errObj.Set("confidence", "low")                      //nolint:errcheck
+		errObj.Set("reasoning", resp.Content)                //nolint:errcheck
+		errObj.Set("false_positive_indicators", []string{})  //nolint:errcheck
 		return errObj
 	}
 	return vm.ToValue(result)

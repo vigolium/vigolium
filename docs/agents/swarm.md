@@ -4,6 +4,8 @@ Swarm is a **multi-agent targeted vulnerability scanning** mode. A master AI age
 
 Unlike pipeline (which scans an entire target), swarm focuses on a **single request** and applies deep, targeted analysis to it.
 
+Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
+
 ## Architecture
 
 ```
@@ -95,8 +97,17 @@ vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
 # Specify modules explicitly
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
 
+# Use a custom ACP agent command (overrides --agent)
+vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli acp"
+
 # Preview what the master agent would receive
 vigolium agent swarm -t https://example.com/api/users --dry-run
+
+# Show rendered prompts on stderr while executing
+vigolium agent swarm -t https://example.com/api/users --show-prompt
+
+# Run only source analysis (extract routes, auth flows, extensions)
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --source-analysis-only
 ```
 
 ### Supported Input Types
@@ -115,18 +126,23 @@ Inputs are auto-detected from their content:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-t, --target` | — | Target URL |
+| `-t, --target` | — | Target URL (required when `--source` is used) |
 | `--input` | — | Raw input (curl command, raw HTTP, Burp XML). Use `-` for stdin |
 | `--record-uuid` | — | HTTP record UUID from database |
+| `--source` | — | Path to application source code for route discovery |
+| `--files` | — | Specific source files to include (relative to `--source`) |
 | `--vuln-type` | — | Vulnerability type focus (e.g., `sqli`, `xss`, `ssrf`) |
 | `-m, --modules` | — | Explicit module names to include alongside agent selections |
 | `--max-iterations` | 3 | Maximum triage-rescan iterations |
 | `--agent` | from config | Agent backend to use |
+| `--agent-acp-cmd` | — | Custom ACP agent command (e.g., `traecli acp`), overrides `--agent` |
 | `--timeout` | 15m | Maximum swarm duration |
 | `--profile` | — | Scanning profile to use |
 | `--dry-run` | false | Render prompts without executing |
+| `--show-prompt` | false | Print rendered prompts to stderr before executing |
+| `--source-analysis-only` | false | Run only the source analysis phase and exit |
 
-At least one input is required: `--target`, `--input`, or `--record-uuid`. Multiple inputs can be combined (e.g., `--target` + `--input`) for flows that require multiple requests (like login + protected endpoint).
+At least one input is required: `--target`, `--input`, `--record-uuid`, or `--source`. Multiple inputs can be combined (e.g., `--target` + `--input`) for flows that require multiple requests (like login + protected endpoint).
 
 ## Phase Overview
 
@@ -263,6 +279,9 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 |-------|------|----------|-------------|
 | `input` | string | Yes* | Single input (URL, curl, raw HTTP, Burp XML, or record UUID) |
 | `inputs` | string[] | Yes* | Multiple inputs (for auth flows). Merged with `input` |
+| `http_request_base64` | string | No | Base64-encoded raw HTTP request. Ingested into DB and its UUID is used as input |
+| `http_response_base64` | string | No | Base64-encoded raw HTTP response. Attached to the request above |
+| `url` | string | No | URL hint for parsing the base64 request (used when the raw request lacks a full URL) |
 | `vuln_type` | string | No | Vulnerability type focus (e.g., `sqli`, `xss`) |
 | `module_names` | string[] | No | Explicit module IDs to include |
 | `scanning_phase` | string | No | Scan phase to run (default `dynamic-assessment`) |
@@ -274,7 +293,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 | `timeout` | string | No | Go duration string (default `15m`) |
 | `dry_run` | bool | No | Render prompts without executing |
 
-\* At least one of `input` or `inputs` must be provided.
+\* At least one of `input`, `inputs`, or `http_request_base64` must be provided.
 
 **Response modes:**
 
@@ -310,11 +329,71 @@ curl -N http://localhost:9002/api/agent/run/swarm \
     "stream": true
   }'
 
+# Swarm with base64-encoded HTTP request (e.g. from proxy intercept)
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "http_request_base64": "UE9TVCAvYXBpL2xvZ2luIEhUVFAvMS4xDQpIb3N0OiBleGFtcGxlLmNvbQ0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9qc29uDQoNCnsiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwicGFzc3dvcmQiOiJzZWNyZXQifQ==",
+    "vuln_type": "auth"
+  }'
+
+# Base64 request with a response attached (skips live fetch)
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "http_request_base64": "R0VUIC9hcGkvdXNlcnMvMSBIVFRQLzEuMQ0KSG9zdDogZXhhbXBsZS5jb20NCg0K",
+    "http_response_base64": "SFRUUC8xLjEgMjAwIE9LDQpDb250ZW50LVR5cGU6IGFwcGxpY2F0aW9uL2pzb24NCg0KeyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoic3VwZXJhZG1pbiJ9",
+    "vuln_type": "idor"
+  }'
+
+# Base64 request with a URL hint (when raw request has a relative path)
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "http_request_base64": "R0VUIC9hcGkvb3JkZXJzIEhUVFAvMS4xDQpIb3N0OiBsb2NhbGhvc3QNCg0K",
+    "url": "https://staging.example.com/api/orders"
+  }'
+
+# Multiple inputs for auth flow testing (login + protected endpoint)
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "inputs": [
+      "curl -X POST https://example.com/api/auth/login -H \"Content-Type: application/json\" -d \"{\\\"user\\\":\\\"admin\\\",\\\"pass\\\":\\\"test\\\"}\"",
+      "curl -X GET https://example.com/api/admin/users -H \"Authorization: Bearer eyJhbGciOi...\""
+    ],
+    "vuln_type": "auth"
+  }'
+
 # Swarm with record UUID from database
 curl -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <api-key>" \
   -d '{"input": "550e8400-e29b-41d4-a716-446655440000"}'
+
+# Dry run — render prompts without executing agent calls
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "input": "https://example.com/api/users?id=1",
+    "vuln_type": "sqli",
+    "dry_run": true
+  }'
+
+# Scoped to a project
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -H "X-Project-UUID: proj-abc123" \
+  -d '{
+    "input": "https://example.com/api/users",
+    "project_uuid": "proj-abc123"
+  }'
 
 # Check swarm status
 curl http://localhost:9002/api/agent/status/<run-id> \
@@ -353,6 +432,7 @@ type SwarmResult struct {
     Iterations     int             // triage rounds completed
     Duration       time.Duration
     AgentRunUUID   string          // DB tracking UUID
+    SessionDir     string          // path to session artifacts
 }
 ```
 
@@ -374,7 +454,7 @@ type TriageResult struct {
 |--------|-------|----------|-----------|
 | **Scope** | Single request/endpoint | Entire target | Entire target |
 | **Input** | URL, curl, raw HTTP, Burp XML, DB record | Target URL | Target URL |
-| **AI involvement** | 2-3 calls (plan + triage) | 2-4 calls (source analysis + plan + triage) | Many calls (agent-driven) |
+| **AI involvement** | 2-3 calls (plan + triage), warm sessions auto-enabled | 2-4 calls (source analysis + plan + triage) | Many calls (agent-driven) |
 | **Custom payloads** | Yes — generates JS extensions | Only via source analysis (Phase 0) | No |
 | **Discovery** | No — works with what you give it | Yes — full deparos + spidering | Yes — agent decides |
 | **Triage scope** | Extension findings only | All findings | Agent decides |
@@ -386,6 +466,27 @@ type TriageResult struct {
 **Use `agent pipeline`** when you need full-scope scanning of an entire target with structured phases.
 
 **Use `agent autopilot`** when you want the AI to explore freely and decide its own approach.
+
+## Session Artifacts
+
+Every swarm run creates a session directory (configurable via `agent.sessions_dir`, defaults to `~/.vigolium/agent-sessions/<run-id>/`). The session directory stores all artifacts from the run for debugging and auditability:
+
+```
+~/.vigolium/agent-sessions/agt-abc123/
+├── inputs.json                    # Normalized input records (JSON array)
+├── prompt-source-analysis.md      # Rendered source analysis prompt (if --source used)
+├── prompt-master.md               # Rendered master agent planning prompt
+├── prompt-triage-1.md             # Rendered triage prompt (round 1)
+├── prompt-triage-2.md             # Rendered triage prompt (round 2, if rescan)
+├── output.txt                     # Raw agent output
+├── session-config.json            # Session configuration
+├── plan.json                      # SwarmPlan from the master agent
+└── extensions/
+    ├── custom-json-sqli.js        # Generated JS scanner extensions
+    └── custom-auth-bypass.js
+```
+
+The session directory path is included in the `SwarmResult` (`session_dir` field) and printed to stderr in CLI mode.
 
 ## Key Files
 

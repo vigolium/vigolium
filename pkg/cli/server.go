@@ -13,6 +13,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
@@ -49,6 +50,9 @@ type serverOptions struct {
 
 	// Agent warm session
 	DisableWarmSession bool
+
+	// Agent ACP command override
+	AgentACPCmd string
 }
 
 var serverOpts = &serverOptions{
@@ -88,6 +92,10 @@ func init() {
 	// Agent warm session
 	flags.BoolVar(&serverOpts.DisableWarmSession, "disable-warm-session", false,
 		"Disable agent subprocess warm session pooling")
+
+	// Agent ACP command override
+	flags.StringVar(&serverOpts.AgentACPCmd, "agent-acp-cmd", "",
+		"Custom ACP agent command for all agent runs (e.g. 'traecli acp')")
 }
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
@@ -108,6 +116,19 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	} else if !settings.Agent.WarmSession.IsEnabled() {
 		t := true
 		settings.Agent.WarmSession.Enable = &t
+	}
+
+	// Register ad-hoc ACP agent command and set it as default when --agent-acp-cmd is provided.
+	// This makes all API agent requests use the custom command by default, including warm sessions.
+	if serverOpts.AgentACPCmd != "" {
+		if def := agent.ParseACPCmd(serverOpts.AgentACPCmd); def != nil {
+			def.Description = "Custom ACP agent from --agent-acp-cmd"
+			if settings.Agent.Agents == nil {
+				settings.Agent.Agents = make(map[string]config.AgentDef)
+			}
+			settings.Agent.Agents["custom-acp"] = *def
+			settings.Agent.DefaultAgent = "custom-acp"
+		}
 	}
 
 	// Resolve API keys with priority: -A flag > --alternative-ingest-key flag > env var > config file

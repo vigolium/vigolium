@@ -99,9 +99,9 @@ type AgentSessionConfig struct {
 // AgentSessionEntry represents a single session identity for authenticated scanning.
 type AgentSessionEntry struct {
 	Name    string            `json:"name"`
-	Role    string            `json:"role"`               // "primary" or "compare"
-	Headers map[string]string `json:"headers,omitempty"`   // static auth headers
-	Login   *AgentLoginFlow   `json:"login,omitempty"`     // login-based auth
+	Role    string            `json:"role"`              // "primary" or "compare"
+	Headers map[string]string `json:"headers,omitempty"` // static auth headers
+	Login   *AgentLoginFlow   `json:"login,omitempty"`   // login-based auth
 }
 
 // AgentLoginFlow defines a login flow discovered from source code analysis.
@@ -115,9 +115,9 @@ type AgentLoginFlow struct {
 
 // AgentExtractRule defines how to extract an auth token from a login response.
 type AgentExtractRule struct {
-	Source  string `json:"source"`            // "cookie", "json", "header"
-	Name    string `json:"name,omitempty"`    // cookie name or header name
-	Path    string `json:"path,omitempty"`    // JSONPath for json source
+	Source  string `json:"source"`             // "cookie", "json", "header"
+	Name    string `json:"name,omitempty"`     // cookie name or header name
+	Path    string `json:"path,omitempty"`     // JSONPath for json source
 	ApplyAs string `json:"apply_as,omitempty"` // e.g. "Authorization: Bearer {value}"
 }
 
@@ -189,6 +189,7 @@ type SwarmResult struct {
 	Duration       time.Duration   `json:"duration"`
 	AgentRunUUID   string          `json:"agent_run_uuid"`
 	SessionID      string          `json:"session_id,omitempty"` // ACP session ID for resume
+	SessionDir     string          `json:"session_dir,omitempty"`
 }
 
 // swarmPlanWrapper wraps SwarmPlan for JSON parsing flexibility.
@@ -600,6 +601,7 @@ func extractFilenameFromCode(code string) string {
 // SourceAnalysisConfig configures a source analysis run. Used by both pipeline and swarm.
 type SourceAnalysisConfig struct {
 	AgentName      string
+	AgentACPCmd    string // ad-hoc ACP command override (e.g. "traecli acp")
 	TargetURL      string
 	SourcePath     string
 	Files          []string
@@ -655,6 +657,7 @@ func WriteExtensionsToSessionDir(extensions []GeneratedExtension, sessionDir str
 type PipelineConfig struct {
 	TargetURL       string
 	AgentName       string
+	AgentACPCmd     string // ad-hoc ACP command override (e.g. "traecli acp")
 	Focus           string
 	SourcePath      string
 	Files           []string
@@ -792,10 +795,14 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 // parseSourceAnalysisHybrid parses the hybrid output format where the JSON contains
 // http_records and session_config, and extensions are in fenced ```javascript code blocks.
 func parseSourceAnalysisHybrid(raw string) (*SourceAnalysisResult, error) {
-	// Extract the JSON block containing http_records (and optionally session_config)
-	jsonStr, err := extractJSON(raw)
+	// Try extracting JSON from a ```json fenced block first (preferred — unambiguous anchor).
+	// Fall back to generic extractJSON() for backward compatibility with raw-JSON output.
+	jsonStr, err := extractJSONFromFencedBlock(raw)
 	if err != nil {
-		return nil, fmt.Errorf("no JSON block found: %w", err)
+		jsonStr, err = extractJSON(raw)
+		if err != nil {
+			return nil, fmt.Errorf("no JSON block found: %w", err)
+		}
 	}
 
 	// Try wrapped format first

@@ -431,18 +431,21 @@ func (r AgentPipelineRequest) EffectiveSourcePath() string {
 
 // AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
 type AgentSwarmRequest struct {
-	Input         string   `json:"input,omitempty"`           // single input (URL, curl, raw HTTP, Burp XML, record UUID)
-	Inputs        []string `json:"inputs,omitempty"`          // multiple inputs (for auth flows)
-	VulnType      string   `json:"vuln_type,omitempty"`       // vulnerability type focus
-	ModuleNames   []string `json:"module_names,omitempty"`    // explicit module IDs
-	ScanningPhase string   `json:"scanning_phase,omitempty"`  // default "dynamic-assessment"
-	MaxIterations int      `json:"max_iterations,omitempty"`  // max triage-rescan rounds (default 3)
-	Agent         string   `json:"agent,omitempty"`           // agent backend name
-	ProjectUUID   string   `json:"project_uuid,omitempty"`    // optional project UUID
-	ScanUUID      string   `json:"scan_uuid,omitempty"`       // optional scan UUID
-	Stream        bool     `json:"stream,omitempty"`          // enable SSE streaming
-	Timeout       string   `json:"timeout,omitempty"`         // Go duration string
-	DryRun        bool     `json:"dry_run,omitempty"`         // render prompts without executing
+	Input              string   `json:"input,omitempty"`                // single input (URL, curl, raw HTTP, Burp XML, record UUID)
+	Inputs             []string `json:"inputs,omitempty"`               // multiple inputs (for auth flows)
+	HTTPRequestBase64  string   `json:"http_request_base64,omitempty"`  // base64-encoded raw HTTP request (ingested into DB, UUID used as input)
+	HTTPResponseBase64 string   `json:"http_response_base64,omitempty"` // base64-encoded raw HTTP response (attached to the request above)
+	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
+	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
+	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
+	ScanningPhase      string   `json:"scanning_phase,omitempty"`       // default "dynamic-assessment"
+	MaxIterations      int      `json:"max_iterations,omitempty"`       // max triage-rescan rounds (default 3)
+	Agent              string   `json:"agent,omitempty"`                // agent backend name
+	ProjectUUID        string   `json:"project_uuid,omitempty"`         // optional project UUID
+	ScanUUID           string   `json:"scan_uuid,omitempty"`            // optional scan UUID
+	Stream             bool     `json:"stream,omitempty"`               // enable SSE streaming
+	Timeout            string   `json:"timeout,omitempty"`              // Go duration string
+	DryRun             bool     `json:"dry_run,omitempty"`              // render prompts without executing
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

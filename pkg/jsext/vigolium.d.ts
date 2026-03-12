@@ -49,10 +49,32 @@ declare namespace vigolium {
     /** Compute Jaccard similarity (0.0–1.0) between two strings on word-level tokens. */
     function similarity(a: string, b: string): number;
     /**
+     * Compare two HTTP responses structurally: status codes, headers, body similarity, and length.
+     * Returns null if either response is invalid.
+     */
+    function diffResponses(a: HttpResponse, b: HttpResponse): ResponseDiffResult | null;
+    /**
+     * Run a CSS selector query against an HTML string and return matching elements.
+     */
+    function cssSelect(html: string, selector: string): CSSSelectResult[];
+    /**
      * Extract tokens from an HTTP response using configurable rules.
      * Returns a map of extracted values keyed by rule name/path/index.
      */
     function extractToken(response: HttpResponse, rules: TokenExtractRule[]): Record<string, string>;
+
+    /** Decode a JWT token without verification. Returns null if the token is malformed. */
+    function jwtDecode(token: string): JWTDecoded | null;
+    /** Forge a JWT with the given payload. Supports HS256/HS384/HS512/none algorithms. */
+    function jwtEncode(payload: object, opts?: JWTEncodeOpts): string;
+    /** Check if a JWT token is expired based on the "exp" claim. Returns true if expired or malformed. */
+    function jwtExpired(token: string): boolean;
+
+    /**
+     * Build a multipart/form-data body from an array of fields.
+     * Returns the encoded body and the Content-Type header (with boundary).
+     */
+    function multipart(fields: MultipartField[]): MultipartResult;
   }
 
   namespace parse {
@@ -111,18 +133,81 @@ declare namespace vigolium {
     /**
      * Execute a sequence of HTTP requests where each step can extract variables
      * (from response body, headers, cookies) for use in subsequent steps via {{varName}} placeholders.
+     * Steps support conditional execution, fallback steps, and repeat loops.
      */
     function sequence(steps: SequenceStep[]): SequenceResult;
+
+    /**
+     * Test for IDOR/BOLA vulnerabilities by replaying requests across multiple sessions
+     * with different privilege levels and comparing responses.
+     */
+    function authTest(opts: AuthTestOptions): AuthTestResult[];
+
+    /**
+     * Create a pool of named HTTP sessions from a config map.
+     * Each entry can be LoginOptions (auto-login), SessionOptions (manual), or {} (empty session).
+     */
+    function sessionPool(configs: Record<string, LoginOptions | SessionOptions | {}>): SessionPool;
+
+    /**
+     * Fetch a CSRF token from a page by parsing forms, meta tags, headers, or cookies.
+     * Returns null if no token is found.
+     */
+    function csrf(url: string, opts?: CSRFOptions): CSRFResult | null;
+
+    /**
+     * Execute an OAuth2 authentication flow and return an authenticated session.
+     */
+    function followAuth(opts: FollowAuthOptions): HttpSession;
+
+    /**
+     * Send an HTTP request with automatic retries and configurable backoff.
+     * Returns null if all retries are exhausted.
+     */
+    function retry(request: FullRequestOptions | string, opts?: RetryOptions): HttpResponse | null;
+
+    /**
+     * Send a GraphQL query or mutation and return the parsed result.
+     * Returns null on network or parse error.
+     */
+    function graphql(url: string, opts: GraphQLOptions): GraphQLResult | null;
+
+    /**
+     * Fetch a GraphQL introspection schema from the given endpoint.
+     * Returns null if introspection is disabled or the request fails.
+     */
+    function graphqlSchema(url: string, opts?: GraphQLSchemaOptions): object | null;
+
+    /**
+     * Enable response caching for subsequent requests. Cached responses are returned
+     * for identical request signatures within the TTL window.
+     */
+    function cache(opts?: CacheOptions): void;
+
+    /** Clear all cached HTTP responses. */
+    function clearCache(): void;
+
+    /** Perform a GET request, returning a cached response if available. */
+    function cachedGet(url: string, opts?: RequestOptions): HttpResponse;
+
+    /** Perform an HTTP request, returning a cached response if available. */
+    function cachedRequest(opts: FullRequestOptions): HttpResponse;
   }
 
   namespace scan {
     function listModules(): ModuleInfo[];
+    /** Returns all unique tags across all registered modules (lowercased). */
+    function listModuleTags(): string[];
+    /** Returns all modules that have the given tag (case-insensitive). */
+    function listModulesByTag(tag: string): ModuleInfo[];
     function isInScope(host: string, path: string): boolean;
     function getScope(): ScopeConfig;
     function setScope(scope: Partial<ScopeConfig>): boolean;
     function createFinding(finding: FindingInput): boolean;
     function getCurrentScan(): ScanInfo;
     function startNewScan(opts: StartScanInput): StartScanResult;
+    /** Queue a scan for existing database records by their UUIDs. */
+    function scanRecords(opts: ScanRecordsInput): ScanRecordsResult;
   }
 
   namespace ingest {
@@ -179,6 +264,11 @@ declare namespace vigolium {
       function getRelated(uuid: string, opts?: DBGetRelatedOpts): DBRecord[];
       /** Update risk_score and/or remarks on an HTTP record. Returns true on success. */
       function annotate(uuid: string, patch: DBAnnotatePatch): boolean;
+      /**
+       * Group records by path template (dynamic segments replaced with "*").
+       * Returns groups with at least min_group_size records, useful for finding IDOR candidates.
+       */
+      function grouped(opts?: DBGroupedOpts): RecordGroup[];
     }
     namespace findings {
       /** Query findings with optional filters. Returns up to limit results. */
@@ -320,6 +410,7 @@ interface ModuleInfo {
   type: "active" | "passive";
   severity: string;
   description: string;
+  tags: string[];
 }
 
 interface ScopeRule {
@@ -361,6 +452,19 @@ interface StartScanInput {
 interface StartScanResult {
   scan_uuid: string;
   queued: number;
+  errors: string[];
+}
+
+interface ScanRecordsInput {
+  uuids: string[];
+  modules?: string[];
+  tags?: string[];
+  name?: string;
+}
+
+interface ScanRecordsResult {
+  scan_uuid: string;
+  record_count: number;
   errors: string[];
 }
 
@@ -683,6 +787,15 @@ interface HttpSession {
   getCookies(): Record<string, string>;
   /** Set or update a cookie in this session. */
   setCookie(name: string, value: string): void;
+  /** Create a deep copy of this session with independent cookie jar and headers. */
+  cloneAs(): HttpSession;
+
+  /** Register a callback to run before every request. Return a modified RequestInfo to alter the request. */
+  onRequest(fn: (req: RequestInfo) => RequestInfo | void): void;
+  /** Register a callback to run after every response. */
+  onResponse(fn: (resp: HttpResponse, req: RequestInfo) => void): void;
+  /** Configure automatic token refresh when a trigger status code (e.g. 401) is received. */
+  setAutoRefresh(opts: AutoRefreshOptions): void;
 }
 
 interface LoginOptions {
@@ -734,6 +847,12 @@ interface SequenceStep {
   body?: string;
   /** Variable extraction rules. Keys become variable names for subsequent steps. */
   extract?: Record<string, SequenceExtractRule>;
+  /** Skip this step if the condition evaluates to false. Supports "{{var}} != ''" and "{{var}} == 'value'". */
+  condition?: string;
+  /** Fallback step to execute if this step's request fails. */
+  fallback?: SequenceStep;
+  /** Repeat this step multiple times, optionally with a delay and until-condition. */
+  repeat?: SequenceRepeatOpts;
 }
 
 interface SequenceExtractRule {
@@ -769,6 +888,123 @@ interface TokenExtractRule {
   pattern?: string;
 }
 
+// ── vigolium.utils JWT types ──────────────────────────────────────────────────
+
+interface JWTDecoded {
+  header: object;
+  payload: object;
+  signature: string;
+}
+
+interface JWTEncodeOpts {
+  /** Signing algorithm. Default: "HS256". Use "none" for unsigned tokens. */
+  algorithm?: string;
+  /** HMAC secret for HS256/HS384/HS512. */
+  secret?: string;
+}
+
+// ── vigolium.utils multipart types ───────────────────────────────────────────
+
+interface MultipartField {
+  /** Form field name. */
+  name: string;
+  /** Text value for non-file fields. */
+  value?: string;
+  /** Filename — triggers file upload mode when set. */
+  filename?: string;
+  /** Content-Type for the part. Default: "application/octet-stream" for files. */
+  contentType?: string;
+  /** Raw content for file uploads. */
+  data?: string;
+}
+
+interface MultipartResult {
+  /** The encoded multipart body. */
+  body: string;
+  /** The Content-Type header value (includes boundary). */
+  contentType: string;
+}
+
+// ── vigolium.http authTest types ─────────────────────────────────────────────
+
+interface AuthTestOptions {
+  /** Sessions with different privilege levels to test. Each session should have a "label" property. */
+  sessions: (HttpSession & { label?: string })[];
+  /** Records to test — string UUIDs or DBRecord objects with request data. */
+  records: (string | DBRecord)[];
+  /** Test method: "replay" (default) replays same request with different auth headers. */
+  method?: "replay" | "swap";
+}
+
+interface AuthTestResult {
+  record_uuid: string;
+  url: string;
+  results: AuthTestSessionResult[];
+  vulnerability: "idor" | "bola" | "none";
+  confidence: number;
+}
+
+interface AuthTestSessionResult {
+  session_label: string;
+  status: number;
+  /** Jaccard similarity of response body vs original response. */
+  body_similarity: number;
+  /** Heuristic: true if same status class + high similarity to original. */
+  accessible: boolean;
+}
+
+// ── vigolium.http session interceptor types ───────────────────────────────────
+
+interface RequestInfo {
+  method?: string;
+  url?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  raw?: string;
+}
+
+interface AutoRefreshOptions {
+  /** Status code that triggers a refresh (e.g. 401). */
+  trigger: number;
+  /** Function that returns a new token string. */
+  refresh: () => string;
+  /** Header name to set with the new token. Default: "Authorization" with "Bearer" prefix. */
+  header?: string;
+  /** Maximum refresh retries per request. Default: 1. */
+  maxRetries?: number;
+}
+
+// ── vigolium.http sequence conditional types ─────────────────────────────────
+
+interface SequenceRepeatOpts {
+  /** Number of times to repeat. Max: 100. */
+  times: number;
+  /** Delay in milliseconds between repetitions. Max: 30000. */
+  delay_ms?: number;
+  /** Stop repeating when this condition becomes true. Same syntax as step conditions. */
+  until?: string;
+}
+
+// ── vigolium.db grouped types ────────────────────────────────────────────────
+
+interface DBGroupedOpts {
+  /** Filter records by hostname. */
+  hostname?: string;
+  /** Minimum group size to include. Default: 2. */
+  min_group_size?: number;
+  /** Filter by HTTP methods (e.g. ["GET", "POST"]). */
+  methods?: string[];
+}
+
+interface RecordGroup {
+  /** Path template with dynamic segments replaced by "*", e.g. "/api/users/*/profile". */
+  template: string;
+  method: string;
+  records: DBRecord[];
+  /** Dynamic segment values per record, in order of appearance in the path. */
+  param_values: string[][];
+}
+
 /** Context object passed to extension scanPerRequest / scanPerHost / scanPerInsertionPoint. */
 interface ExtensionContext {
   request: {
@@ -785,4 +1021,141 @@ interface ExtensionContext {
   };
   /** Current HTTP record with UUID and annotate shortcut. */
   record: RecordContext;
+}
+
+// ── vigolium.http session pool types ──────────────────────────────────────────
+
+interface SessionPool {
+  /** Get a named session from the pool. */
+  get(name: string): HttpSession;
+  /** Return all session names in the pool. */
+  names(): string[];
+  /** Iterate over all sessions in the pool. */
+  forEach(fn: (name: string, session: HttpSession) => void): void;
+  /** Send the same request from every session and return a map of name → response. */
+  broadcast(request: FullRequestOptions | string): Record<string, HttpResponse>;
+}
+
+// ── vigolium.http CSRF types ─────────────────────────────────────────────────
+
+interface CSRFOptions {
+  /** Session to use for fetching the page. */
+  session?: HttpSession;
+  /** Custom field names to look for (e.g. ["_token", "csrf"]). */
+  field_names?: string[];
+  /** Where to look for the token. */
+  source?: "form" | "meta" | "header" | "cookie";
+}
+
+interface CSRFResult {
+  /** The extracted CSRF token value. */
+  token: string;
+  /** The field/header/cookie name where the token was found. */
+  field_name: string;
+  /** Where the token was extracted from. */
+  source: string;
+}
+
+// ── vigolium.http OAuth/auth flow types ──────────────────────────────────────
+
+interface FollowAuthOptions {
+  /** OAuth2 grant type. */
+  type: "oauth2_client_credentials" | "oauth2_password" | "oauth2_code";
+  /** Token endpoint URL. */
+  token_url: string;
+  /** OAuth2 client ID. */
+  client_id: string;
+  /** OAuth2 client secret. */
+  client_secret?: string;
+  /** Username for password grant. */
+  username?: string;
+  /** Password for password grant. */
+  password?: string;
+  /** OAuth2 scope. */
+  scope?: string;
+  /** Redirect URI for authorization code grant. */
+  redirect_uri?: string;
+  /** Authorization code for code grant. */
+  code?: string;
+}
+
+// ── vigolium.http retry types ────────────────────────────────────────────────
+
+interface RetryOptions {
+  /** Maximum number of retries. Default: 3. */
+  max_retries?: number;
+  /** Base backoff delay in milliseconds. Default: 1000. */
+  backoff_ms?: number;
+  /** Status codes that trigger a retry (e.g. [429, 502, 503]). */
+  retry_on?: number[];
+  /** Custom predicate: keep retrying until this returns true. */
+  until?: (resp: HttpResponse) => boolean;
+}
+
+// ── vigolium.http GraphQL types ──────────────────────────────────────────────
+
+interface GraphQLOptions {
+  /** GraphQL query or mutation string. */
+  query: string;
+  /** Query variables. */
+  variables?: Record<string, any>;
+  /** Operation name for multi-operation documents. */
+  operation?: string;
+  /** Session to use for the request. */
+  session?: HttpSession;
+  /** Additional request headers. */
+  headers?: Record<string, string>;
+}
+
+interface GraphQLResult {
+  /** Parsed response data. */
+  data: any;
+  /** GraphQL errors array. */
+  errors: any[];
+  /** The raw HTTP response. */
+  raw: HttpResponse;
+}
+
+interface GraphQLSchemaOptions {
+  /** Session to use for the introspection request. */
+  session?: HttpSession;
+  /** Additional request headers. */
+  headers?: Record<string, string>;
+}
+
+// ── vigolium.http cache types ────────────────────────────────────────────────
+
+interface CacheOptions {
+  /** Time-to-live for cached entries in milliseconds. */
+  ttl_ms?: number;
+  /** Maximum number of cached entries. */
+  max_entries?: number;
+}
+
+// ── vigolium.utils response diff types ───────────────────────────────────────
+
+interface ResponseDiffResult {
+  /** True if both responses have the same status code. */
+  status_match: boolean;
+  /** Body similarity score (0.0–1.0). */
+  body_similarity: number;
+  /** Header-level differences. */
+  header_diff: { added: string[]; removed: string[]; changed: string[] };
+  /** Body-level line differences. */
+  body_diff: { added: string[]; removed: string[] };
+  /** Difference in Content-Length (b - a). */
+  length_diff: number;
+  /** Heuristic: true if status matches and body similarity is high. */
+  likely_same_content: boolean;
+}
+
+// ── vigolium.utils CSS select types ──────────────────────────────────────────
+
+interface CSSSelectResult {
+  /** Text content of the matched element. */
+  text: string;
+  /** Element attributes as a flat map. */
+  attrs: Record<string, string>;
+  /** Outer HTML of the matched element. */
+  html: string;
 }

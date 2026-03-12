@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/terminal"
 
 	"go.uber.org/zap"
 )
@@ -37,6 +38,7 @@ type SwarmConfig struct {
 
 	// Agent
 	AgentName          string
+	AgentACPCmd        string // ad-hoc ACP command override (e.g. "traecli acp")
 	DryRun             bool
 	ShowPrompt         bool // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool // run only source analysis phase and exit
@@ -178,6 +180,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir, falling back to temp dirs", zap.Error(sdErr))
 	}
+	result.SessionDir = sessionDir
+	if sessionDir != "" {
+		fmt.Fprintf(os.Stderr, "◆ Session: %s\n", terminal.ShortenHome(sessionDir))
+	}
 
 	// Phase 1: Normalize inputs
 	s.emitPhase(cfg, SwarmPhaseNormalize)
@@ -211,6 +217,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		result.TotalRecords = len(recordUUIDs)
 	}
 
+	// Save normalized inputs to session dir
+	writeInputsToSessionDir(sessionDir, records)
+
 	// Phase 1.5: Source analysis (if --source provided)
 	var sourceExtensionDir string
 	if cfg.SourcePath != "" {
@@ -219,6 +228,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		saCfg := SourceAnalysisConfig{
 			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
 			TargetURL:      targetURL,
 			SourcePath:     cfg.SourcePath,
 			Files:          cfg.Files,
@@ -230,11 +240,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			StreamWriter:   cfg.StreamWriter,
 		}
 
-		saResult, saRawOutput, saErr := s.engine.RunSourceAnalysis(ctx, saCfg)
+		saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysis(ctx, saCfg)
 
-		// Save raw source-analysis output to session dir regardless of parse success
+		// Save rendered prompt and raw output to session dir regardless of parse success
+		writePromptToSessionDir(sessionDir, "prompt-source-analysis.md", saRenderedPrompt)
 		if sessionDir != "" && saRawOutput != "" {
-			_ = os.WriteFile(filepath.Join(sessionDir, "source-analysis-output.txt"), []byte(saRawOutput), 0644)
+			_ = os.WriteFile(filepath.Join(sessionDir, "source-analysis-output.md"), []byte(saRawOutput), 0644)
 		}
 
 		if saErr != nil {
@@ -281,16 +292,18 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	var plan *SwarmPlan
 	var sessionID string
 	var masterRawOutput string
+	var masterRenderedPrompt string
 
 	if len(records) <= masterBatchSize {
-		plan, sessionID, masterRawOutput, err = s.runMasterAgent(ctx, cfg, records, targetURL)
+		plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, records, targetURL)
 	} else {
-		plan, sessionID, masterRawOutput, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
+		plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
 	}
 
-	// Save raw master agent output to session dir regardless of parse success
+	// Save rendered prompt and raw output to session dir regardless of parse success
+	writePromptToSessionDir(sessionDir, "prompt-master.md", masterRenderedPrompt)
 	if sessionDir != "" && masterRawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "master-agent-output.txt"), []byte(masterRawOutput), 0644)
+		_ = os.WriteFile(filepath.Join(sessionDir, "master-agent-output.md"), []byte(masterRawOutput), 0644)
 	}
 
 	if err != nil {
@@ -422,7 +435,7 @@ func (s *SwarmRunner) normalizeInputs(ctx context.Context, cfg SwarmConfig) ([]*
 	return allRecords, targetURL, nil
 }
 
-func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (*SwarmPlan, string, string, error) {
+func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
 	// Build request context for the prompt
 	var rc strings.Builder
 	for i, rr := range records {
@@ -454,6 +467,7 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 
 	opts := Options{
 		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptMaster,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -479,6 +493,7 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	const maxAttempts = 3
 	var lastSessionID string
 	var lastRawOutput string
+	var lastRenderedPrompt string
 	var lastParseErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -489,22 +504,23 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 			opts.Append = buildRetryFeedback(cfg.VulnType, lastParseErr, lastRawOutput)
 		}
 
-		result, err := s.engine.RunWithExtra(ctx, opts, map[string]string{
+		result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
 			"RequestContext": requestContext,
 			"VulnType":       cfg.VulnType,
 		})
-		if err != nil {
-			return nil, "", "", fmt.Errorf("master agent execution failed: %w", err)
+		if runErr != nil {
+			return nil, "", "", "", fmt.Errorf("master agent execution failed: %w", runErr)
 		}
 
 		lastSessionID = result.SessionID
 		lastRawOutput = result.RawOutput
+		lastRenderedPrompt = result.RenderedPrompt
 
 		if cfg.DryRun {
-			return nil, result.SessionID, result.RawOutput, nil
+			return nil, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 		}
 
-		plan, parseErr := ParseSwarmPlan(result.RawOutput)
+		parsed, parseErr := ParseSwarmPlan(result.RawOutput)
 		if parseErr != nil {
 			zap.L().Debug("master agent raw output (parse failed)",
 				zap.String("output", result.RawOutput),
@@ -513,10 +529,10 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 			continue
 		}
 
-		return plan, result.SessionID, result.RawOutput, nil
+		return parsed, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 	}
 
-	return nil, lastSessionID, lastRawOutput, fmt.Errorf("failed to parse swarm plan after %d attempts: %w", maxAttempts, lastParseErr)
+	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse swarm plan after %d attempts: %w", maxAttempts, lastParseErr)
 }
 
 // buildRetryFeedback constructs an error-feedback appendix for retry attempts,
@@ -573,6 +589,62 @@ func writeSessionConfigToDir(cfg *AgentSessionConfig, sessionDir string) {
 	zap.L().Info("Session config written", zap.String("path", path))
 }
 
+// writePromptToSessionDir saves a rendered prompt to the session directory.
+func writePromptToSessionDir(sessionDir, filename, prompt string) {
+	if sessionDir == "" || prompt == "" {
+		return
+	}
+	path := filepath.Join(sessionDir, filename)
+	if err := os.WriteFile(path, []byte(prompt), 0644); err != nil {
+		zap.L().Warn("Failed to write prompt to session dir",
+			zap.String("filename", filename), zap.Error(err))
+		return
+	}
+	zap.L().Debug("Prompt written to session dir", zap.String("path", path))
+}
+
+// writeInputsToSessionDir saves the normalized input records as JSON to the session directory.
+func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestResponse) {
+	if sessionDir == "" || len(records) == 0 {
+		return
+	}
+	type inputRecord struct {
+		Method  string            `json:"method"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers,omitempty"`
+		Body    string            `json:"body,omitempty"`
+	}
+	var inputs []inputRecord
+	for _, rr := range records {
+		ir := inputRecord{}
+		if rr.Request() != nil {
+			ir.Method = rr.Request().Method()
+			if u, err := rr.URL(); err == nil {
+				ir.URL = u.String()
+			}
+			ir.Headers = make(map[string]string)
+			for _, h := range rr.Request().Headers() {
+				ir.Headers[h.Name] = h.Value
+			}
+			if body := rr.Request().Body(); len(body) > 0 {
+				ir.Body = string(body)
+			}
+		}
+		inputs = append(inputs, ir)
+	}
+	data, err := json.MarshalIndent(inputs, "", "  ")
+	if err != nil {
+		zap.L().Warn("Failed to marshal inputs", zap.Error(err))
+		return
+	}
+	path := filepath.Join(sessionDir, "inputs.json")
+	if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
+		zap.L().Warn("Failed to write inputs to session dir", zap.Error(writeErr))
+		return
+	}
+	zap.L().Debug("Inputs written to session dir", zap.String("path", path), zap.Int("count", len(inputs)))
+}
+
 // filterSourceRecordsByHostname converts AgentHTTPRecords to HttpRequestResponse,
 // keeping only those whose hostname matches the target URL's hostname.
 func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) []*httpmsg.HttpRequestResponse {
@@ -615,15 +687,16 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 
 // runMasterAgentBatched calls the master agent in batches when there are many records.
 // Each batch produces a SwarmPlan; plans are merged by deduplicating tags, IDs, and extensions.
-func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, error) {
+func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, error) {
 	var plans []*SwarmPlan
 	var lastSessionID string
 	var allRawOutputs []string
+	var allRenderedPrompts []string
 
 	for i := 0; i < len(records); i += batchSize {
 		select {
 		case <-ctx.Done():
-			return nil, lastSessionID, "", ctx.Err()
+			return nil, lastSessionID, "", "", ctx.Err()
 		default:
 		}
 
@@ -638,9 +711,9 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 			zap.Int("batch_end", end),
 			zap.Int("total_records", len(records)))
 
-		plan, sid, rawOutput, err := s.runMasterAgent(ctx, cfg, batch, targetURL)
+		plan, sid, rawOutput, prompt, err := s.runMasterAgent(ctx, cfg, batch, targetURL)
 		if err != nil {
-			return nil, lastSessionID, "", fmt.Errorf("master agent batch %d-%d failed: %w", i, end, err)
+			return nil, lastSessionID, "", "", fmt.Errorf("master agent batch %d-%d failed: %w", i, end, err)
 		}
 		if sid != "" {
 			lastSessionID = sid
@@ -648,22 +721,30 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 		if rawOutput != "" {
 			allRawOutputs = append(allRawOutputs, rawOutput)
 		}
+		if prompt != "" {
+			allRenderedPrompts = append(allRenderedPrompts, prompt)
+		}
 		if plan != nil {
 			plans = append(plans, plan)
 		}
 	}
 
 	combinedRaw := strings.Join(allRawOutputs, "\n\n---\n\n")
+	// For batched runs, use the last prompt (they're similar, differing only in the request batch)
+	lastPrompt := ""
+	if len(allRenderedPrompts) > 0 {
+		lastPrompt = allRenderedPrompts[len(allRenderedPrompts)-1]
+	}
 
 	if len(plans) == 0 {
-		return nil, lastSessionID, combinedRaw, nil
+		return nil, lastSessionID, combinedRaw, lastPrompt, nil
 	}
 	if len(plans) == 1 {
-		return plans[0], lastSessionID, combinedRaw, nil
+		return plans[0], lastSessionID, combinedRaw, lastPrompt, nil
 	}
 
 	merged := mergeSwarmPlans(plans)
-	return merged, lastSessionID, combinedRaw, nil
+	return merged, lastSessionID, combinedRaw, lastPrompt, nil
 }
 
 // mergeSwarmPlans combines multiple SwarmPlans by deduplicating module tags,
@@ -756,6 +837,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		// Run triage agent
 		opts := Options{
 			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
 			PromptTemplate: SwarmPromptTriage,
 			TargetURL:      agentRun.TargetURL,
 			DryRun:         cfg.DryRun,
@@ -774,9 +856,10 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 			return fmt.Errorf("triage round %d failed: %w", round, err)
 		}
 
-		// Save raw triage output to session dir
+		// Save rendered prompt and raw triage output to session dir
+		writePromptToSessionDir(sessionDir, fmt.Sprintf("prompt-triage-%d.md", round), triageResult.RenderedPrompt)
 		if sessionDir != "" && triageResult.RawOutput != "" {
-			filename := fmt.Sprintf("triage-output-%d.txt", round)
+			filename := fmt.Sprintf("triage-output-%d.md", round)
 			_ = os.WriteFile(filepath.Join(sessionDir, filename), []byte(triageResult.RawOutput), 0644)
 		}
 

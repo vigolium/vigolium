@@ -810,6 +810,12 @@ discovery:
   # Default: true
   save_response_body: true
 
+  # Enrich discovery targets with paths from previous phases (spidering, external harvest).
+  # When true, discovered paths are used to expand the brute-force target list.
+  # When false, only the original seed URLs are used as discovery targets.
+  # Default: false
+  enrich_targets: false
+
   # Enable malformed path probing during directory discovery.
   # When true, uses the fuzz wordlist (fuzz_wordlist_path) to test directories
   # with path traversal and malformed path payloads (e.g., ..;/, .%00/, %2e%2e/).

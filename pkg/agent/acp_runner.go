@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -196,8 +197,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 
 	sessionID := string(sess.SessionId)
 
-	zap.L().Debug("ACP session created",
-		zap.String("sessionId", sessionID))
+	fmt.Fprintf(os.Stderr, "◆ ACP session: %s\n", sessionID)
 
 	zap.L().Debug("sending ACP prompt, waiting for agent completion...",
 		zap.Int("promptLength", len(prompt)))

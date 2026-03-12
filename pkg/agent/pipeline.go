@@ -150,6 +150,7 @@ func (p *PipelineRunner) resolvePhases(cfg PipelineConfig) []PipelinePhase {
 func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConfig) (*SourceAnalysisResult, error) {
 	saCfg := SourceAnalysisConfig{
 		AgentName:    cfg.AgentName,
+		AgentACPCmd:  cfg.AgentACPCmd,
 		TargetURL:    cfg.TargetURL,
 		SourcePath:   cfg.SourcePath,
 		Files:        cfg.Files,
@@ -160,7 +161,7 @@ func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConf
 		StreamWriter: cfg.StreamWriter,
 	}
 
-	saResult, _, err := p.engine.RunSourceAnalysis(ctx, saCfg)
+	saResult, _, _, err := p.engine.RunSourceAnalysis(ctx, saCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +188,7 @@ func (p *PipelineRunner) runDiscover(ctx context.Context, cfg PipelineConfig) er
 func baseAgentOpts(cfg PipelineConfig, template string) Options {
 	opts := Options{
 		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: template,
 		TargetURL:      cfg.TargetURL,
 		SourcePath:     cfg.SourcePath,

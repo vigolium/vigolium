@@ -393,6 +393,93 @@ func TestGatherContext_IncludesSourceCode(t *testing.T) {
 	}
 }
 
+func TestExtractJSONFromFencedBlock(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "json block with preamble",
+			input: "Here is the analysis:\n\n```json\n{\"http_records\": [{\"method\": \"GET\", \"url\": \"http://localhost/api\"}]}\n```\n\nDone.",
+			want:  `{"http_records": [{"method": "GET", "url": "http://localhost/api"}]}`,
+		},
+		{
+			name:  "json block without preamble",
+			input: "```json\n{\"key\": \"val\"}\n```",
+			want:  `{"key": "val"}`,
+		},
+		{
+			name:  "ignores javascript blocks",
+			input: "```javascript\nmodule.exports = {id: \"test\"};\n```\n\n```json\n{\"http_records\": []}\n```",
+			want:  `{"http_records": []}`,
+		},
+		{
+			name:  "ignores js blocks",
+			input: "```js\nvar x = {};\n```\n\n```json\n{\"result\": true}\n```",
+			want:  `{"result": true}`,
+		},
+		{
+			name:    "no json blocks",
+			input:   "```javascript\nvar x = {};\n```\n\nSome text with {braces}.",
+			wantErr: true,
+		},
+		{
+			name:    "empty json block",
+			input:   "```json\n\n```",
+			wantErr: true,
+		},
+		{
+			name:  "json block with whitespace",
+			input: "```json\n  {\"key\": \"val\"}  \n```",
+			want:  `{"key": "val"}`,
+		},
+		{
+			name:    "jsonl is not json fence",
+			input:   "```jsonl\n{\"a\":1}\n{\"b\":2}\n```",
+			wantErr: true,
+		},
+		{
+			name:  "picks first valid json block",
+			input: "```json\n{\"first\": true}\n```\n\n```json\n{\"second\": true}\n```",
+			want:  `{"first": true}`,
+		},
+		{
+			name: "json block among mixed content",
+			input: `Some analysis text.
+
+#### agent-sqli.js
+Reason: SQL injection found
+
+` + "```javascript\nmodule.exports = {id: \"agent-sqli\"};\n```" + `
+
+` + "```json\n{\"http_records\": [{\"method\": \"POST\", \"url\": \"http://localhost/login\"}], \"session_config\": {\"sessions\": []}}\n```" + `
+
+More text here.`,
+			want: `{"http_records": [{"method": "POST", "url": "http://localhost/login"}], "session_config": {"sessions": []}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := extractJSONFromFencedBlock(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("extractJSONFromFencedBlock() expected error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("extractJSONFromFencedBlock() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("extractJSONFromFencedBlock() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStripMarkdownFences(t *testing.T) {
 	tests := []struct {
 		input string

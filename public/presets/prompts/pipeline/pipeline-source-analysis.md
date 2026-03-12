@@ -126,13 +126,13 @@ Available vigolium extension APIs:
 
 ## Output Format
 
-Your response MUST use this exact two-part format. Start your response immediately with the JSON — no preamble, no explanation, no markdown fences around the JSON.
+Your response MUST use this exact two-part format.
 
 ### Part 1: JSON (records + session config)
 
-Output a single valid JSON object containing `http_records` and optionally `session_config`. Do NOT include extensions in the JSON — they go in Part 2.
+Output a single valid JSON object containing `http_records` and optionally `session_config`, wrapped in a ` ```json ` code block. Do NOT include extensions in the JSON — they go in Part 2.
 
-```
+```json
 {"http_records":[{"method":"POST","url":"{{.TargetURL}}/api/endpoint","headers":{"Content-Type":"application/json"},"body":"{\"param\":\"value\"}","notes":"Description of endpoint"}],"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
 ```
 
@@ -159,7 +159,8 @@ module.exports = {
 ```
 
 **Rules:**
-- **Start your response with `{`** — the very first character must be the opening brace of the JSON
+- **Wrap the JSON object in a ` ```json ` code block** — this is required for reliable parsing
+- You may include explanatory text before or after the code blocks
 - `http_records` is required — extract every route you can find
 - `session_config` is optional — only include if you find auth/login code
 - Do NOT embed extension code inside the JSON object — use Part 2 code blocks only

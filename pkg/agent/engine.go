@@ -43,6 +43,26 @@ func (e *Engine) Close() {
 	}
 }
 
+// EnsureWarmSessions activates ACP session pooling if it is not already enabled.
+// This is useful for modes like swarm that make multiple agent calls and benefit
+// from subprocess reuse even when warm sessions are not explicitly configured.
+func (e *Engine) EnsureWarmSessions() {
+	if e.pool != nil {
+		return // already active
+	}
+	if e.settings == nil {
+		return
+	}
+	// Create a pool with default settings if not explicitly configured
+	cfg := e.settings.Agent.WarmSession
+	if !cfg.IsEnabled() {
+		enabled := true
+		cfg.Enable = &enabled
+	}
+	e.pool = NewACPPool(cfg, e.settings.Agent.Agents)
+	zap.L().Debug("warm session pool auto-enabled for multi-call mode")
+}
+
 // Run executes a full agent pipeline: resolve prompt → render → execute → parse → ingest.
 func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	// Resolve agent name to default if empty
@@ -50,10 +70,19 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		opts.AgentName = e.settings.Agent.DefaultAgent
 	}
 
-	// Resolve agent definition
-	agentDef, err := e.resolveAgent(opts.AgentName)
-	if err != nil {
-		return nil, err
+	// Resolve agent definition: --agent-acp-cmd override takes precedence
+	var agentDef *config.AgentDef
+	if opts.AgentACPCmd != "" {
+		agentDef = ParseACPCmd(opts.AgentACPCmd)
+		if opts.AgentName == "" {
+			opts.AgentName = "custom-acp"
+		}
+	} else {
+		var resolveErr error
+		agentDef, resolveErr = e.resolveAgent(opts.AgentName)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
 	}
 
 	zap.L().Debug("resolved agent definition",
@@ -89,7 +118,9 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		fmt.Fprintf(os.Stderr, "\n── rendered prompt (%s) ──\n%s\n── end prompt ──\n\n", templateID, prompt)
 	}
 
-	zap.L().Debug("prompt sent to agent", zap.String("prompt", prompt))
+	if zap.L().Core().Enabled(zap.DebugLevel) {
+		fmt.Fprintf(os.Stderr, "\n── prompt sent to agent (%s) ──\n\n%s\n\n── end prompt ──\n\n", templateID, prompt)
+	}
 
 	// Execute the agent using the configured protocol
 	var stdout, stderr, sessionID string
@@ -111,8 +142,8 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 				cwd = opts.SourcePath
 			}
 			ar, err = RunAgentAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
-		} else if e.pool != nil {
-			// Determine cwd for session matching
+		} else if e.pool != nil && opts.AgentACPCmd == "" {
+			// Warm session pooling — skip for ad-hoc ACP commands (no stable name to key on)
 			cwd := "."
 			if opts.SourcePath != "" {
 				cwd = opts.SourcePath
@@ -127,11 +158,12 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	if err != nil {
 		return &Result{
-			AgentName:  opts.AgentName,
-			TemplateID: templateID,
-			SessionID:  sessionID,
-			RawOutput:  stdout,
-			Stderr:     stderr,
+			AgentName:      opts.AgentName,
+			TemplateID:     templateID,
+			SessionID:      sessionID,
+			RawOutput:      stdout,
+			RenderedPrompt: prompt,
+			Stderr:         stderr,
 		}, fmt.Errorf("agent execution failed: %w", err)
 	}
 
@@ -145,12 +177,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	result := &Result{
-		AgentName:    opts.AgentName,
-		TemplateID:   templateID,
-		SessionID:    sessionID,
-		RawOutput:    stdout,
-		Stderr:       stderr,
-		OutputSchema: outputSchema,
+		AgentName:      opts.AgentName,
+		TemplateID:     templateID,
+		SessionID:      sessionID,
+		RawOutput:      stdout,
+		RenderedPrompt: prompt,
+		Stderr:         stderr,
+		OutputSchema:   outputSchema,
 	}
 
 	// Parse and ingest results based on output schema
@@ -213,12 +246,11 @@ func (e *Engine) RunWithExtra(ctx context.Context, opts Options, extra map[strin
 }
 
 // RunSourceAnalysis executes the source analysis agent and returns parsed results
-// along with the raw agent output. It handles prompt rendering, agent execution,
-// output parsing, and HTTP record ingestion.
+// along with the raw agent output and the rendered prompt that was sent.
 // The caller is responsible for processing extensions and session config via a callback.
-func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (*SourceAnalysisResult, string, error) {
+func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
 	if cfg.SourcePath == "" {
-		return nil, "", nil
+		return nil, "", "", nil
 	}
 
 	templateID := cfg.PromptTemplate
@@ -228,6 +260,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 
 	opts := Options{
 		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: templateID,
 		TargetURL:      cfg.TargetURL,
 		SourcePath:     cfg.SourcePath,
@@ -240,21 +273,26 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		StreamWriter:   cfg.StreamWriter,
 	}
 
-	result, err := e.Run(ctx, opts)
-	if err != nil {
-		return nil, "", fmt.Errorf("source analysis agent failed: %w", err)
+	result, runErr := e.Run(ctx, opts)
+	if runErr != nil {
+		prompt := ""
+		if result != nil {
+			prompt = result.RenderedPrompt
+		}
+		return nil, "", prompt, fmt.Errorf("source analysis agent failed: %w", runErr)
 	}
 
-	rawOutput := result.RawOutput
+	rawOutput = result.RawOutput
+	renderedPrompt = result.RenderedPrompt
 
 	if cfg.DryRun {
 		fmt.Fprint(os.Stdout, rawOutput)
-		return nil, rawOutput, nil
+		return nil, rawOutput, renderedPrompt, nil
 	}
 
-	saResult, err := ParseSourceAnalysisResult(rawOutput)
-	if err != nil {
-		return nil, rawOutput, fmt.Errorf("failed to parse source analysis result: %w", err)
+	saResult, parseErr := ParseSourceAnalysisResult(rawOutput)
+	if parseErr != nil {
+		return nil, rawOutput, renderedPrompt, fmt.Errorf("failed to parse source analysis result: %w", parseErr)
 	}
 
 	// Ingest discovered HTTP records into the database
@@ -272,7 +310,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		}
 	}
 
-	return saResult, rawOutput, nil
+	return saResult, rawOutput, renderedPrompt, nil
 }
 
 // resolveAgent looks up an agent definition by name from settings.
@@ -653,4 +691,24 @@ func detectLanguage(files []string) string {
 		}
 	}
 	return best
+}
+
+// ParseACPCmd splits a command string into an AgentDef with protocol "acp".
+// Example: "traecli acp" → AgentDef{Command: "traecli", Args: ["acp"], Protocol: "acp"}
+// Returns nil if cmd is empty or whitespace-only.
+func ParseACPCmd(cmd string) *config.AgentDef {
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return nil
+	}
+	var args []string
+	if len(parts) > 1 {
+		args = parts[1:]
+	}
+	return &config.AgentDef{
+		Command:     parts[0],
+		Args:        args,
+		Protocol:    "acp",
+		Description: "Ad-hoc ACP agent from --agent-acp-cmd",
+	}
 }

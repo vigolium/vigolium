@@ -39,7 +39,7 @@ func setupIngestTestVM(t *testing.T, opts APIOptions) *sobek.Runtime {
 	vm := sobek.New()
 	vigolium := vm.NewObject()
 	_ = vm.Set("vigolium", vigolium)
-	setupIngestAPI(vm, opts)
+	registerFuncsUnchecked(vm, opts, ingestFuncDefs())
 	return vm
 }
 

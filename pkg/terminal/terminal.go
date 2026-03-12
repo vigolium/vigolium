@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 )
@@ -48,6 +49,18 @@ func SetCIMode(enabled bool) {
 // IsCIMode returns whether CI mode is enabled
 func IsCIMode() bool {
 	return ciMode
+}
+
+// ShortenHome replaces the user's home directory prefix with "~" in a path.
+func ShortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
 // Truncate truncates a string to maxWidth characters, appending "…" if truncated.

@@ -1,0 +1,18 @@
+{
+  "sessions": [
+    {
+      "name": "api_admin",
+      "role": "primary",
+      "headers": {
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      }
+    },
+    {
+      "name": "api_readonly",
+      "role": "compare",
+      "headers": {
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.readonly..."
+      }
+    }
+  ]
+}

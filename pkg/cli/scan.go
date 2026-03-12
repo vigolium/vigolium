@@ -87,8 +87,8 @@ func init() {
 
 	// Multi-session authentication flags
 	flags.StringSliceVar(&scanOpts.Sessions, "session", nil, "Inline session for IDOR/BOLA testing (repeatable, format: name:Header:value)")
-	flags.StringVar(&scanOpts.AuthConfigPath, "auth-config", "", "Path to auth-config YAML file with session definitions")
-	flags.StringSliceVar(&scanOpts.SessionFiles, "session-file", nil, "Path to individual session YAML file (repeatable)")
+	flags.StringVar(&scanOpts.AuthConfigPath, "auth-config", "", "Path to auth-config file with session definitions (YAML or JSON)")
+	flags.StringSliceVar(&scanOpts.SessionFiles, "session-file", nil, "Path to individual session file (YAML or JSON, repeatable)")
 }
 
 func runScanCmd(cmd *cobra.Command, args []string) error {
