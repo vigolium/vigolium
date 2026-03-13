@@ -112,6 +112,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/findings", handlers.HandleListFindings)
 	viewer.Get("/findings/:id", handlers.HandleGetFinding)
 	viewer.Get("/stats", handlers.HandleStats)
+	viewer.Get("/scans/queue", handlers.HandleScanQueue)
 	viewer.Get("/scans", handlers.HandleListScans)
 	viewer.Get("/scans/:uuid", handlers.HandleGetScan)
 	viewer.Get("/scan/status", handlers.HandleScanStatus)

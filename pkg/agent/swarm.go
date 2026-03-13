@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,7 +21,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 // SwarmConfig configures an agent swarm run.
@@ -36,11 +37,13 @@ type SwarmConfig struct {
 	Instruction string // user-provided custom instruction appended to agent prompts
 
 	// Scanning parameters
-	VulnType      string   // optional: focus on specific vulnerability type
-	ModuleNames   []string // optional: explicit module IDs to use
-	OnlyPhase     string   // isolate a single phase (empty = all phases)
-	SkipPhases    []string // skip specific phases (empty = skip none)
-	MaxIterations int      // max triage-rescan loops (default 3)
+	VulnType         string   // optional: focus on specific vulnerability type
+	ModuleNames      []string // optional: explicit module IDs to use
+	OnlyPhase        string   // isolate a single phase (empty = all phases)
+	SkipPhases       []string // skip specific phases (empty = skip none)
+	MaxIterations    int      // max triage-rescan loops (default 3)
+	BatchConcurrency int      // max parallel master agent batches (0 = min(batch_count, NumCPU))
+	MaxMasterRetries int      // max master agent retries on parse failure (0 = default 3)
 
 	// Agent
 	AgentName          string
@@ -48,6 +51,9 @@ type SwarmConfig struct {
 	DryRun             bool
 	ShowPrompt         bool // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool // run only source analysis phase and exit
+
+	// Context truncation
+	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
 
 	// Project/scan
 	ProjectUUID string
@@ -65,7 +71,8 @@ type SwarmConfig struct {
 	ResumeDir string
 
 	// Streaming
-	StreamWriter io.Writer
+	StreamWriter     io.Writer
+	ProgressCallback func(ProgressEvent)
 
 	// ScanFunc runs the scan with the given module filters and extensions.
 	ScanFunc ScanFunc
@@ -231,10 +238,13 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		} else {
 			checkpoint = cp
 			zap.L().Info("Resuming from checkpoint",
-				zap.String("last_phase", cp.LastPhase),
+				zap.String("last_phase", cp.LastPhase()),
 				zap.Strings("completed", cp.CompletedPhases))
 		}
 	}
+
+	// completedPhases accumulates phases as they complete, used for checkpoint writes.
+	var completedPhases []string
 
 	// Phase 1: Normalize inputs
 	phaseStart := time.Now()
@@ -272,6 +282,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	// Save normalized inputs to session dir
 	writeInputsToSessionDir(sessionDir, records)
 	phaseTimings[SwarmPhaseNormalize] = time.Since(phaseStart)
+	completedPhases = append(completedPhases, SwarmPhaseNormalize)
 
 	// Phase 1.5 + 1.6: Source analysis and SAST run in parallel when both are available.
 	var sourceExtensions []GeneratedExtension
@@ -392,13 +403,13 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
 		phaseTimings[SwarmPhaseSourceAnalysis] = time.Since(phaseStart)
+		completedPhases = append(completedPhases, SwarmPhaseSourceAnalysis)
 
 		// Write checkpoint after source analysis
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases: []string{SwarmPhaseNormalize, SwarmPhaseSourceAnalysis},
+			CompletedPhases: completedPhases,
 			TargetURL:       targetURL,
 			RecordCount:     len(records),
-			LastPhase:       SwarmPhaseSourceAnalysis,
 			Timestamp:       time.Now(),
 		})
 	}
@@ -430,6 +441,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 		}
 		phaseTimings[SwarmPhaseDiscover] = time.Since(phaseStart)
+		completedPhases = append(completedPhases, SwarmPhaseDiscover)
 	}
 
 	// Phase 2: Master agent — analyze and plan (batched if > 5 records)
@@ -439,6 +451,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	var masterRawOutput string
 	var masterRenderedPrompt string
 	var sessionIDs []string
+	var batchProv *BatchProvenance
 
 	// Resume: restore plan from checkpoint if available
 	if checkpoint != nil && phaseCompleted(checkpoint, SwarmPhasePlan) && checkpoint.Plan != nil {
@@ -453,7 +466,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if len(records) <= masterBatchSize {
 			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, records, targetURL)
 		} else {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
 		}
 
 		// Save rendered prompt and raw output to session dir regardless of parse success
@@ -471,6 +484,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	result.SessionID = sessionID
 	result.SessionIDs = sessionIDs
 
+	// Warn if plan has no actionable modules (only notes/focus_areas won't drive targeted scanning)
+	if plan != nil && len(plan.ModuleTags) == 0 && len(plan.ModuleIDs) == 0 {
+		zap.L().Warn("Swarm plan has no module_tags or module_ids — scan will run all modules",
+			zap.Int("extensions", len(plan.Extensions)),
+			zap.Int("quick_checks", len(plan.QuickChecks)),
+			zap.Int("focus_areas", len(plan.FocusAreas)))
+		fmt.Fprintf(os.Stderr, "%s Warning: plan has no module_tags or module_ids — all modules will run\n",
+			terminal.WarningSymbol())
+	}
+
 	if cfg.DryRun {
 		result.SwarmPlan = plan
 		result.PhaseTimings = phaseTimings
@@ -478,6 +501,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 
 	result.SwarmPlan = plan
+	result.BatchProvenance = batchProv
 	agentRun.SessionID = sessionID
 	if plan != nil {
 		planJSON, _ := json.Marshal(plan)
@@ -488,13 +512,14 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			_ = os.WriteFile(filepath.Join(sessionDir, "swarm-plan.json"), planJSON, 0644)
 		}
 
+		completedPhases = append(completedPhases, SwarmPhasePlan)
+
 		// Write checkpoint after planning
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases: []string{SwarmPhaseNormalize, SwarmPhaseSourceAnalysis, SwarmPhaseDiscover, SwarmPhasePlan},
+			CompletedPhases: completedPhases,
 			TargetURL:       targetURL,
 			RecordCount:     len(records),
 			Plan:            plan,
-			LastPhase:       SwarmPhasePlan,
 			Timestamp:       time.Now(),
 		})
 	}
@@ -503,6 +528,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	// Merge source-analysis extensions with plan extensions by filename (plan wins on collision)
 	phaseStart = time.Now()
 	var allExtensions []GeneratedExtension
+	var extensionRenames map[string]string
 	if plan != nil {
 		// Convert quick_checks and snippets into full JS extensions
 		if len(plan.QuickChecks) > 0 {
@@ -515,14 +541,27 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			plan.Extensions = append(plan.Extensions, snipExts...)
 			zap.L().Info("Generated snippet extensions", zap.Int("count", len(snipExts)))
 		}
-		allExtensions = mergeExtensions(sourceExtensions, plan.Extensions)
+		mergeResult := mergeExtensionsTracked(sourceExtensions, plan.Extensions)
+		allExtensions = mergeResult.Extensions
+		extensionRenames = mergeResult.Renames
 	} else if len(sourceExtensions) > 0 {
 		allExtensions = sourceExtensions
 	}
 
 	// Validate extension syntax before writing to disk
-	if len(allExtensions) > 0 {
+	preValidationCount := len(allExtensions)
+	if preValidationCount > 0 {
 		allExtensions = ValidateExtensionSyntax(allExtensions)
+		if len(allExtensions) == 0 {
+			zap.L().Error("All generated extensions failed syntax validation",
+				zap.Int("dropped", preValidationCount))
+			fmt.Fprintf(os.Stderr, "%s All %d generated extensions failed syntax validation — scanning without custom extensions\n",
+				terminal.WarningSymbol(), preValidationCount)
+		} else if len(allExtensions) < preValidationCount {
+			zap.L().Warn("Some extensions failed syntax validation",
+				zap.Int("valid", len(allExtensions)),
+				zap.Int("dropped", preValidationCount-len(allExtensions)))
+		}
 	}
 
 	var extensionDir string
@@ -538,6 +577,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 	}
 	phaseTimings[SwarmPhaseExtension] = time.Since(phaseStart)
+	completedPhases = append(completedPhases, SwarmPhaseExtension)
 
 	// Phase 4: Execute scan (full scan with all modules by default)
 	if cfg.ScanFunc != nil && !phaseCompleted(checkpoint, SwarmPhaseScan) {
@@ -549,16 +589,17 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			return fmt.Errorf("scan execution failed: %w", err)
 		}
 		phaseTimings[SwarmPhaseScan] = time.Since(phaseStart)
+		completedPhases = append(completedPhases, SwarmPhaseScan)
 
 		// Write checkpoint after scan
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases: []string{SwarmPhaseNormalize, SwarmPhaseSourceAnalysis, SwarmPhaseDiscover, SwarmPhasePlan, SwarmPhaseExtension, SwarmPhaseScan},
-			TargetURL:       targetURL,
-			RecordCount:     len(records),
-			Plan:            plan,
-			ExtensionDir:    extensionDir,
-			LastPhase:       SwarmPhaseScan,
-			Timestamp:       time.Now(),
+			CompletedPhases:  completedPhases,
+			TargetURL:        targetURL,
+			RecordCount:      len(records),
+			Plan:             plan,
+			ExtensionDir:     extensionDir,
+			Timestamp:        time.Now(),
+			ExtensionRenames: extensionRenames,
 		})
 	}
 
@@ -567,7 +608,8 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	s.emitPhase(cfg, SwarmPhaseTriage)
 	agentRun.CurrentPhase = SwarmPhaseTriage
 
-	if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir); err != nil {
+	completedPhases = append(completedPhases, SwarmPhaseTriage)
+	if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir, checkpoint, extensionRenames, completedPhases); err != nil {
 		zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
 	}
 	phaseTimings[SwarmPhaseTriage] = time.Since(phaseStart)
@@ -640,8 +682,14 @@ func (s *SwarmRunner) normalizeInputs(ctx context.Context, cfg SwarmConfig) ([]*
 	return allRecords, targetURL, nil
 }
 
-func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
-	// Build request context for the prompt
+// buildSmartHTTPContext builds a formatted HTTP context string for the master agent prompt.
+// It always includes full raw requests and response headers, but truncates response bodies
+// to maxRespBytes to manage token usage.
+func buildSmartHTTPContext(records []*httpmsg.HttpRequestResponse, maxRespBytes int) string {
+	if maxRespBytes <= 0 {
+		maxRespBytes = 4096
+	}
+
 	var rc strings.Builder
 	for i, rr := range records {
 		if i > 0 {
@@ -654,16 +702,48 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 			rc.WriteString("\n```\n")
 		}
 		if rr.Response() != nil && len(rr.Response().Raw()) > 0 {
-			respRaw := string(rr.Response().Raw())
-			if len(respRaw) > 4096 {
-				respRaw = respRaw[:4096] + "\n... (truncated)"
+			respRaw := rr.Response().Raw()
+			// Split response into headers and body
+			headerEnd := bytes.Index(respRaw, []byte("\r\n\r\n"))
+			if headerEnd < 0 {
+				headerEnd = bytes.Index(respRaw, []byte("\n\n"))
 			}
+
 			rc.WriteString("\n```http\n")
-			rc.WriteString(respRaw)
+			if headerEnd >= 0 {
+				// Write full headers
+				rc.Write(respRaw[:headerEnd])
+				rc.WriteString("\r\n\r\n")
+				// Truncate body if needed
+				body := respRaw[headerEnd+4:] // skip \r\n\r\n
+				if bytes.HasPrefix(respRaw[headerEnd:], []byte("\n\n")) {
+					body = respRaw[headerEnd+2:]
+				}
+				if len(body) > maxRespBytes {
+					rc.Write(body[:maxRespBytes])
+					fmt.Fprintf(&rc, "\n... (truncated from %d bytes)", len(body))
+				} else {
+					rc.Write(body)
+				}
+			} else {
+				// No header/body split found, truncate whole response
+				if len(respRaw) > maxRespBytes {
+					rc.Write(respRaw[:maxRespBytes])
+					fmt.Fprintf(&rc, "\n... (truncated from %d bytes)", len(respRaw))
+				} else {
+					rc.Write(respRaw)
+				}
+			}
 			rc.WriteString("\n```\n")
 		}
 	}
-	requestContext := rc.String()
+	return rc.String()
+}
+
+func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
+	// Build request context for the prompt
+	maxRespBytes := cfg.MaxResponseBodyBytes
+	requestContext := buildSmartHTTPContext(records, maxRespBytes)
 
 	hostname := ""
 	if targetURL != "" {
@@ -696,8 +776,11 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	// The template uses {{.Extra.RequestContext}} and {{.Extra.VulnType}}.
 
 	// Retry loop: LLMs sometimes produce garbled JSON (especially with embedded
-	// JavaScript code in JSON strings). Retry up to 2 additional times on parse failure.
-	const maxAttempts = 3
+	// JavaScript code in JSON strings). Retry on parse failure.
+	maxAttempts := cfg.MaxMasterRetries
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
 	var lastSessionID string
 	var lastRawOutput string
 	var lastRenderedPrompt string
@@ -877,23 +960,34 @@ func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestRe
 	zap.L().Debug("Inputs written to session dir", zap.String("path", path), zap.Int("count", len(inputs)))
 }
 
-// mergeExtensions combines source-analysis and plan extensions by filename.
+// ExtensionMergeResult holds the merged extensions plus any rename tracking info.
+type ExtensionMergeResult struct {
+	Extensions []GeneratedExtension
+	Renames    map[string]string // original filename -> renamed filename
+}
+
+// mergeExtensionsTracked combines source-analysis and plan extensions by filename,
+// tracking any renames that occur during collision resolution.
 // On collision with identical code, the duplicate is dropped.
 // On collision with different code, the plan extension is renamed with a -2, -3 suffix.
-func mergeExtensions(source, plan []GeneratedExtension) []GeneratedExtension {
+func mergeExtensionsTracked(source, plan []GeneratedExtension) ExtensionMergeResult {
+	renames := make(map[string]string)
+
 	if len(source) == 0 {
-		return plan
+		return ExtensionMergeResult{Extensions: plan, Renames: renames}
 	}
 	if len(plan) == 0 {
-		return source
+		return ExtensionMergeResult{Extensions: source, Renames: renames}
 	}
 
-	existing := make(map[string]string, len(source)) // filename -> code
+	existing := make(map[string]string, len(source))  // filename -> code
+	nameSet := make(map[string]bool, len(source))     // maintained for deduplicateExtensionFilename
 	result := make([]GeneratedExtension, 0, len(source)+len(plan))
 
 	// Source extensions first
 	for _, ext := range source {
 		existing[ext.Filename] = ext.Code
+		nameSet[ext.Filename] = true
 		result = append(result, ext)
 	}
 
@@ -906,19 +1000,26 @@ func mergeExtensions(source, plan []GeneratedExtension) []GeneratedExtension {
 				continue
 			}
 			// Different code — rename to avoid losing the extension
-			nameSet := make(map[string]bool, len(existing))
-			for k := range existing {
-				nameSet[k] = true
-			}
+			originalName := ext.Filename
 			ext.Filename = deduplicateExtensionFilename(ext.Filename, nameSet)
+			renames[originalName] = ext.Filename
 			zap.L().Info("Renamed colliding extension",
+				zap.String("original", originalName),
 				zap.String("new_filename", ext.Filename))
 		}
 		existing[ext.Filename] = ext.Code
+		nameSet[ext.Filename] = true
 		result = append(result, ext)
 	}
 
-	return result
+	return ExtensionMergeResult{Extensions: result, Renames: renames}
+}
+
+// mergeExtensions combines source-analysis and plan extensions by filename.
+// On collision with identical code, the duplicate is dropped.
+// On collision with different code, the plan extension is renamed with a -2, -3 suffix.
+func mergeExtensions(source, plan []GeneratedExtension) []GeneratedExtension {
+	return mergeExtensionsTracked(source, plan).Extensions
 }
 
 // queryDiscoveredRecords fetches HTTP records from the database that were created
@@ -973,6 +1074,8 @@ func deduplicateRecords(records []*httpmsg.HttpRequestResponse) []*httpmsg.HttpR
 
 // filterSourceRecordsByHostname converts AgentHTTPRecords to HttpRequestResponse,
 // keeping only those whose hostname matches the target URL's hostname.
+// Relative URLs are resolved against the target URL using net/url.ResolveReference
+// for correct path handling (e.g., "../api/v2", "/api/users", "endpoint").
 func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) []*httpmsg.HttpRequestResponse {
 	if targetURL == "" {
 		return nil
@@ -983,19 +1086,36 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 	}
 	targetHost := targetParsed.Host // includes port
 
+	// Build a base URL for resolving relative references.
+	// Ensure it ends with "/" so relative paths resolve correctly against the origin.
+	baseURL := &url.URL{
+		Scheme: targetParsed.Scheme,
+		Host:   targetParsed.Host,
+		Path:   "/",
+	}
+
 	var filtered []*httpmsg.HttpRequestResponse
+	skipped := 0
 	for _, rec := range agentRecords {
-		// For relative URLs, resolve against the target URL
 		recURL := rec.URL
+
+		// Resolve relative URLs against the target base using standard URL resolution.
 		if !strings.HasPrefix(recURL, "http://") && !strings.HasPrefix(recURL, "https://") {
-			recURL = strings.TrimRight(targetURL, "/") + "/" + strings.TrimLeft(recURL, "/")
+			ref, refErr := url.Parse(recURL)
+			if refErr != nil {
+				skipped++
+				continue
+			}
+			recURL = baseURL.ResolveReference(ref).String()
 		}
 
 		recParsed, parseErr := url.Parse(recURL)
 		if parseErr != nil {
+			skipped++
 			continue
 		}
 		if recParsed.Host != targetHost {
+			skipped++
 			continue
 		}
 
@@ -1004,16 +1124,26 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 		rr, convertErr := ToHTTPRequestResponse(rec)
 		if convertErr != nil {
 			zap.L().Debug("Skipping source record", zap.String("url", rec.URL), zap.Error(convertErr))
+			skipped++
 			continue
 		}
 		filtered = append(filtered, rr)
 	}
+
+	if skipped > 0 {
+		zap.L().Debug("Filtered source records by hostname",
+			zap.String("target_host", targetHost),
+			zap.Int("matched", len(filtered)),
+			zap.Int("skipped", skipped))
+	}
+
 	return filtered
 }
 
 // runMasterAgentBatched calls the master agent in parallel batches when there are many records.
-// Each batch produces a SwarmPlan; plans are merged by deduplicating tags, IDs, and extensions.
-func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, []string, error) {
+// Each batch produces a SwarmPlan; plans are merged incrementally as results arrive.
+// On first error, remaining in-flight batches are cancelled and the partial merged plan is returned.
+func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, []string, *BatchProvenance, error) {
 	// Pre-compute batch boundaries
 	type batchRange struct {
 		start, end, num int
@@ -1032,17 +1162,37 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 		sessionID string
 		rawOutput string
 		prompt    string
+		batchNum  int
+		err       error
 	}
 
-	results := make([]batchResult, len(batches))
+	resultsCh := make(chan batchResult, len(batches))
+	batchConcurrency := cfg.BatchConcurrency
+	if batchConcurrency <= 0 {
+		batchConcurrency = runtime.NumCPU()
+	}
+	if batchConcurrency > len(batches) {
+		batchConcurrency = len(batches)
+	}
+	sem := make(chan struct{}, batchConcurrency)
+	gCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	// Run batches in parallel with bounded concurrency
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(3)
+	var wg sync.WaitGroup
+	for _, b := range batches {
+		b := b
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Acquire semaphore or bail on cancellation
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-gCtx.Done():
+				resultsCh <- batchResult{err: gCtx.Err()}
+				return
+			}
 
-	for idx, b := range batches {
-		idx, b := idx, b
-		g.Go(func() error {
 			zap.L().Info("Running master agent batch",
 				zap.Int("batch", b.num),
 				zap.Int("batch_start", b.start),
@@ -1052,37 +1202,50 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 			batch := records[b.start:b.end]
 			plan, sid, rawOutput, prompt, err := s.runMasterAgent(gCtx, cfg, batch, targetURL)
 			if err != nil {
-				return fmt.Errorf("master agent batch %d-%d failed: %w", b.start, b.end, err)
+				cancel() // Cancel remaining batches on first error
+				resultsCh <- batchResult{err: fmt.Errorf("master agent batch %d-%d failed: %w", b.start, b.end, err)}
+				return
 			}
-			results[idx] = batchResult{
+			if cfg.ProgressCallback != nil {
+				cfg.ProgressCallback(ProgressEvent{
+					Phase:    "plan",
+					SubPhase: "batch",
+					Current:  b.num,
+					Total:    len(batches),
+					Message:  fmt.Sprintf("master agent batch %d/%d completed", b.num, len(batches)),
+				})
+			}
+			resultsCh <- batchResult{
 				plan:      plan,
 				sessionID: sid,
 				rawOutput: rawOutput,
 				prompt:    prompt,
+				batchNum:  b.num,
 			}
-			return nil
-		})
+		}()
 	}
 
-	if err := g.Wait(); err != nil {
-		// Return partial results for the last session ID
-		var lastSID string
-		for _, r := range results {
-			if r.sessionID != "" {
-				lastSID = r.sessionID
-			}
-		}
-		return nil, lastSID, "", "", nil, err
-	}
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
 
-	// Collect results
+	// Collect all results, then merge plans once at the end to avoid O(n²) intermediate merges.
 	var plans []*SwarmPlan
 	var lastSessionID string
 	var allSessionIDs []string
 	var allRawOutputs []string
 	var allRenderedPrompts []string
+	var firstErr error
 
-	for _, r := range results {
+	for r := range resultsCh {
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
+		}
 		if r.sessionID != "" {
 			lastSessionID = r.sessionID
 			allSessionIDs = append(allSessionIDs, r.sessionID)
@@ -1104,51 +1267,81 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 		lastPrompt = allRenderedPrompts[len(allRenderedPrompts)-1]
 	}
 
-	if len(plans) == 0 {
-		return nil, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
-	}
+	// Merge all collected plans in one pass
+	var mergedPlan *SwarmPlan
+	var batchProv *BatchProvenance
 	if len(plans) == 1 {
-		return plans[0], lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
+		mergedPlan = plans[0]
+	} else if len(plans) > 1 {
+		mergedPlan, batchProv = mergeSwarmPlans(plans)
 	}
 
-	merged := mergeSwarmPlans(plans)
-	return merged, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, nil
+	if firstErr != nil {
+		return mergedPlan, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, batchProv, firstErr
+	}
+
+	return mergedPlan, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, batchProv, nil
 }
 
 // mergeSwarmPlans combines multiple SwarmPlans by deduplicating module tags,
 // module IDs, extensions (by filename, last wins), and focus areas.
-func mergeSwarmPlans(plans []*SwarmPlan) *SwarmPlan {
+// When merging multiple plans, batch provenance is returned separately
+// to track which batch contributed each tag, ID, extension, and focus area.
+func mergeSwarmPlans(plans []*SwarmPlan) (*SwarmPlan, *BatchProvenance) {
 	tagSet := make(map[string]bool)
 	idSet := make(map[string]bool)
 	focusSet := make(map[string]bool)
 	extMap := make(map[string]GeneratedExtension)
+	extNames := make(map[string]bool) // maintained alongside extMap to avoid rebuilding per collision
 	qcMap := make(map[string]QuickCheck)
 	snipMap := make(map[string]Snippet)
 	var notes []string
 
+	// Provenance tracking (batch number is 1-indexed)
+	trackProvenance := len(plans) > 1
+	var prov *BatchProvenance
+	if trackProvenance {
+		prov = &BatchProvenance{
+			ModuleTags: make(map[string]int),
+			ModuleIDs:  make(map[string]int),
+			Extensions: make(map[string]int),
+			FocusAreas: make(map[string]int),
+		}
+	}
+
 	for batchIdx, p := range plans {
+		batchNum := batchIdx + 1
 		for _, t := range p.ModuleTags {
+			if !tagSet[t] && prov != nil {
+				prov.ModuleTags[t] = batchNum
+			}
 			tagSet[t] = true
 		}
 		for _, id := range p.ModuleIDs {
+			if !idSet[id] && prov != nil {
+				prov.ModuleIDs[id] = batchNum
+			}
 			idSet[id] = true
 		}
 		for _, fa := range p.FocusAreas {
+			if !focusSet[fa] && prov != nil {
+				prov.FocusAreas[fa] = batchNum
+			}
 			focusSet[fa] = true
 		}
 		for _, ext := range p.Extensions {
 			if existingExt, collision := extMap[ext.Filename]; collision && existingExt.Code != ext.Code {
 				// Rename on collision with different code
-				nameSet := make(map[string]bool, len(extMap))
-				for k := range extMap {
-					nameSet[k] = true
-				}
-				ext.Filename = deduplicateExtensionFilename(ext.Filename, nameSet)
+				ext.Filename = deduplicateExtensionFilename(ext.Filename, extNames)
 				zap.L().Info("Renamed colliding batch extension",
 					zap.String("new_filename", ext.Filename),
-					zap.Int("batch", batchIdx+1))
+					zap.Int("batch", batchNum))
 			}
 			extMap[ext.Filename] = ext
+			extNames[ext.Filename] = true
+			if prov != nil {
+				prov.Extensions[ext.Filename] = batchNum
+			}
 		}
 		for _, qc := range p.QuickChecks {
 			qcMap[qc.ID] = qc
@@ -1176,7 +1369,7 @@ func mergeSwarmPlans(plans []*SwarmPlan) *SwarmPlan {
 	for _, snip := range snipMap {
 		merged.Snippets = append(merged.Snippets, snip)
 	}
-	return merged
+	return merged, prov
 }
 
 // sortedKeys returns sorted keys from a boolean set map.
@@ -1189,7 +1382,15 @@ func sortedKeys(s map[string]bool) []string {
 	return result
 }
 
-func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string, extensionDir string) error {
+func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string, extensionDir string, checkpoint *SwarmCheckpoint, extensionRenames map[string]string, completedPhases []string) error {
+	// Determine triage resume point from checkpoint
+	triageResumeRound := 0
+	if checkpoint != nil && checkpoint.TriageRound > 0 {
+		triageResumeRound = checkpoint.TriageRound
+		zap.L().Info("Resuming triage from checkpoint",
+			zap.Int("resume_round", triageResumeRound))
+	}
+
 	triageCfg := TriageLoopConfig{
 		Engine:         s.engine,
 		Repository:     s.repo,
@@ -1204,13 +1405,28 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
-		MaxRounds:      cfg.MaxIterations,
-		ScanFunc:       cfg.ScanFunc,
+		MaxRounds:                 cfg.MaxIterations,
+		MaxFindingsPerTriageBatch: 25,
+		ResumeFromRound:           triageResumeRound,
+		ProgressCallback:          cfg.ProgressCallback,
+		ScanFunc:                  cfg.ScanFunc,
 		SessionDir:     sessionDir,
 		ExtensionDir:   extensionDir,
 		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
+		},
+		OnTriageRoundComplete: func(round int) {
+			_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
+				CompletedPhases:  completedPhases,
+				TargetURL:        agentRun.TargetURL,
+				RecordCount:      result.TotalRecords,
+				Plan:             result.SwarmPlan,
+				ExtensionDir:     extensionDir,
+				TriageRound:      round + 1, // next round to resume from
+				ExtensionRenames: extensionRenames,
+				Timestamp:        time.Now(),
+			})
 		},
 	}
 

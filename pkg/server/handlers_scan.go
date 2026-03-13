@@ -507,9 +507,54 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		})
 	}
 
-	// Acquire scan lock
+	// Create scan runner
+	scanRunner, err := runner.New(opts)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to create scan runner: " + err.Error(),
+		})
+	}
+
+	scanRunner.SetSettings(settings)
+	scanRunner.SetRepository(h.repo)
+
+	// Acquire per-project scan lock
 	h.scanMu.Lock()
-	if h.scanRunning {
+	st := h.getProjectScanState(projectUUID)
+	if st.running {
+		// Project busy — check if queuing is enabled
+		if h.config.ScanQueueCapacity > 0 {
+			qCh, ok := h.scanQueues[projectUUID]
+			if !ok {
+				qCh = make(chan *queuedScan, h.config.ScanQueueCapacity)
+				h.scanQueues[projectUUID] = qCh
+				go h.scanQueueWorker(projectUUID, qCh)
+			}
+			if len(qCh) >= h.config.ScanQueueCapacity {
+				h.scanMu.Unlock()
+				return c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{
+					Error: "scan queue full for this project",
+				})
+			}
+			scan.Status = "queued"
+			_ = h.repo.UpdateScan(ctx, scan)
+			qCh <- &queuedScan{
+				scanID:      scanID,
+				runner:      scanRunner,
+				projectUUID: projectUUID,
+				enqueued:    time.Now(),
+			}
+			h.scanMu.Unlock()
+			return c.Status(fiber.StatusAccepted).JSON(ScanResponse{
+				ProjectUUID:  projectUUID,
+				ScanID:       scanID,
+				Status:       "queued",
+				Message:      fmt.Sprintf("scan queued (position %d)", len(qCh)),
+				TargetsCount: len(req.Targets),
+				ScanMode:     scanMode,
+				RepoPath:     opts.SASTAdhoc,
+			})
+		}
 		h.scanMu.Unlock()
 		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
 			Error: ErrScanAlreadyRunning.Error(),
@@ -519,23 +564,12 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 	scan.Status = "running"
 	_ = h.repo.UpdateScan(ctx, scan)
 
-	scanRunner, err := runner.New(opts)
-	if err != nil {
-		h.scanMu.Unlock()
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: "failed to create scan runner: " + err.Error(),
-		})
-	}
-
-	scanRunner.SetSettings(settings)
-	scanRunner.SetRepository(h.repo)
-
-	h.scanRunner = scanRunner
-	h.scanRunning = true
-	h.activeScanID = scanID
+	st.runner = scanRunner
+	st.running = true
+	st.scanID = scanID
 	h.scanMu.Unlock()
 
-	go h.runBackgroundScan(scanID, scanRunner)
+	go h.runBackgroundScan(scanID, scanRunner, projectUUID)
 
 	return c.Status(fiber.StatusAccepted).JSON(ScanResponse{
 		ProjectUUID:  projectUUID,
@@ -686,43 +720,48 @@ func (h *Handlers) HandleStopScan(c fiber.Ctx) error {
 	h.scanMu.Lock()
 	defer h.scanMu.Unlock()
 
-	if !h.scanRunning {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "no scan is currently running",
-			Code:  fiber.StatusConflict,
-		})
+	// Find the scan across all projects
+	for _, st := range h.scanStates {
+		if st.running && st.scanID == scanUUID {
+			if st.runner != nil {
+				st.runner.Close()
+			}
+			return c.JSON(ScanStatusResponse{
+				ProjectUUID: getProjectUUID(c),
+				ScanID:      scanUUID,
+				Running:     true,
+				Status:      "cancelling",
+				Message:     "scan stop requested, workers finishing current tasks",
+			})
+		}
 	}
 
-	if h.activeScanID != scanUUID {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "scan " + scanUUID + " is not the active scan",
-			Code:  fiber.StatusConflict,
-		})
-	}
-
-	// Close the runner — stops the input source, workers finish current tasks
-	if h.scanRunner != nil {
-		h.scanRunner.Close()
-	}
-
-	return c.JSON(ScanStatusResponse{
-		ProjectUUID: getProjectUUID(c),
-		ScanID:      scanUUID,
-		Running:     true,
-		Status:      "cancelling",
-		Message:     "scan stop requested, workers finishing current tasks",
+	return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+		Error: "scan " + scanUUID + " is not running",
+		Code:  fiber.StatusConflict,
 	})
 }
 
 // HandleScanStatus handles GET /api/scan/status — returns current scan state.
+// Accepts optional ?project= query param to check a specific project.
 func (h *Handlers) HandleScanStatus(c fiber.Ctx) error {
-	h.scanMu.Lock()
-	running := h.scanRunning
-	scanID := h.activeScanID
-	paused := running && h.scanRunner != nil && h.scanRunner.IsPaused()
-	h.scanMu.Unlock()
-
 	projectUUID := getProjectUUID(c)
+	queryProject := c.Query("project")
+	if queryProject != "" {
+		projectUUID = queryProject
+	}
+
+	h.scanMu.Lock()
+	st := h.scanStates[projectUUID]
+	var running bool
+	var scanID string
+	var paused bool
+	if st != nil && st.running {
+		running = true
+		scanID = st.scanID
+		paused = st.runner != nil && st.runner.IsPaused()
+	}
+	h.scanMu.Unlock()
 
 	if running {
 		status := "running"
@@ -744,30 +783,31 @@ func (h *Handlers) HandleScanStatus(c fiber.Ctx) error {
 	})
 }
 
-// HandleCancelScan handles DELETE /api/scan — cancels a running scan.
+// HandleCancelScan handles DELETE /api/scan — cancels a running scan for the current project.
 func (h *Handlers) HandleCancelScan(c fiber.Ctx) error {
 	h.scanMu.Lock()
 	defer h.scanMu.Unlock()
 
 	projectUUID := getProjectUUID(c)
+	st := h.scanStates[projectUUID]
 
-	if !h.scanRunning {
+	if st == nil || !st.running {
 		return c.JSON(ScanStatusResponse{
 			ProjectUUID: projectUUID,
 			Running:     false,
 			Status:      "idle",
-			Message:     "no scan is running",
+			Message:     "no scan is running for this project",
 		})
 	}
 
 	// Close the runner — stops the input source, workers finish current tasks
-	if h.scanRunner != nil {
-		h.scanRunner.Close()
+	if st.runner != nil {
+		st.runner.Close()
 	}
 
 	return c.JSON(ScanStatusResponse{
 		ProjectUUID: projectUUID,
-		ScanID:      h.activeScanID,
+		ScanID:      st.scanID,
 		Running:     true,
 		Status:      "cancelling",
 		Message:     "scan cancellation requested, workers finishing current tasks",
@@ -787,40 +827,32 @@ func (h *Handlers) HandlePauseScan(c fiber.Ctx) error {
 	h.scanMu.Lock()
 	defer h.scanMu.Unlock()
 
-	if !h.scanRunning {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "no scan is currently running",
-			Code:  fiber.StatusConflict,
-		})
+	// Find the scan across all projects
+	for _, st := range h.scanStates {
+		if st.running && st.scanID == scanUUID {
+			if st.runner.IsPaused() {
+				return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+					Error: "scan is already paused",
+					Code:  fiber.StatusConflict,
+				})
+			}
+			st.runner.Pause()
+			if h.repo != nil {
+				_ = h.repo.PauseScan(c.Context(), scanUUID)
+			}
+			return c.JSON(ScanStatusResponse{
+				ProjectUUID: getProjectUUID(c),
+				ScanID:      scanUUID,
+				Running:     true,
+				Status:      "paused",
+				Message:     "scan paused, workers finishing current items",
+			})
+		}
 	}
 
-	if h.activeScanID != scanUUID {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "scan " + scanUUID + " is not the active scan",
-			Code:  fiber.StatusConflict,
-		})
-	}
-
-	if h.scanRunner.IsPaused() {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "scan is already paused",
-			Code:  fiber.StatusConflict,
-		})
-	}
-
-	h.scanRunner.Pause()
-
-	// Update scan status in DB
-	if h.repo != nil {
-		_ = h.repo.PauseScan(c.Context(), scanUUID)
-	}
-
-	return c.JSON(ScanStatusResponse{
-		ProjectUUID: getProjectUUID(c),
-		ScanID:      scanUUID,
-		Running:     true,
-		Status:      "paused",
-		Message:     "scan paused, workers finishing current items",
+	return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+		Error: "scan " + scanUUID + " is not running",
+		Code:  fiber.StatusConflict,
 	})
 }
 
@@ -837,40 +869,32 @@ func (h *Handlers) HandleResumeScan(c fiber.Ctx) error {
 	h.scanMu.Lock()
 	defer h.scanMu.Unlock()
 
-	if !h.scanRunning {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "no scan is currently running",
-			Code:  fiber.StatusConflict,
-		})
+	// Find the scan across all projects
+	for _, st := range h.scanStates {
+		if st.running && st.scanID == scanUUID {
+			if !st.runner.IsPaused() {
+				return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+					Error: "scan is not paused",
+					Code:  fiber.StatusConflict,
+				})
+			}
+			st.runner.Resume()
+			if h.repo != nil {
+				_ = h.repo.ResumeScan(c.Context(), scanUUID)
+			}
+			return c.JSON(ScanStatusResponse{
+				ProjectUUID: getProjectUUID(c),
+				ScanID:      scanUUID,
+				Running:     true,
+				Status:      "running",
+				Message:     "scan resumed",
+			})
+		}
 	}
 
-	if h.activeScanID != scanUUID {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "scan " + scanUUID + " is not the active scan",
-			Code:  fiber.StatusConflict,
-		})
-	}
-
-	if !h.scanRunner.IsPaused() {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: "scan is not paused",
-			Code:  fiber.StatusConflict,
-		})
-	}
-
-	h.scanRunner.Resume()
-
-	// Update scan status in DB
-	if h.repo != nil {
-		_ = h.repo.ResumeScan(c.Context(), scanUUID)
-	}
-
-	return c.JSON(ScanStatusResponse{
-		ProjectUUID: getProjectUUID(c),
-		ScanID:      scanUUID,
-		Running:     true,
-		Status:      "running",
-		Message:     "scan resumed",
+	return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+		Error: "scan " + scanUUID + " is not running",
+		Code:  fiber.StatusConflict,
 	})
 }
 
@@ -937,12 +961,14 @@ func (h *Handlers) HandleGetScanLogs(c fiber.Ctx) error {
 }
 
 // runBackgroundScan runs the scan in a background goroutine.
-func (h *Handlers) runBackgroundScan(scanID string, scanRunner *runner.Runner) {
+func (h *Handlers) runBackgroundScan(scanID string, scanRunner *runner.Runner, projectUUID string) {
 	defer func() {
 		h.scanMu.Lock()
-		h.scanRunning = false
-		h.scanRunner = nil
-		h.activeScanID = ""
+		if st, ok := h.scanStates[projectUUID]; ok {
+			st.running = false
+			st.runner = nil
+			st.scanID = ""
+		}
 		h.scanMu.Unlock()
 	}()
 

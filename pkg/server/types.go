@@ -21,6 +21,7 @@ type ServerConfig struct {
 	ShutdownTimeout      time.Duration
 	CORSAllowedOrigins   string
 	UserStore            *UserStore // File-based user store (nil = legacy auth only)
+	ScanQueueCapacity    int        // 0 = reject with 409 when busy (default), >0 = per-project queue depth
 	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
 	Debug                bool       // Log raw request body, query params, and headers
 	Version              string     // Injected version string for /server-info

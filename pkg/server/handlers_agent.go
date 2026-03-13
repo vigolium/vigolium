@@ -331,10 +331,18 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 		if req.IsRescan {
 			buildOnce.Do(func() {
 				sharedInfra, buildErr = runner.BuildSharedInfra(opts, settings, h.repo)
+				if buildErr != nil {
+					if sharedInfra != nil && sharedInfra.HTTPRequester != nil {
+						zap.L().Warn("Partial SharedInfra built — HTTPRequester available, continuing with degraded components", zap.Error(buildErr))
+					} else {
+						zap.L().Warn("SharedInfra build failed — HTTPRequester missing, discarding partial infra", zap.Error(buildErr))
+						if sharedInfra != nil {
+							sharedInfra.Close()
+						}
+						sharedInfra = nil
+					}
+				}
 			})
-			if buildErr != nil {
-				zap.L().Warn("Failed to build shared infra, falling back to fresh build", zap.Error(buildErr))
-			}
 		}
 
 		scanRunner, err := runner.New(opts)
@@ -814,6 +822,11 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 			_ = writeSSE(w, sseEvent{Type: "phase", Phase: phase})
 		}
 
+		// Wire progress callback for SSE events
+		cfg.ProgressCallback = func(evt agent.ProgressEvent) {
+			_ = writeSSE(w, sseEvent{Type: "progress", Progress: &evt})
+		}
+
 		// Set up stream writer pipe
 		pr, pw := io.Pipe()
 		cfg.StreamWriter = pw
@@ -1125,12 +1138,13 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 
 // sseEvent is an SSE event payload sent during streaming agent runs.
 type sseEvent struct {
-	Type           string                `json:"type"`                      // "chunk", "done", "error", "phase"
+	Type           string                `json:"type"`                      // "chunk", "done", "error", "phase", "progress"
 	Text           string                `json:"text,omitempty"`            // for "chunk" events
 	Result         *agent.Result         `json:"result,omitempty"`          // for "done" events (query/autopilot)
 	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"` // for "done" events (pipeline)
 	SwarmResult    *agent.SwarmResult     `json:"swarm_result,omitempty"`    // for "done" events (swarm)
 	Phase          string                `json:"phase,omitempty"`           // for "phase" events
+	Progress       *agent.ProgressEvent  `json:"progress,omitempty"`        // for "progress" events
 	Error          string                `json:"error,omitempty"`           // for "error" events
 }
 

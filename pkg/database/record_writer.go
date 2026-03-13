@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"hash/maphash"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,12 @@ type RecordWriterConfig struct {
 	// FlushInterval is the maximum time a record waits in the buffer before
 	// being flushed, even if the batch isn't full. Default: 50ms.
 	FlushInterval time.Duration
+
+	// Shards is the number of independent flush goroutines. Each shard has its
+	// own channel and flushLoop. Records are routed to shards by hashing the
+	// host name, so writes for the same host are serialized within a shard.
+	// Default: 1 (backward-compatible single-goroutine behavior).
+	Shards int
 }
 
 func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
@@ -36,6 +43,9 @@ func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
 	}
 	if out.FlushInterval <= 0 {
 		out.FlushInterval = 50 * time.Millisecond
+	}
+	if out.Shards <= 0 {
+		out.Shards = 1
 	}
 	return out
 }
@@ -61,15 +71,23 @@ type RecordWriterMetrics struct {
 	BufferDepth  int64
 }
 
-// RecordWriter serializes database writes through a single goroutine that
-// coalesces individual SaveRecord calls into batch transactions.
+// writerShard is a single flush goroutine with its own channel.
+type writerShard struct {
+	ch chan writeRequest
+}
+
+// RecordWriter serializes database writes through sharded goroutines that
+// coalesce individual SaveRecord calls into batch transactions.
+// Records are routed to shards by hashing the host name, so writes for the
+// same host are serialized within a shard. With Shards=1 (default), behavior
+// is identical to a single-goroutine writer.
 // This eliminates SQLite SQLITE_BUSY errors under concurrent ingestion.
 type RecordWriter struct {
-	repo *Repository
-	cfg  RecordWriterConfig
-	ch   chan writeRequest
+	repo   *Repository
+	cfg    RecordWriterConfig
+	shards []*writerShard
 
-	// metrics
+	// aggregate metrics (sum across shards)
 	enqueued    atomic.Int64
 	flushed     atomic.Int64
 	flushErrors atomic.Int64
@@ -79,8 +97,12 @@ type RecordWriter struct {
 	wg     sync.WaitGroup
 }
 
+// hashSeed is a package-level seed for consistent host hashing within
+// a process lifetime.
+var hashSeed = maphash.MakeSeed()
+
 // NewRecordWriter creates and starts a RecordWriter.
-// Call Close() to flush remaining records and stop the background goroutine.
+// Call Close() to flush remaining records and stop the background goroutines.
 func NewRecordWriter(repo *Repository, cfg RecordWriterConfig) *RecordWriter {
 	cfg = cfg.withDefaults()
 
@@ -89,12 +111,19 @@ func NewRecordWriter(repo *Repository, cfg RecordWriterConfig) *RecordWriter {
 	w := &RecordWriter{
 		repo:   repo,
 		cfg:    cfg,
-		ch:     make(chan writeRequest, cfg.BufferSize),
+		shards: make([]*writerShard, cfg.Shards),
 		cancel: cancel,
 	}
 
-	w.wg.Add(1)
-	go w.flushLoop(ctx)
+	for i := range w.shards {
+		s := &writerShard{
+			ch: make(chan writeRequest, cfg.BufferSize),
+		}
+		w.shards[i] = s
+
+		w.wg.Add(1)
+		go w.flushLoop(ctx, s)
+	}
 
 	return w
 }
@@ -119,8 +148,10 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 
 	w.enqueued.Add(1)
 
+	shard := w.shardFor(record.Hostname)
+
 	select {
-	case w.ch <- req:
+	case shard.ch <- req:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -133,14 +164,30 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	}
 }
 
+// shardFor returns the shard responsible for the given hostname.
+func (w *RecordWriter) shardFor(host string) *writerShard {
+	if len(w.shards) == 1 {
+		return w.shards[0]
+	}
+	var h maphash.Hash
+	h.SetSeed(hashSeed)
+	h.WriteString(host)
+	idx := h.Sum64() % uint64(len(w.shards))
+	return w.shards[idx]
+}
+
 // Metrics returns a snapshot of the writer's counters.
 func (w *RecordWriter) Metrics() RecordWriterMetrics {
+	var bufferDepth int64
+	for _, s := range w.shards {
+		bufferDepth += int64(len(s.ch))
+	}
 	return RecordWriterMetrics{
 		Enqueued:    w.enqueued.Load(),
 		Flushed:     w.flushed.Load(),
 		FlushErrors: w.flushErrors.Load(),
 		BatchCount:  w.batchCount.Load(),
-		BufferDepth: int64(len(w.ch)),
+		BufferDepth: bufferDepth,
 	}
 }
 
@@ -150,8 +197,8 @@ func (w *RecordWriter) Close() {
 	w.wg.Wait()
 }
 
-// flushLoop is the single goroutine that drains the channel and batch-inserts.
-func (w *RecordWriter) flushLoop(ctx context.Context) {
+// flushLoop is the goroutine that drains a shard's channel and batch-inserts.
+func (w *RecordWriter) flushLoop(ctx context.Context, s *writerShard) {
 	defer w.wg.Done()
 
 	batch := make([]writeRequest, 0, w.cfg.BatchSize)
@@ -160,7 +207,7 @@ func (w *RecordWriter) flushLoop(ctx context.Context) {
 
 	for {
 		select {
-		case req := <-w.ch:
+		case req := <-s.ch:
 			batch = append(batch, req)
 			if len(batch) >= w.cfg.BatchSize {
 				w.flush(ctx, batch)
@@ -178,7 +225,7 @@ func (w *RecordWriter) flushLoop(ctx context.Context) {
 			// Drain remaining items from channel
 			for {
 				select {
-				case req := <-w.ch:
+				case req := <-s.ch:
 					batch = append(batch, req)
 					if len(batch) >= w.cfg.BatchSize {
 						w.flush(context.Background(), batch)

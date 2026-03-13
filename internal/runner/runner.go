@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	neturl "net/url"
@@ -170,12 +171,15 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 	infra.HostLimiter = hostLimiter
 	infra.Services = svc
 
+	var errs []error
+
 	httpRequester, err := http.NewRequester(opts, svc)
 	if err != nil {
-		infra.Close()
-		return nil, fmt.Errorf("could not create http requester: %w", err)
+		zap.L().Warn("Failed to create HTTP requester for SharedInfra", zap.Error(err))
+		errs = append(errs, fmt.Errorf("could not create http requester: %w", err))
+	} else {
+		infra.HTTPRequester = httpRequester
 	}
-	infra.HTTPRequester = httpRequester
 
 	if settings != nil {
 		infra.ScopeMatcher = config.NewScopeMatcher(settings.Scope, opts.Targets...)
@@ -194,6 +198,7 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 		jsEngine, jsErr := jsext.NewEngine(&settings.Audit.Extensions, httpRequester, jsEngineOpts)
 		if jsErr != nil {
 			zap.L().Warn("Failed to initialize JS extensions for SharedInfra", zap.Error(jsErr))
+			errs = append(errs, fmt.Errorf("could not create js engine: %w", jsErr))
 		} else {
 			infra.JSEngine = jsEngine
 			preHooks := jsEngine.PreHooks()
@@ -204,6 +209,9 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 		}
 	}
 
+	if len(errs) > 0 {
+		return infra, fmt.Errorf("partial SharedInfra (%d failures): %w", len(errs), stderrors.Join(errs...))
+	}
 	return infra, nil
 }
 

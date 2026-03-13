@@ -200,10 +200,28 @@ type SwarmPlan struct {
 	Notes       string               `json:"notes,omitempty"`
 }
 
+// BatchProvenance tracks which batch contributed each item to a merged plan.
+type BatchProvenance struct {
+	ModuleTags map[string]int `json:"module_tags,omitempty"` // tag -> batch number
+	ModuleIDs  map[string]int `json:"module_ids,omitempty"`  // id -> batch number
+	Extensions map[string]int `json:"extensions,omitempty"`  // filename -> batch number
+	FocusAreas map[string]int `json:"focus_areas,omitempty"` // focus area -> batch number
+}
+
 // TokenUsage tracks cumulative token consumption across agent calls in a run.
 type TokenUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+}
+
+// ProgressEvent reports granular progress during agent scans.
+type ProgressEvent struct {
+	Phase        string `json:"phase"`
+	SubPhase     string `json:"sub_phase,omitempty"`
+	Current      int    `json:"current,omitempty"`
+	Total        int    `json:"total,omitempty"`
+	FindingCount int    `json:"finding_count,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 // SwarmResult holds the outcome of an agent swarm run.
@@ -220,20 +238,30 @@ type SwarmResult struct {
 	AgentRunUUID   string          `json:"agent_run_uuid"`
 	SessionID      string          `json:"session_id,omitempty"`  // last ACP session ID (for single or last batch)
 	SessionIDs     []string        `json:"session_ids,omitempty"` // all ACP session IDs when batched (>5 records); nil for single-batch runs
-	SessionDir     string                         `json:"session_dir,omitempty"`
-	PhaseTimings   map[string]time.Duration       `json:"phase_timings,omitempty"`
-	TokenUsage     TokenUsage                     `json:"token_usage,omitempty"`
+	SessionDir      string                         `json:"session_dir,omitempty"`
+	PhaseTimings    map[string]time.Duration       `json:"phase_timings,omitempty"`
+	TokenUsage      TokenUsage                     `json:"token_usage,omitempty"`
+	BatchProvenance *BatchProvenance               `json:"batch_provenance,omitempty"` // only set when plan was merged from multiple batches
 }
 
 // SwarmCheckpoint captures swarm pipeline state for checkpoint/resume.
 type SwarmCheckpoint struct {
-	CompletedPhases []string   `json:"completed_phases"`
-	TargetURL       string     `json:"target_url"`
-	RecordCount     int        `json:"record_count"`
-	Plan            *SwarmPlan `json:"plan,omitempty"`
-	ExtensionDir    string     `json:"extension_dir,omitempty"`
-	LastPhase       string     `json:"last_phase"`
-	Timestamp       time.Time  `json:"timestamp"`
+	CompletedPhases  []string            `json:"completed_phases"`
+	TargetURL        string              `json:"target_url"`
+	RecordCount      int                 `json:"record_count"`
+	Plan             *SwarmPlan          `json:"plan,omitempty"`
+	ExtensionDir     string              `json:"extension_dir,omitempty"`
+	Timestamp        time.Time           `json:"timestamp"`
+	TriageRound      int                 `json:"triage_round,omitempty"`       // last completed triage round (0-indexed)
+	ExtensionRenames map[string]string   `json:"extension_renames,omitempty"`  // original filename -> renamed filename
+}
+
+// LastPhase returns the last completed phase, or "" if none.
+func (cp *SwarmCheckpoint) LastPhase() string {
+	if cp == nil || len(cp.CompletedPhases) == 0 {
+		return ""
+	}
+	return cp.CompletedPhases[len(cp.CompletedPhases)-1]
 }
 
 // writeCheckpoint persists a SwarmCheckpoint to the session directory.

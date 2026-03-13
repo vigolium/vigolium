@@ -60,16 +60,8 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 		validUUIDs[i] = r.UUID
 	}
 
-	h.scanMu.Lock()
-	defer h.scanMu.Unlock()
-
-	if h.scanRunning {
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrScanAlreadyRunning.Error(),
-		})
-	}
-
 	ctx := context.Background()
+	projectUUID := getProjectUUID(c)
 
 	modules := []string{"all"}
 	if len(req.EnableModules) > 0 {
@@ -77,13 +69,12 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 	}
 
 	// Create scan record
-	projectUUID := getProjectUUID(c)
 	scanID := uuid.New().String()
 	scan := &database.Scan{
 		UUID:        scanID,
 		ProjectUUID: projectUUID,
 		Name:        "selective-scan",
-		Status:      "running",
+		Status:      "pending",
 		Modules:     strings.Join(modules, ","),
 		ScanSource:  "api",
 		ScanMode:    "selective",
@@ -117,13 +108,26 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 	scanRunner.SetSettings(h.settings)
 	scanRunner.SetRepository(h.repo)
 
-	// Store scan state
-	h.scanRunner = scanRunner
-	h.scanRunning = true
-	h.activeScanID = scanID
+	// Acquire per-project scan lock
+	h.scanMu.Lock()
+	st := h.getProjectScanState(projectUUID)
+	if st.running {
+		h.scanMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrScanAlreadyRunning.Error(),
+		})
+	}
+
+	scan.Status = "running"
+	_ = h.repo.UpdateScan(ctx, scan)
+
+	st.runner = scanRunner
+	st.running = true
+	st.scanID = scanID
+	h.scanMu.Unlock()
 
 	// Launch background scan
-	go h.runBackgroundScan(scanID, scanRunner)
+	go h.runBackgroundScan(scanID, scanRunner, projectUUID)
 
 	zap.L().Info("Selective scan started",
 		zap.String("scan_id", scanID),
@@ -334,24 +338,11 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 		})
 	}
 
-	// Acquire scan lock
-	h.scanMu.Lock()
-	if h.scanRunning {
-		h.scanMu.Unlock()
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrScanAlreadyRunning.Error(),
-		})
-	}
-
-	scan.Status = "running"
-	_ = h.repo.UpdateScan(bgCtx, scan)
-
 	// Create UUID list input source from filtered records
 	dbSource := database.NewUUIDListDBInputSource(h.repo, matchingUUIDs)
 
 	scanRunner, err := runner.NewWithInputSource(opts, dbSource)
 	if err != nil {
-		h.scanMu.Unlock()
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to create scan runner: " + err.Error(),
 			Code:  fiber.StatusInternalServerError,
@@ -361,12 +352,25 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 	scanRunner.SetSettings(settings)
 	scanRunner.SetRepository(h.repo)
 
-	h.scanRunner = scanRunner
-	h.scanRunning = true
-	h.activeScanID = scanID
+	// Acquire per-project scan lock
+	h.scanMu.Lock()
+	st := h.getProjectScanState(projectUUID)
+	if st.running {
+		h.scanMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrScanAlreadyRunning.Error(),
+		})
+	}
+
+	scan.Status = "running"
+	_ = h.repo.UpdateScan(bgCtx, scan)
+
+	st.runner = scanRunner
+	st.running = true
+	st.scanID = scanID
 	h.scanMu.Unlock()
 
-	go h.runBackgroundScan(scanID, scanRunner)
+	go h.runBackgroundScan(scanID, scanRunner, projectUUID)
 
 	zap.L().Info("All-records scan started",
 		zap.String("scan_id", scanID),

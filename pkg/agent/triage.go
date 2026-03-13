@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
@@ -31,7 +32,10 @@ type TriageLoopConfig struct {
 	StreamWriter   io.Writer
 
 	// Loop control
-	MaxRounds int
+	MaxRounds                 int
+	MaxFindingsPerTriageBatch int // if >0, split findings into batches of this size for triage
+	ResumeFromRound           int // skip triage rounds before this (0 = start from beginning)
+	ProgressCallback          func(ProgressEvent)
 
 	// Scan callback for rescans
 	ScanFunc ScanFunc
@@ -42,6 +46,10 @@ type TriageLoopConfig struct {
 
 	// OnRescan is called before each rescan phase starts (optional).
 	OnRescan func()
+
+	// OnTriageRoundComplete is called after each triage round completes (optional).
+	// The round number (0-indexed) is passed so callers can update checkpoints.
+	OnTriageRoundComplete func(round int)
 }
 
 // TriageLoopResult holds the accumulated results from a triage+rescan loop.
@@ -85,72 +93,172 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 		}
 	}
 
-	for round := 0; round <= maxRounds; round++ {
+	startRound := cfg.ResumeFromRound
+	if startRound > 0 {
+		zap.L().Info("Resuming triage loop from round",
+			zap.Int("resume_from", startRound))
+	}
+
+	for round := startRound; round <= maxRounds; round++ {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
 		default:
 		}
 
-		// Build triage agent options
-		opts := Options{
-			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
-			PromptTemplate: cfg.PromptTemplate,
-			TargetURL:      cfg.TargetURL,
-			Hostname:       cfg.Hostname,
-			SourcePath:     cfg.SourcePath,
-			Files:          cfg.Files,
-			Instruction:    cfg.Instruction,
-			DryRun:         cfg.DryRun,
-			ShowPrompt:     cfg.ShowPrompt,
-			ScanUUID:       cfg.ScanUUID,
-			ProjectUUID:    cfg.ProjectUUID,
-			Source:         cfg.PromptTemplate,
-			StreamWriter:   cfg.StreamWriter,
+		// Determine finding batches for this round
+		var findingBatches [][]int64 // nil means single unbatched call
+		if cfg.MaxFindingsPerTriageBatch > 0 && cfg.Repository != nil && cfg.ProjectUUID != "" {
+			roundFindings, findErr := database.NewFindingsQueryBuilder(cfg.Repository.DB(), database.QueryFilters{
+				ProjectUUID: cfg.ProjectUUID,
+				Limit:       5000,
+			}).Execute(ctx)
+			if findErr == nil && len(roundFindings) > cfg.MaxFindingsPerTriageBatch {
+				for i := 0; i < len(roundFindings); i += cfg.MaxFindingsPerTriageBatch {
+					end := i + cfg.MaxFindingsPerTriageBatch
+					if end > len(roundFindings) {
+						end = len(roundFindings)
+					}
+					batch := make([]int64, 0, end-i)
+					for _, f := range roundFindings[i:end] {
+						batch = append(batch, f.ID)
+					}
+					findingBatches = append(findingBatches, batch)
+				}
+				zap.L().Info("Splitting triage into batches",
+					zap.Int("findings", len(roundFindings)),
+					zap.Int("batchSize", cfg.MaxFindingsPerTriageBatch),
+					zap.Int("batches", len(findingBatches)))
+			}
 		}
 
-		if round > 0 {
-			opts.Append = fmt.Sprintf("## Context\n\nThis is triage round %d (after rescan). Focus on new findings from the latest scan.", round+1)
+		// merged holds the combined triage result across batches (or the single result)
+		merged := &TriageResult{Verdict: "done"}
+
+		numBatches := len(findingBatches)
+		if numBatches == 0 {
+			numBatches = 1 // single unbatched call
 		}
 
-		agentResult, err := cfg.Engine.Run(ctx, opts)
-		if err != nil {
-			return result, fmt.Errorf("triage round %d failed: %w", round, err)
+		for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+			select {
+			case <-ctx.Done():
+				return result, ctx.Err()
+			default:
+			}
+
+			// Build triage agent options
+			opts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: cfg.PromptTemplate,
+				TargetURL:      cfg.TargetURL,
+				Hostname:       cfg.Hostname,
+				SourcePath:     cfg.SourcePath,
+				Files:          cfg.Files,
+				Instruction:    cfg.Instruction,
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         cfg.PromptTemplate,
+				StreamWriter:   cfg.StreamWriter,
+			}
+
+			var appendParts []string
+			if round > 0 {
+				appendParts = append(appendParts, fmt.Sprintf("## Context\n\nThis is triage round %d (after rescan). Focus on new findings from the latest scan.", round+1))
+			}
+			if findingBatches != nil {
+				ids := findingBatches[batchIdx]
+				idStrs := make([]string, len(ids))
+				for i, id := range ids {
+					idStrs[i] = fmt.Sprintf("%d", id)
+				}
+				appendParts = append(appendParts,
+					fmt.Sprintf("## Batch %d/%d — Review only these findings: %s",
+						batchIdx+1, len(findingBatches), strings.Join(idStrs, ", ")))
+			}
+			if len(appendParts) > 0 {
+				opts.Append = strings.Join(appendParts, "\n\n")
+			}
+
+			agentResult, err := cfg.Engine.Run(ctx, opts)
+			if err != nil {
+				return result, fmt.Errorf("triage round %d batch %d failed: %w", round, batchIdx+1, err)
+			}
+
+			// Save rendered prompt and raw output to session dir
+			batchSuffix := ""
+			if findingBatches != nil {
+				batchSuffix = fmt.Sprintf("-batch%d", batchIdx+1)
+			}
+			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("prompt-triage-%d%s.md", round, batchSuffix), agentResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("triage-output-%d%s.md", round, batchSuffix), agentResult.RawOutput)
+
+			if cfg.DryRun {
+				_, _ = fmt.Fprint(os.Stdout, agentResult.RawOutput)
+				if batchIdx == numBatches-1 {
+					return result, nil
+				}
+				continue
+			}
+
+			triage, err := ParseTriageResult(agentResult.RawOutput)
+			if err != nil {
+				zap.L().Warn("Failed to parse triage result in batch, skipping batch",
+					zap.Int("batch", batchIdx+1), zap.Error(err))
+				continue
+			}
+
+			// Merge batch result into the combined triage
+			merged.Confirmed = append(merged.Confirmed, triage.Confirmed...)
+			merged.FalsePositives = append(merged.FalsePositives, triage.FalsePositives...)
+			merged.FollowUps = append(merged.FollowUps, triage.FollowUps...)
+			if triage.Verdict == "rescan" {
+				merged.Verdict = "rescan"
+			}
+			if triage.Notes != "" {
+				if merged.Notes != "" {
+					merged.Notes += "\n"
+				}
+				merged.Notes += triage.Notes
+			}
 		}
 
-		// Save rendered prompt and raw output to session dir
-		writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("prompt-triage-%d.md", round), agentResult.RenderedPrompt)
-		writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("triage-output-%d.md", round), agentResult.RawOutput)
+		result.TriageResults = append(result.TriageResults, merged)
+		result.Confirmed += len(merged.Confirmed)
+		result.FalsePositives += len(merged.FalsePositives)
 
-		if cfg.DryRun {
-			_, _ = fmt.Fprint(os.Stdout, agentResult.RawOutput)
-			return result, nil
+		if cfg.ProgressCallback != nil {
+			cfg.ProgressCallback(ProgressEvent{
+				Phase:        "triage",
+				SubPhase:     "round",
+				Current:      round + 1,
+				Total:        maxRounds + 1,
+				FindingCount: result.Confirmed,
+				Message:      fmt.Sprintf("triage round %d: %d confirmed, %d false positives", round+1, len(merged.Confirmed), len(merged.FalsePositives)),
+			})
 		}
 
-		triage, err := ParseTriageResult(agentResult.RawOutput)
-		if err != nil {
-			zap.L().Warn("Failed to parse triage result, treating as done", zap.Error(err))
-			return result, nil
+		// Notify caller that this triage round completed (for checkpoint persistence)
+		if cfg.OnTriageRoundComplete != nil {
+			cfg.OnTriageRoundComplete(round)
 		}
 
-		result.TriageResults = append(result.TriageResults, triage)
-		result.Confirmed += len(triage.Confirmed)
-		result.FalsePositives += len(triage.FalsePositives)
-
-		if triage.Verdict != "rescan" || len(triage.FollowUps) == 0 || round >= maxRounds {
+		if merged.Verdict != "rescan" || len(merged.FollowUps) == 0 || round >= maxRounds {
 			zap.L().Info("Triage complete",
-				zap.String("verdict", triage.Verdict),
+				zap.String("verdict", merged.Verdict),
 				zap.Int("round", round),
-				zap.Int("confirmed", len(triage.Confirmed)),
-				zap.Int("falsePositives", len(triage.FalsePositives)))
+				zap.Int("confirmed", len(merged.Confirmed)),
+				zap.Int("falsePositives", len(merged.FalsePositives)))
 			break
 		}
 
 		// Run rescan with follow-up targets
 		zap.L().Info("Triage requested rescan",
 			zap.Int("round", round+1),
-			zap.Int("followUps", len(triage.FollowUps)))
+			zap.Int("followUps", len(merged.FollowUps)))
 
 		result.RescanRounds++
 
@@ -159,7 +267,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				cfg.OnRescan()
 			}
 
-			req := aggregateFollowUps(triage.FollowUps)
+			req := aggregateFollowUps(merged.FollowUps)
 			req.ExtensionDir = cfg.ExtensionDir // carry extensions from initial scan into rescans
 			if err := cfg.ScanFunc(ctx, req); err != nil {
 				zap.L().Error("Rescan failed, continuing with triage results",

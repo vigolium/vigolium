@@ -44,6 +44,8 @@ var (
 	swarmInstruction        string
 	swarmInstructionFile    string
 	swarmDiscover           bool
+	swarmBatchConcurrency   int
+	swarmMaxMasterRetries   int
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -91,6 +93,8 @@ func init() {
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
+	f.IntVar(&swarmBatchConcurrency, "batch-concurrency", 0, "Max parallel master agent batches (0 = auto, scales with CPU count)")
+	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
 }
 
 func runAgentSwarm(_ *cobra.Command, _ []string) error {
@@ -192,6 +196,8 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		OnlyPhase:          swarmOnlyPhase,
 		SkipPhases:         swarmSkipPhases,
 		MaxIterations:      swarmMaxIterations,
+		BatchConcurrency:   swarmBatchConcurrency,
+		MaxMasterRetries:   swarmMaxMasterRetries,
 		AgentName:          swarmAgentName,
 		AgentACPCmd:        swarmAgentACPCmd,
 		DryRun:             swarmDryRun,

@@ -352,7 +352,7 @@ func TestMergeSwarmPlansWithQuickChecksAndSnippets(t *testing.T) {
 		},
 	}
 
-	merged := mergeSwarmPlans(plans)
+	merged, _ := mergeSwarmPlans(plans)
 
 	if len(merged.ModuleTags) != 2 {
 		t.Errorf("expected 2 tags, got %d", len(merged.ModuleTags))

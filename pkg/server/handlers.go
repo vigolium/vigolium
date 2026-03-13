@@ -49,6 +49,21 @@ func (cc *countCache) Get(db *database.DB) (records, findings int64) {
 	return cc.records, cc.findings
 }
 
+// scanState tracks a running scan for a specific project.
+type scanState struct {
+	running  bool
+	runner   *runner.Runner
+	scanID   string
+}
+
+// queuedScan represents a scan waiting in a per-project queue.
+type queuedScan struct {
+	scanID      string
+	runner      *runner.Runner
+	projectUUID string
+	enqueued    time.Time
+}
+
 // Handlers holds the HTTP handlers and their dependencies.
 type Handlers struct {
 	queue         queue.Queue
@@ -61,11 +76,12 @@ type Handlers struct {
 	configWatcher *config.ConfigWatcher
 	startTime     time.Time
 
-	// Scan state for API-triggered scans
-	scanMu       sync.Mutex
-	scanRunning  bool
-	scanRunner   *runner.Runner
-	activeScanID string
+	// Per-project scan state for API-triggered scans
+	scanMu     sync.Mutex
+	scanStates map[string]*scanState // keyed by projectUUID
+
+	// Scan queue: when ScanQueueCapacity > 0, scans are queued instead of rejected
+	scanQueues map[string]chan *queuedScan
 
 	// Cached scope matcher (lazy-initialized, invalidated on config change)
 	scopeMatcherMu sync.RWMutex
@@ -102,6 +118,8 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		settings:         settings,
 		httpRequester:    httpRequester,
 		startTime:        time.Now(),
+		scanStates:       make(map[string]*scanState),
+		scanQueues:       make(map[string]chan *queuedScan),
 		agentEngine:      agent.NewEngine(settings, repo),
 		agentRunStatus:   make(map[string]*AgentRunStatusResponse),
 		agentCleanupStop: make(chan struct{}),
@@ -137,6 +155,14 @@ func (h *Handlers) agentDBCleanupLoop() {
 			if h.repo != nil {
 				if n, err := h.repo.DeleteOldAgentRuns(context.Background(), ttl); err == nil && n > 0 {
 					zap.L().Debug("Cleaned up old agent runs", zap.Int("count", n))
+				}
+			}
+
+			// Clean up old agent session directories
+			if h.settings != nil {
+				sessDir := h.settings.Agent.EffectiveSessionsDir()
+				if n, err := agent.CleanupSessionDirs(sessDir, 48*time.Hour); err == nil && n > 0 {
+					zap.L().Debug("Cleaned up old session directories", zap.Int("count", n))
 				}
 			}
 		}
@@ -268,17 +294,74 @@ func (h *Handlers) resetScopeMatcher() {
 	h.scopeMatcherMu.Unlock()
 }
 
-// IsScanRunning reports whether a scan is currently running.
+// IsScanRunning reports whether any scan is currently running (across all projects).
 // Implements metrics.ScanStateProvider.
 func (h *Handlers) IsScanRunning() bool {
 	h.scanMu.Lock()
 	defer h.scanMu.Unlock()
-	return h.scanRunning
+	for _, st := range h.scanStates {
+		if st.running {
+			return true
+		}
+	}
+	return false
+}
+
+// getProjectScanState returns the scan state for a project, creating it if needed.
+// Must be called with scanMu held.
+func (h *Handlers) getProjectScanState(projectUUID string) *scanState {
+	st, ok := h.scanStates[projectUUID]
+	if !ok {
+		st = &scanState{}
+		h.scanStates[projectUUID] = st
+	}
+	return st
+}
+
+// scanQueueWorker processes queued scans for a project sequentially.
+func (h *Handlers) scanQueueWorker(projectUUID string, ch chan *queuedScan) {
+	for qs := range ch {
+		h.scanMu.Lock()
+		st := h.getProjectScanState(qs.projectUUID)
+		st.running = true
+		st.runner = qs.runner
+		st.scanID = qs.scanID
+		h.scanMu.Unlock()
+
+		h.runBackgroundScan(qs.scanID, qs.runner, qs.projectUUID)
+	}
+}
+
+// HandleScanQueue handles GET /api/scans/queue — returns scan queue status.
+func (h *Handlers) HandleScanQueue(c fiber.Ctx) error {
+	h.scanMu.Lock()
+	defer h.scanMu.Unlock()
+
+	type queueInfo struct {
+		ProjectUUID string `json:"project_uuid"`
+		Depth       int    `json:"depth"`
+	}
+	var queues []queueInfo
+	for project, ch := range h.scanQueues {
+		queues = append(queues, queueInfo{
+			ProjectUUID: project,
+			Depth:       len(ch),
+		})
+	}
+	return c.JSON(fiber.Map{
+		"queues": queues,
+	})
 }
 
 // Close releases handler resources including the agent engine pool.
 func (h *Handlers) Close() {
 	close(h.agentCleanupStop)
+	h.scanMu.Lock()
+	for _, ch := range h.scanQueues {
+		close(ch)
+	}
+	h.scanQueues = make(map[string]chan *queuedScan)
+	h.scanMu.Unlock()
 	if h.agentEngine != nil {
 		h.agentEngine.Close()
 	}
