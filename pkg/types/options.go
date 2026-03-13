@@ -170,6 +170,9 @@ type Options struct {
 	// ClusterRequests enables request clustering to deduplicate concurrent identical HTTP requests
 	ClusterRequests bool
 
+	// ShutdownTimeout is the maximum time to wait for in-flight work during graceful shutdown (default: 30s)
+	ShutdownTimeout time.Duration
+
 	// Multi-session authentication for IDOR/BOLA testing
 	// Sessions are inline "name:Header:value" strings from --session flags
 	Sessions []string
@@ -182,14 +185,15 @@ type Options struct {
 // DefaultOptions returns default options for the scanner
 func DefaultOptions() *Options {
 	return &Options{
-		Concurrency:      50,
-		MaxPerHost:       2,
-		Timeout:          15 * time.Second,
-		Retries:          1,
+		Concurrency:          50,
+		MaxPerHost:           2,
+		Timeout:              15 * time.Second,
+		Retries:              1,
 		MaxHostError:         30,
 		MaxFindingsPerModule: 15,
-		PassiveModules:   []string{"all"},
-		ClusterRequests: true,
+		PassiveModules:       []string{"all"},
+		ClusterRequests:      true,
+		ShutdownTimeout:      30 * time.Second,
 	}
 }
 func (options *Options) ShouldUseHostError() bool {

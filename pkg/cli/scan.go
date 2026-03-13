@@ -287,7 +287,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--only and --skip are mutually exclusive; use one or the other")
 	}
 
-	// Normalize phase aliases (deparos→discover, spitolas→spidering, dynamic-assessment→audit)
+	// Normalize phase aliases (deparos→discover, spitolas→spidering)
 	scanOpts.OnlyPhase = normalizePhase(scanOpts.OnlyPhase)
 
 	// --only overrides strategy and individual phase flags
@@ -351,7 +351,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.ExtensionsOnly = true
 			settings.Audit.Extensions.Enabled = true
 		default:
-			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit (dynamic-assessment), extension (ext)", scanOpts.OnlyPhase)
+			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit, extension (ext)", scanOpts.OnlyPhase)
 		}
 		scanOpts.HeuristicsCheck = "none"
 		zap.L().Info("Phase isolation active", zap.String("only", scanOpts.OnlyPhase))
@@ -375,7 +375,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			case "audit":
 				scanOpts.SkipAudit = true
 			default:
-				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit (dynamic-assessment)", phase)
+				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit", phase)
 			}
 		}
 		zap.L().Info("Phases skipped", zap.Strings("skip", scanOpts.SkipPhases))
@@ -972,7 +972,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		phaseLabel("Discovery", "discovery", discoveryEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("SPA", "spa", spaEnabled),
-		phaseLabel("Auditing", "audit", daEnabled),
+		phaseLabel("Audit", "audit", daEnabled),
 		phaseLabel("SAST", "sast", sastEnabled))
 	if sastEnabled && opts.SASTAdhoc != "" {
 		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTAdhoc))

@@ -19,6 +19,7 @@ Alphabetical index of all vigolium CLI flags across all commands.
 - [Export Flags](#export-flags)
 - [Module Flags](#module-flags)
 - [Extensions Flags](#extensions-flags)
+- [JS Flags](#js-flags)
 - [Source Add Flags](#source-add-flags)
 
 ---
@@ -258,16 +259,25 @@ Flags specific to `vigolium agent swarm`.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--target` | `-t` | string | — | Target URL |
-| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML). Use `-` for stdin |
+| `--target` | `-t` | string | — | Target URL (required when `--source` is used without other inputs) |
+| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL). Use `-` for stdin |
 | `--record-uuid` | — | string | — | HTTP record UUID from database |
-| `--vuln-type` | — | string | — | Vulnerability type focus (e.g., sqli, xss, ssrf) |
+| `--source` | — | string | — | Path to application source code for route discovery |
+| `--files` | — | []string | — | Specific source files to include (relative to `--source`) |
+| `--vuln-type` | — | string | — | Vulnerability type focus (e.g., sqli, xss, ssrf, auth, idor) |
 | `--modules` | `-m` | []string | — | Explicit module names to include |
 | `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
 | `--agent` | — | string | from config | Agent backend |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override (overrides `--agent`) |
 | `--timeout` | — | duration | `15m` | Maximum swarm duration |
 | `--profile` | — | string | — | Scanning profile |
+| `--only` | — | string | — | Run only this scanning phase |
+| `--skip` | — | []string | — | Skip specific scanning phases |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
+| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
+| `--source-analysis-only` | — | bool | `false` | Run only source analysis phase and exit (requires `--source`) |
+| `--instruction` | — | string | — | Custom instruction to guide the agent |
+| `--instruction-file` | — | string | — | Path to file containing custom instructions |
 
 ---
 
@@ -451,6 +461,20 @@ Top-level `vigolium export` flags.
 | `--ext-file` | string | — | JS file to evaluate (eval) |
 | `--stdin` | bool | `false` | Read from stdin (eval) |
 | `--type` | string | `all` | Filter type (ls) |
+
+---
+
+## JS Flags
+
+Flags specific to `vigolium js`.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--code` | string | — | Inline JavaScript code to execute |
+| `--code-file` | string | — | Path to JavaScript/TypeScript file (auto-transpiles `.ts`) |
+| `--target` | string | — | Set TARGET variable in JS scope (URL string) |
+| `--timeout` | duration | `30s` | Execution timeout (e.g., `60s`, `2m`) |
+| `--format` | string | `json` | Output format: `json` or `text` |
 
 ---
 

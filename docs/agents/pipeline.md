@@ -54,9 +54,140 @@ vigolium agent pipeline -t http://localhost:3000 --source ./src --dry-run
 | `--skip-phase` | — | Skip specific phases |
 | `--start-from` | — | Resume from a specific phase |
 | `--profile` | — | Scanning profile name |
+| `--instruction` | — | Custom instruction to guide the agent (appended to prompts) |
+| `--instruction-file` | — | Path to a file containing custom instructions |
 | `--dry-run` | false | Render prompts without executing |
 
 > **Note:** `--repo` is accepted as a deprecated alias for `--source`.
+
+## Architecture Overview
+
+```
+                        vigolium agent pipeline -t <url>
+                                     |
+                                     v
+            +------------------------------------------------+
+            |              CLI Initialization                 |
+            |  - Parse flags, resolve --instruction[-file]   |
+            |  - Build PipelineConfig with callbacks          |
+            |  - Wire SourceAnalysisCallback, ScanFunc        |
+            +------------------------------------------------+
+                                     |
+                                     v
+  +------------------------------------------------------------------------+
+  |                        PipelineRunner.Run()                             |
+  |                                                                         |
+  |  Phase 0         Phase 1        Phase 2        Phase 3        Phase 4  |
+  |  Source          Discover       Plan           Scan           Triage   |
+  |  Analysis        (Native)       (AI)           (Native)       (AI)    |
+  |  (AI, optional)                                                        |
+  |     |               |              |              |              |     |
+  |     v               v              v              v              v     |
+  |  +---------+   +---------+   +---------+   +---------+   +---------+  |
+  |  | Engine  |   | deparos |   | Engine  |   | Executor|   | Engine  |  |
+  |  | .Run()  |   | crawl + |   | .Run()  |   | worker  |   | .Run()  |  |
+  |  |         |   | spider  |   |         |   | pool    |   |         |  |
+  |  +---------+   +---------+   +---------+   +---------+   +---------+  |
+  |     |               |              |              |              |     |
+  |     v               v              v              v              v     |
+  |  routes,         http_records   AttackPlan     findings       TriageResult
+  |  session cfg,    in DB          (module tags,  in DB          (confirmed,
+  |  extensions                      focus areas)                  false pos,
+  |                                                                follow-ups)
+  |                                                                  |     |
+  |                                          +----------+            |     |
+  |                                          | Phase 5  |<-----------+     |
+  |                                          | Rescan   |  (if verdict     |
+  |                                          | (Native) |   == "rescan")   |
+  |                                          +----------+                  |
+  |                                               |                        |
+  |                                               v                        |
+  |                                          +----------+                  |
+  |                                          | Phase 6  |                  |
+  |                                          | Report   |                  |
+  |                                          +----------+                  |
+  +------------------------------------------------------------------------+
+                                     |
+                                     v
+                            PipelineResult
+```
+
+### Data Flow: Source-Aware Pipeline
+
+```
+ --source ./app                --target http://localhost:3000
+      |                                     |
+      v                                     v
++------------------+                +------------------+
+| Phase 0: AI      |                | Phase 1: Native  |
+| Source Analysis   |                | Discovery +      |
+| (extract routes,  |                | Spidering        |
+|  auth flows,      |                |                  |
+|  extensions)      |                |                  |
++------------------+                +------------------+
+      |                                     |
+      |  routes -> DB                       |  http_records -> DB
+      |  session cfg -> auth-config.yaml    |
+      |  extensions -> session_dir/ext/     |
+      |                                     |
+      +------------------+------------------+
+                         |
+                         v
+                  +------------------+
+                  | Phase 2: AI Plan |
+                  | (reads DB:       |
+                  |  endpoints,      |
+                  |  modules,        |
+                  |  source code)    |
+                  +------------------+
+                         |
+                         |  AttackPlan: module_tags, focus_areas
+                         v
+                  +------------------+
+                  | Phase 3: Scan    |
+                  | - Selected       |
+                  |   modules only   |
+                  | - Generated      |
+                  |   extensions     |
+                  | - Auth config    |
+                  +------------------+
+                         |
+                         |  findings -> DB
+                         v
+                  +------------------+         +------------------+
+                  | Phase 4: AI      |-------->| Phase 5: Rescan  |
+                  | Triage           | rescan  | (targeted audit  |
+                  | (classify        |<--------| with follow-up   |
+                  |  findings)       |  loop   | modules)         |
+                  +------------------+  (max N)+------------------+
+                         |
+                         v
+                  +------------------+
+                  | Phase 6: Report  |
+                  +------------------+
+```
+
+### Prompt Injection Points
+
+Custom instructions flow into all AI agent calls:
+
+```
++-- Template (e.g. pipeline-plan.md) --+
+|                                       |
+|  ... template body ...                |
+|                                       |
++---------------------------------------+
+|                                       |
+|  ## Focus Area        <-- --focus     |
+|  SQL injection in ORM bypass          |
+|                                       |
+|  ## Custom Instructions  <-- --instruction
+|  Prioritize endpoints that handle     |
+|  file uploads. Generate extensions    |
+|  that test for path traversal.        |
+|                                       |
++---------------------------------------+
+```
 
 ## Phase Overview
 
@@ -442,6 +573,7 @@ type PipelineResult struct {
   "source": "/path/to/source",
   "files": ["src/auth.go"],
   "focus": "API injection",
+  "instruction": "Generate extensions targeting ORM bypass patterns. Prioritize admin endpoints.",
   "timeout": "1h",
   "max_rescan_rounds": 2,
   "skip_phases": ["report"],

@@ -244,7 +244,7 @@ Run a single scan phase directly. Equivalent to `vigolium scan --only <phase>`.
 | `spidering` | `spitolas` |
 | `spa` | — |
 | `sast` | — |
-| `audit` | `dynamic-assessment` |
+| `audit` | — |
 | `extension` | `ext` |
 
 The `run` command accepts the same flags as `scan` (output, discovery, spidering, SPA, SAST, OAST flags).

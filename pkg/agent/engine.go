@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -265,6 +266,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		TargetURL:      cfg.TargetURL,
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
+		Instruction:    cfg.Instruction,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -311,6 +313,98 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 	}
 
 	return saResult, rawOutput, renderedPrompt, nil
+}
+
+// RunSourceAnalysisParallel executes source analysis using three parallel sub-agents,
+// each focused on a specific aspect: route extraction, auth flow discovery, and extension writing.
+// Results are merged into a single SourceAnalysisResult.
+// Falls back to the monolithic RunSourceAnalysis if no focused templates exist.
+func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalysisConfig) (saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
+	if cfg.SourcePath == "" {
+		return nil, "", "", nil
+	}
+
+	// Define the three focused sub-agents with their template IDs
+	type subAgentDef struct {
+		name     string
+		template string
+	}
+	subAgents := []subAgentDef{
+		{"routes", "swarm-source-routes"},
+		{"auth", "swarm-source-auth"},
+		{"extensions", "swarm-source-extensions"},
+	}
+
+	// Check if the focused templates exist. If not, fall back to monolithic analysis.
+	allExist := true
+	for _, sa := range subAgents {
+		path := ResolveTemplatePath(sa.template, e.settings.Agent.TemplatesDir)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			allExist = false
+			break
+		}
+	}
+	if !allExist {
+		zap.L().Debug("Focused source analysis templates not found, falling back to monolithic analysis")
+		return e.RunSourceAnalysis(ctx, cfg)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	merged := &SourceAnalysisResult{}
+	var allRawOutputs []string
+	var allPrompts []string
+	var errs []error
+
+	wg.Add(len(subAgents))
+	for _, sa := range subAgents {
+		go func(sa subAgentDef) {
+			defer wg.Done()
+			subCfg := cfg
+			subCfg.PromptTemplate = sa.template
+
+			result, subRawOutput, subPrompt, subErr := e.RunSourceAnalysis(ctx, subCfg)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if subRawOutput != "" {
+				allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- %s ---\n%s", sa.name, subRawOutput))
+			}
+			if subPrompt != "" {
+				allPrompts = append(allPrompts, fmt.Sprintf("--- %s ---\n%s", sa.name, subPrompt))
+			}
+			if subErr != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", sa.name, subErr))
+				return
+			}
+			if result == nil {
+				return
+			}
+
+			// Merge results from each sub-agent
+			merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
+			if result.SessionConfig != nil && len(result.SessionConfig.Sessions) > 0 {
+				merged.SessionConfig = result.SessionConfig
+			}
+			merged.Extensions = append(merged.Extensions, result.Extensions...)
+		}(sa)
+	}
+	wg.Wait()
+
+	combinedRaw := strings.Join(allRawOutputs, "\n\n")
+	combinedPrompt := strings.Join(allPrompts, "\n\n")
+
+	if len(errs) == len(subAgents) {
+		return nil, combinedRaw, combinedPrompt, fmt.Errorf("all source analysis sub-agents failed: %v", errs)
+	}
+	if len(errs) > 0 {
+		for _, e := range errs {
+			zap.L().Warn("Source analysis sub-agent failed (partial results available)", zap.Error(e))
+		}
+	}
+
+	return merged, combinedRaw, combinedPrompt, nil
 }
 
 // resolveAgent looks up an agent definition by name from settings.
@@ -364,9 +458,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if renderErr != nil {
 			return "", "", "", renderErr
 		}
-		if opts.Append != "" {
-			rendered += "\n\n" + opts.Append
-		}
+		rendered = appendPromptSuffix(rendered, opts)
 		return rendered, tmpl.OutputSchema, tmpl.ID, nil
 	}
 
@@ -384,13 +476,22 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if renderErr != nil {
 			return "", "", "", renderErr
 		}
-		if opts.Append != "" {
-			rendered += "\n\n" + opts.Append
-		}
+		rendered = appendPromptSuffix(rendered, opts)
 		return rendered, tmpl.OutputSchema, tmpl.ID, nil
 	}
 
 	return "", "", "", fmt.Errorf("no prompt source specified (use --prompt-template, --prompt-file, --prompt, or --stdin)")
+}
+
+// appendPromptSuffix appends optional Append text and custom instructions to a rendered prompt.
+func appendPromptSuffix(rendered string, opts Options) string {
+	if opts.Append != "" {
+		rendered += "\n\n" + opts.Append
+	}
+	if opts.Instruction != "" {
+		rendered += "\n\n## Custom Instructions\n\n" + opts.Instruction
+	}
+	return rendered
 }
 
 // gatherContext reads source files and prepares template data.

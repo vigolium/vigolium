@@ -325,44 +325,73 @@ Inputs are auto-detected from their content:
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--target` | `-t` | string | — | Target URL |
-| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML). Use `-` for stdin |
+| `--target` | `-t` | string | — | Target URL (required when `--source` is used without other inputs) |
+| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Use `-` for stdin |
 | `--record-uuid` | — | string | — | HTTP record UUID from database |
-| `--vuln-type` | — | string | — | Vulnerability type focus (e.g., `sqli`, `xss`, `ssrf`) |
+| `--source` | — | string | — | Path to application source code for route discovery (enables source analysis phase) |
+| `--files` | — | []string | — | Specific source files to include (relative paths to `--source`) |
+| `--vuln-type` | — | string | — | Vulnerability type focus (e.g., `sqli`, `xss`, `ssrf`, `auth`, `idor`) |
 | `--modules` | `-m` | []string | — | Explicit module names to include alongside agent selections |
 | `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
 | `--agent` | — | string | from config | Agent backend to use |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override (e.g., `traecli acp`); overrides `--agent` |
 | `--timeout` | — | duration | `15m` | Maximum swarm duration |
 | `--profile` | — | string | — | Scanning profile to use |
+| `--only` | — | string | — | Run only this scanning phase |
+| `--skip` | — | []string | — | Skip specific scanning phases |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
+| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
+| `--source-analysis-only` | — | bool | `false` | Run only the source analysis phase and exit (requires `--source`) |
+| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to all prompts) |
+| `--instruction-file` | — | string | — | Path to file containing custom instructions (takes precedence over `--instruction`) |
 
-At least one input is required: `--target`, `--input`, or `--record-uuid`. Multiple inputs can be combined.
+At least one input is required: `--target`, `--input`, `--record-uuid`, `--source`, or piped stdin. Multiple inputs can be combined. `--source` requires `--target` for hostname filtering.
 
 ### Swarm Phases
 
 ```
-Phase 1: Normalize  → Parse input(s) into HttpRequestResponse objects
-Phase 2: Plan       → Master agent analyzes request, selects modules, generates extensions
-Phase 3: Extension  → Write generated JS extensions to temp directory
-Phase 4: Scan       → Dynamic assessment with selected modules + extensions
-Phase 5: Triage     → Agent reviews extension-generated findings
-Phase 6: Rescan     → Targeted rescan based on triage follow-ups (loop)
+Phase 1: Normalize        → Parse input(s) into HttpRequestResponse objects, save to DB
+Phase 2: Source Analysis   → AI extracts routes, auth config, JS extensions from source (conditional, requires --source)
+Phase 3: Plan             → Master agent analyzes request, selects modules, generates extensions
+Phase 4: Extension        → Write generated JS extensions to temp directory
+Phase 5: Scan             → Dynamic assessment with selected modules + extensions
+Phase 6: Triage           → Agent reviews extension-generated findings
+Phase 7: Rescan           → Targeted rescan based on triage follow-ups (loop)
 ```
 
-The triage→rescan loop (phases 5-6) repeats until the agent sets verdict to `"done"`, there are no follow-ups, or `--max-iterations` is reached.
+Phase 2 (Source Analysis) is **automatically skipped** when `--source` is not provided. The triage→rescan loop (phases 6-7) repeats until the agent sets verdict to `"done"`, there are no follow-ups, or `--max-iterations` is reached.
 
 ### Swarm Output Schemas
 
-**SwarmPlan** (phase 2 output):
+**SwarmPlan** (phase 3 output):
+
+The master agent produces a plan with three tiers of custom checks (lightest first):
 
 ```json
 {
   "module_tags": ["sqli", "injection"],
   "module_ids": ["sqli-error-based"],
+  "quick_checks": [
+    {
+      "id": "ssti-jinja2",
+      "severity": "high",
+      "scan": "per_insertion_point",
+      "payloads": ["{{7*7}}", "${7*7}"],
+      "match": {"body_contains": "49"}
+    }
+  ],
+  "snippets": [
+    {
+      "id": "idor-check",
+      "severity": "high",
+      "scan": "per_request",
+      "body": "var related = vigolium.db.records.getRelated(ctx.record.uuid);\nvar cmp = vigolium.db.compareResponses(related);\nif (!cmp.all_similar) return [{url: ctx.request.url, matched: 'Response variance', name: 'Potential IDOR'}];\nreturn null;"
+    }
+  ],
   "extensions": [
     {
       "filename": "custom-json-sqli.js",
-      "code": "var module = { id: 'custom-json-sqli', ... }; function scan_per_request(ctx) { ... }",
+      "code": "module.exports = { id: 'custom-json-sqli', ... };",
       "reason": "JSON body with user_id parameter susceptible to SQL injection"
     }
   ],
@@ -371,6 +400,14 @@ The triage→rescan loop (phases 5-6) repeats until the agent sets verdict to `"
 }
 ```
 
+**Custom check tiers** (prefer the lightest format that works):
+
+| Tier | Format | When to use |
+|------|--------|-------------|
+| `quick_checks` | Declarative JSON (payloads + match) | Simple "send payload, check response" patterns — zero JS |
+| `snippets` | JS function body only | Need `vigolium.*` API access but no boilerplate |
+| `extensions` | Full JS module | Complex multi-step logic, multiple helpers, state management |
+
 **SwarmResult** (final output):
 
 ```json
@@ -378,11 +415,15 @@ The triage→rescan loop (phases 5-6) repeats until the agent sets verdict to `"
   "swarm_plan": { "..." },
   "triage_results": [ "..." ],
   "total_findings": 5,
+  "total_records": 3,
+  "severity_counts": {"critical": 1, "high": 2, "medium": 2, "low": 0},
   "confirmed": 3,
   "false_positives": 2,
   "iterations": 2,
   "duration": "3m45s",
-  "agent_run_uuid": "agt-..."
+  "agent_run_uuid": "agt-...",
+  "session_id": "...",
+  "session_dir": "~/.vigolium/agent-sessions/agt-abc123"
 }
 ```
 
@@ -404,8 +445,34 @@ vigolium agent swarm --record-uuid 550e8400-e29b-41d4-a716-446655440000
 # Focus on a specific vulnerability type
 vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
 
+# Source-aware swarm (discovers routes from source code)
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app
+
+# Source-aware with specific files
+vigolium agent swarm -t http://localhost:8080 --source ./backend \
+  --files src/routes/api.js,src/models/user.js
+
+# Source analysis only (extract routes, no scan)
+vigolium agent swarm -t http://localhost:3000 --source ./src --source-analysis-only
+
+# Custom instructions to guide the agent
+vigolium agent swarm -t https://example.com/api/users --instruction "Focus on GraphQL parsing"
+
+# Instructions from a file
+vigolium agent swarm -t https://example.com/api/users --instruction-file custom-hints.txt
+
+# Show rendered prompts during execution
+vigolium agent swarm -t https://example.com/api/users --show-prompt
+
+# Custom ACP agent command
+vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli acp"
+
 # Specify modules explicitly
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
+
+# Control scanning phases
+vigolium agent swarm -t https://example.com --only audit
+vigolium agent swarm -t https://example.com --skip discovery,spidering
 
 # Preview master agent prompt
 vigolium agent swarm -t https://example.com/api/users --dry-run

@@ -1,6 +1,6 @@
 # Writing Extensions
 
-Extensions let you add custom scanning logic to Vigolium without modifying the core scanner. You can write them in **JavaScript** for full flexibility or in **YAML** for declarative pattern matching.
+Extensions let you add custom scanning logic to Vigolium without modifying the core scanner. You can write them in **JavaScript** for full flexibility, in **YAML** for declarative pattern matching, or use lightweight **quick checks** and **snippets** for fast iteration.
 
 ---
 
@@ -19,7 +19,10 @@ Extensions let you add custom scanning logic to Vigolium without modifying the c
   - [Passive Module](#passive-module-yaml)
   - [Pre-Hook](#pre-hook-yaml)
   - [Post-Hook](#post-hook-yaml)
+- [Quick Checks](#quick-checks)
+- [Snippets](#snippets)
 - [Context Objects Reference](#context-objects-reference)
+- [API Reference](#api-reference)
 - [Testing Your Extension](#testing-your-extension)
 - [Configuration Reference](#configuration-reference)
 - [Tips and Best Practices](#tips-and-best-practices)
@@ -37,7 +40,7 @@ Extensions plug into the scanner pipeline at four points:
 | `pre_hook` | Before each request is sent | Modify requests, skip assets, inject headers |
 | `post_hook` | After a finding is emitted | Escalate severity, drop false positives |
 
-Both JS and YAML extensions support all four types. YAML is simpler for straightforward pattern matching. JS gives you full access to HTTP requests, regex, encoding utilities, the database API, and optional AI-augmented analysis.
+All four types are supported in JS, YAML, and (for active/passive) as quick checks or snippets. YAML is simpler for straightforward pattern matching. JS gives you full access to HTTP requests, regex, encoding utilities, the database API, OAST (out-of-band) testing, and optional AI-augmented analysis. Quick checks and snippets are even lighter — ideal for agent-generated or ad-hoc checks.
 
 ---
 
@@ -84,7 +87,7 @@ Every JS extension must export a `module.exports` object. Required fields:
 | `type` | **Yes** | `active`, `passive`, `pre_hook`, `post_hook` |
 | `name` | No | Display name |
 | `description` | No | What the extension does |
-| `severity` | For active/passive | `critical`, `high`, `medium`, `low`, `info` |
+| `severity` | For active/passive | `critical`, `high`, `medium`, `low`, `info`, `suspect` |
 | `confidence` | No | `tentative`, `firm`, `certain` |
 | `scanTypes` | For active/passive | `["per_insertion_point"]`, `["per_request"]`, `["per_host"]` |
 | `tags` | No | Classification tags for `--module-tag` filtering (e.g. `["custom", "xss"]`) |
@@ -93,7 +96,7 @@ Every JS extension must export a `module.exports` object. Required fields:
 
 ## Writing a JavaScript Extension
 
-JS extensions run inside an embedded Goja (ES5.1-compatible) VM. The global `vigolium` object provides all APIs.
+JS extensions run inside an embedded Sobek (ES5.1-compatible) VM. The global `vigolium` object provides all APIs.
 
 ### Active Module (JS)
 
@@ -564,6 +567,104 @@ drop_when:
 
 ---
 
+## Quick Checks
+
+Quick checks are the lightest extension format — declarative JSON objects that define "send payload, check response" patterns with zero JavaScript. They're ideal for agent-generated checks and rapid iteration.
+
+### Per Insertion Point
+
+Inject payloads into each parameter and check the response:
+
+```json
+{
+  "id": "ssti-jinja2",
+  "severity": "high",
+  "scan": "per_insertion_point",
+  "payloads": ["{{7*7}}", "${7*7}", "<%=7*7%>"],
+  "match": {"body_contains": "49"}
+}
+```
+
+### Per Request / Per Host
+
+Send specific requests and check responses:
+
+```json
+{
+  "id": "debug-endpoint",
+  "severity": "medium",
+  "scan": "per_host",
+  "requests": [
+    {"method": "GET", "path": "/.env"},
+    {"method": "GET", "path": "/debug/vars"}
+  ],
+  "match": {"status": 200, "body_regex": "(DB_PASSWORD|SECRET_KEY)"}
+}
+```
+
+### Match Fields
+
+Match conditions use OR logic:
+
+| Field | Description |
+|---|---|
+| `body_contains` | Response body contains string |
+| `body_regex` | Response body matches regex |
+| `status` | HTTP status code equals value |
+| `header_contains` | Response header contains string |
+
+### Rules
+
+- `id` must be lowercase with hyphens (e.g. `"ssti-jinja2"`)
+- `scan` is one of: `per_insertion_point`, `per_request`, `per_host`
+- `severity` is one of: `critical`, `high`, `medium`, `low`, `info`
+- Quick checks are automatically wrapped into full extension modules at runtime
+
+---
+
+## Snippets
+
+Snippets are a middle ground between quick checks and full extensions — you write just the **function body** (no boilerplate), and it gets wrapped in a module scaffold automatically. Use snippets when you need custom logic or `vigolium.*` API access.
+
+### Format
+
+```json
+{
+  "id": "idor-check",
+  "severity": "high",
+  "scan": "per_request",
+  "body": "var related = vigolium.db.records.getRelated(ctx.record.uuid);\nvar cmp = vigolium.db.compareResponses(related);\nif (!cmp.all_similar) {\n  return [{url: ctx.request.url, matched: 'Response variance', name: 'Potential IDOR'}];\n}\nreturn null;"
+}
+```
+
+### Available Variables
+
+Inside the snippet body, you have access to:
+
+| Variable | Description |
+|---|---|
+| `ctx` | Request/response context (`ctx.request`, `ctx.response`, `ctx.record`) |
+| `insertion` | Insertion point object (only for `per_insertion_point` scan type) |
+| `vigolium.http` | HTTP requests, sessions, batch, replay, sequence, auth testing |
+| `vigolium.db` | Database queries for records and findings |
+| `vigolium.utils` | Encoding, hashing, diff, JWT, CSS selectors, etc. |
+| `vigolium.parse` | URL, request, response, HTML parsing |
+| `vigolium.scan` | Module listing, scope, finding creation |
+| `vigolium.source` | Source code access and search |
+| `vigolium.agent` | AI-augmented analysis |
+| `vigolium.oast` | Out-of-band testing |
+| `vigolium.ingest` | Data ingestion |
+| `vigolium.payloads()` | Built-in payload wordlists |
+
+### Rules
+
+- `id` must be lowercase with hyphens
+- `scan` is one of: `per_insertion_point`, `per_request`, `per_host`
+- `body` contains the function body as a string (newlines escaped as `\n`)
+- The return value follows the same convention as full extensions: array of findings or `null`
+
+---
+
 ## Context Objects Reference
 
 ### `ctx` — passed to all active/passive module functions
@@ -590,6 +691,308 @@ insertion.name              // "id" (parameter name)
 insertion.baseValue         // "1" (original value)
 insertion.type              // "url_param" | "body_param" | "header" | "cookie"
 insertion.buildRequest(val) // returns raw request string with val injected
+```
+
+### `ctx.record` — current HTTP record context
+
+```javascript
+ctx.record.uuid              // database UUID of the current record
+ctx.record.annotate(patch)   // update risk_score/remarks
+ctx.record.addRiskScore(delta) // increment risk score (can be negative, clamped to 0)
+ctx.record.addRemarks(remarks) // append remarks with deduplication
+```
+
+---
+
+## API Reference
+
+### vigolium.log
+
+| Function | Description |
+|---|---|
+| `info(msg)` | Log info message |
+| `warn(msg)` | Log warning message |
+| `error(msg)` | Log error message |
+| `debug(msg)` | Log debug message |
+
+### vigolium.utils
+
+**Encoding:**
+
+| Function | Description |
+|---|---|
+| `base64Encode(s)` / `base64Decode(s)` | Base64 encode/decode |
+| `urlEncode(s)` / `urlDecode(s)` | URL encode/decode |
+| `htmlEncode(s)` / `htmlDecode(s)` | HTML entity encode/decode |
+
+**Hashing:**
+
+| Function | Description |
+|---|---|
+| `sha1(s)` | SHA-1 hash |
+| `sha256(s)` | SHA-256 hash |
+| `md5(s)` | MD5 hash |
+
+**Random:**
+
+| Function | Description |
+|---|---|
+| `randomString(len)` | Random alphanumeric string |
+
+**Regex:**
+
+| Function | Description |
+|---|---|
+| `regexMatch(str, pattern)` | Test if string matches regex |
+| `regexExtract(str, pattern)` | Extract matches from string |
+
+**File I/O:**
+
+| Function | Description |
+|---|---|
+| `readFile(path)` | Read file contents |
+| `readLines(path)` | Read file as array of lines |
+| `writeFile(path, data)` | Write data to file |
+| `mkdir(path)` | Create directory |
+| `glob(pattern)` | Find files matching pattern |
+
+**URL utilities:**
+
+| Function | Description |
+|---|---|
+| `parse_url(url, format)` | Parse URL with format |
+| `pathToTemplate(path)` | Replace dynamic segments with `*` |
+| `hasDynamicSegment(path)` | Check for dynamic segments (IDs, UUIDs) |
+
+**Parameter utilities:**
+
+| Function | Description |
+|---|---|
+| `toSet(csv)` | Convert CSV string to `{key: true}` map |
+| `extractParamNames(str)` | Extract deduplicated param names from query/body |
+
+**Diff and similarity:**
+
+| Function | Description |
+|---|---|
+| `diff(a, b)` | Line-by-line comparison → `{added, removed, similarity}` |
+| `similarity(a, b)` | Jaccard similarity (0.0–1.0) on word tokens |
+| `diffResponses(a, b)` | Structural HTTP response comparison → `{status_match, body_similarity, header_diff, body_diff, length_diff, likely_same_content}` |
+
+**HTML:**
+
+| Function | Description |
+|---|---|
+| `cssSelect(html, selector)` | CSS selector query → `[{text, attrs, html}]` |
+
+**Token extraction:**
+
+| Function | Description |
+|---|---|
+| `extractToken(response, rules)` | Extract tokens from HTTP response using configurable rules (json/header/cookie/regex) |
+
+**JWT:**
+
+| Function | Description |
+|---|---|
+| `jwtDecode(token)` | Decode JWT without verification → `{header, payload, signature}` |
+| `jwtEncode(payload, opts?)` | Forge JWT (HS256/HS384/HS512/none) |
+| `jwtExpired(token)` | Check if JWT is expired |
+
+**Multipart:**
+
+| Function | Description |
+|---|---|
+| `multipart(fields)` | Build multipart/form-data body → `{body, contentType}` |
+
+**Anomaly detection:**
+
+| Function | Description |
+|---|---|
+| `detectAnomaly(responses)` | Score responses by divergence → `[{index, score}]` |
+
+**Other:**
+
+| Function | Description |
+|---|---|
+| `sleep(ms)` | Sleep for milliseconds |
+| `exec(cmd)` | Execute shell command (requires `allow_exec`) → `{stdout, stderr, exitCode}` |
+| `getEnv(name)` / `setEnv(name, value)` | Environment variables |
+| `jsonExtract(json, path)` | Extract value from JSON by path |
+
+### vigolium.parse
+
+| Function | Description |
+|---|---|
+| `url(str)` | Parse URL → `{scheme, host, hostname, port, path, query, fragment, params, segments, template}` |
+| `request(raw)` | Parse raw HTTP request → `{method, path, query, version, headers, body, host, params, cookies}` |
+| `response(raw)` | Parse raw HTTP response → `{status, statusText, version, headers, body, cookies, contentType}` |
+| `headers(str)` | Parse header block → `{name: value}` |
+| `cookies(str)` | Parse Cookie header → `{name: value}` |
+| `query(str)` | Parse query string → `{name: value}` |
+| `json(str)` | Parse JSON string → native value |
+| `form(body)` | Parse URL-encoded form → `{name: value}` |
+| `html(str)` | Parse HTML → `{forms, links, scripts, meta}` |
+
+### vigolium.http
+
+**Basic requests:**
+
+| Function | Description |
+|---|---|
+| `get(url, opts?)` | HTTP GET |
+| `post(url, body, opts?)` | HTTP POST |
+| `request(opts)` | Full control (method, url, headers, body) |
+| `send(rawRequest)` | Send raw HTTP request string |
+| `buildRequest(rawRequest, overrides)` | Clone and modify a raw request (method, path, headers, body, query) |
+
+**Sessions:**
+
+| Function | Description |
+|---|---|
+| `session(opts?)` | Create persistent session with shared cookie jar and default headers |
+| `login(opts)` | Send credentials, extract auth tokens, return authenticated session |
+| `sessionPool(configs)` | Create named session pool from config map |
+| `followAuth(opts)` | Execute OAuth2 flow (client_credentials, password, code grants) |
+
+Session objects expose: `get()`, `post()`, `request()`, `send()`, `setHeader()`, `removeHeader()`, `getHeaders()`, `getCookies()`, `setCookie()`, `cloneAs()`, `onRequest()`, `onResponse()`, `setAutoRefresh()`.
+
+**Batch and replay:**
+
+| Function | Description |
+|---|---|
+| `batch(requests, opts?)` | Send multiple requests in parallel (configurable concurrency) |
+| `replay(rawRequest, variations)` | Replay request with multiple variations (header overrides, body swaps) |
+
+**Multi-step workflows:**
+
+| Function | Description |
+|---|---|
+| `sequence(steps)` | Execute request sequence with variable extraction (`{{varName}}`), conditional execution, fallback steps, and repeat loops |
+
+**Auth testing:**
+
+| Function | Description |
+|---|---|
+| `authTest(opts)` | Test IDOR/BOLA by replaying requests across sessions with different privilege levels |
+| `csrf(url, opts?)` | Extract CSRF token from page (form, meta, header, cookie sources) |
+
+**Retry and caching:**
+
+| Function | Description |
+|---|---|
+| `retry(request, opts?)` | Retry with configurable backoff (max retries, retry_on status codes, until predicate) |
+| `cache(opts?)` | Enable response caching with TTL and max entries |
+| `clearCache()` | Clear all cached responses |
+| `cachedGet(url, opts?)` | GET with cache |
+| `cachedRequest(opts)` | Full request with cache |
+
+**GraphQL:**
+
+| Function | Description |
+|---|---|
+| `graphql(url, opts)` | Send GraphQL query/mutation → `{data, errors, raw}` |
+| `graphqlSchema(url, opts?)` | Fetch introspection schema |
+
+### vigolium.scan
+
+| Function | Description |
+|---|---|
+| `listModules()` | List all registered modules |
+| `listModuleTags()` | List all unique module tags |
+| `listModulesByTag(tag)` | List modules with a specific tag |
+| `isInScope(host, path)` | Check if host/path is in scope |
+| `getScope()` / `setScope(scope)` | Get/set scope configuration |
+| `createFinding(finding)` | Persist a finding |
+| `getCurrentScan()` | Get current scan info |
+| `startNewScan(opts)` | Start a new scan |
+| `scanRecords(opts)` | Queue scan for existing records by UUIDs |
+
+### vigolium.ingest
+
+| Function | Description |
+|---|---|
+| `url(url)` | Ingest a single URL |
+| `urls(content)` | Ingest multiple URLs from content |
+| `curl(command)` | Ingest from curl command |
+| `raw(rawRequest, rawResponse?)` | Ingest raw HTTP request/response |
+| `openapi(spec, opts?)` | Ingest from OpenAPI spec |
+| `postman(collection)` | Ingest from Postman collection |
+
+### vigolium.source
+
+| Function | Description |
+|---|---|
+| `list(hostname?)` | List source repos |
+| `get(id)` | Get source repo by ID |
+| `getByHostname(hostname)` | Get repos by hostname |
+| `readFile(hostname, path)` | Read source file |
+| `listFiles(hostname, glob?)` | List source files |
+| `searchFiles(hostname, pattern)` | Search source files by pattern |
+
+### vigolium.agent (AI-augmented)
+
+| Function | Description |
+|---|---|
+| `complete(opts)` | Full control: model, messages, schema, temperature → `{content, model, tokens_in, tokens_out}` |
+| `ask(prompt, opts?)` | Single prompt → text response |
+| `chat(messages, opts?)` | Conversation → text response |
+| `generatePayloads(opts)` | Generate context-aware security payloads by type, context, technology, WAF |
+| `analyzeResponse(opts)` | Analyze HTTP exchange for vulnerability → `{vulnerable, confidence, evidence, details}` |
+| `confirmFinding(opts)` | Verify true positive → `{confirmed, confidence, reasoning, false_positive_indicators}` |
+| `run(opts)` | Run full agent backend subprocess (claude, opencode, gemini, etc.) |
+
+### vigolium.oast (Out-of-Band Testing)
+
+| Function | Description |
+|---|---|
+| `enabled()` | Check if OAST service is active |
+| `payload(targetURL?, paramName?, injectionType?)` | Generate unique OAST callback URL → `{url}` |
+| `poll(timeoutMs?)` | Wait then return all OAST interactions → `[{protocol, unique_id, remote_address, target_url, parameter_name, module_id, interacted_at}]` |
+
+### vigolium.db
+
+**Records:**
+
+| Function | Description |
+|---|---|
+| `records.query(filters?)` | Query HTTP records with filters (hostname, path, methods, status_codes, source, search, fuzzy, min_risk_score, limit, offset, sort) |
+| `records.get(uuid)` | Get single record by UUID |
+| `records.getRelated(uuid, opts?)` | Get records with same path template/hostname |
+| `records.annotate(uuid, patch)` | Update risk_score/remarks |
+| `records.grouped(opts?)` | Group by path template for IDOR detection → `[{template, method, records, param_values}]` |
+
+**Findings:**
+
+| Function | Description |
+|---|---|
+| `findings.query(filters?)` | Query findings (severity, module_name, scan_uuid filters) |
+| `findings.get(id)` | Get finding by ID |
+| `findings.getByRecord(uuid)` | Get findings for an HTTP record |
+| `findings.create(finding)` | Persist a new finding |
+
+**Comparison:**
+
+| Function | Description |
+|---|---|
+| `compareResponses(records)` | Anomaly detection across record set → `{all_similar, scores, variant_count, summary}` |
+
+### vigolium.payloads(type)
+
+Returns built-in payload wordlists by vulnerability type. Types: `"xss"`, `"sqli"`, `"ssti"`, `"ssrf"`, `"lfi"`, `"path_traversal"`, `"xxe"`, `"cmdi"`, `"open_redirect"`, `"crlf"`.
+
+```javascript
+var payloads = vigolium.payloads("xss");
+// ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>", ...]
+```
+
+### vigolium.config
+
+Read-only config values from the `variables` block in `vigolium-configs.yaml`:
+
+```javascript
+var token = vigolium.config.auth_token;
+var domain = vigolium.config.collaborator_domain || "oast.pro";
 ```
 
 ---
@@ -743,15 +1146,35 @@ if (!ctx.response || !ctx.response.body) return null;
 
 **Keep pre-hooks fast** — they run on every request before any module sees it. Avoid HTTP calls inside pre-hooks.
 
-**YAML vs JS decision guide:**
-- Use YAML when you need regex/header/status matching with a fixed finding output
-- Use JS when you need: conditional logic, multiple HTTP requests, encoding/decoding, database lookups, or AI-augmented analysis
+**YAML vs JS vs quick check decision guide:**
+- Use **quick checks** when you need simple payload-and-match patterns with no logic
+- Use **snippets** when you need `vigolium.*` API access but don't want full boilerplate
+- Use **YAML** when you need regex/header/status matching with a fixed finding output
+- Use **JS** when you need: conditional logic, multiple HTTP requests, encoding/decoding, database lookups, session management, or AI-augmented analysis
 
 **Scope your passive module** — set `scope: "response"` if you only need response data. This avoids unnecessary invocations.
 
 **Use `vigolium.config.*`** for secrets and environment-specific values instead of hardcoding them:
 ```javascript
 var target = vigolium.config.collaborator_domain || "oast.pro";
+```
+
+**Use built-in payloads** instead of hardcoding wordlists:
+```javascript
+var payloads = vigolium.payloads("xss");
+```
+
+**Enable response caching** for extensions that make repeated baseline requests:
+```javascript
+vigolium.http.cache({ ttl_ms: 30000 });
+var baseline = vigolium.http.cachedGet(url);
+```
+
+**Use sessions for multi-request flows** — sessions persist cookies and headers:
+```javascript
+var session = vigolium.http.session({ headers: { "Authorization": "Bearer " + token } });
+session.get(url1);
+session.post(url2, body); // cookies from url1 are sent automatically
 ```
 
 **Avoid hardcoding the extension id** if you plan to distribute extensions — the filename without extension is used as the default ID, which is usually fine.

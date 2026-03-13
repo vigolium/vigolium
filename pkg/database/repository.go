@@ -497,6 +497,21 @@ func (r *Repository) CreateScanWithCursor(ctx context.Context, scan *Scan) error
 	return nil
 }
 
+// IncrementProcessedCount adds delta to the scan's processed_count.
+// Use this for phases that don't advance the cursor (discovery, spidering, etc.).
+func (r *Repository) IncrementProcessedCount(ctx context.Context, scanUUID string, delta int64) error {
+	if delta <= 0 {
+		return nil
+	}
+	_, err := r.db.NewUpdate().
+		Model((*Scan)(nil)).
+		Set("processed_count = processed_count + ?", delta).
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("uuid = ?", scanUUID).
+		Exec(ctx)
+	return err
+}
+
 // AdvanceScanCursor updates the cursor position and increments ProcessedCount.
 func (r *Repository) AdvanceScanCursor(ctx context.Context, scanUUID string, recordCreatedAt time.Time, recordUUID string) error {
 	_, err := r.db.NewUpdate().

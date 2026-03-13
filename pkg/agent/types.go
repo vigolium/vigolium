@@ -14,12 +14,13 @@ type Options struct {
 	Stdin          bool   // read prompt from stdin
 
 	// Context
-	SourcePath string   // path to source code repository (--source flag)
-	Files      []string // specific files to include (relative to SourcePath)
-	Source     string   // source identifier for findings
-	Append     string   // extra text appended to the rendered prompt
-	TargetURL  string   // target URL for scanning context
-	Hostname   string   // target hostname (derived from TargetURL if empty)
+	SourcePath  string   // path to source code repository (--source flag)
+	Files       []string // specific files to include (relative to SourcePath)
+	Source      string   // source identifier for findings
+	Append      string   // extra text appended to the rendered prompt
+	Instruction string   // user-provided custom instruction appended to the prompt
+	TargetURL   string   // target URL for scanning context
+	Hostname    string   // target hostname (derived from TargetURL if empty)
 
 	// Output
 	OutputPath   string    // write agent output to this file

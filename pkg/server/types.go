@@ -386,6 +386,7 @@ type AgentRunRequest struct {
 	RepoPath       string   `json:"repo_path,omitempty"`       // deprecated: use source
 	Files          []string `json:"files,omitempty"`
 	Append         string   `json:"append,omitempty"`
+	Instruction    string   `json:"instruction,omitempty"`     // custom instruction appended to the prompt
 	Source         string   `json:"source_label,omitempty"`
 	ScanUUID       string   `json:"scan_uuid,omitempty"`
 	Stream         bool     `json:"stream,omitempty"`
@@ -408,6 +409,7 @@ type AgentAutopilotRequest struct {
 	RepoPath     string   `json:"repo_path,omitempty"`           // deprecated: use source
 	Files        []string `json:"files,omitempty"`               // specific files to include
 	Focus        string   `json:"focus,omitempty"`               // focus area hint
+	Instruction  string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
 	SystemPrompt string   `json:"system_prompt,omitempty"`       // custom system prompt file path
 	Timeout      string   `json:"timeout,omitempty"`             // Go duration string, default "30m"
 	MaxCommands  int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
@@ -433,6 +435,7 @@ type AgentPipelineRequest struct {
 	RepoPath        string   `json:"repo_path,omitempty"`             // deprecated: use source
 	Files           []string `json:"files,omitempty"`                 // specific files to include
 	Focus           string   `json:"focus,omitempty"`                 // focus area hint for planning agent
+	Instruction     string   `json:"instruction,omitempty"`           // custom instruction appended to agent prompts
 	Profile         string   `json:"profile,omitempty"`               // scanning profile name
 	Timeout         string   `json:"timeout,omitempty"`               // Go duration string, default "1h"
 	MaxRescanRounds int      `json:"max_rescan_rounds,omitempty"`     // max triage->rescan iterations, default 2
@@ -460,6 +463,7 @@ type AgentSwarmRequest struct {
 	HTTPResponseBase64 string   `json:"http_response_base64,omitempty"` // base64-encoded raw HTTP response (attached to the request above)
 	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
 	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
+	Instruction        string   `json:"instruction,omitempty"`          // custom instruction appended to agent prompts
 	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
 	OnlyPhase          string   `json:"only_phase,omitempty"`           // isolate a single phase
 	SkipPhases         []string `json:"skip_phases,omitempty"`          // skip specific phases

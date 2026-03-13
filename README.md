@@ -188,7 +188,7 @@ Vigolium's scanning pipeline is composed of modular layers, each documented sepa
 | **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs/scan-layers/deparos.md](docs/scan-layers/deparos.md) |
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
 | **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| **Auditing** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
+| **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | **Scanner Modules** | 89 active and 60 passive modules covering OWASP Top 10 and beyond | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
 
 Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md)
@@ -211,7 +211,7 @@ Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-l
 | Deparos Configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
 | Browser Spider (Spitolas) | [docs/scan-layers/spidering-with-spitolas.md](docs/scan-layers/spidering-with-spitolas.md) |
 | SPA Scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Auditing | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
+| Audit | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | Scan Scope & Module Dispatch | [docs/scan-layers/scan-scope.md](docs/scan-layers/scan-scope.md) |
 | Scanner Modules Reference | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
 | Writing Extensions | [docs/development/writing-extensions.md](docs/development/writing-extensions.md) |
@@ -292,7 +292,7 @@ Scanning:
       --strategy         Strategy preset: lite, balanced, deep, whitebox
       --scanning-profile Scanning profile name or YAML path
       --only             Single phase: ingestion, discover (deparos), spidering (spitolas),
-                         external-harvest, spa, sast, audit (dynamic-assessment)
+                         external-harvest, spa, sast, audit
 
 Authentication:
       --session           Inline session definition (name:Header:value, repeatable)

@@ -335,5 +335,5 @@ Notification backends live in `pkg/notify/`. Implement the backend interface and
 | Deparos configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
 | Browser spider (Spitolas) | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
 | SPA scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Auditing | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
+| Audit | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
 | Example config | [public/vigolium-configs.example.yaml](public/vigolium-configs.example.yaml) |

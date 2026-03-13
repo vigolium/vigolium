@@ -10,32 +10,34 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
 // Agent command flags
 var (
-	agentName           string
-	agentPromptTemplate string
-	agentPromptFile     string
-	agentSourcePath     string
-	agentFiles          []string
-	agentAppend         string
-	agentOutput         string
-	agentSourceLabel    string
-	agentListTemplates  bool
-	agentListAgents     bool
-	agentDryRun         bool
-	agentShowPrompt     bool
-	agentPromptInline   string
-	agentStdin          bool
-	agentACPCmd         string
-	agentTimeout        time.Duration
+	agentName            string
+	agentPromptTemplate  string
+	agentPromptFile      string
+	agentSourcePath      string
+	agentFiles           []string
+	agentAppend          string
+	agentOutput          string
+	agentSourceLabel     string
+	agentListTemplates   bool
+	agentListAgents      bool
+	agentDryRun          bool
+	agentShowPrompt      bool
+	agentPromptInline    string
+	agentStdin           bool
+	agentACPCmd          string
+	agentTimeout         time.Duration
+	agentInstruction     string
+	agentInstructionFile string
 )
 
 var agentCmd = &cobra.Command{
@@ -109,6 +111,8 @@ func init() {
 	rf.BoolVar(&agentDryRun, "dry-run", false, "Print the rendered prompt without executing")
 	rf.BoolVar(&agentShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	rf.DurationVar(&agentTimeout, "agent-timeout", 5*time.Minute, "Maximum time for agent execution (0 = no limit)")
+	rf.StringVar(&agentInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
+	rf.StringVar(&agentInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 }
 
 func runAgentQuery(cmd *cobra.Command, args []string) error {
@@ -145,6 +149,11 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 		repo = database.NewRepository(db)
 	}
 
+	instruction, err := resolveInstruction(agentInstruction, agentInstructionFile)
+	if err != nil {
+		return err
+	}
+
 	engine := agent.NewEngine(settings, repo)
 	defer engine.Close()
 
@@ -158,6 +167,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 		SourcePath:     agentSourcePath,
 		Files:          agentFiles,
 		Append:         agentAppend,
+		Instruction:    instruction,
 		OutputPath:     agentOutput,
 		Source:         agentSourceLabel,
 		DryRun:         agentDryRun,

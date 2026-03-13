@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/wordlist"
@@ -101,53 +100,20 @@ func (e *Engine) collectValidatedLinks(links []*url.URL, parentDepth uint16) *Sp
 	var baseURL []byte
 
 	for _, link := range links {
-		// Extract and track observed names/extensions
+		// Extract and track observed names/extensions using unified metadata extractor.
 		// Spider links are trusted sources - they come from actual URLs in the response.
-		name, extension := ExtractFilename(link.Path)
-		if name != "" {
-			e.AddObservedNameTrusted(name)
-		}
-		if extension != "" {
-			wasNew := e.addObservedExtensionIfNew(extension)
-			// Use pathDepth to calculate depth from link path, not parentDepth
+		// Pass depth=0 here; extension task generation is handled separately below.
+		meta := e.applyFileMetadata(link.Path, 0)
+
+		// Generate dynamic extension tasks for newly discovered extensions during spidering
+		if meta.Extension != "" {
+			wasNew := e.addObservedExtensionIfNew(meta.Extension)
 			linkDepth := pathDepth(link.Path)
 			if wasNew && e.config.Extensions.TestObserved && linkDepth > 0 {
 				logger.Info("New extension discovered during spidering, generating dynamic tasks",
-					zap.String("extension", extension),
+					zap.String("extension", meta.Extension),
 					zap.Uint16("depth", linkDepth))
-				e.generateObservedExtensionTasks(extension, linkDepth)
-			}
-		}
-
-		// Store full filename for literal file testing (preserves hashes like app.b5ca88ec.js)
-		rawFilename, rawExt := ExtractRawFilename(link.Path)
-		if rawFilename != "" && rawExt != "" {
-			if _, ok := config.AllowedObservedExtensions[rawExt]; ok {
-				e.AddObservedFileTrusted(rawFilename)
-			}
-		}
-
-		// Extract and track observed paths and segments
-		if e.config.Filenames.UseObservedPaths {
-			urlPath := link.Path
-
-			// Store raw full path (overlap merging happens at task execution time)
-			fullPath := ExtractPathForFuzzing(urlPath)
-			if fullPath != "" {
-				e.AddObservedPathTrusted(fullPath)
-			}
-
-			// Segments merged into observedNames (reuse existing infrastructure)
-			// Extract name/extension from each segment to avoid adding full filenames like "app.js"
-			segments := ExtractPathSegments(urlPath)
-			for _, segment := range segments {
-				name, ext := ExtractFilename("/" + segment)
-				if name != "" {
-					e.AddObservedNameTrusted(name)
-				}
-				if ext != "" {
-					e.addObservedExtensionIfNew(ext)
-				}
+				e.generateObservedExtensionTasks(meta.Extension, linkDepth)
 			}
 		}
 

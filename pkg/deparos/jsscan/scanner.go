@@ -19,6 +19,14 @@ type Scanner struct {
 	extractor *Extractor
 	config    *Config
 	binary    *CachedBinary
+
+	// tmpFilePool reuses temporary files to avoid per-scan OS overhead
+	// (file creation, inode allocation). Each pooled entry is a pre-created
+	// file path that gets truncated and rewritten on reuse.
+	tmpFilePool sync.Pool
+
+	// bufPool recycles stdout/stderr buffers across subprocess invocations.
+	bufPool sync.Pool
 }
 
 // NewScanner creates a new Scanner with the given configuration.
@@ -33,10 +41,37 @@ func NewScanner(config *Config) (*Scanner, error) {
 		return nil, fmt.Errorf("create extractor: %w", err)
 	}
 
-	return &Scanner{
+	s := &Scanner{
 		extractor: extractor,
 		config:    config,
-	}, nil
+	}
+
+	s.bufPool = sync.Pool{
+		New: func() interface{} {
+			return bytes.NewBuffer(make([]byte, 0, 64*1024)) // 64 KiB initial
+		},
+	}
+
+	return s, nil
+}
+
+// acquireTmpFile returns a reusable temp file path, creating one if the pool is empty.
+func (s *Scanner) acquireTmpFile() (string, error) {
+	if v := s.tmpFilePool.Get(); v != nil {
+		return v.(string), nil
+	}
+	f, err := os.CreateTemp("", "jsscan-*.js")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	path := f.Name()
+	_ = f.Close()
+	return path, nil
+}
+
+// releaseTmpFile returns a temp file path to the pool for reuse.
+func (s *Scanner) releaseTmpFile(path string) {
+	s.tmpFilePool.Put(path)
 }
 
 // Scan analyzes the provided JavaScript content.
@@ -44,7 +79,7 @@ func NewScanner(config *Config) (*Scanner, error) {
 //
 // The function:
 // 1. Ensures the jsscan binary is available (extracts if needed)
-// 2. Writes content to a temporary file
+// 2. Writes content to a pooled temporary file
 // 3. Executes jsscan binary with the temp file
 // 4. Parses and returns the findings
 //
@@ -64,22 +99,15 @@ func (s *Scanner) Scan(ctx context.Context, content []byte) (*ScanResult, error)
 		return nil, err
 	}
 
-	tmpFile, err := os.CreateTemp("", "jsscan-*.js")
+	tmpPath, err := s.acquireTmpFile()
 	if err != nil {
-		return nil, fmt.Errorf("create temp file: %w", err)
+		return nil, err
 	}
-	tmpPath := tmpFile.Name()
+	defer s.releaseTmpFile(tmpPath)
 
-	defer func() {
-		_ = os.Remove(tmpPath)
-	}()
-
-	if _, err := tmpFile.Write(content); err != nil {
-		_ = tmpFile.Close()
+	// Truncate and rewrite — avoids creating a new inode each time
+	if err := os.WriteFile(tmpPath, content, 0600); err != nil {
 		return nil, fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return nil, fmt.Errorf("close temp file: %w", err)
 	}
 
 	requests, code, err := s.executeJsscan(ctx, binary.Path, tmpPath)
@@ -161,15 +189,22 @@ func (s *Scanner) getBinary() (*CachedBinary, error) {
 }
 
 // executeJsscan runs the jsscan binary and parses output.
+// Uses pooled buffers for stdout/stderr to reduce GC pressure.
 func (s *Scanner) executeJsscan(ctx context.Context, binaryPath, inputPath string) ([]ExtractedRequest, *CodeRecord, error) {
 	ctx, cancel := context.WithTimeout(ctx, MaxScanTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binaryPath, inputPath)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := s.bufPool.Get().(*bytes.Buffer)
+	stderr := s.bufPool.Get().(*bytes.Buffer)
+	stdout.Reset()
+	stderr.Reset()
+	defer s.bufPool.Put(stdout)
+	defer s.bufPool.Put(stderr)
+
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 

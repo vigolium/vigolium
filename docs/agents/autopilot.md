@@ -44,14 +44,117 @@ vigolium agent autopilot -t http://localhost:3000 --source ./src --dry-run
 | `--system-prompt` | — | Custom system prompt file |
 | `--timeout` | 30m | Overall timeout |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
+| `--instruction` | — | Custom instruction to guide the agent (appended to prompt) |
+| `--instruction-file` | — | Path to a file containing custom instructions |
 | `--dry-run` | false | Render system prompt without launching |
 
 > **Note:** `--repo` is accepted as a deprecated alias for `--source`.
+
+## Architecture Overview
+
+```
+                              vigolium agent autopilot -t <url>
+                                          |
+                                          v
+                  +-----------------------------------------------+
+                  |              CLI Initialization                |
+                  |  - Parse flags (--target, --source, --focus)  |
+                  |  - Resolve instruction (--instruction[-file]) |
+                  |  - Build agent.Options{Autopilot: true}       |
+                  +-----------------------------------------------+
+                                          |
+                                          v
+                  +-----------------------------------------------+
+                  |           Prompt Rendering (Engine)            |
+                  |  - Load autopilot-system.md template           |
+                  |  - Enrich context from DB (endpoints, modules) |
+                  |  - Inject source code if --source provided     |
+                  |  - Append focus area + custom instructions     |
+                  |  - Render via Go text/template                 |
+                  +-----------------------------------------------+
+                                          |
+                                          v
+                  +-----------------------------------------------+
+                  |         ACP Agent Subprocess Spawn             |
+                  |  - Start AI backend (Claude/OpenCode/Gemini)   |
+                  |  - Bidirectional stdin/stdout ACP connection    |
+                  |  - Initialize with Terminal: true capability    |
+                  |  - Send rendered system prompt via Prompt()     |
+                  +-----------------------------------------------+
+                                          |
+                                          v
+               +----------------------------------------------------+
+               |              Agent Autonomous Loop                  |
+               |                                                     |
+               |   +---------------------------------------------+  |
+               |   | Agent decides next action                    |  |
+               |   +---------------------------------------------+  |
+               |        |                                            |
+               |        v                                            |
+               |   +---------------------------------------------+  |
+               |   | ACP CreateTerminal("vigolium scan-url ...") |  |
+               |   +---------------------------------------------+  |
+               |        |                                            |
+               |        v                                            |
+               |   +---------------------------------------------+  |
+               |   |         Security Sandbox                     |  |
+               |   |  - Validate: allowlist + injection check     |  |
+               |   |  - Execute: exec.CommandContext (no shell)    |  |
+               |   |  - Enforce: max-commands, 5min/cmd timeout   |  |
+               |   |  - Truncate: 256KB max output per session    |  |
+               |   +---------------------------------------------+  |
+               |        |                                            |
+               |        v                                            |
+               |   +---------------------------------------------+  |
+               |   | Agent reads output, decides next action      |  |
+               |   | (loops until done or --max-commands reached) |  |
+               |   +---------------------------------------------+  |
+               |                                                     |
+               +----------------------------------------------------+
+                                          |
+                                          v
+                  +-----------------------------------------------+
+                  |                  Cleanup                        |
+                  |  - Kill all orphaned terminal sessions          |
+                  |  - Terminate agent subprocess                   |
+                  |  - Save output to session directory             |
+                  +-----------------------------------------------+
+```
+
+### Data Flow: Agent Command Execution
+
+```
+Agent                  ACP Layer              Terminal Manager           OS Process
+  |                        |                        |                        |
+  |-- CreateTerminal() --->|                        |                        |
+  |                        |-- validateCommand() -->|                        |
+  |                        |                        |-- check allowlist      |
+  |                        |                        |-- check injection      |
+  |                        |                        |-- check call limit     |
+  |                        |                        |                        |
+  |                        |-- createSession() ---->|                        |
+  |                        |                        |-- exec.CommandContext ->|
+  |                        |<-- terminal ID --------|                        |
+  |<-- terminal ID --------|                        |                        |
+  |                        |                        |                        |
+  |-- WaitForExit(id) ---->|                        |                        |
+  |                        |-- waitForProcess() --->|                        |
+  |                        |                        |<-- process exits ------|
+  |<-- exit code ----------|                        |                        |
+  |                        |                        |                        |
+  |-- TerminalOutput(id) ->|                        |                        |
+  |<-- stdout/stderr ------|                        |                        |
+  |                        |                        |                        |
+  |-- ReleaseTerminal(id)->|                        |                        |
+  |                        |-- cleanup() ---------->|                        |
+  |                        |                        |-- kill process group ->|
+```
 
 ## Step-by-Step Flow
 
 ### 1. CLI Initialization (`pkg/cli/agent_autopilot.go`)
 
+- Resolves `--instruction` / `--instruction-file` into a single instruction string
 - Builds `agent.Options{Autopilot: true}` and calls `engine.Run()`
 
 ### 2. Prompt Rendering (`pkg/agent/engine.go`)
@@ -59,6 +162,8 @@ vigolium agent autopilot -t http://localhost:3000 --source ./src --dry-run
 - Loads the `autopilot-system.md` template from `public/presets/prompts/autopilot/`
 - Enriches context from the database (discovered endpoints, findings, module list, scan stats)
 - If `--source` is provided, collects source code and injects it into the prompt along with a source-aware workflow guide
+- Appends focus area (`## Focus Area`) if `--focus` is provided
+- Appends custom instructions (`## Custom Instructions`) if `--instruction` is provided
 - Renders the final system prompt via Go `text/template`
 - If `--dry-run`, prints rendered prompt and exits
 
@@ -107,20 +212,6 @@ When `--source` is provided, the system prompt includes an expanded workflow tha
 5. **Targeted Scanning** — Use specific module tags based on identified sinks (e.g., SQL concatenation -> `--module-tag sqli`)
 6. **Deep Testing** — Craft specific payloads using `vigolium scan-url` with `--method`, `--body`, and `-H` flags matching the exact parameter format the code expects
 
-Each time the agent wants to run a command, this happens:
-
-```
-Agent -> ACP CreateTerminal("vigolium scan-url ...")
-  -> acpClient.CreateTerminal()
-    -> terminalManager.validateCommand()  // allowlist + injection check
-    -> terminalManager.createSession()    // exec.CommandContext, background start
-  <- returns terminal ID
-
-Agent -> ACP WaitForTerminalExit(id)     // blocks until done
-Agent -> ACP TerminalOutput(id)          // reads output
-Agent -> ACP ReleaseTerminal(id)         // cleanup
-```
-
 ### 6. Cleanup
 
 - When the agent finishes (or timeout hits), `terminalManager.killAll()` kills all orphaned sessions
@@ -147,6 +238,7 @@ For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startu
   "source": "/path/to/source",
   "files": ["src/auth.go"],
   "focus": "API injection",
+  "instruction": "Prioritize file upload endpoints. Test for path traversal in filenames.",
   "timeout": "30m",
   "max_commands": 100,
   "stream": true,

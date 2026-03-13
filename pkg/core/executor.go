@@ -85,6 +85,7 @@ type ExecutorConfig struct {
 	Services          *services.Services
 	HTTPRequester     *http.Requester
 	Repository        *database.Repository // Optional: database storage
+	RecordWriter      *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
 	ScanUUID          string
 	ProjectUUID       string// Optional: scan session UUID
 	Hooks             HookRunner           // Optional: pre/post hooks
@@ -96,6 +97,10 @@ type ExecutorConfig struct {
 	OASTService           OASTFlusher          // Optional: OAST service to flush after scanning
 	PauseCtrl             *PauseController     // Optional: cooperative pause/resume controller
 	MaxFindingsPerModule  int                  // When > 0, suppress findings after this many per module
+	MaxDuration           time.Duration        // When > 0, cancel execution after this duration
+	FeedbackDrainTimeout  time.Duration        // Idle timeout for draining feedback after source EOF (default: 100ms)
+	IPCacheSize           int                  // LRU cache size for parsed insertion points (default: 4096)
+	ParallelPassive       bool                 // When true, run passive per-request modules concurrently
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -131,9 +136,10 @@ type Executor struct {
 	ipCache *lru.Cache[string, []httpmsg.InsertionPoint]
 
 	// Database storage (optional)
-	repo        *database.Repository
-	scanUUID    string
-	projectUUID string
+	repo         *database.Repository
+	recordWriter *database.RecordWriter // batched record writer (preferred over repo.SaveRecord)
+	scanUUID     string
+	projectUUID  string
 	// Map to track record UUID for each HttpRequestResponse (for linking findings)
 	requestUUIDs *shardedMap // key: request hash, value: database record UUID
 
@@ -163,7 +169,11 @@ func NewExecutor(
 		}
 	}
 
-	ipCache, _ := lru.New[string, []httpmsg.InsertionPoint](4096)
+	ipCacheSize := cfg.IPCacheSize
+	if ipCacheSize <= 0 {
+		ipCacheSize = 4096
+	}
+	ipCache, _ := lru.New[string, []httpmsg.InsertionPoint](ipCacheSize)
 
 	e := &Executor{
 		cfg:            cfg,
@@ -174,6 +184,7 @@ func NewExecutor(
 		scanCtx:        scanCtx,
 		hooks:          cfg.Hooks,
 		repo:           cfg.Repository,
+		recordWriter:   cfg.RecordWriter,
 		scanUUID:       cfg.ScanUUID,
 		projectUUID:    cfg.ProjectUUID,
 		requestUUIDs:   newShardedMap(cfg.Workers),
@@ -232,6 +243,13 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	}
 	defer e.running.Store(false)
 
+	// Enforce per-phase timeout when configured
+	if e.cfg.MaxDuration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.cfg.MaxDuration)
+		defer cancel()
+	}
+
 	// Start periodic stats printing only when ShowStats is enabled
 	if e.cfg.Services != nil && e.cfg.Services.Options != nil &&
 		e.cfg.Services.Options.ShowStats && !e.cfg.Services.Options.Silent {
@@ -252,8 +270,12 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	e.feedItems(ctx, itemCh)
 
 	// After source EOF, drain remaining feedback items from in-flight workers.
-	// Use an idle timeout: if no new feedback arrives within 100ms, assume done.
-	drainTimer := time.NewTimer(100 * time.Millisecond)
+	// Use an idle timeout: if no new feedback arrives within the drain timeout, assume done.
+	drainTimeout := e.cfg.FeedbackDrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = 100 * time.Millisecond
+	}
+	drainTimer := time.NewTimer(drainTimeout)
 	defer drainTimer.Stop()
 drainLoop:
 	for {
@@ -261,7 +283,7 @@ drainLoop:
 		case <-ctx.Done():
 			break drainLoop
 		case fb := <-e.feedbackCh:
-			drainTimer.Reset(100 * time.Millisecond)
+			drainTimer.Reset(drainTimeout)
 			if !e.sendItem(ctx, fb, itemCh) {
 				break drainLoop
 			}
@@ -680,7 +702,15 @@ func (e *Executor) saveToDatabase(item *work.WorkItem, req *httpmsg.HttpRequestR
 		e.requestUUIDs.Store(req.Request().ID(), item.RecordUUID)
 		return
 	}
-	recordUUID, err := e.repo.SaveRecord(context.Background(), req, "scanner", e.projectUUID)
+
+	// Prefer batched writer for throughput; fall back to individual SaveRecord
+	var recordUUID string
+	var err error
+	if e.recordWriter != nil {
+		recordUUID, err = e.recordWriter.Write(context.Background(), req, "scanner", e.projectUUID)
+	} else {
+		recordUUID, err = e.repo.SaveRecord(context.Background(), req, "scanner", e.projectUUID)
+	}
 	if err != nil {
 		zap.L().Debug("Failed to save record to database", zap.Error(err))
 		return
@@ -715,6 +745,32 @@ func (e *Executor) runPassivePerHost(item *httpmsg.HttpRequestResponse, filter *
 
 func (e *Executor) runPassivePerRequest(item *httpmsg.HttpRequestResponse, filter *moduleFilter) {
 	if len(e.perRequestPassive) == 0 {
+		return
+	}
+
+	if e.cfg.ParallelPassive {
+		var g conc.WaitGroup
+		for _, module := range e.perRequestPassive {
+			if !filter.allows(module.ID()) {
+				continue
+			}
+			if !module.CanProcess(item) {
+				continue
+			}
+
+			mod := module // capture loop variable
+			g.Go(func() {
+				results, err := mod.ScanPerRequest(item, e.scanCtx)
+				if err != nil {
+					zap.L().Warn("Passive module error",
+						zap.String("module", mod.ID()),
+						zap.Error(err))
+					return
+				}
+				e.processResults(results, mod, item)
+			})
+		}
+		g.Wait()
 		return
 	}
 

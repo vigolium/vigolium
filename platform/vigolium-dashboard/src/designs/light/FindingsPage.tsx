@@ -356,7 +356,7 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
                 value={findingSourceFilter}
                 options={[
                   { value: '', label: 'source:all' },
-                  { value: 'dynamic-assessment', label: 'dynamic-assessment' },
+                  { value: 'audit', label: 'audit' },
                   { value: 'spa', label: 'spa' },
                   { value: 'agent', label: 'agent' },
                   { value: 'oast', label: 'oast' },

@@ -9,28 +9,30 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
 // agent autopilot flags
 var (
-	autopilotTarget       string
-	autopilotInput        string
-	autopilotAgent        string
-	autopilotSource       string
-	autopilotFiles        []string
-	autopilotFocus        string
-	autopilotSystemPrompt string
-	autopilotTimeout      time.Duration
-	autopilotACPCmd       string
-	autopilotDryRun       bool
-	autopilotShowPrompt   bool
-	autopilotMaxCommands  int
+	autopilotTarget          string
+	autopilotInput           string
+	autopilotAgent           string
+	autopilotSource          string
+	autopilotFiles           []string
+	autopilotFocus           string
+	autopilotSystemPrompt    string
+	autopilotTimeout         time.Duration
+	autopilotACPCmd          string
+	autopilotDryRun          bool
+	autopilotShowPrompt      bool
+	autopilotMaxCommands     int
+	autopilotInstruction     string
+	autopilotInstructionFile string
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -75,6 +77,8 @@ func init() {
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	f.IntVar(&autopilotMaxCommands, "max-commands", 100, "Maximum number of CLI commands the agent can execute")
+	f.StringVar(&autopilotInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
+	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 }
 
 func runAgentAutopilot(_ *cobra.Command, _ []string) error {
@@ -126,6 +130,11 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		repo = database.NewRepository(db)
 	}
 
+	instruction, err := resolveInstruction(autopilotInstruction, autopilotInstructionFile)
+	if err != nil {
+		return err
+	}
+
 	engine := agent.NewEngine(settings, repo)
 	defer engine.Close()
 
@@ -143,6 +152,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		ScanUUID:       globalScanID,
 		Autopilot:      true,
 		MaxCommands:    autopilotMaxCommands,
+		Instruction:    instruction,
 	}
 
 	// Custom system prompt overrides default template

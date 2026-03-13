@@ -49,8 +49,9 @@ The skill teaches the AI agent how to:
 2. **Construct correct flag combinations** with proper syntax
 3. **Follow scanning workflows** end-to-end (ingest → scan → triage → export)
 4. **Write custom JavaScript extensions** using the `vigolium.*` API
-5. **Operate AI agent modes** (query, autopilot, pipeline)
-6. **Manage data** — browse traffic, filter findings, export reports, clean databases
+5. **Execute ad-hoc JavaScript** with `vigolium js` for scripting and automation
+6. **Operate AI agent modes** (query, autopilot, pipeline, swarm)
+7. **Manage data** — browse traffic, filter findings, export reports, clean databases
 
 The skill uses lazy-loaded references: the main `SKILL.md` stays small, and detailed docs are loaded on demand when the agent needs deep flag information or extension authoring guidance.
 
@@ -64,9 +65,10 @@ skills/vigolium-scanner/
 └── references/
     ├── scanning-commands.md              # scan, scan-url, scan-request, run
     ├── server-and-ingestion.md           # server, ingest, traffic, traffic replay
-    ├── agent-commands.md                 # agent, agent query, autopilot, pipeline
-    ├── data-and-management.md            # db, module, ext, config, scope, source, export
+    ├── agent-commands.md                 # agent, agent query, autopilot, pipeline, swarm
+    ├── data-and-management.md            # db, module, ext, js, config, scope, source, export
     ├── flags-reference.md                # Complete alphabetical flag index
+    ├── session-auth-config.md            # Auth config YAML format, extract rules
     └── writing-extensions.md             # JS extension API and examples
 ```
 
@@ -394,7 +396,7 @@ vigolium run ext -t https://example.com --ext ./custom-check.js
 |-------|-------------|
 | `deparos`, `discover` | `discovery` |
 | `spitolas` | `spidering` |
-| `audit` | `dynamic-assessment` |
+| `dynamic-assessment` | `audit` |
 | `ext` | `extension` |
 
 ---
@@ -828,6 +830,81 @@ vigolium agent pipeline -t https://example.com --repo ./src \
 ```
 ```bash
 vigolium agent pipeline -t https://example.com --agent gemini
+```
+
+#### Agent Swarm (Targeted Single-Request)
+
+**Deep analysis of a single endpoint:**
+```
+> Deep scan the users API endpoint for vulnerabilities
+```
+```bash
+vigolium agent swarm -t https://example.com/api/users
+```
+
+**From a curl command:**
+```
+> Analyze this curl command for vulnerabilities
+```
+```bash
+vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
+```
+
+**Pipe raw HTTP from stdin:**
+```
+> Scan this raw HTTP request
+```
+```bash
+echo -e "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test" | vigolium agent swarm --input -
+```
+
+**Focus on a specific vulnerability:**
+```
+> Focus on SQL injection in the users endpoint
+```
+```bash
+vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
+```
+
+**Source-aware swarm (discovers routes from source):**
+```
+> Scan my app with source code context
+```
+```bash
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app
+```
+
+**Source-aware with specific files:**
+```
+> Analyze only the API routes and user model
+```
+```bash
+vigolium agent swarm -t http://localhost:8080 --source ./backend \
+  --files src/routes/api.js,src/models/user.js
+```
+
+**Source analysis only (extract routes, no scan):**
+```
+> Just extract routes from my source code
+```
+```bash
+vigolium agent swarm -t http://localhost:3000 --source ./src --source-analysis-only
+```
+
+**Custom instructions:**
+```
+> Focus the agent on GraphQL parsing vulnerabilities
+```
+```bash
+vigolium agent swarm -t https://example.com/graphql --instruction "Focus on GraphQL parsing"
+```
+
+**Preview prompts:**
+```
+> Show me what the swarm agent would do
+```
+```bash
+vigolium agent swarm -t https://example.com/api/users --dry-run
 ```
 
 ---
@@ -1411,6 +1488,30 @@ module.exports = {
 
 The agent will generate a JS file using `vigolium.agent.generatePayloads()` and `vigolium.agent.analyzeResponse()`.
 
+**Execute ad-hoc JavaScript with vigolium js:**
+```
+> Run a JS script that queries the database and flags high-risk records
+```
+```bash
+vigolium js --code 'var records = vigolium.db.records.query({ hostname: "example.com" }); records.forEach(function(r) { if (vigolium.utils.hasDynamicSegment(vigolium.parse.url(r.url).path)) vigolium.db.records.annotate(r.uuid, { risk_score: 50 }); })'
+```
+
+**Execute a JS file with target context:**
+```
+> Run my scanner script against example.com
+```
+```bash
+vigolium js --target https://example.com --code-file my-scanner.js
+```
+
+**Quick hash or encode from the terminal:**
+```
+> MD5 hash the string "password"
+```
+```bash
+vigolium js --format text --code 'vigolium.utils.md5("password")'
+```
+
 **YAML extension (simple pattern matching):**
 ```
 > Write a YAML extension that detects stack traces and SQL errors
@@ -1539,6 +1640,10 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --repo ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
 | "Run the full AI pipeline" | `vigolium agent pipeline -t <url>` |
+| "Deep scan this endpoint for SQLi" | `vigolium agent swarm -t <url> --vuln-type sqli` |
+| "Scan with source code context" | `vigolium agent swarm -t <url> --source ./src` |
+| "Run this JS script against the API" | `vigolium js --code-file script.js --target <url>` |
+| "MD5 hash this string" | `vigolium js --format text --code 'vigolium.utils.md5("...")'` |
 | "Show me all critical findings" | `vigolium finding --severity critical` |
 | "Show active module findings in Burp format" | `vigolium finding --module-type active --burp` |
 | "Run scan for CI/CD pipeline" | `vigolium scan -t <url> --ci-output-format` |

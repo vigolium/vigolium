@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -38,6 +38,8 @@ var (
 	pipelineSkipPhases      []string
 	pipelineStartFrom       string
 	pipelineProfile         string
+	pipelineInstruction     string
+	pipelineInstructionFile string
 )
 
 var agentPipelineCmd = &cobra.Command{
@@ -88,6 +90,8 @@ func init() {
 	f.StringSliceVar(&pipelineSkipPhases, "skip-phase", nil, "Skip specific phases (source-analysis, discover, plan, scan, triage, rescan, report)")
 	f.StringVar(&pipelineStartFrom, "start-from", "", "Resume pipeline from a specific phase")
 	f.StringVar(&pipelineProfile, "profile", "", "Scanning profile to use for scan phases")
+	f.StringVar(&pipelineInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
+	f.StringVar(&pipelineInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 }
 
 func runAgentPipeline(_ *cobra.Command, _ []string) error {
@@ -170,6 +174,11 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 		skipPhases[phase] = true
 	}
 
+	instruction, instrErr := resolveInstruction(pipelineInstruction, pipelineInstructionFile)
+	if instrErr != nil {
+		return instrErr
+	}
+
 	pipelineProjectUUID, err := resolveProjectUUID()
 	if err != nil {
 		return err
@@ -191,6 +200,7 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 		AgentName:       pipelineAgent,
 		AgentACPCmd:     pipelineACPCmd,
 		Focus:           pipelineFocus,
+		Instruction:     instruction,
 		SourcePath:      pipelineSource,
 		Files:           pipelineFiles,
 		MaxRescanRounds: pipelineMaxRescanRounds,

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/module"
 	"github.com/vigolium/vigolium/pkg/deparos/fingerprint"
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
@@ -444,46 +443,12 @@ func (e *Engine) extractFileMetadata(filePath string, depth uint16) {
 		return
 	}
 
-	name, ext := ExtractFilename(parsedURL.Path)
+	meta := e.applyFileMetadata(parsedURL.Path, depth)
 
-	if name != "" {
-		e.AddObservedNameTrusted(name)
+	if meta.Name != "" {
 		logger.Debug("Added observed name from file discovery",
-			zap.String("name", name),
+			zap.String("name", meta.Name),
 			zap.String("path", filePath))
-	}
-
-	if ext != "" {
-		e.handleNewExtension(ext, depth)
-	}
-
-	// Store full filename for literal file testing (preserves hashes like app.b5ca88ec.js)
-	rawFilename, rawExt := ExtractRawFilename(parsedURL.Path)
-	if rawFilename != "" && rawExt != "" {
-		if _, ok := config.AllowedObservedExtensions[rawExt]; ok {
-			e.AddObservedFileTrusted(rawFilename)
-		}
-	}
-
-	// Extract paths and segments
-	if e.config.Filenames.UseObservedPaths {
-		// Store raw full path (overlap merging happens at task execution time)
-		fullPath := ExtractPathForFuzzing(parsedURL.Path)
-		if fullPath != "" {
-			e.AddObservedPathTrusted(fullPath)
-		}
-
-		// Extract name/extension from each segment to avoid adding full filenames like "app.js"
-		segments := ExtractPathSegments(parsedURL.Path)
-		for _, segment := range segments {
-			name, ext := ExtractFilename("/" + segment)
-			if name != "" {
-				e.AddObservedNameTrusted(name)
-			}
-			if ext != "" {
-				e.addObservedExtensionIfNew(ext)
-			}
-		}
 	}
 }
 

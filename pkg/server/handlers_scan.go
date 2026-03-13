@@ -104,7 +104,7 @@ func validateRunScanRequest(req RunScanRequest) error {
 	if req.Only != "" {
 		normalized := normalizePhase(req.Only)
 		if _, ok := validPhases[normalized]; !ok {
-			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit (dynamic-assessment), extension (ext)", req.Only)
+			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit, extension (ext)", req.Only)
 		}
 	}
 
@@ -118,7 +118,7 @@ func validateRunScanRequest(req RunScanRequest) error {
 			switch normalized {
 			case "discovery", "ingestion", "external-harvest", "spidering", "spa", "sast", "audit":
 			default:
-				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit (dynamic-assessment)", phase)
+				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit", phase)
 			}
 		}
 	}

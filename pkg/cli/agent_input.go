@@ -33,6 +33,19 @@ func readStdinIfPiped() (string, bool) {
 	return strings.TrimRight(string(data), "\n\r"), true
 }
 
+// resolveInstruction returns the instruction text from either --instruction or --instruction-file.
+// If both are provided, --instruction-file takes precedence.
+func resolveInstruction(instruction, instructionFile string) (string, error) {
+	if instructionFile != "" {
+		data, err := os.ReadFile(instructionFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read instruction file %q: %w", instructionFile, err)
+		}
+		return strings.TrimRight(string(data), "\n\r"), nil
+	}
+	return instruction, nil
+}
+
 // resolveTargetFromInput normalizes a raw input string (curl, raw HTTP, Burp XML, URL)
 // and extracts the target URL. Used by autopilot and pipeline commands to derive --target
 // from --input or piped stdin.

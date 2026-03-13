@@ -23,17 +23,60 @@ const (
 	clusterCacheSize = 2048
 )
 
+// sharedBytes is a reference-counted byte slice that avoids copying response
+// bodies on every cache hit. When the last reference is released the slice
+// becomes eligible for GC.
+type sharedBytes struct {
+	data []byte
+	refs atomic.Int64
+}
+
+// newSharedBytes wraps data in a reference-counted container with refcount=1.
+func newSharedBytes(data []byte) *sharedBytes {
+	sb := &sharedBytes{data: data}
+	sb.refs.Store(1)
+	return sb
+}
+
+// acquire increments the reference count and returns the underlying slice.
+// Returns nil if the buffer has already been fully released (should not happen
+// in normal usage since the cache holds a reference).
+func (sb *sharedBytes) acquire() []byte {
+	if sb.refs.Add(1) <= 1 {
+		// Was zero — already released; undo the add (best-effort)
+		sb.refs.Add(-1)
+		return nil
+	}
+	return sb.data
+}
+
+// release decrements the reference count. When it reaches zero the underlying
+// slice is cleared so it can be collected.
+func (sb *sharedBytes) release() {
+	if sb.refs.Add(-1) <= 0 {
+		sb.data = nil
+	}
+}
+
 // CachedResponse holds a snapshot of response data that can be used to
 // reconstruct independent ResponseChain instances.
 type CachedResponse struct {
 	StatusCode int
 	Proto      string
 	Header     http.Header
-	Body       []byte
-	HeaderDump []byte
+	body       *sharedBytes // reference-counted shared body
+	headerDump *sharedBytes // reference-counted shared headers
 	Request    *http.Request
 	Duration   int
 	CachedAt   time.Time
+}
+
+// Body returns the cached response body bytes (shared, do not modify).
+func (c *CachedResponse) Body() []byte {
+	if c.body == nil {
+		return nil
+	}
+	return c.body.data
 }
 
 // snapshotResponse captures response data from a ResponseChain before Close().
@@ -43,9 +86,10 @@ func snapshotResponse(resp *httpUtils.ResponseChain, duration int) *CachedRespon
 		CachedAt: time.Now(),
 	}
 
-	// Copy header and body bytes (they reference pooled buffers)
-	cr.HeaderDump = append([]byte(nil), resp.HeadersBytes()...)
-	cr.Body = append([]byte(nil), resp.BodyBytes()...)
+	// Copy header and body bytes once (they reference pooled buffers).
+	// These shared buffers start with refcount=1 (owned by the cache entry).
+	cr.headerDump = newSharedBytes(append([]byte(nil), resp.HeadersBytes()...))
+	cr.body = newSharedBytes(append([]byte(nil), resp.BodyBytes()...))
 
 	// Copy metadata from the underlying http.Response
 	if r := resp.Response(); r != nil {
@@ -60,13 +104,23 @@ func snapshotResponse(resp *httpUtils.ResponseChain, duration int) *CachedRespon
 
 // ToResponseChain reconstructs an independent ResponseChain from cached data.
 // The caller must call Close() on the returned chain when done.
+// Uses reference-counted shared buffers to avoid copying body/header bytes.
 func (c *CachedResponse) ToResponseChain() *httpUtils.ResponseChain {
+	// Acquire shared references — these are the same underlying slices as the
+	// cache entry, avoiding a full copy on every cache hit.
+	var bodyBytes []byte
+	if c.body != nil {
+		if acquired := c.body.acquire(); acquired != nil {
+			bodyBytes = acquired
+		}
+	}
+
 	// Build a synthetic http.Response with body from cache
 	resp := &http.Response{
 		StatusCode: c.StatusCode,
 		Proto:      c.Proto,
 		Header:     c.Header.Clone(),
-		Body:       io.NopCloser(bytes.NewReader(c.Body)),
+		Body:       io.NopCloser(bytes.NewReader(bodyBytes)),
 		Request:    c.Request,
 	}
 

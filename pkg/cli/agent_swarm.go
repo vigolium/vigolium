@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
@@ -18,6 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 // agent swarm command flags
@@ -39,6 +41,9 @@ var (
 	swarmProfile            string
 	swarmOnlyPhase          string
 	swarmSkipPhases         []string
+	swarmInstruction        string
+	swarmInstructionFile    string
+	swarmDiscover           bool
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -83,6 +88,9 @@ func init() {
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
 	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
+	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
+	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
+	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
 }
 
 func runAgentSwarm(_ *cobra.Command, _ []string) error {
@@ -152,15 +160,31 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	instruction, instrErr := resolveInstruction(swarmInstruction, swarmInstructionFile)
+	if instrErr != nil {
+		return instrErr
+	}
+
 	// Build inputs list
 	inputs, err := buildSwarmInputs()
 	if err != nil {
 		return err
 	}
 
+	// Create session directory upfront so callbacks can write to it
+	swarmRunID := "agt-" + uuid.New().String()
+	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), swarmRunID)
+	if sdErr != nil {
+		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+	}
+
+	// Track generated auth config path (set by SourceAnalysisCallback, used by scan callbacks)
+	var generatedAuthConfig string
+
 	// Build swarm config
 	cfg := agent.SwarmConfig{
 		Inputs:             inputs,
+		Instruction:        instruction,
 		SourcePath:         swarmSource,
 		Files:              swarmFiles,
 		VulnType:           swarmVulnType,
@@ -174,6 +198,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		ShowPrompt:         swarmShowPrompt,
 		SourceAnalysisOnly: swarmSourceAnalysisOnly,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
+		SessionDir:         sessionDir,
 		ProjectUUID:        projectUUID,
 		ScanUUID:           globalScanID,
 	}
@@ -182,8 +207,37 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		cfg.StreamWriter = os.Stdout
 	}
 
-	// Wire scan callback
-	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo, swarmOnlyPhase, swarmSkipPhases)
+	// Wire source analysis callback to process session config into auth-config.yaml
+	cfg.SourceAnalysisCallback = func(saResult *agent.SourceAnalysisResult) error {
+		if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
+			yamlData, marshalErr := yaml.Marshal(convertSessionConfig(saResult.SessionConfig))
+			if marshalErr != nil {
+				return fmt.Errorf("failed to marshal session config: %w", marshalErr)
+			}
+			authPath := filepath.Join(sessionDir, "auth-config.yaml")
+			if writeErr := os.WriteFile(authPath, yamlData, 0644); writeErr != nil {
+				return fmt.Errorf("failed to write auth config: %w", writeErr)
+			}
+			generatedAuthConfig = authPath
+			zap.L().Info("Generated auth config written",
+				zap.String("path", authPath),
+				zap.Int("sessions", len(saResult.SessionConfig.Sessions)))
+		}
+		return nil
+	}
+
+	// Wire scan callback with auth config support
+	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo, swarmOnlyPhase, swarmSkipPhases, &generatedAuthConfig)
+
+	// Wire optional discovery callback
+	if swarmDiscover {
+		cfg.DiscoverFunc = buildSwarmDiscoverFunc(settings, repo, &generatedAuthConfig)
+	}
+
+	// Wire SAST callback automatically when --source is provided
+	if swarmSource != "" {
+		cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, swarmSource, &generatedAuthConfig)
+	}
 
 	// Set up timeout
 	if swarmTimeout > 0 {
@@ -222,6 +276,14 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	if swarmVulnType != "" {
 		fmt.Fprintf(os.Stderr, "%s Vulnerability focus: %s\n",
 			terminal.InfoSymbol(), swarmVulnType)
+	}
+	if swarmDiscover {
+		fmt.Fprintf(os.Stderr, "%s Discovery: enabled (crawling + spidering before planning)\n",
+			terminal.InfoSymbol())
+	}
+	if swarmSource != "" {
+		fmt.Fprintf(os.Stderr, "%s SAST: enabled (ast-grep route extraction + secret detection)\n",
+			terminal.InfoSymbol())
 	}
 
 	// Wire phase callback for verbose output
@@ -285,7 +347,8 @@ func buildSwarmInputs() ([]string, error) {
 // When rescan=false, it runs a full scan (all phases, all modules) by default.
 // When rescan=true, it restricts to audit with targeted modules.
 // The onlyPhase and skipPhases parameters allow user control via --only/--skip flags.
-func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
+// authConfigPath points to a generated auth-config.yaml from source analysis (may be empty).
+func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string, authConfigPath *string) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
 	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{swarmTarget}
@@ -300,6 +363,11 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
+
+		// Apply generated auth config from source analysis or custom instruction
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+		}
 
 		if rescan {
 			// Triage rescans: targeted audit only
@@ -341,6 +409,39 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		scanRunner.SetSettings(&settingsCopy)
 		scanRunner.SetRepository(repo)
 		return scanRunner.RunEnumeration()
+	}
+}
+
+// buildSwarmDiscoverFunc creates a callback that runs discovery + spidering
+// before the master agent planning phase. This expands the attack surface
+// by crawling/spidering the target and populating the database with HTTP records.
+func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		opts := types.DefaultOptions()
+		opts.Targets = []string{swarmTarget}
+		opts.ScanUUID = globalScanID
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
+		opts.ProjectUUID = projectUUID
+		opts.ConfigPath = globalConfig
+		opts.OnlyPhase = "discovery"
+		opts.DiscoverEnabled = true
+		opts.SpideringEnabled = true
+		opts.HeuristicsCheck = "basic"
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		// Apply generated auth config for authenticated crawling
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+		}
+
+		fmt.Fprintf(os.Stderr, "\n%s Discovery & Spidering (expanding attack surface)\n",
+			terminal.Aqua(terminal.SymbolSparkle))
+
+		return runPipelinePhaseRunner(opts, settings, repo)
 	}
 }
 
@@ -447,6 +548,38 @@ func formatSeverityWithSymbols(counts map[string]int) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// buildSwarmSASTFunc creates a callback that runs the native SAST phase
+// (ast-grep route extraction, Kingfisher secret detection, third-party tools).
+// This is automatically wired when --source is provided.
+func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, sourcePath string, authConfigPath *string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		opts := types.DefaultOptions()
+		opts.Targets = []string{swarmTarget}
+		opts.ScanUUID = globalScanID
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
+		opts.ProjectUUID = projectUUID
+		opts.ConfigPath = globalConfig
+		opts.SourcePath = sourcePath
+		opts.SASTEnabled = true
+		opts.OnlyPhase = "sast"
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		// Apply generated auth config if available
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+		}
+
+		fmt.Fprintf(os.Stderr, "\n%s SAST analysis (ast-grep + secret detection)\n",
+			terminal.Aqua(terminal.SymbolSparkle))
+
+		return runPipelinePhaseRunner(opts, settings, repo)
+	}
 }
 
 func truncateSwarmInput(s string, maxLen int) string {

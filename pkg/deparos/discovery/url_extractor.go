@@ -124,6 +124,30 @@ func ExtractFilename(urlPath string) (name, extension string) {
 	return name, extension
 }
 
+// FileMetadata holds all metadata extracted from a URL path in a single pass.
+// Consolidates the results of ExtractFilename, ExtractRawFilename,
+// ExtractPathForFuzzing, and ExtractPathSegments to avoid redundant parsing.
+type FileMetadata struct {
+	Name         string   // Hash-stripped filename (e.g., "app" from "app.b5ca88ec.js")
+	Extension    string   // Extension (e.g., "js"), may be compound (e.g., "min.js")
+	RawFilename  string   // Full filename preserving hashes (e.g., "app.b5ca88ec.js")
+	RawExtension string   // Raw extension without hash stripping
+	FuzzPath     string   // Directory path for fuzzing (e.g., "/api/v1/")
+	Segments     []string // Individual non-empty path segments
+}
+
+// ExtractAllFileMetadata extracts all file metadata from a URL path in a single pass.
+// This replaces separate calls to ExtractFilename, ExtractRawFilename,
+// ExtractPathForFuzzing, and ExtractPathSegments.
+func ExtractAllFileMetadata(urlPath string) FileMetadata {
+	var m FileMetadata
+	m.Name, m.Extension = ExtractFilename(urlPath)
+	m.RawFilename, m.RawExtension = ExtractRawFilename(urlPath)
+	m.FuzzPath = ExtractPathForFuzzing(urlPath)
+	m.Segments = ExtractPathSegments(urlPath)
+	return m
+}
+
 // ExtractRawFilename extracts the raw filename and extension from a URL path.
 // Unlike ExtractFilename, this does NOT strip hashes - it preserves the full filename.
 // Used for observedFiles which stores complete filenames like "app.b5ca88ec.js".

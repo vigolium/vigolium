@@ -500,7 +500,7 @@ func fmtDuration(d time.Duration) string {
 //	Spidering         — browser-based crawling (opt-in)
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
 //	SPA               — nuclei + kingfisher batch (opt-in via --spa)
-//	Auditing — modules + extensions scan DB records
+//	Audit             — modules + extensions scan DB records
 // printScanConfig prints a human-readable scan configuration summary to stderr.
 // This provides the same information the CLI's printScanSummary shows, ensuring
 // API-triggered scans also display the effective configuration.
@@ -572,7 +572,7 @@ func (r *Runner) printScanConfig() {
 		phaseLabel("Discovery", "discovery", opts.DiscoverEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("SPA", "spa", opts.SPAEnabled),
-		phaseLabel("Auditing", "audit", !opts.SkipAudit),
+		phaseLabel("Audit", "audit", !opts.SkipAudit),
 		phaseLabel("SAST", "sast", opts.SASTEnabled))
 
 	// Speed
@@ -853,7 +853,7 @@ func (r *Runner) RunEnumeration() error {
 		}
 	}
 
-	// Auditing — runs if modules exist and not skipped by strategy
+	// Audit — runs if modules exist and not skipped by strategy
 	if !r.options.SkipAudit {
 		r.setPhaseTag("audit")
 		activeModules, passiveModules := r.resolveAllModules(infra)
@@ -863,7 +863,7 @@ func (r *Runner) RunEnumeration() error {
 				"passive_modules": len(passiveModules),
 			})
 			if err := r.runAuditPhase(ctx, infra, activeModules, passiveModules); err != nil {
-				zap.L().Error("Auditing phase failed", zap.Error(err))
+				zap.L().Error("Audit phase failed", zap.Error(err))
 				r.scanLogger.Error("audit", "phase failed: "+err.Error())
 			} else {
 				r.scanLogger.Info("audit", "phase completed")
@@ -873,7 +873,7 @@ func (r *Runner) RunEnumeration() error {
 			r.scanLogger.Info("audit", "skipped, no modules to execute")
 		}
 	} else {
-		zap.L().Info("Auditing skipped by scanning strategy")
+		zap.L().Info("Audit skipped by scanning strategy")
 		r.scanLogger.Info("audit", "skipped by scanning strategy")
 	}
 
@@ -1222,6 +1222,13 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		return err
 	}
 
+	// Increment processed_count for discovery phase
+	if r.repository != nil && executor.Processed() > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, executor.Processed()); err != nil {
+			zap.L().Warn("Discovery: failed to increment processed count", zap.Error(err))
+		}
+	}
+
 	elapsed := time.Since(phaseStart)
 	r.printPhaseComplete("Discovery", fmt.Sprintf("completed — %s items ingested (deparos=%s) in %s",
 		terminal.Orange(fmt.Sprintf("%d", executor.Processed())),
@@ -1248,7 +1255,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 }
 
 // seedCLITargets ingests CLI targets into the database without running deparos or modules.
-// This is used when discovery is skipped but downstream phases (SPA, Auditing)
+// This is used when discovery is skipped but downstream phases (SPA, Audit)
 // need DB records to operate on.
 func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	r.printPhaseStart("Seed", "ingest CLI targets into database (discovery skipped)")
@@ -1273,6 +1280,13 @@ func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	_, err := executor.Execute(ctx)
 	if err != nil {
 		return err
+	}
+
+	// Increment processed_count for seed phase
+	if r.repository != nil && executor.Processed() > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, executor.Processed()); err != nil {
+			zap.L().Warn("Seed: failed to increment processed count", zap.Error(err))
+		}
 	}
 
 	zap.L().Info("Seed: CLI targets ingested", zap.Int64("processed", executor.Processed()))
@@ -1392,6 +1406,13 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			zap.Int("records_saved", result.RecordsSaved))
 	}
 
+	// Increment processed_count for spidering phase
+	if r.repository != nil && totalRecords > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, int64(totalRecords)); err != nil {
+			zap.L().Warn("Spidering: failed to increment processed count", zap.Error(err))
+		}
+	}
+
 	elapsed := time.Since(phaseStart)
 	r.printPhaseComplete("Spidering", fmt.Sprintf("completed — %s records, %s states, %s actions in %s",
 		terminal.Orange(fmt.Sprintf("%d", totalRecords)),
@@ -1474,6 +1495,13 @@ func (r *Runner) runSPAPhase(ctx context.Context, infra *phaseInfra) error {
 	}
 	if total > 0 {
 		r.printPhaseDetail(formatSPASummary(counts, total))
+	}
+
+	// Increment processed_count for SPA phase
+	if r.repository != nil && total > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, int64(total)); err != nil {
+			zap.L().Warn("SPA: failed to increment processed count", zap.Error(err))
+		}
 	}
 
 	elapsed := time.Since(phaseStart)
@@ -1594,10 +1622,10 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	phaseStart := time.Now()
 
 	if r.repository == nil {
-		return fmt.Errorf("auditing: database repository required")
+		return fmt.Errorf("audit: database repository required")
 	}
 
-	r.printPhaseStart("Auditing", "execute dynamic security assessments through coordinated active and passive scanning modules")
+	r.printPhaseStart("Audit", "execute dynamic security assessments through coordinated active and passive scanning modules")
 	r.printPhaseDetail(fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", len(activeModules))),
 		terminal.Orange(fmt.Sprintf("%d", len(passiveModules)))))
@@ -1617,7 +1645,7 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	r.printPhaseDetail(daSpeedDetail)
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 
-	zap.L().Info("Auditing: running modules on database records",
+	zap.L().Info("Audit: running modules on database records",
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
@@ -1673,7 +1701,7 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		var err error
 		oastService, err = oast.New(&r.settings.OAST, onOASTResult, r.repository, infra.scanUUID, r.options.ProjectUUID, nil)
 		if err != nil {
-			zap.L().Warn("Auditing: OAST initialization failed, continuing without OAST", zap.Error(err))
+			zap.L().Warn("Audit: OAST initialization failed, continuing without OAST", zap.Error(err))
 		}
 		if oastService != nil {
 			oastService.Start()
@@ -1691,16 +1719,32 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 			WithHostnames(inScopeHostnames)
 
+		// Resolve per-phase timeout from scanning pace config
+		var auditMaxDuration time.Duration
+		if r.settings != nil {
+			auditPace := r.settings.ScanningPace.ResolvePhase("audit")
+			auditMaxDuration = auditPace.MaxDuration
+		}
+
+		// Create batched record writer for throughput
+		var recordWriter *database.RecordWriter
+		if r.repository != nil {
+			recordWriter = database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
+		}
+
 		executorCfg := core.ExecutorConfig{
 			Workers:              daConcurrency,
 			Services:             infra.svc,
 			HTTPRequester:        infra.httpRequester,
 			Repository:           r.repository,
+			RecordWriter:         recordWriter,
 			ScanUUID:             infra.scanUUID,
 			ScopeMatcher:         infra.scopeMatcher,
 			SkipBaseline:         true,
 			PauseCtrl:            r.pauseCtrl,
 			MaxFindingsPerModule: r.options.MaxFindingsPerModule,
+			MaxDuration:          auditMaxDuration,
+			ParallelPassive:      true,
 			OnTraffic:            r.makeOnTrafficVerbose("audit"),
 			OnResult: func(result *output.ResultEvent) {
 				if err := r.output.Write(result); err != nil {
@@ -1721,20 +1765,26 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 			oastService.SetRequestUUIDResolver(executor.ResolveRequestUUID)
 		}
 		_, err := executor.Execute(ctx)
+
+		// Close the batched record writer to flush remaining records
+		if recordWriter != nil {
+			recordWriter.Close()
+		}
+
 		if err != nil {
-			zap.L().Error("Auditing: executor error", zap.Error(err), zap.Int("round", round))
+			zap.L().Error("Audit: executor error", zap.Error(err), zap.Int("round", round))
 			break
 		}
 
 		roundElapsed := time.Since(roundStart)
-		r.printPhaseComplete("Auditing",
+		r.printPhaseComplete("Audit",
 			fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", executor.Processed())), terminal.HiPurple(fmtDuration(roundElapsed))))
-		zap.L().Info("Auditing: round completed",
+		zap.L().Info("Audit: round completed",
 			zap.Int("round", round+1),
 			zap.Int64("processed", executor.Processed()))
 
 		// Deduplicate findings after each audit round
-		r.deduplicateFindings(ctx, "Auditing")
+		r.deduplicateFindings(ctx, "Audit")
 
 		// Check for newly discovered records by reading the current cursor from the scan record.
 		if round < maxFeedbackRounds-1 {
@@ -1746,15 +1796,15 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 			if countErr != nil || newCount == 0 {
 				break
 			}
-			r.printPhaseFeedback("Auditing",
+			r.printPhaseFeedback("Audit",
 				fmt.Sprintf("%s new records discovered, starting round %d", terminal.Orange(fmt.Sprintf("%d", newCount)), round+2))
-			zap.L().Info("Auditing: new records discovered, starting next round",
+			zap.L().Info("Audit: new records discovered, starting next round",
 				zap.Int64("new_records", newCount))
 		}
 	}
 
 	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("Auditing", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
+	r.printPhaseComplete("Audit", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 
 	return nil
 }
@@ -1884,12 +1934,17 @@ func (r *Runner) Close() {
 		r.cancel()
 	}
 
-	// Wait for RunEnumeration to finish (with timeout)
+	// Wait for RunEnumeration to finish (with configurable timeout)
 	if r.done != nil {
+		shutdownTimeout := r.options.ShutdownTimeout
+		if shutdownTimeout <= 0 {
+			shutdownTimeout = 30 * time.Second
+		}
 		select {
 		case <-r.done:
-		case <-time.After(10 * time.Second):
-			zap.L().Warn("Graceful shutdown timed out after 10s, forcing cleanup")
+		case <-time.After(shutdownTimeout):
+			zap.L().Warn("Graceful shutdown timed out, forcing cleanup",
+				zap.Duration("timeout", shutdownTimeout))
 		}
 	}
 
@@ -2341,6 +2396,13 @@ func (r *Runner) runExternalHarvestPhase(ctx context.Context, infra *phaseInfra)
 		return err
 	}
 
+	// Increment processed_count for external harvest phase
+	if r.repository != nil && executor.Processed() > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, executor.Processed()); err != nil {
+			zap.L().Warn("ExternalHarvest: failed to increment processed count", zap.Error(err))
+		}
+	}
+
 	elapsed := time.Since(phaseStart)
 	r.printPhaseComplete("ExternalHarvest", fmt.Sprintf("completed — %s items ingested in %s",
 		terminal.Orange(fmt.Sprintf("%d", executor.Processed())), terminal.HiPurple(fmtDuration(elapsed))))
@@ -2651,6 +2713,15 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	}
 	summary += fmt.Sprintf(" in %s", terminal.HiPurple(fmtDuration(elapsed)))
 	r.printPhaseComplete("SAST", summary)
+
+	// Increment processed_count for SAST phase
+	sastProcessed := int64(totalRoutes + totalKingfisherFindings + totalThirdPartyFindings + totalAgentFindings)
+	if r.repository != nil && sastProcessed > 0 {
+		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, sastProcessed); err != nil {
+			zap.L().Warn("SAST: failed to increment processed count", zap.Error(err))
+		}
+	}
+
 	return nil
 }
 

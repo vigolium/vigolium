@@ -1,4 +1,4 @@
-# Auditing — Active Vulnerability Scanning
+# Audit — Active Vulnerability Scanning
 
 The audit phase is the scanning layer that sends modified requests to detect vulnerabilities. It receives traffic from all input sources (crawling, spidering, content discovery, manual ingestion) and systematically injects payloads at every insertion point to identify security issues.
 

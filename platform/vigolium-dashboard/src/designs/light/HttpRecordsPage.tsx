@@ -77,7 +77,7 @@ const EXTRA_HIDDEN_FIELDS = [
   'uuid', 'scheme', 'port', 'ip', 'url', 'http_version',
   'request_content_type', 'request_content_length', 'request_hash',
   'status_phrase', 'response_http_version', 'response_hash',
-  'has_response',
+  'has_response', 'response_time_ms',
   'received_at', 'created_at', 'remarks',
 ];
 

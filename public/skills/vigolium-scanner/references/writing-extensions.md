@@ -24,7 +24,7 @@ Vigolium extensions are JavaScript files that implement scanner modules using th
 - **Passive modules**: Analyze existing request/response pairs without sending traffic
 - **Pre/post hooks**: Run before or after the scan pipeline
 
-Extensions have access to the full `vigolium.*` API for HTTP requests, database queries, parsing, AI-augmented analysis, and finding creation.
+Extensions have access to the full `vigolium.*` API for HTTP requests, database queries, parsing, AI-augmented analysis, OAST (out-of-band) testing, and finding creation.
 
 ---
 
@@ -228,20 +228,41 @@ The global `vigolium.record` also provides access to the current record context.
 - Regex: `regexMatch(str, pattern)`, `regexExtract(str, pattern)`
 - File I/O: `readFile`, `readLines`, `writeFile`, `mkdir`, `glob`
 - URL: `parse_url(url, format)`, `pathToTemplate(path)`, `hasDynamicSegment(path)`
-- Other: `sleep(ms)`, `exec(cmd)`, `getEnv`, `setEnv`, `jsonExtract`, `detectAnomaly`
+- Params: `toSet(csv)`, `extractParamNames(str)`
+- Diff/similarity: `diff(a, b)`, `similarity(a, b)`, `diffResponses(respA, respB)`
+- HTML: `cssSelect(html, selector)` — CSS selector queries on HTML
+- Token extraction: `extractToken(response, rules)` — extract tokens from HTTP responses
+- JWT: `jwtDecode(token)`, `jwtEncode(payload, opts?)`, `jwtExpired(token)`
+- Multipart: `multipart(fields)` — build multipart/form-data bodies
+- Anomaly: `detectAnomaly(responses)`
+- Other: `sleep(ms)`, `exec(cmd)`, `getEnv`, `setEnv`, `jsonExtract`
 
 ### vigolium.parse
 - `url(str)`, `request(raw)`, `response(raw)`
 - `headers(str)`, `cookies(str)`, `query(str)`, `json(str)`, `form(body)`
+- `html(str)` — parse HTML into forms, links, scripts, meta tags
 
 ### vigolium.http
-- `get(url, opts?)`, `post(url, body, opts?)`
-- `request(opts)` — full control (method, url, headers, body)
-- `send(rawRequest)` — send raw HTTP request string
+- Basic: `get(url, opts?)`, `post(url, body, opts?)`, `request(opts)`, `send(rawRequest)`
+- Build: `buildRequest(rawRequest, overrides)` — clone and modify a raw request
+- Session: `session(opts?)` — persistent HTTP session with shared cookie jar
+- Login: `login(opts)` — send credentials, extract tokens, return authenticated session
+- Batch: `batch(requests, opts?)` — parallel request execution
+- Replay: `replay(rawRequest, variations)` — replay with multiple variations
+- Sequence: `sequence(steps)` — multi-step workflows with variable extraction
+- Auth testing: `authTest(opts)` — IDOR/BOLA testing across privilege levels
+- Session pool: `sessionPool(configs)` — named session management
+- CSRF: `csrf(url, opts?)` — extract CSRF tokens from pages
+- OAuth: `followAuth(opts)` — OAuth2 authentication flows
+- Retry: `retry(request, opts?)` — retry with configurable backoff
+- GraphQL: `graphql(url, opts)`, `graphqlSchema(url, opts?)` — queries and introspection
+- Cache: `cache(opts?)`, `clearCache()`, `cachedGet(url, opts?)`, `cachedRequest(opts)`
 
 ### vigolium.scan
-- `listModules()`, `isInScope(host, path)`, `getScope()`, `setScope(scope)`
+- `listModules()`, `listModuleTags()`, `listModulesByTag(tag)`
+- `isInScope(host, path)`, `getScope()`, `setScope(scope)`
 - `createFinding(finding)`, `getCurrentScan()`, `startNewScan(opts)`
+- `scanRecords(opts)` — queue a scan for existing records by UUIDs
 
 ### vigolium.ingest
 - `url(url)`, `urls(content)`, `curl(command)`, `raw(request, response?)`
@@ -260,12 +281,21 @@ The global `vigolium.record` also provides access to the current record context.
 - `confirmFinding(opts)` — verify if a finding is a true positive
 - `run(opts)` — run a full agent backend subprocess
 
+### vigolium.oast (Out-of-Band Testing)
+- `enabled()` — check if OAST service is active
+- `payload(targetURL?, paramName?, injectionType?)` — generate a unique callback URL
+- `poll(timeoutMs?)` — wait and return all OAST interactions
+
 ### vigolium.db
 - `records.query(filters?)`, `records.get(uuid)`, `records.getRelated(uuid)`
-- `records.annotate(uuid, patch)`
+- `records.annotate(uuid, patch)`, `records.grouped(opts?)` — group by path template
 - `findings.query(filters?)`, `findings.get(id)`, `findings.getByRecord(uuid)`
 - `findings.create(finding)`
 - `compareResponses(records)` — anomaly detection across records
+
+### vigolium.payloads(type)
+- Returns built-in payload wordlists by vulnerability type
+- Types: `"xss"`, `"sqli"`, `"ssti"`, `"ssrf"`, `"lfi"`, `"path_traversal"`, `"xxe"`, `"cmdi"`, `"open_redirect"`, `"crlf"`
 
 ### vigolium.config
 - Read-only config values: `vigolium.config["key"]`
@@ -391,6 +421,313 @@ module.exports = {
       severity: "suspect",
       description: "Response divergence detected across records with same path template."
     };
+  }
+};
+```
+
+### Session-Based IDOR Testing with authTest
+
+```javascript
+module.exports = {
+  id: "session-idor-test",
+  name: "Session-Based IDOR Test",
+  type: "active",
+  severity: "high",
+  confidence: "firm",
+  tags: ["idor", "bola", "access-control"],
+  scanTypes: ["per_request"],
+
+  scanPerRequest: function(ctx) {
+    var parsed = vigolium.parse.url(ctx.request.url);
+    if (!parsed || !vigolium.utils.hasDynamicSegment(parsed.path)) return null;
+
+    // Create sessions for different privilege levels
+    var pool = vigolium.http.sessionPool({
+      admin: {
+        url: parsed.scheme + "://" + parsed.host + "/api/login",
+        body: JSON.stringify({ username: "admin", password: vigolium.config.admin_pass }),
+        headers: { "Content-Type": "application/json" },
+        extract: [{ source: "json", path: "token", apply_as: "Authorization: Bearer {value}" }]
+      },
+      user: {
+        url: parsed.scheme + "://" + parsed.host + "/api/login",
+        body: JSON.stringify({ username: "user", password: vigolium.config.user_pass }),
+        headers: { "Content-Type": "application/json" },
+        extract: [{ source: "json", path: "token", apply_as: "Authorization: Bearer {value}" }]
+      },
+      unauthenticated: {}
+    });
+
+    // Test IDOR across sessions
+    var results = vigolium.http.authTest({
+      sessions: [pool.get("admin"), pool.get("user"), pool.get("unauthenticated")],
+      records: [ctx.record.uuid],
+      method: "replay"
+    });
+
+    for (var i = 0; i < results.length; i++) {
+      if (results[i].vulnerability !== "none") {
+        return {
+          url: ctx.request.url,
+          name: "IDOR: " + results[i].vulnerability.toUpperCase(),
+          severity: "high",
+          matched: "Unauthorized access detected across privilege levels",
+          description: "Confidence: " + results[i].confidence
+        };
+      }
+    }
+    return null;
+  }
+};
+```
+
+### Out-of-Band (OAST) Detection
+
+```javascript
+module.exports = {
+  id: "oast-ssrf-check",
+  name: "OAST SSRF Detection",
+  type: "active",
+  severity: "high",
+  confidence: "certain",
+  tags: ["ssrf", "oast"],
+  scanTypes: ["per_insertion_point"],
+
+  scanPerInsertionPoint: function(ctx, insertion) {
+    if (!vigolium.oast.enabled()) return null;
+
+    // Generate a unique OAST callback URL
+    var oast = vigolium.oast.payload(ctx.request.url, insertion.name, "ssrf");
+    if (!oast) return null;
+
+    // Inject the callback URL as the parameter value
+    var req = insertion.buildRequest(oast.url);
+    vigolium.http.send(req);
+
+    // Wait for out-of-band interactions
+    var interactions = vigolium.oast.poll(5000);
+    for (var i = 0; i < interactions.length; i++) {
+      if (interactions[i].parameter_name === insertion.name) {
+        return [{
+          url: ctx.request.url,
+          name: "SSRF via " + insertion.name,
+          severity: "high",
+          matched: "OAST callback received from " + interactions[i].remote_address,
+          description: "Server-side request forgery confirmed via out-of-band interaction."
+        }];
+      }
+    }
+    return null;
+  }
+};
+```
+
+### Multi-Step Auth Flow with Sequence
+
+```javascript
+module.exports = {
+  id: "auth-flow-test",
+  name: "Multi-Step Authentication Flow Test",
+  type: "active",
+  severity: "medium",
+  confidence: "firm",
+  tags: ["auth", "session"],
+  scanTypes: ["per_host"],
+
+  scanPerHost: function(ctx) {
+    var host = vigolium.parse.url(ctx.request.url).host;
+
+    // Execute a multi-step login flow with variable extraction
+    var result = vigolium.http.sequence([
+      {
+        method: "GET",
+        url: "https://" + host + "/login",
+        extract: {
+          csrf: { source: "regex", pattern: 'name="csrf_token" value="([^"]+)"' }
+        }
+      },
+      {
+        method: "POST",
+        url: "https://" + host + "/login",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "username=test&password=test&csrf_token={{csrf}}",
+        extract: {
+          session: { source: "cookie", name: "session_id" }
+        }
+      },
+      {
+        method: "GET",
+        url: "https://" + host + "/api/profile",
+        headers: { "Cookie": "session_id={{session}}" },
+        condition: "{{session}} != ''"
+      }
+    ]);
+
+    if (result.success && result.responses[2] && result.responses[2].status === 200) {
+      // Check if profile data leaks sensitive info
+      var body = result.responses[2].body;
+      if (/password|secret|api_key|private_key/.test(body)) {
+        return {
+          url: "https://" + host + "/api/profile",
+          name: "Sensitive Data in Profile Endpoint",
+          severity: "medium",
+          matched: "Profile response contains sensitive field names"
+        };
+      }
+    }
+    return null;
+  }
+};
+```
+
+### GraphQL Introspection Check
+
+```javascript
+module.exports = {
+  id: "graphql-introspection",
+  name: "GraphQL Introspection Enabled",
+  type: "active",
+  severity: "low",
+  confidence: "certain",
+  tags: ["graphql", "information-disclosure"],
+  scanTypes: ["per_host"],
+
+  scanPerHost: function(ctx) {
+    var parsed = vigolium.parse.url(ctx.request.url);
+    var endpoints = ["/graphql", "/api/graphql", "/v1/graphql"];
+
+    for (var i = 0; i < endpoints.length; i++) {
+      var url = parsed.scheme + "://" + parsed.host + endpoints[i];
+      var schema = vigolium.http.graphqlSchema(url);
+      if (schema) {
+        return {
+          url: url,
+          name: "GraphQL Introspection Enabled",
+          severity: "low",
+          matched: "Full schema available via introspection",
+          description: "GraphQL introspection is enabled, exposing the full API schema."
+        };
+      }
+    }
+    return null;
+  }
+};
+```
+
+### JWT Manipulation Check
+
+```javascript
+module.exports = {
+  id: "jwt-none-alg",
+  name: "JWT None Algorithm Bypass",
+  type: "active",
+  severity: "critical",
+  confidence: "firm",
+  tags: ["jwt", "auth-bypass"],
+  scanTypes: ["per_request"],
+
+  scanPerRequest: function(ctx) {
+    // Look for JWT in Authorization header
+    var auth = ctx.request.headers["authorization"] || ctx.request.headers["Authorization"];
+    if (!auth || auth.indexOf("Bearer ") !== 0) return null;
+
+    var token = auth.substring(7);
+    var decoded = vigolium.utils.jwtDecode(token);
+    if (!decoded) return null;
+
+    // Forge a token with "none" algorithm
+    var forged = vigolium.utils.jwtEncode(decoded.payload, { algorithm: "none" });
+
+    // Replay the request with the forged token
+    var resp = vigolium.http.request({
+      method: ctx.request.method,
+      url: ctx.request.url,
+      headers: Object.assign({}, ctx.request.headers, {
+        "Authorization": "Bearer " + forged
+      })
+    });
+
+    // If the response is similar, the server accepts unsigned tokens
+    if (resp.status === ctx.response.status) {
+      var sim = vigolium.utils.similarity(ctx.response.body, resp.body);
+      if (sim > 0.9) {
+        return {
+          url: ctx.request.url,
+          name: "JWT None Algorithm Accepted",
+          severity: "critical",
+          matched: "Server accepts JWT with 'none' algorithm",
+          request: "Authorization: Bearer " + forged.substring(0, 50) + "...",
+          response: resp.raw
+        };
+      }
+    }
+    return null;
+  }
+};
+```
+
+### Built-in Payloads with Caching
+
+```javascript
+module.exports = {
+  id: "cached-sqli-check",
+  name: "SQL Injection (with response caching)",
+  type: "active",
+  severity: "high",
+  confidence: "firm",
+  tags: ["sqli"],
+  scanTypes: ["per_insertion_point"],
+
+  scanPerInsertionPoint: function(ctx, insertion) {
+    // Enable caching to avoid redundant baseline requests
+    vigolium.http.cache({ ttl_ms: 30000 });
+
+    // Use built-in payloads
+    var payloads = vigolium.payloads("sqli");
+
+    // Get cached baseline response
+    var baseline = vigolium.http.cachedGet(ctx.request.url);
+
+    for (var i = 0; i < payloads.length; i++) {
+      var req = insertion.buildRequest(payloads[i]);
+      var resp = vigolium.http.send(req);
+      if (!resp) continue;
+
+      // Check for SQL error patterns
+      if (/SQL|syntax|mysql|pg_|ORA-|SQLSTATE/.test(resp.body)) {
+        return [{
+          url: ctx.request.url,
+          name: "SQL Injection in " + insertion.name,
+          severity: "high",
+          matched: resp.body.match(/SQL[^\n]{0,100}|syntax[^\n]{0,100}/)[0],
+          request: req,
+          response: resp.raw
+        }];
+      }
+
+      // Check for response divergence indicating boolean-based SQLi
+      if (baseline) {
+        var sim = vigolium.utils.similarity(baseline.body, resp.body);
+        if (sim < 0.5 && resp.status !== baseline.status) {
+          var confirmed = vigolium.agent.confirmFinding({
+            name: "Boolean-based SQL Injection",
+            request: req,
+            response: resp.raw,
+            matched: "Response divergence: similarity=" + sim.toFixed(2),
+            baseline_response: baseline.raw
+          });
+          if (confirmed.confirmed) {
+            return [{
+              url: ctx.request.url,
+              name: "SQL Injection (boolean-based) in " + insertion.name,
+              severity: "high",
+              matched: confirmed.reasoning
+            }];
+          }
+        }
+      }
+    }
+    return null;
   }
 };
 ```

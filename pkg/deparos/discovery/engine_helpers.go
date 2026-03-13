@@ -52,44 +52,53 @@ func collectDirectoryURLs(s storage.Storage) []string {
 // extractFilenamesFromSitemap extracts filenames and extensions from existing sitemap URLs.
 func extractFilenamesFromSitemap(e *Engine) error {
 	return e.storage.WalkFiles(func(node *storage.DiscoveredNode) error {
-		name, ext := ExtractFilename(node.URL().Path)
-		if name != "" {
-			e.AddObservedNameTrusted(name)
-		}
-		if ext != "" {
-			e.addObservedExtensionIfNew(ext)
-		}
-
-		// Store full filename for literal file testing (preserves hashes like app.b5ca88ec.js)
-		rawFilename, rawExt := ExtractRawFilename(node.URL().Path)
-		if rawFilename != "" && rawExt != "" {
-			if _, ok := config.AllowedObservedExtensions[rawExt]; ok {
-				e.AddObservedFileTrusted(rawFilename)
-			}
-		}
-
-		// Extract paths and segments
-		if e.config.Filenames.UseObservedPaths {
-			// Store raw full path
-			fullPath := ExtractPathForFuzzing(node.URL().Path)
-			if fullPath != "" {
-				e.AddObservedPathTrusted(fullPath)
-			}
-
-			// Extract name/extension from each segment to avoid adding full filenames like "app.js"
-			segments := ExtractPathSegments(node.URL().Path)
-			for _, segment := range segments {
-				name, ext := ExtractFilename("/" + segment)
-				if name != "" {
-					e.AddObservedNameTrusted(name)
-				}
-				if ext != "" {
-					e.addObservedExtensionIfNew(ext)
-				}
-			}
-		}
+		e.applyFileMetadata(node.URL().Path, 0)
 		return nil
 	})
+}
+
+// applyFileMetadata extracts all file metadata from urlPath in a single pass
+// and applies it to the engine's observed collections. This consolidates the
+// duplicate extraction logic previously spread across extractFilenamesFromSitemap,
+// extractFileMetadata, and collectValidatedLinks.
+func (e *Engine) applyFileMetadata(urlPath string, depth uint16) (meta FileMetadata) {
+	meta = ExtractAllFileMetadata(urlPath)
+
+	if meta.Name != "" {
+		e.AddObservedNameTrusted(meta.Name)
+	}
+	if meta.Extension != "" {
+		if depth > 0 {
+			e.handleNewExtension(meta.Extension, depth)
+		} else {
+			e.addObservedExtensionIfNew(meta.Extension)
+		}
+	}
+
+	// Store full filename for literal file testing (preserves hashes like app.b5ca88ec.js)
+	if meta.RawFilename != "" && meta.RawExtension != "" {
+		if _, ok := config.AllowedObservedExtensions[meta.RawExtension]; ok {
+			e.AddObservedFileTrusted(meta.RawFilename)
+		}
+	}
+
+	// Extract paths and segments
+	if e.config.Filenames.UseObservedPaths {
+		if meta.FuzzPath != "" {
+			e.AddObservedPathTrusted(meta.FuzzPath)
+		}
+		for _, segment := range meta.Segments {
+			segName, segExt := ExtractFilename("/" + segment)
+			if segName != "" {
+				e.AddObservedNameTrusted(segName)
+			}
+			if segExt != "" {
+				e.addObservedExtensionIfNew(segExt)
+			}
+		}
+	}
+
+	return meta
 }
 
 // extractWordsFromResponses extracts words from stored response bodies.

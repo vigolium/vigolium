@@ -1,6 +1,6 @@
 # Data & Management Commands Reference
 
-Complete reference for `db`, `finding`, `module`, `extensions`, `config`, `scope`, `source`, `strategy`, `export`, and `version` commands.
+Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, `scope`, `source`, `strategy`, `export`, and `version` commands.
 
 ## Table of Contents
 
@@ -13,6 +13,7 @@ Complete reference for `db`, `finding`, `module`, `extensions`, `config`, `scope
 - [export (top-level)](#export)
 - [module](#module)
 - [extensions](#extensions)
+- [js](#js)
 - [config](#config)
 - [scope](#scope)
 - [source](#source)
@@ -385,6 +386,96 @@ vigolium ext eval 'vigolium.log.info("hello")'
 vigolium ext eval --ext-file script.js
 echo 'vigolium.utils.md5("hello")' | vigolium ext eval --stdin
 ```
+
+---
+
+## js
+
+**Usage:** `vigolium js [flags]`
+
+Execute JavaScript code with access to the full `vigolium.*` API surface. Reads from stdin by default, or use `--code` / `--code-file` for inline or file input. TypeScript files (`.ts`) are auto-transpiled.
+
+### Input methods (mutually exclusive, in order of precedence)
+
+1. `--code` — Inline JavaScript code
+2. `--code-file` — Path to JavaScript/TypeScript file
+3. stdin (default) — Read JS code from piped input
+
+### js flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--code` | string | — | Inline JavaScript code to execute |
+| `--code-file` | string | — | Path to JavaScript/TypeScript file (auto-transpiles `.ts`) |
+| `--target` | string | — | Set TARGET variable in JS scope (URL string) |
+| `--timeout` | duration | `30s` | Execution timeout (e.g., `60s`, `2m`) |
+| `--format` | string | `json` | Output format: `json` or `text` |
+
+### Available API
+
+The JS VM provides access to all `vigolium.*` namespaces:
+
+| Namespace | Description |
+|-----------|-------------|
+| `vigolium.http` | HTTP requests, sessions, batch, replay, sequence, auth testing, GraphQL, caching |
+| `vigolium.utils` | Encoding, hashing, diff, similarity, JWT, CSS selectors, multipart, file I/O |
+| `vigolium.parse` | URL, HTTP request/response, HTML, headers, cookies, query, JSON, form parsing |
+| `vigolium.scan` | Module listing, scope, finding creation, scan control |
+| `vigolium.db` | HTTP record and finding queries, annotations, comparison |
+| `vigolium.ingest` | URL, curl, raw HTTP, OpenAPI, Postman ingestion |
+| `vigolium.source` | Source code file listing, reading, searching |
+| `vigolium.agent` | AI-augmented analysis (ask, chat, complete, generatePayloads, analyzeResponse, confirmFinding) |
+| `vigolium.oast` | Out-of-band testing (enabled, payload, poll) |
+| `vigolium.log` | Logging (info, warn, error, debug) |
+| `vigolium.config` | Read-only config variables |
+| `vigolium.payloads(type)` | Built-in payload wordlists (xss, sqli, ssti, ssrf, lfi, etc.) |
+
+### Return value
+
+- Returns `undefined`/`null` → no output
+- Otherwise → JSON-stringified return value on stdout
+- With `--format text` → JSON strings are unquoted
+
+### Examples
+
+```bash
+# Inline code
+vigolium js --code 'vigolium.http.get("https://example.com/api/health")'
+
+# From a file
+vigolium js --code-file scanner-script.js
+
+# TypeScript auto-transpilation
+vigolium js --code-file scanner.ts
+
+# From stdin (ideal for agent/pipe workflows)
+echo 'vigolium.utils.md5("password123")' | vigolium js
+
+# With target context (accessible as TARGET variable)
+vigolium js --target https://example.com --code 'vigolium.http.get(TARGET + "/api/users")'
+
+# Custom timeout and text output
+vigolium js --timeout 60s --format text --code 'vigolium.utils.sha256("hello")'
+
+# Query database records
+vigolium js --code 'JSON.stringify(vigolium.db.records.query({ hostname: "example.com", limit: 5 }))'
+
+# Ingest and scan
+vigolium js --code 'vigolium.ingest.url("https://example.com/api/users"); vigolium.scan.startNewScan({ targets: ["https://example.com"] })'
+
+# Use AI to generate payloads
+vigolium js --code 'JSON.stringify(vigolium.agent.generatePayloads({ type: "xss", context: "HTML attribute", count: 5 }))'
+```
+
+### Differences from `vigolium ext eval`
+
+| Feature | `vigolium js` | `vigolium ext eval` |
+|---------|---------------|---------------------|
+| Input methods | `--code`, `--code-file`, stdin | positional arg, `--ext-file`, `--stdin` |
+| Target context | `--target` sets `TARGET` variable | Not available |
+| Timeout | Configurable via `--timeout` | Not configurable |
+| Output format | `--format json\|text` | Direct output |
+| Use case | General scripting, automation | Quick extension testing |
 
 ---
 

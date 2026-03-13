@@ -102,8 +102,8 @@ func TestCachedResponse_Roundtrip(t *testing.T) {
 	if cached.Duration != 42 {
 		t.Errorf("expected duration 42, got %d", cached.Duration)
 	}
-	if string(cached.Body) != "test body" {
-		t.Errorf("expected body 'test body', got %q", string(cached.Body))
+	if string(cached.Body()) != "test body" {
+		t.Errorf("expected body 'test body', got %q", string(cached.Body()))
 	}
 
 	// Reconstruct

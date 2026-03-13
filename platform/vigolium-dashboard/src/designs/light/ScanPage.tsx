@@ -22,7 +22,7 @@ const TAB_DEFS: { key: ScanMode; label: string; desc: string }[] = [
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 const FILTER_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 const STRATEGIES = ['lite', 'balanced', 'deep', 'whitebox'] as const;
-const PHASES = ['', 'discovery', 'spidering', 'dynamic-assessment'] as const;
+const PHASES = ['', 'discovery', 'spidering', 'audit'] as const;
 const SCOPE_ORIGINS = ['', 'all', 'relaxed', 'balanced', 'strict'] as const;
 const HEURISTICS = ['', 'none', 'basic', 'advanced'] as const;
 const HISTORY_PAGE_SIZE = 20;
@@ -117,11 +117,11 @@ function ScanDetailPanel({ scan, onClose }: { scan: Scan; onClose: () => void })
         ) : (
           logs.map((log: ScanLog) => (
             <div key={log.id} className="px-3 py-0.5 hover:bg-[#f6edda] flex gap-2">
-              <span className="text-[#bbc3c4] shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
+              <span className="text-[#8a9394] shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
               <span className="shrink-0 uppercase font-bold" style={{ color: levelColor(log.level) }}>{log.level.padEnd(5)}</span>
               {log.phase && <span className="text-[#00b368] shrink-0">[{log.phase}]</span>}
-              <span className="text-[#005661]">{log.message}</span>
-              {log.metadata && <span className="text-[#bbc3c4]">{log.metadata}</span>}
+              <span className="text-[#00404d]">{log.message}</span>
+              {log.metadata && <span className="text-[#8a9394]">{log.metadata}</span>}
             </div>
           ))
         )}

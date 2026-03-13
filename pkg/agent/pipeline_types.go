@@ -622,6 +622,7 @@ type SourceAnalysisConfig struct {
 	TargetURL      string
 	SourcePath     string
 	Files          []string
+	Instruction    string // user-provided custom instruction appended to the prompt
 	PromptTemplate string // override template ID (default: "pipeline-source-analysis")
 	DryRun         bool
 	ShowPrompt     bool // print rendered prompt to stderr before executing
@@ -677,6 +678,7 @@ type PipelineConfig struct {
 	AgentName       string
 	AgentACPCmd     string // ad-hoc ACP command override (e.g. "traecli acp")
 	Focus           string
+	Instruction     string // user-provided custom instruction appended to agent prompts
 	SourcePath      string
 	Files           []string
 	MaxRescanRounds int

@@ -62,6 +62,7 @@ func (h *Handlers) buildQueryOpts(req AgentRunRequest) agent.Options {
 		SourcePath:     req.EffectiveSourcePath(),
 		Files:          req.Files,
 		Append:         req.Append,
+		Instruction:    req.Instruction,
 		Source:         req.Source,
 		ScanUUID:       req.ScanUUID,
 	}
@@ -124,6 +125,7 @@ func (h *Handlers) buildAutopilotOpts(req AgentAutopilotRequest) agent.Options {
 		Source:         "autopilot",
 		Autopilot:      true,
 		MaxCommands:    maxCmds,
+		Instruction:    req.Instruction,
 		DryRun:         req.DryRun,
 		ScanUUID:       req.ScanUUID,
 	}
@@ -252,6 +254,7 @@ func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.Pipeline
 		TargetURL:       req.Target,
 		AgentName:       agentName,
 		Focus:           req.Focus,
+		Instruction:     req.Instruction,
 		SourcePath:      req.EffectiveSourcePath(),
 		Files:           req.Files,
 		MaxRescanRounds: maxRescan,
@@ -639,6 +642,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 
 	cfg := agent.SwarmConfig{
 		Inputs:        req.EffectiveInputs(),
+		Instruction:   req.Instruction,
 		VulnType:      req.VulnType,
 		ModuleNames:   req.ModuleNames,
 		OnlyPhase:     req.OnlyPhase,

@@ -83,7 +83,7 @@ const ALL_COLUMNS: { field: string; headerName: string; def: ColDef<HTTPRecord> 
 ];
 
 const DEFAULT_VISIBLE = new Set([
-  'method', 'status_code', 'hostname', 'path', 'response_time_ms',
+  'method', 'status_code', 'hostname', 'path',
   'response_content_type', 'response_content_length',
   'response_title', 'response_words',
   'sent_at',

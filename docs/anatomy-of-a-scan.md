@@ -76,7 +76,7 @@ CLI invocation
 4. **Resolve scanning profile**: precedence is `--scanning-profile` flag > `settings.ScanningStrategy.ScanningProfile`. Profiles are loaded from `~/.vigolium/profiles/` or embedded presets, and applied via `config.ApplyProfile()`.
 5. **Resolve scanning strategy**: precedence is `--strategy` flag > `settings.ScanningStrategy.DefaultStrategy`. Strategy determines which phases are enabled (discovery, spidering, SPA, etc.).
 6. **Resolve heuristics check level**: `--skip-heuristics` > `--heuristics-check` > config > default `"basic"`.
-7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`, `dynamic-assessment` → `audit`.
+7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`. The `dynamic-assessment` alias is accepted as a backward-compatible alias for `audit`.
 8. **Validate HTML output**: `--format html` requires `--output` and is only allowed with `--only discovery` or `--only spidering`.
 9. **Apply scanning pace**: concurrency and max-per-host from config are applied unless explicitly set on CLI.
 10. **Initialize database**: `database.NewDB()` → `CreateSchema()` → `database.NewRepository()`.

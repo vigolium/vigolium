@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/formatters';
 const HISTORY_PAGE_SIZE = 5;
 
 const LOG_LEVELS = ['all', 'trace', 'info', 'warn', 'error'] as const;
-const LOG_PHASES = ['all', 'config', 'heuristics', 'harvest', 'spidering', 'discovery', 'seed', 'spa', 'sast', 'dynamic-assessment'] as const;
+const LOG_PHASES = ['all', 'config', 'heuristics', 'harvest', 'spidering', 'discovery', 'seed', 'spa', 'sast', 'audit'] as const;
 
 function StatusBadge({ status }: { status: string }) {
   const color =
@@ -156,18 +156,18 @@ function ScanDetailPanel({ scan, onClose }: { scan: Scan; onClose: () => void })
         ) : levelFilter === 'trace' ? (
           /* Terminal-style rendering for trace logs */
           logs.map((log: ScanLog) => (
-            <div key={log.id} className="px-3 py-0 hover:bg-[#f6edda] text-[#005661] whitespace-pre-wrap">
+            <div key={log.id} className="px-3 py-0 hover:bg-[#f6edda] text-[#00404d] whitespace-pre-wrap">
               {log.message}
             </div>
           ))
         ) : (
           logs.map((log: ScanLog) => (
             <div key={log.id} className="px-3 py-0.5 hover:bg-[#f6edda] flex gap-2">
-              <span className="text-[#bbc3c4] shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
+              <span className="text-[#8a9394] shrink-0">{new Date(log.created_at).toLocaleTimeString()}</span>
               <span className="shrink-0 uppercase font-bold w-[3.5ch]" style={{ color: levelColor(log.level) }}>{log.level}</span>
               {log.phase && <span className="text-[#00b368] shrink-0">[{log.phase}]</span>}
-              <span className="text-[#005661] break-all">{log.message}</span>
-              {log.metadata && log.phase !== 'config' && <span className="text-[#bbc3c4] break-all">{log.metadata}</span>}
+              <span className="text-[#00404d] break-all">{log.message}</span>
+              {log.metadata && log.phase !== 'config' && <span className="text-[#8a9394] break-all">{log.metadata}</span>}
             </div>
           ))
         )}
