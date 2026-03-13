@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -142,7 +143,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			if opts.SourcePath != "" {
 				cwd = opts.SourcePath
 			}
-			ar, err = RunAgentAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
+			ar, err = RunAgenticAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
 		} else if e.pool != nil && opts.AgentACPCmd == "" {
 			// Warm session pooling — skip for ad-hoc ACP commands (no stable name to key on)
 			cwd := "."
@@ -151,7 +152,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			}
 			ar, err = e.pool.Prompt(ctx, opts.AgentName, prompt, cwd, acpOpts...)
 		} else {
-			ar, err = RunAgentACP(ctx, *agentDef, prompt, acpOpts...)
+			ar, err = RunAgenticACP(ctx, *agentDef, prompt, acpOpts...)
 		}
 		stdout, stderr, sessionID = ar.Stdout, ar.Stderr, ar.SessionID
 	default:
@@ -357,7 +358,12 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	var errs []error
 
 	wg.Add(len(subAgents))
-	for _, sa := range subAgents {
+	for i, sa := range subAgents {
+		// When warm sessions are disabled, stagger cold-start subprocess launches
+		// to reduce resource contention from concurrent process spawns.
+		if e.pool == nil && i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
 		go func(sa subAgentDef) {
 			defer wg.Done()
 			subCfg := cfg
@@ -449,7 +455,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if loadErr != nil {
 			return "", "", "", fmt.Errorf("failed to load prompt file: %w", loadErr)
 		}
-		templateData, gatherErr := e.gatherContext(opts, tmpl.Variables)
+		templateData, gatherErr := e.gatherContext(ctx, opts, tmpl.Variables)
 		if gatherErr != nil {
 			return "", "", "", gatherErr
 		}
@@ -467,7 +473,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 		if loadErr != nil {
 			return "", "", "", loadErr
 		}
-		templateData, gatherErr := e.gatherContext(opts, tmpl.Variables)
+		templateData, gatherErr := e.gatherContext(ctx, opts, tmpl.Variables)
 		if gatherErr != nil {
 			return "", "", "", gatherErr
 		}
@@ -499,7 +505,7 @@ func appendPromptSuffix(rendered string, opts Options) string {
 // source files are read into the prompt; if only "SourcePath"/"DirectoryTree"
 // are declared, just a directory listing is generated (letting the agent
 // explore the codebase itself via tool use).
-func (e *Engine) gatherContext(opts Options, templateVars []string) (TemplateData, error) {
+func (e *Engine) gatherContext(ctx context.Context, opts Options, templateVars []string) (TemplateData, error) {
 	data := TemplateData{
 		SourcePath: opts.SourcePath,
 		Extra:      make(map[string]string),
@@ -533,7 +539,7 @@ func (e *Engine) gatherContext(opts Options, templateVars []string) (TemplateDat
 	// Collect file list for language detection and (optionally) source code
 	files := opts.Files
 	if len(files) == 0 {
-		collected, err := collectSourceFiles(opts.SourcePath)
+		collected, err := collectSourceFiles(ctx, opts.SourcePath)
 		if err != nil {
 			zap.L().Warn("Failed to collect source files", zap.Error(err))
 		}
@@ -631,6 +637,13 @@ func generateDirectoryTree(root string) (string, error) {
 		}
 		if entries >= maxEntries {
 			return filepath.SkipAll
+		}
+		// Skip symlinks to avoid cycles
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		rel, _ := filepath.Rel(root, path)
@@ -738,33 +751,63 @@ func ToHTTPRequestResponse(rec AgentHTTPRecord) (*httpmsg.HttpRequestResponse, e
 }
 
 // collectSourceFiles walks a directory and returns paths to common source files.
-func collectSourceFiles(dir string) ([]string, error) {
-	var files []string
+// The walk is bounded by ctx so that a hung or very large directory tree does not
+// block the caller indefinitely. Symlinks are skipped to avoid cycles.
+func collectSourceFiles(ctx context.Context, dir string) ([]string, error) {
 	sourceExts := map[string]bool{
 		".go": true, ".py": true, ".js": true, ".ts": true, ".jsx": true, ".tsx": true,
 		".java": true, ".rb": true, ".php": true, ".rs": true, ".c": true, ".cpp": true,
 		".cs": true, ".swift": true, ".kt": true, ".scala": true, ".vue": true, ".svelte": true,
 	}
 
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		// Skip common non-source directories
-		if d.IsDir() {
-			name := d.Name()
-			if name == "node_modules" || name == ".git" || name == "vendor" || name == "__pycache__" || name == ".venv" {
-				return filepath.SkipDir
+	type walkResult struct {
+		files []string
+		err   error
+	}
+	ch := make(chan walkResult, 1)
+
+	go func() {
+		var files []string
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			// Bail out early if the context has been cancelled.
+			select {
+			case <-ctx.Done():
+				return filepath.SkipAll
+			default:
+			}
+			// Skip symlinks to avoid cycles
+			if d.Type()&os.ModeSymlink != 0 {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Skip common non-source directories
+			if d.IsDir() {
+				name := d.Name()
+				if name == "node_modules" || name == ".git" || name == "vendor" || name == "__pycache__" || name == ".venv" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			ext := filepath.Ext(d.Name())
+			if sourceExts[ext] {
+				files = append(files, path)
 			}
 			return nil
-		}
-		ext := filepath.Ext(d.Name())
-		if sourceExts[ext] {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
+		})
+		ch <- walkResult{files, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-ch:
+		return result.files, result.err
+	}
 }
 
 // detectLanguage guesses the primary language from file extensions.

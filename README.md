@@ -1,14 +1,19 @@
 <p align="center">
   <a href="https://www.osmedeus.org"><img alt="Osmedeus" src="static/vigolium-logo.png" height="140" /></a>
   <br />
-  <strong>Vigolium - High-fidelity web vulnerability scanner that combines speed, modularity, precision, and AI-powered analysis.</strong>
+  <strong>Vigolium - High-fidelity vulnerability scanner with native scan precision and agentic scan intelligence.</strong>
 </p>
 
 ***
 
 Vigolium scans web applications for reflected XSS, SQL injection, LFI, SSTI, CRLF injection, CSRF, IDOR, NoSQL injection, open redirects, command injection, path traversal, SAML/XXE, GraphQL issues, file upload flaws, default credentials, CMS vulnerabilities (WordPress, Drupal, Joomla), Firebase misconfigurations, cloud storage security, PHP/ASP.NET framework issues, JS framework security (Next.js, Nuxt, Remix), and more — including blind vulnerabilities via out-of-band (OAST) callbacks.
 
-It operates as a CLI scanner, an API server with traffic ingestion, or a standalone ingestor client. Vigolium also integrates with AI coding agents (Claude, Gemini, OpenCode) for automated security code review, endpoint discovery, and secret detection.
+Vigolium provides two complementary scanning modes:
+
+- **Native Scan** (`vigolium scan`) — Deterministic, multi-phase vulnerability scanning. Fast, modular, and repeatable. Runs content discovery, browser spidering, SPA crawling, SAST, and active/passive audit phases with 149 scanner modules.
+- **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Gemini, or OpenCode. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Three modes: autopilot, pipeline, and swarm.
+
+It also operates as an API server with traffic ingestion, or a standalone ingestor client.
 
 
 | CLI Scan | Traffic & Finding List |
@@ -27,13 +32,14 @@ It operates as a CLI scanner, an API server with traffic ingestion, or a standal
 
 ## Key Features
 
+### Native Scan
+
 - **149 scanner modules** — 89 active (fuzzing) and 60 passive (pattern matching) modules covering OWASP Top 10 and beyond
 - **Out-of-band testing (OAST)** — detect blind vulnerabilities (blind XSS, SSRF, command injection) via interactsh callback URLs with automatic payload correlation
 - **Value-aware mutation** — classify parameter values by semantic type (integer, UUID, JWT, email, etc.) and generate intelligent mutations per intent (neighbor, boundary, escalation)
 - **Multi-phase pipeline** — external harvesting, content discovery, SPA crawling, and audit controlled by strategy presets
 - **Scanning profiles** — bundle strategy, pace, scope, and module config into a single YAML file (`--scanning-profile`)
 - **Multiple input formats** — URLs, OpenAPI/Swagger, Postman, Burp Suite, cURL, Nuclei JSONL, CrawlerX
-- **API server mode** — REST API with Swagger UI, multi-format ingestion, transparent HTTP proxy, OpenAI-compatible agent endpoint
 - **Browser-based spider** — Chromium-driven crawler (Spitolas) with SPA support, form filling, and JS analysis
 - **Content discovery** — adaptive directory/file enumeration engine (Deparos) with soft-404 detection
 - **Header injection** — automatic fuzzing of existing and synthetic headers (X-Forwarded-For, X-Forwarded-Host, True-Client-IP, Referer)
@@ -41,8 +47,20 @@ It operates as a CLI scanner, an API server with traffic ingestion, or a standal
 - **JavaScript extensions** — custom modules and hooks via embedded JS engine (`vigolium.http`, `vigolium.scan`, `vigolium.source`) with session-aware HTTP APIs (login flows, cookie jars, CSRF extraction, auth testing, request sequencing)
 - **Source code awareness** — link repos to hostnames for source-aware scanning with `vigolium.source.*` API
 - **Concurrent architecture** — configurable worker pool with per-host rate limiting and hybrid in-memory/disk/Redis queue
-- **AI agent integration** — run Claude, Gemini, OpenCode, or custom AI agents for security code review, endpoint discovery, and secret detection via CLI or REST API (with SSE streaming). Four modes: query (single-shot), autopilot (autonomous sandboxed scanning), pipeline (multi-phase AI-guided assessment), and swarm (targeted vulnerability hunting with module selection and custom JS extension generation)
 - **HTML reports** — generate self-contained HTML reports with sortable/filterable ag-grid tables (`--format html`)
+
+### Agentic Scan
+
+- **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings via a sandboxed terminal with command allowlisting
+- **Multi-phase pipeline (Pipeline)** — fixed 7-phase workflow (source-analysis → discover → plan → scan → triage → rescan → report) where AI agents handle strategy at checkpoints while native scan phases handle heavy lifting
+- **Targeted vulnerability swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results with batched execution for large input sets
+- **Query mode** — single-shot prompt execution for code review, endpoint discovery, and secret detection (not a scan — simple Q&A utility)
+- **Source-aware intelligence** — when `--source` is provided, agents analyze application source code to discover routes, understand auth flows, and identify vulnerability sinks before scanning
+- **Multiple AI backends** — Claude, Gemini, OpenCode, or custom ACP-compatible agents via CLI or REST API (with SSE streaming)
+
+### Platform
+
+- **API server mode** — REST API with Swagger UI, multi-format ingestion, transparent HTTP proxy, OpenAI-compatible agent endpoint
 
 ## Installation
 
@@ -55,7 +73,7 @@ make build         # build and install to $GOPATH/bin
 
 Requires **Go 1.26+**. See [docs/development/building.md](docs/development/building.md) for prerequisites, cross-compilation, embedded Chromium builds, and Docker.
 
-## Quick Start
+## Quick Start — Native Scan
 
 ```bash
 # Scan a single target (default: balanced strategy)
@@ -73,8 +91,8 @@ vigolium scan -T openapi.yaml -I openapi
 # Pipe URLs from stdin
 cat urls.txt | vigolium scan
 
-# Run only content discovery (alias: deparos)
-vigolium scan -t https://example.com --only discovery
+# Run a single phase directly
+vigolium run discovery -t https://example.com
 
 # Generate an HTML report
 vigolium scan -t https://example.com --only discovery --format html -o report.html
@@ -127,30 +145,15 @@ vigolium scan -t https://example.com -H "Authorization: Bearer token123"
 
 Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs/running-scan/authenticated-scan.md](docs/running-scan/authenticated-scan.md) for the full guide.
 
-## Agent Mode
+## Agentic Scan
 
-Run AI agents for automated security analysis — code review, endpoint discovery, autonomous scanning, and more:
+AI-driven scanning where agents autonomously plan, execute, and triage vulnerability assessments with the native scan engine underneath:
 
 ```bash
-# Security code review of a repository
-vigolium agent --prompt-template security-code-review --source ./myapp
-
-# Run with specific files
-vigolium agent --prompt-template injection-sinks --source ./myapp --files auth.go,db.go
-
-# Send a freeform prompt to the default agent
-vigolium agent query --prompt "Explain the OWASP Top 10 in one sentence each"
-
-# Use a custom ACP agent command with timeout
-vigolium agent query --prompt "Review this code" --agent-acp-cmd "traecli acp" --agent-timeout 10m
-
-# Dry run — render prompt without executing
-vigolium agent --prompt-template endpoint-discovery --source ./myapp --dry-run
-
 # Autopilot: agent autonomously runs scanner commands in a sandboxed terminal
 vigolium agent autopilot -t https://example.com
 
-# Pipeline: multi-phase AI-guided scanning (discover → plan → scan → triage → report)
+# Pipeline: multi-phase agentic scan (discover → plan → scan → triage → report)
 vigolium agent pipeline -t https://example.com
 vigolium agent pipeline -t https://example.com --focus 'API injection'
 vigolium agent pipeline -t https://example.com --source ./src --max-rescan-rounds 3
@@ -161,27 +164,40 @@ vigolium agent swarm -t https://example.com
 vigolium agent swarm -t https://example.com --source ./src --vuln-type sqli
 vigolium agent swarm -t https://example.com -m xss-reflected,sqli-error --max-iterations 5
 vigolium agent swarm -t https://example.com --source ./src --source-analysis-only --profile deep
+```
+
+Three agentic scan modes:
+- **Autopilot** — interactive ACP session where the agent autonomously executes scanner commands via a sandboxed terminal with command allowlisting
+- **Pipeline** — fixed multi-phase agentic scan (source-analysis → discover → plan → scan → triage → rescan → report) where native scan phases handle discovery and scanning, while AI agents intervene at checkpoints
+- **Swarm** — AI-guided targeted vulnerability swarm where the master agent analyzes inputs, selects modules, generates custom JS extensions, executes scans, and triages results. Supports `--source` for source-aware route discovery and batched execution for large input sets
+
+### Agent Query (Utility)
+
+Single-shot prompts for code review, endpoint discovery, and secret detection — not a scan, just Q&A:
+
+```bash
+# Security code review of a repository
+vigolium agent query --source ./myapp --prompt-template security-code-review
+
+# Send a freeform prompt
+vigolium agent query --prompt "Explain the OWASP Top 10 in one sentence each"
+
+# Dry run — render prompt without executing
+vigolium agent query --source ./myapp --prompt-template endpoint-discovery --dry-run
 
 # Browse agent sessions
 vigolium agent session list --mode pipeline --limit 20
-vigolium agent session list --mode swarm --offset 10
 
 # List available agents and templates
 vigolium agent --list-agents
 vigolium agent --list-templates
 ```
 
-Four operational modes:
-- **Query** — single-shot template-based prompts for code review, endpoint discovery, secret detection. Supports `--source` for code path and `--source-label` for ingestion labeling
-- **Autopilot** — interactive ACP session where the agent autonomously executes scanner commands via a sandboxed terminal with command allowlisting
-- **Pipeline** — fixed multi-phase scanning pipeline (source-analysis → discover → plan → scan → triage → rescan → report) where native Go code handles discovery and scanning, while AI agents intervene at checkpoints
-- **Swarm** — AI-guided targeted vulnerability swarm where the master agent analyzes inputs, selects modules, generates custom JS extensions, executes scans, and triages results. Supports `--source` for source-aware route discovery and batched execution for large input sets
-
 Configure agent backends in `~/.vigolium/vigolium-configs.yaml`. Custom prompt templates go in `~/.vigolium/prompts/`. See [docs/agent-mode.md](docs/agent-mode.md) for the full guide.
 
-## Scan Layers
+## Native Scan Layers
 
-Vigolium's scanning pipeline is composed of modular layers, each documented separately:
+The native scan pipeline is composed of modular layers, each documented separately:
 
 | Layer | Description | Docs |
 |-------|-------------|------|
@@ -282,8 +298,34 @@ See [docs/development/writing-extensions.md](docs/development/writing-extensions
 
 ## CLI Reference
 
+### Commands
+
 ```
-Scanning:
+vigolium scan                Run a native scan — deterministic multi-phase vulnerability scanning
+vigolium run <phase>         Run a single native scan phase (alias for scan --only <phase>)
+vigolium scan-url <url>      Quick native scan of a single URL
+vigolium scan-request        Native scan from a raw HTTP request
+
+vigolium agent autopilot     Agentic scan: autonomous AI-driven vulnerability scanning
+vigolium agent pipeline      Agentic scan: multi-phase pipeline with native scan phases
+vigolium agent swarm         Agentic scan: AI-guided targeted vulnerability swarm
+vigolium agent query         Send a prompt to an AI agent and get a response
+
+vigolium server              Start the API server with traffic ingestion
+vigolium ingest              Ingest traffic to a running server
+vigolium js                  Execute JavaScript/TypeScript code
+
+vigolium db                  Database operations (list, stats, export, clean)
+vigolium finding             Browse and manage findings
+vigolium traffic             Browse and manage HTTP records
+vigolium project             Manage projects (create, list, use, config)
+vigolium ext                 Manage JavaScript extensions
+```
+
+### Flags
+
+```
+Native Scan (vigolium scan / run):
   -t, --target           Target URL
   -T, --target-file      File containing target URLs
   -i, --input            Input file path (- for stdin)
@@ -307,14 +349,19 @@ Performance:
       --proxy            HTTP/SOCKS5 proxy URL
       --timeout          HTTP request timeout (default: 15s)
 
-Agent:
+Agentic Scan (vigolium agent autopilot / pipeline / swarm):
       --source             Path to source code for source-aware scanning
       --source-label       Label for source code ingestion
+      --agent              Agent backend name (default: from config)
       --agent-acp-cmd      Custom ACP agent command (overrides --agent)
       --agent-timeout      Max agent execution time (default: 5m, 0 = no limit)
       --vuln-type          Vulnerability type focus (sqli, xss, ssrf, etc.)
+      --focus              Focus area for the agentic scan (e.g. 'API injection')
       --max-iterations     Max triage-rescan iterations (default: 3)
+      --max-rescan-rounds  Max rescan rounds in pipeline mode (default: 2)
       --source-analysis-only  Run only source analysis phase and exit
+      --skip-phase         Skip a pipeline phase (repeatable)
+      --start-from         Start pipeline from a specific phase
 
 JavaScript:
       --code             Inline JavaScript to execute

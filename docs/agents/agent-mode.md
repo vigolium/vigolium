@@ -1,15 +1,15 @@
 # Agent Mode
 
-Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, Gemini, or any custom CLI tool) into the vulnerability scanning workflow. Four execution modes are available, each with different levels of AI involvement and scope.
+Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, Gemini, or any custom CLI tool) into the vulnerability scanning workflow. One query mode and three **agentic scan** modes are available, each with different levels of AI involvement and scope.
 
 ## Mode Overview
 
 | Mode | Command | Scope | AI Calls | Best For |
 |------|---------|-------|----------|----------|
 | **Run/Query** | `vigolium agent` | Source code | 1 | Code review, endpoint discovery, SAST |
-| **Autopilot** | `vigolium agent autopilot` | Entire target | Many | Exploratory scanning, ad-hoc research |
-| **Pipeline** | `vigolium agent pipeline` | Entire target | 2-4 | Production scanning, CI/CD |
-| **Swarm** | `vigolium agent swarm` | Single request | 2-3 | Deep targeted testing of specific endpoints |
+| **Autopilot** | `vigolium agent autopilot` | Entire target | Many | Agentic scan: exploratory scanning, ad-hoc research |
+| **Pipeline** | `vigolium agent pipeline` | Entire target | 2-4 | Agentic scan: production scanning, CI/CD |
+| **Swarm** | `vigolium agent swarm` | Single request | 2-3 | Agentic scan: deep targeted testing of specific endpoints |
 
 ## Quick Start
 
@@ -66,6 +66,37 @@ vigolium agent --list-templates
 vigolium agent --list-agents
 ```
 
+**More Examples:**
+
+```bash
+# Review only authentication-related files
+vigolium agent --prompt-template security-code-review --source ./src --files auth/login.go,auth/session.go,middleware/jwt.go
+
+# Discover API endpoints from a Django project
+vigolium agent --prompt-template endpoint-discovery --source ~/projects/django-app
+
+# Code review with additional focus instructions
+vigolium agent --prompt-template security-code-review --source ./src --append "Pay special attention to deserialization and file upload handling"
+
+# Use a specific agent backend (e.g., Gemini)
+vigolium agent --prompt-template injection-sinks --source ./src --agent gemini
+
+# Save agent output to a file for later review
+vigolium agent --prompt-template security-code-review --source ./src --output review-results.json
+
+# Review source code from a specific project
+vigolium agent --prompt-template security-code-review --source ./src --project my-api
+
+# Chain with jq — extract only high-severity findings
+vigolium agent --prompt-template security-code-review --source ./src --json | jq '.[] | select(.severity == "high")'
+
+# Quick inline question about a codebase
+vigolium agent query "What authentication mechanisms does this app use?" --source ./src
+
+# Detect hardcoded secrets in config files
+vigolium agent --prompt-template secret-detection --source ./src --files config/,deploy/
+```
+
 **Key Flags:**
 
 | Flag | Description |
@@ -116,7 +147,7 @@ At least one of `prompt_template`, `prompt_file`, or `prompt` is required.
 
 ---
 
-## Autopilot
+## Autopilot (Agentic Scan)
 
 Full autonomous control. The AI agent drives the vigolium CLI through a sandboxed terminal, deciding what to scan, interpreting results, and iterating.
 
@@ -144,6 +175,43 @@ vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
 
 # Preview system prompt
 vigolium agent autopilot -t https://example.com --dry-run
+```
+
+**More Examples:**
+
+```bash
+# Pipe a curl command — target is auto-derived from the URL
+echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vigolium agent autopilot
+
+# Pass raw input directly (Burp-style raw HTTP)
+vigolium agent autopilot --input "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test"
+
+# Source-aware scan of specific files in a large codebase
+vigolium agent autopilot -t http://localhost:8080 --source ~/projects/spring-app --files src/main/java/auth/,src/main/java/api/
+
+# Guide the agent with custom instructions
+vigolium agent autopilot -t https://staging.example.com --instruction "Test only the /admin and /api/v2 endpoints. Check for IDOR and privilege escalation."
+
+# Load detailed pentest scope from a file
+vigolium agent autopilot -t https://example.com --instruction-file scope.txt
+
+# Quick scan with tight limits for a CI job
+vigolium agent autopilot -t https://example.com --max-commands 20 --timeout 5m
+
+# Use a different agent backend
+vigolium agent autopilot -t https://example.com --agent gemini --focus "file upload vulnerabilities"
+
+# Use a custom ACP command for a third-party agent
+vigolium agent autopilot -t https://example.com --agent-acp-cmd "my-agent acp-serve"
+
+# Override the system prompt entirely
+vigolium agent autopilot -t https://example.com --system-prompt custom-autopilot.md
+
+# Show the rendered prompt before execution for debugging
+vigolium agent autopilot -t https://example.com --show-prompt --focus "SSRF via URL parameters"
+
+# Combine source context with focus area for targeted code-informed scanning
+vigolium agent autopilot -t http://localhost:3000 --source ./src --focus "SQL injection in search endpoints"
 ```
 
 **Key Flags:**
@@ -197,9 +265,9 @@ The agent can only execute `vigolium` commands. Shell metacharacters, destructiv
 
 ---
 
-## Pipeline
+## Pipeline (Agentic Scan)
 
-Fixed 7-phase scanning workflow where native Go code does the heavy lifting and AI agents only intervene at strategic checkpoints (source analysis, planning, triage).
+Fixed 7-phase agentic scan workflow where native Go code does the heavy lifting and AI agents only intervene at strategic checkpoints (source analysis, planning, triage).
 
 ### What It Does
 
@@ -228,6 +296,49 @@ vigolium agent pipeline -t https://example.com --skip-phase discover --start-fro
 
 # Preview agent prompts
 vigolium agent pipeline -t https://example.com --dry-run
+```
+
+**More Examples:**
+
+```bash
+# Pipe a curl command — target is auto-derived
+echo "curl https://api.example.com/v2/users" | vigolium agent pipeline
+
+# Pass input directly (e.g., a Burp XML export)
+vigolium agent pipeline --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
+
+# Source-aware scan with specific files for faster Phase 0
+vigolium agent pipeline -t http://localhost:3000 --source ~/projects/express-app --files routes/,middleware/auth.js
+
+# Guide the planning agent with custom instructions
+vigolium agent pipeline -t https://example.com --instruction "Prioritize testing authentication and session management endpoints"
+
+# Load detailed scope from a file
+vigolium agent pipeline -t https://example.com --instruction-file pentest-brief.txt
+
+# Skip source analysis and discovery — jump straight to planning with existing DB data
+vigolium agent pipeline -t https://example.com --skip-phase source-analysis --skip-phase discover --start-from plan
+
+# Skip triage and rescan — just discover + plan + scan
+vigolium agent pipeline -t https://example.com --skip-phase triage --skip-phase rescan --skip-phase report
+
+# Re-run only triage on previous scan results
+vigolium agent pipeline -t https://example.com --start-from triage --skip-phase rescan
+
+# Use a different agent backend with a longer timeout for large targets
+vigolium agent pipeline -t https://large-app.example.com --agent gemini --timeout 2h
+
+# Use a custom ACP agent command
+vigolium agent pipeline -t https://example.com --agent-acp-cmd "my-agent acp-serve"
+
+# Show rendered prompts before each AI phase for debugging
+vigolium agent pipeline -t https://example.com --show-prompt --focus "IDOR in REST APIs"
+
+# Aggressive rescan — allow up to 5 triage→rescan iterations
+vigolium agent pipeline -t https://example.com --max-rescan-rounds 5 --profile thorough
+
+# CI/CD integration — tight timeout, no rescan overhead
+vigolium agent pipeline -t https://staging.example.com --timeout 20m --max-rescan-rounds 0 --profile fast
 ```
 
 **Key Flags:**
@@ -298,9 +409,9 @@ POST /api/agent/run/pipeline
 
 ---
 
-## Swarm
+## Swarm (Agentic Scan)
 
-Multi-agent targeted vulnerability scanning. A master AI agent analyzes a specific HTTP request, selects scanner modules, generates custom attack payloads as JavaScript extensions, and executes a focused scan.
+Multi-agent targeted agentic scan. A master AI agent analyzes a specific HTTP request, selects scanner modules, generates custom attack payloads as JavaScript extensions, and executes a focused scan.
 
 ### What It Does
 
@@ -333,6 +444,61 @@ vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stor
 
 # Preview the master agent prompt
 vigolium agent swarm -t https://example.com/api/users --dry-run
+```
+
+**More Examples:**
+
+```bash
+# Swarm with source code context for route-aware scanning
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/express-app
+
+# Only run source analysis (no scanning) — useful for inspecting what the agent finds
+vigolium agent swarm -t http://localhost:3000 --source ./src --source-analysis-only
+
+# Pipe a Burp Suite exported request from a file
+cat burp-request.xml | vigolium agent swarm
+
+# Import a raw HTTP request from a file via stdin
+cat login-request.txt | vigolium agent swarm -t https://example.com
+
+# Combine curl input with explicit module selection
+vigolium agent swarm --input "curl -X PUT https://api.example.com/users/1 -H 'Content-Type: application/json' -d '{\"role\":\"admin\"}'" -m idor,bola,sqli-error-based
+
+# Focus on SSRF with a longer timeout for complex payloads
+vigolium agent swarm -t https://example.com/api/fetch?url=http://internal --vuln-type ssrf --timeout 30m
+
+# Run with discovery enabled to crawl before planning
+vigolium agent swarm -t https://example.com --discover
+
+# Source-aware swarm with custom instruction to guide the agent
+vigolium agent swarm -t http://localhost:8080 --source ./src --instruction "Focus on the /admin endpoints and check for privilege escalation"
+
+# Load instructions from a file
+vigolium agent swarm -t https://example.com/api --instruction-file pentest-scope.txt
+
+# Use a different agent backend
+vigolium agent swarm -t https://example.com/api/search --agent gemini --vuln-type xss
+
+# Scan only the audit phase (skip discovery/spidering)
+vigolium agent swarm -t https://example.com/api/users --only audit
+
+# Skip spidering during the swarm scan
+vigolium agent swarm -t https://example.com --discover --skip spidering
+
+# Use a scanning profile for stricter payloads
+vigolium agent swarm -t https://staging.example.com/api --profile thorough --vuln-type sqli
+
+# Multiple inputs: target URL + explicit modules + vulnerability focus
+vigolium agent swarm -t https://example.com/api/v2/orders -m xss-reflected,xss-dom,csti --vuln-type xss --max-iterations 5
+
+# Base64-encoded Burp request (common when copying from Burp)
+vigolium agent swarm --input "UE9TVCAvYXBpL2xvZ2luIEhUVFAvMS4xDQpIb3N0OiBleGFtcGxlLmNvbQ0K..."
+
+# Use a custom ACP command for a third-party agent
+vigolium agent swarm -t https://example.com/api --agent-acp-cmd "my-agent acp-serve"
+
+# Show rendered prompts before execution for debugging
+vigolium agent swarm -t https://example.com/api/users --show-prompt --vuln-type sqli
 ```
 
 **Key Flags:**
@@ -415,7 +581,7 @@ At least one of `input` or `inputs` is required. Use `inputs` (array) for multi-
 
 ## Side-by-Side Comparison
 
-| Aspect | Run/Query | Autopilot | Pipeline | Swarm |
+| Aspect | Run/Query | Autopilot (Agentic) | Pipeline (Agentic) | Swarm (Agentic) |
 |--------|-----------|-----------|----------|-------|
 | **Input** | Source code | Target URL | Target URL | URL, curl, raw HTTP, Burp XML, DB record |
 | **Scope** | Code analysis | Full target | Full target | Single request/endpoint |
@@ -521,6 +687,86 @@ response = client.chat.completions.create(
 
 **"I need this in CI/CD"**
 → Use **Pipeline** (stable phases, predictable runtime) or **Run** (fast code review)
+
+## Mode Comparison & Overlap Analysis
+
+### Architectural Relationships
+
+All four modes share a common execution engine (`pkg/agent/engine.go`). Query is a standalone mode; the three agentic scan modes (autopilot, pipeline, swarm) add varying levels of orchestration on top:
+
+```
+                   Engine.Run()
+                       │
+        ┌──────────────┼──────────────────┐
+        │              │                  │
+      Query      ┌────┴─────┐        Autopilot
+   (1 AI call)   │          │      (AI drives CLI)
+              Pipeline    Swarm
+           (7 phases,   (10 phases,
+            3 AI)        4+ AI)
+```
+
+- **Query** is the primitive — Pipeline and Swarm call `Engine.Run()` at each AI checkpoint, making Query effectively their building block.
+- **Autopilot** is architecturally separate — it gives the agent terminal access and lets it drive, rather than orchestrating phases programmatically.
+- **Pipeline and Swarm** share the most code and patterns (see below).
+
+### Feature Matrix
+
+| Feature | Query | Autopilot | Pipeline | Swarm |
+|---------|-------|-----------|----------|-------|
+| AI-driven module selection | — | Agent decides | Phase 2 plan | Master agent plan |
+| Custom extension generation | — | — | Via source analysis only | Always (quick_checks + snippets) |
+| Source analysis (routes/auth) | Context only | Context + CLI | Parallel sub-agents | Parallel sub-agents |
+| SAST (ast-grep) | — | — | — | Native + AI review |
+| Discovery/spidering | — | Agent decides | Phase 1 (always) | Optional (`--discover`) |
+| Triage + rescan loop | — | Agent decides | Phases 4-5 | Phases 9-10 |
+| Input batching | — | — | — | >5 records batched |
+| Terminal access | No | Yes (sandboxed) | No | No |
+| Structured output schema | findings, http_records | Unstructured | AttackPlan, TriageResult | SwarmPlan, TriageResult |
+| Warm session pooling | Optional | Enabled | Enabled | Forced |
+| Resumable phases | — | — | `--start-from`, `--skip-phase` | `--source-analysis-only` |
+
+### Pipeline vs Swarm: Key Overlaps
+
+Pipeline and Swarm share the most infrastructure. Specifically:
+
+| Shared Pattern | Pipeline | Swarm |
+|----------------|----------|-------|
+| Source analysis | `RunSourceAnalysisParallel()` with routes/auth/extensions sub-agents | Same `RunSourceAnalysisParallel()` call |
+| Auth config flow | Source → `auth-config.yaml` → injected into scan settings | Identical flow |
+| Triage loop | `TriageResult` with "done"/"rescan" verdict, max iterations | Same `TriageResult`, same loop pattern |
+| Plan → scan | AI picks module tags/IDs → native executor runs them | Same pattern |
+| Session artifacts | Extensions, plan.json, session-config.json in session dir | Same directory structure |
+
+**Where they differ:**
+
+| Aspect | Pipeline | Swarm |
+|--------|----------|-------|
+| Discovery | Always runs (Phase 1) | Optional (`--discover` flag) |
+| Extension generation | Only from source analysis | Master agent generates quick_checks + snippets |
+| Input flexibility | Target URL only | 6 formats + record UUID |
+| Batching | None | Master agent batched for >5 records |
+| SAST phase | None | Native ast-grep + AI review |
+| Scope | Full target (broad) | Specific endpoints (targeted) |
+| Default timeout | 1 hour | 15 minutes |
+
+### Autopilot vs Pipeline/Swarm (Agentic Scan Tradeoffs)
+
+All three are agentic scan modes. Autopilot's terminal sandbox only allows `vigolium` commands, so it effectively does what Pipeline/Swarm do — discovery, scanning, triage — but with more AI overhead and less structure. The tradeoff:
+
+- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and handle unexpected findings
+- **Pipeline/Swarm advantage:** Agentic scan with native Go handling the scanning phases (faster, cheaper), AI only called at strategic points
+
+### When Modes Genuinely Differ
+
+Despite the overlaps, each mode has a clear sweet spot:
+
+| Mode | Unique Value | Cannot Be Replaced By |
+|------|-------------|----------------------|
+| **Query** | Zero-scan code analysis, CI/CD-friendly single-shot | Any other mode (they all require a target or do more than needed) |
+| **Autopilot** | Adaptive, exploratory testing with no predefined workflow | Pipeline/Swarm (they follow fixed phases) |
+| **Pipeline** | Full-scope deterministic scanning with minimal AI cost | Swarm (no built-in discovery), Query (no scanning) |
+| **Swarm** | Custom payload generation + SAST + multi-format input | Pipeline (no extension generation from master agent), Query (no scanning) |
 
 ## Configuration
 

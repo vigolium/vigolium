@@ -103,8 +103,8 @@ func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
 
 	r, db, _ := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: findings exist in DB
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
@@ -141,8 +141,8 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 
 	r, db, repo := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: HTTP records were ingested
 	hosts, err := repo.GetDistinctHosts(ctx)
@@ -181,8 +181,8 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 
 	r, db, repo := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: HTTP records were ingested
 	hosts, err := repo.GetDistinctHosts(ctx)
@@ -223,8 +223,8 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 
 	r, db, repo := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: findings in DB >= 1
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
@@ -270,8 +270,8 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 
 	r, db, repo := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: original targets were ingested into DB (discovery phase always runs the input source)
 	hosts, err := repo.GetDistinctHosts(ctx)
@@ -310,8 +310,8 @@ func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 
 	r, db, repo := newScanRunner(t, opts)
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: targets were ingested (discovery phase always ingests input)
 	hosts, err := repo.GetDistinctHosts(ctx)
@@ -433,8 +433,8 @@ module.exports = {
 	}
 	require.NoError(t, repo.CreateSourceRepo(ctx, sr))
 
-	err := r.RunEnumeration()
-	require.NoError(t, err, "RunEnumeration should complete without error")
+	err := r.RunNativeScan()
+	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: findings exist from both built-in modules and the JS extension
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 200}).Execute(ctx)

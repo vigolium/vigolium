@@ -17,7 +17,9 @@ import type { ConfigEntry } from '@/api/types';
 import { useToast } from '@/contexts/ToastContext';
 import PageShell from './PageShell';
 
-const ABOUT_CONTENT = `Vigolium scans web applications for reflected XSS, SQL injection, LFI, SSTI, CRLF injection, CSRF, IDOR, NoSQL injection, open redirects, command injection, path traversal, SAML/XXE, GraphQL issues, file upload flaws, default credentials, CMS vulnerabilities (WordPress, Drupal, Joomla), Firebase misconfigurations, cloud storage security, PHP/ASP.NET framework issues, JS framework security (Next.js, Nuxt, Remix), and more — including blind vulnerabilities via out-of-band (OAST) callbacks.
+const ABOUT_CONTENT = `Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision.
+
+It scans web applications for reflected XSS, SQL injection, LFI, SSTI, CRLF injection, CSRF, IDOR, NoSQL injection, open redirects, command injection, path traversal, SAML/XXE, GraphQL issues, file upload flaws, default credentials, CMS vulnerabilities (WordPress, Drupal, Joomla), Firebase misconfigurations, cloud storage security, PHP/ASP.NET framework issues, JS framework security (Next.js, Nuxt, Remix), and more — including blind vulnerabilities via out-of-band (OAST) callbacks.
 
 It operates as a CLI scanner, an API server with traffic ingestion, or a standalone ingestor client. Vigolium also integrates with AI coding agents (Claude, Gemini, OpenCode) for automated security code review, endpoint discovery, and secret detection.
 

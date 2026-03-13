@@ -507,12 +507,12 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 	scanRunner.SetSettings(settings)
 	scanRunner.SetRepository(repo)
 
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
 	if !globalSilent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Green(terminal.SymbolSparkle), terminal.BoldGreen("Scan completed"))
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Green(terminal.SymbolSparkle), terminal.BoldGreen("Native scan completed"))
 	}
 
 	return nil

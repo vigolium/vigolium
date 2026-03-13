@@ -62,11 +62,7 @@ type SwarmConfig struct {
 	StreamWriter io.Writer
 
 	// ScanFunc runs the scan with the given module filters and extensions.
-	// moduleTags and moduleIDs come from the agent's swarm plan.
-	// extensionDir is the path to generated JS extensions (empty if none).
-	// When rescan is true, the callback should restrict to audit only
-	// with targeted modules; when false, it runs a full scan with all modules.
-	ScanFunc func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error
+	ScanFunc ScanFunc
 
 	// DiscoverFunc runs native discovery+spidering before master agent planning.
 	// When set, the swarm runner executes discovery and feeds discovered records
@@ -454,7 +450,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		s.emitPhase(cfg, SwarmPhaseScan)
 		agentRun.CurrentPhase = SwarmPhaseScan
 
-		if err := cfg.ScanFunc(ctx, nil, nil, extensionDir, false); err != nil {
+		if err := cfg.ScanFunc(ctx, ScanRequest{ExtensionDir: extensionDir}); err != nil {
 			return fmt.Errorf("scan execution failed: %w", err)
 		}
 	}
@@ -582,15 +578,19 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	var lastParseErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// On retry, use a truncated method+URL summary instead of the full raw
+		// HTTP context to reduce token cost and avoid repeating verbose payloads.
+		extraContext := requestContext
 		if attempt > 1 {
 			zap.L().Info("retrying master agent (previous output was unparseable)",
 				zap.Int("attempt", attempt),
 				zap.Error(lastParseErr))
 			opts.Append = buildRetryFeedback(cfg.VulnType, lastParseErr, lastRawOutput)
+			extraContext = retryTruncateContext(records)
 		}
 
 		result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
-			"RequestContext": requestContext,
+			"RequestContext": extraContext,
 			"VulnType":       cfg.VulnType,
 		})
 		if runErr != nil {
@@ -618,6 +618,27 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	}
 
 	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse swarm plan after %d attempts: %w", maxAttempts, lastParseErr)
+}
+
+// retryTruncateContext produces a compact method+URL summary of the request
+// records, suitable for retry attempts where sending the full raw HTTP is wasteful.
+func retryTruncateContext(records []*httpmsg.HttpRequestResponse) string {
+	var sb strings.Builder
+	for i, rr := range records {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		method := "???"
+		reqURL := "???"
+		if rr.Request() != nil {
+			method = rr.Request().Method()
+			if u, err := rr.URL(); err == nil {
+				reqURL = u.String()
+			}
+		}
+		fmt.Fprintf(&sb, "- %s %s", method, reqURL)
+	}
+	return sb.String()
 }
 
 // buildRetryFeedback constructs an error-feedback appendix for retry attempts,
@@ -747,9 +768,14 @@ func mergeExtensions(source, plan []GeneratedExtension) []GeneratedExtension {
 	}
 	// Plan extensions override on collision
 	for _, ext := range plan {
-		if _, exists := byFilename[ext.Filename]; exists {
-			zap.L().Info("Plan extension overrides source-analysis extension",
-				zap.String("filename", ext.Filename))
+		if existing, exists := byFilename[ext.Filename]; exists {
+			if existing.Code != ext.Code {
+				zap.L().Warn("Plan extension overrides source-analysis extension with different content",
+					zap.String("filename", ext.Filename))
+			} else {
+				zap.L().Info("Plan extension overrides source-analysis extension (same content)",
+					zap.String("filename", ext.Filename))
+			}
 		}
 		byFilename[ext.Filename] = ext
 	}
@@ -946,7 +972,7 @@ func mergeSwarmPlans(plans []*SwarmPlan) *SwarmPlan {
 	snipMap := make(map[string]Snippet)
 	var notes []string
 
-	for _, p := range plans {
+	for batchIdx, p := range plans {
 		for _, t := range p.ModuleTags {
 			tagSet[t] = true
 		}
@@ -957,6 +983,11 @@ func mergeSwarmPlans(plans []*SwarmPlan) *SwarmPlan {
 			focusSet[fa] = true
 		}
 		for _, ext := range p.Extensions {
+			if existing, collision := extMap[ext.Filename]; collision && existing.Code != ext.Code {
+				zap.L().Warn("Batch extension collision with different content (last wins)",
+					zap.String("filename", ext.Filename),
+					zap.Int("batch", batchIdx+1))
+			}
 			extMap[ext.Filename] = ext
 		}
 		for _, qc := range p.QuickChecks {
@@ -999,85 +1030,43 @@ func sortedKeys(s map[string]bool) []string {
 }
 
 func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string) error {
-	// Triage all findings — both extension-generated and built-in module findings.
-	// The triage agent is instructed to pay special attention to extension findings
-	// while also reviewing built-in findings that may be false positives.
-	for round := 0; round <= cfg.MaxIterations; round++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// Run triage agent
-		opts := Options{
-			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
-			PromptTemplate: SwarmPromptTriage,
-			TargetURL:      agentRun.TargetURL,
-			Hostname:       hostnameFromURL(agentRun.TargetURL),
-			Instruction:    cfg.Instruction,
-			DryRun:         cfg.DryRun,
-			ShowPrompt:     cfg.ShowPrompt,
-			ScanUUID:       cfg.ScanUUID,
-			ProjectUUID:    cfg.ProjectUUID,
-			StreamWriter:   cfg.StreamWriter,
-		}
-
-		if round > 0 {
-			opts.Append = fmt.Sprintf("## Context\n\nThis is triage round %d (after rescan). Focus on new findings from the latest scan.", round+1)
-		}
-
-		triageResult, err := s.engine.Run(ctx, opts)
-		if err != nil {
-			return fmt.Errorf("triage round %d failed: %w", round, err)
-		}
-
-		// Save rendered prompt and raw triage output to session dir
-		writePromptToSessionDir(sessionDir, fmt.Sprintf("prompt-triage-%d.md", round), triageResult.RenderedPrompt)
-		if sessionDir != "" && triageResult.RawOutput != "" {
-			filename := fmt.Sprintf("triage-output-%d.md", round)
-			_ = os.WriteFile(filepath.Join(sessionDir, filename), []byte(triageResult.RawOutput), 0644)
-		}
-
-		if cfg.DryRun {
-			return nil
-		}
-
-		triage, err := ParseTriageResult(triageResult.RawOutput)
-		if err != nil {
-			zap.L().Warn("Failed to parse triage result, treating as done", zap.Error(err))
-			return nil
-		}
-
-		result.TriageResults = append(result.TriageResults, triage)
-		result.Confirmed += len(triage.Confirmed)
-		result.FalsePositives += len(triage.FalsePositives)
-		result.Iterations = round + 1
-
-		triageJSON, _ := json.Marshal(triage)
-		agentRun.TriageResult = string(triageJSON)
-
-		if triage.Verdict != "rescan" || len(triage.FollowUps) == 0 || round >= cfg.MaxIterations {
-			break
-		}
-
-		// Rescan with follow-up modules (targeted, audit only)
-		if cfg.ScanFunc != nil {
+	triageCfg := TriageLoopConfig{
+		Engine:         s.engine,
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: SwarmPromptTriage,
+		TargetURL:      agentRun.TargetURL,
+		Hostname:       hostnameFromURL(agentRun.TargetURL),
+		Instruction:    cfg.Instruction,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		StreamWriter:   cfg.StreamWriter,
+		MaxRounds:      cfg.MaxIterations,
+		ScanFunc:       cfg.ScanFunc,
+		SessionDir:     sessionDir,
+		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
+		},
+	}
 
-			var followTags, followIDs []string
-			for _, fu := range triage.FollowUps {
-				followTags = append(followTags, fu.ModuleTags...)
-				followIDs = append(followIDs, fu.ModuleIDs...)
-			}
+	loopResult, err := RunTriageLoop(ctx, triageCfg)
+	if err != nil {
+		return err
+	}
 
-			if err := cfg.ScanFunc(ctx, followTags, followIDs, "", true); err != nil {
-				zap.L().Warn("Rescan failed", zap.Int("round", round+1), zap.Error(err))
-				break
-			}
-		}
+	result.TriageResults = loopResult.TriageResults
+	result.Confirmed += loopResult.Confirmed
+	result.FalsePositives += loopResult.FalsePositives
+	result.Iterations = len(loopResult.TriageResults)
+
+	// Store last triage result in agent run record
+	if len(loopResult.TriageResults) > 0 {
+		lastTriage := loopResult.TriageResults[len(loopResult.TriageResults)-1]
+		triageJSON, _ := json.Marshal(lastTriage)
+		agentRun.TriageResult = string(triageJSON)
 	}
 
 	return nil

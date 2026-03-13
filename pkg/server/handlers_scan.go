@@ -950,7 +950,7 @@ func (h *Handlers) runBackgroundScan(scanID string, scanRunner *runner.Runner) {
 	zap.L().Info("Background scan started", zap.String("scan_id", scanID))
 
 	var errMsg string
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		errMsg = err.Error()
 		zap.L().Error("Background scan failed", zap.String("scan_id", scanID), zap.Error(err))
 	}

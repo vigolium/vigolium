@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +20,26 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"go.uber.org/zap"
 )
+
+// killProcessGroup sends SIGKILL to a process group and logs errors instead of
+// silently discarding them. ESRCH (no such process) is expected when the process
+// has already exited and is logged at Debug level; other errors are logged as Warn.
+func killProcessGroup(pid int, label string) {
+	err := syscall.Kill(-pid, syscall.SIGKILL)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		zap.L().Debug("process group already exited",
+			zap.String("label", label),
+			zap.Int("pid", pid))
+		return
+	}
+	zap.L().Warn("failed to kill process group",
+		zap.String("label", label),
+		zap.Int("pid", pid),
+		zap.Error(err))
+}
 
 // acpSession holds a warm ACP subprocess and its connection state.
 type acpSession struct {
@@ -52,7 +73,7 @@ func (s *acpSession) kill() {
 	s.stderrWg.Wait()
 	// Kill the entire process group
 	if s.cmd.Process != nil {
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		killProcessGroup(s.cmd.Process.Pid, "warm-session-"+s.agentName)
 	}
 	_ = s.cmd.Wait()
 	zap.L().Debug("ACP warm session killed", zap.String("agent", s.agentName))
@@ -94,6 +115,11 @@ func NewACPPool(cfg config.WarmSessionConfig, agents map[string]config.AgentDef)
 		reaperStop: make(chan struct{}),
 		reaperDone: make(chan struct{}),
 	}
+	runtime.SetFinalizer(p, func(pool *ACPPool) {
+		if !pool.closed {
+			zap.L().Warn("ACPPool garbage-collected without Close() — reaper goroutine was leaked")
+		}
+	})
 	go p.reaper()
 	return p
 }

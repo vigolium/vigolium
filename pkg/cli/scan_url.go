@@ -543,12 +543,12 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 
 	if !opts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo)
 	}
 
@@ -577,7 +577,7 @@ func outputScanResult(result *scanResult) error {
 	}
 
 	// Human-readable output
-	fmt.Fprintf(os.Stderr, "\n%s Scan completed: %s (%s %s) in %dms\n",
+	fmt.Fprintf(os.Stderr, "\n%s Native scan completed: %s (%s %s) in %dms\n",
 		terminal.SuccessSymbol(),
 		terminal.Cyan(result.Target),
 		result.Method,

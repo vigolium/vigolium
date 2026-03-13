@@ -35,17 +35,17 @@ type acpResult struct {
 	SessionID string // ACP session ID for resume
 }
 
-// RunAgentACP executes an AI agent using the ACP protocol.
+// RunAgenticACP executes an AI agent using the ACP protocol.
 // It returns the collected agent output, stderr, and any execution error.
-func RunAgentACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (result acpResult, err error) {
+func RunAgenticACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (result acpResult, err error) {
 	return runACP(ctx, agentDef, prompt, acpRunConfig{
 		SessionMeta: agentDef.SessionMeta,
 	}, opts...)
 }
 
-// RunAgentAutopilot executes an AI agent using the ACP protocol with terminal
+// RunAgenticAutopilot executes an AI agent using the ACP protocol with terminal
 // capabilities enabled. The agent can run vigolium CLI commands via CreateTerminal.
-func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt string, cwd string, maxCalls int, opts ...acpClientOption) (result acpResult, err error) {
+func RunAgenticAutopilot(ctx context.Context, agentDef config.AgentDef, prompt string, cwd string, maxCalls int, opts ...acpClientOption) (result acpResult, err error) {
 	opts = append(opts, withTerminal(cwd, maxCalls))
 	return runACP(ctx, agentDef, prompt, acpRunConfig{
 		Terminal:    true,
@@ -55,7 +55,7 @@ func RunAgentAutopilot(ctx context.Context, agentDef config.AgentDef, prompt str
 	}, opts...)
 }
 
-// runACP is the shared implementation for both RunAgentACP and RunAgentAutopilot.
+// runACP is the shared implementation for both RunAgenticACP and RunAgenticAutopilot.
 func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg acpRunConfig, opts ...acpClientOption) (result acpResult, err error) {
 	if agentDef.Command == "" {
 		return acpResult{}, fmt.Errorf("agent command is empty")
@@ -132,7 +132,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 		// Kill the entire process group to ensure child processes (e.g. spawned by npx)
 		// are also terminated, preventing pipe fd leaks that cause cmd.Wait() to hang.
 		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			killProcessGroup(cmd.Process.Pid, "acp-runner")
 		}
 		_ = cmd.Wait()
 	}()

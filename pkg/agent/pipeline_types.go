@@ -672,6 +672,19 @@ func WriteExtensionsToSessionDir(extensions []GeneratedExtension, sessionDir str
 	return extDir, nil
 }
 
+// ScanRequest encapsulates parameters for a scan callback invocation.
+// This unified type is shared by both Pipeline and Swarm modes.
+type ScanRequest struct {
+	ModuleTags   []string // module tags from the agent's plan
+	ModuleIDs    []string // explicit module IDs from the agent's plan
+	ExtensionDir string   // path to generated JS extensions (empty if none)
+	IsRescan     bool     // true for triage-driven targeted rescans
+}
+
+// ScanFunc is the unified callback signature for running scans.
+// Both Pipeline and Swarm modes use this type for their scan callbacks.
+type ScanFunc func(ctx context.Context, req ScanRequest) error
+
 // PipelineConfig configures a pipeline run.
 type PipelineConfig struct {
 	TargetURL       string
@@ -695,8 +708,7 @@ type PipelineConfig struct {
 	DiscoverFunc func(ctx context.Context) error
 
 	// ScanFunc runs the audit phase with the given module filters.
-	// moduleTags and moduleIDs come from the agent's attack plan.
-	ScanFunc func(ctx context.Context, moduleTags []string, moduleIDs []string) error
+	ScanFunc ScanFunc
 
 	// PhaseCallback is called when a pipeline phase starts.
 	// Used by the API server to emit SSE phase events and update status.

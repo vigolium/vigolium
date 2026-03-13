@@ -79,7 +79,7 @@ type Runner struct {
 
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
-	done      chan struct{}          // closed when RunEnumeration finishes
+	done      chan struct{}          // closed when RunNativeScan finishes
 	pauseCtrl *core.PauseController // cooperative pause/resume for workers
 }
 
@@ -494,7 +494,7 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", m, s)
 }
 
-// RunEnumeration orchestrates the 5-phase scan pipeline:
+// RunNativeScan orchestrates the 5-phase scan pipeline:
 //
 //	ExternalHarvest   — harvest URLs from external intelligence sources (opt-in)
 //	Spidering         — browser-based crawling (opt-in)
@@ -641,7 +641,7 @@ func (r *Runner) logConfigSnapshot() {
 	r.scanLogger.InfoWithMeta("config", "scan configuration snapshot", meta)
 }
 
-func (r *Runner) RunEnumeration() error {
+func (r *Runner) RunNativeScan() error {
 	defer close(r.done)
 	ctx := r.ctx
 
@@ -673,7 +673,7 @@ func (r *Runner) RunEnumeration() error {
 		if err := r.repository.CreateScan(ctx, scan); err != nil {
 			zap.L().Warn("Failed to create scan record", zap.Error(err))
 		} else {
-			// Defer scan completion so the record is updated when RunEnumeration finishes.
+			// Defer scan completion so the record is updated when RunNativeScan finishes.
 			defer func() {
 				var errMsg string
 				if r.ctx.Err() != nil {
@@ -881,7 +881,7 @@ func (r *Runner) RunEnumeration() error {
 	return nil
 }
 
-// buildInfrastructure extracts common setup from the old RunEnumeration into a reusable struct.
+// buildInfrastructure extracts common setup from the old RunNativeScan into a reusable struct.
 func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 	// Auto-generate scan UUID when not provided via --scan-id
 	scanUUID := r.options.ScanUUID
@@ -1671,7 +1671,7 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	}
 
 	// Update the top-level scan record with module info for cursor tracking.
-	// The scan record was already created at the start of RunEnumeration().
+	// The scan record was already created at the start of RunNativeScan().
 	if _, err := r.repository.DB().NewUpdate().
 		Model((*database.Scan)(nil)).
 		Set("modules = ?", r.buildModulesString(activeModules, passiveModules)).
@@ -1934,7 +1934,7 @@ func (r *Runner) Close() {
 		r.cancel()
 	}
 
-	// Wait for RunEnumeration to finish (with configurable timeout)
+	// Wait for RunNativeScan to finish (with configurable timeout)
 	if r.done != nil {
 		shutdownTimeout := r.options.ShutdownTimeout
 		if shutdownTimeout <= 0 {

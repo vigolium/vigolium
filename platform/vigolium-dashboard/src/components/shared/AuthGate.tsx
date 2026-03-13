@@ -118,7 +118,7 @@ export default function AuthGate({ children }: AuthGateProps) {
           }
           .animate-logo-glow { animation: logo-glow 3s ease-in-out infinite; }
         `}</style>
-        <p className="text-[var(--v-text-muted)] text-xs text-center max-w-md mb-4"><a href="https://github.com/vigolium" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">Vigolium</a> - High-fidelity web vulnerability scanner that combines speed, modularity, precision, and AI-powered analysis.</p>
+        <p className="text-[var(--v-text-muted)] text-xs text-center max-w-md mb-4"><a href="https://github.com/vigolium" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">Vigolium</a> - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</p>
 
         <div className="w-full max-w-md border border-[var(--v-border)] bg-[var(--v-bg)]">
           {/* Header */}

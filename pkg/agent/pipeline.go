@@ -11,6 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// Prompt template constants for the pipeline mode.
+const (
+	PipelinePromptPlan   = "pipeline-plan"
+	PipelinePromptTriage = "pipeline-triage"
+)
+
 // PipelineRunner orchestrates the multi-phase scanning pipeline with agent checkpoints.
 //
 // Pipeline phases:
@@ -149,7 +155,8 @@ func (p *PipelineRunner) resolvePhases(cfg PipelineConfig) []PipelinePhase {
 }
 
 // runSourceAnalysis executes phase 0: AI-driven source code analysis.
-// Delegates to Engine.RunSourceAnalysis and invokes the pipeline-specific callback.
+// Uses RunSourceAnalysisParallel for parallel sub-agent execution when focused
+// templates exist, falling back to monolithic analysis otherwise.
 func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConfig) (*SourceAnalysisResult, error) {
 	saCfg := SourceAnalysisConfig{
 		AgentName:    cfg.AgentName,
@@ -165,7 +172,7 @@ func (p *PipelineRunner) runSourceAnalysis(ctx context.Context, cfg PipelineConf
 		StreamWriter: cfg.StreamWriter,
 	}
 
-	saResult, _, _, err := p.engine.RunSourceAnalysis(ctx, saCfg)
+	saResult, _, _, err := p.engine.RunSourceAnalysisParallel(ctx, saCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +198,7 @@ func (p *PipelineRunner) runDiscover(ctx context.Context, cfg PipelineConfig) er
 	return cfg.DiscoverFunc(ctx)
 }
 
-// baseAgentOpts builds the common Options fields shared by plan and triage agent calls.
+// baseAgentOpts builds common Options fields from a PipelineConfig for agent calls.
 func baseAgentOpts(cfg PipelineConfig, template string) Options {
 	opts := Options{
 		AgentName:      cfg.AgentName,
@@ -213,7 +220,7 @@ func baseAgentOpts(cfg PipelineConfig, template string) Options {
 
 // runPlan executes phase 2: agent plans attack strategy based on discovery results.
 func (p *PipelineRunner) runPlan(ctx context.Context, cfg PipelineConfig) (*AttackPlan, error) {
-	opts := baseAgentOpts(cfg, "pipeline-plan")
+	opts := baseAgentOpts(cfg, PipelinePromptPlan)
 	if cfg.Focus != "" {
 		opts.Append = fmt.Sprintf("## Focus Area\n\n%s", cfg.Focus)
 	}
@@ -259,129 +266,47 @@ func (p *PipelineRunner) runScan(ctx context.Context, cfg PipelineConfig, plan *
 		return fmt.Errorf("no scan function configured")
 	}
 
-	var tags, ids []string
+	req := ScanRequest{}
 	if plan != nil {
-		tags = plan.ModuleTags
-		ids = plan.ModuleIDs
+		req.ModuleTags = plan.ModuleTags
+		req.ModuleIDs = plan.ModuleIDs
 	}
 
-	return cfg.ScanFunc(ctx, tags, ids)
+	return cfg.ScanFunc(ctx, req)
 }
 
 // runTriageLoop runs the triage phase and optional rescan loop (phases 4-5).
+// Delegates to the shared RunTriageLoop controller.
 func (p *PipelineRunner) runTriageLoop(ctx context.Context, cfg PipelineConfig, result *PipelineResult) error {
-	maxRounds := cfg.MaxRescanRounds
-	if maxRounds <= 0 {
-		maxRounds = 2
+	triageCfg := TriageLoopConfig{
+		Engine:         p.engine,
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: PipelinePromptTriage,
+		TargetURL:      cfg.TargetURL,
+		Hostname:       hostnameFromURL(cfg.TargetURL),
+		SourcePath:     cfg.SourcePath,
+		Files:          cfg.Files,
+		Instruction:    cfg.Instruction,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		StreamWriter:   cfg.StreamWriter,
+		MaxRounds:      cfg.MaxRescanRounds,
+		ScanFunc:       cfg.ScanFunc,
 	}
 
-	for round := 0; round <= maxRounds; round++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		triage, err := p.runTriage(ctx, cfg, round)
-		if err != nil {
-			return fmt.Errorf("triage round %d failed: %w", round, err)
-		}
-
-		if cfg.DryRun {
-			return nil
-		}
-
-		result.TriageResults = append(result.TriageResults, triage)
-		result.Confirmed += len(triage.Confirmed)
-		result.FalsePositives += len(triage.FalsePositives)
-
-		if triage.Verdict != "rescan" || len(triage.FollowUps) == 0 || round >= maxRounds {
-			zap.L().Info("Triage complete",
-				zap.String("verdict", triage.Verdict),
-				zap.Int("round", round),
-				zap.Int("confirmed", len(triage.Confirmed)),
-				zap.Int("falsePositives", len(triage.FalsePositives)))
-			break
-		}
-
-		// Run rescan with follow-up targets
-		zap.L().Info("Triage requested rescan",
-			zap.Int("round", round+1),
-			zap.Int("followUps", len(triage.FollowUps)))
-
-		result.RescanRounds++
-		if err := p.runRescan(ctx, cfg, triage.FollowUps); err != nil {
-			zap.L().Error("Rescan failed, continuing with triage results",
-				zap.Int("round", round+1),
-				zap.Error(err))
-			break
-		}
+	loopResult, err := RunTriageLoop(ctx, triageCfg)
+	if err != nil {
+		return err
 	}
 
+	result.TriageResults = loopResult.TriageResults
+	result.Confirmed += loopResult.Confirmed
+	result.FalsePositives += loopResult.FalsePositives
+	result.RescanRounds = loopResult.RescanRounds
 	return nil
-}
-
-// runTriage executes the triage agent checkpoint.
-func (p *PipelineRunner) runTriage(ctx context.Context, cfg PipelineConfig, round int) (*TriageResult, error) {
-	opts := baseAgentOpts(cfg, "pipeline-triage")
-	if round > 0 {
-		opts.Append = fmt.Sprintf("## Context\n\nThis is triage round %d (after rescan). Focus on new findings from the latest scan.", round+1)
-	}
-
-	result, err := p.engine.Run(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("triage agent failed: %w", err)
-	}
-
-	if cfg.DryRun {
-		_, _ = fmt.Fprint(os.Stdout, result.RawOutput)
-		return &TriageResult{Verdict: "done"}, nil
-	}
-
-	triage, err := ParseTriageResult(result.RawOutput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse triage result: %w", err)
-	}
-
-	return triage, nil
-}
-
-// runRescan executes follow-up scans recommended by the triage agent.
-func (p *PipelineRunner) runRescan(ctx context.Context, cfg PipelineConfig, followUps []FollowUpScan) error {
-	if cfg.DryRun {
-		return nil
-	}
-	if cfg.ScanFunc == nil {
-		return fmt.Errorf("no scan function configured")
-	}
-
-	// Aggregate all follow-up module tags and IDs
-	tagSet := make(map[string]bool)
-	idSet := make(map[string]bool)
-	for _, fu := range followUps {
-		for _, t := range fu.ModuleTags {
-			tagSet[t] = true
-		}
-		for _, id := range fu.ModuleIDs {
-			idSet[id] = true
-		}
-	}
-
-	var tags []string
-	for t := range tagSet {
-		tags = append(tags, t)
-	}
-	var ids []string
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-
-	// If no specific modules requested, use all
-	if len(tags) == 0 && len(ids) == 0 {
-		zap.L().Debug("Rescan with no specific modules, using all")
-	}
-
-	return cfg.ScanFunc(ctx, tags, ids)
 }
 
 // runReport executes phase 6: generate structured report from DB.

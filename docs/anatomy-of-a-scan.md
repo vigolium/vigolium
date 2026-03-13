@@ -93,7 +93,7 @@ Has targets?       ──no───▶  runDBScan()            Scan existing DB
 runner.New(scanOpts)         ──────────────────▶    Target-based: build source from CLI targets
   .SetSettings(settings)
   .SetRepository(repo)
-  .RunEnumeration()
+  .RunNativeScan()
   .Close()
 ```
 
@@ -246,7 +246,7 @@ type Runner struct {
 
 ### buildInfrastructure()
 
-Called once at the top of `RunEnumeration()`. Creates all shared services in the `phaseInfra` container:
+Called once at the top of `RunNativeScan()`. Creates all shared services in the `phaseInfra` container:
 
 ```go
 type phaseInfra struct {
@@ -269,10 +269,10 @@ Built in order:
 5. **ScopeMatcher** — host/path/status/content-type/body-string filtering from config.
 6. **JS Engine** — Grafana Sobek engine for JavaScript extensions, including pre/post hook chains.
 
-### RunEnumeration() — The 7-Phase Pipeline
+### RunNativeScan() — The 7-Phase Pipeline
 
 ```
-RunEnumeration()
+RunNativeScan()
 │
 ├── buildInfrastructure()
 │
@@ -954,7 +954,7 @@ vigolium scan -t https://example.com
           │
           ▼
     ┌────────────────────────────────────────────────────────┐
-    │              RunEnumeration() — 7 Phases                │
+    │              RunNativeScan() — 7 Phases                │
     │                                                        │
     │  [Heuristics] → [Harvest] → [Spider] → [SAST]         │
     │       → [Discovery/Ingest] → [SPA] → [Dynamic Assess] │
@@ -1020,7 +1020,7 @@ vigolium scan -t https://example.com
 | Config | `pkg/cli/scan.go` | `runScanCmd()` | Flags + YAML | `*types.Options`, `*config.Settings` |
 | Input | `pkg/input/source/` | `InputSource.Next()` | URLs/files/stdin | `*work.WorkItem` |
 | HTTP Types | `pkg/httpmsg/` | `GetRawRequestFromURL()` | URL string | `*HttpRequestResponse` |
-| Runner | `internal/runner/runner.go` | `RunEnumeration()` | Options + Settings | Phase results |
+| Runner | `internal/runner/runner.go` | `RunNativeScan()` | Options + Settings | Phase results |
 | Executor | `pkg/core/executor.go` | `Execute()` → `processItem()` | `InputSource` + modules | `bool` (found results) |
 | Insertion Points | `pkg/httpmsg/insertion_point.go` | `CreateAllInsertionPoints()` | Raw request bytes | `[]InsertionPoint` |
 | Module Dispatch | `pkg/modules/` | `ScanPer{Host,Request,InsertionPoint}()` | `*HttpRequestResponse` | `[]*ResultEvent` |

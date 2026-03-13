@@ -407,7 +407,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 
 	// Start workers
 	go func() {
-		if err := scanRunner.RunEnumeration(); err != nil {
+		if err := scanRunner.RunNativeScan(); err != nil {
 			zap.L().Error("Runner error", zap.Error(err))
 		}
 	}()
@@ -569,7 +569,7 @@ func startCatchupScan(
 
 	go func() {
 		var errMsg string
-		if err := catchupRunner.RunEnumeration(); err != nil {
+		if err := catchupRunner.RunNativeScan(); err != nil {
 			zap.L().Error("Catchup scan error", zap.Error(err))
 			errMsg = err.Error()
 		}

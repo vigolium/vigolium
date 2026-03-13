@@ -31,7 +31,7 @@ var scanOpts = types.DefaultOptions()
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
-	Short: "Run vulnerability scan",
+	Short: "Run a native scan — deterministic multi-phase vulnerability scanning",
 	RunE:  runScanCmd,
 }
 
@@ -570,7 +570,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 				setupScanSignalHandler(scanRunner)
 
-				if err := scanRunner.RunEnumeration(); err != nil {
+				if err := scanRunner.RunNativeScan(); err != nil {
 					zap.L().Info("Could not run scanner", zap.Error(err))
 				}
 
@@ -583,7 +583,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 				}
 
 				if !scanOpts.Silent {
-					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 					printScanCompletionSummary(repo)
 				}
 				return nil
@@ -616,7 +616,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 	scanRunner.Close()
@@ -632,7 +632,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	// Print completion message with summary stats
 	if !scanOpts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo)
 	}
 
@@ -691,7 +691,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 		}
 	}
 
-	// Create Runner with the input source — RunEnumeration handles all 3 phases
+	// Create Runner with the input source — RunNativeScan handles all 3 phases
 	scanRunner, err := runner.NewWithInputSource(scanOpts, inputSource)
 	if err != nil {
 		return fmt.Errorf("failed to create scan runner: %w", err)
@@ -703,7 +703,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 
@@ -717,7 +717,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 	}
 
 	if !scanOpts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo)
 	}
 
@@ -725,7 +725,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 }
 
 // runDBScan scans records already in the database (no explicit targets).
-// Delegates to RunEnumeration(): Phase 1 is a no-op (empty source),
+// Delegates to RunNativeScan(): Phase 1 is a no-op (empty source),
 // Phase 2 runs SPA if enabled, Phase 3 reads existing DB records.
 func runDBScan(settings *config.Settings, db *database.DB, repo *database.Repository) error {
 	// Create Runner with an empty input source — Phase 1 becomes a no-op
@@ -740,7 +740,7 @@ func runDBScan(settings *config.Settings, db *database.DB, repo *database.Reposi
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunEnumeration(); err != nil {
+	if err := scanRunner.RunNativeScan(); err != nil {
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 
@@ -754,7 +754,7 @@ func runDBScan(settings *config.Settings, db *database.DB, repo *database.Reposi
 	}
 
 	if !scanOpts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Scan completed"))
+		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo)
 	}
 

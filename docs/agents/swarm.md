@@ -214,7 +214,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |     +-- settings.Audit.Extensions.CustomDir += extensionDir/*.js       |
   |     +-- --only / --skip flags applied if specified                     |
   |                                                                        |
-  |   Execution: runner.New(opts) --> RunEnumeration()                     |
+  |   Execution: runner.New(opts) --> RunNativeScan()                     |
   |     +-- Executor distributes requests to modules via worker pool       |
   |     +-- Built-in modules + generated extensions run in parallel        |
   |     +-- Findings saved to DB with module source tags                   |

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,8 +43,8 @@ var (
 
 var agentPipelineCmd = &cobra.Command{
 	Use:   "pipeline",
-	Short: "Multi-phase AI-guided vulnerability scanning pipeline",
-	Long: `Run a fixed multi-phase scanning pipeline with AI agent checkpoints.
+	Short: "Agentic scan: multi-phase pipeline with native scan phases",
+	Long: `Run an agentic scan pipeline with AI checkpoints and native scan phases.
 
 Phases:
   0. Source Analysis — AI agent analyzes source code (when --source provided)
@@ -98,29 +97,12 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
-	// Resolve input: explicit --input, stdin pipe, or --input -
-	inputData := pipelineInput
-	if inputData == "-" {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read from stdin: %w", err)
-		}
-		inputData = string(data)
-	} else if inputData == "" && pipelineTarget == "" {
-		if data, ok := readStdinIfPiped(); ok {
-			inputData = data
-		}
+	// Resolve input and target
+	resolved, err := resolveInputAndTarget(pipelineTarget, pipelineInput)
+	if err != nil {
+		return err
 	}
-
-	// Derive target from input when --target is not provided
-	if pipelineTarget == "" && inputData != "" {
-		ctx := context.Background()
-		targetURL, err := resolveTargetFromInput(ctx, inputData, nil)
-		if err != nil {
-			return fmt.Errorf("could not derive target from input: %w\nUse --target to specify explicitly", err)
-		}
-		pipelineTarget = targetURL
-	}
+	pipelineTarget = resolved.Target
 
 	if pipelineTarget == "" {
 		return fmt.Errorf("target is required: use --target, --input, or pipe via stdin")
@@ -259,7 +241,7 @@ func runAgentPipeline(_ *cobra.Command, _ []string) error {
 	}
 
 	// Print banner
-	fmt.Fprintf(os.Stderr, "%s Starting pipeline scan against %s\n",
+	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (pipeline) against %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(pipelineTarget))
 	if pipelineSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
@@ -356,7 +338,7 @@ func runPipelinePhaseRunner(opts *types.Options, settings *config.Settings, repo
 
 	scanRunner.SetSettings(settings)
 	scanRunner.SetRepository(repo)
-	return scanRunner.RunEnumeration()
+	return scanRunner.RunNativeScan()
 }
 
 // pipelineBaseOpts returns default options pre-filled with common pipeline fields.
@@ -398,8 +380,8 @@ func buildDiscoverFunc(settings *config.Settings, repo *database.Repository, aut
 }
 
 // buildScanFunc creates a callback that runs audit with specified module filters.
-func buildScanFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
+func buildScanFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) agent.ScanFunc {
+	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts, err := pipelineBaseOpts()
 		if err != nil {
 			return err
@@ -407,7 +389,7 @@ func buildScanFunc(settings *config.Settings, repo *database.Repository, authCon
 		opts.OnlyPhase = "audit"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+		opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		opts.PassiveModules = []string{"all"}
 		if *authConfigPath != "" {
 			opts.AuthConfigPath = *authConfigPath
@@ -443,7 +425,7 @@ func printPipelineResult(result *agent.PipelineResult) {
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n",
 		terminal.Aqua(terminal.SymbolSparkle),
-		terminal.BoldAqua("Pipeline completed"))
+		terminal.BoldAqua("Agentic scan (pipeline) completed"))
 
 	fmt.Fprintf(os.Stderr, "  Duration:        %s\n", result.Duration.Round(time.Second))
 	fmt.Fprintf(os.Stderr, "  Phases run:      %s\n", formatPhases(result.PhasesRun))

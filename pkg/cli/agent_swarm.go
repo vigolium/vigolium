@@ -48,8 +48,8 @@ var (
 
 var agentSwarmCmd = &cobra.Command{
 	Use:   "swarm",
-	Short: "AI-guided targeted vulnerability swarm",
-	Long: `Run an AI-guided targeted vulnerability swarm against a specific input.
+	Short: "Agentic scan: AI-guided targeted vulnerability swarm",
+	Long: `Run an agentic scan swarm against a specific input.
 
 The master agent analyzes the target, selects appropriate scanner modules,
 generates custom attack payloads as JavaScript extensions, executes the scan,
@@ -263,7 +263,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		inputDesc = "record:" + swarmRecordUUID
 	}
 	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
-	fmt.Fprintf(os.Stderr, "%s Starting agent swarm: %s\n",
+	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (swarm): %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(inputDesc))
 	fmt.Fprintf(os.Stderr, "%s Agent: %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(effectiveAgent))
@@ -344,12 +344,12 @@ func buildSwarmInputs() ([]string, error) {
 }
 
 // buildAgentSwarmScanFunc creates a callback that runs the scan.
-// When rescan=false, it runs a full scan (all phases, all modules) by default.
-// When rescan=true, it restricts to audit with targeted modules.
+// When IsRescan=false, it runs a full scan (all phases, all modules) by default.
+// When IsRescan=true, it restricts to audit with targeted modules.
 // The onlyPhase and skipPhases parameters allow user control via --only/--skip flags.
 // authConfigPath points to a generated auth-config.yaml from source analysis (may be empty).
-func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string, authConfigPath *string) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
+func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
+	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{swarmTarget}
 		opts.ScanUUID = globalScanID
@@ -369,11 +369,11 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 			opts.AuthConfigPath = *authConfigPath
 		}
 
-		if rescan {
+		if req.IsRescan {
 			// Triage rescans: targeted audit only
 			opts.OnlyPhase = "audit"
 			opts.SkipIngestion = true
-			opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
 			// Initial scan: full scan with all modules
 			opts.Modules = []string{"all"}
@@ -388,11 +388,11 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 
 		// Clone settings to avoid mutating shared config
 		settingsCopy := *settings
-		if extensionDir != "" {
+		if req.ExtensionDir != "" {
 			settingsCopy.Audit.Extensions.Enabled = true
 			settingsCopy.Audit.Extensions.CustomDir = append(
 				settingsCopy.Audit.Extensions.CustomDir,
-				filepath.Join(extensionDir, "*.js"),
+				filepath.Join(req.ExtensionDir, "*.js"),
 			)
 		}
 
@@ -408,7 +408,7 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 
 		scanRunner.SetSettings(&settingsCopy)
 		scanRunner.SetRepository(repo)
-		return scanRunner.RunEnumeration()
+		return scanRunner.RunNativeScan()
 	}
 }
 
@@ -455,7 +455,7 @@ func printSwarmResult(result *agent.SwarmResult) {
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n",
 		terminal.Aqua(terminal.SymbolSparkle),
-		terminal.BoldAqua("Agent swarm completed"))
+		terminal.BoldAqua("Agentic scan (swarm) completed"))
 
 	fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Duration:"), result.Duration.Round(time.Second))
 	fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Agent run:"), terminal.Gray(result.AgentRunUUID))

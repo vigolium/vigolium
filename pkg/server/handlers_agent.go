@@ -294,13 +294,13 @@ func (h *Handlers) buildServerDiscoverFunc(target, projectUUID, scanUUID string,
 
 		scanRunner.SetSettings(settings)
 		scanRunner.SetRepository(h.repo)
-		return scanRunner.RunEnumeration()
+		return scanRunner.RunNativeScan()
 	}
 }
 
 // buildServerScanFunc creates a callback that runs audit with specified module filters.
-func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string) error {
+func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) agent.ScanFunc {
+	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{target}
 		opts.ProjectUUID = projectUUID
@@ -308,7 +308,7 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 		opts.OnlyPhase = "audit"
 		opts.SkipIngestion = true
 		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+		opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
@@ -321,7 +321,7 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 
 		scanRunner.SetSettings(settings)
 		scanRunner.SetRepository(h.repo)
-		return scanRunner.RunEnumeration()
+		return scanRunner.RunNativeScan()
 	}
 }
 
@@ -665,10 +665,10 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 }
 
 // buildServerAgentSwarmFunc creates a callback that runs the scan.
-// When rescan=false, it runs a full scan (all phases, all modules) by default.
-// When rescan=true, it restricts to audit with targeted modules.
-func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, onlyPhase string, skipPhases []string, settings *config.Settings) func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
-	return func(ctx context.Context, moduleTags []string, moduleIDs []string, extensionDir string, rescan bool) error {
+// When IsRescan=false, it runs a full scan (all phases, all modules) by default.
+// When IsRescan=true, it restricts to audit with targeted modules.
+func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, onlyPhase string, skipPhases []string, settings *config.Settings) agent.ScanFunc {
+	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
 		if targetURL != "" {
 			opts.Targets = []string{targetURL}
@@ -680,11 +680,11 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
 
-		if rescan {
+		if req.IsRescan {
 			// Triage rescans: targeted audit only
 			opts.OnlyPhase = "audit"
 			opts.SkipIngestion = true
-			opts.Modules = agent.ResolveModulesFromPlan(moduleTags, moduleIDs)
+			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
 			// Initial scan: full scan with all modules
 			opts.Modules = []string{"all"}
@@ -698,11 +698,11 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 
 		// Clone settings to apply extension dir without mutating global
 		settingsCopy := *settings
-		if extensionDir != "" {
+		if req.ExtensionDir != "" {
 			settingsCopy.Audit.Extensions.Enabled = true
 			settingsCopy.Audit.Extensions.CustomDir = append(
 				settingsCopy.Audit.Extensions.CustomDir,
-				extensionDir+"/*.js",
+				req.ExtensionDir+"/*.js",
 			)
 		}
 
@@ -714,7 +714,7 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 
 		scanRunner.SetSettings(&settingsCopy)
 		scanRunner.SetRepository(h.repo)
-		return scanRunner.RunEnumeration()
+		return scanRunner.RunNativeScan()
 	}
 }
 

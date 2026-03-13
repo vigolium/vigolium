@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Vigolium API",
-    "description": "High-fidelity web vulnerability scanner API",
+    "description": "Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision",
     "version": "0.0.1-alpha",
     "contact": {
       "name": "Vigolium",

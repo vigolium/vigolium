@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -37,8 +36,8 @@ var (
 
 var agentAutopilotCmd = &cobra.Command{
 	Use:   "autopilot",
-	Short: "Autonomous AI-driven vulnerability scanning",
-	Long: `Launch an AI agent that autonomously discovers, scans, and triages
+	Short: "Agentic scan: autonomous AI-driven vulnerability scanning",
+	Long: `Launch an agentic scan that autonomously discovers, scans, and triages
 vulnerabilities using vigolium CLI commands.
 
 The agent runs commands like scan-url, finding, traffic via its terminal
@@ -85,29 +84,12 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
-	// Resolve input: explicit --input, stdin pipe, or --input -
-	inputData := autopilotInput
-	if inputData == "-" {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read from stdin: %w", err)
-		}
-		inputData = string(data)
-	} else if inputData == "" && autopilotTarget == "" {
-		if data, ok := readStdinIfPiped(); ok {
-			inputData = data
-		}
+	// Resolve input and target
+	resolved, err := resolveInputAndTarget(autopilotTarget, autopilotInput)
+	if err != nil {
+		return err
 	}
-
-	// Derive target from input when --target is not provided
-	if autopilotTarget == "" && inputData != "" {
-		ctx := context.Background()
-		targetURL, err := resolveTargetFromInput(ctx, inputData, nil)
-		if err != nil {
-			return fmt.Errorf("could not derive target from input: %w\nUse --target to specify explicitly", err)
-		}
-		autopilotTarget = targetURL
-	}
+	autopilotTarget = resolved.Target
 
 	if autopilotTarget == "" {
 		return fmt.Errorf("target is required: use --target, --input, or pipe via stdin")
@@ -184,7 +166,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
 	}
 
-	fmt.Fprintf(os.Stderr, "%s Starting autopilot scan against %s\n",
+	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (autopilot) against %s\n",
 		terminal.InfoSymbol(), terminal.Cyan(autopilotTarget))
 	if autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",

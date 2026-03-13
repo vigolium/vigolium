@@ -42,15 +42,15 @@ var (
 
 var agentCmd = &cobra.Command{
 	Use:          "agent",
-	Short:        "Invoke an AI coding agent for data ingestion, code review, and analysis",
+	Short:        "Run an agentic scan — AI-driven scanning with native scan support",
 	SilenceUsage: true,
-	Long: `Run an AI coding agent (Claude, OpenCode, Gemini) for security code review, endpoint discovery, or custom analysis.
+	Long: `Run an agentic scan using AI agents (Claude, OpenCode, Gemini) for intelligent vulnerability scanning with native scan support.
 
-Use a subcommand to select the execution mode:
+Use a subcommand to select the agentic scan mode:
   query      Single-shot prompt execution (template-based or inline)
-  autopilot  Autonomous AI-driven vulnerability scanning
-  pipeline   Multi-phase AI-guided vulnerability scanning pipeline
-  swarm      AI-guided targeted vulnerability swarm`,
+  autopilot  Agentic scan: autonomous AI-driven vulnerability scanning
+  pipeline   Agentic scan: multi-phase pipeline with native scan phases
+  swarm      Agentic scan: AI-guided targeted vulnerability swarm`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer syncLogger()
 

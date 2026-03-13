@@ -8,7 +8,7 @@ import (
 
 var runCmd = &cobra.Command{
 	Use:   "run <phase>",
-	Short: "Run a single scan phase (alias for scan --only <phase>)",
+	Short: "Run a single native scan phase (alias for scan --only <phase>)",
 	Long: `Run a single scan phase directly. Equivalent to "vigolium scan --only <phase>".
 
 Valid phases: ingestion, discovery (deparos), external-harvest, spa, spidering (spitolas), sast, audit, extension (ext)`,

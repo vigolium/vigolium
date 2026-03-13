@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -349,7 +350,7 @@ func TestGatherContext_SkipsSourceCode(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
 
 	e := &Engine{}
-	data, err := e.gatherContext(Options{
+	data, err := e.gatherContext(context.Background(), Options{
 		SourcePath: dir,
 		TargetURL:  "http://localhost:3000",
 	}, []string{"TargetURL", "SourcePath", "DirectoryTree"})
@@ -374,7 +375,7 @@ func TestGatherContext_IncludesSourceCode(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
 
 	e := &Engine{}
-	data, err := e.gatherContext(Options{
+	data, err := e.gatherContext(context.Background(), Options{
 		SourcePath: dir,
 		TargetURL:  "http://localhost:3000",
 	}, []string{"TargetURL", "SourceCode", "Language"})

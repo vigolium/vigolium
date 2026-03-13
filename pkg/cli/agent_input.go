@@ -56,3 +56,43 @@ func resolveTargetFromInput(ctx context.Context, input string, repo *database.Re
 	}
 	return targetURL, nil
 }
+
+// ResolvedInput holds the result of resolving raw input and target from CLI flags/stdin.
+type ResolvedInput struct {
+	Target    string // resolved target URL
+	InputData string // raw input data (may be empty)
+}
+
+// resolveInputAndTarget resolves the --input and --target flags, reading from stdin if needed,
+// and deriving the target URL from the input when --target is not provided.
+// This is the shared implementation used by autopilot, pipeline, and swarm commands.
+func resolveInputAndTarget(target, input string) (*ResolvedInput, error) {
+	inputData := input
+	if inputData == "-" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read from stdin: %w", err)
+		}
+		inputData = string(data)
+	} else if inputData == "" && target == "" {
+		if data, ok := readStdinIfPiped(); ok {
+			inputData = data
+		}
+	}
+
+	// Derive target from input when --target is not provided
+	resolvedTarget := target
+	if resolvedTarget == "" && inputData != "" {
+		ctx := context.Background()
+		targetURL, err := resolveTargetFromInput(ctx, inputData, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not derive target from input: %w\nUse --target to specify explicitly", err)
+		}
+		resolvedTarget = targetURL
+	}
+
+	return &ResolvedInput{
+		Target:    resolvedTarget,
+		InputData: inputData,
+	}, nil
+}

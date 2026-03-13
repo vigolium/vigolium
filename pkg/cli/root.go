@@ -96,7 +96,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "vigolium",
-	Short: "High-fidelity web vulnerability scanner",
+	Short: "Vigolium - High-fidelity vulnerability scanner with native scan precision and agentic scan intelligence",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize logger for all commands
 		zapLogger := initLogger(globalVerbose, globalSilent, globalDebug, globalDumpTraffic, globalLogFile)

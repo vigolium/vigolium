@@ -146,7 +146,7 @@ func TestExtensionOnlyPhase(t *testing.T) {
 
 	r, repo := newExtScanRunner(t, opts, settings)
 
-	err = r.RunEnumeration()
+	err = r.RunNativeScan()
 	require.NoError(t, err)
 
 	// Query findings from DB
@@ -219,7 +219,7 @@ func TestExtensionScanWithExtraScript(t *testing.T) {
 
 	r, repo := newExtScanRunner(t, opts, settings)
 
-	err = r.RunEnumeration()
+	err = r.RunNativeScan()
 	require.NoError(t, err)
 
 	findings, err := database.NewFindingsQueryBuilder(repo.DB(), database.QueryFilters{Limit: 100}).Execute(context.Background())
