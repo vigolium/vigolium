@@ -79,8 +79,7 @@ Respond with a JSON object (no markdown fences, no explanation):
 ```
 
 **Rules:**
-- `module_tags` is required and must contain at least one tag
-- Valid tags include: injection, xss, sqli, ssti, ssrf, lfi, rfi, xxe, cors, csrf, auth, spring, deserialization, redirect, header-injection, path-traversal, crlf, light, heavy
+- `module_tags` is optional — when omitted, all modules run. Valid tags: injection, xss, sqli, ssti, ssrf, lfi, rfi, xxe, cors, csrf, auth, spring, deserialization, redirect, header-injection, path-traversal, crlf, light, heavy
 - `priority` must be "high", "medium", or "low"
 - Keep `endpoints` to the top 20 most interesting targets
 - `skip_paths` should list URL patterns to exclude from scanning

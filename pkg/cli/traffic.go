@@ -69,7 +69,7 @@ var allTrafficColumns = []columnDef{
 }
 
 // defaultTrafficColumns are shown when no --columns flag is provided.
-var defaultTrafficColumnNames = []string{"HOST", "METHOD", "PATH", "STATUS", "CONTENT_TYPE", "SIZE", "WORDS", "TIME", "TITLE", "SOURCE"}
+var defaultTrafficColumnNames = []string{"HOST", "METHOD", "PATH", "STATUS", "CONTENT_TYPE", "SIZE", "WORDS", "TITLE", "SOURCE"}
 
 var (
 	// Shared filter flags (PersistentFlags — inherited by replay subcommand)

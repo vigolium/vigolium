@@ -264,26 +264,26 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	}
 	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
 	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (swarm): %s\n",
-		terminal.InfoSymbol(), terminal.Cyan(inputDesc))
+		terminal.InfoSymbol(), terminal.GrbGreen(inputDesc))
 	fmt.Fprintf(os.Stderr, "%s Agent: %s\n",
-		terminal.InfoSymbol(), terminal.Cyan(effectiveAgent))
+		terminal.InfoSymbol(), terminal.GrbGreen(effectiveAgent))
 	fmt.Fprintf(os.Stderr, "%s Prompt: %s %s\n",
-		terminal.InfoSymbol(), terminal.Gray(agent.SwarmPromptMaster), terminal.Muted(promptPath))
+		terminal.InfoSymbol(), terminal.Orange(agent.SwarmPromptMaster), terminal.Muted(promptPath))
 	if swarmSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), terminal.ShortenHome(swarmSource))
+			terminal.InfoSymbol(), terminal.GrbGreen(terminal.ShortenHome(swarmSource)))
 	}
 	if swarmVulnType != "" {
 		fmt.Fprintf(os.Stderr, "%s Vulnerability focus: %s\n",
-			terminal.InfoSymbol(), swarmVulnType)
+			terminal.InfoSymbol(), terminal.GrbRed(swarmVulnType))
 	}
 	if swarmDiscover {
-		fmt.Fprintf(os.Stderr, "%s Discovery: enabled (crawling + spidering before planning)\n",
-			terminal.InfoSymbol())
+		fmt.Fprintf(os.Stderr, "%s Discovery: %s\n",
+			terminal.InfoSymbol(), terminal.GrbGreen("enabled (crawling + spidering before planning)"))
 	}
 	if swarmSource != "" {
-		fmt.Fprintf(os.Stderr, "%s SAST: enabled (ast-grep route extraction + secret detection)\n",
-			terminal.InfoSymbol())
+		fmt.Fprintf(os.Stderr, "%s SAST: %s\n",
+			terminal.InfoSymbol(), terminal.GrbGreen("enabled (ast-grep route extraction + secret detection)"))
 	}
 
 	// Wire phase callback for verbose output
@@ -292,10 +292,10 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		if promptName != "" {
 			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
 			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] — prompt: %s %s\n",
-				terminal.InfoSymbol(), terminal.BoldCyan(phase), terminal.Gray(promptName), terminal.Muted(pp))
+				terminal.InfoSymbol(), terminal.BoldOrange(phase), terminal.Orange(promptName), terminal.Muted(pp))
 		} else {
 			fmt.Fprintf(os.Stderr, "\n%s Phase [%s]\n",
-				terminal.InfoSymbol(), terminal.BoldCyan(phase))
+				terminal.InfoSymbol(), terminal.BoldOrange(phase))
 		}
 	}
 
@@ -397,7 +397,7 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		}
 
 		fmt.Fprintf(os.Stderr, "\n%s Scanning with modules: %s\n",
-			terminal.Aqua(terminal.SymbolSparkle),
+			terminal.GrbRed(terminal.SymbolSparkle),
 			summarizeModules(opts.Modules))
 
 		scanRunner, runErr := runner.New(opts)
@@ -576,7 +576,7 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 		}
 
 		fmt.Fprintf(os.Stderr, "\n%s SAST analysis (ast-grep + secret detection)\n",
-			terminal.Aqua(terminal.SymbolSparkle))
+			terminal.GrbRed(terminal.SymbolSparkle))
 
 		return runPipelinePhaseRunner(opts, settings, repo)
 	}

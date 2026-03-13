@@ -6,11 +6,18 @@
 
 ***
 
-Vigolium scans web applications for reflected XSS, SQL injection, LFI, SSTI, CRLF injection, CSRF, IDOR, NoSQL injection, open redirects, command injection, path traversal, SAML/XXE, GraphQL issues, file upload flaws, default credentials, CMS vulnerabilities (WordPress, Drupal, Joomla), Firebase misconfigurations, cloud storage security, PHP/ASP.NET framework issues, JS framework security (Next.js, Nuxt, Remix), and more — including blind vulnerabilities via out-of-band (OAST) callbacks.
-
 Vigolium provides two complementary scanning modes:
 
-- **Native Scan** (`vigolium scan`) — Deterministic, multi-phase vulnerability scanning. Fast, modular, and repeatable. Runs content discovery, browser spidering, SPA crawling, SAST, and active/passive audit phases with 149 scanner modules.
+- **Native Scan** (`vigolium scan`) — Deterministic, multi-phase vulnerability scanning. Fast, modular, and repeatable. Runs content discovery, browser spidering, SPA crawling, SAST, and active/passive audit phases with 215 scanner modules covering:
+  - **Injection** — XSS (reflected, DOM-based, SSR hydration), SQL injection (error-based, boolean/time-blind), NoSQL injection, SSTI/CSTI, CRLF injection, command injection, XXE/SAML, prototype pollution
+  - **Access Control** — CSRF, IDOR, authorization bypass, mass assignment, forbidden bypass, HTTP method tampering
+  - **File & Path** — LFI, path traversal, file upload flaws, directory listing, backup/sensitive file discovery, path normalization bypass
+  - **API & Protocol** — GraphQL introspection, SSRF (direct & blind), open redirect, HTTP request smuggling, JWT vulnerabilities, JSONP callback, WebSocket security, race conditions
+  - **Framework-Specific** — Spring Boot, Django, Laravel, Rails, Express, Next.js, Nuxt, Remix, ASP.NET/Blazor, Flask, FastAPI
+  - **CMS** — WordPress (XML-RPC, user enum, AJAX exposure), Drupal, Joomla, CMS installer exposure
+  - **Cloud & Infra** — Firebase (RTDB, storage, auth, functions), cloud storage listing/takeover, default credentials, web cache poisoning, CORS misconfiguration
+  - **Out-of-Band** — Blind vulnerabilities via OAST callbacks (blind SSRF, blind SSTI, OAST probes)
+
 - **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Gemini, or OpenCode. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Three modes: autopilot, pipeline, and swarm.
 
 It also operates as an API server with traffic ingestion, or a standalone ingestor client.
@@ -34,7 +41,7 @@ It also operates as an API server with traffic ingestion, or a standalone ingest
 
 ### Native Scan
 
-- **149 scanner modules** — 89 active (fuzzing) and 60 passive (pattern matching) modules covering OWASP Top 10 and beyond
+- **215 scanner modules** — 130 active (fuzzing) and 85 passive (pattern matching) modules covering OWASP Top 10 and beyond
 - **Out-of-band testing (OAST)** — detect blind vulnerabilities (blind XSS, SSRF, command injection) via interactsh callback URLs with automatic payload correlation
 - **Value-aware mutation** — classify parameter values by semantic type (integer, UUID, JWT, email, etc.) and generate intelligent mutations per intent (neighbor, boundary, escalation)
 - **Multi-phase pipeline** — external harvesting, content discovery, SPA crawling, and audit controlled by strategy presets
@@ -205,7 +212,7 @@ The native scan pipeline is composed of modular layers, each documented separate
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
 | **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
 | **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
-| **Scanner Modules** | 89 active and 60 passive modules covering OWASP Top 10 and beyond | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
+| **Scanner Modules** | 130 active and 85 passive modules covering OWASP Top 10 and beyond | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
 
 Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md)
 

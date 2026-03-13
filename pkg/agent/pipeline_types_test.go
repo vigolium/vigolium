@@ -51,9 +51,11 @@ func TestParseSwarmPlan(t *testing.T) {
 			exts:    0,
 		},
 		{
-			name:    "no module tags",
+			name:    "no module tags but has focus areas",
 			input:   `{"focus_areas": ["test"]}`,
-			wantErr: true,
+			wantErr: false,
+			tags:    0,
+			exts:    0,
 		},
 		{
 			name:    "empty input",

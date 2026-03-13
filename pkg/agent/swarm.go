@@ -219,7 +219,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 	result.SessionDir = sessionDir
 	if sessionDir != "" {
-		fmt.Fprintf(os.Stderr, "◆ Session: %s\n", terminal.ShortenHome(sessionDir))
+		fmt.Fprintf(os.Stderr, "%s Session: %s\n", terminal.InfoSymbol(), terminal.GrbGreen(terminal.ShortenHome(sessionDir)))
 	}
 
 	// Checkpoint/resume support

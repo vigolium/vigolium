@@ -39,12 +39,25 @@ func AllPipelinePhases() []PipelinePhase {
 // AttackPlan is the structured output from the plan agent checkpoint (phase 2).
 // The agent analyzes discovery results and produces a scanning strategy.
 type AttackPlan struct {
-	ModuleTags []string          `json:"module_tags"`
+	ModuleTags []string          `json:"module_tags,omitempty"`
 	ModuleIDs  []string          `json:"module_ids,omitempty"`
 	FocusAreas []string          `json:"focus_areas,omitempty"`
 	SkipPaths  []string          `json:"skip_paths,omitempty"`
 	Endpoints  []PlannedEndpoint `json:"endpoints,omitempty"`
 	Notes      string            `json:"notes,omitempty"`
+}
+
+// attackPlanHasContent returns true if the plan has at least one meaningful field.
+func attackPlanHasContent(plan *AttackPlan) bool {
+	if plan == nil {
+		return false
+	}
+	return len(plan.ModuleTags) > 0 ||
+		len(plan.ModuleIDs) > 0 ||
+		len(plan.FocusAreas) > 0 ||
+		len(plan.SkipPaths) > 0 ||
+		len(plan.Endpoints) > 0 ||
+		plan.Notes != ""
 }
 
 // PlannedEndpoint represents a prioritized endpoint in the attack plan.
@@ -178,7 +191,7 @@ type Snippet struct {
 // SwarmPlan is the structured output from the master agent in agent swarm mode.
 // The agent analyzes the target request, selects modules, and generates custom extensions.
 type SwarmPlan struct {
-	ModuleTags  []string             `json:"module_tags"`
+	ModuleTags  []string             `json:"module_tags,omitempty"`
 	ModuleIDs   []string             `json:"module_ids,omitempty"`
 	Extensions  []GeneratedExtension `json:"extensions,omitempty"`
 	QuickChecks []QuickCheck         `json:"quick_checks,omitempty"`
@@ -259,45 +272,64 @@ type swarmPlanWrapper struct {
 //  2. Hybrid: a single-line JSON plan (module_tags, module_ids, focus_areas, notes)
 //     followed by fenced ```javascript code blocks for extensions. Each extension
 //     is preceded by a heading like "#### filename.js" and optionally "Reason: ...".
+//
+// module_tags is optional — when absent the downstream scan runs all modules.
 func ParseSwarmPlan(raw string) (*SwarmPlan, error) {
 	// Try markdown section format first (most robust for LLM output)
-	if plan, err := parseSwarmPlanMarkdown(raw); err == nil && len(plan.ModuleTags) > 0 {
+	if plan, err := parseSwarmPlanMarkdown(raw); err == nil && swarmPlanHasContent(plan) {
 		return plan, nil
 	}
 
 	// Try hybrid format: JSONL plan line + fenced code blocks for extensions
-	if plan, err := parseSwarmPlanHybrid(raw); err == nil && len(plan.ModuleTags) > 0 {
+	if plan, err := parseSwarmPlanHybrid(raw); err == nil && swarmPlanHasContent(plan) {
 		return plan, nil
 	}
 
-	// Try all valid JSON blocks looking for one with module_tags
+	// Try all valid JSON blocks looking for one with recognizable plan fields
 	for _, block := range findAllJSONBlocks(raw) {
 		if !isJSON(block) {
 			continue
 		}
 		var wrapper swarmPlanWrapper
-		if json.Unmarshal([]byte(block), &wrapper) == nil && len(wrapper.Plan.ModuleTags) > 0 {
+		if json.Unmarshal([]byte(block), &wrapper) == nil && swarmPlanHasContent(&wrapper.Plan) {
 			return &wrapper.Plan, nil
 		}
 		var plan SwarmPlan
-		if json.Unmarshal([]byte(block), &plan) == nil && len(plan.ModuleTags) > 0 {
+		if json.Unmarshal([]byte(block), &plan) == nil && swarmPlanHasContent(&plan) {
 			return &plan, nil
 		}
 	}
 
-	// Last resort: regex-extract module_tags from garbled JSON.
-	// The module_tags array is usually at the start and tends to survive token-level corruption.
+	// Last resort: regex-extract fields from garbled JSON.
 	if plan := extractSwarmPlanRegex(raw); plan != nil {
 		zap.L().Info("Recovered swarm plan via regex fallback",
 			zap.Int("module_tags", len(plan.ModuleTags)))
 		return plan, nil
 	}
 
-	return nil, fmt.Errorf("failed to parse swarm plan: no valid JSON with module_tags found")
+	return nil, fmt.Errorf("failed to parse swarm plan: no recognizable plan structure found")
+}
+
+// swarmPlanHasContent returns true if the plan contains at least one meaningful field.
+// module_tags is no longer required — a plan with only focus_areas, extensions, etc. is valid.
+func swarmPlanHasContent(plan *SwarmPlan) bool {
+	if plan == nil {
+		return false
+	}
+	return len(plan.ModuleTags) > 0 ||
+		len(plan.ModuleIDs) > 0 ||
+		len(plan.Extensions) > 0 ||
+		len(plan.QuickChecks) > 0 ||
+		len(plan.Snippets) > 0 ||
+		len(plan.FocusAreas) > 0 ||
+		plan.Notes != ""
 }
 
 // moduleTagsRegex matches a "module_tags" JSON array in possibly garbled text.
 var moduleTagsRegex = regexp.MustCompile(`"module_tags"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
+
+// moduleIDsRegex matches a "module_ids" JSON array in possibly garbled text.
+var moduleIDsRegex = regexp.MustCompile(`"module_ids"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
 
 // focusAreasRegex matches a "focus_areas" JSON array.
 var focusAreasRegex = regexp.MustCompile(`"focus_areas"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*)?)*)\]`)
@@ -306,18 +338,25 @@ var focusAreasRegex = regexp.MustCompile(`"focus_areas"\s*:\s*\[((?:"[^"]*"(?:\s
 var notesRegex = regexp.MustCompile(`"notes"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 
 // extractSwarmPlanRegex attempts to recover a minimal SwarmPlan from garbled JSON
-// by regex-extracting individual fields. Returns nil if module_tags cannot be found.
+// by regex-extracting individual fields. Returns nil if no recognizable fields are found.
 func extractSwarmPlanRegex(raw string) *SwarmPlan {
-	m := moduleTagsRegex.FindStringSubmatch(raw)
-	if len(m) < 2 {
-		return nil
-	}
-	var tags []string
-	if err := json.Unmarshal([]byte("["+m[1]+"]"), &tags); err != nil || len(tags) == 0 {
-		return nil
+	plan := &SwarmPlan{}
+
+	// Try extracting module_tags (optional)
+	if m := moduleTagsRegex.FindStringSubmatch(raw); len(m) >= 2 {
+		var tags []string
+		if json.Unmarshal([]byte("["+m[1]+"]"), &tags) == nil {
+			plan.ModuleTags = tags
+		}
 	}
 
-	plan := &SwarmPlan{ModuleTags: tags}
+	// Try extracting module_ids (optional)
+	if m := moduleIDsRegex.FindStringSubmatch(raw); len(m) >= 2 {
+		var ids []string
+		if json.Unmarshal([]byte("["+m[1]+"]"), &ids) == nil {
+			plan.ModuleIDs = ids
+		}
+	}
 
 	// Best-effort extraction of other fields
 	if fm := focusAreasRegex.FindStringSubmatch(raw); len(fm) >= 2 {
@@ -335,6 +374,9 @@ func extractSwarmPlanRegex(raw string) *SwarmPlan {
 		plan.Extensions = codeExts
 	}
 
+	if !swarmPlanHasContent(plan) {
+		return nil
+	}
 	return plan
 }
 
@@ -343,21 +385,32 @@ func extractSwarmPlanRegex(raw string) *SwarmPlan {
 func parseSwarmPlanHybrid(raw string) (*SwarmPlan, error) {
 	lines := strings.Split(raw, "\n")
 
-	// Step 1: Find and parse the plan JSON line — first line containing {"module_tags":
+	// Step 1: Find and parse the plan JSON line — look for lines containing known plan fields.
+	planKeys := []string{"\"module_tags\"", "\"module_ids\"", "\"focus_areas\"", "\"extensions\"", "\"quick_checks\"", "\"snippets\""}
 	var plan SwarmPlan
 	planFound := false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || !strings.Contains(line, "\"module_tags\"") {
+		if line == "" {
 			continue
 		}
-		if json.Unmarshal([]byte(line), &plan) == nil && len(plan.ModuleTags) > 0 {
+		hasPlanKey := false
+		for _, key := range planKeys {
+			if strings.Contains(line, key) {
+				hasPlanKey = true
+				break
+			}
+		}
+		if !hasPlanKey {
+			continue
+		}
+		if json.Unmarshal([]byte(line), &plan) == nil && swarmPlanHasContent(&plan) {
 			planFound = true
 			break
 		}
 		// Also try extracting JSON from this line (in case of surrounding text)
 		if extracted := findJSONBlock(line); extracted != "" {
-			if json.Unmarshal([]byte(extracted), &plan) == nil && len(plan.ModuleTags) > 0 {
+			if json.Unmarshal([]byte(extracted), &plan) == nil && swarmPlanHasContent(&plan) {
 				planFound = true
 				break
 			}
@@ -367,7 +420,7 @@ func parseSwarmPlanHybrid(raw string) (*SwarmPlan, error) {
 	// Fallback: try all JSON blocks in the full text (handles corrupted first block + valid later block)
 	if !planFound {
 		for _, block := range findAllJSONBlocks(raw) {
-			if json.Unmarshal([]byte(block), &plan) == nil && len(plan.ModuleTags) > 0 {
+			if json.Unmarshal([]byte(block), &plan) == nil && swarmPlanHasContent(&plan) {
 				planFound = true
 				break
 			}
@@ -392,18 +445,23 @@ func parseSwarmPlanHybrid(raw string) (*SwarmPlan, error) {
 func parseSwarmPlanMarkdown(raw string) (*SwarmPlan, error) {
 	sections := splitMarkdownSections(raw)
 
-	tagsRaw, ok := sections["MODULE_TAGS"]
-	if !ok {
-		return nil, fmt.Errorf("no ## MODULE_TAGS section found")
+	// At least one recognized section must be present for this to be a markdown-format plan.
+	recognizedSections := []string{"MODULE_TAGS", "MODULE_IDS", "FOCUS_AREAS", "NOTES"}
+	hasSection := false
+	for _, name := range recognizedSections {
+		if _, ok := sections[name]; ok {
+			hasSection = true
+			break
+		}
+	}
+	if !hasSection {
+		return nil, fmt.Errorf("no recognized markdown sections found")
 	}
 
-	tags := parseCommaSeparated(tagsRaw)
-	if len(tags) == 0 {
-		return nil, fmt.Errorf("## MODULE_TAGS section is empty")
-	}
+	plan := &SwarmPlan{}
 
-	plan := &SwarmPlan{
-		ModuleTags: tags,
+	if tagsRaw, ok := sections["MODULE_TAGS"]; ok {
+		plan.ModuleTags = parseCommaSeparated(tagsRaw)
 	}
 
 	if idsRaw, ok := sections["MODULE_IDS"]; ok {
@@ -803,17 +861,17 @@ func ParseAttackPlan(raw string) (*AttackPlan, error) {
 
 	// Try wrapped format: {"plan": {...}}
 	var wrapper attackPlanWrapper
-	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.Plan.ModuleTags) > 0 {
+	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && attackPlanHasContent(&wrapper.Plan) {
 		return &wrapper.Plan, nil
 	}
 
 	// Try direct format: {...}
 	var plan AttackPlan
-	if err := json.Unmarshal([]byte(jsonStr), &plan); err == nil && len(plan.ModuleTags) > 0 {
+	if err := json.Unmarshal([]byte(jsonStr), &plan); err == nil && attackPlanHasContent(&plan) {
 		return &plan, nil
 	}
 
-	return nil, fmt.Errorf("failed to parse attack plan from JSON: invalid structure (expected module_tags)")
+	return nil, fmt.Errorf("failed to parse attack plan from JSON: no recognizable plan structure found")
 }
 
 // ParseTriageResult extracts a TriageResult from raw agent output.
