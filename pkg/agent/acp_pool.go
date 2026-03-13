@@ -57,6 +57,7 @@ type acpSession struct {
 
 	inUse    bool
 	lastUsed time.Time
+	weight   int
 	dead     bool
 }
 
@@ -181,6 +182,15 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			p.sessions[agentName] = newSess
 			sess = newSess
 			p.mu.Unlock()
+		}
+
+		// Apply session weight from options
+		for _, opt := range opts {
+			probe := &acpClient{}
+			opt(probe)
+			if probe.sessionWeight > 0 {
+				sess.weight = probe.sessionWeight
+			}
 		}
 	}
 
@@ -387,24 +397,30 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	return sess, nil
 }
 
-// evictLRU kills the least-recently-used session that is not in use.
+// evictLRU kills the lowest-weight (then least-recently-used) session that is not in use.
 // Must be called with p.mu held.
 func (p *ACPPool) evictLRU() {
-	var oldest *acpSession
-	var oldestName string
+	var victim *acpSession
+	var victimName string
 	for name, sess := range p.sessions {
 		if sess.inUse {
 			continue
 		}
-		if oldest == nil || sess.lastUsed.Before(oldest.lastUsed) {
-			oldest = sess
-			oldestName = name
+		if victim == nil {
+			victim = sess
+			victimName = name
+			continue
+		}
+		// Prefer evicting lower-weight sessions; tie-break by LRU
+		if sess.weight < victim.weight || (sess.weight == victim.weight && sess.lastUsed.Before(victim.lastUsed)) {
+			victim = sess
+			victimName = name
 		}
 	}
-	if oldest != nil {
-		zap.L().Debug("ACP pool evicting LRU session", zap.String("agent", oldestName))
-		oldest.kill()
-		delete(p.sessions, oldestName)
+	if victim != nil {
+		zap.L().Debug("ACP pool evicting session", zap.String("agent", victimName), zap.Int("weight", victim.weight))
+		victim.kill()
+		delete(p.sessions, victimName)
 	}
 }
 

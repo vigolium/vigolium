@@ -187,6 +187,12 @@ type SwarmPlan struct {
 	Notes       string               `json:"notes,omitempty"`
 }
 
+// TokenUsage tracks cumulative token consumption across agent calls in a run.
+type TokenUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 // SwarmResult holds the outcome of an agent swarm run.
 type SwarmResult struct {
 	SwarmPlan      *SwarmPlan      `json:"swarm_plan,omitempty"`
@@ -201,7 +207,45 @@ type SwarmResult struct {
 	AgentRunUUID   string          `json:"agent_run_uuid"`
 	SessionID      string          `json:"session_id,omitempty"`  // last ACP session ID (for single or last batch)
 	SessionIDs     []string        `json:"session_ids,omitempty"` // all ACP session IDs when batched (>5 records); nil for single-batch runs
-	SessionDir     string          `json:"session_dir,omitempty"`
+	SessionDir     string                         `json:"session_dir,omitempty"`
+	PhaseTimings   map[string]time.Duration       `json:"phase_timings,omitempty"`
+	TokenUsage     TokenUsage                     `json:"token_usage,omitempty"`
+}
+
+// SwarmCheckpoint captures swarm pipeline state for checkpoint/resume.
+type SwarmCheckpoint struct {
+	CompletedPhases []string   `json:"completed_phases"`
+	TargetURL       string     `json:"target_url"`
+	RecordCount     int        `json:"record_count"`
+	Plan            *SwarmPlan `json:"plan,omitempty"`
+	ExtensionDir    string     `json:"extension_dir,omitempty"`
+	LastPhase       string     `json:"last_phase"`
+	Timestamp       time.Time  `json:"timestamp"`
+}
+
+// writeCheckpoint persists a SwarmCheckpoint to the session directory.
+func writeCheckpoint(sessionDir string, cp *SwarmCheckpoint) error {
+	if sessionDir == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(cp, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal checkpoint: %w", err)
+	}
+	return os.WriteFile(filepath.Join(sessionDir, "checkpoint.json"), data, 0644)
+}
+
+// loadCheckpoint reads a SwarmCheckpoint from the session directory.
+func loadCheckpoint(sessionDir string) (*SwarmCheckpoint, error) {
+	data, err := os.ReadFile(filepath.Join(sessionDir, "checkpoint.json"))
+	if err != nil {
+		return nil, err
+	}
+	var cp SwarmCheckpoint
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return nil, fmt.Errorf("failed to parse checkpoint: %w", err)
+	}
+	return &cp, nil
 }
 
 // swarmPlanWrapper wraps SwarmPlan for JSON parsing flexibility.
@@ -732,6 +776,7 @@ type PipelineResult struct {
 	PhaseTimings   map[PipelinePhase]time.Duration `json:"phase_timings,omitempty"`
 	Duration       time.Duration                  `json:"duration"`
 	SessionID      string                         `json:"session_id,omitempty"` // ACP session ID for resume
+	TokenUsage     TokenUsage                     `json:"token_usage,omitempty"`
 }
 
 // attackPlanWrapper wraps AttackPlan for JSON parsing flexibility.

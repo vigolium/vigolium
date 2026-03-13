@@ -38,7 +38,8 @@ type Options struct {
 
 	// Autopilot mode
 	Autopilot   bool // enable terminal execution for autonomous scanning
-	MaxCommands int  // max terminal commands the agent can run (0 = default 100)
+	MaxCommands   int // max terminal commands the agent can run (0 = default 100)
+	SessionWeight int `json:"-"` // session weight for pool scheduling (0 = default)
 }
 
 // Result holds the outcome of an agent run.

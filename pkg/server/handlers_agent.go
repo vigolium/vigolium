@@ -9,6 +9,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -217,7 +218,8 @@ func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeo
 }
 
 // buildPipelineConfig creates an agent.PipelineConfig from an API request.
-func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.PipelineConfig, error) {
+// The returned cleanup function releases shared infrastructure and must be deferred by the caller.
+func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.PipelineConfig, func(), error) {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
@@ -243,10 +245,10 @@ func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.Pipeline
 		profilePath := settings.ScanningStrategy.ResolveProfilePath(req.Profile)
 		profile, err := config.LoadProfile(profilePath)
 		if err != nil {
-			return agent.PipelineConfig{}, fmt.Errorf("failed to load scanning profile %q: %w", req.Profile, err)
+			return agent.PipelineConfig{}, nil, fmt.Errorf("failed to load scanning profile %q: %w", req.Profile, err)
 		}
 		if err := config.ApplyProfile(settings, profile); err != nil {
-			return agent.PipelineConfig{}, fmt.Errorf("failed to apply scanning profile %q: %w", req.Profile, err)
+			return agent.PipelineConfig{}, nil, fmt.Errorf("failed to apply scanning profile %q: %w", req.Profile, err)
 		}
 	}
 
@@ -267,9 +269,10 @@ func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.Pipeline
 
 	// Wire native scan callbacks.
 	cfg.DiscoverFunc = h.buildServerDiscoverFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
-	cfg.ScanFunc = h.buildServerScanFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
+	scanFunc, scanCleanup := h.buildServerScanFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
+	cfg.ScanFunc = scanFunc
 
-	return cfg, nil
+	return cfg, scanCleanup, nil
 }
 
 // buildServerDiscoverFunc creates a callback that runs discovery + spidering using the native runner.
@@ -299,8 +302,19 @@ func (h *Handlers) buildServerDiscoverFunc(target, projectUUID, scanUUID string,
 }
 
 // buildServerScanFunc creates a callback that runs audit with specified module filters.
-func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) agent.ScanFunc {
-	return func(ctx context.Context, req agent.ScanRequest) error {
+// It returns the scan function and a cleanup function that should be deferred by the caller.
+func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) (agent.ScanFunc, func()) {
+	var sharedInfra *runner.SharedInfra
+	var buildOnce sync.Once
+	var buildErr error
+
+	cleanup := func() {
+		if sharedInfra != nil {
+			sharedInfra.Close()
+		}
+	}
+
+	scanFunc := func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
 		opts.Targets = []string{target}
 		opts.ProjectUUID = projectUUID
@@ -313,6 +327,16 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
 
+		// For rescans, build SharedInfra once and reuse across invocations
+		if req.IsRescan {
+			buildOnce.Do(func() {
+				sharedInfra, buildErr = runner.BuildSharedInfra(opts, settings, h.repo)
+			})
+			if buildErr != nil {
+				zap.L().Warn("Failed to build shared infra, falling back to fresh build", zap.Error(buildErr))
+			}
+		}
+
 		scanRunner, err := runner.New(opts)
 		if err != nil {
 			return err
@@ -321,8 +345,13 @@ func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, set
 
 		scanRunner.SetSettings(settings)
 		scanRunner.SetRepository(h.repo)
+		if sharedInfra != nil && req.IsRescan {
+			scanRunner.SetSharedInfra(sharedInfra)
+		}
 		return scanRunner.RunNativeScan()
 	}
+
+	return scanFunc, cleanup
 }
 
 // handlePipelineSSE runs the pipeline synchronously while streaming SSE events.
@@ -341,11 +370,14 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		cfg, err := h.buildPipelineConfig(req)
+		cfg, scanCleanup, err := h.buildPipelineConfig(req)
 		if err != nil {
 			h.updateStatusFailed(runID, err)
 			_ = writeSSE(w, sseEvent{Type: "error", Error: err.Error()})
 			return
+		}
+		if scanCleanup != nil {
+			defer scanCleanup()
 		}
 
 		// Wire phase callback for SSE events and status updates.
@@ -444,10 +476,13 @@ func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest,
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cfg, err := h.buildPipelineConfig(req)
+	cfg, scanCleanup, err := h.buildPipelineConfig(req)
 	if err != nil {
 		h.updateStatusFailed(runID, err)
 		return
+	}
+	if scanCleanup != nil {
+		defer scanCleanup()
 	}
 
 	// Wire phase callback for status updates.

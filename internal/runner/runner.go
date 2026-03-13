@@ -76,6 +76,7 @@ type Runner struct {
 	heuristicsResults map[string]*HeuristicsResult
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
 	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
+	sharedInfra       *SharedInfra         // Optional: pre-built infrastructure for reuse across rescans
 
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
@@ -113,6 +114,104 @@ func (p *phaseInfra) Close() {
 		p.notifier.Close()
 	}
 }
+
+// SharedInfra holds reusable infrastructure components that can be shared across
+// multiple scan runs (e.g., rescans in agent swarm mode). This avoids rebuilding
+// expensive resources like HTTP requesters and scope matchers for each rescan.
+type SharedInfra struct {
+	HTTPRequester *http.Requester
+	ScopeMatcher  *config.ScopeMatcher
+	HostLimiter   *hostlimit.HostRateLimiter
+	Services      *services.Services
+	JSEngine      *jsext.Engine
+	HookChain     *jsext.HookChain
+}
+
+// Close releases resources held by SharedInfra.
+func (s *SharedInfra) Close() {
+	if s.HostLimiter != nil {
+		_ = s.HostLimiter.Close()
+	}
+}
+
+// BuildSharedInfra creates a SharedInfra from the given options and settings.
+// It extracts the reusable portions of buildInfrastructure.
+func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *database.Repository) (*SharedInfra, error) {
+	infra := &SharedInfra{}
+
+	svc := &services.Services{
+		Options: opts,
+	}
+
+	if opts.ShouldUseHostError() {
+		cache := hosterrors.New(
+			opts.MaxHostError,
+			hosterrors.DefaultMaxHostsCount,
+			[]string{},
+		)
+		cache.SetVerbose(opts.Verbose)
+		svc.HostErrors = cache
+	}
+
+	maxPerHost := opts.MaxPerHost
+	if settings != nil && !opts.MaxPerHostExplicitlySet && settings.ScanningPace.MaxPerHost > 0 {
+		maxPerHost = settings.ScanningPace.MaxPerHost
+	}
+	if maxPerHost <= 0 {
+		maxPerHost = 2
+	}
+	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
+		MaxPerHost:    maxPerHost,
+		MaxEntries:    1000,
+		EvictAfter:    30 * time.Second,
+		EvictInterval: 10 * time.Second,
+	})
+	svc.HostLimiter = hostLimiter
+	infra.HostLimiter = hostLimiter
+	infra.Services = svc
+
+	httpRequester, err := http.NewRequester(opts, svc)
+	if err != nil {
+		infra.Close()
+		return nil, fmt.Errorf("could not create http requester: %w", err)
+	}
+	infra.HTTPRequester = httpRequester
+
+	if settings != nil {
+		infra.ScopeMatcher = config.NewScopeMatcher(settings.Scope, opts.Targets...)
+	}
+
+	if settings != nil && settings.Audit.Extensions.Enabled {
+		jsEngineOpts := &jsext.EngineOptions{
+			ScanUUID:   opts.ScanUUID,
+			Repository: repo,
+		}
+		if settings != nil {
+			scopeCfg := settings.Scope
+			jsEngineOpts.ScopeConfig = &scopeCfg
+			jsEngineOpts.ScopeMatcher = config.NewScopeMatcher(settings.Scope, opts.Targets...)
+		}
+		jsEngine, jsErr := jsext.NewEngine(&settings.Audit.Extensions, httpRequester, jsEngineOpts)
+		if jsErr != nil {
+			zap.L().Warn("Failed to initialize JS extensions for SharedInfra", zap.Error(jsErr))
+		} else {
+			infra.JSEngine = jsEngine
+			preHooks := jsEngine.PreHooks()
+			postHooks := jsEngine.PostHooks()
+			if len(preHooks) > 0 || len(postHooks) > 0 {
+				infra.HookChain = jsext.NewHookChain(preHooks, postHooks)
+			}
+		}
+	}
+
+	return infra, nil
+}
+
+// SetSharedInfra allows the runner to reuse pre-built infrastructure instead of building fresh.
+func (r *Runner) SetSharedInfra(infra *SharedInfra) {
+	r.sharedInfra = infra
+}
+
 
 // New creates a new client for running the enumeration process.
 func New(options *types.Options) (*Runner, error) {
@@ -892,6 +991,24 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 
 	infra := &phaseInfra{
 		scanUUID: scanUUID,
+	}
+
+	// If SharedInfra is available, reuse its components instead of building fresh
+	if r.sharedInfra != nil {
+		infra.httpRequester = r.sharedInfra.HTTPRequester
+		infra.scopeMatcher = r.sharedInfra.ScopeMatcher
+		infra.hostLimiter = r.sharedInfra.HostLimiter
+		infra.svc = r.sharedInfra.Services
+		infra.jsEngine = r.sharedInfra.JSEngine
+		infra.hookChain = r.sharedInfra.HookChain
+		// Still need to initialize sessions
+		if err := r.initSessions(infra); err != nil {
+			if len(r.options.Sessions) > 0 || r.options.AuthConfigPath != "" || len(r.options.SessionFiles) > 0 {
+				return nil, fmt.Errorf("session initialization failed: %w", err)
+			}
+			zap.L().Warn("Failed to initialize sessions", zap.Error(err))
+		}
+		return infra, nil
 	}
 
 	// Create notifier with backends

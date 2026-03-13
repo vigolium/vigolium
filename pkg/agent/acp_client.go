@@ -30,6 +30,13 @@ func withStreamWriter(w io.Writer) acpClientOption {
 	}
 }
 
+// withSessionWeight sets the session importance weight (higher = less likely to be evicted).
+func withSessionWeight(w int) acpClientOption {
+	return func(c *acpClient) {
+		c.sessionWeight = w
+	}
+}
+
 // acpClient implements the acp.Client interface for Vigolium's scanner mode.
 // It accumulates agent output text and auto-approves permission requests.
 // When termMgr is set (autopilot mode), terminal methods execute real commands.
@@ -37,8 +44,9 @@ type acpClient struct {
 	mu           sync.Mutex
 	output       strings.Builder
 	allowedPaths []string
-	streamWriter io.Writer
-	termMgr      *terminalManager // nil in scanner mode, set in autopilot mode
+	streamWriter  io.Writer
+	termMgr       *terminalManager // nil in scanner mode, set in autopilot mode
+	sessionWeight int
 }
 
 var _ acp.Client = (*acpClient)(nil)

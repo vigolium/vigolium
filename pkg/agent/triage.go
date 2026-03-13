@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 
+	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
 
 // TriageLoopConfig configures a shared triage+rescan loop used by both Pipeline and Swarm.
 type TriageLoopConfig struct {
-	Engine *Engine
+	Engine     *Engine
+	Repository *database.Repository // optional: used for early exit on high-confidence findings
 
 	// Agent options for triage calls
 	AgentName      string
@@ -35,7 +37,8 @@ type TriageLoopConfig struct {
 	ScanFunc ScanFunc
 
 	// Session artifacts (optional)
-	SessionDir string
+	SessionDir   string
+	ExtensionDir string // extension dir from the initial scan, carried into rescans
 
 	// OnRescan is called before each rescan phase starts (optional).
 	OnRescan func()
@@ -58,6 +61,29 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 	}
 
 	result := &TriageLoopResult{}
+
+	// Early exit: if all findings have "certain" confidence, skip triage and auto-confirm
+	if cfg.Repository != nil && cfg.ProjectUUID != "" {
+		findings, findErr := database.NewFindingsQueryBuilder(cfg.Repository.DB(), database.QueryFilters{
+			ProjectUUID: cfg.ProjectUUID,
+			Limit:       500,
+		}).Execute(ctx)
+		if findErr == nil && len(findings) > 0 {
+			allCertain := true
+			for _, f := range findings {
+				if f.Confidence != "certain" {
+					allCertain = false
+					break
+				}
+			}
+			if allCertain {
+				zap.L().Info("All findings have 'certain' confidence, skipping triage",
+					zap.Int("count", len(findings)))
+				result.Confirmed = len(findings)
+				return result, nil
+			}
+		}
+	}
 
 	for round := 0; round <= maxRounds; round++ {
 		select {
@@ -134,6 +160,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			}
 
 			req := aggregateFollowUps(triage.FollowUps)
+			req.ExtensionDir = cfg.ExtensionDir // carry extensions from initial scan into rescans
 			if err := cfg.ScanFunc(ctx, req); err != nil {
 				zap.L().Error("Rescan failed, continuing with triage results",
 					zap.Int("round", round+1),

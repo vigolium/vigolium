@@ -110,6 +110,20 @@ func DefaultExecutorConfig() ExecutorConfig {
 	}
 }
 
+// SuggestWorkerCount returns a heuristic worker count for rescans.
+// It scales with the number of active modules but caps at maxWorkers.
+// The floor is 2 to ensure at least minimal parallelism.
+func SuggestWorkerCount(moduleCount, maxWorkers int) int {
+	suggested := moduleCount * 2
+	if suggested < 2 {
+		suggested = 2
+	}
+	if suggested > maxWorkers {
+		suggested = maxWorkers
+	}
+	return suggested
+}
+
 // Executor orchestrates scanning with worker pool.
 type Executor struct {
 	cfg            ExecutorConfig

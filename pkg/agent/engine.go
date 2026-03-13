@@ -135,6 +135,9 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		if opts.StreamWriter != nil {
 			acpOpts = append(acpOpts, withStreamWriter(opts.StreamWriter))
 		}
+		if opts.SessionWeight > 0 {
+			acpOpts = append(acpOpts, withSessionWeight(opts.SessionWeight))
+		}
 
 		var ar acpResult
 		if opts.Autopilot {
