@@ -720,16 +720,57 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	var allExtensions []GeneratedExtension
 	var extensionRenames map[string]string
 	if plan != nil {
-		// Convert quick_checks and snippets into full JS extensions
+		// Lint and convert quick_checks into full JS extensions
 		if len(plan.QuickChecks) > 0 {
-			qcExts := GenerateQuickCheckExtensions(plan.QuickChecks)
-			plan.Extensions = append(plan.Extensions, qcExts...)
-			zap.L().Info("Generated quick check extensions", zap.Int("count", len(qcExts)))
+			var validQCs []QuickCheck
+			for _, qc := range plan.QuickChecks {
+				issues := LintQuickCheck(qc)
+				hasErr := false
+				for _, iss := range issues {
+					if iss.Severity == "error" {
+						hasErr = true
+						zap.L().Warn("Dropping invalid quick_check",
+							zap.String("id", qc.ID), zap.String("issue", iss.Message))
+					}
+				}
+				if !hasErr {
+					validQCs = append(validQCs, qc)
+				}
+			}
+			if len(validQCs) > 0 {
+				qcExts := GenerateQuickCheckExtensions(validQCs)
+				plan.Extensions = append(plan.Extensions, qcExts...)
+				zap.L().Info("Generated quick check extensions", zap.Int("count", len(qcExts)))
+			}
+			if dropped := len(plan.QuickChecks) - len(validQCs); dropped > 0 {
+				zap.L().Warn("Dropped invalid quick checks", zap.Int("dropped", dropped))
+			}
 		}
+		// Lint and convert snippets into full JS extensions
 		if len(plan.Snippets) > 0 {
-			snipExts := GenerateSnippetExtensions(plan.Snippets)
-			plan.Extensions = append(plan.Extensions, snipExts...)
-			zap.L().Info("Generated snippet extensions", zap.Int("count", len(snipExts)))
+			var validSnips []Snippet
+			for _, snip := range plan.Snippets {
+				issues := LintSnippet(snip)
+				hasErr := false
+				for _, iss := range issues {
+					if iss.Severity == "error" {
+						hasErr = true
+						zap.L().Warn("Dropping invalid snippet",
+							zap.String("id", snip.ID), zap.String("issue", iss.Message))
+					}
+				}
+				if !hasErr {
+					validSnips = append(validSnips, snip)
+				}
+			}
+			if len(validSnips) > 0 {
+				snipExts := GenerateSnippetExtensions(validSnips)
+				plan.Extensions = append(plan.Extensions, snipExts...)
+				zap.L().Info("Generated snippet extensions", zap.Int("count", len(snipExts)))
+			}
+			if dropped := len(plan.Snippets) - len(validSnips); dropped > 0 {
+				zap.L().Warn("Dropped invalid snippets", zap.Int("dropped", dropped))
+			}
 		}
 		mergeResult := mergeExtensionsTracked(sourceExtensions, plan.Extensions)
 		allExtensions = mergeResult.Extensions

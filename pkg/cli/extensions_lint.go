@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/jsext"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/yamlext"
 	"github.com/spf13/cobra"
 )
 
@@ -21,15 +22,16 @@ var lintStdin bool
 var extensionsLintCmd = &cobra.Command{
 	Use:   "lint [file-or-directory]",
 	Short: "Validate extension files for syntax errors and unknown API calls",
-	Long: `Lint JavaScript/TypeScript extensions for common issues:
-  - Syntax errors (with line:col details)
-  - Unknown vigolium.* API function calls
-  - Invalid or missing metadata fields
-  - Missing required handler functions
+	Long: `Lint extensions for common issues:
+  - JavaScript/TypeScript: syntax errors, unknown API calls, metadata, handlers
+  - YAML (.vgm.yaml): schema validation, regex, type-specific checks
 
 Examples:
   # Lint a single file
   vigolium extensions lint my-extension.js
+
+  # Lint a YAML extension
+  vigolium extensions lint auth-hook.vgm.yaml
 
   # Lint all extensions in a directory
   vigolium extensions lint ~/.vigolium/extensions/
@@ -104,6 +106,12 @@ func lintFile(path string) (*jsext.LintResult, error) {
 	}
 
 	source := string(data)
+
+	// YAML extensions
+	if yamlext.IsYAMLExtension(path) {
+		return lintYAMLFile(path, source), nil
+	}
+
 	filename := filepath.Base(path)
 
 	// Transpile TypeScript
@@ -128,7 +136,29 @@ func lintFile(path string) (*jsext.LintResult, error) {
 	return result, nil
 }
 
-// lintDirectory lints all .js and .ts files in a directory (non-recursive).
+// lintYAMLFile lints a .vgm.yaml extension file and converts the result to jsext.LintResult.
+func lintYAMLFile(path, source string) *jsext.LintResult {
+	yamlResult := yamlext.LintYAML(source, path)
+
+	result := &jsext.LintResult{
+		Path:        path,
+		SourceLines: strings.Split(source, "\n"),
+	}
+	for _, yi := range yamlResult.Issues {
+		sev := jsext.LintWarning
+		if yi.Severity == "error" {
+			sev = jsext.LintError
+		}
+		result.Issues = append(result.Issues, jsext.LintIssue{
+			Severity: sev,
+			Line:     yi.Line,
+			Message:  yi.Message,
+		})
+	}
+	return result
+}
+
+// lintDirectory lints all .js, .ts, and .vgm.yaml files in a directory (non-recursive).
 func lintDirectory(dir string) ([]*jsext.LintResult, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -141,11 +171,13 @@ func lintDirectory(dir string) ([]*jsext.LintResult, error) {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".js") && !strings.HasSuffix(name, ".ts") {
+		isJS := strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".ts")
+		isYAML := yamlext.IsYAMLExtension(name)
+		if !isJS && !isYAML {
 			continue
 		}
-		// Skip declaration files and YAML extensions
-		if strings.HasSuffix(name, ".d.ts") || strings.HasSuffix(name, ".vgm.yaml") {
+		// Skip declaration files
+		if strings.HasSuffix(name, ".d.ts") {
 			continue
 		}
 
