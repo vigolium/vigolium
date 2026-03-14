@@ -97,11 +97,13 @@ func (r *ScanResult) HasMatches() bool {
 
 // Route represents a structured route extracted from ast-grep matches.
 type Route struct {
-	Method string   `json:"method"`
-	Path   string   `json:"path"`
-	Params []string `json:"params,omitempty"`
-	File   string   `json:"file"`
-	Line   int      `json:"line"`
+	Method      string   `json:"method"`
+	Path        string   `json:"path"`
+	Params      []string `json:"params,omitempty"`       // all params (backward compat)
+	QueryParams []string `json:"query_params,omitempty"` // params from req.query / Query()
+	BodyParams  []string `json:"body_params,omitempty"`  // params from req.body / Body()
+	File        string   `json:"file"`
+	Line        int      `json:"line"`
 }
 
 // Config configures the ast-grep scanner behavior.

@@ -115,8 +115,8 @@ func NewServer(cfg ServerConfig, q queue.Queue, db *database.DB, repo *database.
 		}
 	}
 
-	// Create proxy server if configured
-	if cfg.IngestProxyAddr != "" {
+	// Create proxy server if configured (disabled in view-only mode)
+	if cfg.IngestProxyAddr != "" && !cfg.ViewOnly {
 		s.proxyServer = newIngestProxy(cfg.IngestProxyAddr, db, repo, recordWriter, settings, handlers.getScopeMatcher)
 	}
 

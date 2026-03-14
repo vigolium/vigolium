@@ -3171,6 +3171,25 @@ var pathParamNames = map[string]bool{
 	"path": true, "filepath": true, "file_path": true, "filename": true,
 }
 
+// probeValueForParam returns a sensible probe value for a parameter name
+// based on name heuristics (id→"1", email→"test@example.com", uuid→uuid, etc.).
+func probeValueForParam(paramName string) string {
+	lower := strings.ToLower(paramName)
+
+	if uuidParamNames[lower] || strings.HasSuffix(lower, "_uuid") || strings.HasSuffix(lower, "uuid") {
+		return uuid.New().String()
+	}
+	if emailParamNames[lower] {
+		return "test@example.com"
+	}
+	if slugParamNames[lower] || pathParamNames[lower] {
+		return "test"
+	}
+
+	// Default: numeric ID (covers id, userId, pk, etc.)
+	return "1"
+}
+
 // resolveParameterizedPath substitutes route parameter placeholders with concrete probe values.
 func resolveParameterizedPath(path string) string {
 	return routeParamPattern.ReplaceAllStringFunc(path, func(match string) string {
@@ -3186,22 +3205,7 @@ func resolveParameterizedPath(path string) string {
 		if paramName == "" {
 			return match
 		}
-
-		lower := strings.ToLower(paramName)
-
-		// Match param name to a sensible probe value
-		if uuidParamNames[lower] || strings.HasSuffix(lower, "_uuid") || strings.HasSuffix(lower, "uuid") {
-			return uuid.New().String()
-		}
-		if emailParamNames[lower] {
-			return "test@example.com"
-		}
-		if slugParamNames[lower] || pathParamNames[lower] {
-			return "test"
-		}
-
-		// Default: numeric ID (covers id, userId, pk, etc.)
-		return "1"
+		return probeValueForParam(paramName)
 	})
 }
 
@@ -3279,7 +3283,7 @@ func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []a
 		}
 		fullURL := baseURL + resolvedPath
 
-		httpRR := r.buildMinimalRequest(method, fullURL)
+		httpRR := r.buildRouteRequest(method, fullURL, route)
 		if httpRR == nil {
 			continue
 		}
@@ -3288,14 +3292,8 @@ func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []a
 			// If no session is configured, add a random Authorization header
 			// to test for auth enforcement gaps
 			if !hasSession {
-				u, _ := neturl.Parse(fullURL)
-				if u != nil {
-					rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\n\r\n",
-						method, u.RequestURI(), u.Host, randomProbeToken())
-					if rr, err := httpmsg.ParseRawRequest(rawReq); err == nil {
-						httpRR = rr
-					}
-				}
+				newReq := httpRR.Request().WithHeader("Authorization", "Bearer "+randomProbeToken())
+				httpRR = httpmsg.NewHttpRequestResponse(newReq, httpRR.Response())
 			}
 
 			wg.Add(1)
@@ -3938,6 +3936,72 @@ func (r *Runner) buildMinimalRequest(method, rawURL string) *httpmsg.HttpRequest
 		return nil
 	}
 
+	return rr
+}
+
+// buildRouteRequest creates an HttpRequestResponse enriched with query/body parameters
+// from an ast-grep Route. For GET/HEAD/DELETE, params become query string values.
+// For POST/PUT/PATCH, body params become a JSON body; remaining params go to query string.
+func (r *Runner) buildRouteRequest(method, rawURL string, route astgrep.Route) *httpmsg.HttpRequestResponse {
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+
+	// Determine which params go to query vs body
+	queryParams := route.QueryParams
+	bodyParams := route.BodyParams
+
+	// If no typed params available, use generic Params with method-based heuristic
+	if len(queryParams) == 0 && len(bodyParams) == 0 && len(route.Params) > 0 {
+		switch method {
+		case "POST", "PUT", "PATCH":
+			bodyParams = route.Params
+		default:
+			queryParams = route.Params
+		}
+	}
+
+	// Append query params to URL
+	if len(queryParams) > 0 {
+		q := u.Query()
+		for _, p := range queryParams {
+			q.Set(p, probeValueForParam(p))
+		}
+		u.RawQuery = q.Encode()
+	}
+
+	// Build body for POST/PUT/PATCH with body params
+	var body string
+	var contentType string
+	if len(bodyParams) > 0 && (method == "POST" || method == "PUT" || method == "PATCH") {
+		bodyMap := make(map[string]string, len(bodyParams))
+		for _, p := range bodyParams {
+			bodyMap[p] = probeValueForParam(p)
+		}
+		if jsonBytes, jsonErr := json.Marshal(bodyMap); jsonErr == nil {
+			body = string(jsonBytes)
+			contentType = "application/json"
+		}
+	}
+
+	// Build raw request
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s %s HTTP/1.1\r\n", method, u.RequestURI()))
+	sb.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
+	if contentType != "" {
+		sb.WriteString(fmt.Sprintf("Content-Type: %s\r\n", contentType))
+		sb.WriteString(fmt.Sprintf("Content-Length: %d\r\n", len(body)))
+	}
+	sb.WriteString("\r\n")
+	if body != "" {
+		sb.WriteString(body)
+	}
+
+	rr, err := httpmsg.ParseRawRequest(sb.String())
+	if err != nil {
+		return nil
+	}
 	return rr
 }
 

@@ -335,70 +335,60 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		terminal.Cyan(terminal.SymbolBullet),
 		terminal.Orange(fmt.Sprintf("%d", len(records))))
 
-	// Phase 1.5 + 1.6: Source analysis and SAST run in parallel when both are available.
+	// Phase 1.5: Agentic source analysis (LLM explores codebase first).
+	// Phase 1.6: Native SAST (ast-grep route extraction + secret detection).
+	//
+	// These run sequentially — source analysis first, then SAST — so that:
+	// 1. LLM-discovered routes with rich parameters, headers, and auth are ingested first
+	// 2. Session config (auth tokens) from source analysis is available for SAST probing
+	// 3. ast-grep routes that overlap with LLM routes get deduplicated in favor of richer records
 	var sourceExtensions []GeneratedExtension
 	if cfg.SourcePath != "" && !phaseCompleted(checkpoint, SwarmPhaseSourceAnalysis) {
 		phaseStart = time.Now()
 		agentRun.CurrentPhase = SwarmPhaseSourceAnalysis
 		s.persistPhase(ctx, agentRun)
 
-		// Shared state for parallel results
-		var mu sync.Mutex
 		var saRecords []*httpmsg.HttpRequestResponse
 		var saExtensions []GeneratedExtension
 		var sastRecords []*httpmsg.HttpRequestResponse
 		var sastExtensions []GeneratedExtension
 		var discoveredSessionConfig *AgentSessionConfig
 
-		hasSAST := cfg.SASTFunc != nil
-		var wg sync.WaitGroup
+		// --- Phase 1.5: Agentic source analysis ---
+		s.emitPhase(cfg, SwarmPhaseSourceAnalysis)
 
-		// Goroutine 1: Source analysis
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.emitPhase(cfg, SwarmPhaseSourceAnalysis)
+		saCfg := SourceAnalysisConfig{
+			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
+			TargetURL:      targetURL,
+			SourcePath:     cfg.SourcePath,
+			Files:          cfg.Files,
+			Instruction:    cfg.Instruction,
+			PromptTemplate: SwarmPromptSourceAnalysis,
+			SessionKey:     SwarmPhaseSourceAnalysis,
+			DryRun:         cfg.DryRun,
+			ShowPrompt:     cfg.ShowPrompt,
+			ScanUUID:       cfg.ScanUUID,
+			ProjectUUID:    cfg.ProjectUUID,
+			StreamWriter:   cfg.StreamWriter,
+		}
 
-			saCfg := SourceAnalysisConfig{
-				AgentName:      cfg.AgentName,
-				AgentACPCmd:    cfg.AgentACPCmd,
-				TargetURL:      targetURL,
-				SourcePath:     cfg.SourcePath,
-				Files:          cfg.Files,
-				Instruction:    cfg.Instruction,
-				PromptTemplate: SwarmPromptSourceAnalysis,
-				SessionKey:     SwarmPhaseSourceAnalysis,
-				DryRun:         cfg.DryRun,
-				ShowPrompt:     cfg.ShowPrompt,
-				ScanUUID:       cfg.ScanUUID,
-				ProjectUUID:    cfg.ProjectUUID,
-				StreamWriter:   cfg.StreamWriter,
-			}
+		saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
 
-			saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
+		writePromptToSessionDir(sessionDir, "prompt-source-analysis.md", saRenderedPrompt)
+		if sessionDir != "" && saRawOutput != "" {
+			_ = os.WriteFile(filepath.Join(sessionDir, "source-analysis-output.md"), []byte(saRawOutput), 0644)
+		}
 
-			writePromptToSessionDir(sessionDir, "prompt-source-analysis.md", saRenderedPrompt)
-			if sessionDir != "" && saRawOutput != "" {
-				_ = os.WriteFile(filepath.Join(sessionDir, "source-analysis-output.md"), []byte(saRawOutput), 0644)
-			}
-
-			if saErr != nil {
-				zap.L().Warn("Source analysis failed, continuing with input records only", zap.Error(saErr))
-				return
-			}
-			if saResult == nil {
-				return
-			}
-
+		if saErr != nil {
+			zap.L().Warn("Source analysis failed, continuing with input records only", zap.Error(saErr))
+		} else if saResult != nil {
 			zap.L().Info("Source analysis result",
 				zap.Int("http_records", len(saResult.HTTPRecords)),
 				zap.Int("extensions", len(saResult.Extensions)),
 				zap.Bool("has_session_config", saResult.SessionConfig != nil))
 
 			filteredRecords := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
-
-			mu.Lock()
-			defer mu.Unlock()
 			if len(filteredRecords) > 0 {
 				zap.L().Info("Appending source-discovered routes",
 					zap.Int("total_discovered", len(saResult.HTTPRecords)),
@@ -417,54 +407,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 					zap.L().Warn("Source analysis callback failed", zap.Error(cbErr))
 				}
 			}
-		}()
-
-		// Goroutine 2: SAST + SAST review (if available)
-		if hasSAST {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				s.emitPhase(cfg, SwarmPhaseSAST)
-
-				if sastErr := cfg.SASTFunc(ctx); sastErr != nil {
-					zap.L().Warn("SAST phase failed, continuing without SAST results", zap.Error(sastErr))
-					return
-				}
-
-				s.emitPhase(cfg, SwarmPhaseSASTReview)
-				sastReviewResult := s.runSASTReview(ctx, cfg, targetURL, sessionDir)
-				if sastReviewResult == nil {
-					return
-				}
-
-				mu.Lock()
-				defer mu.Unlock()
-				if len(sastReviewResult.HTTPRecords) > 0 {
-					validatedRecords := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
-					if len(validatedRecords) > 0 {
-						zap.L().Info("Appending SAST-review validated routes",
-							zap.Int("validated", len(validatedRecords)))
-						sastRecords = validatedRecords
-					}
-				}
-				if len(sastReviewResult.Extensions) > 0 {
-					sastExtensions = append(sastExtensions, sastReviewResult.Extensions...)
-				}
-			}()
 		}
 
-		wg.Wait()
-
-		// Merge results from both goroutines
-		records = append(records, saRecords...)
-		records = append(records, sastRecords...)
-		result.TotalRecords = len(records)
-		sourceExtensions = append(sourceExtensions, saExtensions...)
-		sourceExtensions = append(sourceExtensions, sastExtensions...)
-
-		// Hydrate session config to obtain real auth headers for probing.
-		// If source analysis discovered a login flow, execute it now so that
-		// probe requests carry valid authentication instead of dummy tokens.
+		// Hydrate session config immediately after source analysis so that
+		// both the source-discovered records AND the subsequent SAST phase
+		// can use real auth tokens for probing.
 		var authHeaders map[string]string
 		if discoveredSessionConfig != nil {
 			authHeaders = hydrateSessionConfig(discoveredSessionConfig)
@@ -474,49 +421,54 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 		}
 
-		// Probe and save source-discovered records to DB so the native scan phase
-		// can find them. Validate each record has a parseable URL before saving —
-		// source analysis may produce records with empty or malformed URLs that
-		// would cause parse failures during the native scan's discovery phase.
-		newRecords := append(saRecords, sastRecords...)
+		// Validate, auth-inject, probe, and save source-analysis records to DB
+		// before running SAST so they are available for deduplication.
+		s.validateProbeAndSave(ctx, saRecords, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
 
-		// Filter out records with invalid URLs before probing
-		var validRecords []*httpmsg.HttpRequestResponse
-		for _, rr := range newRecords {
-			if rr.Request() == nil {
-				continue
-			}
-			if u, urlErr := rr.URL(); urlErr != nil || u == nil || u.Host == "" {
-				zap.L().Debug("Skipping source record with invalid URL", zap.Error(urlErr))
-				continue
-			}
-			validRecords = append(validRecords, rr)
+		if len(saRecords) > 0 {
+			fmt.Fprintf(os.Stderr, "  %s Source analysis routes: %s\n",
+				terminal.Cyan(terminal.SymbolBullet),
+				terminal.Orange(fmt.Sprintf("%d", len(saRecords))))
 		}
 
-		// Inject discovered auth headers into records that lack authentication.
-		// This ensures probing uses real credentials instead of dummy tokens.
-		if len(authHeaders) > 0 {
-			injectAuthHeaders(validRecords, authHeaders)
-		}
+		// --- Phase 1.6: Native SAST (runs after source analysis) ---
+		// The SourceAnalysisCallback has already written the auth config file,
+		// so SASTFunc picks it up via the shared pointer. ast-grep probes now
+		// run with real auth tokens and LLM-discovered routes are already in DB
+		// for deduplication.
+		if cfg.SASTFunc != nil {
+			s.emitPhase(cfg, SwarmPhaseSAST)
 
-		// Probe records to get live responses
-		if len(validRecords) > 0 {
-			probeRecords(ctx, validRecords)
-		}
-
-		if s.repo != nil && len(validRecords) > 0 {
-			var savedCount int
-			for _, rr := range validRecords {
-				if _, saveErr := s.repo.SaveRecord(ctx, rr, "agent-swarm-source", cfg.ProjectUUID); saveErr != nil {
-					zap.L().Debug("Failed to save source-discovered record", zap.Error(saveErr))
-				} else {
-					savedCount++
+			if sastErr := cfg.SASTFunc(ctx); sastErr != nil {
+				zap.L().Warn("SAST phase failed, continuing without SAST results", zap.Error(sastErr))
+			} else {
+				s.emitPhase(cfg, SwarmPhaseSASTReview)
+				sastReviewResult := s.runSASTReview(ctx, cfg, targetURL, sessionDir)
+				if sastReviewResult != nil {
+					if len(sastReviewResult.HTTPRecords) > 0 {
+						validatedRecords := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
+						if len(validatedRecords) > 0 {
+							zap.L().Info("Appending SAST-review validated routes",
+								zap.Int("validated", len(validatedRecords)))
+							sastRecords = validatedRecords
+						}
+					}
+					if len(sastReviewResult.Extensions) > 0 {
+						sastExtensions = append(sastExtensions, sastReviewResult.Extensions...)
+					}
 				}
 			}
-			if savedCount > 0 {
-				zap.L().Info("Saved source-discovered records to database", zap.Int("count", savedCount))
-			}
 		}
+
+		// Merge results
+		records = append(records, saRecords...)
+		records = append(records, sastRecords...)
+		result.TotalRecords = len(records)
+		sourceExtensions = append(sourceExtensions, saExtensions...)
+		sourceExtensions = append(sourceExtensions, sastExtensions...)
+
+		// Validate, auth-inject, probe, and save SAST-review records to DB
+		s.validateProbeAndSave(ctx, sastRecords, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
 
 		// Re-probe unprobed ast-grep records. The native SAST runner probes via
 		// httpRequester.Execute which goes through clustering/rate-limiting middleware
@@ -528,7 +480,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 		}
 
-		// Print source analysis stats
+		// Print combined stats
 		if len(saRecords) > 0 || len(sastRecords) > 0 {
 			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s)\n",
 				terminal.Cyan(terminal.SymbolBullet),
@@ -2110,6 +2062,46 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 // enriching them with live response data. This ensures records saved to the
 // database have response bodies, status codes, and headers for the scanner
 // modules to analyze. Records are probed concurrently with a bounded worker pool.
+// validateProbeAndSave filters records with valid URLs, injects auth headers,
+// probes them for live responses, and saves them to the database.
+func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, authHeaders map[string]string, source, projectUUID string) {
+	if len(records) == 0 {
+		return
+	}
+
+	var valid []*httpmsg.HttpRequestResponse
+	for _, rr := range records {
+		if rr.Request() == nil {
+			continue
+		}
+		if u, urlErr := rr.URL(); urlErr != nil || u == nil || u.Host == "" {
+			zap.L().Debug("Skipping record with invalid URL", zap.String("source", source), zap.Error(urlErr))
+			continue
+		}
+		valid = append(valid, rr)
+	}
+
+	if len(authHeaders) > 0 {
+		injectAuthHeaders(valid, authHeaders)
+	}
+	if len(valid) > 0 {
+		probeRecords(ctx, valid)
+	}
+	if s.repo != nil && len(valid) > 0 {
+		var savedCount int
+		for _, rr := range valid {
+			if _, saveErr := s.repo.SaveRecord(ctx, rr, source, projectUUID); saveErr != nil {
+				zap.L().Debug("Failed to save record", zap.String("source", source), zap.Error(saveErr))
+			} else {
+				savedCount++
+			}
+		}
+		if savedCount > 0 {
+			zap.L().Info("Saved records to database", zap.String("source", source), zap.Int("count", savedCount))
+		}
+	}
+}
+
 func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
 	const maxConcurrency = 10
 	const probeTimeout = 10 * time.Second

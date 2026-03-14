@@ -154,43 +154,71 @@ func extractErrorContext(code string, err error) string {
 	return sb.String()
 }
 
+// maxRepairConcurrency is the maximum number of parallel LLM repair calls.
+// Each call is an independent API request, so we bound concurrency to avoid
+// overwhelming the LLM backend while still getting significant speedup.
+const maxRepairConcurrency = 5
+
 // RepairExtensionsWithLLM attempts to fix invalid extensions by sending each one
-// to the configured LLM agent with the error context. Extensions that compile
-// after repair are returned; those that still fail are dropped.
+// to the configured LLM agent with the error context. Repairs run in parallel
+// with bounded concurrency. Extensions that compile after repair are returned;
+// those that still fail are dropped.
 func RepairExtensionsWithLLM(ctx context.Context, engine *Engine, invalids []InvalidExtension, cfg repairConfig) []GeneratedExtension {
 	if len(invalids) == 0 || engine == nil {
 		return nil
 	}
 
-	zap.L().Info("Attempting LLM repair for invalid extensions", zap.Int("count", len(invalids)))
+	zap.L().Info("Attempting LLM repair for invalid extensions",
+		zap.Int("count", len(invalids)),
+		zap.Int("concurrency", maxRepairConcurrency))
 
+	results := make([]*GeneratedExtension, len(invalids))
+
+	sem := make(chan struct{}, maxRepairConcurrency)
+	var wg sync.WaitGroup
+
+	for i, inv := range invalids {
+		wg.Add(1)
+		go func(idx int, inv InvalidExtension) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			fixed, err := repairSingleExtension(ctx, engine, inv, cfg)
+			if err != nil {
+				zap.L().Warn("LLM repair failed for extension",
+					zap.String("filename", inv.Extension.Filename),
+					zap.Error(err))
+				return
+			}
+
+			// Validate the repaired code
+			_, compileErr := sobek.Compile(inv.Extension.Filename, fixed, false)
+			if compileErr != nil {
+				zap.L().Warn("LLM-repaired extension still has syntax errors",
+					zap.String("filename", inv.Extension.Filename),
+					zap.Error(compileErr))
+				return
+			}
+
+			zap.L().Info("LLM successfully repaired extension",
+				zap.String("filename", inv.Extension.Filename))
+
+			results[idx] = &GeneratedExtension{
+				Filename: inv.Extension.Filename,
+				Code:     fixed,
+				Reason:   inv.Extension.Reason,
+			}
+		}(i, inv)
+	}
+	wg.Wait()
+
+	// Collect successful repairs preserving original order.
 	var repaired []GeneratedExtension
-	for _, inv := range invalids {
-		fixed, err := repairSingleExtension(ctx, engine, inv, cfg)
-		if err != nil {
-			zap.L().Warn("LLM repair failed for extension",
-				zap.String("filename", inv.Extension.Filename),
-				zap.Error(err))
-			continue
+	for _, ext := range results {
+		if ext != nil {
+			repaired = append(repaired, *ext)
 		}
-
-		// Validate the repaired code
-		_, compileErr := sobek.Compile(inv.Extension.Filename, fixed, false)
-		if compileErr != nil {
-			zap.L().Warn("LLM-repaired extension still has syntax errors",
-				zap.String("filename", inv.Extension.Filename),
-				zap.Error(compileErr))
-			continue
-		}
-
-		zap.L().Info("LLM successfully repaired extension",
-			zap.String("filename", inv.Extension.Filename))
-
-		repaired = append(repaired, GeneratedExtension{
-			Filename: inv.Extension.Filename,
-			Code:     fixed,
-			Reason:   inv.Extension.Reason,
-		})
 	}
 	return repaired
 }

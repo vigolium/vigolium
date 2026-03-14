@@ -133,6 +133,11 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/agent/sessions", handlers.HandleAgentSessionList)
 	viewer.Get("/agent/sessions/:id", handlers.HandleAgentSessionDetail)
 
+	// In view-only mode, skip all write/mutation routes (operator + admin).
+	if cfg.ViewOnly {
+		return
+	}
+
 	// --- Operator routes (admin + operator) ---
 	// Scan execution, ingestion, and agent operations
 	operator := api.Group("", RoleGuard(RoleAdmin, RoleOperator))

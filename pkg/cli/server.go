@@ -54,6 +54,9 @@ type serverOptions struct {
 
 	// Agent ACP command override
 	AgentACPCmd string
+
+	// View-only mode
+	ViewOnly bool
 }
 
 var serverOpts = &serverOptions{
@@ -97,6 +100,10 @@ func init() {
 	// Agent ACP command override
 	flags.StringVar(&serverOpts.AgentACPCmd, "agent-acp-cmd", "",
 		"Custom ACP agent command for all agent runs (e.g. 'traecli acp')")
+
+	// View-only mode
+	flags.BoolVar(&serverOpts.ViewOnly, "view-only", false,
+		"Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints)")
 }
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
@@ -285,12 +292,52 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		ShutdownTimeout:      30 * time.Second,
 		CORSAllowedOrigins:   settings.Server.CORSAllowedOrigins,
 		EnableMetrics:        settings.Server.EnableMetrics,
+		ViewOnly:             serverOpts.ViewOnly,
 		Debug:                globalDebug,
 		Version:              Version,
 		Author:               Author,
 		Commit:               Commit,
 		BuildTime:            BuildTime,
 	}, taskQueue, db, repo, settings, httpRequester)
+
+	// In view-only mode, print banner early and skip runner/catchup entirely
+	if serverOpts.ViewOnly {
+		if !globalSilent {
+			fmt.Println()
+			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow("View-only mode — all write endpoints disabled"))
+			port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
+			fmt.Printf("  %s Starting vigolium server %s and %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan(fmt.Sprintf("http://%s", serviceAddr)),
+				terminal.Cyan(fmt.Sprintf("http://localhost:%s", port)))
+			fmt.Printf("  %s UI Dashboard %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
+			fmt.Println()
+		}
+
+		go func() {
+			if err := apiServer.Start(); err != nil {
+				zap.L().Fatal("API server error", zap.Error(err))
+			}
+		}()
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		zap.L().Info("Shutdown signal received")
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			zap.L().Error("API server shutdown error", zap.Error(err))
+		}
+		if err := taskQueue.Close(); err != nil {
+			zap.L().Error("Queue close error", zap.Error(err))
+		}
+		zap.L().Info("Server shutdown complete")
+		return nil
+	}
 
 	// Create runner options (concurrency comes from global -c/--concurrency flag)
 	// Phase banners are always suppressed in server mode — the server startup
