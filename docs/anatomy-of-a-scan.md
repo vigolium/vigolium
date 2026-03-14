@@ -330,7 +330,7 @@ Phases 0-5 populate the database with HTTP records. Phase 6 reads those records 
 4. Runs a **feedback loop** (up to `maxFeedbackRounds = 3`):
    - Creates a `OneShotDBInputSource` that reads records after the scan cursor.
    - Builds an Executor with all active + passive modules, `SkipBaseline: true` (responses already in DB).
-   - The Executor enforces a per-module finding cap (`MaxFindingsPerModule`, default 15) — once a module emits this many findings, further results from that module are suppressed.
+   - The Executor enforces a per-module finding cap (`MaxFindingsPerModule`, default 10) — once a module emits this many findings, further results from that module are suppressed.
    - After each round, checks for newly created records. Breaks early if none.
 5. **Post-phase dedup**: calls `DeduplicateFindings()` to merge findings where the same module fired on the same URL with different payloads.
 6. Marks the scan as completed.

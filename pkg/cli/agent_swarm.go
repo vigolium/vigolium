@@ -367,8 +367,6 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		opts.ConfigPath = globalConfig
 		opts.HeuristicsCheck = "none"
 		opts.PassiveModules = []string{"all"}
-		opts.Silent = true
-		opts.ScanConfigPrinted = true
 
 		// Apply generated auth config from source analysis or custom instruction
 		if authConfigPath != nil && *authConfigPath != "" {
@@ -506,10 +504,26 @@ func printSwarmResult(result *agent.SwarmResult) {
 			}
 		}
 		if len(result.SwarmPlan.FocusAreas) > 0 {
-			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Focus areas:"), strings.Join(result.SwarmPlan.FocusAreas, ", "))
+			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Focus areas:"), terminal.Orange(fmt.Sprintf("%d", len(result.SwarmPlan.FocusAreas))))
+			for _, area := range result.SwarmPlan.FocusAreas {
+				title, detail := splitFocusArea(area)
+				if detail != "" {
+					fmt.Fprintf(os.Stderr, "      %s %s %s\n", terminal.Gray("-"), terminal.BoldCyan(title+":"), terminal.Muted(detail))
+				} else {
+					fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray("-"), terminal.BoldCyan(area))
+				}
+			}
 		}
 		if result.SwarmPlan.Notes != "" {
-			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Notes:"), result.SwarmPlan.Notes)
+			fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray("Notes:"))
+			for _, line := range strings.Split(result.SwarmPlan.Notes, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				line = strings.TrimPrefix(line, "- ")
+				fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray("-"), terminal.Muted(line))
+			}
 		}
 	}
 
@@ -519,6 +533,7 @@ func printSwarmResult(result *agent.SwarmResult) {
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("False positives:"), terminal.Gray(fmt.Sprintf("%d", result.FalsePositives)))
 		fmt.Fprintf(os.Stderr, "    %-17s %d\n", terminal.Gray("Iterations:"), result.Iterations)
 	}
+
 }
 
 // colorFindingCount returns a colored finding count based on severity.
@@ -554,6 +569,25 @@ func formatSeverityWithSymbols(counts map[string]int) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// splitFocusArea splits a focus area string like "**Title**: description" into title and detail.
+// It strips markdown bold markers from the title.
+func splitFocusArea(area string) (string, string) {
+	// Try "**Title**: detail" or "**Title** — detail"
+	for _, sep := range []string{"**: ", "** — ", "** - "} {
+		if idx := strings.Index(area, sep); idx > 0 {
+			title := strings.TrimPrefix(area[:idx], "**")
+			title = strings.TrimSuffix(title, "**")
+			detail := area[idx+len(sep):]
+			return strings.TrimSpace(title), strings.TrimSpace(detail)
+		}
+	}
+	// Try "Title: detail" (no markdown)
+	if idx := strings.Index(area, ": "); idx > 0 && idx < 60 {
+		return area[:idx], area[idx+2:]
+	}
+	return area, ""
 }
 
 // buildSwarmSASTFunc creates a callback that runs the native SAST phase

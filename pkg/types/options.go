@@ -190,7 +190,7 @@ func DefaultOptions() *Options {
 		Timeout:              15 * time.Second,
 		Retries:              1,
 		MaxHostError:         30,
-		MaxFindingsPerModule: 15,
+		MaxFindingsPerModule: 10,
 		PassiveModules:       []string{"all"},
 		ClusterRequests:      true,
 		ShutdownTimeout:      30 * time.Second,

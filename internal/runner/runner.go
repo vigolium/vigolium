@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -682,6 +683,23 @@ func (r *Runner) printScanConfig() {
 		phaseLabel("Audit", "audit", !opts.SkipAudit),
 		phaseLabel("SAST", "sast", opts.SASTEnabled))
 
+	// Heuristics
+	heuristicsDesc := map[string]string{
+		"basic":    "probe target root pages to detect content type (HTML, JSON, blank) and skip spidering for non-HTML targets",
+		"advanced": "basic checks + deep HTML analysis to detect SPA frameworks and optimize phase selection",
+		"none":     "skip all heuristic probes, run all enabled phases unconditionally",
+	}
+	if desc, ok := heuristicsDesc[opts.HeuristicsCheck]; ok {
+		fmt.Fprintf(os.Stderr, "  %s Heuristics: %s %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(opts.HeuristicsCheck),
+			terminal.Gray(desc))
+	} else if opts.HeuristicsCheck != "" {
+		fmt.Fprintf(os.Stderr, "  %s Heuristics: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(opts.HeuristicsCheck))
+	}
+
 	// Speed
 	rateLimit := settings.ScanningPace.RateLimit
 	fmt.Fprintf(os.Stderr, "  %s Speed: concurrency=%s | rate-limit=%s | max-per-host=%s\n",
@@ -689,6 +707,30 @@ func (r *Runner) printScanConfig() {
 		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", rateLimit)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
+
+	// Scope
+	scopeOrigin := "relaxed"
+	if settings.Scope.CLIOriginMode != "" {
+		scopeOrigin = settings.Scope.CLIOriginMode
+	}
+	if opts.ScopeOriginMode != "" {
+		scopeOrigin = opts.ScopeOriginMode
+	}
+	originDesc := map[string]string{
+		"relaxed":  "host must contain the target's keyword",
+		"all":      "no origin restriction, all hosts are in scope",
+		"balanced": "host must share the target's eTLD+1",
+		"strict":   "host must exactly match the target host",
+	}
+	originDescStr := ""
+	if desc, ok := originDesc[scopeOrigin]; ok {
+		originDescStr = " " + terminal.Gray(desc)
+	}
+	fmt.Fprintf(os.Stderr, "  %s Scope: origin=%s | ignore-static=%s%s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiPurple(scopeOrigin),
+		terminal.HiPurple(fmt.Sprintf("%v", settings.Scope.IgnoreStaticFile)),
+		originDescStr)
 
 	// Modules
 	var activeCount int
@@ -1838,18 +1880,25 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	// Compute in-scope hostnames to filter DB records by CLI target hostnames
 	inScopeHostnames := r.getInScopeDBHostnamesList(ctx)
 
+	// Shared insertion point cache across feedback rounds to avoid cold-start overhead
+	ipCache, _ := lru.New[string, []httpmsg.InsertionPoint](4096)
+
+	// Resolve per-phase settings from scanning pace config (static across rounds)
+	var auditMaxDuration time.Duration
+	auditParallelPassive := true // default for audit phase
+	var auditFeedbackDrain time.Duration
+	if r.settings != nil {
+		auditPace := r.settings.ScanningPace.ResolvePhase("audit")
+		auditMaxDuration = auditPace.MaxDuration
+		auditParallelPassive = auditPace.ParallelPassive
+		auditFeedbackDrain = auditPace.FeedbackDrainTimeout
+	}
+
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
 		roundStart := time.Now()
 		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 			WithHostnames(inScopeHostnames)
-
-		// Resolve per-phase timeout from scanning pace config
-		var auditMaxDuration time.Duration
-		if r.settings != nil {
-			auditPace := r.settings.ScanningPace.ResolvePhase("audit")
-			auditMaxDuration = auditPace.MaxDuration
-		}
 
 		// Create batched record writer for throughput
 		var recordWriter *database.RecordWriter
@@ -1869,7 +1918,9 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 			PauseCtrl:            r.pauseCtrl,
 			MaxFindingsPerModule: r.options.MaxFindingsPerModule,
 			MaxDuration:          auditMaxDuration,
-			ParallelPassive:      true,
+			ParallelPassive:      auditParallelPassive,
+			FeedbackDrainTimeout: auditFeedbackDrain,
+			IPCache:              ipCache,
 			OnTraffic:            r.makeOnTrafficVerbose("audit"),
 			OnResult: func(result *output.ResultEvent) {
 				if err := r.output.Write(result); err != nil {
@@ -1894,6 +1945,11 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		// Close the batched record writer to flush remaining records
 		if recordWriter != nil {
 			recordWriter.Close()
+		}
+
+		// Log request clustering stats for this round
+		if c := infra.httpRequester.Clusterer(); c != nil {
+			c.LogStats()
 		}
 
 		if err != nil {

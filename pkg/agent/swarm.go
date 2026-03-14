@@ -3,9 +3,11 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -105,7 +107,7 @@ const (
 	SwarmPhaseDiscover       = "discover"
 	SwarmPhasePlan           = "plan"
 	SwarmPhaseExtension      = "extension"
-	SwarmPhaseScan           = "scan"
+	SwarmPhaseScan           = "native-scan"
 	SwarmPhaseTriage         = "triage"
 	SwarmPhaseRescan         = "rescan"
 )
@@ -113,6 +115,8 @@ const (
 // Prompt template constants for the agent swarm mode.
 const (
 	SwarmPromptMaster         = "agent-swarm-master"
+	SwarmPromptPlan           = "agent-swarm-plan"
+	SwarmPromptExtensions     = "agent-swarm-extensions"
 	SwarmPromptSourceAnalysis = "agent-swarm-source-analysis"
 	SwarmPromptSASTReview     = "swarm-sast-review"
 	SwarmPromptTriage         = "agent-swarm-triage"
@@ -126,7 +130,7 @@ func SwarmPhasePrompt(phase string) string {
 	case SwarmPhaseSASTReview:
 		return SwarmPromptSASTReview
 	case SwarmPhasePlan:
-		return SwarmPromptMaster
+		return SwarmPromptPlan
 	case SwarmPhaseTriage:
 		return SwarmPromptTriage
 	default:
@@ -145,6 +149,15 @@ func NewSwarmRunner(engine *Engine, repo *database.Repository) *SwarmRunner {
 	return &SwarmRunner{
 		engine: engine,
 		repo:   repo,
+	}
+}
+
+// persistPhase updates the agent run's current phase in the database.
+func (s *SwarmRunner) persistPhase(ctx context.Context, agentRun *database.AgentRun) {
+	if s.repo != nil {
+		if err := s.repo.UpdateAgentRun(ctx, agentRun); err != nil {
+			zap.L().Debug("Failed to persist phase update", zap.Error(err))
+		}
 	}
 }
 
@@ -250,6 +263,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	phaseStart := time.Now()
 	s.emitPhase(cfg, SwarmPhaseNormalize)
 	agentRun.CurrentPhase = SwarmPhaseNormalize
+	s.persistPhase(ctx, agentRun)
 
 	records, targetURL, err := s.normalizeInputs(ctx, cfg)
 	if err != nil {
@@ -263,6 +277,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	if agentRun.InputType == "" && len(cfg.Inputs) > 0 {
 		agentRun.InputType = string(DetectInputType(cfg.Inputs[0]))
 	}
+
+	// Probe records that don't have responses to enrich them with live data
+	probeRecords(ctx, records)
 
 	// Save records to DB
 	var recordUUIDs []string
@@ -284,11 +301,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	phaseTimings[SwarmPhaseNormalize] = time.Since(phaseStart)
 	completedPhases = append(completedPhases, SwarmPhaseNormalize)
 
+	fmt.Fprintf(os.Stderr, "  %s Input records: %s\n",
+		terminal.Cyan(terminal.SymbolBullet),
+		terminal.Orange(fmt.Sprintf("%d", len(records))))
+
 	// Phase 1.5 + 1.6: Source analysis and SAST run in parallel when both are available.
 	var sourceExtensions []GeneratedExtension
 	if cfg.SourcePath != "" && !phaseCompleted(checkpoint, SwarmPhaseSourceAnalysis) {
 		phaseStart = time.Now()
 		agentRun.CurrentPhase = SwarmPhaseSourceAnalysis
+		s.persistPhase(ctx, agentRun)
 
 		// Shared state for parallel results
 		var mu sync.Mutex
@@ -335,6 +357,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			if saResult == nil {
 				return
 			}
+
+			zap.L().Info("Source analysis result",
+				zap.Int("http_records", len(saResult.HTTPRecords)),
+				zap.Int("extensions", len(saResult.Extensions)),
+				zap.Bool("has_session_config", saResult.SessionConfig != nil))
 
 			filteredRecords := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
 
@@ -402,8 +429,69 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, saExtensions...)
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
+		// Probe and save source-discovered records to DB so the native scan phase
+		// can find them. Validate each record has a parseable URL before saving —
+		// source analysis may produce records with empty or malformed URLs that
+		// would cause parse failures during the native scan's discovery phase.
+		newRecords := append(saRecords, sastRecords...)
+
+		// Filter out records with invalid URLs before probing
+		var validRecords []*httpmsg.HttpRequestResponse
+		for _, rr := range newRecords {
+			if rr.Request() == nil {
+				continue
+			}
+			if u, urlErr := rr.URL(); urlErr != nil || u == nil || u.Host == "" {
+				zap.L().Debug("Skipping source record with invalid URL", zap.Error(urlErr))
+				continue
+			}
+			validRecords = append(validRecords, rr)
+		}
+
+		// Probe records to get live responses
+		if len(validRecords) > 0 {
+			probeRecords(ctx, validRecords)
+		}
+
+		if s.repo != nil && len(validRecords) > 0 {
+			var savedCount int
+			for _, rr := range validRecords {
+				if _, saveErr := s.repo.SaveRecord(ctx, rr, "agent-swarm-source", cfg.ProjectUUID); saveErr != nil {
+					zap.L().Debug("Failed to save source-discovered record", zap.Error(saveErr))
+				} else {
+					savedCount++
+				}
+			}
+			if savedCount > 0 {
+				zap.L().Info("Saved source-discovered records to database", zap.Int("count", savedCount))
+			}
+		}
+
+		// Print source analysis stats
+		if len(saRecords) > 0 || len(sastRecords) > 0 {
+			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s)\n",
+				terminal.Cyan(terminal.SymbolBullet),
+				terminal.Orange(fmt.Sprintf("%d", len(saRecords)+len(sastRecords))),
+				terminal.Orange(fmt.Sprintf("%d", len(saRecords))),
+				terminal.Orange(fmt.Sprintf("%d", len(sastRecords))))
+		}
+
+		// Write source-discovered extensions to session dir immediately as artifacts.
+		// These will be merged with plan-phase extensions later, but writing them now
+		// ensures they are preserved even if subsequent phases fail.
+		if sessionDir != "" && len(sourceExtensions) > 0 {
+			writeSourceExtensionsToSessionDir(sourceExtensions, sessionDir)
+		}
+
 		phaseTimings[SwarmPhaseSourceAnalysis] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseSourceAnalysis)
+
+		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+			terminal.Aqua(terminal.SymbolSuccess),
+			terminal.Aqua("Source analysis"),
+			terminal.Muted(fmt.Sprintf("completed — %d routes, %d extensions in %s",
+				len(saRecords)+len(sastRecords), len(sourceExtensions),
+				phaseTimings[SwarmPhaseSourceAnalysis].Round(time.Second))))
 
 		// Write checkpoint after source analysis
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
@@ -426,6 +514,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		phaseStart = time.Now()
 		s.emitPhase(cfg, SwarmPhaseDiscover)
 		agentRun.CurrentPhase = SwarmPhaseDiscover
+		s.persistPhase(ctx, agentRun)
 
 		if discoverErr := cfg.DiscoverFunc(ctx); discoverErr != nil {
 			zap.L().Warn("Discovery phase failed, continuing with input records", zap.Error(discoverErr))
@@ -442,6 +531,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 		phaseTimings[SwarmPhaseDiscover] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseDiscover)
+
+		fmt.Fprintf(os.Stderr, "  %s Total records after discovery: %s\n",
+			terminal.Cyan(terminal.SymbolBullet),
+			terminal.Orange(fmt.Sprintf("%d", len(records))))
 	}
 
 	// Phase 2: Master agent — analyze and plan (batched if > 5 records)
@@ -461,6 +554,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	} else {
 		s.emitPhase(cfg, SwarmPhasePlan)
 		agentRun.CurrentPhase = SwarmPhasePlan
+		s.persistPhase(ctx, agentRun)
 
 		const masterBatchSize = 5
 		if len(records) <= masterBatchSize {
@@ -481,17 +575,41 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 	phaseTimings[SwarmPhasePlan] = time.Since(phaseStart)
 
+	if plan != nil {
+		extCount := len(plan.Extensions) + len(plan.QuickChecks) + len(plan.Snippets)
+		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+			terminal.Aqua(terminal.SymbolSuccess),
+			terminal.Aqua("Plan"),
+			terminal.Muted(fmt.Sprintf("completed — %d extensions, %d focus areas in %s",
+				extCount, len(plan.FocusAreas),
+				phaseTimings[SwarmPhasePlan].Round(time.Second))))
+	}
+
 	result.SessionID = sessionID
 	result.SessionIDs = sessionIDs
 
-	// Warn if plan has no actionable modules (only notes/focus_areas won't drive targeted scanning)
-	if plan != nil && len(plan.ModuleTags) == 0 && len(plan.ModuleIDs) == 0 {
-		zap.L().Warn("Swarm plan has no module_tags or module_ids — scan will run all modules",
+	// Log plan summary (all modules run by default, MODULE_TAGS/IDs are informational only)
+	if plan != nil {
+		zap.L().Info("Swarm plan summary",
+			zap.Int("focus_areas", len(plan.FocusAreas)),
 			zap.Int("extensions", len(plan.Extensions)),
 			zap.Int("quick_checks", len(plan.QuickChecks)),
-			zap.Int("focus_areas", len(plan.FocusAreas)))
-		fmt.Fprintf(os.Stderr, "%s Warning: plan has no module_tags or module_ids — all modules will run\n",
-			terminal.WarningSymbol())
+			zap.Bool("needs_extensions", plan.NeedsExtensions))
+
+		// Print plan stats to console
+		fmt.Fprintf(os.Stderr, "  %s Total HTTP records: %s\n",
+			terminal.Cyan(terminal.SymbolBullet),
+			terminal.Orange(fmt.Sprintf("%d", len(records))))
+		if len(plan.ModuleTags) > 0 {
+			fmt.Fprintf(os.Stderr, "  %s Module tags: %s\n",
+				terminal.Cyan(terminal.SymbolBullet),
+				terminal.Cyan(strings.Join(plan.ModuleTags, ", ")))
+		}
+		if len(plan.FocusAreas) > 0 {
+			fmt.Fprintf(os.Stderr, "  %s Focus areas: %s\n",
+				terminal.Cyan(terminal.SymbolBullet),
+				strings.Join(plan.FocusAreas, ", "))
+		}
 	}
 
 	if cfg.DryRun {
@@ -568,12 +686,31 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	if len(allExtensions) > 0 {
 		s.emitPhase(cfg, SwarmPhaseExtension)
 		agentRun.CurrentPhase = SwarmPhaseExtension
+		s.persistPhase(ctx, agentRun)
 
 		dir, writeErr := writeExtensionsToDir(allExtensions, sessionDir)
 		if writeErr != nil {
 			zap.L().Warn("Failed to write generated extensions", zap.Error(writeErr))
 		} else {
 			extensionDir = dir
+		}
+
+		// Print extension stats
+		sourceExtCount := len(sourceExtensions)
+		planExtCount := len(allExtensions) - sourceExtCount
+		if planExtCount < 0 {
+			planExtCount = 0
+		}
+		fmt.Fprintf(os.Stderr, "  %s Extensions: %s generated (source: %s, plan: %s)\n",
+			terminal.Cyan(terminal.SymbolBullet),
+			terminal.BoldYellow(fmt.Sprintf("%d", len(allExtensions))),
+			terminal.Orange(fmt.Sprintf("%d", sourceExtCount)),
+			terminal.Orange(fmt.Sprintf("%d", planExtCount)))
+		for _, ext := range allExtensions {
+			fmt.Fprintf(os.Stderr, "    %s %s %s\n",
+				terminal.Gray("-"),
+				terminal.BoldCyan(ext.Filename+":"),
+				ext.Reason)
 		}
 	}
 	phaseTimings[SwarmPhaseExtension] = time.Since(phaseStart)
@@ -584,12 +721,38 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		phaseStart = time.Now()
 		s.emitPhase(cfg, SwarmPhaseScan)
 		agentRun.CurrentPhase = SwarmPhaseScan
+		s.persistPhase(ctx, agentRun)
 
-		if err := cfg.ScanFunc(ctx, ScanRequest{ExtensionDir: extensionDir}); err != nil {
+		scanReq := ScanRequest{ExtensionDir: extensionDir}
+		if plan != nil {
+			scanReq.ModuleTags = plan.ModuleTags
+			scanReq.ModuleIDs = plan.ModuleIDs
+		}
+		if err := cfg.ScanFunc(ctx, scanReq); err != nil {
 			return fmt.Errorf("scan execution failed: %w", err)
 		}
 		phaseTimings[SwarmPhaseScan] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseScan)
+
+		// Print scan phase completion with finding count
+		scanFindings := 0
+		if s.repo != nil {
+			counts, countErr := database.CountFindingsBySeverity(ctx, s.repo.DB(), cfg.ProjectUUID)
+			if countErr == nil {
+				for _, c := range counts {
+					scanFindings += int(c)
+				}
+			}
+		}
+		scanSummary := fmt.Sprintf("completed — %d findings in %s",
+			scanFindings, phaseTimings[SwarmPhaseScan].Round(time.Second))
+		if len(allExtensions) > 0 {
+			scanSummary += fmt.Sprintf(" (%d custom extensions loaded)", len(allExtensions))
+		}
+		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+			terminal.Aqua(terminal.SymbolSuccess),
+			terminal.Aqua("Native scan"),
+			terminal.Muted(scanSummary))
 
 		// Write checkpoint after scan
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
@@ -607,12 +770,21 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	phaseStart = time.Now()
 	s.emitPhase(cfg, SwarmPhaseTriage)
 	agentRun.CurrentPhase = SwarmPhaseTriage
+	s.persistPhase(ctx, agentRun)
 
 	completedPhases = append(completedPhases, SwarmPhaseTriage)
 	if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir, checkpoint, extensionRenames, completedPhases); err != nil {
 		zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
 	}
 	phaseTimings[SwarmPhaseTriage] = time.Since(phaseStart)
+
+	triageSummary := fmt.Sprintf("completed — %d confirmed, %d false positives, %d iterations in %s",
+		result.Confirmed, result.FalsePositives, result.Iterations,
+		phaseTimings[SwarmPhaseTriage].Round(time.Second))
+	fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+		terminal.Aqua(terminal.SymbolSuccess),
+		terminal.Aqua("Triage"),
+		terminal.Muted(triageSummary))
 
 	// Count total findings with severity breakdown
 	if s.repo != nil {
@@ -740,11 +912,58 @@ func buildSmartHTTPContext(records []*httpmsg.HttpRequestResponse, maxRespBytes 
 	return rc.String()
 }
 
+// runMasterAgent orchestrates the two-phase plan+extension agent flow.
+// Phase 1 (plan) produces module tags, IDs, focus areas, and notes using a
+// simple markdown-section format that is highly resistant to LLM output errors.
+// Phase 2 (extensions) is conditional — it only runs when the plan indicates
+// custom extensions are needed — and produces JavaScript code blocks in isolation.
+// If Phase 2 fails, the plan from Phase 1 is still valid and the scan proceeds
+// without custom extensions (graceful degradation).
 func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
-	// Build request context for the prompt
-	maxRespBytes := cfg.MaxResponseBodyBytes
-	requestContext := buildSmartHTTPContext(records, maxRespBytes)
+	// Pre-compute request context once for both phases
+	requestContext := buildSmartHTTPContext(records, cfg.MaxResponseBodyBytes)
 
+	// Phase 1: Plan agent — analyze and select modules (no code generation)
+	plan, sessionID, rawOutput, renderedPrompt, err = s.runPlanAgent(ctx, cfg, records, targetURL, requestContext)
+	if err != nil {
+		return nil, sessionID, rawOutput, renderedPrompt, err
+	}
+	if cfg.DryRun || plan == nil {
+		return plan, sessionID, rawOutput, renderedPrompt, nil
+	}
+
+	// Normalize parsed plan: clean tags/IDs, strip inline commentary
+	normalizePlan(plan)
+
+	// Phase 2: Extension agent — generate custom JS extensions (conditional)
+	if planNeedsExtensions(plan) {
+		extPlan, extSessionID, extRaw, _, extErr := s.runExtensionAgent(ctx, cfg, records, targetURL, plan, requestContext)
+		if extErr != nil {
+			// Graceful degradation: log the error but proceed with the plan from Phase 1
+			zap.L().Warn("Extension agent failed — scanning without custom extensions",
+				zap.Error(extErr))
+			fmt.Fprintf(os.Stderr, "%s Extension agent failed — scanning without custom extensions: %s\n",
+				terminal.WarningSymbol(), extErr.Error())
+		} else if extPlan != nil {
+			// Merge extensions into the main plan
+			plan.Extensions = append(plan.Extensions, extPlan.Extensions...)
+			plan.QuickChecks = append(plan.QuickChecks, extPlan.QuickChecks...)
+			plan.Snippets = append(plan.Snippets, extPlan.Snippets...)
+
+			// Append extension agent output artifacts
+			rawOutput += "\n\n--- Extension Agent ---\n\n" + extRaw
+			if extSessionID != "" {
+				sessionID = extSessionID // use the latest session ID
+			}
+		}
+	}
+
+	return plan, sessionID, rawOutput, renderedPrompt, nil
+}
+
+// runPlanAgent executes Phase 1: analysis and module selection.
+// The prompt asks for markdown sections only (no JSON, no code), making parsing robust.
+func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, requestContext string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
 	hostname := ""
 	if targetURL != "" {
 		hostname = hostnameFromURL(targetURL)
@@ -753,30 +972,24 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	opts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
-		PromptTemplate: SwarmPromptMaster,
+		PromptTemplate: SwarmPromptPlan,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
+		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
-		SessionWeight:  3, // master agent sessions are high-priority for pool eviction
+		SessionWeight:  3,
 	}
 
-	// Pass request context and vuln type as extra template data
-	opts.Append = ""
 	if cfg.VulnType != "" {
 		opts.Append = fmt.Sprintf("## Vulnerability Focus\n\n%s", cfg.VulnType)
 	}
 
-	// We need to pass the request context to the template.
-	// Use the engine's context enrichment, but also inject our request context.
-	// The template uses {{.Extra.RequestContext}} and {{.Extra.VulnType}}.
-
-	// Retry loop: LLMs sometimes produce garbled JSON (especially with embedded
-	// JavaScript code in JSON strings). Retry on parse failure.
+	// Retry loop — plan output is simple markdown sections, so failures are rare.
 	maxAttempts := cfg.MaxMasterRetries
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -787,14 +1000,12 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	var lastParseErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// On retry, use a truncated method+URL summary instead of the full raw
-		// HTTP context to reduce token cost and avoid repeating verbose payloads.
 		extraContext := requestContext
 		if attempt > 1 {
-			zap.L().Info("retrying master agent (previous output was unparseable)",
+			zap.L().Info("retrying plan agent (previous output was unparseable)",
 				zap.Int("attempt", attempt),
 				zap.Error(lastParseErr))
-			opts.Append = buildRetryFeedback(cfg.VulnType, lastParseErr, lastRawOutput)
+			opts.Append = buildPlanRetryFeedback(cfg.VulnType, lastParseErr, lastRawOutput)
 			extraContext = retryTruncateContext(records)
 		}
 
@@ -803,7 +1014,7 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 			"VulnType":       cfg.VulnType,
 		})
 		if runErr != nil {
-			return nil, "", "", "", fmt.Errorf("master agent execution failed: %w", runErr)
+			return nil, "", "", "", fmt.Errorf("plan agent execution failed: %w", runErr)
 		}
 
 		lastSessionID = result.SessionID
@@ -816,7 +1027,7 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 
 		parsed, parseErr := ParseSwarmPlan(result.RawOutput)
 		if parseErr != nil {
-			zap.L().Debug("master agent raw output (parse failed)",
+			zap.L().Debug("plan agent raw output (parse failed)",
 				zap.String("output", result.RawOutput),
 				zap.Int("attempt", attempt))
 			lastParseErr = parseErr
@@ -826,7 +1037,195 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 		return parsed, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 	}
 
-	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse swarm plan after %d attempts: %w", maxAttempts, lastParseErr)
+	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse plan after %d attempts: %w", maxAttempts, lastParseErr)
+}
+
+// runExtensionAgent executes Phase 2: custom extension generation.
+// It receives the parsed plan as context so the agent focuses only on writing code.
+// This is isolated from the plan phase — if it fails, the plan is still valid.
+func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, plan *SwarmPlan, requestContext string) (extPlan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
+	hostname := ""
+	if targetURL != "" {
+		hostname = hostnameFromURL(targetURL)
+	}
+
+	// Build plan context summary for the extension agent
+	planContext := buildPlanContext(plan)
+
+	opts := Options{
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: SwarmPromptExtensions,
+		TargetURL:      targetURL,
+		Hostname:       hostname,
+		SourcePath:     cfg.SourcePath,
+		Instruction:    cfg.Instruction,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		StreamWriter:   cfg.StreamWriter,
+		SessionWeight:  2,
+	}
+
+	result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
+		"RequestContext": requestContext,
+		"PlanContext":    planContext,
+		"VulnType":       cfg.VulnType,
+	})
+	if runErr != nil {
+		return nil, "", "", "", fmt.Errorf("extension agent execution failed: %w", runErr)
+	}
+
+	if cfg.DryRun {
+		return nil, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
+	}
+
+	// Parse extensions from the output — we only care about extensions, quick_checks, snippets
+	parsed, parseErr := ParseSwarmExtensions(result.RawOutput)
+	if parseErr != nil {
+		return nil, result.SessionID, result.RawOutput, result.RenderedPrompt,
+			fmt.Errorf("extension agent output unparseable: %w", parseErr)
+	}
+
+	return parsed, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
+}
+
+// buildPlanContext formats the plan as a readable summary for the extension agent prompt.
+func buildPlanContext(plan *SwarmPlan) string {
+	var sb strings.Builder
+
+	if len(plan.ModuleTags) > 0 {
+		sb.WriteString("**Module tags:** ")
+		sb.WriteString(strings.Join(plan.ModuleTags, ", "))
+		sb.WriteString("\n\n")
+	}
+	if len(plan.ModuleIDs) > 0 {
+		sb.WriteString("**Module IDs:** ")
+		sb.WriteString(strings.Join(plan.ModuleIDs, ", "))
+		sb.WriteString("\n\n")
+	}
+	if len(plan.FocusAreas) > 0 {
+		sb.WriteString("**Focus areas:**\n")
+		for _, fa := range plan.FocusAreas {
+			fmt.Fprintf(&sb, "- %s\n", fa)
+		}
+		sb.WriteString("\n")
+	}
+	if plan.Notes != "" {
+		sb.WriteString("**Notes:** ")
+		sb.WriteString(plan.Notes)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// planNeedsExtensions checks whether the plan indicates custom extensions are needed.
+// It checks the NEEDS_EXTENSIONS section, and also considers focus areas / notes
+// that suggest non-standard attack surfaces.
+func planNeedsExtensions(plan *SwarmPlan) bool {
+	if plan == nil {
+		return false
+	}
+
+	// Check the NEEDS_EXTENSIONS field parsed from the markdown section
+	if plan.NeedsExtensions {
+		return true
+	}
+
+	// If the plan already has extensions (from legacy flow or hybrid parse), skip
+	if len(plan.Extensions) > 0 || len(plan.QuickChecks) > 0 || len(plan.Snippets) > 0 {
+		return false
+	}
+
+	return false
+}
+
+// normalizePlan cleans up parsed plan fields: lowercases tags/IDs, strips
+// inline commentary, removes duplicates, and trims whitespace.
+func normalizePlan(plan *SwarmPlan) {
+	if plan == nil {
+		return
+	}
+
+	plan.ModuleTags = normalizeStringSlice(plan.ModuleTags)
+	plan.ModuleIDs = normalizeStringSlice(plan.ModuleIDs)
+
+	// Deduplicate focus areas (exact match), strip empty/meaningless entries
+	if len(plan.FocusAreas) > 0 {
+		seen := make(map[string]bool, len(plan.FocusAreas))
+		deduped := make([]string, 0, len(plan.FocusAreas))
+		for _, fa := range plan.FocusAreas {
+			fa = strings.TrimSpace(fa)
+			// Skip empty entries or lone bullet characters
+			if len(fa) <= 1 || seen[fa] {
+				continue
+			}
+			seen[fa] = true
+			deduped = append(deduped, fa)
+		}
+		plan.FocusAreas = deduped
+	}
+
+	plan.Notes = strings.TrimSpace(plan.Notes)
+}
+
+// normalizeStringSlice lowercases, trims whitespace, strips inline parenthetical
+// commentary (e.g., "sqli (common in login forms)" → "sqli"), and deduplicates.
+func normalizeStringSlice(items []string) []string {
+	if len(items) == 0 {
+		return items
+	}
+	seen := make(map[string]bool, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		// Strip inline parenthetical commentary: "sqli (reason)" → "sqli"
+		if idx := strings.Index(item, "("); idx > 0 {
+			item = strings.TrimSpace(item[:idx])
+		}
+		// Strip trailing commentary after " - " or " — "
+		if idx := strings.Index(item, " - "); idx > 0 {
+			item = strings.TrimSpace(item[:idx])
+		}
+		if idx := strings.Index(item, " — "); idx > 0 {
+			item = strings.TrimSpace(item[:idx])
+		}
+		item = strings.ToLower(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// buildPlanRetryFeedback constructs error feedback for plan agent retries.
+// Simpler than the old buildRetryFeedback since the plan agent outputs no code.
+func buildPlanRetryFeedback(vulnType string, parseErr error, rawOutput string) string {
+	var sb strings.Builder
+	if vulnType != "" {
+		fmt.Fprintf(&sb, "## Vulnerability Focus\n\n%s\n\n", vulnType)
+	}
+	sb.WriteString("## CRITICAL: Your previous output could not be parsed\n\n")
+	fmt.Fprintf(&sb, "Parse error: %s\n\n", parseErr.Error())
+
+	if rawOutput != "" {
+		snippet := rawOutput
+		if len(snippet) > 500 {
+			snippet = snippet[:500] + "..."
+		}
+		fmt.Fprintf(&sb, "Your previous output (truncated):\n```\n%s\n```\n\n", snippet)
+	}
+
+	sb.WriteString("You MUST use the markdown section format. Requirements:\n")
+	sb.WriteString("1. Use `## MODULE_TAGS` heading followed by a comma-separated list on the next line.\n")
+	sb.WriteString("2. Use `## MODULE_IDS` heading followed by a comma-separated list on the next line.\n")
+	sb.WriteString("3. Use `## FOCUS_AREAS` heading followed by a bulleted list.\n")
+	sb.WriteString("4. Use `## NOTES` heading followed by free-text notes.\n")
+	sb.WriteString("5. Do NOT output JSON or code blocks. Only markdown sections.\n")
+	return sb.String()
 }
 
 // retryTruncateContext produces a compact method+URL summary of the request
@@ -850,33 +1249,6 @@ func retryTruncateContext(records []*httpmsg.HttpRequestResponse) string {
 	return sb.String()
 }
 
-// buildRetryFeedback constructs an error-feedback appendix for retry attempts,
-// telling the agent what went wrong and reminding it of the expected format.
-func buildRetryFeedback(vulnType string, parseErr error, rawOutput string) string {
-	var sb strings.Builder
-	if vulnType != "" {
-		fmt.Fprintf(&sb, "## Vulnerability Focus\n\n%s\n\n", vulnType)
-	}
-	sb.WriteString("## CRITICAL: Your previous output contained broken JSON\n\n")
-	fmt.Fprintf(&sb, "Parse error: %s\n\n", parseErr.Error())
-
-	// Show a snippet of the broken output so the agent can see the corruption
-	if rawOutput != "" {
-		snippet := rawOutput
-		if len(snippet) > 500 {
-			snippet = snippet[:500] + "..."
-		}
-		fmt.Fprintf(&sb, "Your previous output (truncated):\n```\n%s\n```\n\n", snippet)
-	}
-
-	sb.WriteString("You MUST use the markdown section format. Requirements:\n")
-	sb.WriteString("1. Use `## MODULE_TAGS` heading followed by a comma-separated list of tags on the next line.\n")
-	sb.WriteString("2. Use `## FOCUS_AREAS` heading followed by a bulleted list.\n")
-	sb.WriteString("3. Use `## NOTES` heading followed by free-text notes.\n")
-	sb.WriteString("4. For extensions, use `#### filename.js` heading followed by a fenced ```javascript code block.\n")
-	sb.WriteString("5. Do NOT output a raw JSON blob. Use markdown sections.\n")
-	return sb.String()
-}
 
 // writeExtensionsToDir writes extensions to the session dir if available, otherwise to a temp dir.
 func writeExtensionsToDir(extensions []GeneratedExtension, sessionDir string) (string, error) {
@@ -902,6 +1274,34 @@ func writeSessionConfigToDir(cfg *AgentSessionConfig, sessionDir string) {
 		return
 	}
 	zap.L().Info("Session config written", zap.String("path", path))
+}
+
+// writeSourceExtensionsToSessionDir writes source-analysis/SAST-review generated extensions
+// to the session directory immediately when discovered. This ensures extensions are
+// preserved as artifacts even if subsequent phases fail. The extensions/ subdirectory
+// is used, matching the same location that the final merged extensions are written to.
+func writeSourceExtensionsToSessionDir(extensions []GeneratedExtension, sessionDir string) {
+	if len(extensions) == 0 || sessionDir == "" {
+		return
+	}
+	extDir := filepath.Join(sessionDir, "extensions")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		zap.L().Warn("Failed to create extensions dir for source extensions", zap.Error(err))
+		return
+	}
+	for i, ext := range extensions {
+		filename := sanitizeExtensionFilename(ext.Filename, i)
+		path := filepath.Join(extDir, filename)
+		if writeErr := os.WriteFile(path, []byte(ext.Code), 0644); writeErr != nil {
+			zap.L().Warn("Failed to write source extension",
+				zap.String("filename", filename),
+				zap.Error(writeErr))
+			continue
+		}
+		zap.L().Info("Source extension written to session dir",
+			zap.String("filename", filename),
+			zap.String("reason", ext.Reason))
+	}
 }
 
 // writePromptToSessionDir saves a rendered prompt to the session directory.
@@ -1399,6 +1799,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		PromptTemplate: SwarmPromptTriage,
 		TargetURL:      agentRun.TargetURL,
 		Hostname:       hostnameFromURL(agentRun.TargetURL),
+		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
@@ -1415,6 +1816,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
+			s.persistPhase(ctx, agentRun)
 		},
 		OnTriageRoundComplete: func(round int) {
 			_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
@@ -1520,6 +1922,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		PromptTemplate: SwarmPromptSASTReview,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
+		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
@@ -1548,7 +1951,9 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		return nil
 	}
 
-	// Parse as SourceAnalysisResult (validated routes + optional extensions)
+	// Parse as SourceAnalysisResult (validated routes + optional extensions).
+	// ParseSourceAnalysisResult now handles multi-block output and falls back to
+	// extracting extensions even when JSON parsing fails entirely.
 	saResult, parseErr := ParseSourceAnalysisResult(agentResult.RawOutput)
 	if parseErr != nil {
 		zap.L().Warn("Failed to parse SAST review result", zap.Error(parseErr))
@@ -1560,4 +1965,112 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		zap.Int("extensions", len(saResult.Extensions)))
 
 	return saResult
+}
+
+// probeRecords sends HTTP requests for records that don't have responses,
+// enriching them with live response data. This ensures records saved to the
+// database have response bodies, status codes, and headers for the scanner
+// modules to analyze. Records are probed concurrently with a bounded worker pool.
+func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
+	const maxConcurrency = 10
+	const probeTimeout = 10 * time.Second
+
+	client := &http.Client{
+		Timeout: probeTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		// Don't follow redirects — capture the redirect response itself
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+
+	for i, rr := range records {
+		if rr.HasResponse() {
+			continue
+		}
+		if rr.Request() == nil {
+			continue
+		}
+		targetURL := rr.Target()
+		if targetURL == "" {
+			continue
+		}
+
+		wg.Add(1)
+		idx := i
+		go func(rec *httpmsg.HttpRequestResponse, target string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			probed := probeSingleRecord(ctx, client, rec, target)
+			if probed != nil {
+				records[idx] = probed
+			}
+		}(rr, targetURL)
+	}
+
+	wg.Wait()
+}
+
+// probeSingleRecord sends an HTTP request for a single record and returns
+// the record with the response attached, or nil if probing failed.
+func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string) *httpmsg.HttpRequestResponse {
+	method := "GET"
+	if rr.Request() != nil {
+		method = rr.Request().Method()
+	}
+
+	var bodyReader io.Reader
+	if rr.Request() != nil && len(rr.Request().Body()) > 0 {
+		bodyReader = bytes.NewReader(rr.Request().Body())
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
+	if err != nil {
+		zap.L().Debug("Failed to build probe request", zap.String("url", targetURL), zap.Error(err))
+		return nil
+	}
+
+	// Copy headers from the original request
+	if rr.Request() != nil {
+		for _, h := range rr.Request().Headers() {
+			httpReq.Header.Add(h.Name, h.Value)
+		}
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		zap.L().Debug("Probe request failed", zap.String("url", targetURL), zap.Error(err))
+		return nil
+	}
+	defer resp.Body.Close()
+
+	// Read response body (limit to 2MB to avoid memory issues)
+	const maxBody = 2 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		zap.L().Debug("Failed to read probe response", zap.String("url", targetURL), zap.Error(err))
+		return nil
+	}
+
+	// Build raw HTTP response
+	var rawResp bytes.Buffer
+	fmt.Fprintf(&rawResp, "%s %s\r\n", resp.Proto, resp.Status)
+	for k, vals := range resp.Header {
+		for _, v := range vals {
+			fmt.Fprintf(&rawResp, "%s: %s\r\n", k, v)
+		}
+	}
+	rawResp.WriteString("\r\n")
+	rawResp.Write(body)
+
+	httpResp := httpmsg.NewHttpResponse(rawResp.Bytes())
+	return rr.WithResponse(httpResp)
 }

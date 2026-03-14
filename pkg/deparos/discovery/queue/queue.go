@@ -52,19 +52,21 @@ type TaskInfo interface {
 // Lower priority value = higher priority = dequeued first.
 // Thread-safe for concurrent enqueue/dequeue operations.
 //
-// Uses channel-based signaling (not sync.Cond) for proper context cancellation.
+// Uses a buffered notification channel with a separate done channel for stop signaling.
 type TaskQueue struct {
 	mu      sync.Mutex
 	heap    taskHeap
 	stopped bool
-	signal  chan struct{} // Signaling channel, closed and recreated on each signal
+	signal  chan struct{} // Buffered(1) notification channel, non-blocking send
+	done    chan struct{} // Closed once on Stop() to wake all blocked dequeuers
 }
 
 // New creates a new priority queue.
 func New() *TaskQueue {
 	return &TaskQueue{
 		heap:   make(taskHeap, 0, 1000),
-		signal: make(chan struct{}),
+		signal: make(chan struct{}, 1),
+		done:   make(chan struct{}),
 	}
 }
 
@@ -80,9 +82,11 @@ func (q *TaskQueue) Enqueue(task TaskInfo) {
 
 	heap.Push(&q.heap, task)
 
-	// Signal waiting dequeuers by closing and recreating channel
-	close(q.signal)
-	q.signal = make(chan struct{})
+	// Non-blocking signal: if channel already has a pending signal, skip
+	select {
+	case q.signal <- struct{}{}:
+	default:
+	}
 }
 
 // Dequeue returns the highest priority task.
@@ -91,13 +95,11 @@ func (q *TaskQueue) Dequeue(ctx context.Context) (TaskInfo, error) {
 	for {
 		q.mu.Lock()
 
-		// Check stop condition
 		if q.stopped {
 			q.mu.Unlock()
 			return nil, ErrQueueStopped
 		}
 
-		// Return task if available
 		if len(q.heap) > 0 {
 			task, ok := heap.Pop(&q.heap).(TaskInfo)
 			if !ok {
@@ -108,15 +110,15 @@ func (q *TaskQueue) Dequeue(ctx context.Context) (TaskInfo, error) {
 			return task, nil
 		}
 
-		// Get signal channel while holding lock
-		signal := q.signal
 		q.mu.Unlock()
 
-		// Wait for signal or context cancellation (no lock held)
+		// Wait for signal, stop, or context cancellation (no lock held)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-signal:
+		case <-q.done:
+			return nil, ErrQueueStopped
+		case <-q.signal:
 			// Signal received, loop to check queue again
 		}
 	}
@@ -153,9 +155,11 @@ func (q *TaskQueue) Stop() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	if q.stopped {
+		return
+	}
 	q.stopped = true
-	close(q.signal)
-	q.signal = make(chan struct{}) // Prevent panic on double close
+	close(q.done)
 }
 
 // IsStopped returns true if queue has been stopped.

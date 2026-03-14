@@ -191,13 +191,14 @@ type Snippet struct {
 // SwarmPlan is the structured output from the master agent in agent swarm mode.
 // The agent analyzes the target request, selects modules, and generates custom extensions.
 type SwarmPlan struct {
-	ModuleTags  []string             `json:"module_tags,omitempty"`
-	ModuleIDs   []string             `json:"module_ids,omitempty"`
-	Extensions  []GeneratedExtension `json:"extensions,omitempty"`
-	QuickChecks []QuickCheck         `json:"quick_checks,omitempty"`
-	Snippets    []Snippet            `json:"snippets,omitempty"`
-	FocusAreas  []string             `json:"focus_areas,omitempty"`
-	Notes       string               `json:"notes,omitempty"`
+	ModuleTags      []string             `json:"module_tags,omitempty"`
+	ModuleIDs       []string             `json:"module_ids,omitempty"`
+	Extensions      []GeneratedExtension `json:"extensions,omitempty"`
+	QuickChecks     []QuickCheck         `json:"quick_checks,omitempty"`
+	Snippets        []Snippet            `json:"snippets,omitempty"`
+	FocusAreas      []string             `json:"focus_areas,omitempty"`
+	Notes           string               `json:"notes,omitempty"`
+	NeedsExtensions bool                 `json:"needs_extensions,omitempty"`
 }
 
 // BatchProvenance tracks which batch contributed each item to a merged plan.
@@ -338,6 +339,63 @@ func ParseSwarmPlan(raw string) (*SwarmPlan, error) {
 	return nil, fmt.Errorf("failed to parse swarm plan: no recognizable plan structure found")
 }
 
+// ParseSwarmExtensions extracts extensions, quick_checks, and snippets from
+// raw agent output. This is used by the Phase 2 extension agent whose only job
+// is to produce code — so we don't require module_tags or other plan fields.
+// Returns nil if the output contains no extensions (e.g., "No custom extensions needed.").
+func ParseSwarmExtensions(raw string) (*SwarmPlan, error) {
+	plan := &SwarmPlan{}
+
+	// Extract fenced JavaScript code blocks as full extensions
+	if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+		plan.Extensions = codeExts
+	}
+
+	// Extract quick_checks from fenced JSON blocks
+	for _, fenced := range extractFencedBlocks(raw) {
+		fenced = strings.TrimSpace(fenced)
+		if fenced == "" {
+			continue
+		}
+		// Try as quick_checks array
+		if fenced[0] == '[' {
+			var qcs []QuickCheck
+			if json.Unmarshal([]byte(fenced), &qcs) == nil && len(qcs) > 0 && qcs[0].ID != "" {
+				plan.QuickChecks = append(plan.QuickChecks, qcs...)
+				continue
+			}
+			// Try as snippets array
+			var snips []Snippet
+			if json.Unmarshal([]byte(fenced), &snips) == nil && len(snips) > 0 && snips[0].ID != "" {
+				plan.Snippets = append(plan.Snippets, snips...)
+				continue
+			}
+		}
+	}
+
+	// Also try keyed JSON extraction for quick_checks
+	if len(plan.QuickChecks) == 0 {
+		if qcBlock := findJSONArrayInSection(raw, "quick_checks"); qcBlock != "" {
+			var qcs []QuickCheck
+			if json.Unmarshal([]byte(qcBlock), &qcs) == nil {
+				plan.QuickChecks = qcs
+			}
+		}
+	}
+
+	// Check if output explicitly says no extensions needed
+	lower := strings.ToLower(raw)
+	if strings.Contains(lower, "no custom extensions needed") || strings.Contains(lower, "no extensions needed") {
+		return nil, nil
+	}
+
+	if len(plan.Extensions) == 0 && len(plan.QuickChecks) == 0 && len(plan.Snippets) == 0 {
+		return nil, fmt.Errorf("no extensions found in extension agent output")
+	}
+
+	return plan, nil
+}
+
 // swarmPlanHasContent returns true if the plan contains at least one meaningful field.
 // module_tags is no longer required — a plan with only focus_areas, extensions, etc. is valid.
 func swarmPlanHasContent(plan *SwarmPlan) bool {
@@ -474,7 +532,7 @@ func parseSwarmPlanMarkdown(raw string) (*SwarmPlan, error) {
 	sections := splitMarkdownSections(raw)
 
 	// At least one recognized section must be present for this to be a markdown-format plan.
-	recognizedSections := []string{"MODULE_TAGS", "MODULE_IDS", "FOCUS_AREAS", "NOTES"}
+	recognizedSections := []string{"MODULE_TAGS", "MODULE_IDS", "FOCUS_AREAS", "NOTES", "NEEDS_EXTENSIONS"}
 	hasSection := false
 	for _, name := range recognizedSections {
 		if _, ok := sections[name]; ok {
@@ -502,6 +560,11 @@ func parseSwarmPlanMarkdown(raw string) (*SwarmPlan, error) {
 
 	if notes, ok := sections["NOTES"]; ok {
 		plan.Notes = strings.TrimSpace(notes)
+	}
+
+	if ne, ok := sections["NEEDS_EXTENSIONS"]; ok {
+		ne = strings.TrimSpace(strings.ToLower(stripCodeFenceMarkers(ne)))
+		plan.NeedsExtensions = ne == "yes" || ne == "true"
 	}
 
 	// Extract extensions from fenced code blocks (existing logic handles #### headings)
@@ -567,16 +630,50 @@ func splitMarkdownSections(raw string) map[string]string {
 	return sections
 }
 
-// parseCommaSeparated splits a string by commas and returns trimmed, non-empty tokens.
+// parseCommaSeparated splits a string by commas and/or newlines and returns trimmed,
+// non-empty tokens. It also strips code fence markers (```) which LLMs sometimes
+// wrap around values in markdown sections.
 func parseCommaSeparated(s string) []string {
+	// Strip code fence markers (``` or ```lang) — agents sometimes wrap values in fences
+	s = stripCodeFenceMarkers(s)
+
 	var result []string
-	for _, token := range strings.Split(s, ",") {
-		token = strings.TrimSpace(token)
-		if token != "" {
-			result = append(result, token)
+	// Split by commas first; if that yields only one token containing newlines,
+	// fall back to newline splitting (agents sometimes use newline-separated lists).
+	commaParts := strings.Split(s, ",")
+	if len(commaParts) == 1 && strings.Contains(s, "\n") {
+		// Newline-separated list
+		for _, line := range strings.Split(s, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				result = append(result, line)
+			}
+		}
+	} else {
+		for _, token := range commaParts {
+			token = strings.TrimSpace(token)
+			if token != "" {
+				result = append(result, token)
+			}
 		}
 	}
 	return result
+}
+
+// stripCodeFenceMarkers removes ``` lines (with optional language tag) from a string.
+func stripCodeFenceMarkers(s string) string {
+	var out strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			continue
+		}
+		if out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(line)
+	}
+	return out.String()
 }
 
 // parseBulletList extracts items from a bulleted markdown list.
@@ -929,15 +1026,32 @@ func ParseTriageResult(raw string) (*TriageResult, error) {
 //  1. Hybrid: JSON object containing http_records and session_config, followed by
 //     fenced ```javascript code blocks for extensions (preferred — avoids escaping issues).
 //  2. Legacy: a single JSON object containing all fields including extensions[].code.
+//
+// When the output contains multiple JSON blocks (e.g., multi-task SAST review output),
+// the function tries all JSON fenced blocks and also merges http_records across blocks.
 func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	// Try hybrid format first: JSON with records/session_config + fenced code blocks for extensions
 	if result, err := parseSourceAnalysisHybrid(raw); err == nil && len(result.HTTPRecords) > 0 {
 		return result, nil
 	}
 
+	// Try multi-block merge: when agent outputs multiple JSON blocks (e.g., separate tasks),
+	// merge http_records from all parseable blocks into a single result.
+	if result := mergeMultiBlockSourceAnalysis(raw); result != nil && len(result.HTTPRecords) > 0 {
+		// Also extract extensions from fenced code blocks
+		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+			result.Extensions = codeExts
+		}
+		return result, nil
+	}
+
 	// Fall back to legacy all-in-one JSON format
 	jsonStr, err := extractJSON(raw)
 	if err != nil {
+		// Even when JSON parsing fails entirely, try to extract extensions from code blocks
+		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+			return &SourceAnalysisResult{Extensions: codeExts}, nil
+		}
 		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
 	}
 
@@ -950,10 +1064,92 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	// Try direct format: {...}
 	var result SourceAnalysisResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		// Even when JSON parsing fails, try to extract extensions from code blocks
+		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
+			return &SourceAnalysisResult{Extensions: codeExts}, nil
+		}
 		return nil, fmt.Errorf("failed to parse source analysis result from JSON: %w", err)
 	}
 
 	return &result, nil
+}
+
+// mergeMultiBlockSourceAnalysis tries to parse multiple JSON fenced blocks and merge
+// their http_records into a single SourceAnalysisResult. This handles the case where
+// agents output multiple separate JSON blocks (e.g., SAST review with Task 1/2/3).
+func mergeMultiBlockSourceAnalysis(raw string) *SourceAnalysisResult {
+	blocks := extractAllJSONFromFencedBlocks(raw)
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	merged := &SourceAnalysisResult{}
+	anyParsed := false
+
+	for _, block := range blocks {
+		// Try as SourceAnalysisResult
+		var result SourceAnalysisResult
+		if err := json.Unmarshal([]byte(block), &result); err == nil {
+			if len(result.HTTPRecords) > 0 {
+				merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
+				anyParsed = true
+			}
+			if result.SessionConfig != nil && merged.SessionConfig == nil {
+				merged.SessionConfig = result.SessionConfig
+			}
+			if len(result.Extensions) > 0 {
+				merged.Extensions = append(merged.Extensions, result.Extensions...)
+			}
+		}
+	}
+
+	if !anyParsed {
+		return nil
+	}
+	return merged
+}
+
+// extractAllJSONFromFencedBlocks extracts valid JSON content from ALL ```json fenced
+// code blocks (not just the first). Returns all parseable JSON strings.
+func extractAllJSONFromFencedBlocks(raw string) []string {
+	var results []string
+	lines := strings.Split(raw, "\n")
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+
+		if !strings.HasPrefix(trimmed, "```json") {
+			continue
+		}
+		rest := strings.TrimPrefix(trimmed, "```json")
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			continue
+		}
+
+		var content strings.Builder
+		i++
+		for i < len(lines) {
+			if strings.TrimSpace(lines[i]) == "```" {
+				break
+			}
+			if content.Len() > 0 {
+				content.WriteByte('\n')
+			}
+			content.WriteString(lines[i])
+			i++
+		}
+
+		candidate := strings.TrimSpace(content.String())
+		if candidate == "" {
+			continue
+		}
+
+		if isJSON(candidate) {
+			results = append(results, candidate)
+		} else if block := findJSONBlock(candidate); block != "" && isJSON(block) {
+			results = append(results, block)
+		}
+	}
+	return results
 }
 
 // parseSourceAnalysisHybrid parses the hybrid output format where the JSON contains

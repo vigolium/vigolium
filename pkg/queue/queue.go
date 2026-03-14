@@ -53,6 +53,14 @@ type QueueMetrics struct {
 
 	// DequeueErrors is the number of failed dequeue operations.
 	DequeueErrors int64
+
+	// SegmentCount is the number of active disk segments.
+	// Only set for disk-based and hybrid queues.
+	SegmentCount int
+
+	// DiskUsageBytes is the approximate total disk usage across all segments.
+	// Only set for disk-based and hybrid queues; 0 for Redis or in-memory.
+	DiskUsageBytes int64
 }
 
 // QueueType represents the type of queue implementation.

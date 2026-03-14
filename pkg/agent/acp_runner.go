@@ -147,7 +147,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 		zap.Int("protocolVersion", acp.ProtocolVersionNumber))
 
 	// Initialize the ACP connection
-	_, initErr := conn.Initialize(ctx, acp.InitializeRequest{
+	initResp, initErr := conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
 			Fs: acp.FileSystemCapability{
@@ -223,15 +223,38 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 		return r, fmt.Errorf("ACP prompt failed: %w", promptErr)
 	}
 
+	output := client.collectedOutput()
+
 	zap.L().Debug("ACP prompt completed",
 		zap.String("stopReason", string(promptResp.StopReason)),
-		zap.Int("collectedOutputBytes", len(client.collectedOutput())))
+		zap.Int("collectedOutputBytes", len(output)))
 
 	// Close stdin to signal EOF to the agent process
 	_ = stdinPipe.Close()
 
+	if len(output) == 0 && promptResp.StopReason == "end_turn" {
+		var authHint string
+		if len(initResp.AuthMethods) > 0 {
+			hints := make([]string, 0, len(initResp.AuthMethods))
+			for _, am := range initResp.AuthMethods {
+				desc := am.Name
+			if am.Description != nil && *am.Description != "" {
+				desc = *am.Description
+			}
+			hints = append(hints, desc)
+			}
+			authHint = fmt.Sprintf("; the agent advertises authentication methods — ensure you are authenticated: %s", strings.Join(hints, "; "))
+		}
+
+		return acpResult{
+			Stdout:    output,
+			Stderr:    stderrBuf.String(),
+			SessionID: sessionID,
+		}, fmt.Errorf("agent returned empty output (0 tokens) — the LLM backend did not process the prompt%s", authHint)
+	}
+
 	return acpResult{
-		Stdout:    client.collectedOutput(),
+		Stdout:    output,
 		Stderr:    stderrBuf.String(),
 		SessionID: sessionID,
 	}, nil

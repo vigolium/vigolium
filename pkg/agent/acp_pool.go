@@ -55,10 +55,11 @@ type acpSession struct {
 	stderrReader *io.PipeReader
 	stderrWg     sync.WaitGroup
 
-	inUse    bool
-	lastUsed time.Time
-	weight   int
-	dead     bool
+	inUse       bool
+	lastUsed    time.Time
+	weight      int
+	dead        bool
+	authMethods []acp.AuthMethod // auth methods advertised by the agent
 }
 
 // kill terminates the subprocess and marks the session as dead.
@@ -244,13 +245,41 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		return r, fmt.Errorf("ACP prompt failed on warm session: %w", promptErr)
 	}
 
+	output := sess.client.collectedOutput()
+
 	zap.L().Debug("ACP warm session prompt completed",
 		zap.String("agent", agentName),
 		zap.String("stopReason", string(promptResp.StopReason)),
-		zap.Int("outputBytes", len(sess.client.collectedOutput())))
+		zap.Int("outputBytes", len(output)))
+
+	if len(output) == 0 && promptResp.StopReason == "end_turn" {
+		// Build a helpful error message based on the agent's auth methods
+		var authHint string
+		if len(sess.authMethods) > 0 {
+			hints := make([]string, 0, len(sess.authMethods))
+			for _, am := range sess.authMethods {
+				desc := am.Name
+			if am.Description != nil && *am.Description != "" {
+				desc = *am.Description
+			}
+			hints = append(hints, desc)
+			}
+			authHint = fmt.Sprintf("; the agent advertises authentication methods — ensure you are authenticated: %s", strings.Join(hints, "; "))
+		}
+
+		zap.L().Warn("ACP agent returned empty output with zero tokens — the agent's LLM backend may not be processing prompts",
+			zap.String("agent", agentName),
+			zap.String("cwd", sess.cwd),
+			zap.Int("promptLength", len(prompt)))
+
+		return acpResult{
+			Stdout:    output,
+			SessionID: sessionID,
+		}, fmt.Errorf("agent %q returned empty output (0 tokens) — the LLM backend did not process the prompt%s", agentName, authHint)
+	}
 
 	return acpResult{
-		Stdout:    sess.client.collectedOutput(),
+		Stdout:    output,
 		SessionID: sessionID,
 	}, nil
 }
@@ -360,7 +389,7 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	sess.conn = conn
 
 	// Initialize
-	_, initErr := conn.Initialize(ctx, acp.InitializeRequest{
+	initResp, initErr := conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
 			Fs: acp.FileSystemCapability{
@@ -374,6 +403,7 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 		sess.kill()
 		return nil, fmt.Errorf("ACP initialize failed for warm session: %w", initErr)
 	}
+	sess.authMethods = initResp.AuthMethods
 
 	// Create session
 	sessReq := acp.NewSessionRequest{
@@ -454,4 +484,6 @@ func (p *ACPPool) reaper() {
 		}
 	}
 }
+
+
 

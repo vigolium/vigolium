@@ -109,9 +109,6 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		}
 
 		uuid := r.UUID
-		if len(uuid) > 8 {
-			uuid = uuid[:8]
-		}
 
 		sid := r.SessionID
 		if len(sid) > 12 {

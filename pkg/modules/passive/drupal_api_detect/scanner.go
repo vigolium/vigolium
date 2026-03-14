@@ -59,11 +59,13 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	var signals []string
 	apiType := ""
+	hasContentSignal := false
 
-	// JSON:API detection
+	// JSON:API detection via content type
 	if strings.Contains(ct, "application/vnd.api+json") {
 		apiType = "JSON:API"
 		signals = append(signals, "application/vnd.api+json content type")
+		hasContentSignal = true
 	}
 
 	// JSON:API link patterns in body
@@ -72,33 +74,52 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			apiType = "JSON:API"
 		}
 		signals = append(signals, "JSON:API resource structure in response body")
+		hasContentSignal = true
 	}
 
-	// Drupal REST responses
-	if strings.Contains(ct, "application/json") || strings.Contains(ct, "application/hal+json") {
-		if strings.Contains(body, `"_links"`) && strings.Contains(body, `"type"`) {
-			if apiType == "" {
-				apiType = "REST (HAL)"
-			}
-			signals = append(signals, "HAL+JSON entity structure")
+	// Drupal REST responses (HAL+JSON with _links and type is Drupal-specific)
+	if strings.Contains(ct, "application/hal+json") {
+		if apiType == "" {
+			apiType = "REST (HAL)"
 		}
+		signals = append(signals, "application/hal+json content type")
+		hasContentSignal = true
+	}
+	if (strings.Contains(ct, "application/json") || strings.Contains(ct, "application/hal+json")) &&
+		strings.Contains(body, `"_links"`) && strings.Contains(body, `"type"`) {
+		if apiType == "" {
+			apiType = "REST (HAL)"
+		}
+		signals = append(signals, "HAL+JSON entity structure")
+		hasContentSignal = true
 	}
 
-	// Path-based signals
+	// Drupal-specific headers
+	if strings.Contains(strings.ToLower(ctx.Response().Header("X-Generator")), "drupal") ||
+		ctx.Response().Header("X-Drupal-Cache") != "" ||
+		ctx.Response().Header("X-Drupal-Dynamic-Cache") != "" {
+		hasContentSignal = true
+		signals = append(signals, "Drupal-specific response header")
+	}
+
+	// Path-based signals (supplementary only — not sufficient on their own)
 	if strings.HasPrefix(path, "/jsonapi") {
 		if apiType == "" {
 			apiType = "JSON:API"
 		}
 		signals = append(signals, fmt.Sprintf("JSON:API path: %s", urlx.Path))
 	}
-	if strings.Contains(path, "/rest/") || strings.Contains(path, "?_format=json") || strings.Contains(path, "?_format=hal_json") {
+	query := strings.ToLower(urlx.RawQuery)
+	if strings.Contains(query, "_format=json") || strings.Contains(query, "_format=hal_json") {
 		if apiType == "" {
 			apiType = "REST"
 		}
-		signals = append(signals, fmt.Sprintf("REST path: %s", urlx.Path))
+		signals = append(signals, fmt.Sprintf("Drupal REST format parameter: %s", urlx.RawQuery))
 	}
 
-	if len(signals) == 0 {
+	// Require at least one content-based signal (content type, body structure, or Drupal header).
+	// Path-only matches are too generic and cause false positives on non-Drupal apps.
+	if !hasContentSignal || len(signals) == 0 {
 		return nil, nil
 	}
 

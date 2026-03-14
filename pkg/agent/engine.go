@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -339,11 +340,11 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		{"extensions", "swarm-source-extensions"},
 	}
 
-	// Check if the focused templates exist. If not, fall back to monolithic analysis.
+	// Check if the focused templates exist (handles file-based and embedded templates).
+	// If not, fall back to monolithic analysis.
 	allExist := true
 	for _, sa := range subAgents {
-		path := ResolveTemplatePath(sa.template, e.settings.Agent.TemplatesDir)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		if _, err := LoadTemplate(sa.template, e.settings.Agent.TemplatesDir); err != nil {
 			allExist = false
 			break
 		}
@@ -741,10 +742,31 @@ func ToHTTPRequestResponse(rec AgentHTTPRecord) (*httpmsg.HttpRequestResponse, e
 		rec.Method = "GET"
 	}
 
-	rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\n", rec.Method, rec.URL)
+	parsedURL, parseErr := url.Parse(rec.URL)
+	if parseErr != nil {
+		return nil, fmt.Errorf("invalid URL %q: %w", rec.URL, parseErr)
+	}
+
+	// Use the relative path in the request line (standard HTTP/1.1 origin-form).
+	reqPath := parsedURL.RequestURI()
+	if reqPath == "" {
+		reqPath = "/"
+	}
+
+	rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\n", rec.Method, reqPath)
+
+	// Ensure a Host header is present (required by HTTP/1.1).
+	hasHost := false
 	for k, v := range rec.Headers {
 		rawReq += fmt.Sprintf("%s: %s\r\n", k, v)
+		if strings.EqualFold(k, "Host") {
+			hasHost = true
+		}
 	}
+	if !hasHost && parsedURL.Host != "" {
+		rawReq += fmt.Sprintf("Host: %s\r\n", parsedURL.Host)
+	}
+
 	rawReq += "\r\n"
 	if rec.Body != "" {
 		rawReq += rec.Body

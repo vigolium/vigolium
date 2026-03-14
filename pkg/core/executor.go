@@ -28,34 +28,71 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxPooledResponseSize = 1 << 20 // 1 MiB
+// Tiered response buffer pools reduce GC pressure across response sizes.
+// Three tiers cover the common response size distribution:
+//   - small:  responses up to 1 MiB  (most responses)
+//   - medium: responses up to 4 MiB  (large pages, API responses)
+//   - large:  responses up to 16 MiB (very large payloads)
+// Responses exceeding 16 MiB are allocated directly and not pooled.
+const (
+	poolTierSmall  = 1 << 20  // 1 MiB
+	poolTierMedium = 4 << 20  // 4 MiB
+	poolTierLarge  = 16 << 20 // 16 MiB
+)
 
-// responseBufferPool recycles byte slices for baseline HTTP response copies,
-// reducing GC pressure on the hot path. Buffers larger than maxPooledResponseSize
-// are not returned to the pool to prevent bloat.
-var responseBufferPool = sync.Pool{
-	New: func() interface{} {
-		b := make([]byte, 0, 32*1024) // 32 KiB initial cap
-		return &b
-	},
-}
+var (
+	smallResponsePool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, 32*1024) // 32 KiB initial cap
+			return &b
+		},
+	}
+	mediumResponsePool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, 1<<20) // 1 MiB initial cap
+			return &b
+		},
+	}
+	largeResponsePool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, 4<<20) // 4 MiB initial cap
+			return &b
+		},
+	}
+)
 
 func getResponseBuffer(n int) []byte {
-	bp := responseBufferPool.Get().(*[]byte)
+	var pool *sync.Pool
+	switch {
+	case n <= poolTierSmall:
+		pool = &smallResponsePool
+	case n <= poolTierMedium:
+		pool = &mediumResponsePool
+	case n <= poolTierLarge:
+		pool = &largeResponsePool
+	default:
+		return make([]byte, n) // Too large for any pool
+	}
+	bp := pool.Get().(*[]byte)
 	b := *bp
 	if cap(b) >= n {
 		return b[:n]
 	}
-	// Discard too-small buffer; allocate exact size
 	return make([]byte, n)
 }
 
 func putResponseBuffer(buf []byte) {
-	if cap(buf) > maxPooledResponseSize {
-		return // Too large — let GC collect it
-	}
+	c := cap(buf)
 	buf = buf[:0]
-	responseBufferPool.Put(&buf)
+	switch {
+	case c <= poolTierSmall:
+		smallResponsePool.Put(&buf)
+	case c <= poolTierMedium:
+		mediumResponsePool.Put(&buf)
+	case c <= poolTierLarge:
+		largeResponsePool.Put(&buf)
+	// c > poolTierLarge: let GC collect it
+	}
 }
 
 // moduleFindingTracker tracks finding count and one-time warning for a single module.
@@ -100,6 +137,7 @@ type ExecutorConfig struct {
 	MaxDuration           time.Duration        // When > 0, cancel execution after this duration
 	FeedbackDrainTimeout  time.Duration        // Idle timeout for draining feedback after source EOF (default: 100ms)
 	IPCacheSize           int                  // LRU cache size for parsed insertion points (default: 4096)
+	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint] // Optional: shared IP cache (if nil, a new one is created)
 	ParallelPassive       bool                 // When true, run passive per-request modules concurrently
 }
 
@@ -183,11 +221,16 @@ func NewExecutor(
 		}
 	}
 
-	ipCacheSize := cfg.IPCacheSize
-	if ipCacheSize <= 0 {
-		ipCacheSize = 4096
+	var ipCache *lru.Cache[string, []httpmsg.InsertionPoint]
+	if cfg.IPCache != nil {
+		ipCache = cfg.IPCache
+	} else {
+		ipCacheSize := cfg.IPCacheSize
+		if ipCacheSize <= 0 {
+			ipCacheSize = 4096
+		}
+		ipCache, _ = lru.New[string, []httpmsg.InsertionPoint](ipCacheSize)
 	}
-	ipCache, _ := lru.New[string, []httpmsg.InsertionPoint](ipCacheSize)
 
 	e := &Executor{
 		cfg:            cfg,
@@ -692,17 +735,9 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 	// conc.WaitGroup automatically catches panics per goroutine and re-panics
 	// on Wait(), which is caught by the top-level recoverFromPanic("processItem").
 	var g conc.WaitGroup
-
-	g.Go(func() {
-		e.runActivePerHost(req, &filter, &elig)
-	})
-	g.Go(func() {
-		e.runActivePerRequest(req, &filter, &elig)
-	})
-	g.Go(func() {
-		e.runActivePerInsertionPoint(req, &filter, &elig)
-	})
-
+	e.runActivePerHost(req, &filter, &elig, &g)
+	e.runActivePerRequest(req, &filter, &elig, &g)
+	e.runActivePerInsertionPoint(req, &filter, &elig, &g)
 	g.Wait()
 }
 
@@ -808,12 +843,17 @@ func (e *Executor) runPassivePerRequest(item *httpmsg.HttpRequestResponse, filte
 	}
 }
 
-func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility) {
+// isLevelDBClosed returns true if the error is caused by a closed LevelDB instance,
+// which happens during shutdown when the dedup manager is closed before workers finish.
+func isLevelDBClosed(err error) bool {
+	return strings.Contains(err.Error(), "leveldb: closed")
+}
+
+func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perHostActive) == 0 {
 		return
 	}
 
-	var g conc.WaitGroup
 	for _, module := range e.perHostActive {
 		if !filter.allows(module.ID()) {
 			continue
@@ -826,23 +866,27 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 		g.Go(func() {
 			results, err := mod.ScanPerHost(item, e.httpClient, e.scanCtx)
 			if err != nil {
-				zap.L().Warn("Active module error",
-					zap.String("module", mod.ID()),
-					zap.Error(err))
+				if isLevelDBClosed(err) {
+					zap.L().Debug("Active module error (shutdown)",
+						zap.String("module", mod.ID()),
+						zap.Error(err))
+				} else {
+					zap.L().Warn("Active module error",
+						zap.String("module", mod.ID()),
+						zap.Error(err))
+				}
 				return
 			}
 			e.processResults(results, mod, item)
 		})
 	}
-	g.Wait()
 }
 
-func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility) {
+func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perRequestActive) == 0 {
 		return
 	}
 
-	var g conc.WaitGroup
 	for _, module := range e.perRequestActive {
 		if !filter.allows(module.ID()) {
 			continue
@@ -855,18 +899,23 @@ func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter
 		g.Go(func() {
 			results, err := mod.ScanPerRequest(item, e.httpClient, e.scanCtx)
 			if err != nil {
-				zap.L().Warn("Active module error",
-					zap.String("module", mod.ID()),
-					zap.Error(err))
+				if isLevelDBClosed(err) {
+					zap.L().Debug("Active module error (shutdown)",
+						zap.String("module", mod.ID()),
+						zap.Error(err))
+				} else {
+					zap.L().Warn("Active module error",
+						zap.String("module", mod.ID()),
+						zap.Error(err))
+				}
 				return
 			}
 			e.processResults(results, mod, item)
 		})
 	}
-	g.Wait()
 }
 
-func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility) {
+func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perIPActive) == 0 {
 		return
 	}
@@ -888,11 +937,6 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 		e.ipCache.Add(key, allPoints)
 	}
 
-	// Single WaitGroup for all (module × insertion-point) pairs.
-	// This removes N-1 synchronization barriers (where N = number of IPs),
-	// allowing cross-IP parallelism bounded by the worker pool.
-	var g conc.WaitGroup
-
 	for _, ip := range allPoints {
 		for _, module := range e.perIPActive {
 			if !filter.allows(module.ID()) {
@@ -909,18 +953,23 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 			g.Go(func() {
 				results, err := mod.ScanPerInsertionPoint(item, pt, e.httpClient, e.scanCtx)
 				if err != nil {
-					zap.L().Warn("Active module error",
-						zap.String("module", mod.ID()),
-						zap.String("param", pt.Name()),
-						zap.Error(err))
+					if isLevelDBClosed(err) {
+						zap.L().Debug("Active module error (shutdown)",
+							zap.String("module", mod.ID()),
+							zap.String("param", pt.Name()),
+							zap.Error(err))
+					} else {
+						zap.L().Warn("Active module error",
+							zap.String("module", mod.ID()),
+							zap.String("param", pt.Name()),
+							zap.Error(err))
+					}
 					return
 				}
 				e.processResults(results, mod, item)
 			})
 		}
 	}
-
-	g.Wait()
 }
 
 func (e *Executor) processResults(results []*output.ResultEvent, m modules.Module, item *httpmsg.HttpRequestResponse) {

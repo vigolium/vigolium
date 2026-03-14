@@ -31,16 +31,20 @@ type PhasePace struct {
 	MaxDuration       string  `yaml:"max_duration"`
 	ConcurrencyFactor float64 `yaml:"concurrency_factor"`
 	DurationFactor    float64 `yaml:"duration_factor"`
+	ParallelPassive       *bool  `yaml:"parallel_passive,omitempty"`
+	FeedbackDrainTimeout  string `yaml:"feedback_drain_timeout,omitempty"`
 }
 
 // ResolvedPhasePace is the result of merging common + per-phase values.
 type ResolvedPhasePace struct {
-	Concurrency       int
-	RateLimit         int
-	MaxPerHost        int
-	MaxDuration       time.Duration
-	ConcurrencyFactor float64
-	DurationFactor    float64
+	Concurrency          int
+	RateLimit            int
+	MaxPerHost           int
+	MaxDuration          time.Duration
+	ConcurrencyFactor    float64
+	DurationFactor       float64
+	ParallelPassive      bool
+	FeedbackDrainTimeout time.Duration
 }
 
 // DefaultScanningPaceConfig returns default scanning pace configuration
@@ -55,7 +59,7 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		SPA:               PhasePace{DurationFactor: 3.0},
 		Spidering:         PhasePace{DurationFactor: 0.15},
 		ExternalHarvester: PhasePace{DurationFactor: 0.2},
-		Audit: PhasePace{DurationFactor: 1.0},
+		Audit: PhasePace{DurationFactor: 1.0, ParallelPassive: boolPtr(true), FeedbackDrainTimeout: "500ms"},
 	}
 }
 
@@ -134,8 +138,23 @@ func (c *ScanningPaceConfig) ResolvePhase(phase string) ResolvedPhasePace {
 		resolved.MaxDuration = commonDuration
 	}
 
+	// ParallelPassive: per-phase pointer overrides common default (false)
+	if pp.ParallelPassive != nil {
+		resolved.ParallelPassive = *pp.ParallelPassive
+	}
+
+	// FeedbackDrainTimeout: per-phase overrides common default (0 = executor default)
+	if pp.FeedbackDrainTimeout != "" {
+		if d, err := time.ParseDuration(pp.FeedbackDrainTimeout); err == nil {
+			resolved.FeedbackDrainTimeout = d
+		}
+	}
+
 	return resolved
 }
+
+// boolPtr returns a pointer to a bool value. Used for optional YAML fields.
+func boolPtr(b bool) *bool { return &b }
 
 // Validate rejects negative values and invalid duration strings.
 func (c *ScanningPaceConfig) Validate() error {
@@ -181,6 +200,11 @@ func (c *ScanningPaceConfig) Validate() error {
 		}
 		if pp.DurationFactor < 0 {
 			return fmt.Errorf("scanning_pace.%s.duration_factor must be >= 0", name)
+		}
+		if pp.FeedbackDrainTimeout != "" {
+			if _, err := time.ParseDuration(pp.FeedbackDrainTimeout); err != nil {
+				return fmt.Errorf("scanning_pace.%s.feedback_drain_timeout: invalid duration %q: %w", name, pp.FeedbackDrainTimeout, err)
+			}
 		}
 	}
 

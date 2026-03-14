@@ -74,7 +74,6 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 	hasInputFile := ingestOpts.Input != "" && ingestOpts.Input != "-"
 	hasStdin := fileutil.HasStdin()
 	if !hasTargets && !hasInputFile && !hasStdin {
-		cmd.SilenceUsage = true
 		fmt.Fprintf(os.Stderr, "%s Tip: use %s, %s, or pipe data via stdin\n",
 			terminal.InfoSymbol(),
 			terminal.Cyan("-t <url>"),

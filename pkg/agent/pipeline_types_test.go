@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -671,5 +672,440 @@ function scan_per_request(ctx) { return []; }
 	}
 	if ext.Code == "" {
 		t.Error("expected non-empty code")
+	}
+}
+
+func TestParseSwarmPlanMarkdownNeedsExtensions(t *testing.T) {
+	input := `## MODULE_TAGS
+sqli, xss
+
+## FOCUS_AREAS
+- SQL injection in login form
+
+## NEEDS_EXTENSIONS
+yes
+
+## NOTES
+Custom extension needed for non-standard JSON-RPC endpoint.
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !plan.NeedsExtensions {
+		t.Error("expected NeedsExtensions to be true")
+	}
+	if len(plan.ModuleTags) != 2 {
+		t.Errorf("expected 2 module tags, got %d", len(plan.ModuleTags))
+	}
+}
+
+func TestParseSwarmPlanMarkdownNeedsExtensionsNo(t *testing.T) {
+	input := `## MODULE_TAGS
+sqli, xss
+
+## NEEDS_EXTENSIONS
+no
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan.NeedsExtensions {
+		t.Error("expected NeedsExtensions to be false")
+	}
+}
+
+func TestParseSwarmExtensions(t *testing.T) {
+	input := `Here are the custom extensions:
+
+#### ssti-check.js
+Reason: Check for server-side template injection
+
+` + "```javascript\n" + `module.exports = {
+  id: "ssti-check",
+  name: "SSTI Check",
+  type: "active",
+  severity: "high",
+  confidence: "tentative",
+  tags: ["custom"],
+  scanTypes: ["per_insertion_point"],
+  scanPerInsertionPoint: function(ctx, insertion) {
+    return null;
+  }
+};
+` + "```\n"
+
+	plan, err := ParseSwarmExtensions(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	if len(plan.Extensions) != 1 {
+		t.Fatalf("expected 1 extension, got %d", len(plan.Extensions))
+	}
+	if plan.Extensions[0].Filename != "ssti-check.js" {
+		t.Errorf("expected filename 'ssti-check.js', got %q", plan.Extensions[0].Filename)
+	}
+	if plan.Extensions[0].Reason != "Check for server-side template injection" {
+		t.Errorf("expected reason, got %q", plan.Extensions[0].Reason)
+	}
+}
+
+func TestParseSwarmExtensionsQuickChecks(t *testing.T) {
+	input := "Here are some quick checks:\n\n```json\n" +
+		`[{"id":"ssti-jinja2","scan":"per_insertion_point","severity":"high","payloads":["{{7*7}}"],"match":{"body_contains":"49"}}]` +
+		"\n```\n"
+
+	plan, err := ParseSwarmExtensions(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	if len(plan.QuickChecks) != 1 {
+		t.Fatalf("expected 1 quick check, got %d", len(plan.QuickChecks))
+	}
+	if plan.QuickChecks[0].ID != "ssti-jinja2" {
+		t.Errorf("expected ID 'ssti-jinja2', got %q", plan.QuickChecks[0].ID)
+	}
+}
+
+func TestParseSwarmExtensionsNoExtensionsNeeded(t *testing.T) {
+	input := "No custom extensions needed. The built-in modules cover all attack vectors."
+
+	plan, err := ParseSwarmExtensions(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan != nil {
+		t.Error("expected nil plan when no extensions needed")
+	}
+}
+
+func TestNormalizePlan(t *testing.T) {
+	plan := &SwarmPlan{
+		ModuleTags: []string{"SQLI", "xss (common in login)", "auth - important", "sqli"},
+		ModuleIDs:  []string{"sqli-error-based", "SQLI-ERROR-BASED", "xss-reflected (DOM)"},
+		FocusAreas: []string{" SQL injection in login ", "SQL injection in login", "  "},
+	}
+
+	normalizePlan(plan)
+
+	// Tags should be lowered, deduped, commentary stripped
+	expectedTags := []string{"sqli", "xss", "auth"}
+	if len(plan.ModuleTags) != len(expectedTags) {
+		t.Fatalf("expected %d tags, got %d: %v", len(expectedTags), len(plan.ModuleTags), plan.ModuleTags)
+	}
+	for i, tag := range expectedTags {
+		if plan.ModuleTags[i] != tag {
+			t.Errorf("tag[%d]: expected %q, got %q", i, tag, plan.ModuleTags[i])
+		}
+	}
+
+	// IDs should be lowered, deduped, commentary stripped
+	expectedIDs := []string{"sqli-error-based", "xss-reflected"}
+	if len(plan.ModuleIDs) != len(expectedIDs) {
+		t.Fatalf("expected %d IDs, got %d: %v", len(expectedIDs), len(plan.ModuleIDs), plan.ModuleIDs)
+	}
+	for i, id := range expectedIDs {
+		if plan.ModuleIDs[i] != id {
+			t.Errorf("id[%d]: expected %q, got %q", i, id, plan.ModuleIDs[i])
+		}
+	}
+
+	// Focus areas should be trimmed, deduped, empty removed
+	if len(plan.FocusAreas) != 1 {
+		t.Fatalf("expected 1 focus area, got %d: %v", len(plan.FocusAreas), plan.FocusAreas)
+	}
+	if plan.FocusAreas[0] != "SQL injection in login" {
+		t.Errorf("expected 'SQL injection in login', got %q", plan.FocusAreas[0])
+	}
+}
+
+// --- Tests for code-fenced, newline-separated values in parseCommaSeparated ---
+
+func TestParseCommaSeparatedNewlineSeparated(t *testing.T) {
+	// Agent outputs MODULE_IDS as newline-separated values
+	input := "sqli-error-based\nsqli-union-based\nxss-reflected"
+	got := parseCommaSeparated(input)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 items, got %d: %v", len(got), got)
+	}
+	if got[0] != "sqli-error-based" {
+		t.Errorf("item[0]: expected 'sqli-error-based', got %q", got[0])
+	}
+}
+
+func TestParseCommaSeparatedCodeFenced(t *testing.T) {
+	// Agent wraps values in code fences
+	input := "```\nidor\n```\nsqli-error-based\nsqli-union-based\nnosqli-boolean\n```"
+	got := parseCommaSeparated(input)
+	if len(got) != 4 {
+		t.Fatalf("expected 4 items, got %d: %v", len(got), got)
+	}
+	if got[0] != "idor" {
+		t.Errorf("item[0]: expected 'idor', got %q", got[0])
+	}
+}
+
+func TestParseCommaSeparatedCodeFencedWithLang(t *testing.T) {
+	// Code fence with language tag
+	input := "```text\nsqli\nxss\n```"
+	got := parseCommaSeparated(input)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 items, got %d: %v", len(got), got)
+	}
+}
+
+func TestStripCodeFenceMarkers(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no fences",
+			input:    "sqli, xss",
+			expected: "sqli, xss",
+		},
+		{
+			name:     "simple fence",
+			input:    "```\nyes\n```",
+			expected: "yes",
+		},
+		{
+			name:     "fence with language",
+			input:    "```json\nyes\n```",
+			expected: "yes",
+		},
+		{
+			name:     "partial fences mixed with content",
+			input:    "```\nidor\n```\nsqli-error-based\nxss-reflected\n```",
+			expected: "idor\nsqli-error-based\nxss-reflected",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripCodeFenceMarkers(tt.input)
+			if got != tt.expected {
+				t.Errorf("stripCodeFenceMarkers(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// --- Tests for swarm plan with code-fenced MODULE_IDS/MODULE_TAGS ---
+
+func TestParseSwarmPlanMarkdownCodeFencedModuleIDs(t *testing.T) {
+	// Real-world pattern: agent wraps MODULE_IDS in code fences with newline-separated values
+	input := `## MODULE_TAGS
+sqli, xss, nosqli
+
+## MODULE_IDS
+
+` + "```" + `
+idor
+` + "```" + `
+sqli-error-based
+sqli-union-based
+nosqli-boolean
+nosqli-time-injection-based
+xss-reflected
+` + "```" + `
+
+## FOCUS_AREAS
+- SQL injection in login endpoint
+- NoSQL injection in track order
+
+## NOTES
+Target is OWASP Juice Shop
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(plan.ModuleTags) != 3 {
+		t.Errorf("expected 3 tags, got %d: %v", len(plan.ModuleTags), plan.ModuleTags)
+	}
+	if len(plan.ModuleIDs) < 5 {
+		t.Errorf("expected at least 5 module IDs, got %d: %v", len(plan.ModuleIDs), plan.ModuleIDs)
+	}
+	// Ensure no code fence markers leaked into values
+	for _, id := range plan.ModuleIDs {
+		if strings.Contains(id, "```") {
+			t.Errorf("module ID contains code fence marker: %q", id)
+		}
+		if strings.Contains(id, "\n") {
+			t.Errorf("module ID contains newline: %q", id)
+		}
+	}
+}
+
+// --- Tests for ParseSourceAnalysisResult with multi-block output ---
+
+func TestParseSourceAnalysisResultMultiBlockJSON(t *testing.T) {
+	// SAST review output with multiple JSON blocks (Task 1, Task 2, Task 3)
+	input := `## Task 1: Session Configuration
+
+` + "```json" + `
+{"http_records":[],"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+` + "```" + `
+
+## Task 2: HTTP Routes
+
+` + "```json" + `
+{"http_records":[{"method":"POST","url":"http://localhost:3000/rest/user/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","notes":"Login endpoint"},{"method":"GET","url":"http://localhost:3000/rest/products/search?q=apple","headers":{},"body":"","notes":"Product search"}]}
+` + "```" + `
+
+## Task 3: SAST Extensions
+
+` + "```json" + `
+{"http_records":[{"method":"GET","url":"http://localhost:3000/rest/track-order/1234","headers":{},"body":"","notes":"Track order NoSQL injection"}]}
+` + "```" + `
+
+#### agent-sqli-login.js
+Reason: SQL injection in login
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-sqli-login",
+  name: "SQLi Login",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  scanPerRequest: function(ctx) { return []; }
+};
+` + "```" + `
+`
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should merge http_records from all blocks (0 + 2 + 1 = 3)
+	if len(result.HTTPRecords) != 3 {
+		t.Errorf("expected 3 http_records (merged from 3 blocks), got %d", len(result.HTTPRecords))
+	}
+
+	// Should extract session config from Task 1
+	if result.SessionConfig == nil {
+		t.Error("expected session config to be extracted")
+	}
+
+	// Should extract extension from fenced JS code block
+	if len(result.Extensions) != 1 {
+		t.Errorf("expected 1 extension, got %d", len(result.Extensions))
+	}
+}
+
+func TestParseSourceAnalysisResultExtensionsOnlyFallback(t *testing.T) {
+	// When all JSON blocks are garbled, should still extract JS extensions
+	input := `## Task 1
+` + "```json" + `
+{"http":_records[garbled json here}
+` + "```" + `
+
+#### agent-check.js
+Reason: Custom check
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-check",
+  name: "Custom Check",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  scanPerRequest: function(ctx) { return []; }
+};
+` + "```" + `
+`
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("should not error when extensions can be extracted: %v", err)
+	}
+	if len(result.Extensions) != 1 {
+		t.Errorf("expected 1 extension from fallback, got %d", len(result.Extensions))
+	}
+	if result.Extensions[0].Filename != "agent-check.js" {
+		t.Errorf("expected filename 'agent-check.js', got %q", result.Extensions[0].Filename)
+	}
+}
+
+func TestParseSourceAnalysisResultSingleBlock(t *testing.T) {
+	// Standard single-block output still works
+	input := `
+` + "```json" + `
+{"http_records":[{"method":"GET","url":"http://localhost:3000/api/Products","headers":{},"body":"","notes":"List products"}],"session_config":{"sessions":[{"name":"admin","role":"primary"}]}}
+` + "```" + `
+`
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HTTPRecords) != 1 {
+		t.Errorf("expected 1 record, got %d", len(result.HTTPRecords))
+	}
+}
+
+func TestExtractAllJSONFromFencedBlocks(t *testing.T) {
+	input := `Some text
+
+` + "```json" + `
+{"key": "value1"}
+` + "```" + `
+
+More text
+
+` + "```json" + `
+{"key": "value2"}
+` + "```" + `
+
+` + "```javascript" + `
+// This should be ignored
+var x = 1;
+` + "```" + `
+
+` + "```json" + `
+INVALID JSON
+` + "```" + `
+`
+	blocks := extractAllJSONFromFencedBlocks(input)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 valid JSON blocks, got %d", len(blocks))
+	}
+}
+
+func TestMergeMultiBlockSourceAnalysis(t *testing.T) {
+	// Test merging multiple valid JSON blocks
+	input := `
+` + "```json" + `
+{"http_records":[{"method":"GET","url":"http://localhost/a"}],"session_config":{"sessions":[{"name":"admin","role":"primary"}]}}
+` + "```" + `
+
+` + "```json" + `
+{"http_records":[{"method":"POST","url":"http://localhost/b"}]}
+` + "```" + `
+`
+	result := mergeMultiBlockSourceAnalysis(input)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.HTTPRecords) != 2 {
+		t.Errorf("expected 2 merged records, got %d", len(result.HTTPRecords))
+	}
+	if result.SessionConfig == nil {
+		t.Error("expected session config from first block")
+	}
+}
+
+func TestMergeMultiBlockSourceAnalysisNoValidBlocks(t *testing.T) {
+	input := `No JSON here, just text`
+	result := mergeMultiBlockSourceAnalysis(input)
+	if result != nil {
+		t.Error("expected nil result when no valid blocks")
 	}
 }

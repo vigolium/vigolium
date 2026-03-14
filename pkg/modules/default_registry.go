@@ -53,6 +53,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xml_saml_security"
 	xsslightscanner "github.com/vigolium/vigolium/pkg/modules/active/xss_light_scanner"
 	"github.com/vigolium/vigolium/pkg/modules/active/websocket_security"
+	"github.com/vigolium/vigolium/pkg/modules/active/ws_cswsh"
+	"github.com/vigolium/vigolium/pkg/modules/active/ws_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/api_rate_limit_bypass"
 	"github.com/vigolium/vigolium/pkg/modules/active/xxe_generic"
 	// JS Framework Security - Active
@@ -112,6 +114,18 @@ import (
 	// Java/Spring Security - Active
 	"github.com/vigolium/vigolium/pkg/modules/active/java_appserver_console"
 	"github.com/vigolium/vigolium/pkg/modules/active/java_sensitive_files"
+	"github.com/vigolium/vigolium/pkg/modules/active/struts_ognl_injection"
+	"github.com/vigolium/vigolium/pkg/modules/active/log4shell_probe"
+	// LDAP Injection - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/ldap_injection"
+	// IDOR GUID - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/idor_guid"
+	// Cache Deception - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/cache_deception"
+	// Subdomain Takeover - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/subdomain_takeover"
+	// PDF Generation Injection - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/pdf_generation_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_boot_admin_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_cloud_config_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_data_rest_exposure"
@@ -124,6 +138,12 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/express_debug_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/express_directory_listing"
 	"github.com/vigolium/vigolium/pkg/modules/active/express_trust_proxy_misconfig"
+	// Fastify/Hono Security - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/fastify_hono_probe"
+	// Meta-Framework Security - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/metaframework_probe"
+	// API Security - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/api_key_url_exposure"
 	// Common Directory Listing - Active
 	"github.com/vigolium/vigolium/pkg/modules/active/common_directory_listing"
 	// Rails Security - Active
@@ -143,6 +163,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/django_browsable_api_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/flask_werkzeug_debugger"
 	"github.com/vigolium/vigolium/pkg/modules/active/proxy_header_trust"
+	// Auth/API Security - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/bfla_detection"
+	"github.com/vigolium/vigolium/pkg/modules/active/oauth_misconfiguration"
 	"github.com/vigolium/vigolium/pkg/modules/passive/anomaly_ranking"
 	"github.com/vigolium/vigolium/pkg/modules/passive/auth_headers_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/base64_data_detect"
@@ -246,6 +269,15 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/permissions_policy_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/referrer_policy_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/subresource_integrity_detect"
+	// API Pagination & Error Analysis - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/api_pagination_leak"
+	"github.com/vigolium/vigolium/pkg/modules/passive/verbose_error_stacktrace"
+	// GraphQL Error Analysis - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/graphql_error_leak"
+	// Meta-Framework Fingerprinting - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/metaframework_fingerprint"
+	// Software Version Detection - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/software_version_header"
 )
 
 // DefaultRegistry is the default registry with all built-in modules.
@@ -326,6 +358,8 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(open_redirect.New()).
 	// Active modules - WebSocket
 	RegisterActive(websocket_security.New()).
+	RegisterActive(ws_injection.New()).
+	RegisterActive(ws_cswsh.New()).
 	// Active modules - Rate Limiting
 	RegisterActive(api_rate_limit_bypass.New()).
 	// Active modules - JS Framework Security
@@ -392,6 +426,18 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(java_sensitive_files.New()).
 	RegisterActive(java_appserver_console.New()).
 	RegisterActive(tomcat_manager_exposure.New()).
+	RegisterActive(struts_ognl_injection.New()).
+	RegisterActive(log4shell_probe.New()).
+	// Active modules - LDAP Injection
+	RegisterActive(ldap_injection.New()).
+	// Active modules - IDOR GUID
+	RegisterActive(idor_guid.New()).
+	// Active modules - Cache Deception
+	RegisterActive(cache_deception.New()).
+	// Active modules - Subdomain Takeover
+	RegisterActive(subdomain_takeover.New()).
+	// Active modules - PDF Generation Injection
+	RegisterActive(pdf_generation_injection.New()).
 	// Active modules - Express/NestJS Security
 	RegisterActive(express_debug_probe.New()).
 	RegisterActive(express_trust_proxy_misconfig.New()).
@@ -415,6 +461,14 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(django_browsable_api_exposure.New()).
 	RegisterActive(flask_werkzeug_debugger.New()).
 	RegisterActive(proxy_header_trust.New()).
+	// Active modules - Auth/API Security
+	RegisterActive(bfla_detection.New()).
+	RegisterActive(oauth_misconfiguration.New()).
+	RegisterActive(api_key_url_exposure.New()).
+	// Active modules - Fastify/Hono Security
+	RegisterActive(fastify_hono_probe.New()).
+	// Active modules - Meta-Framework Security
+	RegisterActive(metaframework_probe.New()).
 	// Passive modules
 	RegisterPassive(dom_xss_detect.New()).
 	RegisterPassive(auth_headers_detect.New()).
@@ -518,7 +572,16 @@ var DefaultRegistry = NewRegistry().
 	// API Spec Detection - Passive
 	RegisterPassive(api_spec_detect.New()).
 	// API Security - Passive
-	RegisterPassive(sensitive_api_fields_detect.New())
+	RegisterPassive(sensitive_api_fields_detect.New()).
+	// API Pagination & Error Analysis - Passive
+	RegisterPassive(api_pagination_leak.New()).
+	RegisterPassive(verbose_error_stacktrace.New()).
+	// GraphQL Error Analysis - Passive
+	RegisterPassive(graphql_error_leak.New()).
+	// Meta-Framework Fingerprinting - Passive
+	RegisterPassive(metaframework_fingerprint.New()).
+	// Software Version Detection - Passive
+	RegisterPassive(software_version_header.New())
 
 // Convenience functions - delegate to DefaultRegistry
 

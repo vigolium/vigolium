@@ -414,6 +414,30 @@ func (s *Segment) IsClosed() bool {
 	return s.db == nil
 }
 
+// DiskSize returns the approximate disk usage of this segment in bytes.
+// Walks the segment directory and sums file sizes.
+func (s *Segment) DiskSize() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var total int64
+	entries, err := os.ReadDir(s.path)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
+	}
+	return total
+}
+
 // Iterator returns a LevelDB iterator for task keys.
 func (s *Segment) Iterator() iterator.Iterator {
 	return s.db.NewIterator(util.BytesPrefix([]byte(prefixTask)), nil)

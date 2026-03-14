@@ -32,9 +32,17 @@ type ConcurrentMultiSource struct {
 func NewConcurrentMultiSource(sources ...InputSource) *ConcurrentMultiSource {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	bufSize := len(sources) * 10
+	if bufSize < 64 {
+		bufSize = 64
+	}
+	if bufSize > 4096 {
+		bufSize = 4096
+	}
+
 	cs := &ConcurrentMultiSource{
 		sources: sources,
-		items:   make(chan itemOrError, 64),
+		items:   make(chan itemOrError, bufSize),
 		cancel:  cancel,
 	}
 

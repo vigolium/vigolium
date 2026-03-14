@@ -51,8 +51,7 @@ Examples:
 
   # With timeout
   vigolium js --timeout 60s --code-file long_running.js`,
-	SilenceUsage: true,
-	RunE:         runJsCmd,
+	RunE: runJsCmd,
 }
 
 func init() {

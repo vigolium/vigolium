@@ -41,9 +41,8 @@ var (
 )
 
 var agentCmd = &cobra.Command{
-	Use:          "agent",
-	Short:        "Run an agentic scan — AI-driven scanning with native scan support",
-	SilenceUsage: true,
+	Use:   "agent",
+	Short: "Run an agentic scan — AI-driven scanning with native scan support",
 	Long: `Run an agentic scan using AI agents (Claude, OpenCode, Gemini) for intelligent vulnerability scanning with native scan support.
 
 Use a subcommand to select the agentic scan mode:

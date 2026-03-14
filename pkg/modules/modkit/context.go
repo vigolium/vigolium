@@ -8,6 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/mutation"
+	"golang.org/x/sync/singleflight"
 )
 
 // RequestFeeder allows modules to inject discovered requests back into the scanning pipeline.
@@ -57,8 +58,9 @@ type ScanContext struct {
 	MutationGen         MutationGenerator
 	RequestFeeder       RequestFeeder
 
-	baselineOnce  sync.Once
-	baselineCache *lru.Cache[string, *BaselineEntry]
+	baselineOnce   sync.Once
+	baselineCache  *lru.Cache[string, *BaselineEntry]
+	baselineFlight singleflight.Group
 }
 
 // getBaselineCache returns the LRU baseline cache, lazily initializing on first use.

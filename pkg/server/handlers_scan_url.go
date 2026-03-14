@@ -252,7 +252,7 @@ func (h *Handlers) runBackgroundURLScan(scanID string, rr *httpmsg.HttpRequestRe
 		HTTPRequester:        h.httpRequester,
 		Repository:           h.repo,
 		ScanUUID:             scanID,
-		MaxFindingsPerModule: 15,
+		MaxFindingsPerModule: 10,
 		OnResult: func(result *output.ResultEvent) {
 			mu.Lock()
 			findings = append(findings, result)

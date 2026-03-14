@@ -467,8 +467,10 @@ func (q *DiskQueue) Metrics() *QueueMetrics {
 	defer q.mu.RUnlock()
 
 	var depth int64
+	var diskUsage int64
 	for _, seg := range q.segments {
 		depth += seg.PendingTasks()
+		diskUsage += seg.DiskSize()
 	}
 
 	return &QueueMetrics{
@@ -478,6 +480,8 @@ func (q *DiskQueue) Metrics() *QueueMetrics {
 		TotalCompleted: q.totalCompleted.Load(),
 		EnqueueErrors:  q.enqueueErrors.Load(),
 		DequeueErrors:  q.dequeueErrors.Load(),
+		SegmentCount:   len(q.segments),
+		DiskUsageBytes: diskUsage,
 	}
 }
 
