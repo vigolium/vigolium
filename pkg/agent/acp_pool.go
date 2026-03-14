@@ -167,6 +167,10 @@ func NewACPPool(cfg config.WarmSessionConfig, agents map[string]config.AgentDef)
 // Prompt sends a prompt to the named agent, reusing a warm session if available.
 // When the pooled session is already in use (concurrent calls for the same agent),
 // it falls back to a one-shot ACP session to avoid blocking or corrupting output.
+// When a withSessionKey option is provided, the pool uses that key (instead of agentName)
+// to look up and store sessions. This prevents context accumulation across different
+// phases that share the same agent backend (e.g., source-analysis vs sast-review both
+// using "claude"). The agentName is still used for agent config lookup when spawning.
 func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, cwd string, opts ...acpClientOption) (result acpResult, err error) {
 	// Normalize cwd to absolute path for consistent session matching
 	if !filepath.IsAbs(cwd) {
@@ -175,22 +179,30 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		}
 	}
 
+	// Apply all options once to extract session key, weight, and stream writer.
+	clientOpts := newACPClient(opts...)
+	poolKey := agentName
+	if clientOpts.sessionKey != "" {
+		poolKey = clientOpts.sessionKey
+	}
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
 		return acpResult{}, fmt.Errorf("pool is closed")
 	}
 
-	sess, exists := p.sessions[agentName]
+	sess, exists := p.sessions[poolKey]
 	if exists {
 		if !sess.alive() || sess.cwd != cwd {
 			zap.L().Debug("ACP warm session stale, replacing",
 				zap.String("agent", agentName),
+				zap.String("poolKey", poolKey),
 				zap.Bool("alive", sess.alive()),
 				zap.String("oldCwd", sess.cwd),
 				zap.String("newCwd", cwd))
 			sess.kill()
-			delete(p.sessions, agentName)
+			delete(p.sessions, poolKey)
 			exists = false
 		} else if sess.inUse {
 			// Session is busy — fall back to a one-shot ACP session
@@ -200,7 +212,8 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 				return acpResult{}, fmt.Errorf("agent %q not found in pool configuration", agentName)
 			}
 			zap.L().Debug("ACP warm session busy, falling back to one-shot session",
-				zap.String("agent", agentName))
+				zap.String("agent", agentName),
+				zap.String("poolKey", poolKey))
 			return RunAgenticACP(ctx, agentDef, prompt, opts...)
 		}
 	}
@@ -214,21 +227,23 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 	p.mu.Unlock()
 
 	if !exists {
-		// Spawn new session (outside lock to avoid blocking)
+		// Spawn new session (outside lock to avoid blocking).
+		// Use agentName for config lookup, poolKey for map storage.
 		newSess, spawnErr := p.spawnSession(ctx, agentName, cwd, opts...)
 		if spawnErr != nil {
 			return acpResult{}, spawnErr
 		}
 		p.mu.Lock()
 		// Another goroutine may have inserted a session while we were spawning.
-		if existing, raced := p.sessions[agentName]; raced && existing.alive() {
+		if existing, raced := p.sessions[poolKey]; raced && existing.alive() {
 			if existing.inUse {
 				// The existing session is already in use by another goroutine.
 				// Keep our freshly spawned session as a one-shot: use it for this
 				// prompt and kill it afterwards, without storing it in the pool.
 				p.mu.Unlock()
 				zap.L().Debug("ACP warm session race: existing session busy, using spawned session as one-shot",
-					zap.String("agent", agentName))
+					zap.String("agent", agentName),
+					zap.String("poolKey", poolKey))
 				return p.promptOneShot(ctx, agentName, newSess, prompt, opts...)
 			}
 			sess = existing
@@ -236,18 +251,14 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			// Kill the duplicate outside the lock (kill() is safe to call independently)
 			newSess.kill()
 		} else {
-			p.sessions[agentName] = newSess
+			p.sessions[poolKey] = newSess
 			sess = newSess
 			p.mu.Unlock()
 		}
 
 		// Apply session weight from options
-		for _, opt := range opts {
-			probe := &acpClient{}
-			opt(probe)
-			if probe.sessionWeight > 0 {
-				sess.weight = probe.sessionWeight
-			}
+		if clientOpts.sessionWeight > 0 {
+			sess.weight = clientOpts.sessionWeight
 		}
 	}
 
@@ -265,15 +276,7 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 
 	// Reset output and update stream writer
 	sess.client.resetOutput()
-	var streamWriter io.Writer
-	for _, opt := range opts {
-		probe := &acpClient{}
-		opt(probe)
-		if probe.streamWriter != nil {
-			streamWriter = probe.streamWriter
-		}
-	}
-	sess.client.setStreamWriter(streamWriter)
+	sess.client.setStreamWriter(clientOpts.streamWriter)
 
 	zap.L().Debug("sending ACP prompt via warm session",
 		zap.String("agent", agentName),
@@ -290,7 +293,7 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		// Session is likely dead
 		p.mu.Lock()
 		sess.dead = true
-		delete(p.sessions, agentName)
+		delete(p.sessions, poolKey)
 		p.mu.Unlock()
 		sess.kill()
 
@@ -359,15 +362,8 @@ func (p *ACPPool) promptOneShot(ctx context.Context, agentName string, sess *acp
 	defer sess.kill()
 
 	// Update stream writer from options
-	var streamWriter io.Writer
-	for _, opt := range opts {
-		probe := &acpClient{}
-		opt(probe)
-		if probe.streamWriter != nil {
-			streamWriter = probe.streamWriter
-		}
-	}
-	sess.client.setStreamWriter(streamWriter)
+	clientOpts := newACPClient(opts...)
+	sess.client.setStreamWriter(clientOpts.streamWriter)
 
 	sessionID := string(sess.sessionID)
 

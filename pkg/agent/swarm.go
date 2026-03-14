@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/session"
 	"github.com/vigolium/vigolium/pkg/terminal"
 
 	"go.uber.org/zap"
@@ -347,6 +348,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		var saExtensions []GeneratedExtension
 		var sastRecords []*httpmsg.HttpRequestResponse
 		var sastExtensions []GeneratedExtension
+		var discoveredSessionConfig *AgentSessionConfig
 
 		hasSAST := cfg.SASTFunc != nil
 		var wg sync.WaitGroup
@@ -365,6 +367,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				Files:          cfg.Files,
 				Instruction:    cfg.Instruction,
 				PromptTemplate: SwarmPromptSourceAnalysis,
+				SessionKey:     SwarmPhaseSourceAnalysis,
 				DryRun:         cfg.DryRun,
 				ShowPrompt:     cfg.ShowPrompt,
 				ScanUUID:       cfg.ScanUUID,
@@ -407,6 +410,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
 				writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
+				discoveredSessionConfig = saResult.SessionConfig
 			}
 			if cfg.SourceAnalysisCallback != nil {
 				if cbErr := cfg.SourceAnalysisCallback(saResult); cbErr != nil {
@@ -458,6 +462,18 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, saExtensions...)
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
+		// Hydrate session config to obtain real auth headers for probing.
+		// If source analysis discovered a login flow, execute it now so that
+		// probe requests carry valid authentication instead of dummy tokens.
+		var authHeaders map[string]string
+		if discoveredSessionConfig != nil {
+			authHeaders = hydrateSessionConfig(discoveredSessionConfig)
+			if len(authHeaders) > 0 {
+				zap.L().Info("Hydrated auth headers from source-discovered session config",
+					zap.Int("header_count", len(authHeaders)))
+			}
+		}
+
 		// Probe and save source-discovered records to DB so the native scan phase
 		// can find them. Validate each record has a parseable URL before saving —
 		// source analysis may produce records with empty or malformed URLs that
@@ -475,6 +491,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				continue
 			}
 			validRecords = append(validRecords, rr)
+		}
+
+		// Inject discovered auth headers into records that lack authentication.
+		// This ensures probing uses real credentials instead of dummy tokens.
+		if len(authHeaders) > 0 {
+			injectAuthHeaders(validRecords, authHeaders)
 		}
 
 		// Probe records to get live responses
@@ -502,7 +524,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if s.repo != nil && targetURL != "" {
 			hostname := hostnameFromURL(targetURL)
 			if hostname != "" {
-				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname)
+				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders)
 			}
 		}
 
@@ -719,7 +741,24 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	// Validate extension syntax before writing to disk
 	preValidationCount := len(allExtensions)
 	if preValidationCount > 0 {
-		allExtensions = ValidateExtensionSyntax(allExtensions)
+		validExts, invalidExts := ValidateExtensionSyntax(allExtensions)
+		allExtensions = validExts
+
+		// Attempt LLM repair for invalid extensions
+		if len(invalidExts) > 0 {
+			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, repairConfig{
+				AgentName:   cfg.AgentName,
+				AgentACPCmd: cfg.AgentACPCmd,
+				ShowPrompt:  cfg.ShowPrompt,
+			})
+			if len(repaired) > 0 {
+				zap.L().Info("LLM repaired extensions",
+					zap.Int("repaired", len(repaired)),
+					zap.Int("still_invalid", len(invalidExts)-len(repaired)))
+				allExtensions = append(allExtensions, repaired...)
+			}
+		}
+
 		if len(allExtensions) == 0 {
 			zap.L().Error("All generated extensions failed syntax validation",
 				zap.Int("dropped", preValidationCount))
@@ -1027,6 +1066,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		Hostname:       hostname,
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhasePlan,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -1110,6 +1150,7 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		Hostname:       hostname,
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhaseExtension,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -1463,13 +1504,6 @@ func mergeExtensionsTracked(source, plan []GeneratedExtension) ExtensionMergeRes
 	}
 
 	return ExtensionMergeResult{Extensions: result, Renames: renames}
-}
-
-// mergeExtensions combines source-analysis and plan extensions by filename.
-// On collision with identical code, the duplicate is dropped.
-// On collision with different code, the plan extension is renamed with a -2, -3 suffix.
-func mergeExtensions(source, plan []GeneratedExtension) []GeneratedExtension {
-	return mergeExtensionsTracked(source, plan).Extensions
 }
 
 // queryDiscoveredRecords fetches HTTP records from the database that were created
@@ -1851,6 +1885,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		Hostname:       hostnameFromURL(agentRun.TargetURL),
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhaseTriage,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -1974,6 +2009,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		Hostname:       hostname,
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhaseSASTReview,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -2112,7 +2148,7 @@ func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.Htt
 		zap.L().Debug("Probe request failed", zap.String("url", targetURL), zap.Error(err))
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body (limit to 2MB to avoid memory issues)
 	const maxBody = 2 * 1024 * 1024
@@ -2140,7 +2176,7 @@ func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.Htt
 // reprobeUnprobedRecords queries ast-grep records without responses from the DB
 // and probes them using a simple HTTP client. This acts as a fallback for records
 // that the native SAST runner's httpRequester failed to probe.
-func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string) {
+func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string, authHeaders map[string]string) {
 	unprobed, err := s.repo.GetUnprobedRecordsBySource(ctx, projectUUID, "ast-grep", hostname, 200)
 	if err != nil {
 		zap.L().Debug("Failed to query unprobed ast-grep records", zap.Error(err))
@@ -2187,11 +2223,16 @@ func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, h
 				return
 			}
 
+			// Apply discovered auth headers to re-probe requests
+			for k, v := range authHeaders {
+				httpReq.Header.Set(k, v)
+			}
+
 			resp, doErr := client.Do(httpReq)
 			if doErr != nil {
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			const maxBody = 2 * 1024 * 1024
 			body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -2236,5 +2277,125 @@ func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, h
 	wg.Wait()
 	if n := updated.Load(); n > 0 {
 		zap.L().Info("Re-probed ast-grep records", zap.Int64("updated", n), zap.Int("total", len(unprobed)))
+	}
+}
+
+// hydrateSessionConfig converts an AgentSessionConfig into native session types,
+// executes any login flows to obtain real auth tokens, and returns the resulting
+// auth headers. If the session has static headers (no login), those are returned directly.
+// Returns nil if hydration fails or no session config is provided.
+func hydrateSessionConfig(cfg *AgentSessionConfig) map[string]string {
+	if cfg == nil || len(cfg.Sessions) == 0 {
+		return nil
+	}
+
+	for _, entry := range cfg.Sessions {
+		// Prefer static headers if provided (agent may have discovered hardcoded tokens)
+		if len(entry.Headers) > 0 {
+			zap.L().Info("Using static auth headers from source analysis",
+				zap.String("session", entry.Name),
+				zap.Int("header_count", len(entry.Headers)))
+			return entry.Headers
+		}
+
+		// Execute login flow to obtain real credentials
+		if entry.Login == nil {
+			continue
+		}
+
+		sess := &session.Session{
+			Name: entry.Name,
+			Role: session.Role(entry.Role),
+			Login: &session.LoginFlow{
+				URL:         entry.Login.URL,
+				Method:      entry.Login.Method,
+				ContentType: entry.Login.ContentType,
+				Body:        entry.Login.Body,
+			},
+		}
+		for _, rule := range entry.Login.Extract {
+			sess.Login.Extract = append(sess.Login.Extract, session.ExtractRule{
+				Source:  session.ExtractSource(rule.Source),
+				Name:    rule.Name,
+				Path:    rule.Path,
+				ApplyAs: rule.ApplyAs,
+			})
+		}
+
+		// Use the session manager to execute the login flow
+		mgr, mgrErr := session.NewManager([]*session.Session{sess})
+		if mgrErr != nil {
+			zap.L().Debug("Failed to create session manager for hydration",
+				zap.String("session", entry.Name), zap.Error(mgrErr))
+			continue
+		}
+		if hydErr := mgr.HydrateSessions(); hydErr != nil {
+			zap.L().Debug("Failed to hydrate session from source analysis",
+				zap.String("session", entry.Name), zap.Error(hydErr))
+			continue
+		}
+
+		headers := mgr.PrimaryHeaders()
+		if len(headers) > 0 {
+			result := make(map[string]string, len(headers))
+			for _, h := range headers {
+				parts := strings.SplitN(h, ": ", 2)
+				if len(parts) == 2 {
+					result[parts[0]] = parts[1]
+				}
+			}
+			if len(result) > 0 {
+				zap.L().Info("Hydrated auth headers via login flow",
+					zap.String("session", entry.Name),
+					zap.Int("header_count", len(result)))
+				return result
+			}
+		}
+	}
+
+	return nil
+}
+
+// injectAuthHeaders adds discovered auth headers to records that don't already
+// have authentication. This ensures probing uses real credentials instead of
+// requiring each record to independently carry auth info.
+// Records are replaced in-place in the slice with new instances carrying auth headers.
+func injectAuthHeaders(records []*httpmsg.HttpRequestResponse, authHeaders map[string]string) {
+	if len(authHeaders) == 0 {
+		return
+	}
+
+	injected := 0
+	for i, rr := range records {
+		if rr.Request() == nil {
+			continue
+		}
+
+		// Skip records that already have auth headers
+		hasAuth := false
+		for _, h := range rr.Request().Headers() {
+			name := strings.ToLower(h.Name)
+			if name == "authorization" || name == "cookie" {
+				hasAuth = true
+				break
+			}
+		}
+		if hasAuth {
+			continue
+		}
+
+		// Build a new request with auth headers added
+		newReq := rr.Request()
+		for k, v := range authHeaders {
+			newReq = newReq.WithAddedHeader(k, v)
+		}
+
+		records[i] = httpmsg.NewHttpRequestResponse(newReq, rr.Response())
+		injected++
+	}
+
+	if injected > 0 {
+		zap.L().Info("Injected auth headers into source-discovered records",
+			zap.Int("injected", injected), zap.Int("total", len(records)))
 	}
 }

@@ -44,9 +44,39 @@ func TestValidateExtensionSyntax(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ValidateExtensionSyntax(tt.input)
+			got, _ := ValidateExtensionSyntax(tt.input)
 			if len(got) != tt.want {
 				t.Errorf("ValidateExtensionSyntax() returned %d extensions, want %d", len(got), tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeExtensionFilename(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		index int
+		want  string
+	}{
+		{"normal filename", "agent-sqli-check.js", 0, "agent-sqli-check.js"},
+		{"colon in name", ": .js", 0, "extension-0.js"},
+		{"SAST-verified colon", "SAST-verified:agent-sast-nosqli.js", 0, "sast-verified-agent-sast-nosqli.js"},
+		{"spaces in name", "my extension file.js", 0, "my-extension-file.js"},
+		{"special chars", "agent@b2b#rce!.js", 0, "agent-b2b-rce.js"},
+		{"uppercase", "Agent-SQLi-Check.js", 0, "agent-sqli-check.js"},
+		{"path traversal", "../../../etc/passwd.js", 0, "passwd.js"},
+		{"empty name", "", 3, "extension-3.js"},
+		{"dot only", ".", 1, "extension-1.js"},
+		{"no extension", "agent-check", 0, "agent-check.js"},
+		{"consecutive special", "a---b___c.js", 0, "a-b-c.js"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeExtensionFilename(tt.input, tt.index)
+			if got != tt.want {
+				t.Errorf("sanitizeExtensionFilename(%q, %d) = %q, want %q", tt.input, tt.index, got, tt.want)
 			}
 		})
 	}

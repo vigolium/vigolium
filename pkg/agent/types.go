@@ -36,6 +36,10 @@ type Options struct {
 	// Agent override
 	AgentACPCmd string // ad-hoc ACP command override (e.g. "traecli acp"), takes precedence over AgentName
 
+	// Session isolation: when set, overrides the pool map key to prevent context
+	// accumulation across phases that share the same agent backend.
+	SessionKey string `json:"-"`
+
 	// Autopilot mode
 	Autopilot   bool // enable terminal execution for autonomous scanning
 	MaxCommands   int // max terminal commands the agent can run (0 = default 100)

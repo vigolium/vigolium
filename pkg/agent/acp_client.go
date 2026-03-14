@@ -37,6 +37,15 @@ func withSessionWeight(w int) acpClientOption {
 	}
 }
 
+// withSessionKey overrides the pool map key for this prompt.
+// When set, the pool uses this key (instead of agent name) to look up and store sessions,
+// preventing context accumulation across different phases that use the same agent.
+func withSessionKey(key string) acpClientOption {
+	return func(c *acpClient) {
+		c.sessionKey = key
+	}
+}
+
 // acpClient implements the acp.Client interface for Vigolium's scanner mode.
 // It accumulates agent output text and auto-approves permission requests.
 // When termMgr is set (autopilot mode), terminal methods execute real commands.
@@ -47,6 +56,7 @@ type acpClient struct {
 	streamWriter  io.Writer
 	termMgr       *terminalManager // nil in scanner mode, set in autopilot mode
 	sessionWeight int
+	sessionKey    string // overrides agent name as pool map key when set
 }
 
 var _ acp.Client = (*acpClient)(nil)

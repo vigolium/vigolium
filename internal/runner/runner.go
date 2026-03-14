@@ -33,7 +33,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/input/formats/curl"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
+	"github.com/vigolium/vigolium/pkg/input/formats/postman"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/jsext"
 	"github.com/vigolium/vigolium/pkg/toolexec/astgrep"
@@ -2829,6 +2831,67 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 			zap.Int("routes", len(routes)))
 	}
 
+	// Discover and ingest API spec files (OpenAPI/Swagger, Postman, curl-in-markdown) from source repos
+	var totalSpecRoutes int
+	var totalSpecFiles int
+	if r.repository != nil {
+		for _, repo := range repoPaths {
+			specs := discoverAPISpecs(repo.path)
+			if len(specs) == 0 {
+				continue
+			}
+
+			hostname := repo.hostname
+			if hostname == "" {
+				hostname = r.firstTargetHostname()
+			}
+
+			if !r.options.Silent {
+				fmt.Fprintf(os.Stderr, "  %s Discovered %s API spec file(s) in %s\n",
+					terminal.Purple(terminal.SymbolInfo),
+					terminal.Orange(fmt.Sprintf("%d", len(specs))),
+					terminal.Cyan(repo.path))
+			}
+
+			repoSpecRoutes := 0
+			for _, spec := range specs {
+				totalSpecFiles++
+
+				zap.L().Info("sast: discovered api spec",
+					zap.String("type", spec.specType),
+					zap.String("file", spec.relPath),
+					zap.String("repo", repo.path))
+
+				if !adHocMode && hostname != "" {
+					ingested := r.ingestAPISpecRoutes(ctx, infra, spec, hostname)
+					totalSpecRoutes += ingested
+					repoSpecRoutes += ingested
+
+					if !r.options.Silent {
+						fmt.Fprintf(os.Stderr, "    %s %s — %s records ingested\n",
+							terminal.Green(terminal.SymbolSuccess),
+							terminal.Cyan(fmt.Sprintf("[%s] %s", apiSpecDisplayName(spec.specType), spec.relPath)),
+							terminal.Orange(fmt.Sprintf("%d", ingested)))
+					}
+				} else {
+					// Ad-hoc mode or no hostname: just print discovery
+					if !r.options.Silent {
+						fmt.Fprintf(os.Stderr, "    %s %s\n",
+							terminal.Green(terminal.SymbolSuccess),
+							terminal.Cyan(fmt.Sprintf("[%s] %s", apiSpecDisplayName(spec.specType), spec.relPath)))
+					}
+				}
+			}
+
+			if !r.options.Silent && repoSpecRoutes > 0 {
+				fmt.Fprintf(os.Stderr, "  %s Total: %s records ingested from %s spec file(s)\n",
+					terminal.Green(terminal.SymbolSuccess),
+					terminal.Orange(fmt.Sprintf("%d", repoSpecRoutes)),
+					terminal.Orange(fmt.Sprintf("%d", len(specs))))
+			}
+		}
+	}
+
 	// Run Kingfisher secret detection on source repos
 	var totalKingfisherFindings int
 	kfScanner, kfErr := kingfisher.NewScanner(nil)
@@ -2935,6 +2998,11 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 
 	elapsed := time.Since(phaseStart)
 	summary := fmt.Sprintf("completed — %s routes extracted", terminal.Orange(fmt.Sprintf("%d", totalRoutes)))
+	if totalSpecRoutes > 0 {
+		summary += fmt.Sprintf(", %s api-spec records from %s file(s)",
+			terminal.Orange(fmt.Sprintf("%d", totalSpecRoutes)),
+			terminal.Orange(fmt.Sprintf("%d", totalSpecFiles)))
+	}
 	if totalKingfisherFindings > 0 {
 		summary += fmt.Sprintf(", %s secrets detected", terminal.Orange(fmt.Sprintf("%d", totalKingfisherFindings)))
 	}
@@ -2945,7 +3013,7 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	r.printPhaseComplete("SAST", summary)
 
 	// Increment processed_count for SAST phase
-	sastProcessed := int64(totalRoutes + totalKingfisherFindings + totalThirdPartyFindings)
+	sastProcessed := int64(totalRoutes + totalSpecRoutes + totalKingfisherFindings + totalThirdPartyFindings)
 	if r.repository != nil && sastProcessed > 0 {
 		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, sastProcessed); err != nil {
 			zap.L().Warn("SAST: failed to increment processed count", zap.Error(err))
@@ -3260,6 +3328,289 @@ func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []a
 	if _, err := r.repository.DeduplicateRecordsBySource(ctx, r.options.ProjectUUID, "ast-grep"); err != nil {
 		zap.L().Debug("source-aware: failed to deduplicate ast-grep records", zap.Error(err))
 	}
+}
+
+// apiSpecFile holds a discovered API spec file path and its detected type.
+type apiSpecFile struct {
+	path       string // absolute file path
+	specType   string // "openapi", "postman", or "curl-md"
+	relPath    string // path relative to repo root (for display)
+}
+
+// skipDirs are directories to skip when walking the repo for API spec files.
+var apiSpecSkipDirs = map[string]bool{
+	"node_modules": true, ".git": true, "vendor": true, "dist": true,
+	"build": true, ".next": true, "__pycache__": true, ".venv": true,
+	"venv": true, ".tox": true, "target": true, "bin": true, "obj": true,
+	".idea": true, ".vscode": true,
+}
+
+// discoverAPISpecs walks a repo directory looking for OpenAPI/Swagger specs,
+// Postman collections, and Markdown files containing curl commands.
+// It validates file contents before returning them (not just filename heuristics).
+func discoverAPISpecs(repoPath string) []apiSpecFile {
+	var specs []apiSpecFile
+
+	_ = filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if d.IsDir() {
+			if apiSpecSkipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+
+		// Skip files that are too large (>10MB)
+		info, statErr := d.Info()
+		if statErr != nil || info.Size() > 10*1024*1024 {
+			return nil
+		}
+
+		// Skip very small files (<20 bytes) — can't contain useful content
+		if info.Size() < 20 {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(repoPath, path)
+		if relPath == "" {
+			relPath = filepath.Base(path)
+		}
+
+		// Check Markdown files for curl commands
+		if ext == ".md" || ext == ".markdown" {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			if markdownHasCurlCommands(string(data)) {
+				specs = append(specs, apiSpecFile{path: path, specType: "curl-md", relPath: relPath})
+			}
+			return nil
+		}
+
+		// Only check JSON and YAML for API specs
+		if ext != ".json" && ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+
+		// Check for OpenAPI/Swagger
+		if openapi.IsOpenAPISpec(data) {
+			specs = append(specs, apiSpecFile{path: path, specType: "openapi", relPath: relPath})
+			return nil
+		}
+
+		// Check for Postman collection (JSON only)
+		if ext == ".json" && isPostmanCollection(data) {
+			specs = append(specs, apiSpecFile{path: path, specType: "postman", relPath: relPath})
+			return nil
+		}
+
+		return nil
+	})
+
+	return specs
+}
+
+// markdownHasCurlCommands checks if markdown content contains curl commands in fenced code blocks.
+func markdownHasCurlCommands(content string) bool {
+	inCodeBlock := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if inCodeBlock && strings.Contains(trimmed, "curl ") {
+			return true
+		}
+	}
+	return false
+}
+
+// apiSpecDisplayName returns a human-friendly label for a spec type.
+func apiSpecDisplayName(specType string) string {
+	switch specType {
+	case "openapi":
+		return "OpenAPI"
+	case "postman":
+		return "Postman"
+	case "curl-md":
+		return "cURL/Markdown"
+	default:
+		return specType
+	}
+}
+
+// isPostmanCollection checks if JSON data looks like a Postman Collection v2.x.
+func isPostmanCollection(data []byte) bool {
+	var probe struct {
+		Info *struct {
+			Schema string `json:"schema"`
+		} `json:"info"`
+		Item       json.RawMessage `json:"item"`
+		Collection *struct {
+			Info *struct {
+				Schema string `json:"schema"`
+			} `json:"info"`
+			Item json.RawMessage `json:"item"`
+		} `json:"collection"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+
+	// Check unwrapped format: has "info.schema" containing "collection" and "item" array
+	if probe.Info != nil && strings.Contains(probe.Info.Schema, "collection") && len(probe.Item) > 2 {
+		return true
+	}
+
+	// Check wrapped format: {collection: {info: {schema: ...}, item: [...]}}
+	if probe.Collection != nil && probe.Collection.Info != nil &&
+		strings.Contains(probe.Collection.Info.Schema, "collection") && len(probe.Collection.Item) > 2 {
+		return true
+	}
+
+	return false
+}
+
+// ingestAPISpecRoutes parses an API spec file and ingests the extracted routes into the DB.
+// It uses existing OpenAPI/Postman parsers to generate HttpRequestResponse entries,
+// then probes and saves them like ast-grep routes.
+func (r *Runner) ingestAPISpecRoutes(ctx context.Context, infra *phaseInfra, spec apiSpecFile, hostname string) int {
+	// Determine base URL from targets
+	var baseURL string
+	for _, t := range r.options.Targets {
+		u, parseErr := neturl.Parse(t)
+		if parseErr != nil || u.Hostname() != hostname {
+			continue
+		}
+		baseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+		break
+	}
+	if baseURL == "" {
+		baseURL = "https://" + hostname
+	}
+
+	// Collect records from the spec parser
+	var parsed []*httpmsg.HttpRequestResponse
+
+	switch spec.specType {
+	case "openapi":
+		openapiFormat := openapi.New()
+		openapiFormat.SetOpenAPIOptions(openapi.Options{
+			BaseURL:              baseURL,
+			RequiredOnly:         false,
+			SkipFormatValidation: true,
+		})
+		if err := openapiFormat.Parse(spec.path, func(rr *httpmsg.HttpRequestResponse) bool {
+			parsed = append(parsed, rr)
+			return true
+		}); err != nil {
+			zap.L().Warn("sast: failed to parse openapi spec",
+				zap.String("file", spec.relPath), zap.Error(err))
+			return 0
+		}
+
+	case "postman":
+		postmanFormat := postman.New()
+		postmanFormat.SetPostmanOptions(postman.Options{
+			BaseURL: baseURL,
+		})
+		if err := postmanFormat.Parse(spec.path, func(rr *httpmsg.HttpRequestResponse) bool {
+			parsed = append(parsed, rr)
+			return true
+		}); err != nil {
+			zap.L().Warn("sast: failed to parse postman collection",
+				zap.String("file", spec.relPath), zap.Error(err))
+			return 0
+		}
+
+	case "curl-md":
+		curlFormat := curl.New()
+		if err := curlFormat.Parse(spec.path, func(rr *httpmsg.HttpRequestResponse) bool {
+			// Filter: only keep requests targeting the scan hostname.
+			// Markdown files often contain example curls for localhost or other domains.
+			if target := rr.Target(); target != "" {
+				u, parseErr := neturl.Parse(target)
+				if parseErr == nil && u.Hostname() != "" && u.Hostname() != hostname {
+					return true // skip, continue iterating
+				}
+			}
+			parsed = append(parsed, rr)
+			return true
+		}); err != nil {
+			zap.L().Warn("sast: failed to parse curl commands from markdown",
+				zap.String("file", spec.relPath), zap.Error(err))
+			return 0
+		}
+	}
+
+	if len(parsed) == 0 {
+		return 0
+	}
+
+	// Probe routes concurrently (same pattern as ingestRoutes)
+	canProbe := infra != nil && infra.httpRequester != nil
+
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		records []*httpmsg.HttpRequestResponse
+	)
+
+	for _, rr := range parsed {
+		if canProbe {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(rr *httpmsg.HttpRequestResponse) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				probed := r.probeRoute(rr, infra)
+				mu.Lock()
+				records = append(records, probed)
+				mu.Unlock()
+			}(rr)
+		} else {
+			records = append(records, rr)
+		}
+	}
+
+	wg.Wait()
+
+	if len(records) == 0 {
+		return 0
+	}
+
+	sourceLabel := spec.specType
+	if sourceLabel != "curl-md" {
+		sourceLabel += "-spec"
+	}
+	if _, err := r.repository.SaveRecordBatch(ctx, records, sourceLabel, r.options.ProjectUUID); err != nil {
+		zap.L().Debug("sast: failed to save api-spec routes",
+			zap.String("source", sourceLabel), zap.Error(err))
+		return 0
+	}
+
+	if _, err := r.repository.DeduplicateRecordsBySource(ctx, r.options.ProjectUUID, sourceLabel); err != nil {
+		zap.L().Debug("sast: failed to deduplicate api-spec records",
+			zap.String("source", sourceLabel), zap.Error(err))
+	}
+
+	return len(records)
 }
 
 // ingestAstGrepFindings converts ast-grep matches into Finding records grouped by category.

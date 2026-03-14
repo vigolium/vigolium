@@ -142,14 +142,41 @@ type GeneratedExtension struct {
 }
 
 // sanitizeExtensionFilename ensures a filename is safe for writing to disk.
-// It strips path components to prevent traversal and falls back to a
-// numbered default for empty or dot-only names.
+// It strips path components to prevent traversal, converts to a URL-friendly
+// slug (lowercase, alphanumeric + hyphens), and falls back to a numbered
+// default for empty or dot-only names.
 func sanitizeExtensionFilename(name string, index int) string {
 	name = filepath.Base(name)
 	if name == "" || name == "." || name == ".." {
 		return fmt.Sprintf("extension-%d.js", index)
 	}
-	return name
+
+	// Strip .js extension for slug processing, re-add after
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	if ext == "" {
+		ext = ".js"
+	}
+
+	// Slugify: lowercase, replace non-alphanumeric with hyphens, collapse, trim
+	slug := strings.ToLower(base)
+	var sb strings.Builder
+	prevHyphen := false
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+			prevHyphen = false
+		} else if !prevHyphen {
+			sb.WriteRune('-')
+			prevHyphen = true
+		}
+	}
+	slug = strings.Trim(sb.String(), "-")
+
+	if slug == "" {
+		return fmt.Sprintf("extension-%d.js", index)
+	}
+	return slug + ext
 }
 
 // QuickCheck is a declarative shorthand for simple payload-and-match scan checks.
@@ -882,6 +909,7 @@ type SourceAnalysisConfig struct {
 	Files          []string
 	Instruction    string // user-provided custom instruction appended to the prompt
 	PromptTemplate string // override template ID (default: "pipeline-source-analysis")
+	SessionKey     string // pool session key override (prevents context accumulation across phases)
 	DryRun         bool
 	ShowPrompt     bool // print rendered prompt to stderr before executing
 	ScanUUID       string

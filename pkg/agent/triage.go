@@ -25,6 +25,7 @@ type TriageLoopConfig struct {
 	SourcePath     string
 	Files          []string
 	Instruction    string
+	SessionKey     string // pool session key (triage reuses the same session across rounds)
 	DryRun         bool
 	ShowPrompt     bool
 	ScanUUID       string
@@ -157,6 +158,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				SourcePath:     cfg.SourcePath,
 				Files:          cfg.Files,
 				Instruction:    cfg.Instruction,
+				SessionKey:     cfg.SessionKey,
 				DryRun:         cfg.DryRun,
 				ShowPrompt:     cfg.ShowPrompt,
 				ScanUUID:       cfg.ScanUUID,

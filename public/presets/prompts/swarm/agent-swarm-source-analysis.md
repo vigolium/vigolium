@@ -50,10 +50,15 @@ Analyze the source code and produce three outputs, prioritizing routes and sinks
 
 Extract HTTP endpoints/routes from the source code. For each route, produce a complete HTTP request with:
 - Correct HTTP method
-- Full URL using `{{.TargetURL}}` as the base
+- Full URL using `{{.TargetURL}}` as the base, **including query parameters directly in the URL** for GET/DELETE requests (e.g., `{{.TargetURL}}/api/search?q=test&page=1`). Read the handler code to find all expected query parameters and include them with realistic example values.
 - Appropriate headers (Content-Type, Authorization if required)
-- Realistic request body with valid parameter names, types, and example values from the code
+- **Request body is REQUIRED for POST/PUT/PATCH requests.** Read the handler code to find all expected body parameters (from `req.body`, request parsing, model/schema definitions, validation rules, etc.) and construct a complete JSON/form body with realistic example values matching the expected types. An empty body on a POST/PUT/PATCH makes the route useless for scanning.
 - Notes describing what the endpoint does and any sinks it touches
+
+**CRITICAL: Every route MUST include its parameters.** A route without parameters cannot be effectively scanned. For each route:
+1. Read the handler function source code
+2. Identify ALL parameters (path params, query params, body fields, headers)
+3. Include them in the HTTP record with realistic values matching expected types (string, number, email, UUID, etc.)
 
 Look for:
 - Framework route registrations (Express `app.get()`, Flask `@app.route()`, Spring `@RequestMapping`, Go `mux.HandleFunc()`, etc.)
@@ -74,7 +79,14 @@ Analyze authentication and session management code to produce session config:
 - Determine how tokens are attached to subsequent requests (Authorization header, Cookie, etc.)
 - Identify different user roles if applicable (admin, regular user)
 
-Use realistic but safe test credentials (e.g., `test@test.com` / `testpassword`).
+**IMPORTANT: Search the codebase for real, working credentials.** The scanner will execute the login flow you define to obtain a real auth token for probing. Look for:
+- **Seed/fixture data**: Database seeds, migrations, or test fixtures that create default users (e.g., `data/default.js`, `seeds/`, `fixtures/`, `test/`)
+- **Default admin accounts**: Hardcoded admin credentials in setup scripts or configuration
+- **Environment defaults**: `.env.example`, `config/default.json`, `application.properties` with default passwords
+- **Test credentials**: Test suites often contain working credentials for E2E tests
+- **Hardcoded tokens/API keys**: Static tokens, JWT secrets, API keys in source code
+
+Use **actual credentials found in the source code** whenever possible. Only fall back to generic test credentials (e.g., `test@test.com` / `testpassword`) if no real credentials are found. The login flow you define will be executed automatically, so it must use credentials that actually work against the running application.
 
 ### 3. Extensions — Vulnerability-Targeted Scanners
 
@@ -139,8 +151,13 @@ Your response MUST use this exact two-part format.
 Output a single valid JSON object containing `http_records` and optionally `session_config`, wrapped in a ` ```json ` code block. Do NOT include extensions in the JSON — they go in Part 2.
 
 ```json
-{"http_records":[{"method":"POST","url":"{{.TargetURL}}/api/endpoint","headers":{"Content-Type":"application/json"},"body":"{\"param\":\"value\"}","notes":"Description of endpoint and relevant sinks"}],"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+{"http_records":[{"method":"GET","url":"{{.TargetURL}}/api/products/search?q=test","headers":{},"notes":"Search products — query param 'q' required"},{"method":"POST","url":"{{.TargetURL}}/api/users","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"testuser\",\"email\":\"test@test.com\",\"password\":\"testpassword\",\"role\":\"customer\"}","notes":"Create user — accepts JSON body with user fields"},{"method":"PUT","url":"{{.TargetURL}}/api/users/1","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"updated\",\"email\":\"new@test.com\"}","notes":"Update user — accepts JSON body with fields to update"}],"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
 ```
+
+**Important notes on the JSON:**
+- GET requests: query parameters MUST be in the URL string (e.g., `?q=test&page=1`), not in the body
+- POST/PUT/PATCH requests: the `body` field MUST contain the full request body with ALL parameters found in the handler code
+- Never output a POST/PUT/PATCH record with an empty `body` — always read the handler to find expected parameters
 
 ### Part 2: Extensions (fenced code blocks)
 
@@ -192,6 +209,7 @@ module.exports = {
 - Extension filenames must end in `.js` and start with `agent-`
 - Extension code must be valid JavaScript (not TypeScript)
 - In extension `reason`, include the source file and line number where the sink was found
-- For request bodies, use realistic values that match the code's expected types
+- For request bodies, use realistic values that match the code's expected types. **Every POST/PUT/PATCH route MUST have a non-empty `body` field.** Read the handler to find all expected parameters.
+- For GET/DELETE routes, include all query parameters directly in the URL string (e.g., `?q=test&limit=10`). **Do NOT output a GET route that accepts parameters without including them in the URL.**
 - Keep each extension focused and under 80 lines
 - **Generate multiple versions per sink** — use different detection techniques (e.g., error-based, time-based, boolean-based for SQLi; reflected vs DOM-based for XSS; different encoding/bypass strategies). Append a technique suffix to the filename (e.g., `agent-sqli-users-error.js`, `agent-sqli-users-time.js`)

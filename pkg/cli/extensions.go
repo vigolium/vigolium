@@ -89,6 +89,7 @@ func init() {
 	extensionsCmd.AddCommand(extensionsDocsCmd)
 	extensionsCmd.AddCommand(extensionsPresetCmd)
 	extensionsCmd.AddCommand(extensionsEvalCmd)
+	extensionsCmd.AddCommand(extensionsLintCmd)
 	extensionsLsCmd.Flags().StringVar(&extOpts.ExtType, "type", "all",
 		"Filter by type: all, active, passive, pre_hook, post_hook")
 	extensionsLsCmd.Flags().BoolVarP(&extOpts.Verbose, "verbose", "v", false,

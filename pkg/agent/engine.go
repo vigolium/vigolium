@@ -139,6 +139,9 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		if opts.SessionWeight > 0 {
 			acpOpts = append(acpOpts, withSessionWeight(opts.SessionWeight))
 		}
+		if opts.SessionKey != "" {
+			acpOpts = append(acpOpts, withSessionKey(opts.SessionKey))
+		}
 
 		var ar acpResult
 		if opts.Autopilot {
@@ -272,6 +275,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		Instruction:    cfg.Instruction,
+		SessionKey:     cfg.SessionKey,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -372,6 +376,9 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 			defer wg.Done()
 			subCfg := cfg
 			subCfg.PromptTemplate = sa.template
+			// Use a unique session key per sub-agent so each gets its own
+			// pool session instead of competing for a single shared one.
+			subCfg.SessionKey = "sa-" + sa.name
 
 			result, subRawOutput, subPrompt, subErr := e.RunSourceAnalysis(ctx, subCfg)
 

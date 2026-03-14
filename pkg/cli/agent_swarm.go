@@ -318,7 +318,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		if promptName != "" {
 			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
 			fmt.Fprintf(os.Stderr, "  %s Phase configuration: prompt: %s %s\n\n",
-				terminal.SymbolFunction, terminal.Orange(promptName), terminal.Muted(pp))
+				terminal.FunctionSymbol(), terminal.Orange(promptName), terminal.Muted(pp))
 		}
 	}
 
@@ -420,7 +420,7 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 			)
 		}
 
-		fmt.Fprintf(os.Stderr, "\n%s Scanning with modules: %s\n",
+		fmt.Fprintf(os.Stderr, "%s Scanning with modules: %s\n",
 			terminal.GrbRed(terminal.SymbolSparkle),
 			summarizeModules(opts.Modules))
 
@@ -462,7 +462,7 @@ func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository
 			opts.AuthConfigPath = *authConfigPath
 		}
 
-		fmt.Fprintf(os.Stderr, "\n%s Discovery & Spidering (expanding attack surface)\n",
+		fmt.Fprintf(os.Stderr, "%s Discovery & Spidering (expanding attack surface)\n",
 			terminal.Aqua(terminal.SymbolSparkle))
 
 		return runPipelinePhaseRunner(opts, settings, repo)
@@ -641,7 +641,7 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 			opts.AuthConfigPath = *authConfigPath
 		}
 
-		fmt.Fprintf(os.Stderr, "\n%s SAST analysis (ast-grep + secret detection + third-party tools)\n",
+		fmt.Fprintf(os.Stderr, "%s SAST analysis (ast-grep + secret detection + third-party tools)\n",
 			terminal.GrbRed(terminal.SymbolSparkle))
 
 		return runPipelinePhaseRunner(opts, settings, repo)

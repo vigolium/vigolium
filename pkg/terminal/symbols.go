@@ -192,6 +192,11 @@ func ArrowSymbol() string {
 	return Cyan(SymbolArrow)
 }
 
+// FunctionSymbol returns a colored function symbol
+func FunctionSymbol() string {
+	return Purple(SymbolFunction)
+}
+
 // Module type symbols
 
 // ActiveModuleSymbol returns a bold red diamond for active modules
