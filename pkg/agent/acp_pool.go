@@ -21,6 +21,43 @@ import (
 	"go.uber.org/zap"
 )
 
+// stderrRingBuffer keeps the last N lines of stderr for diagnostics.
+type stderrRingBuffer struct {
+	mu    sync.Mutex
+	lines []string
+	max   int
+}
+
+func (b *stderrRingBuffer) add(line string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.max == 0 {
+		b.max = 20
+	}
+	b.lines = append(b.lines, line)
+	if len(b.lines) > b.max {
+		// Copy to a new slice to allow GC of the old backing array.
+		trimmed := make([]string, b.max)
+		copy(trimmed, b.lines[len(b.lines)-b.max:])
+		b.lines = trimmed
+	}
+}
+
+func (b *stderrRingBuffer) last(n int) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n <= 0 || len(b.lines) == 0 {
+		return nil
+	}
+	start := len(b.lines) - n
+	if start < 0 {
+		start = 0
+	}
+	out := make([]string, len(b.lines)-start)
+	copy(out, b.lines[start:])
+	return out
+}
+
 // killProcessGroup sends SIGKILL to a process group and logs errors instead of
 // silently discarding them. ESRCH (no such process) is expected when the process
 // has already exited and is logged at Debug level; other errors are logged as Warn.
@@ -54,6 +91,7 @@ type acpSession struct {
 	stderrWriter *io.PipeWriter
 	stderrReader *io.PipeReader
 	stderrWg     sync.WaitGroup
+	stderrBuf    stderrRingBuffer // last N stderr lines for diagnostics
 
 	inUse       bool
 	lastUsed    time.Time
@@ -127,6 +165,8 @@ func NewACPPool(cfg config.WarmSessionConfig, agents map[string]config.AgentDef)
 }
 
 // Prompt sends a prompt to the named agent, reusing a warm session if available.
+// When the pooled session is already in use (concurrent calls for the same agent),
+// it falls back to a one-shot ACP session to avoid blocking or corrupting output.
 func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, cwd string, opts ...acpClientOption) (result acpResult, err error) {
 	// Normalize cwd to absolute path for consistent session matching
 	if !filepath.IsAbs(cwd) {
@@ -153,8 +193,15 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			delete(p.sessions, agentName)
 			exists = false
 		} else if sess.inUse {
+			// Session is busy — fall back to a one-shot ACP session
 			p.mu.Unlock()
-			return acpResult{}, fmt.Errorf("ACP session for agent %q is already in use", agentName)
+			agentDef, ok := p.agents[agentName]
+			if !ok {
+				return acpResult{}, fmt.Errorf("agent %q not found in pool configuration", agentName)
+			}
+			zap.L().Debug("ACP warm session busy, falling back to one-shot session",
+				zap.String("agent", agentName))
+			return RunAgenticACP(ctx, agentDef, prompt, opts...)
 		}
 	}
 
@@ -175,6 +222,15 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 		p.mu.Lock()
 		// Another goroutine may have inserted a session while we were spawning.
 		if existing, raced := p.sessions[agentName]; raced && existing.alive() {
+			if existing.inUse {
+				// The existing session is already in use by another goroutine.
+				// Keep our freshly spawned session as a one-shot: use it for this
+				// prompt and kill it afterwards, without storing it in the pool.
+				p.mu.Unlock()
+				zap.L().Debug("ACP warm session race: existing session busy, using spawned session as one-shot",
+					zap.String("agent", agentName))
+				return p.promptOneShot(ctx, agentName, newSess, prompt, opts...)
+			}
 			sess = existing
 			p.mu.Unlock()
 			// Kill the duplicate outside the lock (kill() is safe to call independently)
@@ -259,23 +315,101 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			hints := make([]string, 0, len(sess.authMethods))
 			for _, am := range sess.authMethods {
 				desc := am.Name
-			if am.Description != nil && *am.Description != "" {
-				desc = *am.Description
-			}
-			hints = append(hints, desc)
+				if am.Description != nil && *am.Description != "" {
+					desc = *am.Description
+				}
+				hints = append(hints, desc)
 			}
 			authHint = fmt.Sprintf("; the agent advertises authentication methods — ensure you are authenticated: %s", strings.Join(hints, "; "))
 		}
 
-		zap.L().Warn("ACP agent returned empty output with zero tokens — the agent's LLM backend may not be processing prompts",
+		// Capture recent stderr for diagnostics
+		recentStderr := sess.stderrBuf.last(10)
+		stderrSummary := ""
+		if len(recentStderr) > 0 {
+			stderrSummary = strings.Join(recentStderr, "\n")
+		}
+
+		warnFields := []zap.Field{
 			zap.String("agent", agentName),
 			zap.String("cwd", sess.cwd),
-			zap.Int("promptLength", len(prompt)))
+			zap.Int("promptLength", len(prompt)),
+		}
+		if stderrSummary != "" {
+			warnFields = append(warnFields, zap.String("recent_stderr", stderrSummary))
+		}
+		zap.L().Warn("ACP agent returned empty output with zero tokens — the agent's LLM backend may not be processing prompts", warnFields...)
 
 		return acpResult{
 			Stdout:    output,
+			Stderr:    stderrSummary,
 			SessionID: sessionID,
 		}, fmt.Errorf("agent %q returned empty output (0 tokens) — the LLM backend did not process the prompt%s", agentName, authHint)
+	}
+
+	return acpResult{
+		Stdout:    output,
+		SessionID: sessionID,
+	}, nil
+}
+
+// promptOneShot uses a freshly spawned session for a single prompt and then kills it.
+// This is used when the pooled session for an agent is busy (concurrent calls).
+func (p *ACPPool) promptOneShot(ctx context.Context, agentName string, sess *acpSession, prompt string, opts ...acpClientOption) (acpResult, error) {
+	defer sess.kill()
+
+	// Update stream writer from options
+	var streamWriter io.Writer
+	for _, opt := range opts {
+		probe := &acpClient{}
+		opt(probe)
+		if probe.streamWriter != nil {
+			streamWriter = probe.streamWriter
+		}
+	}
+	sess.client.setStreamWriter(streamWriter)
+
+	sessionID := string(sess.sessionID)
+
+	promptResp, promptErr := sess.conn.Prompt(ctx, acp.PromptRequest{
+		SessionId: sess.sessionID,
+		Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
+	})
+	if promptErr != nil {
+		r := acpResult{Stdout: sess.client.collectedOutput(), SessionID: sessionID}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+		}
+		return r, fmt.Errorf("ACP prompt failed on one-shot session: %w", promptErr)
+	}
+
+	output := sess.client.collectedOutput()
+
+	zap.L().Debug("ACP one-shot session prompt completed",
+		zap.String("agent", agentName),
+		zap.String("stopReason", string(promptResp.StopReason)),
+		zap.Int("outputBytes", len(output)))
+
+	if len(output) == 0 && promptResp.StopReason == "end_turn" {
+		recentStderr := sess.stderrBuf.last(10)
+		stderrSummary := ""
+		if len(recentStderr) > 0 {
+			stderrSummary = strings.Join(recentStderr, "\n")
+		}
+		warnFields := []zap.Field{
+			zap.String("agent", agentName),
+			zap.String("cwd", sess.cwd),
+			zap.Int("promptLength", len(prompt)),
+		}
+		if stderrSummary != "" {
+			warnFields = append(warnFields, zap.String("recent_stderr", stderrSummary))
+		}
+		zap.L().Warn("ACP agent returned empty output with zero tokens — the agent's LLM backend may not be processing prompts", warnFields...)
+		return acpResult{
+			Stdout:    output,
+			Stderr:    stderrSummary,
+			SessionID: sessionID,
+		}, fmt.Errorf("agent %q returned empty output (0 tokens) — the LLM backend did not process the prompt", agentName)
 	}
 
 	return acpResult{
@@ -371,13 +505,15 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 		lastUsed:     time.Now(),
 	}
 
-	// Drain stderr in background
+	// Drain stderr in background, keeping last lines for diagnostics
 	sess.stderrWg.Add(1)
 	go func() {
 		defer sess.stderrWg.Done()
 		scanner := bufio.NewScanner(stderrReader)
 		for scanner.Scan() {
-			zap.L().Debug("agent stderr (warm)", zap.String("agent", agentName), zap.String("line", scanner.Text()))
+			line := scanner.Text()
+			sess.stderrBuf.add(line)
+			zap.L().Debug("agent stderr (warm)", zap.String("agent", agentName), zap.String("line", line))
 		}
 	}()
 

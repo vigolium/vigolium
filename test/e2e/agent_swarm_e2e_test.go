@@ -850,6 +850,7 @@ The response includes product data that may reflect user input unsanitized.
 
 ## NEEDS_EXTENSIONS
 no
+Built-in modules cover standard SQLi/XSS/NoSQLi for this REST API endpoint.
 PLAN
 `
 	require.NoError(t, os.WriteFile(script, []byte(content), 0755))
@@ -1018,6 +1019,9 @@ func TestSwarmTwoPhasePlanOnly(t *testing.T) {
 
 	// NEEDS_EXTENSIONS=no → no extensions should be generated
 	assert.False(t, plan.NeedsExtensions, "expected NeedsExtensions to be false")
+	assert.NotEmpty(t, plan.NeedsExtensionsReason, "expected reason for NEEDS_EXTENSIONS decision")
+	assert.Contains(t, plan.NeedsExtensionsReason, "Built-in modules")
+	t.Logf("NEEDS_EXTENSIONS reason: %s", plan.NeedsExtensionsReason)
 	assert.Empty(t, plan.Extensions, "expected no extensions when NEEDS_EXTENSIONS=no")
 	assert.Empty(t, plan.QuickChecks, "expected no quick checks when NEEDS_EXTENSIONS=no")
 
@@ -2628,6 +2632,291 @@ func TestSwarmPlanCodeFencedModuleIDs(t *testing.T) {
 	assert.NotContains(t, string(planData), "```",
 		"swarm-plan.json should not contain code fence markers")
 	t.Logf("swarm-plan.json: %s", string(planData))
+}
+
+// TestSwarmSASTReviewExtensionsWrittenToDisk tests the critical path: when a SAST review
+// agent produces ```javascript code blocks for extensions, those extensions must be:
+//   1. Extracted by ParseSourceAnalysisResult (even when JSON is garbled)
+//   2. Written as .js files to <sessionDir>/extensions/
+//   3. Session config (if present) written to session-config.json
+//
+// This reproduces the production bug where SAST review output contained 16 valid JS
+// extensions in fenced code blocks, but ParseSourceAnalysisResult returned "extensions": 0
+// because a JSON parsing path succeeded (with an empty struct) before code block extraction.
+//
+// Simulates: vigolium agent swarm -t http://localhost:3000 --source ~/Desktop/demo/juice-shop --verbose
+func TestSwarmSASTReviewExtensionsWrittenToDisk(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	db, repo := setupTestDB(t)
+	_ = db
+
+	agentName := "fake-sast-ext-disk"
+	script := fakeSASTReviewGarbledJSONWithExtensions(t)
+	settings := newSwarmTestSettings(t, agentName, script)
+
+	engine := agent.NewEngine(settings, repo)
+	engine.EnsureWarmSessions()
+	defer engine.Close()
+
+	swarmRunner := agent.NewSwarmRunner(engine, repo)
+
+	sourceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "server.ts"), []byte("// juice-shop"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceDir, "routes"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "routes", "login.ts"), []byte("// login"), 0644))
+
+	sessionDir := t.TempDir()
+
+	var sastCalled bool
+
+	cfg := agent.SwarmConfig{
+		Inputs:        []string{"http://localhost:3000/"},
+		SourcePath:    sourceDir,
+		AgentName:     agentName,
+		MaxIterations: 1,
+		ProjectUUID:   database.DefaultProjectUUID,
+		SessionDir:    sessionDir,
+		SkipPhases:    []string{"native-scan", "triage", "rescan"},
+
+		SASTFunc: func(ctx context.Context) error {
+			sastCalled = true
+			return nil
+		},
+	}
+
+	result, err := swarmRunner.Run(ctx, cfg)
+	require.NoError(t, err, "swarm with SAST review garbled JSON + extensions should not fail")
+	require.NotNil(t, result)
+
+	assert.True(t, sastCalled, "SASTFunc should have been called")
+
+	// --- Verify SAST review output saved ---
+	if data, readErr := os.ReadFile(filepath.Join(sessionDir, "sast-review-output.md")); readErr == nil {
+		t.Logf("SAST review output saved (%d bytes)", len(data))
+		assert.Contains(t, string(data), "agent-sast-sqli-login-error")
+		assert.Contains(t, string(data), "agent-sast-nosqli-trackorder")
+	} else {
+		t.Logf("No sast-review-output.md: %v", readErr)
+	}
+
+	// --- Verify extensions were extracted and written as .js files ---
+	extDir := filepath.Join(sessionDir, "extensions")
+	entries, dirErr := os.ReadDir(extDir)
+	require.NoError(t, dirErr, "expected extensions/ directory in session dir")
+
+	diskNames := make([]string, len(entries))
+	for i, e := range entries {
+		diskNames[i] = e.Name()
+	}
+	t.Logf("Extension files on disk: %v", diskNames)
+
+	// Should have at least 3 extensions from the SAST review code blocks
+	assert.GreaterOrEqual(t, len(entries), 3,
+		"expected at least 3 extension .js files on disk, got %d: %v", len(entries), diskNames)
+
+	// Verify specific extension files exist and contain valid code
+	expectedFiles := map[string]string{
+		"agent-sast-sqli-login-error.js":  "agent-sast-sqli-login-error",
+		"agent-sast-nosqli-trackorder.js": "agent-sast-nosqli-trackorder",
+		"agent-sast-ssrf-profile.js":      "agent-sast-ssrf-profile",
+	}
+	for filename, expectedID := range expectedFiles {
+		path := filepath.Join(extDir, filename)
+		data, readErr := os.ReadFile(path)
+		if assert.NoError(t, readErr, "expected %s on disk", filename) {
+			content := string(data)
+			assert.Contains(t, content, "module.exports", "%s should be a valid JS module", filename)
+			assert.Contains(t, content, expectedID, "%s should contain its module ID", filename)
+			assert.Contains(t, content, "scanPerRequest", "%s should have scanPerRequest function", filename)
+			t.Logf("  %s: %d bytes, valid JS module", filename, len(data))
+		}
+	}
+
+	// --- Verify session config was written ---
+	sessionConfigPath := filepath.Join(sessionDir, "session-config.json")
+	sessionConfigData, statErr := os.ReadFile(sessionConfigPath)
+	if assert.NoError(t, statErr, "expected session-config.json in session dir from SAST review") {
+		configStr := string(sessionConfigData)
+		assert.Contains(t, configStr, "admin")
+		assert.Contains(t, configStr, "juice-sh.op")
+		t.Logf("session-config.json: %d bytes", len(sessionConfigData))
+	}
+
+	// --- Verify plan was parsed ---
+	require.NotNil(t, result.SwarmPlan)
+	assert.Contains(t, result.SwarmPlan.ModuleTags, "sqli")
+}
+
+// fakeSASTReviewGarbledJSONWithExtensions simulates the exact production failure:
+// the SAST review agent outputs garbled/malformed JSON for routes but well-formed
+// ```javascript code blocks for extensions. This tests that ParseSourceAnalysisResult
+// extracts extensions from code blocks even when JSON parsing produces empty results.
+func fakeSASTReviewGarbledJSONWithExtensions(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-sast-garbled-agent.sh")
+
+	content := `#!/bin/sh
+INPUT=$(cat)
+
+# SAST review agent — garbled JSON but valid JS extensions
+if echo "$INPUT" | grep -qi 'SAST\|sast\|findings'; then
+  cat <<'SAST_EOF'
+## Task 1: Authentication & Session Configuration
+
+` + "```json" + `
+{"http_records":[],"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}},{"name":"regular_user","role":"compare","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"jim@juice-sh.op\",\"password\":\"ncc-1701\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+` + "```" + `
+
+## Task 2: HTTP Route Extraction
+
+` + "```json" + `
+{"http_records":[{"method":"POST","url":"http://localhost:3000/rest/user/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"test\",\"password\":\"test\"}","notes":"Login SQLi"},{"method":"GET","url":"http://localhost:3000/rest/products/search?q=test","headers":{},"body":"","notes":"Search SQLi"}]}
+` + "```" + `
+
+## Task 3: SAST-Validated Scanner Extensions
+
+#### agent-sast-sqli-login-error.js
+Reason: SAST finding js/sql-injection at routes/login.ts:34 — error-based SQL injection
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-sast-sqli-login-error",
+  name: "SAST-verified: SQL injection in login via error-based detection",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  tags: ["sqli", "agent-generated", "sast-verified"],
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/rest/user/login") return [];
+    var payload = "' OR 1=1--";
+    var resp = vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: payload, password: "x"})
+    });
+    if (!resp) return [];
+    if (resp.statusCode === 200) {
+      return [{
+        url: ctx.request.url,
+        matched: (resp.body || "").substring(0, 200),
+        severity: "high",
+        description: "SAST confirmed: SQL injection in login endpoint at routes/login.ts:34"
+      }];
+    }
+    return [];
+  }
+};
+` + "```" + `
+
+#### agent-sast-nosqli-trackorder.js
+Reason: SAST finding js/code-injection at routes/trackOrder.ts:18 — NoSQL injection
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-sast-nosqli-trackorder",
+  name: "SAST-verified: NoSQL injection in track order endpoint",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  tags: ["nosqli", "agent-generated", "sast-verified"],
+  scanPerRequest: function(ctx) {
+    if (!/\/rest\/track-order\//.test(ctx.request.path)) return [];
+    return [];
+  }
+};
+` + "```" + `
+
+#### agent-sast-ssrf-profile.js
+Reason: SAST finding js/request-forgery at routes/profileImageUrlUpload.ts:24 — SSRF
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-sast-ssrf-profile",
+  name: "SAST-verified: SSRF via profile image URL upload",
+  type: "active",
+  severity: "high",
+  scanTypes: ["per_request"],
+  tags: ["ssrf", "agent-generated", "sast-verified"],
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/profile/image/url") return [];
+    var resp = vigolium.http.post(ctx.request.url, {
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({imageUrl: "http://localhost:3000/rest/admin/application-configuration"})
+    });
+    if (!resp) return [];
+    if (resp.statusCode === 200 && (resp.body || "").indexOf("config") !== -1) {
+      return [{
+        url: ctx.request.url,
+        matched: (resp.body || "").substring(0, 200),
+        severity: "high",
+        description: "SAST confirmed: SSRF at profileImageUrlUpload.ts:24"
+      }];
+    }
+    return [];
+  }
+};
+` + "```" + `
+
+#### agent-sast-redirect-open.js
+Reason: SAST finding js/server-side-unvalidated-url-redirection at routes/redirect.ts:19
+
+` + "```javascript" + `
+module.exports = {
+  id: "agent-sast-redirect-open",
+  name: "SAST-verified: Open redirect via allowlist bypass",
+  type: "active",
+  severity: "medium",
+  scanTypes: ["per_request"],
+  tags: ["open-redirect", "agent-generated", "sast-verified"],
+  scanPerRequest: function(ctx) {
+    if (ctx.request.path !== "/redirect") return [];
+    return [];
+  }
+};
+` + "```" + `
+SAST_EOF
+  exit 0
+fi
+
+# For source analysis sub-agents (routes/auth/extensions) — return minimal valid output
+if echo "$INPUT" | grep -qi 'extract all HTTP routes'; then
+  echo '{"http_records":[{"method":"GET","url":"http://localhost:3000/api/Products","notes":"products"}]}'
+elif echo "$INPUT" | grep -qi 'discover authentication flows'; then
+  echo '{"http_records":[{"method":"GET","url":"http://localhost:3000/","notes":"placeholder"}]}'
+elif echo "$INPUT" | grep -qi 'identify vulnerability sinks'; then
+  echo '{"http_records":[{"method":"GET","url":"http://localhost:3000/","notes":"placeholder"}]}'
+else
+  # Plan phase
+  cat <<'PLAN'
+## MODULE_TAGS
+sqli, nosqli, ssrf, xss
+
+## MODULE_IDS
+sqli-error-based, nosqli-boolean
+
+## FOCUS_AREAS
+- SQL injection in login endpoint
+- NoSQL injection in track order
+- SSRF in profile image upload
+
+## NOTES
+SAST review confirmed critical vulnerabilities in Juice Shop source.
+
+## NEEDS_EXTENSIONS
+yes
+PLAN
+fi
+`
+	require.NoError(t, os.WriteFile(script, []byte(content), 0755))
+	// Create routes subdirectory for source path validity
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "routes"), 0755))
+	return script
 }
 
 // TestSwarmRealAgentSourceAnalysis runs the full source analysis pipeline with a real agent.

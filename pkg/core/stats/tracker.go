@@ -15,6 +15,7 @@ const printInterval = 5 * time.Second
 // Tracker tracks scan statistics and prints progress periodically.
 type Tracker struct {
 	processed atomic.Int64
+	findings  atomic.Int64
 	total     int64 // 0 = unknown
 	startTime time.Time
 	cancel    context.CancelFunc
@@ -45,6 +46,16 @@ func (t *Tracker) Increment() {
 // Processed returns the current processed count (thread-safe).
 func (t *Tracker) Processed() int64 {
 	return t.processed.Load()
+}
+
+// IncrementFindings adds 1 to the findings count (thread-safe).
+func (t *Tracker) IncrementFindings() {
+	t.findings.Add(1)
+}
+
+// Findings returns the current findings count (thread-safe).
+func (t *Tracker) Findings() int64 {
+	return t.findings.Load()
 }
 
 // Start begins printing statistics every 5 seconds.
@@ -101,20 +112,23 @@ func (t *Tracker) printStats() {
 	runtime := now.Sub(t.startTime)
 
 	// Format output with colors and symbols
+	findings := t.findings.Load()
 	var msg string
 	if t.total > 0 {
-		msg = fmt.Sprintf("%s %s Processed: %s | Speed: %s | Runtime: %s",
+		msg = fmt.Sprintf("%s %s Processed: %s | Speed: %s | Findings: %s | Runtime: %s",
 			terminal.InfoSymbol(),
 			terminal.BoldCyan("Stats"),
 			terminal.Cyan(fmt.Sprintf("%d/%d", currentCount, t.total)),
 			terminal.Green(fmt.Sprintf("%.1f/s", speed)),
+			terminal.Orange(fmt.Sprintf("%d", findings)),
 			terminal.Gray(formatDuration(runtime)))
 	} else {
-		msg = fmt.Sprintf("%s %s Processed: %s | Speed: %s | Runtime: %s",
+		msg = fmt.Sprintf("%s %s Processed: %s | Speed: %s | Findings: %s | Runtime: %s",
 			terminal.InfoSymbol(),
 			terminal.BoldCyan("Stats"),
 			terminal.Cyan(fmt.Sprintf("%d", currentCount)),
 			terminal.Green(fmt.Sprintf("%.1f/s", speed)),
+			terminal.Orange(fmt.Sprintf("%d", findings)),
 			terminal.Gray(formatDuration(runtime)))
 	}
 

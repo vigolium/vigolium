@@ -320,6 +320,26 @@ func (r *Repository) GetRecordsByHostname(ctx context.Context, projectUUID, host
 	return records, nil
 }
 
+// GetUnprobedRecordsBySource returns records with has_response=false for the given source and hostname.
+func (r *Repository) GetUnprobedRecordsBySource(ctx context.Context, projectUUID, source, hostname string, limit int) ([]*HTTPRecord, error) {
+	var records []*HTTPRecord
+	q := r.db.NewSelect().
+		Model(&records).
+		Where("source = ?", source).
+		Where("hostname = ?", hostname).
+		Where("has_response = ?", false).
+		Order("created_at ASC").
+		Limit(limit)
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	err := q.Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 // GetFindingsByRecordUUID retrieves findings that reference a specific HTTP record UUID.
 // Since http_record_uuids is a JSONB array, we use json_each to search inside it.
 func (r *Repository) GetFindingsByRecordUUID(ctx context.Context, uuid string) ([]*Finding, error) {

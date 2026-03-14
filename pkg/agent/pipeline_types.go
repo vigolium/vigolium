@@ -198,7 +198,8 @@ type SwarmPlan struct {
 	Snippets        []Snippet            `json:"snippets,omitempty"`
 	FocusAreas      []string             `json:"focus_areas,omitempty"`
 	Notes           string               `json:"notes,omitempty"`
-	NeedsExtensions bool                 `json:"needs_extensions,omitempty"`
+	NeedsExtensions       bool   `json:"needs_extensions,omitempty"`
+	NeedsExtensionsReason string `json:"needs_extensions_reason,omitempty"`
 }
 
 // BatchProvenance tracks which batch contributed each item to a merged plan.
@@ -563,8 +564,28 @@ func parseSwarmPlanMarkdown(raw string) (*SwarmPlan, error) {
 	}
 
 	if ne, ok := sections["NEEDS_EXTENSIONS"]; ok {
-		ne = strings.TrimSpace(strings.ToLower(stripCodeFenceMarkers(ne)))
-		plan.NeedsExtensions = ne == "yes" || ne == "true"
+		cleaned := strings.TrimSpace(stripCodeFenceMarkers(ne))
+		lines := strings.SplitN(cleaned, "\n", 2)
+
+		// Try labeled format first: "conclusion: yes" / "reason: ..."
+		if conclusionVal, ok := extractLabeledValue(lines[0], "conclusion"); ok {
+			decision := strings.ToLower(conclusionVal)
+			plan.NeedsExtensions = decision == "yes" || decision == "true"
+			if len(lines) > 1 {
+				if reasonVal, ok := extractLabeledValue(lines[1], "reason"); ok {
+					plan.NeedsExtensionsReason = reasonVal
+				} else {
+					plan.NeedsExtensionsReason = strings.TrimSpace(lines[1])
+				}
+			}
+		} else {
+			// Legacy plain format: first line is yes/no, second line is reason
+			decision := strings.TrimSpace(strings.ToLower(lines[0]))
+			plan.NeedsExtensions = decision == "yes" || decision == "true"
+			if len(lines) > 1 {
+				plan.NeedsExtensionsReason = strings.TrimSpace(lines[1])
+			}
+		}
 	}
 
 	// Extract extensions from fenced code blocks (existing logic handles #### headings)
@@ -674,6 +695,16 @@ func stripCodeFenceMarkers(s string) string {
 		out.WriteString(line)
 	}
 	return out.String()
+}
+
+// extractLabeledValue checks if a line has the form "label: value" and returns the value.
+func extractLabeledValue(line, label string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	prefix := label + ":"
+	if len(trimmed) >= len(prefix) && strings.EqualFold(trimmed[:len(prefix)], prefix) {
+		return strings.TrimSpace(trimmed[len(prefix):]), true
+	}
+	return "", false
 }
 
 // parseBulletList extracts items from a bulleted markdown list.
@@ -1030,27 +1061,45 @@ func ParseTriageResult(raw string) (*TriageResult, error) {
 // When the output contains multiple JSON blocks (e.g., multi-task SAST review output),
 // the function tries all JSON fenced blocks and also merges http_records across blocks.
 func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
+	// Lazily extract code block extensions — only computed once, on first access.
+	// Agent output frequently contains ```javascript fenced blocks for extensions
+	// alongside JSON blocks for records/session_config. Extracting and merging them
+	// ensures they are never lost regardless of which JSON parsing path succeeds.
+	var codeExts []GeneratedExtension
+	codeExtsLoaded := false
+	getCodeExts := func() []GeneratedExtension {
+		if !codeExtsLoaded {
+			codeExts = extractCodeBlockExtensions(raw)
+			codeExtsLoaded = true
+		}
+		return codeExts
+	}
+
+	mergeCodeExts := func(result *SourceAnalysisResult) {
+		if exts := getCodeExts(); len(exts) > 0 {
+			result.Extensions = mergeExtensionsByFilename(result.Extensions, exts)
+		}
+	}
+
 	// Try hybrid format first: JSON with records/session_config + fenced code blocks for extensions
 	if result, err := parseSourceAnalysisHybrid(raw); err == nil && len(result.HTTPRecords) > 0 {
+		mergeCodeExts(result)
 		return result, nil
 	}
 
 	// Try multi-block merge: when agent outputs multiple JSON blocks (e.g., separate tasks),
 	// merge http_records from all parseable blocks into a single result.
 	if result := mergeMultiBlockSourceAnalysis(raw); result != nil && len(result.HTTPRecords) > 0 {
-		// Also extract extensions from fenced code blocks
-		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
-			result.Extensions = codeExts
-		}
+		mergeCodeExts(result)
 		return result, nil
 	}
 
 	// Fall back to legacy all-in-one JSON format
 	jsonStr, err := extractJSON(raw)
 	if err != nil {
-		// Even when JSON parsing fails entirely, try to extract extensions from code blocks
-		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
-			return &SourceAnalysisResult{Extensions: codeExts}, nil
+		// Even when JSON parsing fails entirely, return extensions from code blocks
+		if exts := getCodeExts(); len(exts) > 0 {
+			return &SourceAnalysisResult{Extensions: exts}, nil
 		}
 		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
 	}
@@ -1058,20 +1107,48 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	// Try wrapped format: {"source_analysis": {...}}
 	var wrapper sourceAnalysisWrapper
 	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.SourceAnalysis.HTTPRecords) > 0 {
-		return &wrapper.SourceAnalysis, nil
+		result := &wrapper.SourceAnalysis
+		mergeCodeExts(result)
+		return result, nil
 	}
 
 	// Try direct format: {...}
 	var result SourceAnalysisResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		// Even when JSON parsing fails, try to extract extensions from code blocks
-		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
-			return &SourceAnalysisResult{Extensions: codeExts}, nil
+		if exts := getCodeExts(); len(exts) > 0 {
+			return &SourceAnalysisResult{Extensions: exts}, nil
 		}
 		return nil, fmt.Errorf("failed to parse source analysis result from JSON: %w", err)
 	}
 
+	mergeCodeExts(&result)
 	return &result, nil
+}
+
+// mergeExtensionsByFilename merges two extension slices, deduplicating by filename.
+// Extensions from the second slice (codeExts) take precedence on filename collisions
+// since fenced code blocks are the canonical source for extension code.
+func mergeExtensionsByFilename(existing, codeExts []GeneratedExtension) []GeneratedExtension {
+	if len(existing) == 0 {
+		return codeExts
+	}
+	if len(codeExts) == 0 {
+		return existing
+	}
+	// Start with codeExts (they take precedence), then append unique entries from existing.
+	seen := make(map[string]struct{}, len(codeExts))
+	for _, ext := range codeExts {
+		seen[ext.Filename] = struct{}{}
+	}
+	merged := make([]GeneratedExtension, len(codeExts), len(codeExts)+len(existing))
+	copy(merged, codeExts)
+	for _, ext := range existing {
+		if _, ok := seen[ext.Filename]; !ok {
+			merged = append(merged, ext)
+			seen[ext.Filename] = struct{}{}
+		}
+	}
+	return merged
 }
 
 // mergeMultiBlockSourceAnalysis tries to parse multiple JSON fenced blocks and merge
@@ -1168,12 +1245,7 @@ func parseSourceAnalysisHybrid(raw string) (*SourceAnalysisResult, error) {
 	// Try wrapped format first
 	var wrapper sourceAnalysisWrapper
 	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.SourceAnalysis.HTTPRecords) > 0 {
-		result := &wrapper.SourceAnalysis
-		// Extract extensions from fenced code blocks (not from JSON)
-		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
-			result.Extensions = codeExts
-		}
-		return result, nil
+		return &wrapper.SourceAnalysis, nil
 	}
 
 	// Try direct format
@@ -1183,13 +1255,6 @@ func parseSourceAnalysisHybrid(raw string) (*SourceAnalysisResult, error) {
 	}
 	if len(result.HTTPRecords) == 0 {
 		return nil, fmt.Errorf("no http_records found in JSON")
-	}
-
-	// If JSON had no extensions (or empty), try extracting from fenced code blocks
-	if len(result.Extensions) == 0 {
-		if codeExts := extractCodeBlockExtensions(raw); len(codeExts) > 0 {
-			result.Extensions = codeExts
-		}
 	}
 
 	return &result, nil

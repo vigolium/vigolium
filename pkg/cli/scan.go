@@ -1012,10 +1012,14 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.HiPurple(scopeOrigin),
 		terminal.HiPurple(fmt.Sprintf("%v", settings.Scope.IgnoreStaticFile)),
 		originDescStr)
-	fmt.Fprintf(os.Stderr, "  %s Modules: %s active, %s passive\n",
-		terminal.Purple(terminal.SymbolInfo),
+	modulesLine := fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", activeCount)),
 		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
+	if settings != nil && settings.Audit.Extensions.Enabled {
+		extCount := countExtensionFiles(&settings.Audit.Extensions)
+		modulesLine += fmt.Sprintf(" + %s extensions", terminal.HiTeal(fmt.Sprintf("%d", extCount)))
+	}
+	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), modulesLine)
 	if globalVerbose {
 		fmt.Fprintf(os.Stderr, "\n  %s view scope details via %s\n",
 			terminal.TipPrefix(),
@@ -1030,6 +1034,31 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		}
 	}
 	fmt.Fprintln(os.Stderr)
+}
+
+// countExtensionFiles counts JS/TS/YAML extension files from the configured directories without loading them.
+func countExtensionFiles(cfg *config.ExtensionsConfig) int {
+	count := len(cfg.CustomDir)
+
+	if cfg.ExtensionDir != "" {
+		dir := config.ExpandPath(cfg.ExtensionDir)
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if strings.HasSuffix(name, ".d.ts") {
+					continue
+				}
+				if strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".vgm.yaml") {
+					count++
+				}
+			}
+		}
+	}
+
+	return count
 }
 
 // printScanCompletionSummary prints a compact summary of ingested records and findings after scan completion.

@@ -61,9 +61,10 @@ func (r *Runner) RunAll(ctx context.Context, sr *database.SourceRepo) (*RunResul
 
 		// Check if tool binary exists
 		if _, err := exec.LookPath(tool.Command); err != nil {
-			zap.L().Debug("Third-party tool not found, skipping",
+			zap.L().Warn("Third-party SAST tool not found in PATH, skipping",
 				zap.String("tool", name),
-				zap.String("command", tool.Command))
+				zap.String("command", tool.Command),
+				zap.String("hint", fmt.Sprintf("install %q or disable it in vigolium-configs.yaml under source_aware.third_party_integration.tools.%s.enabled", tool.Command, name)))
 			continue
 		}
 

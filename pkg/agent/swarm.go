@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,6 +122,34 @@ const (
 	SwarmPromptSASTReview     = "swarm-sast-review"
 	SwarmPromptTriage         = "agent-swarm-triage"
 )
+
+// SwarmPhaseDescription returns a short description of what a swarm phase does.
+func SwarmPhaseDescription(phase string) string {
+	switch phase {
+	case SwarmPhaseNormalize:
+		return "parse and normalize input targets into scannable HTTP records"
+	case SwarmPhaseSourceAnalysis:
+		return "analyze source code for routes, auth flows, and security-relevant patterns"
+	case SwarmPhaseSAST:
+		return "run static analysis tools for route extraction and secret detection"
+	case SwarmPhaseSASTReview:
+		return "AI review of SAST findings to filter noise and enrich context"
+	case SwarmPhaseDiscover:
+		return "crawl and spider targets to discover additional endpoints"
+	case SwarmPhasePlan:
+		return "AI-generated attack plan selecting modules, focus areas, and custom extensions"
+	case SwarmPhaseExtension:
+		return "generate and load custom JS scanner extensions from the attack plan"
+	case SwarmPhaseScan:
+		return "execute native Go scanner modules against all collected HTTP records"
+	case SwarmPhaseTriage:
+		return "AI triage of scan findings to validate, deduplicate, and assign severity"
+	case SwarmPhaseRescan:
+		return "re-scan with adjusted parameters based on triage feedback"
+	default:
+		return ""
+	}
+}
 
 // SwarmPhasePrompt returns the prompt template name for a given swarm phase, if any.
 func SwarmPhasePrompt(phase string) string {
@@ -467,6 +496,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 		}
 
+		// Re-probe unprobed ast-grep records. The native SAST runner probes via
+		// httpRequester.Execute which goes through clustering/rate-limiting middleware
+		// and may silently fail. Use a simple HTTP client as fallback.
+		if s.repo != nil && targetURL != "" {
+			hostname := hostnameFromURL(targetURL)
+			if hostname != "" {
+				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname)
+			}
+		}
+
 		// Print source analysis stats
 		if len(saRecords) > 0 || len(sastRecords) > 0 {
 			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s)\n",
@@ -594,7 +633,8 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			zap.Int("focus_areas", len(plan.FocusAreas)),
 			zap.Int("extensions", len(plan.Extensions)),
 			zap.Int("quick_checks", len(plan.QuickChecks)),
-			zap.Bool("needs_extensions", plan.NeedsExtensions))
+			zap.Bool("needs_extensions", plan.NeedsExtensions),
+			zap.String("needs_extensions_reason", plan.NeedsExtensionsReason))
 
 		// Print plan stats to console
 		fmt.Fprintf(os.Stderr, "  %s Total HTTP records: %s\n",
@@ -609,6 +649,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			fmt.Fprintf(os.Stderr, "  %s Focus areas: %s\n",
 				terminal.Cyan(terminal.SymbolBullet),
 				strings.Join(plan.FocusAreas, ", "))
+		}
+		if plan.NeedsExtensionsReason != "" {
+			decision := "no"
+			if plan.NeedsExtensions {
+				decision = "yes"
+			}
+			fmt.Fprintf(os.Stderr, "  %s Needs extensions: %s — %s\n",
+				terminal.Cyan(terminal.SymbolBullet),
+				terminal.Orange(decision),
+				plan.NeedsExtensionsReason)
 		}
 	}
 
@@ -1964,6 +2014,18 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		zap.Int("validated_routes", len(saResult.HTTPRecords)),
 		zap.Int("extensions", len(saResult.Extensions)))
 
+	// Write extensions to session dir immediately as .js files.
+	// This ensures they are persisted as artifacts even if subsequent phases fail
+	// or the caller doesn't handle the returned extensions.
+	if sessionDir != "" && len(saResult.Extensions) > 0 {
+		writeSourceExtensionsToSessionDir(saResult.Extensions, sessionDir)
+	}
+
+	// Write session config to session dir if the SAST review produced one
+	if sessionDir != "" && saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
+		writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
+	}
+
 	return saResult
 }
 
@@ -2073,4 +2135,106 @@ func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.Htt
 
 	httpResp := httpmsg.NewHttpResponse(rawResp.Bytes())
 	return rr.WithResponse(httpResp)
+}
+
+// reprobeUnprobedRecords queries ast-grep records without responses from the DB
+// and probes them using a simple HTTP client. This acts as a fallback for records
+// that the native SAST runner's httpRequester failed to probe.
+func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string) {
+	unprobed, err := s.repo.GetUnprobedRecordsBySource(ctx, projectUUID, "ast-grep", hostname, 200)
+	if err != nil {
+		zap.L().Debug("Failed to query unprobed ast-grep records", zap.Error(err))
+		return
+	}
+	if len(unprobed) == 0 {
+		return
+	}
+
+	zap.L().Info("Re-probing unprobed ast-grep records", zap.Int("count", len(unprobed)))
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+	var updated atomic.Int64
+
+	for _, rec := range unprobed {
+		if rec.URL == "" || rec.Method == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(rec *database.HTTPRecord) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			method := rec.Method
+			reqURL := rec.URL
+
+			httpReq, reqErr := http.NewRequestWithContext(ctx, method, reqURL, nil)
+			if reqErr != nil {
+				return
+			}
+
+			resp, doErr := client.Do(httpReq)
+			if doErr != nil {
+				return
+			}
+			defer resp.Body.Close()
+
+			const maxBody = 2 * 1024 * 1024
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+			if readErr != nil {
+				return
+			}
+
+			// Build raw HTTP response
+			var rawResp bytes.Buffer
+			fmt.Fprintf(&rawResp, "%s %s\r\n", resp.Proto, resp.Status)
+			for k, vals := range resp.Header {
+				for _, v := range vals {
+					fmt.Fprintf(&rawResp, "%s: %s\r\n", k, v)
+				}
+			}
+			rawResp.WriteString("\r\n")
+			rawResp.Write(body)
+
+			contentType := resp.Header.Get("Content-Type")
+			headers := resp.Header.Clone()
+
+			update := &database.RecordResponseUpdate{
+				StatusCode:            resp.StatusCode,
+				StatusPhrase:          resp.Status,
+				ResponseHTTPVersion:   resp.Proto,
+				ResponseHeaders:       headers,
+				ResponseContentType:   contentType,
+				ResponseContentLength: int64(len(body)),
+				RawResponse:           rawResp.Bytes(),
+				ResponseBody:          body,
+			}
+
+			if updateErr := s.repo.UpdateRecordResponse(ctx, rec.UUID, update); updateErr != nil {
+				zap.L().Debug("Failed to update re-probed record", zap.Error(updateErr))
+				return
+			}
+
+			updated.Add(1)
+		}(rec)
+	}
+
+	wg.Wait()
+	if n := updated.Load(); n > 0 {
+		zap.L().Info("Re-probed ast-grep records", zap.Int64("updated", n), zap.Int("total", len(unprobed)))
+	}
 }

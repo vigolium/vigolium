@@ -288,20 +288,37 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 			terminal.InfoSymbol(), terminal.GrbGreen("enabled (crawling + spidering before planning)"))
 	}
 	if swarmSource != "" {
+		sastTools := "ast-grep route extraction + secret detection"
+		if settings.SourceAware.ThirdPartyIntegration.Enabled {
+			var tools []string
+			for name, tool := range settings.SourceAware.ThirdPartyIntegration.Tools {
+				if tool.Enabled {
+					tools = append(tools, name)
+				}
+			}
+			if len(tools) > 0 {
+				sastTools += " + " + strings.Join(tools, ", ")
+			}
+		}
 		fmt.Fprintf(os.Stderr, "%s SAST: %s\n",
-			terminal.InfoSymbol(), terminal.GrbGreen("enabled (ast-grep route extraction + secret detection)"))
+			terminal.InfoSymbol(), terminal.GrbGreen("enabled ("+sastTools+")"))
 	}
 
 	// Wire phase callback for verbose output
 	cfg.PhaseCallback = func(phase string) {
-		promptName := agent.SwarmPhasePrompt(phase)
-		if promptName != "" {
-			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
-			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] — prompt: %s %s\n",
-				terminal.InfoSymbol(), terminal.BoldOrange(phase), terminal.Orange(promptName), terminal.Muted(pp))
+		desc := agent.SwarmPhaseDescription(phase)
+		if desc != "" {
+			fmt.Fprintf(os.Stderr, "\n%s Phase [%s] - %s\n",
+				terminal.InfoSymbol(), terminal.BoldOrange(phase), terminal.Muted(desc))
 		} else {
 			fmt.Fprintf(os.Stderr, "\n%s Phase [%s]\n",
 				terminal.InfoSymbol(), terminal.BoldOrange(phase))
+		}
+		promptName := agent.SwarmPhasePrompt(phase)
+		if promptName != "" {
+			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
+			fmt.Fprintf(os.Stderr, "  %s Phase configuration: prompt: %s %s\n\n",
+				terminal.SymbolFunction, terminal.Orange(promptName), terminal.Muted(pp))
 		}
 	}
 
@@ -389,6 +406,9 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 				opts.SkipPhases = skipPhases
 			}
 		}
+
+		// Pass through verbose flag so audit traffic/finding lines are printed
+		opts.Verbose = globalVerbose
 
 		// Clone settings to avoid mutating shared config
 		settingsCopy := *settings
@@ -607,6 +627,12 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 		opts.SourcePath = sourcePath
 		opts.SASTEnabled = true
 		opts.OnlyPhase = "sast"
+		// Resolve OnlyPhase into concrete phase flags — the runner's RunNativeScan
+		// does NOT resolve OnlyPhase itself; that only happens in scan.go's CLI handler.
+		// Without these, the runner would also run discovery + audit after SAST.
+		opts.SkipIngestion = true
+		opts.SkipAudit = true
+		opts.HeuristicsCheck = "none"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
 
@@ -615,7 +641,7 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 			opts.AuthConfigPath = *authConfigPath
 		}
 
-		fmt.Fprintf(os.Stderr, "\n%s SAST analysis (ast-grep + secret detection)\n",
+		fmt.Fprintf(os.Stderr, "\n%s SAST analysis (ast-grep + secret detection + third-party tools)\n",
 			terminal.GrbRed(terminal.SymbolSparkle))
 
 		return runPipelinePhaseRunner(opts, settings, repo)

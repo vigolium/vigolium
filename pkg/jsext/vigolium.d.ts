@@ -33,6 +33,8 @@ declare namespace vigolium {
     function jsonExtract(json: string, path: string): any;
     function regexMatch(str: string, pattern: string): boolean;
     function regexExtract(str: string, pattern: string): string | string[] | null;
+    /** Return all non-overlapping matches of pattern in str, or null if no match. */
+    function regexFindAll(str: string, pattern: string): string[] | null;
     function detectAnomaly(responses: AnomalyInput[]): AnomalyResult[];
     function parse_url(url: string, format: string): string;
     function parse_url_file(input: string, format: string, output: string): boolean;

@@ -684,6 +684,7 @@ sqli, xss
 
 ## NEEDS_EXTENSIONS
 yes
+Target uses a custom JSON-RPC protocol that built-in HTTP modules cannot probe.
 
 ## NOTES
 Custom extension needed for non-standard JSON-RPC endpoint.
@@ -694,6 +695,12 @@ Custom extension needed for non-standard JSON-RPC endpoint.
 	}
 	if !plan.NeedsExtensions {
 		t.Error("expected NeedsExtensions to be true")
+	}
+	if plan.NeedsExtensionsReason == "" {
+		t.Error("expected NeedsExtensionsReason to be set")
+	}
+	if plan.NeedsExtensionsReason != "Target uses a custom JSON-RPC protocol that built-in HTTP modules cannot probe." {
+		t.Errorf("unexpected reason: %q", plan.NeedsExtensionsReason)
 	}
 	if len(plan.ModuleTags) != 2 {
 		t.Errorf("expected 2 module tags, got %d", len(plan.ModuleTags))
@@ -706,6 +713,7 @@ sqli, xss
 
 ## NEEDS_EXTENSIONS
 no
+Built-in modules cover standard SQLi/XSS for this REST API.
 `
 	plan, err := ParseSwarmPlan(input)
 	if err != nil {
@@ -713,6 +721,69 @@ no
 	}
 	if plan.NeedsExtensions {
 		t.Error("expected NeedsExtensions to be false")
+	}
+	if plan.NeedsExtensionsReason != "Built-in modules cover standard SQLi/XSS for this REST API." {
+		t.Errorf("unexpected reason: %q", plan.NeedsExtensionsReason)
+	}
+}
+
+func TestParseSwarmPlanMarkdownNeedsExtensionsLabeled(t *testing.T) {
+	input := `## MODULE_TAGS
+sqli, xss
+
+## NEEDS_EXTENSIONS
+conclusion: yes
+reason: Target uses a custom binary WebSocket protocol for auth token exchange that built-in HTTP modules cannot probe.
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !plan.NeedsExtensions {
+		t.Error("expected NeedsExtensions to be true")
+	}
+	if plan.NeedsExtensionsReason != "Target uses a custom binary WebSocket protocol for auth token exchange that built-in HTTP modules cannot probe." {
+		t.Errorf("unexpected reason: %q", plan.NeedsExtensionsReason)
+	}
+}
+
+func TestParseSwarmPlanMarkdownNeedsExtensionsLabeledNo(t *testing.T) {
+	input := `## MODULE_TAGS
+sqli
+
+## NEEDS_EXTENSIONS
+conclusion: no
+reason: Built-in modules cover standard SQLi/XSS/SSTI for this REST API.
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan.NeedsExtensions {
+		t.Error("expected NeedsExtensions to be false")
+	}
+	if plan.NeedsExtensionsReason != "Built-in modules cover standard SQLi/XSS/SSTI for this REST API." {
+		t.Errorf("unexpected reason: %q", plan.NeedsExtensionsReason)
+	}
+}
+
+func TestParseSwarmPlanMarkdownNeedsExtensionsNoReason(t *testing.T) {
+	// Backward compatibility: no reason line should still work
+	input := `## MODULE_TAGS
+sqli
+
+## NEEDS_EXTENSIONS
+yes
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !plan.NeedsExtensions {
+		t.Error("expected NeedsExtensions to be true")
+	}
+	if plan.NeedsExtensionsReason != "" {
+		t.Errorf("expected empty reason for single-line NEEDS_EXTENSIONS, got: %q", plan.NeedsExtensionsReason)
 	}
 }
 

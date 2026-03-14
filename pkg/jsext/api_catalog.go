@@ -69,6 +69,7 @@ const exMkdir = `vigolium.utils.mkdir("/tmp/results")`
 const exJSONExtract = `var name = vigolium.utils.jsonExtract('{"a":{"b":"val"}}', "a.b")`
 const exRegexMatch = `if (vigolium.utils.regexMatch(body, "error|exception")) { ... }`
 const exRegexExtract = `var ver = vigolium.utils.regexExtract(header, "Apache/([0-9.]+)")`
+const exRegexFindAll = `var emails = vigolium.utils.regexFindAll(body, "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")`
 const exParseURL = `var host = vigolium.utils.parse_url("https://sub.example.com/path", "%d")`
 const exParseURLFile = `vigolium.utils.parse_url_file("urls.txt", "%s://%d", "hosts.txt")`
 

@@ -186,7 +186,7 @@ type Options struct {
 func DefaultOptions() *Options {
 	return &Options{
 		Concurrency:          50,
-		MaxPerHost:           2,
+		MaxPerHost:           10,
 		Timeout:              15 * time.Second,
 		Retries:              1,
 		MaxHostError:         30,

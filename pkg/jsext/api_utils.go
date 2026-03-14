@@ -427,6 +427,30 @@ func utilsFuncDefs() []JSFuncDef {
 			},
 		},
 		{
+			Namespace: NsUtils, Name: "regexFindAll",
+			Category: CatExtract, Signature: ".regexFindAll(str: string, pattern: string)", Returns: "string[] | null",
+			Description: "Return all non-overlapping matches of pattern in str.", Example: exRegexFindAll,
+			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+				return func(call sobek.FunctionCall) sobek.Value {
+					str := call.Argument(0).String()
+					pattern := call.Argument(1).String()
+					re, err := regexp.Compile(pattern)
+					if err != nil {
+						return sobek.Null()
+					}
+					matches := re.FindAllString(str, -1)
+					if matches == nil {
+						return sobek.Null()
+					}
+					result := make([]interface{}, len(matches))
+					for i, m := range matches {
+						result[i] = m
+					}
+					return vm.ToValue(result)
+				}
+			},
+		},
+		{
 			Namespace: NsUtils, Name: "parse_url",
 			Category: CatExtract, Signature: ".parse_url(url: string, format: string)", Returns: "string",
 			Description: "Parse a URL.", Example: exParseURL,

@@ -195,6 +195,28 @@ func TestRegexExtract(t *testing.T) {
 	assert.Equal(t, "123", val.String())
 }
 
+func TestRegexFindAll(t *testing.T) {
+	vm := setupTestVM(t, APIOptions{})
+
+	// Multiple matches
+	val, err := vm.RunString(`vigolium.utils.regexFindAll("foo@bar.com and baz@qux.org", "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")`)
+	require.NoError(t, err)
+	obj := val.ToObject(vm)
+	assert.Equal(t, int64(2), obj.Get("length").ToInteger())
+	assert.Equal(t, "foo@bar.com", obj.Get("0").String())
+	assert.Equal(t, "baz@qux.org", obj.Get("1").String())
+
+	// No match returns null
+	val, err = vm.RunString(`vigolium.utils.regexFindAll("hello world", "\\d+")`)
+	require.NoError(t, err)
+	assert.True(t, sobek.IsNull(val))
+
+	// Invalid regex returns null
+	val, err = vm.RunString(`vigolium.utils.regexFindAll("test", "[invalid")`)
+	require.NoError(t, err)
+	assert.True(t, sobek.IsNull(val))
+}
+
 func TestSandboxEnforcement(t *testing.T) {
 	sandbox := t.TempDir()
 

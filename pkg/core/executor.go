@@ -679,7 +679,7 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 
 	// Pre-register requestUUIDs for DB-sourced items so passive module
 	// findings can link to the existing http_record instead of creating
-	// duplicate "scanner-fuzz" records.
+	// duplicate "finding" records.
 	if item.RecordUUID != "" && e.repo != nil {
 		e.requestUUIDs.Store(req.Request().ID(), item.RecordUUID)
 	}
@@ -1035,8 +1035,11 @@ func (e *Executor) emitResult(result *output.ResultEvent) {
 	}
 
 	e.results.Store(true)
+	if e.statsTracker != nil {
+		e.statsTracker.IncrementFindings()
+	}
 
-	// Store finding in database (if enabled)
+	// Store finding in database (if enabled) and import HTTP evidence into http_records
 	if e.repo != nil {
 		var recordUUIDs []string
 
@@ -1049,16 +1052,21 @@ func (e *Executor) emitResult(result *output.ResultEvent) {
 			recordUUID, exists := e.requestUUIDs.Load(reqHash)
 
 			if !exists {
-				// Fuzzed request — save it as a new http_record
-				fuzzedRR := httpmsg.NewHttpRequestResponse(
+				// Finding evidence — save request/response as a new http_record
+				findingRR := httpmsg.NewHttpRequestResponse(
 					httpmsg.NewHttpRequest([]byte(result.Request)),
 					httpmsg.NewHttpResponse([]byte(result.Response)),
 				)
 				var err error
-				recordUUID, err = e.repo.SaveRecord(context.Background(), fuzzedRR, "scanner-fuzz", e.projectUUID)
-				if err != nil {
-					zap.L().Debug("Failed to save fuzzed record", zap.Error(err))
+				if e.recordWriter != nil {
+					recordUUID, err = e.recordWriter.Write(context.Background(), findingRR, "finding", e.projectUUID)
 				} else {
+					recordUUID, err = e.repo.SaveRecord(context.Background(), findingRR, "finding", e.projectUUID)
+				}
+				if err != nil {
+					zap.L().Warn("Failed to save finding http_record", zap.Error(err))
+				} else {
+					e.requestUUIDs.Store(reqHash, recordUUID)
 					exists = true
 				}
 			}

@@ -118,7 +118,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	// Show rendered prompt on stderr when --show-prompt is active
 	if opts.ShowPrompt {
-		fmt.Fprintf(os.Stderr, "\n── rendered prompt (%s) ──\n%s\n── end prompt ──\n\n", templateID, prompt)
+		fmt.Fprintf(os.Stderr, "\n── rendered prompt (%s) ──\n\n%s\n\n── end prompt ──\n\n", templateID, prompt)
 	}
 
 	if zap.L().Core().Enabled(zap.DebugLevel) {

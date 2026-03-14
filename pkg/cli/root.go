@@ -176,7 +176,7 @@ func init() {
 	pf.DurationVar(&globalInputReadTimeout, "input-read-timeout", 3*time.Minute, "Timeout for reading input from stdin or file")
 	pf.DurationVar(&globalTimeout, "timeout", 15*time.Second, "HTTP request timeout (e.g. 30s, 1m, 2h)")
 	pf.IntVarP(&globalConcurrency, "concurrency", "c", 50, "Number of concurrent scan workers")
-	pf.IntVar(&globalMaxPerHost, "max-per-host", 2, "Maximum concurrent requests allowed per host")
+	pf.IntVar(&globalMaxPerHost, "max-per-host", 10, "Maximum concurrent requests allowed per host")
 	pf.IntVar(&globalMaxHostError, "max-host-error", 30, "Skip host after reaching this many consecutive errors")
 	pf.IntVar(&globalMaxFindingsPerModule, "max-findings-per-module", 10, "Stop reporting after N findings per module (0 = unlimited)")
 	pf.BoolVarP(&globalScanOnReceive, "scan-on-receive", "S", false, "Continuously scan new HTTP records as they arrive in the database")

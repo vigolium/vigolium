@@ -82,7 +82,7 @@ type HostRateLimiter struct {
 
 // HostRateLimiterConfig configures the HostRateLimiter.
 type HostRateLimiterConfig struct {
-	MaxPerHost    int           // Max concurrent requests per host (default: 2)
+	MaxPerHost    int           // Max concurrent requests per host (default: 10)
 	MaxEntries    int           // Max tracked hosts (default: 1000)
 	EvictAfter    time.Duration // Evict idle hosts after (default: 30s)
 	EvictInterval time.Duration // How often to run eviction (default: 10s)
@@ -91,7 +91,7 @@ type HostRateLimiterConfig struct {
 // DefaultHostRateLimiterConfig returns sensible defaults.
 func DefaultHostRateLimiterConfig() HostRateLimiterConfig {
 	return HostRateLimiterConfig{
-		MaxPerHost:    2,
+		MaxPerHost:    10,
 		MaxEntries:    1000,
 		EvictAfter:    30 * time.Second,
 		EvictInterval: 10 * time.Second,
@@ -101,7 +101,7 @@ func DefaultHostRateLimiterConfig() HostRateLimiterConfig {
 // NewHostRateLimiter creates a new HostRateLimiter with the given configuration.
 func NewHostRateLimiter(cfg HostRateLimiterConfig) *HostRateLimiter {
 	if cfg.MaxPerHost <= 0 {
-		cfg.MaxPerHost = 2
+		cfg.MaxPerHost = 10
 	}
 	if cfg.MaxEntries <= 0 {
 		cfg.MaxEntries = 1000

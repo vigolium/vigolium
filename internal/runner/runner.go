@@ -160,7 +160,7 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 		maxPerHost = settings.ScanningPace.MaxPerHost
 	}
 	if maxPerHost <= 0 {
-		maxPerHost = 2
+		maxPerHost = 10
 	}
 	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
 		MaxPerHost:    maxPerHost,
@@ -744,6 +744,43 @@ func (r *Runner) printScanConfig() {
 		terminal.Purple(terminal.SymbolInfo),
 		terminal.Orange(fmt.Sprintf("%d", activeCount)),
 		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
+
+	// Extensions
+	extEnabled := settings != nil && settings.Audit.Extensions.Enabled
+	if extEnabled {
+		extCount := 0
+		if r.sharedInfra != nil && r.sharedInfra.JSEngine != nil {
+			extCount = len(r.sharedInfra.JSEngine.ActiveModules()) + len(r.sharedInfra.JSEngine.PassiveModules())
+		}
+		fmt.Fprintf(os.Stderr, "  %s Extensions: %s | %s loaded\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiGreen("enabled"),
+			terminal.HiTeal(fmt.Sprintf("%d", extCount)))
+	} else {
+		fmt.Fprintf(os.Stderr, "  %s Extensions: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("disabled"))
+	}
+
+	// Session authentication
+	printSessionAuth := func(detail string) {
+		fmt.Fprintf(os.Stderr, "  %s Session auth: %s %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiGreen("enabled"),
+			terminal.Gray(detail))
+	}
+	switch {
+	case opts.AuthConfigPath != "":
+		printSessionAuth("from " + terminal.ShortenHome(opts.AuthConfigPath))
+	case len(opts.SessionFiles) > 0:
+		printSessionAuth(fmt.Sprintf("from %d session file(s)", len(opts.SessionFiles)))
+	case len(opts.Sessions) > 0:
+		printSessionAuth(fmt.Sprintf("from %d inline session(s)", len(opts.Sessions)))
+	default:
+		fmt.Fprintf(os.Stderr, "  %s Session auth: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("none"))
+	}
 }
 
 // logConfigSnapshot stores the effective scan configuration as a structured
@@ -1117,7 +1154,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 		maxPerHost = r.settings.ScanningPace.MaxPerHost
 	}
 	if maxPerHost <= 0 {
-		maxPerHost = 2
+		maxPerHost = 10
 	}
 	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
 		MaxPerHost:    maxPerHost,
@@ -1793,9 +1830,18 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	}
 
 	r.printPhaseStart("Audit", "execute dynamic security assessments through coordinated active and passive scanning modules")
-	r.printPhaseDetail(fmt.Sprintf("Modules: %s active, %s passive",
+	modulesLine := fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", len(activeModules))),
-		terminal.Orange(fmt.Sprintf("%d", len(passiveModules)))))
+		terminal.Orange(fmt.Sprintf("%d", len(passiveModules))))
+	if infra.jsEngine != nil {
+		jsActive := len(infra.jsEngine.ActiveModules())
+		jsPassive := len(infra.jsEngine.PassiveModules())
+		if jsActive+jsPassive > 0 {
+			modulesLine += fmt.Sprintf(" (incl. %s extensions)",
+				terminal.HiTeal(fmt.Sprintf("%d", jsActive+jsPassive)))
+		}
+	}
+	r.printPhaseDetail(modulesLine)
 
 	daSpeedDetail := fmt.Sprintf("Speed: concurrency=%s, max-per-host=%s",
 		terminal.HiBlue(fmt.Sprintf("%d", r.options.Concurrency)),
@@ -2821,9 +2867,22 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 		}
 	}
 
-	// Run third-party tools (semgrep, trivy) if enabled
+	// Run third-party tools (semgrep, trivy, codeql) if enabled
 	var totalThirdPartyFindings int
 	tpCfg := r.thirdPartyConfig()
+	if tpCfg == nil {
+		zap.L().Warn("sast: third-party integration config is nil (settings not loaded?), skipping third-party tools")
+	} else if !tpCfg.Enabled {
+		zap.L().Info("sast: third-party integration disabled in config")
+	} else {
+		enabledTools := make([]string, 0)
+		for name, tool := range tpCfg.Tools {
+			if tool.Enabled {
+				enabledTools = append(enabledTools, name)
+			}
+		}
+		zap.L().Info("sast: running third-party tools", zap.Strings("enabled_tools", enabledTools))
+	}
 	if tpCfg != nil && tpCfg.Enabled {
 		stRunner := sourcetools.New(tpCfg, r.repository)
 		for _, repo := range repoPaths {
@@ -2874,13 +2933,6 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 		}
 	}
 
-	// Run agent SAST if enabled (after all deterministic tools complete)
-	var totalAgentFindings int
-	if r.settings != nil && r.settings.SourceAware.AgentSAST.Enabled && !adHocMode {
-		agentFindings := r.runAgentSAST(ctx, infra, repoPaths)
-		totalAgentFindings = agentFindings
-	}
-
 	elapsed := time.Since(phaseStart)
 	summary := fmt.Sprintf("completed — %s routes extracted", terminal.Orange(fmt.Sprintf("%d", totalRoutes)))
 	if totalKingfisherFindings > 0 {
@@ -2889,14 +2941,11 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	if totalThirdPartyFindings > 0 {
 		summary += fmt.Sprintf(", %s source findings", terminal.Orange(fmt.Sprintf("%d", totalThirdPartyFindings)))
 	}
-	if totalAgentFindings > 0 {
-		summary += fmt.Sprintf(", %s agent findings", terminal.Orange(fmt.Sprintf("%d", totalAgentFindings)))
-	}
 	summary += fmt.Sprintf(" in %s", terminal.HiPurple(fmtDuration(elapsed)))
 	r.printPhaseComplete("SAST", summary)
 
 	// Increment processed_count for SAST phase
-	sastProcessed := int64(totalRoutes + totalKingfisherFindings + totalThirdPartyFindings + totalAgentFindings)
+	sastProcessed := int64(totalRoutes + totalKingfisherFindings + totalThirdPartyFindings)
 	if r.repository != nil && sastProcessed > 0 {
 		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, sastProcessed); err != nil {
 			zap.L().Warn("SAST: failed to increment processed count", zap.Error(err))
@@ -3157,6 +3206,9 @@ func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []a
 		}
 
 		resolvedPath := resolveParameterizedPath(route.Path)
+		if !strings.HasPrefix(resolvedPath, "/") {
+			resolvedPath = "/" + resolvedPath
+		}
 		fullURL := baseURL + resolvedPath
 
 		httpRR := r.buildMinimalRequest(method, fullURL)

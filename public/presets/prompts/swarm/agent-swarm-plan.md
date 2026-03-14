@@ -63,10 +63,15 @@ Free-text notes about your analysis, technology stack, and strategy.
 
 ```
 ## NEEDS_EXTENSIONS
-yes
+conclusion: yes
+reason: Target uses a custom binary WebSocket protocol for auth token exchange that built-in HTTP modules cannot probe.
 ```
 
-If the target has unusual behavior that built-in modules cannot cover (e.g., custom protocols, non-standard injection points, application-specific logic), write `yes`. Otherwise omit this section or write `no`. When in doubt, omit it — built-in modules cover most cases.
+Two labeled lines:
+- `conclusion:` — `yes` or `no`.
+- `reason:` — brief explanation of *why* extensions are or are not needed.
+
+If the target has unusual behavior that built-in modules cannot cover (e.g., custom protocols, non-standard injection points, application-specific logic), write `yes`. Otherwise write `no` with a reason (e.g., "Built-in modules cover standard SQLi/XSS/SSTI for this REST API"). When in doubt, write `no` — built-in modules cover most cases.
 
 **Rules:**
 - Use only the markdown section format shown above — no JSON, no code blocks

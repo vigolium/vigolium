@@ -238,17 +238,27 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 			hints := make([]string, 0, len(initResp.AuthMethods))
 			for _, am := range initResp.AuthMethods {
 				desc := am.Name
-			if am.Description != nil && *am.Description != "" {
-				desc = *am.Description
-			}
-			hints = append(hints, desc)
+				if am.Description != nil && *am.Description != "" {
+					desc = *am.Description
+				}
+				hints = append(hints, desc)
 			}
 			authHint = fmt.Sprintf("; the agent advertises authentication methods — ensure you are authenticated: %s", strings.Join(hints, "; "))
 		}
 
+		stderrOutput := stderrBuf.String()
+		warnFields := []zap.Field{
+			zap.String("agent", agentDef.Command),
+			zap.Int("promptLength", len(prompt)),
+		}
+		if stderrOutput != "" {
+			warnFields = append(warnFields, zap.String("stderr", stderrOutput))
+		}
+		zap.L().Warn("ACP agent returned empty output with zero tokens — the agent's LLM backend may not be processing prompts", warnFields...)
+
 		return acpResult{
 			Stdout:    output,
-			Stderr:    stderrBuf.String(),
+			Stderr:    stderrOutput,
 			SessionID: sessionID,
 		}, fmt.Errorf("agent returned empty output (0 tokens) — the LLM backend did not process the prompt%s", authHint)
 	}
