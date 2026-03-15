@@ -112,6 +112,7 @@ type AgentDef struct {
 	Env         map[string]string `yaml:"env,omitempty"`
 	Protocol    string            `yaml:"protocol,omitempty"`
 	Enable      *bool             `yaml:"enable,omitempty"`
+	Model       string            `yaml:"model,omitempty"` // ACP session model override (e.g. "sonnet", "opus")
 	SessionMeta *ACPSessionMeta   `yaml:"session_meta,omitempty"`
 }
 

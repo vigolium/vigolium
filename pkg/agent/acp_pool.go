@@ -552,6 +552,18 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	}
 
 	sess.sessionID = sessResp.SessionId
+
+	// Set model override if configured (UNSTABLE ACP extension — may change).
+	if agentDef.Model != "" {
+		if _, setErr := conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
+			SessionId: sessResp.SessionId,
+			ModelId:   acp.ModelId(agentDef.Model),
+		}); setErr != nil {
+			zap.L().Warn("failed to set session model",
+				zap.String("model", agentDef.Model), zap.Error(setErr))
+		}
+	}
+
 	zap.L().Debug("ACP warm session created",
 		zap.String("agent", agentName),
 		zap.String("sessionId", string(sessResp.SessionId)))

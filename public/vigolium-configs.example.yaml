@@ -1178,6 +1178,10 @@ agent:
       args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       description: "Anthropic Claude Code (ACP)"
       protocol: acp
+      # ACP session model override. Sets the model after session creation
+      # via the SetSessionModel ACP extension. Examples: "sonnet", "opus", "haiku".
+      # Default: sonnet
+      model: sonnet
       # Session metadata passed via the _meta extension point in the ACP
       # NewSession request. Configures Claude Code agent behavior.
       session_meta:

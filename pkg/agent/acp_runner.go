@@ -207,6 +207,17 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 
 	fmt.Fprintf(os.Stderr, "◆ ACP session: %s\n", sessionID)
 
+	// Set model override if configured (UNSTABLE ACP extension — may change).
+	if agentDef.Model != "" {
+		if _, setErr := conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
+			SessionId: sess.SessionId,
+			ModelId:   acp.ModelId(agentDef.Model),
+		}); setErr != nil {
+			zap.L().Warn("failed to set session model",
+				zap.String("model", agentDef.Model), zap.Error(setErr))
+		}
+	}
+
 	zap.L().Debug("sending ACP prompt, waiting for agent completion...",
 		zap.Int("promptLength", len(prompt)))
 
