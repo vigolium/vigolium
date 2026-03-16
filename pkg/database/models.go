@@ -235,6 +235,41 @@ type SourceRepo struct {
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
 
+// SessionHostname persists per-hostname session auth configs in the DB.
+type SessionHostname struct {
+	bun.BaseModel `bun:"table:session_hostnames,alias:sh" json:"-"`
+
+	ID          int64  `bun:"id,pk,autoincrement" json:"id"`
+	ProjectUUID string `bun:"project_uuid,notnull" json:"project_uuid"`
+	ScanUUID    string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
+
+	Hostname    string `bun:"hostname,notnull" json:"hostname"`
+	Port        int    `bun:"port,default:0" json:"port"`
+	Scheme      string `bun:"scheme,nullzero,default:''" json:"scheme,omitempty"`
+
+	SessionName string `bun:"session_name,notnull" json:"session_name"`
+	SessionRole string `bun:"session_role,nullzero,default:''" json:"session_role,omitempty"`
+	Position    int    `bun:"position,default:0" json:"position"`
+
+	// Static auth headers (JSON map)
+	Headers map[string]string `bun:"headers,type:jsonb,nullzero" json:"headers,omitempty"`
+
+	// Login flow fields (flat for queryability)
+	LoginURL         string `bun:"login_url,nullzero" json:"login_url,omitempty"`
+	LoginMethod      string `bun:"login_method,nullzero" json:"login_method,omitempty"`
+	LoginContentType string `bun:"login_content_type,nullzero" json:"login_content_type,omitempty"`
+	LoginBody        string `bun:"login_body,nullzero" json:"login_body,omitempty"`
+	LoginRequest     string `bun:"login_request,nullzero" json:"login_request,omitempty"`
+	LoginResponse    string `bun:"login_response,nullzero" json:"login_response,omitempty"`
+
+	// Extract rules (JSON array stored as text)
+	ExtractRules string `bun:"extract_rules,nullzero" json:"extract_rules,omitempty"`
+
+	Source    string    `bun:"source,nullzero,default:''" json:"source,omitempty"`
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+}
+
 // OASTInteraction records an out-of-band interaction received from an interactsh server.
 type OASTInteraction struct {
 	bun.BaseModel `bun:"table:oast_interactions,alias:oi" json:"-"`

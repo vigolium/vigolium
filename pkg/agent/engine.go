@@ -165,6 +165,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	default:
 		stdout, stderr, err = RunAgent(ctx, *agentDef, prompt, opts.StreamWriter)
 	}
+
+	// Ensure streamed output ends with a newline so subsequent console lines
+	// (e.g. session dir, phase banners) don't start on the same line.
+	if opts.StreamWriter != nil && stdout != "" && !strings.HasSuffix(stdout, "\n") {
+		_, _ = io.WriteString(opts.StreamWriter, "\n")
+	}
+
 	if err != nil {
 		return &Result{
 			AgentName:      opts.AgentName,
@@ -302,8 +309,70 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 	}
 
 	saResult, parseErr := ParseSourceAnalysisResult(rawOutput)
+
+	// LLM repair fallback: when parsing fails or yields 0 records but the raw output
+	// contains route-like patterns, attempt to repair the garbled JSON via an LLM call.
+	// Skip repair when session_config was found without records (auth sub-agent output).
+	needsRepair := parseErr != nil || (saResult != nil && len(saResult.HTTPRecords) == 0 && saResult.SessionConfig == nil)
+	if needsRepair && strings.Contains(rawOutput, `"method"`) {
+		zap.L().Info("Attempting LLM repair for garbled source analysis output")
+		repaired := RepairHTTPRecordsWithLLM(ctx, e, rawOutput, repairConfig{
+			AgentName:   cfg.AgentName,
+			AgentACPCmd: cfg.AgentACPCmd,
+			ShowPrompt:  cfg.ShowPrompt,
+		})
+		if len(repaired) > 0 {
+			if saResult == nil {
+				saResult = &SourceAnalysisResult{}
+			}
+			saResult.HTTPRecords = repaired
+			parseErr = nil
+		}
+	}
+
+	// Handle session-config-only raw output (no "method" keyword means HTTP records repair
+	// was skipped, but session config keywords may be present in garbled output).
+	if saResult == nil && parseErr != nil && !strings.Contains(rawOutput, `"method"`) {
+		hasSessionKeywords := strings.Contains(rawOutput, `"session_config"`) ||
+			strings.Contains(rawOutput, `"sessions"`) ||
+			(strings.Contains(rawOutput, `"login"`) && strings.Contains(rawOutput, `"url"`))
+		if hasSessionKeywords {
+			saResult = &SourceAnalysisResult{}
+			parseErr = nil
+		}
+	}
+
+	// LLM repair fallback for session config: when session config is missing or
+	// incomplete (e.g. extract rules lost during garbled recovery), attempt repair.
+	if saResult != nil && sessionConfigNeedsRepair(saResult.SessionConfig, rawOutput) {
+		zap.L().Info("Attempting LLM repair for garbled session config")
+		repairedCfg := RepairSessionConfigWithLLM(ctx, e, rawOutput, repairConfig{
+			AgentName:   cfg.AgentName,
+			AgentACPCmd: cfg.AgentACPCmd,
+			ShowPrompt:  cfg.ShowPrompt,
+		})
+		if repairedCfg != nil && len(repairedCfg.Sessions) > 0 {
+			saResult.SessionConfig = repairedCfg
+		}
+	}
+
 	if parseErr != nil {
 		return nil, rawOutput, renderedPrompt, fmt.Errorf("failed to parse source analysis result: %w", parseErr)
+	}
+
+	// Fetch session_hostnames for the target hostname and replace hardcoded auth headers.
+	var sessionHeaders map[string]string
+	if e.repo != nil && len(saResult.HTTPRecords) > 0 && cfg.TargetURL != "" {
+		hostname := hostnameFromURL(cfg.TargetURL)
+		if hostname != "" {
+			dbRows, dbErr := e.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
+			if dbErr == nil && len(dbRows) > 0 {
+				sessionHeaders = AuthHeadersFromSessionHostnames(dbRows)
+				if len(sessionHeaders) > 0 {
+					saResult.HTTPRecords = ReplaceAuthHeadersInRecords(saResult.HTTPRecords, sessionHeaders)
+				}
+			}
+		}
 	}
 
 	// Ingest discovered HTTP records into the database
@@ -318,6 +387,14 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 			zap.L().Warn("Failed to ingest source-analysis HTTP records", zap.Error(ingestErr))
 		} else {
 			zap.L().Info("Ingested source-analysis HTTP records", zap.Int("count", count))
+		}
+	}
+
+	// Probe records that were saved without responses to populate status codes and bodies.
+	if e.repo != nil && cfg.TargetURL != "" {
+		hostname := hostnameFromURL(cfg.TargetURL)
+		if hostname != "" {
+			ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
 		}
 	}
 
@@ -714,12 +791,15 @@ func (e *Engine) ingestFindings(ctx context.Context, findings []AgentFinding, op
 }
 
 // ingestHTTPRecords saves parsed HTTP records to the database.
+// Notes from agent records are preserved as remarks via AppendRemarks.
 func (e *Engine) ingestHTTPRecords(ctx context.Context, records []AgentHTTPRecord, opts Options) (int, error) {
 	saved := 0
 	source := "agent"
 	if opts.Source != "" {
 		source = opts.Source
 	}
+
+	remarksMap := make(map[string][]string)
 
 	for _, rec := range records {
 		httpRR, err := ToHTTPRequestResponse(rec)
@@ -729,14 +809,26 @@ func (e *Engine) ingestHTTPRecords(ctx context.Context, records []AgentHTTPRecor
 				zap.Error(err))
 			continue
 		}
-		if _, saveErr := e.repo.SaveRecord(ctx, httpRR, source, opts.ProjectUUID); saveErr != nil {
+		savedUUID, saveErr := e.repo.SaveRecord(ctx, httpRR, source, opts.ProjectUUID)
+		if saveErr != nil {
 			zap.L().Warn("Failed to save HTTP record",
 				zap.String("url", rec.URL),
 				zap.Error(saveErr))
 			continue
 		}
 		saved++
+		if rec.Notes != "" && savedUUID != "" {
+			remarksMap[savedUUID] = []string{rec.Notes}
+		}
 	}
+
+	// Batch-append notes as remarks
+	if len(remarksMap) > 0 {
+		if err := e.repo.AppendRemarks(ctx, remarksMap); err != nil {
+			zap.L().Warn("Failed to append remarks from agent notes", zap.Error(err))
+		}
+	}
+
 	return saved, nil
 }
 
@@ -762,6 +854,25 @@ func ToHTTPRequestResponse(rec AgentHTTPRecord) (*httpmsg.HttpRequestResponse, e
 
 	rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\n", rec.Method, reqPath)
 
+	// Auto-detect Content-Type from body when not explicitly set.
+	if rec.Body != "" {
+		hasContentType := false
+		for k := range rec.Headers {
+			if strings.EqualFold(k, "Content-Type") {
+				hasContentType = true
+				break
+			}
+		}
+		if !hasContentType {
+			if ct := inferContentType(rec.Body); ct != "" {
+				if rec.Headers == nil {
+					rec.Headers = make(map[string]string)
+				}
+				rec.Headers["Content-Type"] = ct
+			}
+		}
+	}
+
 	// Ensure a Host header is present (required by HTTP/1.1).
 	hasHost := false
 	for k, v := range rec.Headers {
@@ -780,6 +891,52 @@ func ToHTTPRequestResponse(rec AgentHTTPRecord) (*httpmsg.HttpRequestResponse, e
 	}
 
 	return httpmsg.ParseRawRequestWithURL(rawReq, rec.URL)
+}
+
+// inferContentType detects the content type from a request body string.
+// Returns empty string if the format is unrecognizable.
+func inferContentType(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return ""
+	}
+
+	// JSON: starts with { or [
+	if (trimmed[0] == '{' || trimmed[0] == '[') && isJSON(trimmed) {
+		return "application/json"
+	}
+
+	// XML/HTML: starts with < and has a closing tag
+	if trimmed[0] == '<' {
+		lower := strings.ToLower(trimmed)
+		if strings.Contains(lower, "<?xml") || strings.Contains(lower, "<soap") {
+			return "application/xml"
+		}
+		if strings.Contains(lower, "<html") {
+			return "text/html"
+		}
+		return "application/xml"
+	}
+
+	// URL-encoded form: key=value pairs
+	if strings.Contains(trimmed, "=") && !strings.Contains(trimmed, "\n") {
+		// Heuristic: looks like key=value&key2=value2
+		parts := strings.Split(trimmed, "&")
+		if len(parts) > 0 {
+			allKV := true
+			for _, p := range parts {
+				if !strings.Contains(p, "=") {
+					allKV = false
+					break
+				}
+			}
+			if allKV {
+				return "application/x-www-form-urlencoded"
+			}
+		}
+	}
+
+	return ""
 }
 
 // collectSourceFiles walks a directory and returns paths to common source files.

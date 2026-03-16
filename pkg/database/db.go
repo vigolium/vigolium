@@ -385,6 +385,28 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			duration_ms INTEGER DEFAULT 0,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS session_hostnames (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_uuid TEXT NOT NULL,
+			scan_uuid TEXT,
+			hostname TEXT NOT NULL,
+			port INTEGER DEFAULT 0,
+			scheme TEXT DEFAULT '',
+			session_name TEXT NOT NULL,
+			session_role TEXT DEFAULT '',
+			position INTEGER DEFAULT 0,
+			headers TEXT,
+			login_url TEXT,
+			login_method TEXT,
+			login_content_type TEXT,
+			login_body TEXT,
+			login_request TEXT,
+			login_response TEXT,
+			extract_rules TEXT,
+			source TEXT DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS scan_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			project_uuid TEXT NOT NULL,
@@ -447,6 +469,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_status ON agent_runs(project_uuid, status)",
 		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_created ON agent_runs(project_uuid, created_at)",
 		"CREATE INDEX IF NOT EXISTS idx_agent_runs_scan ON agent_runs(scan_uuid)",
+
+		// -- session_hostnames --
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_session_hostnames_unique ON session_hostnames(project_uuid, hostname, session_name)",
+		"CREATE INDEX IF NOT EXISTS idx_session_hostnames_project_hostname ON session_hostnames(project_uuid, hostname)",
+		"CREATE INDEX IF NOT EXISTS idx_session_hostnames_project_scan ON session_hostnames(project_uuid, scan_uuid)",
 
 		// -- scan_logs --
 		"CREATE INDEX IF NOT EXISTS idx_scan_logs_project_scan ON scan_logs(project_uuid, scan_uuid)",

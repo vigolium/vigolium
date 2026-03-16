@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,9 +267,6 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 	}
 	result.SessionDir = sessionDir
-	if sessionDir != "" {
-		fmt.Fprintf(os.Stderr, "%s Session: %s\n", terminal.InfoSymbol(), terminal.GrbGreen(terminal.ShortenHome(sessionDir)))
-	}
 
 	// Checkpoint/resume support
 	var checkpoint *SwarmCheckpoint
@@ -291,7 +287,6 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 	// Phase 1: Normalize inputs
 	phaseStart := time.Now()
-	s.emitPhase(cfg, SwarmPhaseNormalize)
 	agentRun.CurrentPhase = SwarmPhaseNormalize
 	s.persistPhase(ctx, agentRun)
 
@@ -330,9 +325,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	writeInputsToSessionDir(sessionDir, records)
 	phaseTimings[SwarmPhaseNormalize] = time.Since(phaseStart)
 	completedPhases = append(completedPhases, SwarmPhaseNormalize)
+	zap.L().Info("Agent swarm phase completed", zap.String("phase", SwarmPhaseNormalize), zap.Int("records", len(records)))
 
-	fmt.Fprintf(os.Stderr, "  %s Input records: %s\n",
-		terminal.Cyan(terminal.SymbolBullet),
+	fmt.Fprintf(os.Stderr, "%s Phase [%s] %s input records\n",
+		terminal.InfoSymbol(),
+		terminal.BoldOrange(SwarmPhaseNormalize),
 		terminal.Orange(fmt.Sprintf("%d", len(records))))
 
 	// Phase 1.5: Agentic source analysis (LLM explores codebase first).
@@ -349,8 +346,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		s.persistPhase(ctx, agentRun)
 
 		var saRecords []*httpmsg.HttpRequestResponse
+		var saNotesSlice []string
 		var saExtensions []GeneratedExtension
 		var sastRecords []*httpmsg.HttpRequestResponse
+		var sastNotesSlice []string
 		var sastExtensions []GeneratedExtension
 		var discoveredSessionConfig *AgentSessionConfig
 
@@ -377,7 +376,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		writePromptToSessionDir(sessionDir, "prompt-source-analysis.md", saRenderedPrompt)
 		if sessionDir != "" && saRawOutput != "" {
-			_ = os.WriteFile(filepath.Join(sessionDir, "source-analysis-output.md"), []byte(saRawOutput), 0644)
+			outputPath := filepath.Join(sessionDir, "source-analysis-output.md")
+			_ = os.WriteFile(outputPath, []byte(saRawOutput), 0644)
+			fmt.Fprintf(os.Stderr, "  %s Source analysis output: %s\n",
+				terminal.Gray(terminal.SymbolArrow), terminal.Gray(terminal.ShortenHome(outputPath)))
 		}
 
 		if saErr != nil {
@@ -388,12 +390,13 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				zap.Int("extensions", len(saResult.Extensions)),
 				zap.Bool("has_session_config", saResult.SessionConfig != nil))
 
-			filteredRecords := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
+			filteredRecords, filteredNotes := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
 			if len(filteredRecords) > 0 {
 				zap.L().Info("Appending source-discovered routes",
 					zap.Int("total_discovered", len(saResult.HTTPRecords)),
 					zap.Int("hostname_matched", len(filteredRecords)))
 				saRecords = filteredRecords
+				saNotesSlice = filteredNotes
 			}
 			if len(saResult.Extensions) > 0 {
 				saExtensions = append(saExtensions, saResult.Extensions...)
@@ -401,6 +404,19 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
 				writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
 				discoveredSessionConfig = saResult.SessionConfig
+
+				// Convert login flow URLs into HTTP records so they are ingested
+				// into the http_records table alongside source-discovered routes.
+				loginRecords := SessionConfigToHTTPRecords(saResult.SessionConfig)
+				if len(loginRecords) > 0 {
+					loginFiltered, loginNotes := filterSourceRecordsByHostname(loginRecords, targetURL)
+					if len(loginFiltered) > 0 {
+						zap.L().Info("Appending login endpoint records from session config",
+							zap.Int("count", len(loginFiltered)))
+						saRecords = append(saRecords, loginFiltered...)
+						saNotesSlice = append(saNotesSlice, loginNotes...)
+					}
+				}
 			}
 			if cfg.SourceAnalysisCallback != nil {
 				if cbErr := cfg.SourceAnalysisCallback(saResult); cbErr != nil {
@@ -419,16 +435,76 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				zap.L().Info("Hydrated auth headers from source-discovered session config",
 					zap.Int("header_count", len(authHeaders)))
 			}
+
+			// Persist hydrated session config to SessionHostname table so the
+			// normal route ingest phase and future scans can reuse these sessions.
+			if s.repo != nil && targetURL != "" {
+				hostname := hostnameFromURL(targetURL)
+				if hostname != "" {
+					rows := AgentSessionConfigToSessionHostnames(
+						discoveredSessionConfig, cfg.ProjectUUID, cfg.ScanUUID, hostname, "agent-swarm-source",
+					)
+					if len(rows) > 0 {
+						if shErr := s.repo.SaveSessionHostnames(ctx, rows); shErr != nil {
+							zap.L().Warn("Failed to persist session config to database", zap.Error(shErr))
+						} else {
+							zap.L().Info("Persisted session config to SessionHostname table",
+								zap.String("hostname", hostname),
+								zap.Int("sessions", len(rows)))
+						}
+					}
+				}
+			}
+		}
+
+		// Fallback: load auth headers from session_hostnames DB table
+		// when source analysis didn't discover any session config.
+		if len(authHeaders) == 0 && s.repo != nil && targetURL != "" {
+			hostname := hostnameFromURL(targetURL)
+			if hostname != "" {
+				dbRows, dbErr := s.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
+				if dbErr == nil && len(dbRows) > 0 {
+					authHeaders = AuthHeadersFromSessionHostnames(dbRows)
+					if len(authHeaders) > 0 {
+						zap.L().Info("Loaded auth headers from session_hostnames DB fallback",
+							zap.String("hostname", hostname),
+							zap.Int("header_count", len(authHeaders)))
+					}
+				}
+			}
+		}
+
+		// Print session/auth stats
+		if discoveredSessionConfig != nil && len(discoveredSessionConfig.Sessions) > 0 {
+			sessionCount := len(discoveredSessionConfig.Sessions)
+			authCount := len(authHeaders)
+			if authCount > 0 {
+				fmt.Fprintf(os.Stderr, "  %s Sessions: %s discovered, %s auth tokens obtained\n",
+					terminal.Cyan(terminal.SymbolBullet),
+					terminal.Orange(fmt.Sprintf("%d", sessionCount)),
+					terminal.HiGreen(fmt.Sprintf("%d", authCount)))
+			} else {
+				fmt.Fprintf(os.Stderr, "  %s Sessions: %s discovered, %s\n",
+					terminal.Cyan(terminal.SymbolBullet),
+					terminal.Orange(fmt.Sprintf("%d", sessionCount)),
+					terminal.Gray("no auth tokens obtained"))
+			}
+		}
+
+		// Replace hardcoded auth headers in source-discovered records with session headers.
+		if len(authHeaders) > 0 && len(saRecords) > 0 {
+			ReplaceAuthHeadersInHTTPRR(saRecords, authHeaders)
 		}
 
 		// Validate, auth-inject, probe, and save source-analysis records to DB
 		// before running SAST so they are available for deduplication.
-		s.validateProbeAndSave(ctx, saRecords, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
+		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
 
 		if len(saRecords) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s Source analysis routes: %s\n",
+			fmt.Fprintf(os.Stderr, "  %s Source analysis routes: %s %s\n",
 				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Orange(fmt.Sprintf("%d", len(saRecords))))
+				terminal.Orange(fmt.Sprintf("%d", len(saRecords))),
+				terminal.Muted(formatRouteStatusSummary(saRecords)))
 		}
 
 		// --- Phase 1.6: Native SAST (runs after source analysis) ---
@@ -446,11 +522,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				sastReviewResult := s.runSASTReview(ctx, cfg, targetURL, sessionDir)
 				if sastReviewResult != nil {
 					if len(sastReviewResult.HTTPRecords) > 0 {
-						validatedRecords := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
+						validatedRecords, validatedNotes := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
 						if len(validatedRecords) > 0 {
 							zap.L().Info("Appending SAST-review validated routes",
 								zap.Int("validated", len(validatedRecords)))
 							sastRecords = validatedRecords
+							sastNotesSlice = validatedNotes
 						}
 					}
 					if len(sastReviewResult.Extensions) > 0 {
@@ -468,7 +545,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
 		// Validate, auth-inject, probe, and save SAST-review records to DB
-		s.validateProbeAndSave(ctx, sastRecords, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
+		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
 
 		// Re-probe unprobed ast-grep records. The native SAST runner probes via
 		// httpRequester.Execute which goes through clustering/rate-limiting middleware
@@ -476,17 +553,20 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if s.repo != nil && targetURL != "" {
 			hostname := hostnameFromURL(targetURL)
 			if hostname != "" {
-				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders)
+				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders, "agent-swarm-source")
+				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders, "ast-grep")
 			}
 		}
 
 		// Print combined stats
 		if len(saRecords) > 0 || len(sastRecords) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s)\n",
+			allRoutes := append(saRecords, sastRecords...)
+			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s) %s\n",
 				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Orange(fmt.Sprintf("%d", len(saRecords)+len(sastRecords))),
+				terminal.Orange(fmt.Sprintf("%d", len(allRoutes))),
 				terminal.Orange(fmt.Sprintf("%d", len(saRecords))),
-				terminal.Orange(fmt.Sprintf("%d", len(sastRecords))))
+				terminal.Orange(fmt.Sprintf("%d", len(sastRecords))),
+				terminal.Muted(formatRouteStatusSummary(allRoutes)))
 		}
 
 		// Write source-discovered extensions to session dir immediately as artifacts.
@@ -1553,13 +1633,14 @@ func deduplicateRecords(records []*httpmsg.HttpRequestResponse) []*httpmsg.HttpR
 // keeping only those whose hostname matches the target URL's hostname.
 // Relative URLs are resolved against the target URL using net/url.ResolveReference
 // for correct path handling (e.g., "../api/v2", "/api/users", "endpoint").
-func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) []*httpmsg.HttpRequestResponse {
+// Returns records and a parallel slice of notes (aligned 1:1 with records).
+func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) ([]*httpmsg.HttpRequestResponse, []string) {
 	if targetURL == "" {
-		return nil
+		return nil, nil
 	}
 	targetParsed, err := url.Parse(targetURL)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	targetHost := targetParsed.Host // includes port
 
@@ -1571,9 +1652,19 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 		Path:   "/",
 	}
 
+	// Normalize records first — fix garbled URLs, truncated bodies, malformed headers.
+	normalized, dropped := NormalizeAgentRecords(agentRecords)
+	if dropped > 0 {
+		zap.L().Info("Normalized agent records",
+			zap.Int("input", len(agentRecords)),
+			zap.Int("normalized", len(normalized)),
+			zap.Int("dropped", dropped))
+	}
+
 	var filtered []*httpmsg.HttpRequestResponse
+	var notes []string
 	skipped := 0
-	for _, rec := range agentRecords {
+	for _, rec := range normalized {
 		recURL := rec.URL
 
 		// Resolve relative URLs against the target base using standard URL resolution.
@@ -1605,6 +1696,7 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 			continue
 		}
 		filtered = append(filtered, rr)
+		notes = append(notes, rec.Notes)
 	}
 
 	if skipped > 0 {
@@ -1614,7 +1706,7 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 			zap.Int("skipped", skipped))
 	}
 
-	return filtered
+	return filtered, notes
 }
 
 // runMasterAgentBatched calls the master agent in parallel batches when there are many records.
@@ -2064,13 +2156,16 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 // modules to analyze. Records are probed concurrently with a bounded worker pool.
 // validateProbeAndSave filters records with valid URLs, injects auth headers,
 // probes them for live responses, and saves them to the database.
-func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, authHeaders map[string]string, source, projectUUID string) {
+// Records that fail the first probe are retried once.
+// The optional notes slice (aligned 1:1 with records) is persisted as remarks.
+func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string) {
 	if len(records) == 0 {
 		return
 	}
 
 	var valid []*httpmsg.HttpRequestResponse
-	for _, rr := range records {
+	var validNotes []string
+	for i, rr := range records {
 		if rr.Request() == nil {
 			continue
 		}
@@ -2079,6 +2174,11 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 			continue
 		}
 		valid = append(valid, rr)
+		if i < len(notes) {
+			validNotes = append(validNotes, notes[i])
+		} else {
+			validNotes = append(validNotes, "")
+		}
 	}
 
 	if len(authHeaders) > 0 {
@@ -2086,18 +2186,48 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 	}
 	if len(valid) > 0 {
 		probeRecords(ctx, valid)
+
+		// Retry probe for records that still have no response (transient failures).
+		var unprobed []int
+		for i, rr := range valid {
+			if !rr.HasResponse() {
+				unprobed = append(unprobed, i)
+			}
+		}
+		if len(unprobed) > 0 {
+			zap.L().Info("Retrying probe for records with no response",
+				zap.Int("count", len(unprobed)))
+			retry := make([]*httpmsg.HttpRequestResponse, len(unprobed))
+			for j, idx := range unprobed {
+				retry[j] = valid[idx]
+			}
+			probeRecords(ctx, retry)
+			for j, idx := range unprobed {
+				valid[idx] = retry[j]
+			}
+		}
 	}
 	if s.repo != nil && len(valid) > 0 {
 		var savedCount int
-		for _, rr := range valid {
-			if _, saveErr := s.repo.SaveRecord(ctx, rr, source, projectUUID); saveErr != nil {
+		remarksMap := make(map[string][]string)
+		for i, rr := range valid {
+			savedUUID, saveErr := s.repo.SaveRecord(ctx, rr, source, projectUUID)
+			if saveErr != nil {
 				zap.L().Debug("Failed to save record", zap.String("source", source), zap.Error(saveErr))
 			} else {
 				savedCount++
+				if i < len(validNotes) && validNotes[i] != "" && savedUUID != "" {
+					remarksMap[savedUUID] = []string{validNotes[i]}
+				}
 			}
 		}
 		if savedCount > 0 {
 			zap.L().Info("Saved records to database", zap.String("source", source), zap.Int("count", savedCount))
+		}
+		if len(remarksMap) > 0 {
+			if err := s.repo.AppendRemarks(ctx, remarksMap); err != nil {
+				zap.L().Warn("Failed to append remarks from agent notes", zap.Error(err))
+			}
 		}
 	}
 }
@@ -2209,126 +2339,33 @@ func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.Htt
 // reprobeUnprobedRecords queries ast-grep records without responses from the DB
 // and probes them using a simple HTTP client. This acts as a fallback for records
 // that the native SAST runner's httpRequester failed to probe.
-func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string, authHeaders map[string]string) {
-	unprobed, err := s.repo.GetUnprobedRecordsBySource(ctx, projectUUID, "ast-grep", hostname, 200)
-	if err != nil {
-		zap.L().Debug("Failed to query unprobed ast-grep records", zap.Error(err))
-		return
-	}
-	if len(unprobed) == 0 {
-		return
-	}
-
-	zap.L().Info("Re-probing unprobed ast-grep records", zap.Int("count", len(unprobed)))
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	defer client.CloseIdleConnections()
-
-	const maxConcurrency = 10
-	sem := make(chan struct{}, maxConcurrency)
-	var wg sync.WaitGroup
-	var updated atomic.Int64
-
-	for _, rec := range unprobed {
-		if rec.URL == "" || rec.Method == "" {
-			continue
-		}
-
-		wg.Add(1)
-		go func(rec *database.HTTPRecord) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			method := rec.Method
-			reqURL := rec.URL
-
-			httpReq, reqErr := http.NewRequestWithContext(ctx, method, reqURL, nil)
-			if reqErr != nil {
-				return
-			}
-
-			// Apply discovered auth headers to re-probe requests
-			for k, v := range authHeaders {
-				httpReq.Header.Set(k, v)
-			}
-
-			resp, doErr := client.Do(httpReq)
-			if doErr != nil {
-				return
-			}
-			defer func() { _ = resp.Body.Close() }()
-
-			const maxBody = 2 * 1024 * 1024
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-			if readErr != nil {
-				return
-			}
-
-			// Build raw HTTP response
-			var rawResp bytes.Buffer
-			fmt.Fprintf(&rawResp, "%s %s\r\n", resp.Proto, resp.Status)
-			for k, vals := range resp.Header {
-				for _, v := range vals {
-					fmt.Fprintf(&rawResp, "%s: %s\r\n", k, v)
-				}
-			}
-			rawResp.WriteString("\r\n")
-			rawResp.Write(body)
-
-			contentType := resp.Header.Get("Content-Type")
-			headers := resp.Header.Clone()
-
-			update := &database.RecordResponseUpdate{
-				StatusCode:            resp.StatusCode,
-				StatusPhrase:          resp.Status,
-				ResponseHTTPVersion:   resp.Proto,
-				ResponseHeaders:       headers,
-				ResponseContentType:   contentType,
-				ResponseContentLength: int64(len(body)),
-				RawResponse:           rawResp.Bytes(),
-				ResponseBody:          body,
-			}
-
-			if updateErr := s.repo.UpdateRecordResponse(ctx, rec.UUID, update); updateErr != nil {
-				zap.L().Debug("Failed to update re-probed record", zap.Error(updateErr))
-				return
-			}
-
-			updated.Add(1)
-		}(rec)
-	}
-
-	wg.Wait()
-	if n := updated.Load(); n > 0 {
-		zap.L().Info("Re-probed ast-grep records", zap.Int64("updated", n), zap.Int("total", len(unprobed)))
-	}
+func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string, authHeaders map[string]string, source string) {
+	ReprobeUnprobedRecords(ctx, s.repo, projectUUID, hostname, authHeaders, source)
 }
 
-// hydrateSessionConfig converts an AgentSessionConfig into native session types,
-// executes any login flows to obtain real auth tokens, and returns the resulting
-// auth headers. If the session has static headers (no login), those are returned directly.
-// Returns nil if hydration fails or no session config is provided.
+// hydrateSessionConfig executes login flows for all sessions in the agent session config,
+// populates their Headers maps with extracted credentials, and returns the primary
+// session's auth headers for immediate use. Mutates cfg.Sessions[].Headers in place
+// so that callers (e.g. AgentSessionConfigToSessionHostnames) see the hydrated values.
 func hydrateSessionConfig(cfg *AgentSessionConfig) map[string]string {
 	if cfg == nil || len(cfg.Sessions) == 0 {
 		return nil
 	}
 
-	for _, entry := range cfg.Sessions {
+	var primaryHeaders map[string]string
+
+	for i := range cfg.Sessions {
+		entry := &cfg.Sessions[i]
+
 		// Prefer static headers if provided (agent may have discovered hardcoded tokens)
 		if len(entry.Headers) > 0 {
 			zap.L().Info("Using static auth headers from source analysis",
 				zap.String("session", entry.Name),
 				zap.Int("header_count", len(entry.Headers)))
-			return entry.Headers
+			if primaryHeaders == nil {
+				primaryHeaders = entry.Headers
+			}
+			continue
 		}
 
 		// Execute login flow to obtain real credentials
@@ -2381,12 +2418,61 @@ func hydrateSessionConfig(cfg *AgentSessionConfig) map[string]string {
 				zap.L().Info("Hydrated auth headers via login flow",
 					zap.String("session", entry.Name),
 					zap.Int("header_count", len(result)))
-				return result
+				// Store hydrated headers back on the entry for persistence
+				entry.Headers = result
+				if primaryHeaders == nil {
+					primaryHeaders = result
+				}
 			}
 		}
 	}
 
-	return nil
+	return primaryHeaders
+}
+
+// formatRouteStatusSummary returns a parenthesized summary of HTTP status code
+// classes for probed records, e.g. "(2xx: 45, 3xx: 5, 4xx: 12, 5xx: 2, no-response: 3)".
+func formatRouteStatusSummary(records []*httpmsg.HttpRequestResponse) string {
+	var s2xx, s3xx, s4xx, s5xx, noResp int
+	for _, rr := range records {
+		if !rr.HasResponse() {
+			noResp++
+			continue
+		}
+		code := rr.Response().StatusCode()
+		switch {
+		case code >= 200 && code < 300:
+			s2xx++
+		case code >= 300 && code < 400:
+			s3xx++
+		case code >= 400 && code < 500:
+			s4xx++
+		case code >= 500:
+			s5xx++
+		default:
+			noResp++
+		}
+	}
+	var parts []string
+	if s2xx > 0 {
+		parts = append(parts, fmt.Sprintf("2xx: %d", s2xx))
+	}
+	if s3xx > 0 {
+		parts = append(parts, fmt.Sprintf("3xx: %d", s3xx))
+	}
+	if s4xx > 0 {
+		parts = append(parts, fmt.Sprintf("4xx: %d", s4xx))
+	}
+	if s5xx > 0 {
+		parts = append(parts, fmt.Sprintf("5xx: %d", s5xx))
+	}
+	if noResp > 0 {
+		parts = append(parts, fmt.Sprintf("no-response: %d", noResp))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
 }
 
 // injectAuthHeaders adds discovered auth headers to records that don't already

@@ -917,6 +917,80 @@ type SourceAnalysisConfig struct {
 	StreamWriter   io.Writer
 }
 
+// RepairHTTPRecordsWithLLM attempts to fix garbled HTTP records output by sending
+// the raw text to the configured LLM agent with a repair prompt. The repaired output
+// is re-parsed through the JSONL + garbled recovery pipeline.
+func RepairHTTPRecordsWithLLM(ctx context.Context, engine *Engine, rawOutput string, cfg repairConfig) []AgentHTTPRecord {
+	if engine == nil || rawOutput == "" {
+		return nil
+	}
+
+	// Truncate to 32KB to fit context
+	const maxRepairBytes = 32 * 1024
+	if len(rawOutput) > maxRepairBytes {
+		rawOutput = rawOutput[:maxRepairBytes]
+	}
+
+	prompt := buildHTTPRecordRepairPrompt(rawOutput)
+
+	result, err := engine.Run(ctx, Options{
+		AgentName:    cfg.AgentName,
+		AgentACPCmd:  cfg.AgentACPCmd,
+		PromptInline: prompt,
+		ShowPrompt:   cfg.ShowPrompt,
+		SessionKey:   "json-repair",
+	})
+	if err != nil {
+		zap.L().Warn("LLM repair for HTTP records failed", zap.Error(err))
+		return nil
+	}
+
+	output := result.RawOutput
+
+	// Try JSONL from ```jsonl block first
+	if jsonlContent, err := extractJSONLFromFencedBlock(output); err == nil {
+		records, _ := parseHTTPRecordJSONL(jsonlContent)
+		if len(records) > 0 {
+			zap.L().Info("LLM repair recovered HTTP records via JSONL",
+				zap.Int("count", len(records)))
+			return records
+		}
+	}
+
+	// Try standard JSON parsing
+	records, parseErr := ParseHTTPRecords(output)
+	if parseErr == nil && len(records) > 0 {
+		zap.L().Info("LLM repair recovered HTTP records via JSON",
+			zap.Int("count", len(records)))
+		return records
+	}
+
+	// Try garbled recovery on the repaired output
+	records, _ = extractRecordsFromGarbled(output)
+	if len(records) > 0 {
+		zap.L().Info("LLM repair recovered HTTP records via garbled extraction",
+			zap.Int("count", len(records)))
+		return records
+	}
+
+	zap.L().Warn("LLM repair produced no parseable HTTP records")
+	return nil
+}
+
+// buildHTTPRecordRepairPrompt constructs the prompt for the HTTP record repair LLM call.
+func buildHTTPRecordRepairPrompt(rawOutput string) string {
+	var sb strings.Builder
+	sb.WriteString("The following output was supposed to contain HTTP records (routes extracted from source code) but has JSON syntax errors.\n")
+	sb.WriteString("Fix the JSON errors and return the records as JSONL (one JSON object per line) in a ```jsonl fenced code block.\n")
+	sb.WriteString("Each line must be a valid JSON object like: {\"method\":\"GET\",\"url\":\"http://...\",\"headers\":{},\"body\":\"\",\"notes\":\"...\"}\n")
+	sb.WriteString("Do NOT change the data — only fix syntax errors. Do NOT add explanations outside the code block.\n\n")
+	sb.WriteString("## Garbled Output\n\n")
+	sb.WriteString("```\n")
+	sb.WriteString(rawOutput)
+	sb.WriteString("\n```\n")
+	return sb.String()
+}
+
 // EnsureSessionDir creates the session directory for a given run ID under the specified base directory.
 // If baseDir is empty, defaults to ~/.vigolium/agent-sessions/.
 // Returns the absolute path to the created directory.
@@ -1081,13 +1155,14 @@ func ParseTriageResult(raw string) (*TriageResult, error) {
 }
 
 // ParseSourceAnalysisResult extracts a SourceAnalysisResult from raw agent output.
-// It supports two formats:
-//  1. Hybrid: JSON object containing http_records and session_config, followed by
-//     fenced ```javascript code blocks for extensions (preferred — avoids escaping issues).
-//  2. Legacy: a single JSON object containing all fields including extensions[].code.
-//
-// When the output contains multiple JSON blocks (e.g., multi-task SAST review output),
-// the function tries all JSON fenced blocks and also merges http_records across blocks.
+// It uses a layered strategy to maximize recovery from malformed LLM output:
+//  1. JSONL: Parse records from a ```jsonl fenced block (one JSON object per line — blast-radius reduction)
+//  2. Hybrid: JSON object with http_records/session_config + fenced ```javascript code blocks
+//  3. Multi-block merge: Merge http_records across multiple ```json blocks
+//  4. Legacy: Single JSON object containing all fields
+//  5. Garbled recovery: Scan raw text for individual {"method":...} objects
+//  6. Session-config-only: Return session_config when present without routes (auth sub-agent)
+//  7. Extensions-only fallback: Return any ```javascript code blocks even when no records parse
 func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	// Lazily extract code block extensions — only computed once, on first access.
 	// Agent output frequently contains ```javascript fenced blocks for extensions
@@ -1109,48 +1184,409 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 		}
 	}
 
-	// Try hybrid format first: JSON with records/session_config + fenced code blocks for extensions
+	// Strategy 1: Try JSONL from ```jsonl fenced block (blast-radius reduction for large route lists)
+	if jsonlContent, err := extractJSONLFromFencedBlock(raw); err == nil {
+		records, badCount := parseHTTPRecordJSONL(jsonlContent)
+		if len(records) > 0 {
+			if badCount > 0 {
+				zap.L().Warn("JSONL parsing: skipped malformed lines",
+					zap.Int("good", len(records)),
+					zap.Int("bad", badCount))
+			}
+			result := &SourceAnalysisResult{HTTPRecords: records}
+			// Also extract session_config from any ```json block in the same output
+			result.SessionConfig = extractSessionConfigFromGarbled(raw)
+			mergeCodeExts(result)
+			return result, nil
+		}
+	}
+
+	// Strategy 2: Try hybrid format — JSON with records/session_config + fenced code blocks for extensions
 	if result, err := parseSourceAnalysisHybrid(raw); err == nil && len(result.HTTPRecords) > 0 {
 		mergeCodeExts(result)
 		return result, nil
 	}
 
-	// Try multi-block merge: when agent outputs multiple JSON blocks (e.g., separate tasks),
+	// Strategy 3: Try multi-block merge — when agent outputs multiple JSON blocks (e.g., separate tasks),
 	// merge http_records from all parseable blocks into a single result.
 	if result := mergeMultiBlockSourceAnalysis(raw); result != nil && len(result.HTTPRecords) > 0 {
 		mergeCodeExts(result)
 		return result, nil
 	}
 
-	// Fall back to legacy all-in-one JSON format
-	jsonStr, err := extractJSON(raw)
-	if err != nil {
-		// Even when JSON parsing fails entirely, return extensions from code blocks
-		if exts := getCodeExts(); len(exts) > 0 {
-			return &SourceAnalysisResult{Extensions: exts}, nil
+	// Strategy 4: Fall back to legacy all-in-one JSON format
+	jsonStr, jsonErr := extractJSON(raw)
+	if jsonErr == nil {
+		// Try wrapped format: {"source_analysis": {...}}
+		var wrapper sourceAnalysisWrapper
+		if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.SourceAnalysis.HTTPRecords) > 0 {
+			result := &wrapper.SourceAnalysis
+			mergeCodeExts(result)
+			return result, nil
 		}
-		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
+
+		// Try direct format: {...}
+		var result SourceAnalysisResult
+		if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
+			mergeCodeExts(&result)
+			if len(result.HTTPRecords) > 0 {
+				return &result, nil
+			}
+		} else {
+			// Array-of-records fallback: the LLM sometimes outputs a bare JSON array
+			var records []AgentHTTPRecord
+			if arrErr := json.Unmarshal([]byte(jsonStr), &records); arrErr == nil && len(records) > 0 {
+				res := &SourceAnalysisResult{HTTPRecords: records}
+				mergeCodeExts(res)
+				return res, nil
+			}
+		}
 	}
 
-	// Try wrapped format: {"source_analysis": {...}}
-	var wrapper sourceAnalysisWrapper
-	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.SourceAnalysis.HTTPRecords) > 0 {
-		result := &wrapper.SourceAnalysis
+	// Strategy 5: Garbled recovery — scan raw text for individual {"method":...} objects
+	if strings.Contains(raw, `"method"`) {
+		records, failCount := extractRecordsFromGarbled(raw)
+		if len(records) > 0 {
+			zap.L().Warn("Recovered HTTP records from garbled output",
+				zap.Int("recovered", len(records)),
+				zap.Int("failed", failCount))
+			result := &SourceAnalysisResult{HTTPRecords: records}
+			result.SessionConfig = extractSessionConfigFromGarbled(raw)
+			mergeCodeExts(result)
+			return result, nil
+		}
+	}
+
+	// Strategy 6: Session-config-only fallback — the auth sub-agent legitimately returns
+	// empty http_records with a valid session_config. Extract it so it's not lost.
+	if sessionCfg := extractSessionConfigFromGarbled(raw); sessionCfg != nil && len(sessionCfg.Sessions) > 0 {
+		result := &SourceAnalysisResult{SessionConfig: sessionCfg}
 		mergeCodeExts(result)
 		return result, nil
 	}
 
-	// Try direct format: {...}
-	var result SourceAnalysisResult
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		if exts := getCodeExts(); len(exts) > 0 {
-			return &SourceAnalysisResult{Extensions: exts}, nil
-		}
-		return nil, fmt.Errorf("failed to parse source analysis result from JSON: %w", err)
+	// Strategy 7: Extensions-only fallback — return JS code blocks even when no records parse
+	if exts := getCodeExts(); len(exts) > 0 {
+		return &SourceAnalysisResult{Extensions: exts}, nil
 	}
 
-	mergeCodeExts(&result)
-	return &result, nil
+	if jsonErr != nil {
+		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", jsonErr)
+	}
+	return nil, fmt.Errorf("failed to parse source analysis result: no http_records found")
+}
+
+// extractSessionConfigFromJSON scans all ```json fenced blocks for session_config data.
+// Returns the first valid session_config found, or nil if none.
+func extractSessionConfigFromJSON(raw string) *AgentSessionConfig {
+	blocks := extractAllJSONFromFencedBlocks(raw)
+	for _, block := range blocks {
+		var sa SourceAnalysisResult
+		if err := json.Unmarshal([]byte(block), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
+			return sa.SessionConfig
+		}
+		// Try wrapper format too
+		var wrapper sourceAnalysisWrapper
+		if err := json.Unmarshal([]byte(block), &wrapper); err == nil && wrapper.SourceAnalysis.SessionConfig != nil {
+			return wrapper.SourceAnalysis.SessionConfig
+		}
+	}
+	return nil
+}
+
+// extractSessionConfigFromGarbled recovers session config from garbled agent output.
+// It uses a layered approach: clean extraction first, then needle-based scanning
+// for "session_config", "sessions", and individual "login" objects.
+func extractSessionConfigFromGarbled(raw string) *AgentSessionConfig {
+	// Layer 1: delegate to clean path — zero overhead for well-formed output
+	if cfg := extractSessionConfigFromJSON(raw); cfg != nil {
+		return cfg
+	}
+
+	// Layer 2: scan for "session_config" needle, extract enclosing JSON block
+	if idx := strings.Index(raw, `"session_config"`); idx >= 0 {
+		// Walk backward to find the opening { for the enclosing object
+		start := idx - 1
+		for start >= 0 && raw[start] != '{' {
+			start--
+		}
+		if start >= 0 {
+			block := findJSONBlockFrom(raw, start)
+			if block != "" {
+				// Try as SourceAnalysisResult
+				var sa SourceAnalysisResult
+				if err := json.Unmarshal([]byte(block), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
+					return sa.SessionConfig
+				}
+				// Try as bare AgentSessionConfig
+				var cfg AgentSessionConfig
+				if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
+					return &cfg
+				}
+			}
+		}
+	}
+
+	// Layer 3: scan for "sessions" needle with enclosing object
+	if idx := strings.Index(raw, `"sessions"`); idx >= 0 {
+		start := idx - 1
+		for start >= 0 && raw[start] != '{' {
+			start--
+		}
+		if start >= 0 {
+			block := findJSONBlockFrom(raw, start)
+			if block != "" {
+				var cfg AgentSessionConfig
+				if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
+					return &cfg
+				}
+			}
+		}
+	}
+
+	// Layer 4: scan for individual "login" objects containing "url" — JSON unmarshal
+	needle := `"login"`
+	var entries []AgentSessionEntry
+	i := 0
+	for i < len(raw) {
+		idx := strings.Index(raw[i:], needle)
+		if idx < 0 {
+			break
+		}
+		pos := i + idx
+
+		// Walk backward to find the opening { for the session entry
+		start := pos - 1
+		for start >= 0 && raw[start] != '{' {
+			start--
+		}
+		if start < 0 {
+			i = pos + len(needle)
+			continue
+		}
+
+		block := findJSONBlockFrom(raw, start)
+		if block == "" {
+			i = pos + len(needle)
+			continue
+		}
+
+		var entry AgentSessionEntry
+		if err := json.Unmarshal([]byte(block), &entry); err == nil && entry.Name != "" {
+			entries = append(entries, entry)
+		}
+
+		i = start + len(block)
+	}
+
+	if len(entries) > 0 {
+		return &AgentSessionConfig{Sessions: entries}
+	}
+
+	// Layer 5: regex-based field extraction for deeply garbled JSON.
+	// When field keys/values are interleaved by LLM streaming, JSON is structurally
+	// broken but individual field values are often intact. Extract them with regexes.
+	if cfg := extractSessionConfigFromRegex(raw); cfg != nil {
+		return cfg
+	}
+
+	return nil
+}
+
+// sessionNameRe matches "name": "value" patterns in garbled JSON.
+var sessionNameRe = regexp.MustCompile(`"name"\s*:\s*"([^"]+)"`)
+
+// sessionRoleRe matches "role": "value" patterns.
+var sessionRoleRe = regexp.MustCompile(`"role"\s*:\s*"([^"]+)"`)
+
+// loginURLRe matches "url": "http..." patterns inside login objects.
+var loginURLRe = regexp.MustCompile(`"url"\s*:\s*"(https?://[^"]+)"`)
+
+// loginMethodRe matches "method": "POST" etc.
+var loginMethodRe = regexp.MustCompile(`"method"\s*:\s*"([A-Z]+)"`)
+
+// loginBodyRe matches "body": "..." patterns (handles escaped quotes).
+var loginBodyRe = regexp.MustCompile(`"body"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+
+// loginContentTypeRe matches content_type values (may have garbled key).
+var loginContentTypeRe = regexp.MustCompile(`content_type[^"]*"\s*:\s*"(application/[^"]+)"`)
+
+// extractSessionConfigFromRegex recovers session config from deeply garbled JSON
+// by scanning for individual field values with regexes. It splits the text around
+// session "name" anchors and extracts login details from each region.
+func extractSessionConfigFromRegex(raw string) *AgentSessionConfig {
+	// Find all session name matches — these are our anchors for splitting regions
+	nameMatches := sessionNameRe.FindAllStringIndex(raw, -1)
+	if len(nameMatches) == 0 {
+		return nil
+	}
+
+	// Check that this is actually session config context (not unrelated "name" fields)
+	if !strings.Contains(raw, `"login"`) && !strings.Contains(raw, `"sessions"`) && !strings.Contains(raw, `"session_config"`) {
+		return nil
+	}
+
+	var entries []AgentSessionEntry
+
+	for idx, nameLoc := range nameMatches {
+		// Extract the region for this session entry: from this name match to the next one (or end)
+		regionStart := nameLoc[0]
+		regionEnd := len(raw)
+		if idx+1 < len(nameMatches) {
+			regionEnd = nameMatches[idx+1][0]
+		}
+		region := raw[regionStart:regionEnd]
+
+		// Extract name
+		nameSubmatch := sessionNameRe.FindStringSubmatch(region)
+		if nameSubmatch == nil {
+			continue
+		}
+		name := nameSubmatch[1]
+
+		// Skip names that don't look like session identifiers
+		if len(name) > 50 || strings.ContainsAny(name, "{}[]") {
+			continue
+		}
+
+		entry := AgentSessionEntry{Name: name}
+
+		// Extract role
+		if m := sessionRoleRe.FindStringSubmatch(region); m != nil {
+			entry.Role = m[1]
+		}
+
+		// Extract login flow
+		if urlMatch := loginURLRe.FindStringSubmatch(region); urlMatch != nil {
+			login := &AgentLoginFlow{
+				URL: urlMatch[1],
+			}
+			if m := loginMethodRe.FindStringSubmatch(region); m != nil {
+				login.Method = m[1]
+			} else {
+				login.Method = "POST" // login flows are almost always POST
+			}
+			if m := loginContentTypeRe.FindStringSubmatch(region); m != nil {
+				login.ContentType = m[1]
+			}
+			if m := loginBodyRe.FindStringSubmatch(region); m != nil {
+				login.Body = m[1]
+			}
+			entry.Login = login
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if len(entries) > 0 {
+		return &AgentSessionConfig{Sessions: entries}
+	}
+	return nil
+}
+
+// sessionConfigNeedsRepair determines whether LLM repair should be attempted for session config.
+// Two cases trigger repair:
+//   - Case A: No session config recovered at all, but raw output contains session keywords
+//   - Case B: Session config recovered (e.g. via regex Layer 5) but ALL login flows lack
+//     extract rules AND the raw output contains "extract" — meaning extract rules were
+//     present but lost during garbled recovery
+func sessionConfigNeedsRepair(cfg *AgentSessionConfig, rawOutput string) bool {
+	// Case A: no config at all, but raw output has session-related keywords
+	if cfg == nil || len(cfg.Sessions) == 0 {
+		hasSessionKeywords := strings.Contains(rawOutput, `"session_config"`) ||
+			strings.Contains(rawOutput, `"sessions"`) ||
+			(strings.Contains(rawOutput, `"login"`) && strings.Contains(rawOutput, `"url"`))
+		return hasSessionKeywords
+	}
+
+	// Case B: config recovered but all login flows lost extract rules
+	if !strings.Contains(rawOutput, `"extract"`) {
+		return false // no extract rules in raw output — nothing was lost
+	}
+	for _, s := range cfg.Sessions {
+		if s.Login != nil && len(s.Login.Extract) > 0 {
+			return false // at least one flow has extract rules — no repair needed
+		}
+	}
+	// All login flows lack extract rules but raw output had them
+	return true
+}
+
+// RepairSessionConfigWithLLM attempts to fix garbled session config output by sending
+// the raw text to the configured LLM agent with a repair prompt. The repaired output
+// is re-parsed through extractSessionConfigFromGarbled().
+func RepairSessionConfigWithLLM(ctx context.Context, engine *Engine, rawOutput string, cfg repairConfig) *AgentSessionConfig {
+	if engine == nil || rawOutput == "" {
+		return nil
+	}
+
+	// Truncate to 32KB to fit context
+	const maxRepairBytes = 32 * 1024
+	if len(rawOutput) > maxRepairBytes {
+		rawOutput = rawOutput[:maxRepairBytes]
+	}
+
+	prompt := buildSessionConfigRepairPrompt(rawOutput)
+
+	result, err := engine.Run(ctx, Options{
+		AgentName:    cfg.AgentName,
+		AgentACPCmd:  cfg.AgentACPCmd,
+		PromptInline: prompt,
+		ShowPrompt:   cfg.ShowPrompt,
+		SessionKey:   "json-repair",
+	})
+	if err != nil {
+		zap.L().Warn("LLM repair for session config failed", zap.Error(err))
+		return nil
+	}
+
+	repaired := extractSessionConfigFromGarbled(result.RawOutput)
+	if repaired != nil && len(repaired.Sessions) > 0 {
+		zap.L().Info("LLM repair recovered session config",
+			zap.Int("sessions", len(repaired.Sessions)))
+		return repaired
+	}
+
+	zap.L().Warn("LLM repair produced no parseable session config")
+	return nil
+}
+
+// buildSessionConfigRepairPrompt constructs the prompt for the session config repair LLM call.
+func buildSessionConfigRepairPrompt(rawOutput string) string {
+	var sb strings.Builder
+	sb.WriteString("The following output was supposed to contain session configuration for authenticated scanning but has JSON syntax errors.\n")
+	sb.WriteString("Fix the JSON errors and return a valid JSON object in a ```json fenced code block.\n")
+	sb.WriteString("Do NOT change the data — only fix syntax errors. Do NOT add explanations outside the code block.\n\n")
+	sb.WriteString("## Expected Schema\n\n")
+	sb.WriteString("```json\n")
+	sb.WriteString(`{
+  "sessions": [
+    {
+      "name": "session-name",
+      "role": "primary",
+      "login": {
+        "url": "http://example.com/api/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"username\":\"admin\",\"password\":\"admin\"}",
+        "extract": [
+          {
+            "source": "json",
+            "path": "$.token",
+            "apply_as": "Authorization: Bearer {value}"
+          }
+        ]
+      }
+    }
+  ]
+}`)
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("CRITICAL: The `extract` rules are essential — they define how auth tokens are extracted from login responses. Do NOT omit them.\n\n")
+	sb.WriteString("## Garbled Output\n\n")
+	sb.WriteString("```\n")
+	sb.WriteString(rawOutput)
+	sb.WriteString("\n```\n")
+	return sb.String()
 }
 
 // mergeExtensionsByFilename merges two extension slices, deduplicating by filename.
@@ -1204,6 +1640,13 @@ func mergeMultiBlockSourceAnalysis(raw string) *SourceAnalysisResult {
 			}
 			if len(result.Extensions) > 0 {
 				merged.Extensions = append(merged.Extensions, result.Extensions...)
+			}
+		} else {
+			// Array-of-records fallback: block may be a bare JSON array of HTTP records
+			var records []AgentHTTPRecord
+			if arrErr := json.Unmarshal([]byte(block), &records); arrErr == nil && len(records) > 0 {
+				merged.HTTPRecords = append(merged.HTTPRecords, records...)
+				anyParsed = true
 			}
 		}
 	}
@@ -1279,6 +1722,11 @@ func parseSourceAnalysisHybrid(raw string) (*SourceAnalysisResult, error) {
 	// Try direct format
 	var result SourceAnalysisResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		// Array-of-records fallback: LLM sometimes outputs [...] instead of {"http_records": [...]}
+		var records []AgentHTTPRecord
+		if arrErr := json.Unmarshal([]byte(jsonStr), &records); arrErr == nil && len(records) > 0 {
+			return &SourceAnalysisResult{HTTPRecords: records}, nil
+		}
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	if len(result.HTTPRecords) == 0 {

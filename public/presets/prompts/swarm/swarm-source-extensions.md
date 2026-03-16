@@ -125,3 +125,13 @@ module.exports = {
 - Keep each extension focused and under 80 lines
 - **Generate multiple versions per sink** — different detection techniques per vulnerability type
 - Each extension should target a specific endpoint path (use `ctx.request.path` check)
+
+## OUTPUT REMINDER — Read This Last
+
+Before writing your response, verify each extension against these rules:
+
+1. **JSON stub** → ` ```json ` block with `{"http_records":[]}`.
+2. **Extensions** → Each in a ` ```javascript ` block (NOT ` ```js `), preceded by `#### filename.js` heading.
+3. **Valid JavaScript only** → Use `var` (not `const`/`let`), `function()` (not arrow functions), no `async`/`await`, no TypeScript.
+4. **Required fields** → Every extension must have: `id`, `name`, `type`, `severity`, `scanTypes`, `tags`, `scanPerRequest`.
+5. **Filenames** → Must start with `agent-` and end with `.js` (e.g., `agent-sqli-users-error.js`).

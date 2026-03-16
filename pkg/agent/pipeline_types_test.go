@@ -1180,3 +1180,651 @@ func TestMergeMultiBlockSourceAnalysisNoValidBlocks(t *testing.T) {
 		t.Error("expected nil result when no valid blocks")
 	}
 }
+
+func TestParseSourceAnalysisResult_JSONL(t *testing.T) {
+	input := `Here are the extracted routes:
+
+` + "```jsonl" + `
+{"method":"GET","url":"http://localhost:3000/api/products","headers":{},"notes":"List products"}
+{"method":"POST","url":"http://localhost:3000/api/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"test@test.com\",\"password\":\"pass\"}","notes":"Login endpoint"}
+{"method":"DELETE","url":"http://localhost:3000/api/users/1","headers":{},"notes":"Delete user"}
+` + "```" + `
+
+Done.`
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HTTPRecords) != 3 {
+		t.Errorf("expected 3 records, got %d", len(result.HTTPRecords))
+	}
+	if result.HTTPRecords[0].Method != "GET" {
+		t.Errorf("first record method = %q, want GET", result.HTTPRecords[0].Method)
+	}
+	if result.HTTPRecords[1].URL != "http://localhost:3000/api/login" {
+		t.Errorf("second record url = %q", result.HTTPRecords[1].URL)
+	}
+}
+
+func TestParseSourceAnalysisResult_JSONLWithSessionConfig(t *testing.T) {
+	input := `Routes:
+
+` + "```jsonl" + `
+{"method":"GET","url":"http://localhost:3000/api/products","headers":{},"notes":"Products"}
+{"method":"POST","url":"http://localhost:3000/api/users","headers":{"Content-Type":"application/json"},"body":"{\"name\":\"test\"}","notes":"Create user"}
+` + "```" + `
+
+Session config:
+
+` + "```json" + `
+{"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@test.com\",\"password\":\"admin\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+` + "```" + `
+`
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HTTPRecords) != 2 {
+		t.Errorf("expected 2 records, got %d", len(result.HTTPRecords))
+	}
+	if result.SessionConfig == nil {
+		t.Fatal("expected session config to be extracted")
+	}
+	if len(result.SessionConfig.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(result.SessionConfig.Sessions))
+	}
+	if result.SessionConfig.Sessions[0].Name != "admin" {
+		t.Errorf("expected session name 'admin', got %q", result.SessionConfig.Sessions[0].Name)
+	}
+}
+
+func TestParseSourceAnalysisResult_JSONLWithBadLines(t *testing.T) {
+	// Some lines are garbled, but good ones should be recovered
+	input := "```jsonl\n" +
+		`{"method":"GET","url":"http://localhost:3000/api/good1","headers":{}}` + "\n" +
+		`{"method":"GET","url":"broken json here` + "\n" +
+		`{"method":"POST","url":"http://localhost:3000/api/good2","headers":{"Content-Type":"application/json"},"body":"{}"}` + "\n" +
+		"```\n"
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HTTPRecords) != 2 {
+		t.Errorf("expected 2 good records (1 bad skipped), got %d", len(result.HTTPRecords))
+	}
+}
+
+func TestParseSourceAnalysisResult_GarbledRecovery(t *testing.T) {
+	// Simulate a corrupted JSON array — one object is garbled but others should be recoverable
+	input := `Here are the routes:
+
+` + "```json" + `
+[{"method":"GET","url":"http://localhost:3000/api/products","headers":{},"notes":"List products"},{"method":"POST","url":"http://localhost:3000/api/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"test@test.com\","password":"broken_json"},"notes":"Login"},{"method":"DELETE","url":"http://localhost:3000/api/users/1","headers":{},"notes":"Delete user"}]
+` + "```" + `
+`
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should recover at least 2 out of 3 records (the garbled one may or may not parse)
+	if len(result.HTTPRecords) < 2 {
+		t.Errorf("expected at least 2 recovered records, got %d", len(result.HTTPRecords))
+	}
+}
+
+func TestParseSourceAnalysisResult_SessionConfigOnly(t *testing.T) {
+	// Auth sub-agent returns empty http_records with valid session_config.
+	// This should NOT be treated as an error — session_config must be preserved.
+	input := "Here is the session configuration:\n\n" +
+		"```json\n" +
+		`{"http_records":[],"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}},{"name":"regular_user","role":"compare","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"jim@juice-sh.op\",\"password\":\"ncc-1701\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}}]}}` +
+		"\n```\n"
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error for session-config-only output: %v", err)
+	}
+	if result.SessionConfig == nil {
+		t.Fatal("expected non-nil session config")
+	}
+	if len(result.SessionConfig.Sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(result.SessionConfig.Sessions))
+	}
+	if result.SessionConfig.Sessions[0].Name != "admin" {
+		t.Errorf("expected first session name 'admin', got %q", result.SessionConfig.Sessions[0].Name)
+	}
+	if result.SessionConfig.Sessions[0].Login == nil {
+		t.Fatal("expected login flow on admin session")
+	}
+	if result.SessionConfig.Sessions[0].Login.URL != "http://localhost:3000/rest/user/login" {
+		t.Errorf("unexpected login URL: %s", result.SessionConfig.Sessions[0].Login.URL)
+	}
+}
+
+func TestExtractSessionConfigFromJSON(t *testing.T) {
+	input := `Some text
+
+` + "```json" + `
+{"session_config":{"sessions":[{"name":"admin","role":"primary"}]}}
+` + "```" + `
+
+` + "```json" + `
+{"http_records":[]}
+` + "```" + `
+`
+
+	cfg := extractSessionConfigFromJSON(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config")
+	}
+	if len(cfg.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(cfg.Sessions))
+	}
+}
+
+func TestExtractSessionConfigFromJSON_NoConfig(t *testing.T) {
+	input := `Some text with no session config
+
+` + "```json" + `
+{"http_records":[{"method":"GET","url":"http://localhost/api"}]}
+` + "```" + `
+`
+	cfg := extractSessionConfigFromJSON(input)
+	if cfg != nil {
+		t.Error("expected nil session config when none present")
+	}
+}
+
+func TestParseSourceAnalysisResult_JSONLWithGarbledLinesRecovery(t *testing.T) {
+	// Three types of garbled lines that should be recovered:
+	// 1. Trailing garbage after valid JSON object
+	// 2. Invalid method field (normalized via inference)
+	// 3. Embedded URL in path
+	input := "```jsonl\n" +
+		// Good line
+		`{"method":"GET","url":"http://localhost:3000/api/products","headers":{},"notes":"List products"}` + "\n" +
+		// Trailing garbage after valid JSON
+		`{"method":"POST","url":"http://localhost:3000/api/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"admin@test.com\"}"} accounting for auth tokens` + "\n" +
+		// Invalid method → should be inferred as POST (has body)
+		`{"method":"3000/profile","url":"http://localhost:3000/api/upload","headers":{"Content-Type":"application/json"},"body":"{\"file\":\"test.png\"}"}` + "\n" +
+		// Clean line
+		`{"method":"DELETE","url":"http://localhost:3000/api/users/1","headers":{}}` + "\n" +
+		"```\n"
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// All 4 lines should be recoverable
+	if len(result.HTTPRecords) < 3 {
+		t.Errorf("expected at least 3 recovered records, got %d", len(result.HTTPRecords))
+	}
+	// Check that the trailing-garbage line was recovered
+	found := false
+	for _, rec := range result.HTTPRecords {
+		if rec.URL == "http://localhost:3000/api/login" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected trailing-garbage line to be recovered with url http://localhost:3000/api/login")
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_CleanBlock(t *testing.T) {
+	// Well-formed fenced JSON — should delegate to clean path
+	input := "Here is the config:\n\n" +
+		"```json\n" +
+		`{"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@test.com\",\"password\":\"admin\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}` +
+		"\n```\n"
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config")
+	}
+	if len(cfg.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].Name != "admin" {
+		t.Errorf("expected session name 'admin', got %q", cfg.Sessions[0].Name)
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_GarbledBlock(t *testing.T) {
+	// Fenced block with garbled content that won't parse as clean JSON,
+	// but the session_config needle scan should recover it
+	input := `The agent analyzed the auth flow and found:
+
+Some garbled text here with interleaved output...
+{"session_config":{"sessions":[{"name":"user1","role":"primary","login":{"url":"http://localhost:8080/auth/login","method":"POST","content_type":"application/json","body":"{\"username\":\"admin\",\"password\":\"pass123\"}","extract":[{"source":"cookie","name":"session_id"}]}}]}} more garbled text after
+`
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config from garbled output")
+	}
+	if len(cfg.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].Name != "user1" {
+		t.Errorf("expected session name 'user1', got %q", cfg.Sessions[0].Name)
+	}
+	if cfg.Sessions[0].Login == nil {
+		t.Fatal("expected login flow")
+	}
+	if cfg.Sessions[0].Login.URL != "http://localhost:8080/auth/login" {
+		t.Errorf("unexpected login URL: %s", cfg.Sessions[0].Login.URL)
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_NoFencedBlock(t *testing.T) {
+	// Inline JSON with no fenced blocks — needle scan on raw text
+	input := `Analysis complete. Here is the session configuration:
+{"session_config":{"sessions":[{"name":"api_user","role":"primary","headers":{"Authorization":"Bearer test-token-123"}}]}}
+Done.`
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config")
+	}
+	if len(cfg.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].Name != "api_user" {
+		t.Errorf("expected session name 'api_user', got %q", cfg.Sessions[0].Name)
+	}
+	if cfg.Sessions[0].Headers["Authorization"] != "Bearer test-token-123" {
+		t.Errorf("expected Authorization header, got %v", cfg.Sessions[0].Headers)
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_SessionsArrayDirect(t *testing.T) {
+	// "sessions":[...] without wrapper — sessions needle fallback
+	input := `garbled output prefix {"sessions":[{"name":"admin","role":"primary","login":{"url":"http://app:3000/login","method":"POST","content_type":"application/json","body":"{}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}},{"name":"guest","role":"compare","headers":{"X-Guest":"true"}}]} trailing garbage`
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config from sessions array")
+	}
+	if len(cfg.Sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].Name != "admin" {
+		t.Errorf("expected first session 'admin', got %q", cfg.Sessions[0].Name)
+	}
+	if cfg.Sessions[1].Name != "guest" {
+		t.Errorf("expected second session 'guest', got %q", cfg.Sessions[1].Name)
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_None(t *testing.T) {
+	// No session config at all
+	input := `Here are the routes:
+{"method":"GET","url":"http://localhost:3000/api/products","headers":{}}
+No session configuration was found.`
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg != nil {
+		t.Errorf("expected nil session config, got %+v", cfg)
+	}
+}
+
+func TestParseSourceAnalysisResult_GarbledWithSessionConfig(t *testing.T) {
+	// End-to-end: garbled text with both HTTP records and session config — both should be recovered
+	input := `The agent found the following routes and authentication:
+
+Some interleaved garbled output...
+{"method":"GET","url":"http://localhost:3000/api/products","headers":{},"notes":"Product listing"}
+more garbled text between records
+{"method":"POST","url":"http://localhost:3000/api/orders","headers":{"Content-Type":"application/json"},"body":"{}","notes":"Create order"}
+
+And the session configuration:
+{"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+`
+
+	result, err := ParseSourceAnalysisResult(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.HTTPRecords) < 2 {
+		t.Errorf("expected at least 2 HTTP records, got %d", len(result.HTTPRecords))
+	}
+	if result.SessionConfig == nil {
+		t.Fatal("expected session config to be recovered from garbled output")
+	}
+	if len(result.SessionConfig.Sessions) != 1 {
+		t.Errorf("expected 1 session, got %d", len(result.SessionConfig.Sessions))
+	}
+	if result.SessionConfig.Sessions[0].Name != "admin" {
+		t.Errorf("expected session name 'admin', got %q", result.SessionConfig.Sessions[0].Name)
+	}
+	if result.SessionConfig.Sessions[0].Login == nil {
+		t.Fatal("expected login flow on admin session")
+	}
+	if result.SessionConfig.Sessions[0].Login.URL != "http://localhost:3000/rest/user/login" {
+		t.Errorf("unexpected login URL: %s", result.SessionConfig.Sessions[0].Login.URL)
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_DeeplyGarbledJSON(t *testing.T) {
+	// Real-world garbled output where JSON keys and values are interleaved by LLM streaming.
+	// json.Unmarshal fails, but regex-based extraction should recover session entries.
+	input := "```json\n" + `{
+  "http_records": [],
+  "session_config": {
+    "sessions": [
+      {
+        "name": "admin",
+        "role": "primary",
+        "login": {
+          "url": "http://localhost:3000/rest/user/login",
+          "method": "POST",
+          "content_type": "application/json",
+          "body": "{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}",
+          "extract [":
+            {
+              "source: Bearer {": "json",
+              "path": "$.authentication.token",
+              "apply_as": "Authorizationvalue}"
+            }
+          ]
+        }
+      },
+      {
+        "name": "regular_user",
+        "role": "compare",
+        "login": {
+          "url": "http://localhost:3000/rest/user/login",
+          "method": "POST",
+          "content_typejim@juice-sh.op\": "application/json",
+          "body": "{\"email\":\"",\"password\":\"ncc-1701\"}",
+          ""source": "json",
+              extract": [
+            {
+              "path": "$.authentication.token",
+              "apply_as": "Authorization: Bearer {value}"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}` + "\n```\n"
+
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config from deeply garbled JSON")
+	}
+	if len(cfg.Sessions) < 2 {
+		t.Errorf("expected at least 2 sessions, got %d", len(cfg.Sessions))
+	}
+
+	// Check first session
+	var admin, regular *AgentSessionEntry
+	for i := range cfg.Sessions {
+		switch cfg.Sessions[i].Name {
+		case "admin":
+			admin = &cfg.Sessions[i]
+		case "regular_user":
+			regular = &cfg.Sessions[i]
+		}
+	}
+
+	if admin == nil {
+		t.Fatal("expected 'admin' session to be recovered")
+	}
+	if admin.Role != "primary" {
+		t.Errorf("expected admin role 'primary', got %q", admin.Role)
+	}
+	if admin.Login == nil {
+		t.Fatal("expected login flow on admin session")
+	}
+	if admin.Login.URL != "http://localhost:3000/rest/user/login" {
+		t.Errorf("unexpected admin login URL: %s", admin.Login.URL)
+	}
+	if admin.Login.Method != "POST" {
+		t.Errorf("expected POST method, got %q", admin.Login.Method)
+	}
+
+	if regular == nil {
+		t.Fatal("expected 'regular_user' session to be recovered")
+	}
+	if regular.Role != "compare" {
+		t.Errorf("expected regular_user role 'compare', got %q", regular.Role)
+	}
+	if regular.Login == nil {
+		t.Fatal("expected login flow on regular_user session")
+	}
+	if regular.Login.URL != "http://localhost:3000/rest/user/login" {
+		t.Errorf("unexpected regular_user login URL: %s", regular.Login.URL)
+	}
+}
+
+func TestExtractSessionConfigFromRegex_NoSessionContext(t *testing.T) {
+	// "name" field present but not in a session config context — should return nil
+	input := `{"name": "my-project", "version": "1.0.0", "description": "A test project"}`
+	cfg := extractSessionConfigFromRegex(input)
+	if cfg != nil {
+		t.Errorf("expected nil for non-session-config input, got %+v", cfg)
+	}
+}
+
+func TestSessionConfigToHTTPRecords(t *testing.T) {
+	cfg := &AgentSessionConfig{
+		Sessions: []AgentSessionEntry{
+			{
+				Name: "admin",
+				Role: "primary",
+				Login: &AgentLoginFlow{
+					URL:         "http://localhost:3000/rest/user/login",
+					Method:      "POST",
+					ContentType: "application/json",
+					Body:        `{"email":"admin@juice-sh.op","password":"admin123"}`,
+				},
+			},
+			{
+				Name: "regular_user",
+				Role: "compare",
+				Login: &AgentLoginFlow{
+					URL:         "http://localhost:3000/rest/user/login",
+					Method:      "POST",
+					ContentType: "application/json",
+					Body:        `{"email":"jim@juice-sh.op","password":"ncc-1701"}`,
+				},
+			},
+			{
+				Name:    "api_key_user",
+				Role:    "primary",
+				Headers: map[string]string{"Authorization": "Bearer static-token"},
+				// No login flow — should not produce a record
+			},
+		},
+	}
+
+	records := SessionConfigToHTTPRecords(cfg)
+
+	// Two sessions share the same login URL+method, so should be deduplicated to 1
+	if len(records) != 1 {
+		t.Fatalf("expected 1 deduplicated record, got %d", len(records))
+	}
+	if records[0].Method != "POST" {
+		t.Errorf("expected POST, got %q", records[0].Method)
+	}
+	if records[0].URL != "http://localhost:3000/rest/user/login" {
+		t.Errorf("unexpected URL: %s", records[0].URL)
+	}
+	if records[0].Headers["Content-Type"] != "application/json" {
+		t.Errorf("expected Content-Type header, got %v", records[0].Headers)
+	}
+}
+
+func TestSessionConfigToHTTPRecords_DifferentURLs(t *testing.T) {
+	cfg := &AgentSessionConfig{
+		Sessions: []AgentSessionEntry{
+			{
+				Name: "admin",
+				Login: &AgentLoginFlow{
+					URL:    "http://localhost:3000/api/admin/login",
+					Method: "POST",
+					Body:   `{"username":"admin"}`,
+				},
+			},
+			{
+				Name: "user",
+				Login: &AgentLoginFlow{
+					URL:    "http://localhost:3000/api/user/login",
+					Method: "POST",
+					Body:   `{"username":"user"}`,
+				},
+			},
+		},
+	}
+
+	records := SessionConfigToHTTPRecords(cfg)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records for different login URLs, got %d", len(records))
+	}
+}
+
+func TestSessionConfigToHTTPRecords_Nil(t *testing.T) {
+	if records := SessionConfigToHTTPRecords(nil); records != nil {
+		t.Errorf("expected nil for nil config, got %v", records)
+	}
+	if records := SessionConfigToHTTPRecords(&AgentSessionConfig{}); records != nil {
+		t.Errorf("expected nil for empty sessions, got %v", records)
+	}
+}
+
+func TestSessionConfigNeedsRepair(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *AgentSessionConfig
+		rawOutput string
+		want      bool
+	}{
+		{
+			name:      "nil config with session_config keyword",
+			cfg:       nil,
+			rawOutput: `some garbled "session_config" text`,
+			want:      true,
+		},
+		{
+			name:      "nil config with sessions keyword",
+			cfg:       nil,
+			rawOutput: `garbled "sessions" output`,
+			want:      true,
+		},
+		{
+			name:      "nil config with login+url keywords",
+			cfg:       nil,
+			rawOutput: `garbled "login" and "url" text`,
+			want:      true,
+		},
+		{
+			name:      "nil config without session keywords",
+			cfg:       nil,
+			rawOutput: `some unrelated garbled output`,
+			want:      false,
+		},
+		{
+			name: "valid config with extract rules",
+			cfg: &AgentSessionConfig{
+				Sessions: []AgentSessionEntry{
+					{
+						Name: "admin",
+						Login: &AgentLoginFlow{
+							URL:    "http://example.com/login",
+							Method: "POST",
+							Extract: []AgentExtractRule{
+								{Source: "json", Path: "$.token", ApplyAs: "Authorization: Bearer {value}"},
+							},
+						},
+					},
+				},
+			},
+			rawOutput: `"extract" present`,
+			want:      false,
+		},
+		{
+			name: "config missing extract rules with extract in raw",
+			cfg: &AgentSessionConfig{
+				Sessions: []AgentSessionEntry{
+					{
+						Name:  "admin",
+						Login: &AgentLoginFlow{URL: "http://example.com/login", Method: "POST"},
+					},
+				},
+			},
+			rawOutput: `garbled "extract" rules lost`,
+			want:      true,
+		},
+		{
+			name: "config missing extract rules without extract in raw",
+			cfg: &AgentSessionConfig{
+				Sessions: []AgentSessionEntry{
+					{
+						Name:  "admin",
+						Login: &AgentLoginFlow{URL: "http://example.com/login", Method: "POST"},
+					},
+				},
+			},
+			rawOutput: `no extract keyword here`,
+			want:      false,
+		},
+		{
+			name:      "empty sessions with keywords",
+			cfg:       &AgentSessionConfig{},
+			rawOutput: `"session_config" present`,
+			want:      true,
+		},
+		{
+			name: "session without login still needs repair if extract in raw",
+			cfg: &AgentSessionConfig{
+				Sessions: []AgentSessionEntry{
+					{Name: "admin"},
+				},
+			},
+			rawOutput: `garbled "extract" rules`,
+			want:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sessionConfigNeedsRepair(tt.cfg, tt.rawOutput)
+			if got != tt.want {
+				t.Errorf("sessionConfigNeedsRepair() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildSessionConfigRepairPrompt(t *testing.T) {
+	garbled := `{"sessions":[{"name":"admin","login":{"url":"http://example.com/login","extract":[{"source":"json"`
+	prompt := buildSessionConfigRepairPrompt(garbled)
+
+	checks := []struct {
+		name    string
+		keyword string
+	}{
+		{"contains schema", `"sessions"`},
+		{"contains extract in schema", `"extract"`},
+		{"contains apply_as in schema", `"apply_as"`},
+		{"contains garbled output", garbled},
+		{"mentions extract critical", "CRITICAL"},
+		{"mentions fix JSON", "Fix the JSON"},
+	}
+
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			if !strings.Contains(prompt, c.keyword) {
+				t.Errorf("prompt missing expected keyword %q", c.keyword)
+			}
+		})
+	}
+}

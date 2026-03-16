@@ -81,3 +81,14 @@ Output a single valid JSON object wrapped in a ` ```json ` code block. Include `
 - If no authentication is found, output `{"http_records":[],"session_config":{"sessions":[]}}`
 - Use the target URL `{{.TargetURL}}` as base for login URLs
 - Include multiple sessions if different roles exist (admin + regular user enables IDOR testing)
+
+## OUTPUT REMINDER — Read This Last
+
+Before writing your response, verify your JSON against these rules:
+
+1. **Format** → Single ` ```json ` block containing one valid JSON object.
+2. **Body field in login** → MUST be an **escaped JSON string**, NOT a nested object.
+   - CORRECT: `"body":"{\"email\":\"a@b.com\",\"password\":\"test\"}"`
+   - WRONG:   `"body":{"email":"a@b.com","password":"test"}`
+3. **extract rules** → Each must have `source`, `path` (for json) or `name` (for cookie/header), and `apply_as`.
+4. The entire output must be **valid, parseable JSON** — no trailing commas, no comments.

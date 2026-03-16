@@ -39,6 +39,7 @@ The application source code is located at: `{{.SourcePath}}`
 4. **Identify vulnerability sinks**: Search for dangerous function calls — SQL queries (raw query concatenation, ORM bypass), exec/system/child_process, template rendering with user input, file operations with user paths, HTTP requests with user-controlled URLs
 5. **Check configuration**: Database config, security settings, CORS config, JWT secret handling
 6. **Read handler implementations**: For each route, follow the code into the handler function to understand parameters, data flow, and what dangerous operations it performs
+7. **Mine test suites for parameter examples**: Search test files, spec files, and mock server setups for realistic parameter values. For example, `httpMock.expectOne('http://localhost:3000/rest/products/search?q=1')` reveals the `q` query parameter with a concrete value. Use these in your output URLs and bodies.
 
 **Be exhaustive** — the swarm master agent will use your routes to select scanning modules and generate custom payloads. Missing routes means missed vulnerabilities.
 
@@ -144,20 +145,32 @@ Available vigolium extension APIs:
 
 ## Output Format
 
-Your response MUST use this exact two-part format.
+Your response MUST use this exact multi-part format.
 
-### Part 1: JSON (records + session config)
+### Part 1a: JSONL (routes)
 
-Output a single valid JSON object containing `http_records` and optionally `session_config`, wrapped in a ` ```json ` code block. Do NOT include extensions in the JSON — they go in Part 2.
+Output the HTTP routes as **JSONL** (one JSON object per line) wrapped in a ` ```jsonl ` fenced code block. Each line is a standalone HTTP record — this format is resilient to individual malformed lines without losing all routes.
 
-```json
-{"http_records":[{"method":"GET","url":"{{.TargetURL}}/api/products/search?q=test","headers":{},"notes":"Search products — query param 'q' required"},{"method":"POST","url":"{{.TargetURL}}/api/users","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"testuser\",\"email\":\"test@test.com\",\"password\":\"testpassword\",\"role\":\"customer\"}","notes":"Create user — accepts JSON body with user fields"},{"method":"PUT","url":"{{.TargetURL}}/api/users/1","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"updated\",\"email\":\"new@test.com\"}","notes":"Update user — accepts JSON body with fields to update"}],"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+```jsonl
+{"method":"GET","url":"{{.TargetURL}}/api/products/search?q=test","headers":{},"notes":"Search products — query param 'q' required"}
+{"method":"POST","url":"{{.TargetURL}}/api/users","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"testuser\",\"email\":\"test@test.com\",\"password\":\"testpassword\",\"role\":\"customer\"}","notes":"Create user — accepts JSON body with user fields"}
+{"method":"PUT","url":"{{.TargetURL}}/api/users/1","headers":{"Content-Type":"application/json"},"body":"{\"username\":\"updated\",\"email\":\"new@test.com\"}","notes":"Update user — accepts JSON body with fields to update"}
 ```
 
-**Important notes on the JSON:**
+**Important notes on the JSONL:**
+- One complete JSON object per line — do NOT use a JSON array or wrap in `{"http_records":[...]}`
+- Use a ` ```jsonl ` fenced code block (NOT ` ```json `)
 - GET requests: query parameters MUST be in the URL string (e.g., `?q=test&page=1`), not in the body
 - POST/PUT/PATCH requests: the `body` field MUST contain the full request body with ALL parameters found in the handler code
 - Never output a POST/PUT/PATCH record with an empty `body` — always read the handler to find expected parameters
+
+### Part 1b: JSON (session config)
+
+If you found authentication/login code, output the session configuration as a separate ` ```json ` code block:
+
+```json
+{"session_config":{"sessions":[{"name":"default_user","role":"primary","login":{"url":"{{.TargetURL}}/api/login","method":"POST","content_type":"application/json","body":"{\"email\":\"test@test.com\",\"password\":\"testpassword\"}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}
+```
 
 ### Part 2: Extensions (fenced code blocks)
 
@@ -200,11 +213,11 @@ module.exports = {
 ```
 
 **Rules:**
-- **Wrap the JSON object in a ` ```json ` code block** — this is required for reliable parsing
+- **Wrap routes in a ` ```jsonl ` code block** and **session config in a ` ```json ` code block** — this is required for reliable parsing
 - You may include explanatory text before or after the code blocks
-- `http_records` is required — extract every route matching the target hostname
+- Routes are required — extract every route matching the target hostname
 - `session_config` is optional — only include if you find auth/login code
-- Do NOT embed extension code inside the JSON object — use Part 2 code blocks only
+- Do NOT embed extension code inside the JSON — use Part 2 code blocks only
 - Use the target URL `{{.TargetURL}}` as base for all URLs
 - Extension filenames must end in `.js` and start with `agent-`
 - Extension code must be valid JavaScript (not TypeScript)
@@ -213,3 +226,17 @@ module.exports = {
 - For GET/DELETE routes, include all query parameters directly in the URL string (e.g., `?q=test&limit=10`). **Do NOT output a GET route that accepts parameters without including them in the URL.**
 - Keep each extension focused and under 80 lines
 - **Generate multiple versions per sink** — use different detection techniques (e.g., error-based, time-based, boolean-based for SQLi; reflected vs DOM-based for XSS; different encoding/bypass strategies). Append a technique suffix to the filename (e.g., `agent-sqli-users-error.js`, `agent-sqli-users-time.js`)
+
+## OUTPUT REMINDER — Read This Last
+
+Before writing your response, verify each output block against these rules:
+
+1. **Routes** → ` ```jsonl ` block (NOT ` ```json `). One JSON object per line. No JSON array wrapper.
+2. **Body field** → MUST be an **escaped JSON string**, NOT a nested object.
+   - CORRECT: `"body":"{\"email\":\"a@b.com\",\"password\":\"test\"}"`
+   - WRONG:   `"body":{"email":"a@b.com","password":"test"}`
+3. **Session config** → ` ```json ` block with `{"session_config":{...}}` wrapper.
+4. **Extensions** → ` ```javascript ` blocks, each preceded by `#### filename.js` heading.
+5. **Every POST/PUT/PATCH** route MUST have a non-empty `body` with all parameters from the handler code.
+6. **Every GET/DELETE** route MUST have query parameters in the URL string (e.g., `?q=test&page=1`).
+7. **Extension code** → Valid JavaScript only. Use `var` (not `const`/`let`), `function()` (not arrow functions), no `async`/`await`.

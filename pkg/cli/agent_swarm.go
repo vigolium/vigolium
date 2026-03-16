@@ -46,6 +46,7 @@ var (
 	swarmDiscover           bool
 	swarmBatchConcurrency   int
 	swarmMaxMasterRetries   int
+	swarmSkipSAST           bool
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -66,6 +67,59 @@ Supported input types (auto-detected):
   - Record UUID: abc123-... (from http_records table)
 
 When input is piped via stdin, it is automatically read (no --input needed).`,
+	Example: `  # Swarm a single URL
+  vigolium agent swarm --input "https://example.com/api/users?id=1"
+
+  # Swarm a curl command
+  vigolium agent swarm --input "curl -X POST -H 'Content-Type: application/json' -d '{\"user\":\"admin\"}' https://example.com/api/login"
+
+  # Pipe a raw HTTP request from stdin
+  cat request.txt | vigolium agent swarm
+
+  # Swarm with source code for route discovery
+  vigolium agent swarm -t https://example.com --source ./src
+
+  # Source-aware swarm with specific files
+  vigolium agent swarm -t https://example.com --source ./src --files "routes/api.js,controllers/auth.js"
+
+  # Only run source analysis (no scanning)
+  vigolium agent swarm -t https://example.com --source ./src --source-analysis-only
+
+  # Focus on a specific vulnerability type
+  vigolium agent swarm --input "https://example.com/search?q=test" --vuln-type sqli
+
+  # Use specific scanner modules
+  vigolium agent swarm --input "https://example.com/api" -m sqli -m xss -m ssti
+
+  # Run discovery+spidering before planning
+  vigolium agent swarm -t https://example.com --discover
+
+  # Use a custom agent backend
+  vigolium agent swarm --input "https://example.com" --agent gemini
+
+  # Custom ACP command
+  vigolium agent swarm --input "https://example.com" --agent-acp-cmd "traecli acp"
+
+  # Swarm a database record
+  vigolium agent swarm --record-uuid abc123-def456
+
+  # Add custom instructions to guide the agent
+  vigolium agent swarm --input "https://example.com" --instruction "Focus on auth bypass and IDOR"
+
+  # Load instructions from a file
+  vigolium agent swarm --input "https://example.com" --instruction-file ./pentest-notes.md
+
+  # Skip specific scan phases
+  vigolium agent swarm -t https://example.com --source ./src --skip discovery,spidering
+
+  # Limit triage-rescan iterations
+  vigolium agent swarm --input "https://example.com" --max-iterations 1
+
+  # Dry run — render prompts without executing
+  vigolium agent swarm -t https://example.com --source ./src --dry-run
+
+  # Show rendered prompts on stderr while executing
+  vigolium agent swarm --input "https://example.com" --show-prompt`,
 	RunE: runAgentSwarm,
 }
 
@@ -95,6 +149,7 @@ func init() {
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
 	f.IntVar(&swarmBatchConcurrency, "batch-concurrency", 0, "Max parallel master agent batches (0 = auto, scales with CPU count)")
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
+	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, trivy, semgrep) during source analysis")
 }
 
 func runAgentSwarm(_ *cobra.Command, _ []string) error {
@@ -240,8 +295,8 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		cfg.DiscoverFunc = buildSwarmDiscoverFunc(settings, repo, &generatedAuthConfig)
 	}
 
-	// Wire SAST callback automatically when --source is provided
-	if swarmSource != "" {
+	// Wire SAST callback automatically when --source is provided (unless --skip-sast)
+	if swarmSource != "" && !swarmSkipSAST {
 		cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, swarmSource, &generatedAuthConfig)
 	}
 
@@ -260,7 +315,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		effectiveAgent = settings.Agent.DefaultAgent
 	}
 
-	// Print banner
+	// Print agent configuration banner (styled like Scan Configuration)
 	inputDesc := swarmTarget
 	if inputDesc == "" && swarmInput != "" {
 		inputDesc = truncateSwarmInput(swarmInput, 80)
@@ -268,26 +323,72 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	if inputDesc == "" && swarmRecordUUID != "" {
 		inputDesc = "record:" + swarmRecordUUID
 	}
+
+	fmt.Fprint(os.Stderr, GetBanner())
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
+
+	// Mode
+	mode := "swarm"
+	if swarmSourceAnalysisOnly {
+		mode = "swarm (source-analysis-only)"
+	}
+	fmt.Fprintf(os.Stderr, "  %s Mode: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(mode))
+
+	// Agent
+	fmt.Fprintf(os.Stderr, "  %s Agent: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(effectiveAgent))
+
+	// Prompt
 	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
-	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (swarm): %s\n",
-		terminal.InfoSymbol(), terminal.GrbGreen(inputDesc))
-	fmt.Fprintf(os.Stderr, "%s Agent: %s\n",
-		terminal.InfoSymbol(), terminal.GrbGreen(effectiveAgent))
-	fmt.Fprintf(os.Stderr, "%s Prompt: %s %s\n",
-		terminal.InfoSymbol(), terminal.Orange(agent.SwarmPromptMaster), terminal.Muted(promptPath))
-	if swarmSource != "" {
-		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), terminal.GrbGreen(terminal.ShortenHome(swarmSource)))
+	fmt.Fprintf(os.Stderr, "  %s Prompt: %s %s\n", terminal.Purple(terminal.SymbolInfo),
+		terminal.Orange(agent.SwarmPromptMaster), terminal.Muted(promptPath))
+
+	// Target / Inputs
+	if inputDesc != "" {
+		fmt.Fprintf(os.Stderr, "  %s Target: %s\n", terminal.Purple(terminal.SymbolTarget), terminal.Orange(inputDesc))
 	}
+
+	// Source
+	if swarmSource != "" {
+		fmt.Fprintf(os.Stderr, "  %s Source: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(terminal.ShortenHome(swarmSource)))
+	}
+
+	// Phases — show enabled/disabled status for each swarm phase
+	swarmPhaseLabel := func(name string, enabled bool) string {
+		if !enabled {
+			return terminal.Gray(terminal.SymbolError) + " " + terminal.Gray(name)
+		}
+		return terminal.Green(terminal.SymbolSuccess) + " " + terminal.HiCyan(name)
+	}
+	hasSource := swarmSource != ""
+	hasSAST := hasSource && !swarmSkipSAST
+	isSkipped := func(phase string) bool {
+		for _, s := range swarmSkipPhases {
+			if strings.EqualFold(s, phase) {
+				return true
+			}
+		}
+		return false
+	}
+	sourceAnalysisOnly := swarmSourceAnalysisOnly
+
+	fmt.Fprintf(os.Stderr, "  %s Phases: %s | %s | %s | %s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		swarmPhaseLabel("SourceAnalysis", hasSource),
+		swarmPhaseLabel("SAST", hasSAST),
+		swarmPhaseLabel("Discovery", swarmDiscover && !isSkipped("discovery")),
+		swarmPhaseLabel("Plan", !sourceAnalysisOnly))
+	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
+		swarmPhaseLabel("Scan", !sourceAnalysisOnly),
+		swarmPhaseLabel("Triage", !sourceAnalysisOnly && !isSkipped("triage")),
+		swarmPhaseLabel("Rescan", !sourceAnalysisOnly && !isSkipped("rescan")))
+
+	// Vulnerability focus
 	if swarmVulnType != "" {
-		fmt.Fprintf(os.Stderr, "%s Vulnerability focus: %s\n",
-			terminal.InfoSymbol(), terminal.GrbRed(swarmVulnType))
+		fmt.Fprintf(os.Stderr, "  %s Vuln focus: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.Orange(swarmVulnType))
 	}
-	if swarmDiscover {
-		fmt.Fprintf(os.Stderr, "%s Discovery: %s\n",
-			terminal.InfoSymbol(), terminal.GrbGreen("enabled (crawling + spidering before planning)"))
-	}
-	if swarmSource != "" {
+
+	// SAST tools detail
+	if hasSAST {
 		sastTools := "ast-grep route extraction + secret detection"
 		if settings.SourceAware.ThirdPartyIntegration.Enabled {
 			var tools []string
@@ -300,8 +401,20 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 				sastTools += " + " + strings.Join(tools, ", ")
 			}
 		}
-		fmt.Fprintf(os.Stderr, "%s SAST: %s\n",
-			terminal.InfoSymbol(), terminal.GrbGreen("enabled ("+sastTools+")"))
+		fmt.Fprintf(os.Stderr, "  %s SAST: %s %s\n", terminal.Purple(terminal.SymbolInfo),
+			terminal.HiGreen("enabled"), terminal.Muted("("+sastTools+")"))
+	}
+
+	// Iteration limits
+	fmt.Fprintf(os.Stderr, "  %s Limits: max-iterations=%s | timeout=%s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiBlue(fmt.Sprintf("%d", swarmMaxIterations)),
+		terminal.HiBlue(swarmTimeout.String()))
+
+	// Session dir
+	if sessionDir != "" {
+		fmt.Fprintf(os.Stderr, "  %s Session: %s\n", terminal.Purple(terminal.SymbolInfo),
+			terminal.Muted(terminal.ShortenHome(sessionDir)))
 	}
 
 	// Wire phase callback for verbose output

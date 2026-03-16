@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -250,6 +251,358 @@ func matchingBrace(open rune) rune {
 		return '}'
 	}
 	return ']'
+}
+
+// extractJSONLFromFencedBlock extracts content from the first ```jsonl fenced code block.
+// Returns the raw content of the block (not parsed), or an error if none found.
+func extractJSONLFromFencedBlock(raw string) (string, error) {
+	lines := strings.Split(raw, "\n")
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+
+		if !strings.HasPrefix(trimmed, "```jsonl") {
+			continue
+		}
+		// Ensure it's actually ```jsonl and not ```jsonlines or similar
+		rest := strings.TrimPrefix(trimmed, "```jsonl")
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			continue
+		}
+
+		// Collect content until closing ```
+		var content strings.Builder
+		i++
+		for i < len(lines) {
+			if strings.TrimSpace(lines[i]) == "```" {
+				break
+			}
+			if content.Len() > 0 {
+				content.WriteByte('\n')
+			}
+			content.WriteString(lines[i])
+			i++
+		}
+
+		candidate := strings.TrimSpace(content.String())
+		if candidate == "" {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("no ```jsonl fenced block found")
+}
+
+// parseHTTPRecordJSONL parses JSONL-formatted HTTP records (one JSON object per line).
+// Returns successfully parsed records and the count of lines that failed to parse.
+// Lines that fail strict JSON parsing are repaired via balanced-brace extraction
+// and truncated-JSON closure before being retried.
+func parseHTTPRecordJSONL(raw string) ([]AgentHTTPRecord, int) {
+	var records []AgentHTTPRecord
+	badCount := 0
+
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		var rec AgentHTTPRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			// Repair pass: try extracting a balanced JSON block (strips trailing garbage)
+			repaired := findJSONBlockFrom(line, 0)
+			if repaired == "" {
+				// Fall back to closing unclosed braces/brackets
+				repaired = repairTruncatedJSON(line)
+			}
+			if repaired != "" && repaired != line {
+				if err2 := json.Unmarshal([]byte(repaired), &rec); err2 != nil {
+					badCount++
+					continue
+				}
+			} else {
+				badCount++
+				continue
+			}
+		}
+		if !isValidHTTPRecord(rec) {
+			// Try normalizing the record before dropping it
+			fixed, ok := normalizeRecord(rec)
+			if !ok {
+				badCount++
+				continue
+			}
+			rec = fixed
+		}
+		records = append(records, rec)
+	}
+	return records, badCount
+}
+
+// extractRecordsFromGarbled scans raw text for JSON objects that look like HTTP records
+// (containing "method":) and attempts to extract them individually. This recovers records
+// from corrupted JSON arrays where one garbled field would otherwise lose all records.
+func extractRecordsFromGarbled(raw string) ([]AgentHTTPRecord, int) {
+	var records []AgentHTTPRecord
+	failCount := 0
+
+	// Scan for {"method": boundaries
+	needle := `"method"`
+	i := 0
+	for i < len(raw) {
+		idx := strings.Index(raw[i:], needle)
+		if idx < 0 {
+			break
+		}
+		pos := i + idx
+
+		// Walk backwards to find the opening { for this object
+		start := pos - 1
+		for start >= 0 && raw[start] != '{' {
+			start--
+		}
+		if start < 0 {
+			i = pos + len(needle)
+			continue
+		}
+
+		// Use findJSONBlockFrom to extract the balanced {...} block
+		block := findJSONBlockFrom(raw, start)
+		if block == "" {
+			i = pos + len(needle)
+			continue
+		}
+
+		var rec AgentHTTPRecord
+		if err := json.Unmarshal([]byte(block), &rec); err == nil && isValidHTTPRecord(rec) {
+			records = append(records, rec)
+		} else {
+			failCount++
+		}
+
+		i = start + len(block)
+	}
+	return records, failCount
+}
+
+// validHTTPMethods is the set of recognized HTTP methods for record validation.
+var validHTTPMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true,
+	"DELETE": true, "HEAD": true, "OPTIONS": true, "TRACE": true,
+}
+
+// isValidHTTPRecord checks that a parsed AgentHTTPRecord has a valid HTTP method
+// and a well-formed URL with a scheme.
+func isValidHTTPRecord(rec AgentHTTPRecord) bool {
+	if !validHTTPMethods[strings.ToUpper(rec.Method)] {
+		return false
+	}
+	if rec.URL == "" {
+		return false
+	}
+	u, err := url.Parse(rec.URL)
+	if err != nil {
+		return false
+	}
+	return u.Scheme != ""
+}
+
+// NormalizeAgentRecords performs a normalization pass on agent HTTP records,
+// fixing common LLM output issues:
+// - Truncated/malformed JSON bodies (attempts to close open braces/brackets)
+// - Garbled URL paths (removes non-ASCII, fixes double slashes)
+// - Malformed headers (removes entries with garbled names)
+// - Notes/description leaking into body field
+// Records that cannot be salvaged are dropped and counted.
+func NormalizeAgentRecords(records []AgentHTTPRecord) (normalized []AgentHTTPRecord, dropped int) {
+	for _, rec := range records {
+		fixed, ok := normalizeRecord(rec)
+		if !ok {
+			dropped++
+			continue
+		}
+		normalized = append(normalized, fixed)
+	}
+	return normalized, dropped
+}
+
+func normalizeRecord(rec AgentHTTPRecord) (AgentHTTPRecord, bool) {
+	// Normalize method — infer from context if not a valid HTTP method
+	rec.Method = strings.ToUpper(strings.TrimSpace(rec.Method))
+	if !validHTTPMethods[rec.Method] {
+		if rec.Body != "" {
+			rec.Method = "POST"
+		} else {
+			rec.Method = "GET"
+		}
+	}
+
+	// Normalize URL — strip non-printable chars, fix common garbling
+	rec.URL = cleanAgentURL(rec.URL)
+	if rec.URL == "" {
+		return rec, false
+	}
+	u, err := url.Parse(rec.URL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return rec, false
+	}
+
+	// Normalize headers — remove garbled entries
+	if len(rec.Headers) > 0 {
+		clean := make(map[string]string, len(rec.Headers))
+		for k, v := range rec.Headers {
+			if isValidHeaderName(k) {
+				clean[k] = v
+			}
+		}
+		rec.Headers = clean
+	}
+
+	// Normalize body — fix truncated JSON
+	if rec.Body != "" {
+		rec.Body = normalizeBody(rec.Body)
+	}
+
+	return rec, true
+}
+
+// cleanAgentURL cleans up garbled URL strings from LLM output.
+func cleanAgentURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+
+	// Remove non-printable characters
+	var cleaned strings.Builder
+	for _, r := range rawURL {
+		if r >= 32 && r < 127 {
+			cleaned.WriteRune(r)
+		}
+	}
+	rawURL = cleaned.String()
+
+	// Extract embedded URL: if the path contains an http:// or https:// URL,
+	// use that instead (e.g., "/order-history/http://localhost:3000/rest" → "http://localhost:3000/rest")
+	for _, scheme := range []string{"https://", "http://"} {
+		if idx := strings.Index(rawURL, scheme); idx > 0 {
+			rawURL = rawURL[idx:]
+			break
+		}
+	}
+
+	// Fix double slashes in path (but not in scheme)
+	if idx := strings.Index(rawURL, "://"); idx >= 0 {
+		scheme := rawURL[:idx+3]
+		rest := rawURL[idx+3:]
+		// Find end of host
+		hostEnd := strings.Index(rest, "/")
+		if hostEnd >= 0 {
+			host := rest[:hostEnd]
+			path := rest[hostEnd:]
+			// Collapse consecutive slashes in path
+			for strings.Contains(path, "//") {
+				path = strings.ReplaceAll(path, "//", "/")
+			}
+			rawURL = scheme + host + path
+		}
+	}
+
+	return rawURL
+}
+
+// isValidHeaderName checks that a header name contains only valid HTTP token characters.
+func isValidHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		// HTTP token characters: printable ASCII except delimiters
+		if c < 33 || c > 126 {
+			return false
+		}
+		switch c {
+		case '(', ')', '<', '>', '@', ',', ';', ':', '\\', '"', '/', '[', ']', '?', '=', '{', '}':
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeBody attempts to fix truncated JSON bodies by closing open braces/brackets.
+func normalizeBody(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return body
+	}
+
+	// Only attempt JSON repair for JSON-looking bodies
+	if trimmed[0] != '{' && trimmed[0] != '[' {
+		return body
+	}
+
+	// Already valid JSON — no repair needed
+	if isJSON(trimmed) {
+		return body
+	}
+
+	// Count open/close braces and brackets
+	repaired := repairTruncatedJSON(trimmed)
+	if isJSON(repaired) {
+		return repaired
+	}
+
+	return body
+}
+
+// repairTruncatedJSON attempts to close unclosed braces/brackets and quotes in truncated JSON.
+func repairTruncatedJSON(s string) string {
+	var stack []byte
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		c := s[i]
+		if c == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch c {
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) > 0 && stack[len(stack)-1] == c {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	if len(stack) == 0 && !inString {
+		return s
+	}
+
+	var sb strings.Builder
+	sb.WriteString(s)
+
+	// Close open string first
+	if inString {
+		sb.WriteByte('"')
+	}
+
+	// Close open braces/brackets in reverse order
+	for i := len(stack) - 1; i >= 0; i-- {
+		sb.WriteByte(stack[i])
+	}
+	return sb.String()
 }
 
 // ParseFindings extracts findings from raw agent output.

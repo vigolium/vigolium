@@ -1,6 +1,9 @@
 package agent
 
-import "io"
+import (
+	"encoding/json"
+	"io"
+)
 
 // Options holds parameters for a single agent run.
 type Options struct {
@@ -119,6 +122,45 @@ type AgentHTTPRecord struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    string            `json:"body,omitempty"`
 	Notes   string            `json:"notes,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling that tolerates the body field
+// being a JSON object/array instead of a string. LLMs frequently output
+// "body": {"key":"value"} instead of "body": "{\"key\":\"value\"}".
+// This detects non-string body values and re-serializes them to a JSON string.
+func (r *AgentHTTPRecord) UnmarshalJSON(data []byte) error {
+	// Use a raw alias to avoid infinite recursion.
+	type raw struct {
+		Method  string            `json:"method"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers,omitempty"`
+		Body    json.RawMessage   `json:"body,omitempty"`
+		Notes   string            `json:"notes,omitempty"`
+	}
+	var v raw
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	r.Method = v.Method
+	r.URL = v.URL
+	r.Headers = v.Headers
+	r.Notes = v.Notes
+
+	if len(v.Body) == 0 {
+		return nil
+	}
+
+	// Try unmarshaling as a string first (the expected case).
+	var s string
+	if err := json.Unmarshal(v.Body, &s); err == nil {
+		r.Body = s
+		return nil
+	}
+
+	// Body is a JSON object/array — re-serialize it to a string.
+	// Use compact encoding to match what the LLM likely intended.
+	r.Body = string(v.Body)
+	return nil
 }
 
 // AgentHTTPRecordsOutput is the expected JSON output for http_records-type templates.
