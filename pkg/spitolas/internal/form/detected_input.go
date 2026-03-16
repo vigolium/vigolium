@@ -38,6 +38,9 @@ type DetectedInput struct {
 	Hidden       bool   // Whether input is visually hidden (display:none, hidden attr, etc.)
 	TriggerXPath string // XPath of trigger element (button/label) for hidden file inputs
 
+	// Orphan input detection (Go extension — pilot mode)
+	SubmitXPath string // XPath of nearest submit-like element for inputs outside <form> tags
+
 	// Value rotation state (Go extension)
 	mu         sync.Mutex
 	valueIndex int

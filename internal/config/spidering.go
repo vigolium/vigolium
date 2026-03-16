@@ -18,6 +18,15 @@ type SpideringConfig struct {
 	BrowserEngine       string `yaml:"browser_engine"`        // "chromium" (default), "ungoogled", or "fingerprint"
 	NoCDP               bool   `yaml:"no_cdp"`                // disable CDP event listener detection
 	NoForms             bool   `yaml:"no_forms"`              // disable automatic form filling
+
+	// Pilot mode: AI-powered crawling where an ACP agent fully controls the browser
+	PilotMode         bool   `yaml:"pilot_mode"`          // enable pilot-driven crawl mode
+	PilotAutoRegister bool   `yaml:"pilot_auto_register"` // auto-register if no credentials
+	PilotUsername     string `yaml:"pilot_username"`      // auth username for pilot mode
+	PilotPassword     string `yaml:"pilot_password"`      // auth password for pilot mode
+	PilotScreenshot    bool   `yaml:"pilot_screenshot"`      // include screenshot with every action result (more tokens)
+	PilotMaxRetries   int    `yaml:"pilot_max_retries"`    // max ACP prompt retries on stall (default: 2)
+	PilotStallTimeout string `yaml:"pilot_stall_timeout"` // no-tool-call timeout before retry (default: "7m")
 }
 
 // DefaultSpideringConfig returns sensible defaults for spidering.
@@ -34,6 +43,13 @@ func DefaultSpideringConfig() *SpideringConfig {
 		BrowserEngine:       "chromium",
 		NoCDP:               false,
 		NoForms:             false,
+		PilotMode:           false,
+		PilotAutoRegister:   true,
+		PilotUsername:       "",
+		PilotPassword:       "",
+		PilotScreenshot:     true,
+		PilotMaxRetries:     2,
+		PilotStallTimeout: "7m",
 	}
 }
 
@@ -45,6 +61,19 @@ func (c *SpideringConfig) MaxDurationParsed() time.Duration {
 	d, err := time.ParseDuration(c.MaxDuration)
 	if err != nil {
 		return 30 * time.Minute
+	}
+	return d
+}
+
+// PilotStallTimeoutParsed parses the pilot_stall_timeout string into time.Duration.
+// Returns 7m if not set.
+func (c *SpideringConfig) PilotStallTimeoutParsed() time.Duration {
+	if c.PilotStallTimeout == "" {
+		return 7 * time.Minute
+	}
+	d, err := time.ParseDuration(c.PilotStallTimeout)
+	if err != nil {
+		return 7 * time.Minute
 	}
 	return d
 }
@@ -73,6 +102,14 @@ func (c *SpideringConfig) Validate() error {
 	}
 	if c.Strategy != "" && !validStrategies[c.Strategy] {
 		return fmt.Errorf("spidering.strategy must be normal/random/oldest_first/shallow_first/adaptive, got: %s", c.Strategy)
+	}
+	if c.PilotMaxRetries < 0 {
+		return fmt.Errorf("spidering.pilot_max_retries must be >= 0")
+	}
+	if c.PilotStallTimeout != "" {
+		if _, err := time.ParseDuration(c.PilotStallTimeout); err != nil {
+			return fmt.Errorf("spidering.pilot_stall_timeout: invalid duration %q: %w", c.PilotStallTimeout, err)
+		}
 	}
 	validEngines := map[string]bool{
 		"": true, "chromium": true, "ungoogled": true, "fingerprint": true,

@@ -317,14 +317,24 @@ func (p *Page) ExecuteCDP(method string, params map[string]interface{}) (interfa
 	return nil, fmt.Errorf("ExecuteCDP not implemented - use EvalCDP instead")
 }
 
-// Screenshot takes a screenshot.
+// Screenshot takes a viewport screenshot as PNG.
 func (p *Page) Screenshot() ([]byte, error) {
 	return p.rodPage.Screenshot(false, nil)
 }
 
-// FullScreenshot takes a full page screenshot.
+// FullScreenshot takes a full page screenshot as PNG.
 func (p *Page) FullScreenshot() ([]byte, error) {
 	return p.rodPage.Screenshot(true, nil)
+}
+
+// ScreenshotCompact captures a viewport screenshot as JPEG at reduced quality.
+// Optimized for AI agent consumption: small file size, sufficient visual fidelity.
+func (p *Page) ScreenshotCompact(quality int) ([]byte, error) {
+	return p.rodPage.Screenshot(false, &proto.PageCaptureScreenshot{
+		Format:           proto.PageCaptureScreenshotFormatJpeg,
+		Quality:          &quality,
+		OptimizeForSpeed: true,
+	})
 }
 
 // Close closes the page.

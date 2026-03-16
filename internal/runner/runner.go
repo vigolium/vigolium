@@ -23,30 +23,33 @@ import (
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
-	"github.com/vigolium/vigolium/pkg/harvester"
-	"github.com/vigolium/vigolium/pkg/httpmsg"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dedup"
+	"github.com/vigolium/vigolium/pkg/harvester"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/formats/postman"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/jsext"
-	"github.com/vigolium/vigolium/pkg/toolexec/astgrep"
-	"github.com/vigolium/vigolium/pkg/toolexec/kingfisher"
-	"github.com/vigolium/vigolium/pkg/agent"
-	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/active/authz_compare"
 	"github.com/vigolium/vigolium/pkg/oast"
 	"github.com/vigolium/vigolium/pkg/session"
+	"github.com/vigolium/vigolium/pkg/toolexec/astgrep"
+	"github.com/vigolium/vigolium/pkg/toolexec/kingfisher"
+	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
 
+	"github.com/pkg/errors"
+	"github.com/projectdiscovery/useragent"
+	"github.com/samber/lo"
 	secret_detect "github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/notify"
 	"github.com/vigolium/vigolium/pkg/notify/discord"
@@ -57,9 +60,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/types/severity"
-	"github.com/pkg/errors"
-	"github.com/projectdiscovery/useragent"
-	"github.com/samber/lo"
 	"go.uber.org/zap"
 )
 
@@ -84,7 +84,7 @@ type Runner struct {
 
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
-	done      chan struct{}          // closed when RunNativeScan finishes
+	done      chan struct{}         // closed when RunNativeScan finishes
 	pauseCtrl *core.PauseController // cooperative pause/resume for workers
 }
 
@@ -223,7 +223,6 @@ func (r *Runner) SetSharedInfra(infra *SharedInfra) {
 	r.sharedInfra = infra
 }
 
-
 // New creates a new client for running the enumeration process.
 func New(options *types.Options) (*Runner, error) {
 	inputSource, err := source.NewInputSource(source.SourceConfig{
@@ -358,7 +357,6 @@ func (r *Runner) printPhaseDetail(detail string) {
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), detail)
 }
-
 
 // formatTargetCounts builds a standardized "Targets: N (M CLI | K HTTP Records)" string.
 // Only HTTP records whose hostname matches the CLI targets are counted.
@@ -611,6 +609,7 @@ func fmtDuration(d time.Duration) string {
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
 //	SPA               — nuclei + kingfisher batch (opt-in via --spa)
 //	Audit             — modules + extensions scan DB records
+//
 // printScanConfig prints a human-readable scan configuration summary to stderr.
 // This provides the same information the CLI's printScanSummary shows, ensuring
 // API-triggered scans also display the effective configuration.
@@ -808,23 +807,23 @@ func (r *Runner) logConfigSnapshot() {
 	passiveCount := len(modules.GetPassiveModules())
 
 	meta := map[string]interface{}{
-		"project_uuid":        opts.ProjectUUID,
-		"targets":             opts.Targets,
-		"strategy":            strategy,
-		"scanning_profile":    opts.ScanningProfile,
-		"concurrency":         opts.Concurrency,
-		"rate_limit":          rateLimit,
-		"max_per_host":        opts.MaxPerHost,
-		"heuristics_check":    opts.HeuristicsCheck,
-		"scope_origin_mode":   opts.ScopeOriginMode,
-		"active_modules":      activeCount,
-		"passive_modules":     passiveCount,
-		"spidering_enabled":   opts.SpideringEnabled,
-		"discovery_enabled":   opts.DiscoverEnabled,
-		"spa_enabled":         opts.SPAEnabled,
-		"sast_enabled":        opts.SASTEnabled,
-		"external_harvest":    opts.ExternalHarvestEnabled,
-		"skip_dynamic":        opts.SkipAudit,
+		"project_uuid":      opts.ProjectUUID,
+		"targets":           opts.Targets,
+		"strategy":          strategy,
+		"scanning_profile":  opts.ScanningProfile,
+		"concurrency":       opts.Concurrency,
+		"rate_limit":        rateLimit,
+		"max_per_host":      opts.MaxPerHost,
+		"heuristics_check":  opts.HeuristicsCheck,
+		"scope_origin_mode": opts.ScopeOriginMode,
+		"active_modules":    activeCount,
+		"passive_modules":   passiveCount,
+		"spidering_enabled": opts.SpideringEnabled,
+		"discovery_enabled": opts.DiscoverEnabled,
+		"spa_enabled":       opts.SPAEnabled,
+		"sast_enabled":      opts.SASTEnabled,
+		"external_harvest":  opts.ExternalHarvestEnabled,
+		"skip_dynamic":      opts.SkipAudit,
 	}
 	r.scanLogger.InfoWithMeta("config", "scan configuration snapshot", meta)
 }
@@ -1413,7 +1412,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		ScanUUID:      infra.scanUUID,
 		ScopeMatcher:  infra.scopeMatcher,
 		PauseCtrl:     r.pauseCtrl,
-		OnTraffic: r.makeOnTraffic("discovery"),
+		OnTraffic:     r.makeOnTraffic("discovery"),
 		OnResult: func(result *output.ResultEvent) {
 			// Discovery phase has no modules, but OnResult still needed for DB storage
 			if err := r.output.Write(result); err != nil {
@@ -1581,6 +1580,34 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			NoCDP:               settingsCfg.NoCDP,
 			NoForms:             settingsCfg.NoForms,
 			ProxyURL:            r.options.ProxyURL,
+			PilotMode:           settingsCfg.PilotMode,
+		}
+
+		// Wire pilot mode config
+		if settingsCfg.PilotMode {
+			cfg.PilotAuth = spitolas.PilotAuthConfig{
+				Enabled:      settingsCfg.PilotUsername != "" || settingsCfg.PilotAutoRegister,
+				AutoRegister: settingsCfg.PilotAutoRegister,
+				Username:     settingsCfg.PilotUsername,
+				Password:     settingsCfg.PilotPassword,
+			}
+
+			// Use the default agent from vigolium config
+			if r.settings.Agent.DefaultAgent != "" {
+				if agentDef, ok := r.settings.Agent.Backends[r.settings.Agent.DefaultAgent]; ok {
+					cfg.PilotAgent = agentDef
+				}
+			}
+			if cfg.PilotAgent.Command == "" {
+				// Fallback: try "claude" backend
+				if agentDef, ok := r.settings.Agent.Backends["claude"]; ok {
+					cfg.PilotAgent = agentDef
+				}
+			}
+			cfg.PilotSessions = r.settings.Agent.EffectiveSessionsDir()
+			cfg.PilotScreenshot = settingsCfg.PilotScreenshot
+			cfg.PilotMaxRetries = settingsCfg.PilotMaxRetries
+			cfg.PilotStallTimeout = settingsCfg.PilotStallTimeoutParsed()
 		}
 
 		// Apply scope filter to skip out-of-scope traffic before saving to DB
@@ -2127,7 +2154,6 @@ func isAllModules(ids []string) bool {
 	return len(ids) == 0 || (len(ids) == 1 && ids[0] == "all")
 }
 
-
 // filterOutPassiveModule removes a passive module with the given ID from the list.
 func filterOutPassiveModule(mods []modules.PassiveModule, id string) []modules.PassiveModule {
 	result := make([]modules.PassiveModule, 0, len(mods))
@@ -2424,18 +2450,18 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		MaxDuration:   r.options.DiscoverMaxDuration,
 		EnableModules: r.options.Modules,
 		// Defaults that match deparos defaults
-		RecursionEnabled:   true,
-		RecursionDepth:     5,
-		SaveResponseBody:   true,
-		UseObservedNames:   true,
-		UseObservedPaths:   true,
-		UseObservedFiles:   true,
+		RecursionEnabled:     true,
+		RecursionDepth:       5,
+		SaveResponseBody:     true,
+		UseObservedNames:     true,
+		UseObservedPaths:     true,
+		UseObservedFiles:     true,
 		EnableNumericFuzzing: false,
-		TestCustom:         true,
-		TestObserved:       true,
-		TestBackupExtensions:       true,
-		TestNoExtension:    true,
-		CaseSensitivity:    "auto_detect",
+		TestCustom:           true,
+		TestObserved:         true,
+		TestBackupExtensions: true,
+		TestNoExtension:      true,
+		CaseSensitivity:      "auto_detect",
 	}
 
 	// Apply YAML settings if available
@@ -3330,9 +3356,9 @@ func (r *Runner) ingestRoutes(ctx context.Context, infra *phaseInfra, routes []a
 
 // apiSpecFile holds a discovered API spec file path and its detected type.
 type apiSpecFile struct {
-	path       string // absolute file path
-	specType   string // "openapi", "postman", or "curl-md"
-	relPath    string // path relative to repo root (for display)
+	path     string // absolute file path
+	specType string // "openapi", "postman", or "curl-md"
+	relPath  string // path relative to repo root (for display)
 }
 
 // skipDirs are directories to skip when walking the repo for API spec files.
@@ -3768,7 +3794,6 @@ func (r *Runner) ingestAstGrepFindings(ctx context.Context, scanUUID string, mat
 	)
 }
 
-
 // ingestKingfisherSASTFindings saves kingfisher secret findings from source code into the database.
 func (r *Runner) ingestKingfisherSASTFindings(ctx context.Context, scanUUID string, findings []kingfisher.Finding, repoPath string) int {
 	var saved int
@@ -3824,6 +3849,7 @@ func (r *Runner) ingestKingfisherSASTFindings(ctx context.Context, scanUUID stri
 	)
 	return saved
 }
+
 // astGrepCategory extracts the category from a rule ID.
 // Security rules (e.g., "security-xss-foo") use the first two segments ("security-xss").
 // Framework rules (e.g., "express-route-handler") use the first segment ("express").
@@ -3841,22 +3867,22 @@ func astGrepCategory(ruleID string) string {
 // astGrepCategoryName returns a human-readable display name for an ast-grep category.
 func astGrepCategoryName(category string) string {
 	names := map[string]string{
-		"express":         "Express Routes",
-		"flask":           "Flask Routes",
-		"gin":             "Gin Routes",
-		"django":          "Django Routes",
-		"spring":          "Spring Routes",
-		"fastapi":         "FastAPI Routes",
-		"laravel":         "Laravel Routes",
-		"nextjs":          "Next.js Routes",
-		"gohttp":          "Go HTTP Routes",
-		"php":             "PHP Routes",
-		"security-auth":   "Security: Authentication",
-		"security-config": "Security: Configuration",
-		"security-cors":   "Security: CORS",
-		"security-nextjs": "Security: Next.js",
+		"express":          "Express Routes",
+		"flask":            "Flask Routes",
+		"gin":              "Gin Routes",
+		"django":           "Django Routes",
+		"spring":           "Spring Routes",
+		"fastapi":          "FastAPI Routes",
+		"laravel":          "Laravel Routes",
+		"nextjs":           "Next.js Routes",
+		"gohttp":           "Go HTTP Routes",
+		"php":              "PHP Routes",
+		"security-auth":    "Security: Authentication",
+		"security-config":  "Security: Configuration",
+		"security-cors":    "Security: CORS",
+		"security-nextjs":  "Security: Next.js",
 		"security-secrets": "Security: Secrets",
-		"security-xss":    "Security: XSS",
+		"security-xss":     "Security: XSS",
 	}
 	if name, ok := names[category]; ok {
 		return name
@@ -4056,18 +4082,22 @@ func extractDomains(targets []string) []string {
 
 // dedupTargets merges base targets with additional targets, removing duplicates.
 // Returns the deduplicated slice preserving order (base targets first).
+// Trailing slashes are stripped for comparison to avoid duplicates like
+// "https://example.com/" and "https://example.com".
 func dedupTargets(base, additional []string) []string {
 	seen := make(map[string]struct{}, len(base)+len(additional))
 	result := make([]string, 0, len(base)+len(additional))
 	for _, t := range base {
-		if _, exists := seen[t]; !exists {
-			seen[t] = struct{}{}
+		key := strings.TrimRight(t, "/")
+		if _, exists := seen[key]; !exists {
+			seen[key] = struct{}{}
 			result = append(result, t)
 		}
 	}
 	for _, t := range additional {
-		if _, exists := seen[t]; !exists {
-			seen[t] = struct{}{}
+		key := strings.TrimRight(t, "/")
+		if _, exists := seen[key]; !exists {
+			seen[key] = struct{}{}
 			result = append(result, t)
 		}
 	}
@@ -4124,4 +4154,3 @@ func (r *Runner) buildTelegramOptions() []telegram.Option {
 
 	return opts
 }
-

@@ -405,6 +405,166 @@ func (h *Handler) DetectInputs(page *browser.Page) ([]*DetectedInput, error) {
 	return inputs, nil
 }
 
+// DetectAll finds all forms AND orphan inputs (inputs not inside any <form>) in a single JS call.
+// Returns forms (with their inputs) and orphan inputs separately.
+// Orphan inputs include a SubmitXPath hint pointing to the nearest submit-like element.
+func (h *Handler) DetectAll(page *browser.Page) ([]*Form, []*DetectedInput, error) {
+	script := `(() => {
+		const result = { forms: [], orphanInputs: [] };
+
+		// 1. Collect all <form> elements with their inputs
+		for (const form of document.querySelectorAll('form')) {
+			const formData = {
+				xpath: getSkeletonXPath(form),
+				action: form.action,
+				method: form.method,
+				inputs: []
+			};
+			for (const input of form.querySelectorAll('input, textarea, select')) {
+				formData.inputs.push(extractInput(input));
+			}
+			result.forms.push(formData);
+		}
+
+		// 2. Collect orphan inputs (not inside any <form>)
+		for (const input of document.querySelectorAll('input, textarea, select')) {
+			if (input.closest('form')) continue;
+			const data = extractInput(input);
+			data.submitXPath = findNearbySubmit(input);
+			result.orphanInputs.push(data);
+		}
+
+		return result;
+
+		function extractInput(input) {
+			const hidden = isHidden(input);
+			return {
+				type: input.type || input.tagName.toLowerCase(),
+				xpath: getSkeletonXPath(input),
+				name: input.name || '',
+				id: input.id || '',
+				required: input.required,
+				disabled: input.disabled,
+				readOnly: input.readOnly,
+				multiple: input.multiple,
+				pattern: input.pattern || '',
+				minlength: input.minLength || 0,
+				maxlength: input.maxLength || 0,
+				min: input.min || '',
+				max: input.max || '',
+				step: input.step || '',
+				placeholder: input.placeholder || '',
+				label: getLabel(input),
+				accept: input.accept || '',
+				hidden: hidden,
+				triggerXPath: hidden && input.type === 'file' ? findTriggerXPath(input) : ''
+			};
+		}
+
+		function isHidden(el) {
+			if (el.hidden || el.type === 'hidden') return true;
+			const style = getComputedStyle(el);
+			if (style.display === 'none' || style.visibility === 'hidden') return true;
+			if (style.opacity === '0') return true;
+			const rect = el.getBoundingClientRect();
+			if (rect.width === 0 || rect.height === 0) return true;
+			if (parseFloat(style.width) === 0 || parseFloat(style.height) === 0) return true;
+			return false;
+		}
+
+		function findNearbySubmit(input) {
+			let el = input.parentElement;
+			for (let depth = 0; el && depth < 5; depth++, el = el.parentElement) {
+				const btn = el.querySelector('button, input[type="submit"], input[type="button"], a[role="button"], [type="submit"]');
+				if (btn && btn !== input && !isHidden(btn)) return getSkeletonXPath(btn);
+			}
+			return '';
+		}
+
+		function findTriggerXPath(fileInput) {
+			if (fileInput.id) {
+				const label = document.querySelector('label[for="' + CSS.escape(fileInput.id) + '"]');
+				if (label && !isHidden(label)) return getSkeletonXPath(label);
+			}
+			const parentLabel = fileInput.closest('label');
+			if (parentLabel && !isHidden(parentLabel)) return getSkeletonXPath(parentLabel);
+			const parent = fileInput.parentElement;
+			if (parent) {
+				const trigger = parent.querySelector('button, a, [role="button"], .btn, .upload-btn');
+				if (trigger && !isHidden(trigger)) return getSkeletonXPath(trigger);
+			}
+			return '';
+		}
+
+		function getLabel(input) {
+			if (input.id) {
+				const label = document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+				if (label) return label.textContent.trim();
+			}
+			const parent = input.closest('label');
+			if (parent) {
+				const clone = parent.cloneNode(true);
+				clone.querySelectorAll('input,select,textarea').forEach(i => i.remove());
+				return clone.textContent.trim();
+			}
+			const ariaLabel = input.getAttribute('aria-label');
+			if (ariaLabel) return ariaLabel;
+			return '';
+		}
+
+		function getSkeletonXPath(el) {
+			const parts = [];
+			let current = el;
+			while (current && current.nodeType === Node.ELEMENT_NODE) {
+				const tagName = current.tagName.toUpperCase();
+				let index = 1;
+				let sibling = current.previousElementSibling;
+				while (sibling) {
+					if (sibling.tagName === current.tagName) index++;
+					sibling = sibling.previousElementSibling;
+				}
+				parts.unshift(tagName + '[' + index + ']');
+				current = current.parentElement;
+			}
+			return '/' + parts.join('/');
+		}
+	})()`
+
+	result, err := page.Eval(script)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to detect all: %w", err)
+	}
+
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, nil, nil
+	}
+
+	// Parse forms
+	var forms []*Form
+	if arr, ok := resultMap["forms"].([]interface{}); ok {
+		for _, formData := range arr {
+			if formMap, ok := formData.(map[string]interface{}); ok {
+				forms = append(forms, h.parseFormData(formMap))
+			}
+		}
+	}
+
+	// Parse orphan inputs
+	var orphans []*DetectedInput
+	if arr, ok := resultMap["orphanInputs"].([]interface{}); ok {
+		for _, inputData := range arr {
+			if inputMap, ok := inputData.(map[string]interface{}); ok {
+				input := h.parseInputData(inputMap)
+				input.SubmitXPath = getString(inputMap, "submitXPath")
+				orphans = append(orphans, input)
+			}
+		}
+	}
+
+	return forms, orphans, nil
+}
+
 // FillResult contains the result of filling a form input.
 type FillResult struct {
 	Input   *DetectedInput

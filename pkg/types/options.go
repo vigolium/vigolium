@@ -115,6 +115,7 @@ type Options struct {
 	SpideringHeadless      bool
 	SpideringNoCDP         bool
 	SpideringNoForms       bool
+	SpideringPilotMode     bool
 
 	// Security Posture Assessment options
 	SPAEnabled      bool
