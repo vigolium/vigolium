@@ -6,7 +6,7 @@ Unlike pipeline (which scans an entire target), swarm focuses on a **single requ
 
 Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
 
-When `--source` is provided, swarm runs **parallel source-analysis sub-agents** (route extraction, auth flow discovery, extension generation), a **native SAST phase** (ast-grep + secret detection), and a **SAST review sub-agent** to validate findings — all before the master agent plans the attack. When `--discover` is enabled, native discovery+spidering expands the attack surface further.
+When `--source` is provided, swarm runs a **consolidated 3-call source analysis**: a single explore call reads the codebase and documents routes, auth flows, and vulnerability sinks, then a format call and an extensions call run in parallel to produce structured output. This is followed by a **native SAST phase** (ast-grep + secret detection) and a **SAST review sub-agent** to validate findings — all before the master agent plans the attack. When `--discover` is enabled, native discovery+spidering expands the attack surface further.
 
 ## Architecture Overview
 
@@ -76,22 +76,24 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   +=======================================================================+
   |  PHASE 1.5: SOURCE ANALYSIS (AI — conditional, only if --source)      |
   |                                                                        |
-  |   Runs 3 focused sub-agents IN PARALLEL via goroutines:               |
+  |   Consolidated 3-call approach (down from 6):                         |
   |                                                                        |
-  |   +-- Sub-agent 1: Route Extraction (swarm-source-routes)             |
-  |   |   Explores source code, extracts all HTTP routes/handlers         |
-  |   |   Output: http_records[] with method, URL, headers, body          |
-  |   |                                                                    |
-  |   +-- Sub-agent 2: Auth Flow Discovery (swarm-source-auth)            |
-  |   |   Analyzes authentication middleware, login endpoints, sessions    |
-  |   |   Output: session_config with login flows + token extraction      |
-  |   |                                                                    |
-  |   +-- Sub-agent 3: Extension Writer (swarm-source-extensions)         |
-  |       Identifies vulnerability sinks, generates targeted extensions    |
-  |       Output: extensions[] (multiple versions per sink)               |
+  |   Call 1: Explore (sequential — reads source code)                    |
+  |     Template: swarm-source-explore                                    |
+  |     One pass through codebase → plain-text notes on routes,           |
+  |     auth flows, and vulnerability sinks                               |
   |                                                                        |
-  |   Falls back to monolithic agent-swarm-source-analysis template       |
-  |   if the focused templates are not available.                         |
+  |   Call 2: Format  (parallel ─┐                                        |
+  |     Template: swarm-source-format                                     |
+  |     Notes → JSONL http_records + JSON session_config                  |
+  |     Reuses warm session from explore (has codebase context)           |
+  |                               │                                       |
+  |   Call 3: Extensions (parallel┘                                       |
+  |     Template: swarm-source-extensions                                 |
+  |     Notes → JS scanner extensions (single call, no format split)     |
+  |     Explore notes appended to prompt (no source code access needed)  |
+  |                                                                        |
+  |   Without warm sessions, explore output appended to prompts (64KB).  |
   |                                                                        |
   |   Results merged with mutex protection:                                |
   |     +-- HTTP Records  --> filtered by target hostname --> appended    |
@@ -432,7 +434,7 @@ When `--source` is provided, SAST analysis is automatically enabled (no extra fl
 
 ```
 Phase 1:     Normalize         — Parse input(s) into HttpRequestResponse objects
-Phase 1.5:   Source Analysis   — 3 parallel AI sub-agents: routes, auth, extensions (if --source)
+Phase 1.5:   Source Analysis   — 3 parallel two-phase AI sub-agents: explore → format (if --source)
 Phase 1.6:   SAST              — Native ast-grep + secret detection (if --source)
 Phase 1.6.1: SAST Review       — AI sub-agent reviews SAST findings, validates routes (if --source)
 Phase 1.7:   Discovery         — Native crawling + spidering (if --discover)
@@ -459,17 +461,28 @@ Input strings are converted to `HttpRequestResponse` objects using deterministic
 
 Normalized records are saved to the database with source `"agent-swarm"`.
 
-### Phase 1.5: Source Analysis (AI — Parallel Sub-Agents)
+### Phase 1.5: Source Analysis (AI — Consolidated 3-Call)
 
-When `--source` is provided, three focused AI sub-agents run **concurrently** via goroutines:
+When `--source` is provided, source analysis runs in **3 LLM calls** (down from the previous 6):
 
-| Sub-Agent | Template | Purpose | Output |
-|-----------|----------|---------|--------|
-| Route Extraction | `swarm-source-routes` | Explore all HTTP route definitions | `http_records[]` |
-| Auth Flow Discovery | `swarm-source-auth` | Find login endpoints, token management | `session_config` |
-| Extension Writer | `swarm-source-extensions` | Identify vulnerability sinks, write scanners | `extensions[]` |
+| Call | Template | Output | Runs |
+|------|----------|--------|------|
+| Explore | `swarm-source-explore` | Plain-text notes (routes + auth + sinks) | Sequential (first) |
+| Format | `swarm-source-format` | `http_records[]` (JSONL) + `session_config` (JSON) | Parallel |
+| Extensions | `swarm-source-extensions` | `extensions[]` (JS code blocks) | Parallel |
 
-Results are merged with mutex protection. If the focused templates aren't available, falls back to the monolithic `agent-swarm-source-analysis` template.
+**Execution flow:**
+
+1. **Explore:** A single agent reads the entire codebase once and documents all HTTP routes, authentication flows, and vulnerability sinks as plain-text notes. This replaces three separate explore calls that each re-read the same source files.
+2. **Format + Extensions (parallel):** Two calls run concurrently:
+   - **Format** converts the explore notes into structured JSONL http_records and JSON session_config. It reuses the warm ACP session from explore (retains codebase context).
+   - **Extensions** generates targeted JS scanner extensions from the explore notes. It receives the notes via prompt append (no source code access needed — the explore notes contain all the sink details).
+
+This consolidation halves the LLM calls and eliminates redundant source code reads while maintaining the explore/format separation for structured output quality.
+
+**Without warm sessions:** Explore output is appended to downstream prompts (truncated to 64KB).
+
+Results are merged with mutex protection.
 
 **Session config processing:** The `SourceAnalysisCallback` converts the agent's session config into an `auth-config.yaml` file in the session directory. This auth config is then used by subsequent phases (SAST, discovery, scan) for authenticated analysis.
 
@@ -867,7 +880,7 @@ type TriageResult struct {
 |--------|-------|----------|-----------|
 | **Scope** | Single request/endpoint | Entire target | Entire target |
 | **Input** | URL, curl, raw HTTP, Burp XML, DB record | Target URL | Target URL |
-| **AI involvement** | 2-6 calls (source analysis sub-agents + SAST review + plan + triage), warm sessions auto-enabled | 2-4 calls (source analysis + plan + triage) | Many calls (agent-driven) |
+| **AI involvement** | 2-12 calls (3×2 two-phase source analysis + SAST review + plan + triage), warm sessions auto-enabled | 2-4 calls (source analysis + plan + triage) | Many calls (agent-driven) |
 | **Custom payloads** | Yes — from source analysis, SAST review, and master agent | Only via source analysis (Phase 0) | No |
 | **Discovery** | Optional (`--discover`) — crawling + spidering | Yes — full deparos + spidering | Yes — agent decides |
 | **SAST** | Automatic when `--source` provided + AI review sub-agent | No | No |
@@ -888,8 +901,8 @@ Every swarm run creates a session directory (configurable via `agent.sessions_di
 ```
 ~/.vigolium/agent-sessions/agt-abc123/
 ├── inputs.json                    # Normalized input records (JSON array)
-├── prompt-source-analysis.md      # Rendered source analysis prompt (if --source)
-├── source-analysis-output.md      # Raw source analysis agent output
+├── prompt-source-analysis.md      # Rendered source analysis explore prompts (if --source)
+├── source-analysis-output.md      # Raw source analysis output (explore + format phases)
 ├── prompt-sast-review.md          # Rendered SAST review prompt (if --source)
 ├── sast-review-output.md          # Raw SAST review agent output
 ├── prompt-master.md               # Rendered master agent planning prompt
@@ -920,8 +933,8 @@ The session directory path is included in the `SwarmResult` (`session_dir` field
 | `pkg/server/handlers_agent.go` | REST API handlers |
 | `pkg/database/models.go` | AgentRun model for DB tracking |
 | `public/presets/prompts/swarm/agent-swarm-master.md` | Master agent prompt template |
-| `public/presets/prompts/swarm/swarm-source-routes.md` | Source analysis: route extraction sub-agent |
-| `public/presets/prompts/swarm/swarm-source-auth.md` | Source analysis: auth flow discovery sub-agent |
-| `public/presets/prompts/swarm/swarm-source-extensions.md` | Source analysis: extension writer sub-agent |
+| `public/presets/prompts/swarm/swarm-source-explore.md` | Source analysis: explore routes, auth, and sinks |
+| `public/presets/prompts/swarm/swarm-source-format.md` | Source analysis: format to JSONL http_records + JSON session_config |
+| `public/presets/prompts/swarm/swarm-source-extensions.md` | Source analysis: generate JS scanner extensions from notes |
 | `public/presets/prompts/swarm/swarm-sast-review.md` | SAST review sub-agent |
 | `public/presets/prompts/swarm/agent-swarm-triage.md` | Triage agent prompt template |

@@ -261,9 +261,13 @@ func (e *Engine) RunWithExtra(ctx context.Context, opts Options, extra map[strin
 	return e.Run(ctx, opts)
 }
 
-// RunSourceAnalysis executes the source analysis agent and returns parsed results
-// along with the raw agent output and the rendered prompt that was sent.
-// The caller is responsible for processing extensions and session config via a callback.
+// RunSourceAnalysis executes the source analysis agent in two phases:
+//   - Phase 1 (explore): Agent explores the codebase and produces unstructured notes.
+//   - Phase 2 (format): A follow-up call converts those notes into structured output.
+//
+// This separation improves output format compliance by isolating code understanding
+// from JSON/JSONL formatting. The caller is responsible for processing extensions
+// and session config via a callback.
 func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig) (saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
 	if cfg.SourcePath == "" {
 		return nil, "", "", nil
@@ -274,39 +278,127 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		templateID = "pipeline-source-analysis"
 	}
 
-	opts := Options{
+	exploreTemplateID := templateID + "-explore"
+	formatTemplateID := templateID + "-format"
+
+	return e.runSourceAnalysisTwoPhase(ctx, cfg, templateID, exploreTemplateID, formatTemplateID)
+}
+
+// runSourceAnalysisTwoPhase runs source analysis in two phases:
+//   - Phase 1 (explore): Agent explores the codebase and produces unstructured notes.
+//   - Phase 2 (format): A follow-up call converts those notes into structured output.
+//
+// When warm sessions are enabled, phase 2 reuses the same ACP session (via SessionKey),
+// so the agent already has the full codebase context from phase 1. When warm sessions
+// are disabled, phase 1's raw output is appended to the phase 2 prompt.
+func (e *Engine) runSourceAnalysisTwoPhase(ctx context.Context, cfg SourceAnalysisConfig,
+	originalTemplateID, exploreTemplateID, formatTemplateID string) (
+	saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
+
+	// --- Phase 1: Explore ---
+	printPhaseLine("source-analysis", fmt.Sprintf("starting explore phase  template=%s", exploreTemplateID))
+	exploreStart := time.Now()
+
+	exploreOpts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
-		PromptTemplate: templateID,
+		PromptTemplate: exploreTemplateID,
 		TargetURL:      cfg.TargetURL,
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		Instruction:    cfg.Instruction,
-		SessionKey:     cfg.SessionKey,
+		SessionKey:     cfg.SessionKey, // same session key for both phases
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
-		Source:         templateID,
+		Source:         exploreTemplateID,
 		StreamWriter:   cfg.StreamWriter,
 	}
 
-	result, runErr := e.Run(ctx, opts)
-	if runErr != nil {
-		prompt := ""
-		if result != nil {
-			prompt = result.RenderedPrompt
-		}
-		return nil, "", prompt, fmt.Errorf("source analysis agent failed: %w", runErr)
+	exploreResult, exploreRunErr := e.Run(ctx, exploreOpts)
+
+	// Write explore phase artifacts to session dir regardless of success/failure
+	if cfg.SessionDir != "" && exploreResult != nil {
+		writePromptToSessionDir(cfg.SessionDir, "prompt-"+originalTemplateID+"-explore.md", exploreResult.RenderedPrompt)
+		writePromptToSessionDir(cfg.SessionDir, "output-"+originalTemplateID+"-explore.md", exploreResult.RawOutput)
 	}
 
-	rawOutput = result.RawOutput
-	renderedPrompt = result.RenderedPrompt
+	if exploreRunErr != nil {
+		prompt := ""
+		if exploreResult != nil {
+			prompt = exploreResult.RenderedPrompt
+		}
+		return nil, "", prompt, fmt.Errorf("source analysis explore phase failed: %w", exploreRunErr)
+	}
+
+	renderedPrompt = exploreResult.RenderedPrompt
+	zap.L().Info("Source analysis: explore phase completed",
+		zap.Duration("elapsed", time.Since(exploreStart)))
 
 	if cfg.DryRun {
-		_, _ = fmt.Fprint(os.Stdout, rawOutput)
-		return nil, rawOutput, renderedPrompt, nil
+		_, _ = fmt.Fprint(os.Stdout, exploreResult.RawOutput)
+		return nil, exploreResult.RawOutput, renderedPrompt, nil
 	}
+
+	// --- Phase 2: Format ---
+	zap.L().Info("Source analysis: starting format phase", zap.String("template", formatTemplateID))
+	formatStart := time.Now()
+
+	formatOpts := Options{
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: formatTemplateID,
+		TargetURL:      cfg.TargetURL,
+		SourcePath:     cfg.SourcePath,
+		SessionKey:     cfg.SessionKey, // SAME key — reuses warm session
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		Source:         formatTemplateID,
+		StreamWriter:   cfg.StreamWriter,
+	}
+
+	// When warm sessions are not available, the format phase starts a cold subprocess
+	// that lacks the codebase context from phase 1. Append the explore output so the
+	// format agent has the data it needs to produce structured output.
+	if e.pool == nil {
+		exploreOutput := exploreResult.RawOutput
+		// Truncate to 64KB to avoid context overflow in the format phase.
+		const maxExploreBytes = 64 * 1024
+		if len(exploreOutput) > maxExploreBytes {
+			exploreOutput = exploreOutput[:maxExploreBytes] + "\n\n... (truncated)"
+		}
+		formatOpts.Append = "## Analysis Notes from Exploration Phase\n\n" + exploreOutput
+	}
+
+	formatResult, formatRunErr := e.Run(ctx, formatOpts)
+
+	// Write format phase artifacts to session dir regardless of success/failure
+	if cfg.SessionDir != "" && formatResult != nil {
+		writePromptToSessionDir(cfg.SessionDir, "prompt-"+originalTemplateID+"-format.md", formatResult.RenderedPrompt)
+		writePromptToSessionDir(cfg.SessionDir, "output-"+originalTemplateID+"-format.md", formatResult.RawOutput)
+	}
+
+	if formatRunErr != nil {
+		// Phase 2 failed — fall back to parsing phase 1 output directly.
+		zap.L().Warn("Source analysis format phase failed, falling back to explore output",
+			zap.Error(formatRunErr))
+		rawOutput = exploreResult.RawOutput
+	} else {
+		rawOutput = formatResult.RawOutput
+		printPhaseLine("source-analysis", fmt.Sprintf("format phase completed  elapsed=%s", time.Since(formatStart).Round(time.Millisecond)))
+	}
+
+	return e.postProcessSourceAnalysis(ctx, cfg, rawOutput, renderedPrompt)
+}
+
+// postProcessSourceAnalysis handles parsing, LLM repair, session header replacement,
+// DB ingestion, and reprobing for source analysis output. Shared by both single-phase
+// and two-phase execution paths.
+func (e *Engine) postProcessSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig,
+	rawOutput string, renderedPrompt string) (*SourceAnalysisResult, string, string, error) {
 
 	saResult, parseErr := ParseSourceAnalysisResult(rawOutput)
 
@@ -362,15 +454,13 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 
 	// Fetch session_hostnames for the target hostname and replace hardcoded auth headers.
 	var sessionHeaders map[string]string
-	if e.repo != nil && len(saResult.HTTPRecords) > 0 && cfg.TargetURL != "" {
-		hostname := hostnameFromURL(cfg.TargetURL)
-		if hostname != "" {
-			dbRows, dbErr := e.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
-			if dbErr == nil && len(dbRows) > 0 {
-				sessionHeaders = AuthHeadersFromSessionHostnames(dbRows)
-				if len(sessionHeaders) > 0 {
-					saResult.HTTPRecords = ReplaceAuthHeadersInRecords(saResult.HTTPRecords, sessionHeaders)
-				}
+	hostname := hostnameFromURL(cfg.TargetURL) // empty when cfg.TargetURL is ""
+	if e.repo != nil && len(saResult.HTTPRecords) > 0 && hostname != "" {
+		dbRows, dbErr := e.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
+		if dbErr == nil && len(dbRows) > 0 {
+			sessionHeaders = AuthHeadersFromSessionHostnames(dbRows)
+			if len(sessionHeaders) > 0 {
+				saResult.HTTPRecords = ReplaceAuthHeadersInRecords(saResult.HTTPRecords, sessionHeaders)
 			}
 		}
 	}
@@ -386,111 +476,283 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 		if ingestErr != nil {
 			zap.L().Warn("Failed to ingest source-analysis HTTP records", zap.Error(ingestErr))
 		} else {
-			zap.L().Info("Ingested source-analysis HTTP records", zap.Int("count", count))
+			printPhaseLine("source-analysis", fmt.Sprintf("ingested HTTP records  count=%d", count))
 		}
 	}
 
 	// Probe records that were saved without responses to populate status codes and bodies.
-	if e.repo != nil && cfg.TargetURL != "" {
-		hostname := hostnameFromURL(cfg.TargetURL)
-		if hostname != "" {
-			ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
-		}
+	if e.repo != nil && hostname != "" {
+		ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
 	}
 
 	return saResult, rawOutput, renderedPrompt, nil
 }
 
-// RunSourceAnalysisParallel executes source analysis using three parallel sub-agents,
-// each focused on a specific aspect: route extraction, auth flow discovery, and extension writing.
-// Results are merged into a single SourceAnalysisResult.
-// Falls back to the monolithic RunSourceAnalysis if no focused templates exist.
+// postProcessSourceAnalysisWithMerged handles DB ingestion and reprobing for a
+// pre-parsed, pre-merged SourceAnalysisResult. Unlike postProcessSourceAnalysis,
+// it skips parsing and LLM repair since the caller already parsed each sub-agent's
+// output individually.
+func (e *Engine) postProcessSourceAnalysisWithMerged(ctx context.Context, cfg SourceAnalysisConfig,
+	merged *SourceAnalysisResult, combinedRaw string, combinedPrompt string) (*SourceAnalysisResult, string, string, error) {
+
+	if merged == nil {
+		merged = &SourceAnalysisResult{}
+	}
+
+	// Fetch session_hostnames for the target hostname and replace hardcoded auth headers.
+	var sessionHeaders map[string]string
+	hostname := hostnameFromURL(cfg.TargetURL)
+	if e.repo != nil && len(merged.HTTPRecords) > 0 && hostname != "" {
+		dbRows, dbErr := e.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
+		if dbErr == nil && len(dbRows) > 0 {
+			sessionHeaders = AuthHeadersFromSessionHostnames(dbRows)
+			if len(sessionHeaders) > 0 {
+				merged.HTTPRecords = ReplaceAuthHeadersInRecords(merged.HTTPRecords, sessionHeaders)
+			}
+		}
+	}
+
+	// Ingest discovered HTTP records into the database
+	if e.repo != nil && len(merged.HTTPRecords) > 0 {
+		ingestOpts := Options{
+			Source:      "source-analysis",
+			ProjectUUID: cfg.ProjectUUID,
+			ScanUUID:    cfg.ScanUUID,
+		}
+		count, ingestErr := e.ingestHTTPRecords(ctx, merged.HTTPRecords, ingestOpts)
+		if ingestErr != nil {
+			zap.L().Warn("Failed to ingest source-analysis HTTP records", zap.Error(ingestErr))
+		} else {
+			printPhaseLine("source-analysis", fmt.Sprintf("ingested HTTP records  count=%d", count))
+		}
+	}
+
+	// Probe records that were saved without responses to populate status codes and bodies.
+	if e.repo != nil && hostname != "" {
+		ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
+	}
+
+	return merged, combinedRaw, combinedPrompt, nil
+}
+
+// RunSourceAnalysisParallel executes consolidated source analysis in 3 LLM calls:
+// explore (routes+auth+sinks), then format and extensions in parallel.
+// Falls back to the monolithic RunSourceAnalysis if consolidated templates don't exist.
 func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalysisConfig) (saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
 	if cfg.SourcePath == "" {
 		return nil, "", "", nil
 	}
 
-	// Define the three focused sub-agents with their template IDs
-	type subAgentDef struct {
-		name     string
-		template string
-	}
-	subAgents := []subAgentDef{
-		{"routes", "swarm-source-routes"},
-		{"auth", "swarm-source-auth"},
-		{"extensions", "swarm-source-extensions"},
-	}
+	// Consolidated source analysis: 3 LLM calls instead of 6.
+	//
+	//   Call 1: swarm-source-explore (reads source → notes on routes + auth + sinks)
+	//   Call 2: swarm-source-format  (notes → JSONL http_records + session_config JSON)
+	//   Call 3: swarm-source-extensions (notes → JS scanner extensions)
+	//
+	// Call 1 runs first. Calls 2 and 3 run in parallel — both consume the explore
+	// notes without needing source code access.
 
-	// Check if the focused templates exist (handles file-based and embedded templates).
-	// If not, fall back to monolithic analysis.
-	allExist := true
-	for _, sa := range subAgents {
-		if _, err := LoadTemplate(sa.template, e.settings.Agent.TemplatesDir); err != nil {
-			allExist = false
-			break
+	exploreTemplate := "swarm-source-explore"
+	formatTemplate := "swarm-source-format"
+	extensionsTemplate := "swarm-source-extensions"
+
+	// Check if the consolidated templates exist (handles file-based and embedded templates).
+	for _, tmpl := range []string{exploreTemplate, formatTemplate, extensionsTemplate} {
+		if _, err := LoadTemplate(tmpl, e.settings.Agent.TemplatesDir); err != nil {
+			zap.L().Debug("Consolidated source analysis templates not found, falling back to monolithic analysis")
+			return e.RunSourceAnalysis(ctx, cfg)
 		}
 	}
-	if !allExist {
-		zap.L().Debug("Focused source analysis templates not found, falling back to monolithic analysis")
-		return e.RunSourceAnalysis(ctx, cfg)
-	}
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	merged := &SourceAnalysisResult{}
 	var allRawOutputs []string
 	var allPrompts []string
 	var errs []error
 
-	wg.Add(len(subAgents))
-	for i, sa := range subAgents {
-		// When warm sessions are disabled, stagger cold-start subprocess launches
-		// to reduce resource contention from concurrent process spawns.
-		if e.pool == nil && i > 0 {
-			time.Sleep(100 * time.Millisecond)
+	// --- Call 1: Explore (reads source code, produces notes on routes + auth + sinks) ---
+	printPhaseLine("source-analysis", "running source exploration (routes + auth + sinks)")
+
+	exploreOpts := Options{
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: exploreTemplate,
+		TargetURL:      cfg.TargetURL,
+		SourcePath:     cfg.SourcePath,
+		Files:          cfg.Files,
+		Instruction:    cfg.Instruction,
+		SessionKey:     "sa-explore",
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		Source:         exploreTemplate,
+		StreamWriter:   cfg.StreamWriter,
+	}
+
+	exploreResult, exploreErr := e.Run(ctx, exploreOpts)
+
+	if cfg.SessionDir != "" && exploreResult != nil {
+		writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore.md", exploreResult.RenderedPrompt)
+		writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore.md", exploreResult.RawOutput)
+	}
+
+	if exploreErr != nil {
+		prompt := ""
+		if exploreResult != nil {
+			prompt = exploreResult.RenderedPrompt
 		}
-		go func(sa subAgentDef) {
-			defer wg.Done()
-			subCfg := cfg
-			subCfg.PromptTemplate = sa.template
-			// Use a unique session key per sub-agent so each gets its own
-			// pool session instead of competing for a single shared one.
-			subCfg.SessionKey = "sa-" + sa.name
+		return nil, "", prompt, fmt.Errorf("source exploration failed: %w", exploreErr)
+	}
 
-			result, subRawOutput, subPrompt, subErr := e.RunSourceAnalysis(ctx, subCfg)
+	exploreOutput := exploreResult.RawOutput
+	allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- explore ---\n%s", exploreOutput))
+	allPrompts = append(allPrompts, fmt.Sprintf("--- explore ---\n%s", exploreResult.RenderedPrompt))
 
-			mu.Lock()
-			defer mu.Unlock()
+	if cfg.DryRun {
+		_, _ = fmt.Fprint(os.Stdout, exploreOutput)
+		return nil, exploreOutput, exploreResult.RenderedPrompt, nil
+	}
 
-			if subRawOutput != "" {
-				allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- %s ---\n%s", sa.name, subRawOutput))
-			}
-			if subPrompt != "" {
-				allPrompts = append(allPrompts, fmt.Sprintf("--- %s ---\n%s", sa.name, subPrompt))
-			}
-			if subErr != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", sa.name, subErr))
-				return
-			}
-			if result == nil {
-				return
-			}
+	printPhaseLine("source-analysis", "exploration complete, running format + extensions in parallel")
 
-			// Merge results from each sub-agent
+	// Prepare explore output for appending to downstream calls.
+	// Truncate to 64KB to avoid context overflow.
+	exploreContext := exploreOutput
+	const maxExploreBytes = 64 * 1024
+	if len(exploreContext) > maxExploreBytes {
+		exploreContext = exploreContext[:maxExploreBytes] + "\n\n... (truncated)"
+	}
+
+	// --- Calls 2 & 3: Format + Extensions in parallel ---
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wg.Add(2)
+
+	// Call 2: Format (notes → JSONL http_records + session_config JSON)
+	go func() {
+		defer wg.Done()
+
+		formatOpts := Options{
+			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
+			PromptTemplate: formatTemplate,
+			TargetURL:      cfg.TargetURL,
+			SourcePath:     cfg.SourcePath,
+			SessionKey:     "sa-explore", // reuse warm session from explore
+			DryRun:         cfg.DryRun,
+			ShowPrompt:     cfg.ShowPrompt,
+			ScanUUID:       cfg.ScanUUID,
+			ProjectUUID:    cfg.ProjectUUID,
+			Source:         formatTemplate,
+			StreamWriter:   cfg.StreamWriter,
+		}
+		// When warm sessions are not available, append explore notes so the
+		// format agent has the context it needs.
+		if e.pool == nil {
+			formatOpts.Append = "## Analysis Notes from Exploration Phase\n\n" + exploreContext
+		}
+
+		formatResult, formatErr := e.Run(ctx, formatOpts)
+
+		if cfg.SessionDir != "" && formatResult != nil {
+			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-format.md", formatResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-format.md", formatResult.RawOutput)
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if formatErr != nil {
+			// Format failed — fall back to parsing explore output directly.
+			zap.L().Warn("Source analysis format phase failed, falling back to explore output",
+				zap.Error(formatErr))
+			errs = append(errs, fmt.Errorf("format: %w", formatErr))
+			// Try parsing the raw explore output for any structured data
+			if fallbackResult, parseErr := ParseSourceAnalysisResult(exploreOutput); parseErr == nil && fallbackResult != nil {
+				merged.HTTPRecords = append(merged.HTTPRecords, fallbackResult.HTTPRecords...)
+				if fallbackResult.SessionConfig != nil && len(fallbackResult.SessionConfig.Sessions) > 0 {
+					merged.SessionConfig = fallbackResult.SessionConfig
+				}
+			}
+			return
+		}
+
+		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format ---\n%s", formatResult.RawOutput))
+		allPrompts = append(allPrompts, fmt.Sprintf("--- format ---\n%s", formatResult.RenderedPrompt))
+
+		result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+		if parseErr != nil {
+			zap.L().Warn("Failed to parse format output", zap.Error(parseErr))
+			errs = append(errs, fmt.Errorf("format parse: %w", parseErr))
+			return
+		}
+		if result != nil {
 			merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
 			if result.SessionConfig != nil && len(result.SessionConfig.Sessions) > 0 {
 				merged.SessionConfig = result.SessionConfig
 			}
+		}
+	}()
+
+	// Call 3: Extensions (notes → JS scanner extensions, single call)
+	go func() {
+		defer wg.Done()
+
+		extOpts := Options{
+			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
+			PromptTemplate: extensionsTemplate,
+			TargetURL:      cfg.TargetURL,
+			SessionKey:     "sa-extensions",
+			DryRun:         cfg.DryRun,
+			ShowPrompt:     cfg.ShowPrompt,
+			ScanUUID:       cfg.ScanUUID,
+			ProjectUUID:    cfg.ProjectUUID,
+			Source:         extensionsTemplate,
+			StreamWriter:   cfg.StreamWriter,
+			// Always append explore notes — extensions agent doesn't read source code
+			Append: "## Source Code Analysis Notes\n\n" + exploreContext,
+		}
+
+		extResult, extErr := e.Run(ctx, extOpts)
+
+		if cfg.SessionDir != "" && extResult != nil {
+			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-extensions.md", extResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-extensions.md", extResult.RawOutput)
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if extErr != nil {
+			errs = append(errs, fmt.Errorf("extensions: %w", extErr))
+			return
+		}
+
+		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- extensions ---\n%s", extResult.RawOutput))
+		allPrompts = append(allPrompts, fmt.Sprintf("--- extensions ---\n%s", extResult.RenderedPrompt))
+
+		result, parseErr := ParseSourceAnalysisResult(extResult.RawOutput)
+		if parseErr != nil {
+			zap.L().Warn("Failed to parse extensions output", zap.Error(parseErr))
+			errs = append(errs, fmt.Errorf("extensions parse: %w", parseErr))
+			return
+		}
+		if result != nil {
 			merged.Extensions = append(merged.Extensions, result.Extensions...)
-		}(sa)
-	}
+		}
+	}()
+
 	wg.Wait()
 
 	combinedRaw := strings.Join(allRawOutputs, "\n\n")
 	combinedPrompt := strings.Join(allPrompts, "\n\n")
 
-	if len(errs) == len(subAgents) {
-		return nil, combinedRaw, combinedPrompt, fmt.Errorf("all source analysis sub-agents failed: %v", errs)
+	// All 3 calls failed (explore succeeded but format + extensions both failed)
+	if len(errs) >= 2 {
+		// Still try postProcessSourceAnalysis with explore output as fallback
+		zap.L().Warn("Format and extensions both failed, falling back to explore output parsing")
+		return e.postProcessSourceAnalysis(ctx, cfg, exploreOutput, combinedPrompt)
 	}
 	if len(errs) > 0 {
 		for _, e := range errs {
@@ -498,7 +760,11 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		}
 	}
 
-	return merged, combinedRaw, combinedPrompt, nil
+	// Post-process merged results: session header replacement, DB ingestion, reprobing.
+	// Build a synthetic raw output that postProcessSourceAnalysis can parse if needed.
+	// Since we already parsed format output above, pass the merged result directly
+	// by injecting it into the post-processing flow.
+	return e.postProcessSourceAnalysisWithMerged(ctx, cfg, merged, combinedRaw, combinedPrompt)
 }
 
 // resolveAgent looks up an agent definition by name from settings.

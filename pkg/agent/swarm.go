@@ -47,13 +47,14 @@ type SwarmConfig struct {
 	MaxIterations    int      // max triage-rescan loops (default 3)
 	BatchConcurrency int      // max parallel master agent batches (0 = min(batch_count, NumCPU))
 	MaxMasterRetries int      // max master agent retries on parse failure (0 = default 3)
+	SAMaxConcurrency int      // max parallel source analysis sub-agents (0 = default 3)
 
 	// Agent
-	AgentName          string
-	AgentACPCmd        string // ad-hoc ACP command override (e.g. "traecli acp")
+	AgentName   string
+	AgentACPCmd string // ad-hoc ACP command override (e.g. "traecli acp")
 	DryRun             bool
-	ShowPrompt         bool // print rendered prompts to stderr before executing
-	SourceAnalysisOnly bool // run only source analysis phase and exit
+	ShowPrompt         bool   // print rendered prompts to stderr before executing
+	SourceAnalysisOnly bool   // run only source analysis phase and exit
 
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
@@ -370,6 +371,8 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			ScanUUID:       cfg.ScanUUID,
 			ProjectUUID:    cfg.ProjectUUID,
 			StreamWriter:   cfg.StreamWriter,
+			SessionDir:     sessionDir,
+			MaxConcurrency: cfg.SAMaxConcurrency,
 		}
 
 		saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
@@ -378,23 +381,20 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if sessionDir != "" && saRawOutput != "" {
 			outputPath := filepath.Join(sessionDir, "source-analysis-output.md")
 			_ = os.WriteFile(outputPath, []byte(saRawOutput), 0644)
-			fmt.Fprintf(os.Stderr, "  %s Source analysis output: %s\n",
-				terminal.Gray(terminal.SymbolArrow), terminal.Gray(terminal.ShortenHome(outputPath)))
+			printPhaseLine("source-analysis", fmt.Sprintf("%s output: %s",
+				terminal.SymbolArrow, terminal.ShortenHome(outputPath)))
 		}
 
 		if saErr != nil {
 			zap.L().Warn("Source analysis failed, continuing with input records only", zap.Error(saErr))
 		} else if saResult != nil {
-			zap.L().Info("Source analysis result",
-				zap.Int("http_records", len(saResult.HTTPRecords)),
-				zap.Int("extensions", len(saResult.Extensions)),
-				zap.Bool("has_session_config", saResult.SessionConfig != nil))
+			printPhaseLine("source-analysis", fmt.Sprintf("result: %d http_records, %d extensions, has_session_config=%v",
+				len(saResult.HTTPRecords), len(saResult.Extensions), saResult.SessionConfig != nil))
 
 			filteredRecords, filteredNotes := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
 			if len(filteredRecords) > 0 {
-				zap.L().Info("Appending source-discovered routes",
-					zap.Int("total_discovered", len(saResult.HTTPRecords)),
-					zap.Int("hostname_matched", len(filteredRecords)))
+				printPhaseLine("source-analysis", fmt.Sprintf("appending source-discovered routes  total=%d hostname_matched=%d",
+					len(saResult.HTTPRecords), len(filteredRecords)))
 				saRecords = filteredRecords
 				saNotesSlice = filteredNotes
 			}
@@ -411,8 +411,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				if len(loginRecords) > 0 {
 					loginFiltered, loginNotes := filterSourceRecordsByHostname(loginRecords, targetURL)
 					if len(loginFiltered) > 0 {
-						zap.L().Info("Appending login endpoint records from session config",
-							zap.Int("count", len(loginFiltered)))
+						printPhaseLine("source-analysis", fmt.Sprintf("appending login endpoint records  count=%d", len(loginFiltered)))
 						saRecords = append(saRecords, loginFiltered...)
 						saNotesSlice = append(saNotesSlice, loginNotes...)
 					}
@@ -432,8 +431,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if discoveredSessionConfig != nil {
 			authHeaders = hydrateSessionConfig(discoveredSessionConfig)
 			if len(authHeaders) > 0 {
-				zap.L().Info("Hydrated auth headers from source-discovered session config",
-					zap.Int("header_count", len(authHeaders)))
+				printPhaseLine("source-analysis", fmt.Sprintf("hydrated auth headers  count=%d", len(authHeaders)))
 			}
 
 			// Persist hydrated session config to SessionHostname table so the
@@ -448,9 +446,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 						if shErr := s.repo.SaveSessionHostnames(ctx, rows); shErr != nil {
 							zap.L().Warn("Failed to persist session config to database", zap.Error(shErr))
 						} else {
-							zap.L().Info("Persisted session config to SessionHostname table",
-								zap.String("hostname", hostname),
-								zap.Int("sessions", len(rows)))
+							printPhaseLine("source-analysis", fmt.Sprintf("persisted session config  hostname=%s sessions=%d", hostname, len(rows)))
 						}
 					}
 				}
@@ -466,9 +462,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				if dbErr == nil && len(dbRows) > 0 {
 					authHeaders = AuthHeadersFromSessionHostnames(dbRows)
 					if len(authHeaders) > 0 {
-						zap.L().Info("Loaded auth headers from session_hostnames DB fallback",
-							zap.String("hostname", hostname),
-							zap.Int("header_count", len(authHeaders)))
+						printPhaseLine("source-analysis", fmt.Sprintf("loaded auth headers from DB  hostname=%s count=%d", hostname, len(authHeaders)))
 					}
 				}
 			}
@@ -479,15 +473,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			sessionCount := len(discoveredSessionConfig.Sessions)
 			authCount := len(authHeaders)
 			if authCount > 0 {
-				fmt.Fprintf(os.Stderr, "  %s Sessions: %s discovered, %s auth tokens obtained\n",
-					terminal.Cyan(terminal.SymbolBullet),
-					terminal.Orange(fmt.Sprintf("%d", sessionCount)),
-					terminal.HiGreen(fmt.Sprintf("%d", authCount)))
+				printPhaseLine("source-analysis", fmt.Sprintf("%s sessions: %d discovered, %d auth tokens obtained",
+					terminal.SymbolBullet, sessionCount, authCount))
 			} else {
-				fmt.Fprintf(os.Stderr, "  %s Sessions: %s discovered, %s\n",
-					terminal.Cyan(terminal.SymbolBullet),
-					terminal.Orange(fmt.Sprintf("%d", sessionCount)),
-					terminal.Gray("no auth tokens obtained"))
+				printPhaseLine("source-analysis", fmt.Sprintf("%s sessions: %d discovered, no auth tokens obtained",
+					terminal.SymbolBullet, sessionCount))
 			}
 		}
 
@@ -501,10 +491,8 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
 
 		if len(saRecords) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s Source analysis routes: %s %s\n",
-				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Orange(fmt.Sprintf("%d", len(saRecords))),
-				terminal.Muted(formatRouteStatusSummary(saRecords)))
+			printPhaseLine("source-analysis", fmt.Sprintf("%s source analysis routes: %d %s",
+				terminal.SymbolBullet, len(saRecords), formatRouteStatusSummary(saRecords)))
 		}
 
 		// --- Phase 1.6: Native SAST (runs after source analysis) ---
@@ -524,8 +512,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 					if len(sastReviewResult.HTTPRecords) > 0 {
 						validatedRecords, validatedNotes := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
 						if len(validatedRecords) > 0 {
-							zap.L().Info("Appending SAST-review validated routes",
-								zap.Int("validated", len(validatedRecords)))
+							printPhaseLine("source-analysis", fmt.Sprintf("appending SAST-review validated routes  count=%d", len(validatedRecords)))
 							sastRecords = validatedRecords
 							sastNotesSlice = validatedNotes
 						}
@@ -561,12 +548,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		// Print combined stats
 		if len(saRecords) > 0 || len(sastRecords) > 0 {
 			allRoutes := append(saRecords, sastRecords...)
-			fmt.Fprintf(os.Stderr, "  %s Routes discovered: %s (source-analysis: %s, sast: %s) %s\n",
-				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Orange(fmt.Sprintf("%d", len(allRoutes))),
-				terminal.Orange(fmt.Sprintf("%d", len(saRecords))),
-				terminal.Orange(fmt.Sprintf("%d", len(sastRecords))),
-				terminal.Muted(formatRouteStatusSummary(allRoutes)))
+			printPhaseLine("source-analysis", fmt.Sprintf("%s routes discovered: %d (source-analysis: %d, sast: %d) %s",
+				terminal.SymbolBullet, len(allRoutes), len(saRecords), len(sastRecords),
+				formatRouteStatusSummary(allRoutes)))
 		}
 
 		// Write source-discovered extensions to session dir immediately as artifacts.
@@ -579,12 +563,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		phaseTimings[SwarmPhaseSourceAnalysis] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseSourceAnalysis)
 
-		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-			terminal.Aqua(terminal.SymbolSuccess),
-			terminal.Aqua("Source analysis"),
-			terminal.Muted(fmt.Sprintf("completed — %d routes, %d extensions in %s",
-				len(saRecords)+len(sastRecords), len(sourceExtensions),
-				phaseTimings[SwarmPhaseSourceAnalysis].Round(time.Second))))
+		printPhaseLine("source-analysis", fmt.Sprintf("%s completed — %d routes, %d extensions in %s",
+			terminal.SymbolSuccess, len(saRecords)+len(sastRecords), len(sourceExtensions),
+			phaseTimings[SwarmPhaseSourceAnalysis].Round(time.Second)))
 
 		// Write checkpoint after source analysis
 		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
@@ -978,7 +959,7 @@ func (s *SwarmRunner) emitPhase(cfg SwarmConfig, phase string) {
 	if cfg.PhaseCallback != nil {
 		cfg.PhaseCallback(phase)
 	}
-	zap.L().Info("Agent swarm phase started", zap.String("phase", phase))
+	printPhaseLine("source-analysis", fmt.Sprintf("phase started: %s", phase))
 }
 
 // phaseCompleted returns true if the given phase is in the checkpoint's completed list.
@@ -2455,24 +2436,24 @@ func formatRouteStatusSummary(records []*httpmsg.HttpRequestResponse) string {
 	}
 	var parts []string
 	if s2xx > 0 {
-		parts = append(parts, fmt.Sprintf("2xx: %d", s2xx))
+		parts = append(parts, terminal.Green(fmt.Sprintf("2xx: %d", s2xx)))
 	}
 	if s3xx > 0 {
-		parts = append(parts, fmt.Sprintf("3xx: %d", s3xx))
+		parts = append(parts, terminal.Cyan(fmt.Sprintf("3xx: %d", s3xx)))
 	}
 	if s4xx > 0 {
-		parts = append(parts, fmt.Sprintf("4xx: %d", s4xx))
+		parts = append(parts, terminal.Yellow(fmt.Sprintf("4xx: %d", s4xx)))
 	}
 	if s5xx > 0 {
-		parts = append(parts, fmt.Sprintf("5xx: %d", s5xx))
+		parts = append(parts, terminal.Red(fmt.Sprintf("5xx: %d", s5xx)))
 	}
 	if noResp > 0 {
-		parts = append(parts, fmt.Sprintf("no-response: %d", noResp))
+		parts = append(parts, terminal.Muted(fmt.Sprintf("no-response: %d", noResp)))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return "(" + strings.Join(parts, ", ") + ")"
+	return terminal.Muted("(") + strings.Join(parts, terminal.Muted(", ")) + terminal.Muted(")")
 }
 
 // injectAuthHeaders adds discovered auth headers to records that don't already
@@ -2493,8 +2474,7 @@ func injectAuthHeaders(records []*httpmsg.HttpRequestResponse, authHeaders map[s
 		// Skip records that already have auth headers
 		hasAuth := false
 		for _, h := range rr.Request().Headers() {
-			name := strings.ToLower(h.Name)
-			if name == "authorization" || name == "cookie" {
+			if isAuthHeader(h.Name) {
 				hasAuth = true
 				break
 			}

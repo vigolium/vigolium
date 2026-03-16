@@ -105,8 +105,9 @@ type phaseInfra struct {
 
 // compareSession pairs a named session with its dedicated HTTP requester.
 type compareSession struct {
-	Name   string
-	Client *http.Requester
+	Name     string
+	Client   *http.Requester
+	Hostname string // hostname this session is associated with (empty = all hosts)
 }
 
 // Close releases infrastructure resources.
@@ -1221,38 +1222,47 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 }
 
 // initSessions loads, validates, hydrates sessions and creates compare requesters.
+// Sources (in priority order): CLI flags → DB session_hostnames fallback.
 func (r *Runner) initSessions(infra *phaseInfra) error {
 	opts := r.options
 	sessionCfg := r.settings.ScanningStrategy.Session
 	hasSessions := len(opts.Sessions) > 0
 	hasAuthConfig := opts.AuthConfigPath != ""
 	hasSessionFiles := len(opts.SessionFiles) > 0
-
-	if !hasSessions && !hasAuthConfig && !hasSessionFiles {
-		return nil
-	}
+	hasCLISessions := hasSessions || hasAuthConfig || hasSessionFiles
 
 	var sessions []*session.Session
+	var sessionHostnameMap map[string]string // session name → hostname (from DB)
+	fromDB := false
 
-	switch {
-	case hasAuthConfig:
-		loaded, err := session.LoadFromConfig(opts.AuthConfigPath)
-		if err != nil {
-			return err
+	if hasCLISessions {
+		// Load from CLI flags
+		switch {
+		case hasAuthConfig:
+			loaded, err := session.LoadFromConfig(opts.AuthConfigPath)
+			if err != nil {
+				return err
+			}
+			sessions = loaded
+		case hasSessionFiles:
+			loaded, err := session.LoadFromSessionFiles(opts.SessionFiles, sessionCfg.SessionDir)
+			if err != nil {
+				return err
+			}
+			sessions = loaded
+		case hasSessions:
+			loaded, err := session.LoadFromInlineFlags(opts.Sessions)
+			if err != nil {
+				return err
+			}
+			sessions = loaded
 		}
-		sessions = loaded
-	case hasSessionFiles:
-		loaded, err := session.LoadFromSessionFiles(opts.SessionFiles, sessionCfg.SessionDir)
-		if err != nil {
-			return err
+	} else {
+		// Fallback: load from DB session_hostnames for this project's target hostnames
+		sessions, sessionHostnameMap, fromDB = r.loadSessionsFromDB()
+		if len(sessions) == 0 {
+			return nil
 		}
-		sessions = loaded
-	case hasSessions:
-		loaded, err := session.LoadFromInlineFlags(opts.Sessions)
-		if err != nil {
-			return err
-		}
-		sessions = loaded
 	}
 
 	mgr, err := session.NewManager(sessions, session.WithSessionDir(sessionCfg.SessionDir))
@@ -1260,9 +1270,14 @@ func (r *Runner) initSessions(infra *phaseInfra) error {
 		return err
 	}
 
-	// Execute login flows
+	// Execute login flows (re-hydrate DB sessions to refresh potentially stale tokens)
 	if err := mgr.HydrateSessions(); err != nil {
 		return fmt.Errorf("session hydration failed: %w", err)
+	}
+
+	// Persist CLI sessions to DB for reuse in future scans
+	if hasCLISessions {
+		r.persistSessionsToDB(mgr.AllSessions())
 	}
 
 	// Merge primary session headers into the main requester's options.
@@ -1300,17 +1315,150 @@ func (r *Runner) initSessions(infra *phaseInfra) error {
 		if err != nil {
 			return fmt.Errorf("failed to create requester for session %q: %w", cs.Name, err)
 		}
-		infra.compareSessions = append(infra.compareSessions, compareSession{
+		cmpEntry := compareSession{
 			Name:   cs.Name,
 			Client: compareRequester,
-		})
+		}
+		// Preserve per-hostname association from DB sessions
+		if sessionHostnameMap != nil {
+			cmpEntry.Hostname = sessionHostnameMap[cs.Name]
+		}
+		infra.compareSessions = append(infra.compareSessions, cmpEntry)
 	}
 
+	sourceLabel := "CLI"
+	if fromDB {
+		sourceLabel = "DB"
+	}
 	zap.L().Info("Multi-session scanning enabled",
+		zap.String("source", sourceLabel),
 		zap.String("primary", mgr.Primary().Name),
 		zap.Int("compare_sessions", len(cmpSessions)))
 
 	return nil
+}
+
+// loadSessionsFromDB loads sessions from the session_hostnames table for target hostnames.
+// Returns the loaded sessions, a map of session name → hostname for per-host filtering,
+// and true if sessions were loaded from DB.
+func (r *Runner) loadSessionsFromDB() ([]*session.Session, map[string]string, bool) {
+	if r.repository == nil || r.options.ProjectUUID == "" {
+		return nil, nil, false
+	}
+
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Extract hostnames from CLI targets
+	hostnames := r.targetHostnames()
+	if len(hostnames) == 0 {
+		// No specific targets — try loading all project sessions
+		rows, err := r.repository.GetSessionHostnamesByProject(ctx, r.options.ProjectUUID)
+		if err != nil || len(rows) == 0 {
+			return nil, nil, false
+		}
+		cfg := database.SessionHostnamesToSessionConfig(rows)
+		if cfg == nil || len(cfg.Sessions) == 0 {
+			return nil, nil, false
+		}
+		sessions := make([]*session.Session, len(cfg.Sessions))
+		hostnameMap := make(map[string]string, len(rows))
+		for i := range cfg.Sessions {
+			sessions[i] = &cfg.Sessions[i]
+		}
+		for _, row := range rows {
+			hostnameMap[row.SessionName] = row.Hostname
+		}
+		zap.L().Info("Loaded sessions from DB (project-wide)",
+			zap.Int("sessions", len(sessions)))
+		return sessions, hostnameMap, true
+	}
+
+	// Query session_hostnames for each target hostname, deduplicate by session name+hostname
+	seen := make(map[string]bool)
+	hostnameMap := make(map[string]string)
+	var sessions []*session.Session
+	for _, hostname := range hostnames {
+		rows, err := r.repository.GetSessionHostnamesByHostname(ctx, r.options.ProjectUUID, hostname)
+		if err != nil || len(rows) == 0 {
+			continue
+		}
+		for _, row := range rows {
+			key := row.SessionName + ":" + row.Hostname
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			s := database.SessionHostnameToSession(row)
+			if s != nil {
+				sessions = append(sessions, s)
+				hostnameMap[s.Name] = row.Hostname
+			}
+		}
+	}
+
+	if len(sessions) > 0 {
+		zap.L().Info("Loaded sessions from DB (session_hostnames)",
+			zap.Int("sessions", len(sessions)),
+			zap.Strings("hostnames", hostnames))
+	}
+	return sessions, hostnameMap, len(sessions) > 0
+}
+
+// persistSessionsToDB saves hydrated CLI sessions to session_hostnames for future reuse.
+func (r *Runner) persistSessionsToDB(sessions []*session.Session) {
+	if r.repository == nil || r.options.ProjectUUID == "" || len(sessions) == 0 {
+		return
+	}
+
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	hostnames := r.targetHostnames()
+	if len(hostnames) == 0 {
+		return
+	}
+
+	for _, hostname := range hostnames {
+		rows := database.SessionsToSessionHostnames(sessions, r.options.ProjectUUID, hostname)
+		if len(rows) == 0 {
+			continue
+		}
+		if err := r.repository.SaveSessionHostnames(ctx, rows); err != nil {
+			zap.L().Debug("Failed to persist sessions to DB",
+				zap.String("hostname", hostname), zap.Error(err))
+		}
+	}
+
+	zap.L().Info("Persisted CLI sessions to session_hostnames",
+		zap.Int("sessions", len(sessions)),
+		zap.Strings("hostnames", hostnames))
+}
+
+// targetHostnames extracts unique hostnames from CLI targets.
+func (r *Runner) targetHostnames() []string {
+	if len(r.options.Targets) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(r.options.Targets))
+	var hostnames []string
+	for _, t := range r.options.Targets {
+		u, err := neturl.Parse(t)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		h := u.Hostname()
+		if !seen[h] {
+			seen[h] = true
+			hostnames = append(hostnames, h)
+		}
+	}
+	return hostnames
 }
 
 // runDiscoveryPhase ingests all input into the database without running modules.
@@ -1900,13 +2048,15 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	if len(infra.compareSessions) > 0 {
 		clients := make([]*http.Requester, len(infra.compareSessions))
 		names := make([]string, len(infra.compareSessions))
+		hostnames := make([]string, len(infra.compareSessions))
 		for i, cs := range infra.compareSessions {
 			clients[i] = cs.Client
 			names[i] = cs.Name
+			hostnames[i] = cs.Hostname
 		}
 		for _, mod := range activeModules {
 			if ac, ok := mod.(*authz_compare.Module); ok {
-				ac.SetCompareClients(clients, names)
+				ac.SetCompareClients(clients, names, hostnames)
 				break
 			}
 		}

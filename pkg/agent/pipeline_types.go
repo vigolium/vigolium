@@ -915,6 +915,8 @@ type SourceAnalysisConfig struct {
 	ScanUUID       string
 	ProjectUUID    string
 	StreamWriter   io.Writer
+	SessionDir     string // when set, per-phase prompt/output files are written here
+	MaxConcurrency int    // max parallel sub-agents in RunSourceAnalysisParallel (0 = default 3)
 }
 
 // RepairHTTPRecordsWithLLM attempts to fix garbled HTTP records output by sending
@@ -1189,9 +1191,7 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 		records, badCount := parseHTTPRecordJSONL(jsonlContent)
 		if len(records) > 0 {
 			if badCount > 0 {
-				zap.L().Warn("JSONL parsing: skipped malformed lines",
-					zap.Int("good", len(records)),
-					zap.Int("bad", badCount))
+				printPhaseLine("source-analysis", fmt.Sprintf("JSONL parsing: skipped malformed lines  good=%d bad=%d", len(records), badCount))
 			}
 			result := &SourceAnalysisResult{HTTPRecords: records}
 			// Also extract session_config from any ```json block in the same output

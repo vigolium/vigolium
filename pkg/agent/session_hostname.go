@@ -143,6 +143,24 @@ func isAuthHeader(name string) bool {
 	return authHeaderNames[strings.ToLower(name)]
 }
 
+// extractSessionAuth filters sessionHeaders to only auth headers, returning
+// two maps: lowercase name → value, and lowercase name → original cased name.
+// Returns nil, nil if no auth headers are found.
+func extractSessionAuth(sessionHeaders map[string]string) (auth map[string]string, original map[string]string) {
+	for k, v := range sessionHeaders {
+		lower := strings.ToLower(k)
+		if isAuthHeader(lower) {
+			if auth == nil {
+				auth = make(map[string]string, 2)
+				original = make(map[string]string, 2)
+			}
+			auth[lower] = v
+			original[lower] = k
+		}
+	}
+	return auth, original
+}
+
 // ReplaceAuthHeadersInRecords replaces Authorization and Cookie headers in AgentHTTPRecord
 // slices with headers from session_hostnames DB rows. Only replaces if sessionHeaders
 // is non-empty; otherwise returns records unchanged.
@@ -151,16 +169,7 @@ func ReplaceAuthHeadersInRecords(records []AgentHTTPRecord, sessionHeaders map[s
 		return records
 	}
 
-	// Build a map of session auth headers keyed by lowercase name.
-	sessionAuth := make(map[string]string) // lowercase name -> value
-	sessionAuthOriginal := make(map[string]string) // lowercase name -> original cased name
-	for k, v := range sessionHeaders {
-		lower := strings.ToLower(k)
-		if isAuthHeader(lower) {
-			sessionAuth[lower] = v
-			sessionAuthOriginal[lower] = k
-		}
-	}
+	sessionAuth, sessionAuthOriginal := extractSessionAuth(sessionHeaders)
 	if len(sessionAuth) == 0 {
 		return records
 	}
@@ -216,16 +225,7 @@ func ReplaceAuthHeadersInHTTPRR(records []*httpmsg.HttpRequestResponse, sessionH
 		return
 	}
 
-	// Build a map of session auth headers keyed by lowercase name.
-	sessionAuth := make(map[string]string) // lowercase name -> value
-	sessionAuthOriginal := make(map[string]string) // lowercase name -> original cased name
-	for k, v := range sessionHeaders {
-		lower := strings.ToLower(k)
-		if isAuthHeader(lower) {
-			sessionAuth[lower] = v
-			sessionAuthOriginal[lower] = k
-		}
-	}
+	sessionAuth, sessionAuthOriginal := extractSessionAuth(sessionHeaders)
 	if len(sessionAuth) == 0 {
 		return
 	}
@@ -286,7 +286,7 @@ func ReprobeUnprobedRecords(ctx context.Context, repo *database.Repository, proj
 		return
 	}
 
-	zap.L().Info("Re-probing unprobed records", zap.String("source", source), zap.Int("count", len(unprobed)))
+	printPhaseLine("source-analysis", fmt.Sprintf("re-probing unprobed records  source=%s count=%d", source, len(unprobed)))
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -303,6 +303,7 @@ func ReprobeUnprobedRecords(ctx context.Context, repo *database.Repository, proj
 	sem := make(chan struct{}, maxConcurrency)
 	var wg sync.WaitGroup
 	var updated atomic.Int64
+	var s2xx, s3xx, s4xx, s5xx atomic.Int64
 
 	for _, rec := range unprobed {
 		if rec.URL == "" || rec.Method == "" {
@@ -368,12 +369,24 @@ func ReprobeUnprobedRecords(ctx context.Context, repo *database.Repository, proj
 			}
 
 			updated.Add(1)
+			switch {
+			case resp.StatusCode >= 200 && resp.StatusCode < 300:
+				s2xx.Add(1)
+			case resp.StatusCode >= 300 && resp.StatusCode < 400:
+				s3xx.Add(1)
+			case resp.StatusCode >= 400 && resp.StatusCode < 500:
+				s4xx.Add(1)
+			case resp.StatusCode >= 500:
+				s5xx.Add(1)
+			}
 		}(rec)
 	}
 
 	wg.Wait()
 	if n := updated.Load(); n > 0 {
-		zap.L().Info("Re-probed records", zap.String("source", source), zap.Int64("updated", n), zap.Int("total", len(unprobed)))
+		noResp := int64(len(unprobed)) - n
+		printPhaseLine("source-analysis", fmt.Sprintf("re-probed records  source=%s updated=%d total=%d  %s",
+			source, n, len(unprobed), formatStatusSummary(s2xx.Load(), s3xx.Load(), s4xx.Load(), s5xx.Load(), noResp)))
 	}
 }
 

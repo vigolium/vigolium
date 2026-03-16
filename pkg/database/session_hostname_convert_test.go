@@ -106,3 +106,133 @@ func TestSessionHostnamesToSessionConfig_Empty(t *testing.T) {
 		t.Error("expected nil for empty input")
 	}
 }
+
+func TestSessionToSessionHostname_StaticHeaders(t *testing.T) {
+	s := &session.Session{
+		Name:    "admin",
+		Role:    session.RolePrimary,
+		Headers: map[string]string{"Authorization": "Bearer tok1"},
+	}
+
+	sh := SessionToSessionHostname(s, 0)
+	if sh == nil {
+		t.Fatal("expected non-nil row")
+	}
+	if sh.SessionName != "admin" {
+		t.Errorf("expected session_name=admin, got %q", sh.SessionName)
+	}
+	if sh.SessionRole != "primary" {
+		t.Errorf("expected role=primary, got %q", sh.SessionRole)
+	}
+	if sh.Headers["Authorization"] != "Bearer tok1" {
+		t.Errorf("expected Authorization header, got %v", sh.Headers)
+	}
+	if sh.Source != "cli" {
+		t.Errorf("expected source=cli, got %q", sh.Source)
+	}
+	if sh.Position != 0 {
+		t.Errorf("expected position=0, got %d", sh.Position)
+	}
+}
+
+func TestSessionToSessionHostname_LoginFlow(t *testing.T) {
+	s := &session.Session{
+		Name: "user",
+		Role: session.RoleCompare,
+		Login: &session.LoginFlow{
+			URL:         "https://example.com/login",
+			Method:      "POST",
+			ContentType: "application/json",
+			Body:        `{"user":"test","pass":"test"}`,
+			Extract: []session.ExtractRule{
+				{Source: session.ExtractCookie, Name: "sid"},
+			},
+		},
+	}
+
+	sh := SessionToSessionHostname(s, 1)
+	if sh == nil {
+		t.Fatal("expected non-nil row")
+	}
+	if sh.LoginURL != "https://example.com/login" {
+		t.Errorf("unexpected login_url: %q", sh.LoginURL)
+	}
+	if sh.LoginMethod != "POST" {
+		t.Errorf("unexpected login_method: %q", sh.LoginMethod)
+	}
+	if sh.ExtractRules == "" {
+		t.Error("expected non-empty extract_rules")
+	}
+	if sh.Position != 1 {
+		t.Errorf("expected position=1, got %d", sh.Position)
+	}
+}
+
+func TestSessionToSessionHostname_Nil(t *testing.T) {
+	sh := SessionToSessionHostname(nil, 0)
+	if sh != nil {
+		t.Error("expected nil for nil input")
+	}
+}
+
+func TestSessionsToSessionHostnames(t *testing.T) {
+	sessions := []*session.Session{
+		{Name: "admin", Role: session.RolePrimary, Headers: map[string]string{"Cookie": "s=1"}},
+		{Name: "user", Role: session.RoleCompare, Headers: map[string]string{"Cookie": "s=2"}},
+	}
+
+	rows := SessionsToSessionHostnames(sessions, "proj-1", "example.com")
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	for _, row := range rows {
+		if row.ProjectUUID != "proj-1" {
+			t.Errorf("expected project_uuid=proj-1, got %q", row.ProjectUUID)
+		}
+		if row.Hostname != "example.com" {
+			t.Errorf("expected hostname=example.com, got %q", row.Hostname)
+		}
+	}
+	if rows[0].SessionName != "admin" || rows[1].SessionName != "user" {
+		t.Errorf("unexpected session names: %q, %q", rows[0].SessionName, rows[1].SessionName)
+	}
+}
+
+func TestSessionToSessionHostname_Roundtrip(t *testing.T) {
+	original := &session.Session{
+		Name:    "roundtrip",
+		Role:    session.RolePrimary,
+		Headers: map[string]string{"Authorization": "Bearer xyz"},
+		Login: &session.LoginFlow{
+			URL:         "https://app.com/api/login",
+			Method:      "POST",
+			ContentType: "application/json",
+			Body:        `{"u":"a","p":"b"}`,
+			Extract: []session.ExtractRule{
+				{Source: session.ExtractJSON, Path: "$.token", ApplyAs: "Authorization: Bearer {value}"},
+			},
+		},
+	}
+
+	sh := SessionToSessionHostname(original, 0)
+	restored := SessionHostnameToSession(sh)
+
+	if restored.Name != original.Name {
+		t.Errorf("name mismatch: %q vs %q", restored.Name, original.Name)
+	}
+	if restored.Role != original.Role {
+		t.Errorf("role mismatch: %q vs %q", restored.Role, original.Role)
+	}
+	if restored.Login == nil {
+		t.Fatal("expected non-nil Login after roundtrip")
+	}
+	if restored.Login.URL != original.Login.URL {
+		t.Errorf("login URL mismatch: %q vs %q", restored.Login.URL, original.Login.URL)
+	}
+	if len(restored.Login.Extract) != 1 {
+		t.Fatalf("expected 1 extract rule, got %d", len(restored.Login.Extract))
+	}
+	if restored.Login.Extract[0].ApplyAs != original.Login.Extract[0].ApplyAs {
+		t.Errorf("apply_as mismatch: %q vs %q", restored.Login.Extract[0].ApplyAs, original.Login.Extract[0].ApplyAs)
+	}
+}

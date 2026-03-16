@@ -1,1 +1,2 @@
+- Join the auth and routes prompt
 - Added Network scan with nmap in spa phase

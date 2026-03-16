@@ -2,6 +2,7 @@ package authz_compare
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -32,6 +33,7 @@ type Module struct {
 	ds               dedup.Lazy[dedup.DiskSet]
 	compareClients   []*http.Requester
 	compareNames     []string
+	compareHostnames []string // per-client hostname filter (empty = all hosts)
 }
 
 // New creates a new cross-session authorization compare module.
@@ -57,9 +59,16 @@ func New() *Module {
 
 // SetCompareClients configures the HTTP requesters for compare sessions.
 // Each requester has its own cookie jar and custom headers matching a session.
-func (m *Module) SetCompareClients(clients []*http.Requester, names []string) {
+// The optional hostnames slice enables per-hostname filtering: clients with a
+// non-empty hostname are only used for requests matching that hostname.
+func (m *Module) SetCompareClients(clients []*http.Requester, names []string, hostnames ...[]string) {
 	m.compareClients = clients
 	m.compareNames = names
+	if len(hostnames) > 0 {
+		m.compareHostnames = hostnames[0]
+	} else {
+		m.compareHostnames = make([]string, len(clients))
+	}
 }
 
 // HasCompareClients returns true if compare sessions are configured.
@@ -125,8 +134,20 @@ func (m *Module) ScanPerRequest(
 	urlStr := urlx.String()
 	compareOpts := authzutil.DefaultCompareOptions()
 
+	// Strip port from host for hostname matching (e.g. "example.com:8080" → "example.com").
+	// Uses net.SplitHostPort to correctly handle IPv6 addresses like [::1]:8080.
+	hostOnly := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostOnly = h
+	}
+
 	var results []*output.ResultEvent
 	for i, compareClient := range m.compareClients {
+		// Skip compare sessions bound to a different hostname
+		if i < len(m.compareHostnames) && m.compareHostnames[i] != "" && m.compareHostnames[i] != hostOnly {
+			continue
+		}
+
 		compareName := "compare"
 		if i < len(m.compareNames) {
 			compareName = m.compareNames[i]

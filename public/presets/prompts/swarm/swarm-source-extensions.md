@@ -1,61 +1,20 @@
 ---
 id: swarm-source-extensions
-name: Swarm Source Extension Writer
-description: Generate targeted JavaScript scanner extensions from vulnerability sinks found in source code
+name: Generate Vulnerability Scanner Extensions
+description: Generate targeted JavaScript scanner extensions from source analysis notes
 output_schema: source_analysis
 variables:
   - TargetURL
   - Hostname
-  - SourcePath
-  - DirectoryTree
-  - Language
-  - Framework
 ---
 
-You are an application security engineer. Your sole task is to **identify vulnerability sinks in source code and generate targeted JavaScript scanner extensions**. These extensions will be loaded by the vigolium scanner to test for vulnerabilities that generic modules might miss.
+You are given detailed notes from a source code analysis of a web application. The notes document all HTTP routes, their parameters, dangerous operations (SQL queries, command execution, file operations, template rendering, deserialization, SSRF, etc.), data flows, and authentication mechanisms.
 
-## Target
-- URL: {{.TargetURL}}
-- Hostname: {{.Hostname}}
-{{if .Language}}- Language: {{.Language}}{{end}}
-{{if .Framework}}- Framework: {{.Framework}}{{end}}
-
-## Source Code Location
-
-The application source code is located at: `{{.SourcePath}}`
-
-**You MUST explore this codebase deeply.** Read every handler, database query, and dangerous function call. Your extensions target specific sinks — you need to understand the code to write effective payloads.
-
-### Directory Structure
-```
-{{.DirectoryTree}}
-```
-
-### Exploration Strategy
-
-1. **Find dangerous function calls**: SQL queries (raw concatenation, ORM bypass), exec/system/child_process, template rendering with user input, file operations with user paths, HTTP requests with user-controlled URLs
-2. **Trace data flow**: For each sink, trace back to see if user input reaches it without proper sanitization
-3. **Understand the technology**: What DB engine, template engine, OS command patterns are used
-4. **Check security controls**: WAF rules, input validation, parameterized queries — so you can craft bypass payloads
-5. **Read handler code**: Every route handler that touches dangerous operations
-
-### Priority Sinks
-
-- **SQL injection**: Raw query concatenation, ORM bypass, parameterized query misuse
-- **NoSQL injection**: MongoDB operator injection, aggregation pipeline injection
-- **Command injection**: exec(), system(), child_process, subprocess
-- **SSTI**: Template rendering with user input
-- **XXE**: XML parsing with entity resolution enabled
-- **SSRF**: HTTP requests with user-controlled URLs
-- **Path traversal**: File operations with user input
-- **Deserialization**: Unsafe deserialization of user data
-- **Auth bypass**: Missing auth middleware, JWT weaknesses, role checks
+Your task is to generate targeted JavaScript scanner extensions for each vulnerability sink identified in the notes.
 
 ## Your Task
 
-For each dangerous code pattern (sink) you find, generate a focused JavaScript scanner extension.
-
-**Generate multiple versions** of each extension when a sink supports different detection techniques. For example, a SQL injection sink should have separate extensions for error-based, time-based, and boolean-based detection. Each version is a separate file with a technique suffix (e.g., `agent-sqli-users-error.js`, `agent-sqli-users-time.js`).
+For each dangerous code pattern (sink) mentioned in the analysis notes, generate a focused JavaScript scanner extension. **Generate multiple versions** per sink when different detection techniques apply (e.g., error-based, time-based, boolean-based). Each version is a separate file.
 
 Each extension must follow this exact format:
 ```javascript
@@ -94,11 +53,9 @@ Available vigolium extension APIs:
 
 ## Output Format
 
-Your response MUST use this exact format.
-
 ### Part 1: JSON stub
 
-Output a minimal JSON object wrapped in a ` ```json ` code block (http_records can be empty — route extraction is handled separately):
+Output a minimal JSON object wrapped in a ` ```json ` code block:
 
 ```json
 {"http_records":[]}
@@ -117,14 +74,6 @@ module.exports = {
   // ... extension code
 };
 ```
-
-**Rules:**
-- Extension filenames must end in `.js` and start with `agent-`
-- Extension code must be valid JavaScript (not TypeScript)
-- In extension `reason`, include the source file and line number where the sink was found
-- Keep each extension focused and under 80 lines
-- **Generate multiple versions per sink** — different detection techniques per vulnerability type
-- Each extension should target a specific endpoint path (use `ctx.request.path` check)
 
 ## OUTPUT REMINDER — Read This Last
 

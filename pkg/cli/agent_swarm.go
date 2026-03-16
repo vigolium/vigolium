@@ -46,6 +46,7 @@ var (
 	swarmDiscover           bool
 	swarmBatchConcurrency   int
 	swarmMaxMasterRetries   int
+	swarmSubAgentConcurrency int
 	swarmSkipSAST           bool
 )
 
@@ -149,6 +150,7 @@ func init() {
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
 	f.IntVar(&swarmBatchConcurrency, "batch-concurrency", 0, "Max parallel master agent batches (0 = auto, scales with CPU count)")
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
+	f.IntVar(&swarmSubAgentConcurrency, "sub-agent-concurrency", 3, "Max parallel source analysis sub-agents (routes, auth, extensions)")
 	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, trivy, semgrep) during source analysis")
 }
 
@@ -253,6 +255,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		MaxIterations:      swarmMaxIterations,
 		BatchConcurrency:   swarmBatchConcurrency,
 		MaxMasterRetries:   swarmMaxMasterRetries,
+		SAMaxConcurrency:   swarmSubAgentConcurrency,
 		AgentName:          swarmAgentName,
 		AgentACPCmd:        swarmAgentACPCmd,
 		DryRun:             swarmDryRun,
