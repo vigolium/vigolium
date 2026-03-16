@@ -462,13 +462,15 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 		zap.String("cmd", cmdPath+" "+strings.Join(agentDef.Args, " ")),
 		zap.String("cwd", absCwd))
 
-	cmd := exec.CommandContext(ctx, cmdPath, agentDef.Args...)
+	finalArgs := buildProviderArgs(agentDef)
+	cmd := exec.CommandContext(ctx, cmdPath, finalArgs...)
 	cmd.Dir = absCwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	if len(agentDef.Env) > 0 {
+	finalEnv := buildProviderEnv(agentDef)
+	if len(finalEnv) > 0 {
 		cmd.Env = cmd.Environ()
-		for k, v := range agentDef.Env {
+		for k, v := range finalEnv {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
@@ -553,8 +555,9 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 
 	sess.sessionID = sessResp.SessionId
 
-	// Set model override if configured (UNSTABLE ACP extension — may change).
-	if agentDef.Model != "" {
+	// SetSessionModel is a Claude Code-specific ACP extension.
+	// Other providers inject model via CLI args or env vars (handled by buildProviderArgs/buildProviderEnv).
+	if agentDef.Model != "" && inferProvider(agentDef) == providerClaude {
 		if _, setErr := conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
 			SessionId: sessResp.SessionId,
 			ModelId:   acp.ModelId(agentDef.Model),

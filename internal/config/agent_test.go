@@ -8,12 +8,12 @@ func TestDefaultAgentConfig(t *testing.T) {
 	if cfg.DefaultAgent != "claude" {
 		t.Errorf("expected default_agent=claude, got %s", cfg.DefaultAgent)
 	}
-	if len(cfg.Backends) != 7 {
-		t.Errorf("expected 7 agents, got %d", len(cfg.Backends))
+	if len(cfg.Backends) != 8 {
+		t.Errorf("expected 8 agents, got %d", len(cfg.Backends))
 	}
 
 	// Check all expected agents exist
-	for _, name := range []string{"claude", "claude-cli", "codex", "opencode", "opencode-cli", "gemini", "gemini-cli"} {
+	for _, name := range []string{"claude", "claude-cli", "codex", "opencode", "opencode-cli", "gemini", "gemini-cli", "cursor"} {
 		def, ok := cfg.Backends[name]
 		if !ok {
 			t.Errorf("expected agent %q to exist", name)
@@ -45,7 +45,7 @@ func TestAgentDef_EffectiveProtocol(t *testing.T) {
 func TestDefaultAgentConfig_Protocols(t *testing.T) {
 	cfg := DefaultAgentConfig()
 
-	acpAgents := []string{"claude", "codex", "opencode", "gemini"}
+	acpAgents := []string{"claude", "codex", "opencode", "gemini", "cursor"}
 	for _, name := range acpAgents {
 		def := cfg.Backends[name]
 		if def.EffectiveProtocol() != "acp" {

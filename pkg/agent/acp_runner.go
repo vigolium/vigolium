@@ -72,16 +72,18 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 		zap.Int("promptLength", len(prompt)),
 		zap.Bool("terminal", cfg.Terminal))
 
-	cmd := exec.CommandContext(ctx, cmdPath, agentDef.Args...)
+	finalArgs := buildProviderArgs(agentDef)
+	cmd := exec.CommandContext(ctx, cmdPath, finalArgs...)
 
 	// Create a new process group so we can kill the entire tree (e.g. npx + child node process).
 	// Without this, killing only the top-level process leaves children alive holding pipe fds,
 	// which causes cmd.Wait() to hang on the internal I/O goroutine.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	if len(agentDef.Env) > 0 {
+	finalEnv := buildProviderEnv(agentDef)
+	if len(finalEnv) > 0 {
 		cmd.Env = cmd.Environ()
-		for k, v := range agentDef.Env {
+		for k, v := range finalEnv {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
@@ -207,8 +209,9 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 
 	fmt.Fprintf(os.Stderr, "◆ ACP session: %s\n", sessionID)
 
-	// Set model override if configured (UNSTABLE ACP extension — may change).
-	if agentDef.Model != "" {
+	// SetSessionModel is a Claude Code-specific ACP extension.
+	// Other providers inject model via CLI args or env vars (handled by buildProviderArgs/buildProviderEnv).
+	if agentDef.Model != "" && inferProvider(agentDef) == providerClaude {
 		if _, setErr := conn.SetSessionModel(ctx, acp.SetSessionModelRequest{
 			SessionId: sess.SessionId,
 			ModelId:   acp.ModelId(agentDef.Model),

@@ -75,8 +75,8 @@ func (c *AgentConfig) StreamEnabled() bool {
 // extension point in NewSessionRequest. This allows configuring agent behavior
 // (system prompts, thinking mode, disallowed tools, etc.) at session creation.
 type ACPSessionMeta struct {
-	SystemPrompt   *ACPSystemPrompt   `yaml:"system_prompt,omitempty" json:"systemPrompt,omitempty"`
-	ClaudeCode     *ClaudeCodeMeta    `yaml:"claude_code,omitempty" json:"claudeCode,omitempty"`
+	SystemPrompt *ACPSystemPrompt `yaml:"system_prompt,omitempty" json:"systemPrompt,omitempty"`
+	ClaudeCode   *ClaudeCodeMeta  `yaml:"claude_code,omitempty" json:"claudeCode,omitempty"`
 }
 
 // ACPSystemPrompt configures system prompt modifications for the session.
@@ -91,12 +91,12 @@ type ClaudeCodeMeta struct {
 
 // ClaudeCodeOptions configures Claude Code agent behavior.
 type ClaudeCodeOptions struct {
-	SettingSources    *[]string          `yaml:"setting_sources,omitempty" json:"settingSources,omitempty"`
-	PromptSuggestions *bool              `yaml:"prompt_suggestions,omitempty" json:"promptSuggestions,omitempty"`
-	Thinking          *ClaudeThinking    `yaml:"thinking,omitempty" json:"thinking,omitempty"`
-	Effort            string             `yaml:"effort,omitempty" json:"effort,omitempty"`
-	DisallowedTools   []string           `yaml:"disallowed_tools,omitempty" json:"disallowedTools,omitempty"`
-	ExtraArgs         map[string]string  `yaml:"extra_args,omitempty" json:"extraArgs,omitempty"`
+	SettingSources    *[]string         `yaml:"setting_sources,omitempty" json:"settingSources,omitempty"`
+	PromptSuggestions *bool             `yaml:"prompt_suggestions,omitempty" json:"promptSuggestions,omitempty"`
+	Thinking          *ClaudeThinking   `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+	Effort            string            `yaml:"effort,omitempty" json:"effort,omitempty"`
+	DisallowedTools   []string          `yaml:"disallowed_tools,omitempty" json:"disallowedTools,omitempty"`
+	ExtraArgs         map[string]string `yaml:"extra_args,omitempty" json:"extraArgs,omitempty"`
 }
 
 // ClaudeThinking configures the thinking mode for Claude Code.
@@ -104,16 +104,68 @@ type ClaudeThinking struct {
 	Type string `yaml:"type" json:"type"` // "adaptive" or "disabled"
 }
 
+// ProviderConfig holds provider-specific options injected at spawn time
+// via CLI args or environment variables (not ACP _meta).
+// Currently used by OpenCode; ignored for providers that don't support these options.
+type ProviderConfig struct {
+	Thinking   *ThinkingConfig   `yaml:"thinking,omitempty"`
+	Permission *PermissionConfig `yaml:"permission,omitempty"`
+	APIURL     string            `yaml:"api_url,omitempty"` // custom OpenAI-compatible base URL
+	APIKey     string            `yaml:"api_key,omitempty"` // API key; use ${ENV_VAR} syntax
+}
+
+// ThinkingConfig controls extended thinking for providers that support it.
+type ThinkingConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	BudgetTokens int  `yaml:"budget_tokens,omitempty"` // default: 16000
+}
+
+// EffectiveBudgetTokens returns the budget, defaulting to 16000.
+func (c *ThinkingConfig) EffectiveBudgetTokens() int {
+	if c == nil || c.BudgetTokens <= 0 {
+		return 16000
+	}
+	return c.BudgetTokens
+}
+
+// PermissionAllow is the value that auto-approves an agent operation.
+const PermissionAllow = "allow"
+
+// PermissionConfig controls auto-approval of agent operations.
+// Values: PermissionAllow (auto-approve) or "" (prompt user).
+type PermissionConfig struct {
+	Read  string `yaml:"read,omitempty"`  // file read permission
+	Edit  string `yaml:"edit,omitempty"`  // file edit permission
+	Write string `yaml:"write,omitempty"` // file write permission
+	Bash  string `yaml:"bash,omitempty"`  // shell command permission
+}
+
+// DefaultPermissionConfig returns all-allow permissions for autonomous scanning.
+func DefaultPermissionConfig() *PermissionConfig {
+	return &PermissionConfig{
+		Read: PermissionAllow, Edit: PermissionAllow, Write: PermissionAllow, Bash: PermissionAllow,
+	}
+}
+
+// DefaultProviderConfig returns default provider config for OpenCode-style backends.
+func DefaultProviderConfig() *ProviderConfig {
+	return &ProviderConfig{
+		Thinking:   &ThinkingConfig{BudgetTokens: 16000},
+		Permission: DefaultPermissionConfig(),
+	}
+}
+
 // AgentDef defines a single AI agent backend.
 type AgentDef struct {
-	Command     string            `yaml:"command"`
-	Args        []string          `yaml:"args"`
-	Description string            `yaml:"description"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	Protocol    string            `yaml:"protocol,omitempty"`
-	Enable      *bool             `yaml:"enable,omitempty"`
-	Model       string            `yaml:"model,omitempty"` // ACP session model override (e.g. "sonnet", "opus")
-	SessionMeta *ACPSessionMeta   `yaml:"session_meta,omitempty"`
+	Command        string            `yaml:"command"`
+	Args           []string          `yaml:"args"`
+	Description    string            `yaml:"description"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	Protocol       string            `yaml:"protocol,omitempty"`
+	Enable         *bool             `yaml:"enable,omitempty"`
+	Model          string            `yaml:"model,omitempty"`           // universal model override
+	SessionMeta    *ACPSessionMeta   `yaml:"session_meta,omitempty"`    // ACP _meta passthrough (Claude)
+	ProviderConfig *ProviderConfig   `yaml:"provider_config,omitempty"` // spawn-time injection (OpenCode)
 }
 
 // IsEnabled returns whether this agent is enabled. Defaults to true when nil.
@@ -203,7 +255,7 @@ func DefaultClaudeSessionMeta() *ACPSessionMeta {
 	}
 }
 
-// DefaultAgentConfig returns sensible defaults with claude, opencode, and gemini.
+// DefaultAgentConfig returns sensible defaults for all supported agent backends.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
 		DefaultAgent: "claude",
@@ -227,10 +279,11 @@ func DefaultAgentConfig() *AgentConfig {
 				Protocol:    "acp",
 			},
 			"opencode": {
-				Command:     "opencode",
-				Args:        []string{"acp"},
-				Description: "OpenCode agent (ACP)",
-				Protocol:    "acp",
+				Command:        "opencode",
+				Args:           []string{"acp"},
+				Description:    "OpenCode agent (ACP)",
+				Protocol:       "acp",
+				ProviderConfig: DefaultProviderConfig(),
 			},
 			"opencode-cli": {
 				Command:     "opencode",
@@ -247,6 +300,12 @@ func DefaultAgentConfig() *AgentConfig {
 				Command:     "gemini",
 				Args:        []string{"-p"},
 				Description: "Google Gemini CLI (pipe mode)",
+			},
+			"cursor": {
+				Command:     "cursor",
+				Args:        []string{"acp"},
+				Description: "Cursor AI editor (ACP)",
+				Protocol:    "acp",
 			},
 		},
 		TemplatesDir: "~/.vigolium/prompts/",

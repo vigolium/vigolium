@@ -1165,25 +1165,31 @@ agent:
     # Default: 2
     max_sessions: 2
 
-  # Agent backend definitions.
+  # --------------------------------------------------------------------------
+  # Agent Backend Definitions
+  # --------------------------------------------------------------------------
   # Each entry defines an external command that acts as an AI agent.
   # Set "protocol" to "acp" or "pipe" (default is "pipe" if omitted).
-  # ACP backends support "session_meta" for agent-specific session configuration
-  # (system prompt, thinking mode, disallowed tools, etc.).
+  #
+  # Model injection per provider (the "model" field works automatically):
+  #   Claude:   SetSessionModel ACP extension after session creation
+  #   Gemini:   injected as "-m <model>" CLI arg
+  #   OpenCode: injected via OPENCODE_CONFIG_CONTENT env var
+  #   Codex:    injected as "--model <model>" CLI arg
+  #   Cursor:   injected as "--model <model>" CLI arg
+  #
+  # Claude uses "session_meta" (ACP _meta passthrough) for thinking, effort, tools.
+  # OpenCode uses "provider_config" for thinking, permissions, custom API.
   backends:
-    # Default: uses ACP protocol via @zed-industries/claude-agent-acp bridge.
+
+    # ── Claude Code (ACP) ──────────────────────────────────────────
     # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
     claude:
       command: npx
       args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       description: "Anthropic Claude Code (ACP)"
       protocol: acp
-      # ACP session model override. Sets the model after session creation
-      # via the SetSessionModel ACP extension. Examples: "sonnet", "opus", "haiku".
-      # Default: sonnet
-      model: sonnet
-      # Session metadata passed via the _meta extension point in the ACP
-      # NewSession request. Configures Claude Code agent behavior.
+      model: sonnet                    # "sonnet", "opus", "haiku"
       session_meta:
         # system_prompt:
         #   append: "Extra instructions appended to the system prompt"
@@ -1203,36 +1209,68 @@ agent:
             extra_args:
               permission-mode: bypassPermissions
               dangerously-skip-permissions: ""
-    # Pipe-mode fallback for environments where ACP or npx is not available.
+
+    # ── Claude Code (pipe mode) ────────────────────────────────────
     claude-cli:
       command: claude
       args: ["--dangerously-skip-permissions", "-p"]
       description: "Anthropic Claude Code (pipe mode)"
-    # Uses Codex CLI's native ACP support.
-    codex:
-      command: codex
-      args: ["app-server"]
-      description: "OpenAI Codex CLI (ACP)"
-      protocol: acp
-    # Uses OpenCode's native ACP support.
+
+    # ── OpenCode (ACP) ─────────────────────────────────────────────
+    # Model + options injected via OPENCODE_CONFIG_CONTENT env var.
     opencode:
       command: opencode
       args: ["acp"]
       description: "OpenCode agent (ACP)"
       protocol: acp
-    # Pipe-mode fallback: add `"permission": {"*": "allow"}` to ~/.config/opencode/opencode.json
+      # model: "anthropic/claude-sonnet-4-5"
+      provider_config:
+        thinking:
+          enabled: false               # extended thinking toggle
+          budget_tokens: 16000         # token budget when thinking is enabled
+        permission:                    # auto-approval for autonomous scanning
+          read: allow                  # "allow" = auto-approve, "" = prompt
+          edit: allow
+          write: allow
+          bash: allow
+        # api_url: ""                  # custom OpenAI-compatible base URL
+        # api_key: "${OPENCODE_API_KEY}"  # API key for custom providers
+
+    # ── OpenCode (pipe mode) ───────────────────────────────────────
     opencode-cli:
       command: opencode
       args: ["run"]
       description: "OpenCode agent (pipe mode)"
-    # Uses Gemini CLI's native ACP support (--experimental-acp flag).
+
+    # ── Gemini (ACP) ───────────────────────────────────────────────
+    # Model injected as: gemini -m <model> --experimental-acp
     gemini:
       command: gemini
       args: ["--experimental-acp"]
       description: "Google Gemini CLI (ACP)"
       protocol: acp
-    # Pipe-mode fallback for Gemini CLI.
+      # model: "gemini-2.5-pro"
+
+    # ── Gemini (pipe mode) ─────────────────────────────────────────
     gemini-cli:
       command: gemini
       args: ["-p"]
       description: "Google Gemini CLI (pipe mode)"
+
+    # ── Codex (ACP) ────────────────────────────────────────────────
+    # Model injected as: codex --model <model> app-server
+    codex:
+      command: codex
+      args: ["app-server"]
+      description: "OpenAI Codex CLI (ACP)"
+      protocol: acp
+      # model: "o3"
+
+    # ── Cursor (ACP) ───────────────────────────────────────────────
+    # Model injected as: cursor --model <model> acp
+    cursor:
+      command: cursor
+      args: ["acp"]
+      description: "Cursor AI editor (ACP)"
+      protocol: acp
+      # model: "claude-sonnet-4-5"
