@@ -50,7 +50,7 @@ ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
 # Source-aware tools
 RUN curl -sfL https://raw.githubusercontent.com/mongodb/kingfisher/main/scripts/install-kingfisher.sh | bash
 
-RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.1
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
 
 RUN pip install --break-system-packages --no-cache-dir ast-grep-cli semgrep
 
