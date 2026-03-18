@@ -31,7 +31,7 @@ Best for: quick checks, CI pipelines, known endpoints.
 
 ### Balanced — Default
 
-Runs content discovery, browser spidering, SPA analysis, and audit.
+Runs content discovery, browser spidering, known-issue-scan analysis, and audit.
 
 ```bash
 vigolium scan -t https://example.com
@@ -141,28 +141,28 @@ Spider flags:
 - `--no-forms` — disable automatic form filling
 - `--spider-max-time` — max duration (default: 30m)
 
-### SPA (Security Posture Assessment)
+### Known Issue Scan
 
 Runs Nuclei templates and Kingfisher secret scanning against discovered hosts and response bodies. Enabled by `--strategy balanced`/`deep` or by the strategy.
 
-By default, SPA enriches its target list with path prefixes discovered in previous phases (discovery, spidering). This increases coverage — Nuclei templates run against individual path prefixes (e.g., `https://example.com/api/v1/`) rather than just the host root. Disable this for faster but less granular scans:
+By default, known-issue-scan enriches its target list with path prefixes discovered in previous phases (discovery, spidering). This increases coverage — Nuclei templates run against individual path prefixes (e.g., `https://example.com/api/v1/`) rather than just the host root. Disable this for faster but less granular scans:
 
 ```yaml
 # vigolium-configs.yaml
-spa:
+known_issue_scan:
   enrich_targets: true    # default: true (use discovered paths as targets)
                           # false: use host-level URLs only (faster)
 ```
 
 ```bash
 # Filter Nuclei templates by tag
-vigolium scan -t https://example.com --spa-tags cve,misconfig
+vigolium scan -t https://example.com --known-issue-scan-tags cve,misconfig
 
 # Filter by severity
-vigolium scan -t https://example.com --spa-severities critical,high
+vigolium scan -t https://example.com --known-issue-scan-severities critical,high
 
 # Custom templates directory
-vigolium scan -t https://example.com --spa-templates-dir ~/nuclei-templates/
+vigolium scan -t https://example.com --known-issue-scan-templates-dir ~/nuclei-templates/
 ```
 
 ### Audit
@@ -225,7 +225,7 @@ scanning_pace:
     concurrency: 30
     max_duration: 1h
 
-  spa:
+  known_issue_scan:
     concurrency: 50
     rate_limit: 100
     max_duration: 30m
@@ -297,7 +297,7 @@ vigolium scan-request -i request.txt
 vigolium scan-request -i request.txt --target https://staging.example.com
 ```
 
-When phase flags (`--discover`, `--spider`, `--external-harvest`, `--spa`) are used with these commands, they delegate to the full Runner pipeline (database required).
+When phase flags (`--discover`, `--spider`, `--external-harvest`, `--known-issue-scan`) are used with these commands, they delegate to the full Runner pipeline (database required).
 
 ## Module Selection
 

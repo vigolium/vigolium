@@ -7,9 +7,9 @@ Vigolium supports multiple scanning modes depending on what you have available: 
 | Mode | What You Need | Command | What It Does |
 |------|---------------|---------|--------------|
 | **Lite** | URL | `vigolium scan -t URL --strategy lite` | Audit only, no discovery |
-| **Balanced** | URL | `vigolium scan -t URL` | Discovery + spidering + SPA + audit |
+| **Balanced** | URL | `vigolium scan -t URL` | Discovery + spidering + known-issue-scan + audit |
 | **Deep** | URL | `vigolium scan -t URL --strategy deep` | Adds external harvesting to balanced |
-| **Whitebox** | URL + source code | `vigolium scan -t URL --source ./app --strategy whitebox` | SAST route extraction + discovery + SPA + audit |
+| **Whitebox** | URL + source code | `vigolium scan -t URL --source ./app --strategy whitebox` | SAST route extraction + discovery + known-issue-scan + audit |
 | **Whitebox (remote)** | URL + git repo | `vigolium scan -t URL --source-url GIT_URL --strategy whitebox` | Same as whitebox, clones the repo first |
 | **SAST-only** | Source code | `vigolium scan -t URL --source ./app --only sast` | Static analysis only, no dynamic scanning |
 | **Agent** | Source code + AI backend | `vigolium agent --prompt-template X --repo ./app` | AI-powered code review |
@@ -49,7 +49,7 @@ Phases execute in this order. Each strategy enables a subset of these phases:
 3. Spidering            Browser-based crawling (Chromium), SPA support, form filling
 4. SAST                 Static analysis via ast-grep (route extraction, security rules)
 5. Discovery            Content discovery (brute-force dirs/files, JS analysis)
-6. SPA                  Security Posture Assessment (Nuclei templates + Kingfisher secrets)
+6. KnownIssueScan       Known Issue Scan (Nuclei templates + Kingfisher secrets)
 7. Audit                Active + passive scanner modules against all discovered endpoints
 8. Extension            Custom JS/YAML extension modules (when --only extension or --ext is used)
 ```
@@ -61,7 +61,7 @@ Phases execute in this order. Each strategy enables a subset of these phases:
 | External Harvesting | - | - | yes | - |
 | Discovery | - | yes | yes | yes |
 | Spidering | - | yes | yes | - |
-| SPA | - | yes | yes | yes |
+| KnownIssueScan | - | yes | yes | yes |
 | Audit | yes | yes | yes | yes |
 | Source-Aware (SAST) | - | - | - | yes |
 
@@ -105,7 +105,7 @@ vigolium scan -t https://example.com --only extension
 vigolium scan -t https://example.com --only ext
 ```
 
-Valid values: `ingestion`, `discovery` (`deparos`), `spidering` (`spitolas`), `external-harvest`, `spa`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
+Valid values: `ingestion`, `discovery` (`deparos`), `spidering` (`spitolas`), `external-harvest`, `known-issue-scan`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
 
 ### `--skip <phase>` — Skip Specific Phases
 
@@ -115,11 +115,11 @@ Disables named phases while keeping all others enabled by the strategy.
 # Skip spidering in a balanced scan
 vigolium scan -t https://example.com --skip spidering
 
-# Skip both discovery and SPA
-vigolium scan -t https://example.com --skip discovery --skip spa
+# Skip both discovery and known-issue-scan
+vigolium scan -t https://example.com --skip discovery --skip known-issue-scan
 ```
 
-Valid values: `discovery` (`deparos`), `external-harvest`, `spidering` (`spitolas`), `spa`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
+Valid values: `discovery` (`deparos`), `external-harvest`, `spidering` (`spitolas`), `known-issue-scan`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
 
 ### `vigolium run <phase>` Shortcut
 
@@ -174,7 +174,7 @@ scanning_pace:
 discovery:
   mode: files_only
 
-spa:
+known_issue_scan:
   enrich_targets: false         # host-level only (faster)
 
 audit:
@@ -192,7 +192,7 @@ scope:
       - "/api/*"
 ```
 
-Overridable sections: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `spa`, `audit`, `external_harvester`, `mutation_strategy`, `scope`.
+Overridable sections: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `known_issue_scan`, `audit`, `external_harvester`, `mutation_strategy`, `scope`.
 
 ### Profile Configuration
 

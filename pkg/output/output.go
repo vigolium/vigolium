@@ -111,7 +111,7 @@ type StandardWriter struct {
 	DisableStdout           bool
 	IncludeResponseInOutput bool
 	JSONOutput              bool
-	PhaseTag                string // Phase label for console output prefix (e.g. "scan", "spa")
+	PhaseTag                string // Phase label for console output prefix (e.g. "scan", "known-issue-scan")
 }
 
 func NewStandardWriter(options *types.Options) (*StandardWriter, error) {

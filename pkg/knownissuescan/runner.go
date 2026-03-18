@@ -1,4 +1,4 @@
-package spa
+package knownissuescan
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Config holds configuration for an SPA scan.
+// Config holds configuration for a known-issue scan.
 type Config struct {
 	Targets      []string               // scheme://host:port URLs to scan
 	Concurrency  int                    // nuclei host concurrency (default: 5)
@@ -29,7 +29,7 @@ type Config struct {
 	ExcludeTags  []string               // template tags to exclude
 	Severities   []string               // filter by severity (empty = all)
 	TemplatesDir string                 // custom templates directory
-	Timeout      time.Duration          // max SPA duration (default: 30m)
+	Timeout      time.Duration          // max known-issue scan duration (default: 30m)
 	Headers      []string               // custom headers
 	ProxyURL     string                 // proxy URL
 	OnResult     func(*output.ResultEvent) // callback per finding
@@ -38,10 +38,10 @@ type Config struct {
 	ProjectUUID  string
 }
 
-// Run executes the SPA scan using the nuclei Go library.
+// Run executes the known-issue scan using the nuclei Go library.
 func Run(ctx context.Context, cfg Config) error {
 	if len(cfg.Targets) == 0 {
-		return fmt.Errorf("spa: no targets provided")
+		return fmt.Errorf("knownissuescan: no targets provided")
 	}
 
 	// Apply defaults
@@ -57,18 +57,18 @@ func Run(ctx context.Context, cfg Config) error {
 
 	// Create a properly initialized logger for nuclei to avoid nil pointer
 	// panics from the bare default logger in nuclei's DefaultOptions().
-	spaLogger := &gologger.Logger{}
-	spaLogger.SetFormatter(formatter.NewCLI(false))
-	spaLogger.SetWriter(writer.NewCLI())
+	scanLogger := &gologger.Logger{}
+	scanLogger.SetFormatter(formatter.NewCLI(false))
+	scanLogger.SetWriter(writer.NewCLI())
 	// Always silence nuclei's gologger — its [WRN]/[INF]/[VER] messages are
 	// noisy and not actionable. Vigolium uses its own zap logger for output.
-	spaLogger.SetMaxLevel(levels.LevelSilent)
+	scanLogger.SetMaxLevel(levels.LevelSilent)
 	gologger.DefaultLogger.SetMaxLevel(levels.LevelSilent)
 
 	// Build engine options
-	opts := buildEngineOptions(ctx, cfg, spaLogger)
+	opts := buildEngineOptions(ctx, cfg, scanLogger)
 
-	zap.L().Info("Starting SPA scan",
+	zap.L().Info("Starting known-issue scan",
 		zap.Int("targets", len(cfg.Targets)),
 		zap.Int("concurrency", cfg.Concurrency),
 		zap.Int("rate_limit", cfg.RateLimit),
@@ -83,7 +83,7 @@ func Run(ctx context.Context, cfg Config) error {
 
 	ne, err := nuclei.NewNucleiEngineCtx(scanCtx, opts...)
 	if err != nil {
-		return fmt.Errorf("spa: failed to create nuclei engine: %w", err)
+		return fmt.Errorf("knownissuescan: failed to create nuclei engine: %w", err)
 	}
 	defer ne.Close()
 
@@ -100,8 +100,8 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 
 		result := convertResult(event)
-		result.ModuleType = database.ModuleTypeSPA
-		result.FindingSource = database.FindingSourceSPA
+		result.ModuleType = database.ModuleTypeKnownIssueScan
+		result.FindingSource = database.FindingSourceKnownIssueScan
 		findingCount++
 
 		// Invoke user callback
@@ -119,25 +119,25 @@ func Run(ctx context.Context, cfg Config) error {
 				)
 				recordUUID, recErr := cfg.Repository.SaveRecord(ctx, fuzzedRR, "spa", cfg.ProjectUUID)
 				if recErr != nil {
-					zap.L().Debug("SPA: failed to save http record", zap.Error(recErr))
+					zap.L().Debug("KnownIssueScan: failed to save http record", zap.Error(recErr))
 				} else {
 					httpRecordUUIDs = []string{recordUUID}
 				}
 			}
 			if saveErr := cfg.Repository.SaveFinding(ctx, result, httpRecordUUIDs, cfg.ScanUUID, cfg.ProjectUUID); saveErr != nil {
-				zap.L().Debug("SPA: failed to save finding", zap.Error(saveErr))
+				zap.L().Debug("KnownIssueScan: failed to save finding", zap.Error(saveErr))
 			}
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("spa: execution failed: %w", err)
+		return fmt.Errorf("knownissuescan: execution failed: %w", err)
 	}
 
-	zap.L().Info("SPA scan completed", zap.Int("findings", findingCount))
+	zap.L().Info("Known-issue scan completed", zap.Int("findings", findingCount))
 	return nil
 }
 
-// buildEngineOptions constructs nuclei SDK options from SPA config.
+// buildEngineOptions constructs nuclei SDK options from known-issue scan config.
 func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger) []nuclei.NucleiSDKOptions {
 	var opts []nuclei.NucleiSDKOptions
 

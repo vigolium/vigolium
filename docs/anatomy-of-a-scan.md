@@ -25,7 +25,7 @@ CLI invocation
 ┌─────────────────────┐
 │  Runner Orchestration│  internal/runner/runner.go
 │  7-phase pipeline:   │  Heuristics → Harvest → Spider →
-│  build infra, run    │  SAST → Discovery → SPA →
+│  build infra, run    │  SAST → Discovery → KnownIssueScan →
 │  phases in order     │  Audit
 └────────┬────────────┘
          │
@@ -74,7 +74,7 @@ CLI invocation
 2. **Reconcile `--json` and `--format`**: if `--json` is set and format is still the default `"console"`, switch to `"jsonl"`.
 3. **Load config**: `config.LoadSettings(configPath)` reads `~/.vigolium/vigolium-configs.yaml`. CLI overrides are applied for origin mode, OAST URL, and database settings. Validates database, extensions, and strategy configs.
 4. **Resolve scanning profile**: precedence is `--scanning-profile` flag > `settings.ScanningStrategy.ScanningProfile`. Profiles are loaded from `~/.vigolium/profiles/` or embedded presets, and applied via `config.ApplyProfile()`.
-5. **Resolve scanning strategy**: precedence is `--strategy` flag > `settings.ScanningStrategy.DefaultStrategy`. Strategy determines which phases are enabled (discovery, spidering, SPA, etc.).
+5. **Resolve scanning strategy**: precedence is `--strategy` flag > `settings.ScanningStrategy.DefaultStrategy`. Strategy determines which phases are enabled (discovery, spidering, KnownIssueScan, etc.).
 6. **Resolve heuristics check level**: `--skip-heuristics` > `--heuristics-check` > config > default `"basic"`.
 7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`. The `dynamic-assessment` alias is accepted as a backward-compatible alias for `audit`.
 8. **Validate HTML output**: `--format html` requires `--output` and is only allowed with `--only discovery` or `--only spidering`.
@@ -296,9 +296,9 @@ RunNativeScan()
 │    Content discovery (brute-force dirs/files via deparos engine)
 │    + CLI input source. Both wrapped in MultiSource.
 │    Ingests into DB (no modules, pure ingestion).
-│    Fallback: seedCLITargets() if ingestion skipped but SPA/DA need records.
+│    Fallback: seedCLITargets() if ingestion skipped but KnownIssueScan/DA need records.
 │
-├─── Phase 5: SPA                  [guard: SPAEnabled]
+├─── Phase 5: KnownIssueScan       [guard: KnownIssueScanEnabled]
 │    Nuclei template scan + Kingfisher secret detection on stored
 │    response bodies. Targets enriched with discovered paths
 │    (enrich_targets). Filters out secret_detect passive module
@@ -315,7 +315,7 @@ RunNativeScan()
 
 Phases 0-5 populate the database with HTTP records. Phase 6 reads those records back and runs the full module pipeline against them.
 
-### Phase 5 Detail: SPA
+### Phase 5 Detail: KnownIssueScan
 
 1. Queries distinct paths from DB via `GetDistinctPaths()`.
 2. Builds target URLs — either path-enriched (default, `enrich_targets: true`) or host-level only.
@@ -905,7 +905,7 @@ Three levels of deduplication prevent noise and redundancy:
 
 2. **Finding-level (inline)**: `finding_hash` unique constraint in the database uses `INSERT ON CONFLICT DO NOTHING`. When a duplicate hash is detected at insert time, `appendRecordsToFinding()` appends the new HTTP record UUIDs and request/response pair (as `AdditionalEvidence`) to the existing finding instead of creating a new row.
 
-3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the SPA and audit phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
+3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the KnownIssueScan and audit phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
 
    The grouping process:
    - Partitions findings by `module_id || severity || matched_at[0]` and orders by `created_at ASC`
@@ -915,7 +915,7 @@ Three levels of deduplication prevent noise and redundancy:
    - Returns counts of deleted findings and merged groups for user feedback
 
 ```
-Phase completes (SPA or audit)
+Phase completes (KnownIssueScan or audit)
   │
   ▼
 DeduplicateFindings(projectUUID)
@@ -957,7 +957,7 @@ vigolium scan -t https://example.com
     │              RunNativeScan() — 7 Phases                │
     │                                                        │
     │  [Heuristics] → [Harvest] → [Spider] → [SAST]         │
-    │       → [Discovery/Ingest] → [SPA] → [Dynamic Assess] │
+    │       → [Discovery/Ingest] → [KnownIssueScan] → [Dynamic Assess] │
     │                                                        │
     │  Phases 0-5: populate DB with HTTP records             │
     │  Phase 5-6: DeduplicateFindings() after each          │

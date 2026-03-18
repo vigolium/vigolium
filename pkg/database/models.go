@@ -44,13 +44,13 @@ const (
 	ModuleTypeSAST        = "sast"
 	ModuleTypeOAST        = "oast"
 	ModuleTypeExtension   = "extension"
-	ModuleTypeSPA         = "spa"
+	ModuleTypeKnownIssueScan = "known-issue-scan"
 )
 
 // FindingSource constants identify which phase/component produced a finding.
 const (
 	FindingSourceAudit = "audit"
-	FindingSourceSPA               = "spa"
+	FindingSourceKnownIssueScan    = "known-issue-scan"
 	FindingSourceAgent             = "agent"
 	FindingSourceOAST              = "oast"
 	FindingSourceSourceTools       = "source-tools"

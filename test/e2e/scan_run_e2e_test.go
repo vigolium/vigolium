@@ -133,7 +133,7 @@ func TestAPI_ScansRun_OnlyPhaseAlias(t *testing.T) {
 func TestAPI_ScansRun_SkipPhases(t *testing.T) {
 	env := newSettingsTestEnv(t, "")
 
-	resp := env.post(t, "/api/scans/run", `{"skip":["spidering","spa"],"targets":["http://x"],"dry_run":true}`)
+	resp := env.post(t, "/api/scans/run", `{"skip":["spidering","known-issue-scan"],"targets":["http://x"],"dry_run":true}`)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var body server.ScanResponse
@@ -144,7 +144,7 @@ func TestAPI_ScansRun_SkipPhases(t *testing.T) {
 func TestAPI_ScansRun_OnlyAndSkipConflict(t *testing.T) {
 	env := newSettingsTestEnv(t, "")
 
-	resp := env.post(t, "/api/scans/run", `{"only":"discovery","skip":["spa"],"targets":["http://x"]}`)
+	resp := env.post(t, "/api/scans/run", `{"only":"discovery","skip":["known-issue-scan"],"targets":["http://x"]}`)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	var body server.ErrorResponse

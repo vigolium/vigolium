@@ -11,7 +11,7 @@ var runCmd = &cobra.Command{
 	Short: "Run a single native scan phase (alias for scan --only <phase>)",
 	Long: `Run a single scan phase directly. Equivalent to "vigolium scan --only <phase>".
 
-Valid phases: ingestion, discovery (deparos), external-harvest, spa, spidering (spitolas), sast, audit, extension (ext)`,
+Valid phases: ingestion, discovery (deparos), external-harvest, known-issue-scan, spidering (spitolas), sast, audit, extension (ext)`,
 	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"r"},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,11 +58,11 @@ func init() {
 	// External intelligence harvesting flags
 	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Run pre-scan external intelligence harvesting from external sources")
 
-	// SPA (Security Posture Assessment) flags
-	flags.StringSliceVar(&scanOpts.SPATags, "spa-tags", nil, "Nuclei template tags to include (comma-separated)")
-	flags.StringSliceVar(&scanOpts.SPAExcludeTags, "spa-exclude-tags", nil, "Nuclei template tags to exclude (comma-separated)")
-	flags.StringSliceVar(&scanOpts.SPASeverities, "spa-severities", nil, "Filter Nuclei templates by severity (critical,high,medium,low,info)")
-	flags.StringVar(&scanOpts.SPATemplatesDir, "spa-templates-dir", "", "Custom Nuclei templates directory")
+	// KnownIssueScan flags
+	flags.StringSliceVar(&scanOpts.KnownIssueScanTags, "known-issue-scan-tags", nil, "Nuclei template tags to include (comma-separated)")
+	flags.StringSliceVar(&scanOpts.KnownIssueScanExcludeTags, "known-issue-scan-exclude-tags", nil, "Nuclei template tags to exclude (comma-separated)")
+	flags.StringSliceVar(&scanOpts.KnownIssueScanSeverities, "known-issue-scan-severities", nil, "Filter Nuclei templates by severity (critical,high,medium,low,info)")
+	flags.StringVar(&scanOpts.KnownIssueScanTemplatesDir, "known-issue-scan-templates-dir", "", "Custom Nuclei templates directory")
 
 	// SAST flags
 	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
@@ -70,4 +70,7 @@ func init() {
 
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed OAST callback URL (overrides config oast_url; disables interactsh auto-generation)")
+
+	// Stateless mode
+	flags.BoolVar(&globalStateless, "stateless", false, "Use a temporary database, export results to --output, then discard the database")
 }

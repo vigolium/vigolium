@@ -87,7 +87,7 @@ func resolveAPIModules(modulePatterns, moduleTags []string) []string {
 // validPhases is the set of valid phase names for --only validation.
 var validPhases = map[string]struct{}{
 	"ingestion": {}, "discovery": {}, "external-harvest": {},
-	"spidering": {}, "spa": {}, "audit": {},
+	"spidering": {}, "known-issue-scan": {}, "audit": {},
 	"sast": {}, "extension": {},
 }
 
@@ -104,7 +104,7 @@ func validateRunScanRequest(req RunScanRequest) error {
 	if req.Only != "" {
 		normalized := normalizePhase(req.Only)
 		if _, ok := validPhases[normalized]; !ok {
-			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit, extension (ext)", req.Only)
+			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, known-issue-scan, sast, audit, extension (ext)", req.Only)
 		}
 	}
 
@@ -116,9 +116,9 @@ func validateRunScanRequest(req RunScanRequest) error {
 		for _, phase := range req.Skip {
 			normalized := normalizePhase(phase)
 			switch normalized {
-			case "discovery", "ingestion", "external-harvest", "spidering", "spa", "sast", "audit":
+			case "discovery", "ingestion", "external-harvest", "spidering", "known-issue-scan", "sast", "audit":
 			default:
-				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit", phase)
+				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), known-issue-scan, sast, audit", phase)
 			}
 		}
 	}
@@ -254,7 +254,7 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 		opts.ExternalHarvestEnabled = phases.ExternalHarvesting
 		opts.DiscoverEnabled = phases.Discovery
 		opts.SpideringEnabled = phases.Spidering
-		opts.SPAEnabled = phases.SPA
+		opts.KnownIssueScanEnabled = phases.KnownIssueScan
 		if phases.SourceAware {
 			opts.SASTEnabled = true
 		}
@@ -280,30 +280,30 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipAudit = true
 		case "discovery":
 			opts.DiscoverEnabled = true
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipAudit = true
 		case "external-harvest":
 			opts.ExternalHarvestEnabled = true
 			opts.DiscoverEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
 			opts.SkipAudit = true
 		case "spidering":
 			opts.SpideringEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
 			opts.SkipAudit = true
-		case "spa":
-			opts.SPAEnabled = true
+		case "known-issue-scan":
+			opts.KnownIssueScanEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
@@ -313,7 +313,7 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
 			opts.SkipAudit = false
 		case "sast":
@@ -321,14 +321,14 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
 			opts.SkipAudit = true
 		case "extension":
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
-			opts.SPAEnabled = false
+			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
 			opts.SkipAudit = false
 			opts.ExtensionsOnly = true
@@ -346,8 +346,8 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.ExternalHarvestEnabled = false
 		case "spidering":
 			opts.SpideringEnabled = false
-		case "spa":
-			opts.SPAEnabled = false
+		case "known-issue-scan":
+			opts.KnownIssueScanEnabled = false
 		case "sast":
 			opts.SASTEnabled = false
 		case "audit":

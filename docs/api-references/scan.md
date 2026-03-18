@@ -160,7 +160,7 @@ The `scanning_max_duration` field sets the global max duration. Each phase deriv
 | Spidering          | 0.15          | 18m                 |
 | External Harvester | 0.20          | 24m                 |
 | Audit              | 1.00          | 2h                  |
-| SPA                | 3.00          | 6h                  |
+| KnownIssueScan     | 3.00          | 6h                  |
 
 Per-phase `max_duration` overrides in the YAML config take precedence over the factor calculation.
 
@@ -174,7 +174,7 @@ Per-phase `max_duration` overrides in the YAML config take precedence over the f
 | `extension`          | `ext`                    |
 | `ingestion`          | —                        |
 | `external-harvest`   | —                        |
-| `spa`                | —                        |
+| `known-issue-scan`   | —                        |
 | `sast`               | —                        |
 
 > **Note:** `only` and `skip` are mutually exclusive — providing both returns `400`.
@@ -291,7 +291,7 @@ When a scan starts (via API or CLI), the runner logs a configuration summary to 
   ℹ Project: my-project-uuid
   ℹ Strategy: balanced
   ℹ Phases: ✓ ExternalHarvest (24m0s, x0.2) | ✓ Spidering (18m0s, x0.2) | ✓ Discovery
-            ✓ SPA (6h0m0s, x3.0) | ✓ Audit (2h0m0s, x1.0) | ✗ SAST
+            ✓ KnownIssueScan (6h0m0s, x3.0) | ✓ Audit (2h0m0s, x1.0) | ✗ SAST
   ℹ Speed: concurrency=50 | rate-limit=100 | max-per-host=10
   ℹ Modules: 42 active, 12 passive
 ```
@@ -567,7 +567,7 @@ Returns log entries for a scan, ordered by creation time ascending. Logs are cap
 | `limit`   | int    | 100     | Number of log entries to return                                                                               |
 | `offset`  | int    | 0       | Offset for pagination                                                                                         |
 | `level`   | string |         | Filter by log level: `trace`, `info`, `warn`, `error`. Use `trace` to replay raw console output.              |
-| `phase`   | string |         | Filter by scan phase: `config`, `heuristics`, `harvest`, `spidering`, `discovery`, `spa`, `audit`, `sast`, `seed`. Use `config` to retrieve the scan configuration snapshot. |
+| `phase`   | string |         | Filter by scan phase: `config`, `heuristics`, `harvest`, `spidering`, `discovery`, `known-issue-scan`, `audit`, `sast`, `seed`. Use `config` to retrieve the scan configuration snapshot. |
 
 ```bash
 # Get all logs for a scan
@@ -614,7 +614,7 @@ curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=info&phase=disco
       "level": "info",
       "phase": "config",
       "message": "scan configuration snapshot",
-      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"spa_enabled\":false,\"sast_enabled\":false}",
+      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"known_issue_scan_enabled\":false,\"sast_enabled\":false}",
       "created_at": "2026-02-16T15:00:00Z"
     },
     {
@@ -773,7 +773,7 @@ curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=info&phase=disco
       "level": "info",
       "phase": "config",
       "message": "scan configuration snapshot",
-      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"scanning_profile\":\"\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"heuristics_check\":\"basic\",\"scope_origin_mode\":\"relaxed\",\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"spa_enabled\":false,\"sast_enabled\":false,\"external_harvest\":false,\"skip_dynamic\":false}",
+      "metadata": "{\"project_uuid\":\"my-project-uuid\",\"targets\":[\"https://example.com\"],\"strategy\":\"balanced\",\"scanning_profile\":\"\",\"concurrency\":50,\"rate_limit\":100,\"max_per_host\":10,\"heuristics_check\":\"basic\",\"scope_origin_mode\":\"relaxed\",\"active_modules\":127,\"passive_modules\":85,\"spidering_enabled\":true,\"discovery_enabled\":true,\"known_issue_scan_enabled\":false,\"sast_enabled\":false,\"external_harvest\":false,\"skip_dynamic\":false}",
       "created_at": "2026-02-16T15:00:00Z"
     }
   ],
@@ -804,7 +804,7 @@ curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=info&phase=disco
 | `sast`               | Static analysis / route extraction from source code               |
 | `discovery`          | Input ingestion + content discovery                               |
 | `seed`               | CLI target seeding (when discovery is skipped)                    |
-| `spa`                | Security posture assessment (Nuclei + Kingfisher)                 |
+| `known-issue-scan`   | Known issue scan (Nuclei + Kingfisher)                            |
 | `audit`              | Active/passive module scanning                                    |
 
 **Log levels:**

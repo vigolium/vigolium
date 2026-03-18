@@ -68,7 +68,7 @@ type StrategyPhases struct {
 	ExternalHarvesting bool `yaml:"external_harvesting"`
 	Discovery          bool `yaml:"discovery"`
 	Spidering          bool `yaml:"spidering"`
-	SPA                bool `yaml:"spa"`
+	KnownIssueScan     bool `yaml:"known_issue_scan"`
 	Audit  bool `yaml:"audit"`
 	SourceAware        bool `yaml:"source_aware"`
 }
@@ -83,28 +83,28 @@ func DefaultScanningStrategyConfig() *ScanningStrategyConfig {
 		Lite: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          false,
-			SPA:                false,
+			KnownIssueScan:     false,
 			Audit:  true,
 		},
 		Balanced: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          true,
 			Spidering:          true,
-			SPA:                true,
+			KnownIssueScan:     true,
 			Audit:  true,
 		},
 		Deep: StrategyPhases{
 			ExternalHarvesting: true,
 			Discovery:          true,
 			Spidering:          true,
-			SPA:                true,
+			KnownIssueScan:     true,
 			Audit:  true,
 		},
 		Whitebox: StrategyPhases{
 			ExternalHarvesting: false,
 			SourceAware:        true,
 			Discovery:          true,
-			SPA:                true,
+			KnownIssueScan:     true,
 			Audit:  true,
 		},
 	}

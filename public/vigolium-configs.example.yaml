@@ -134,7 +134,7 @@ database:
 # ============================================================================
 # Named presets that control which scan phases are enabled.
 # Select a strategy via --strategy flag or set the default below.
-# Individual phase flags (--discover, --spa, --external-harvest) override the strategy.
+# Individual phase flags (--discover, --known-issue-scan, --external-harvest) override the strategy.
 scanning_strategy:
   default_strategy: 'balanced'
 
@@ -218,21 +218,21 @@ scanning_strategy:
     external_harvesting: false
     discovery: false
     spidering: false
-    spa: false
+    known_issue_scan: false
     audit: true
 
   balanced:
     external_harvesting: false
     discovery: true
     spidering: true
-    spa: true
+    known_issue_scan: true
     audit: true
 
   deep:
     external_harvesting: true
     discovery: true
     spidering: true
-    spa: true
+    known_issue_scan: true
     audit: true
 
   whitebox:
@@ -240,7 +240,7 @@ scanning_strategy:
     source_aware: true
     discovery: true
     spidering: false
-    spa: true
+    known_issue_scan: true
     audit: true
 
 # ============================================================================
@@ -257,7 +257,7 @@ scanning_strategy:
 scanning_pace:
   ## Common defaults (inherited by all phases unless overridden)
   concurrency: 50        # Worker/thread count
-  rate_limit: 100        # Requests/sec (applies to SPA currently)
+  rate_limit: 100        # Requests/sec (applies to KnownIssueScan currently)
   max_per_host: 10        # Per-host concurrency cap
   max_duration: 1h      # Base duration for all phases (per-phase factors scale this)
 
@@ -269,7 +269,7 @@ scanning_pace:
   #   concurrency_factor: 0.6     # alternative: 60% of common concurrency
   #   max_duration: 1h
     duration_factor: 0.5          # 0.5x base → 30m
-  spa:
+  known_issue_scan:
     duration_factor: 1.0          # 3x base → 3h
   spidering:
     duration_factor: 0.1          # 0.08x base → 6m
@@ -989,15 +989,15 @@ spidering:
   no_forms: false
 
 # ============================================================================
-# Security Posture Assessment (SPA)
+# Known Issue Scan
 # ============================================================================
 # Run nuclei templates against in-scope targets using the nuclei Go library.
-# SPA complements Vigolium's precision scanning with nuclei's broad template
+# KnownIssueScan complements Vigolium's precision scanning with nuclei's broad template
 # coverage for misconfigurations, exposures, and known CVEs.
 #
-# Managed by scanning_strategy; override with CLI flag: --spa
-# Speed control (concurrency, rate_limit, timeout) is configured in scanning_pace.spa.
-spa:
+# Managed by scanning_strategy; override with CLI flag: --known-issue-scan
+# Speed control (concurrency, rate_limit, timeout) is configured in scanning_pace.known_issue_scan.
+known_issue_scan:
   # Nuclei template tags to include (empty = all templates).
   # Default: [] (run all templates)
   tags: []
@@ -1027,7 +1027,7 @@ spa:
   # Default: "" (uses nuclei default templates)
   templates_dir: ""
 
-  # Enrich SPA targets with paths discovered in previous phases.
+  # Enrich known-issue-scan targets with paths discovered in previous phases.
   # When true, nuclei templates are run against individual path prefixes
   # found during discovery/spidering (increases coverage but can slow down scans).
   # When false, only host-level URLs are used as targets.

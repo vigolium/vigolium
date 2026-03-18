@@ -194,7 +194,7 @@ func TestDefaultScanningPaceConfig(t *testing.T) {
 		phase  string
 		factor float64
 	}{
-		{"spa", 3.0},
+		{"known-issue-scan", 3.0},
 		{"spidering", 0.15},
 		{"external_harvester", 0.2},
 		{"audit", 1.0},

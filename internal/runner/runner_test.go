@@ -7,7 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-func TestBuildSPATargetsFromPaths(t *testing.T) {
+func TestBuildKnownIssueScanTargetsFromPaths(t *testing.T) {
 	tests := []struct {
 		name  string
 		paths []database.PathTarget
@@ -95,7 +95,7 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildSPATargetsFromPaths(tt.paths)
+			got := buildKnownIssueScanTargetsFromPaths(tt.paths)
 
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d targets, want %d\ngot:  %v\nwant: %v", len(got), len(tt.want), got, tt.want)
@@ -116,7 +116,7 @@ func TestBuildSPATargetsFromPaths(t *testing.T) {
 	}
 }
 
-func TestBuildSPAHostTargets(t *testing.T) {
+func TestBuildKnownIssueScanHostTargets(t *testing.T) {
 	tests := []struct {
 		name  string
 		paths []database.PathTarget
@@ -156,7 +156,7 @@ func TestBuildSPAHostTargets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildSPAHostTargets(tt.paths)
+			got := buildKnownIssueScanHostTargets(tt.paths)
 
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d targets, want %d\ngot:  %v\nwant: %v", len(got), len(tt.want), got, tt.want)

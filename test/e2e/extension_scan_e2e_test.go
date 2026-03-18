@@ -140,7 +140,7 @@ func TestExtensionOnlyPhase(t *testing.T) {
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SpideringEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 	opts.SkipIngestion = true
 	opts.ExtensionsOnly = true // only run JS extensions
 
@@ -213,7 +213,7 @@ func TestExtensionScanWithExtraScript(t *testing.T) {
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SpideringEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 	opts.SkipIngestion = true
 	opts.ExtensionsOnly = false // built-in modules also run
 

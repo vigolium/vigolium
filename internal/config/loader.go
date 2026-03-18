@@ -20,7 +20,7 @@ type Settings struct {
 	Scope              ScopeConfig              `yaml:"scope"`
 	SourceAware      SourceAwareConfig      `yaml:"source_aware"`
 	Discovery        DiscoveryConfig        `yaml:"discovery"`
-	SPA              SPAConfig              `yaml:"spa"`
+	KnownIssueScan   KnownIssueScanConfig   `yaml:"known_issue_scan"`
 	ExternalHarvester  ExternalHarvesterConfig  `yaml:"external_harvester"`
 	ScanningStrategy   ScanningStrategyConfig   `yaml:"scanning_strategy"`
 	ScanningPace       ScanningPaceConfig       `yaml:"scanning_pace"`
@@ -36,7 +36,7 @@ type ProfileSettings struct {
 	ScanningPace      *ScanningPaceConfig      `yaml:"scanning_pace,omitempty"`
 	Discovery         *DiscoveryConfig         `yaml:"discovery,omitempty"`
 	Spidering         *SpideringConfig         `yaml:"spidering,omitempty"`
-	SPA               *SPAConfig               `yaml:"spa,omitempty"`
+	KnownIssueScan    *KnownIssueScanConfig    `yaml:"known_issue_scan,omitempty"`
 	Audit             *AuditConfig             `yaml:"audit,omitempty"`
 	ExternalHarvester *ExternalHarvesterConfig `yaml:"external_harvester,omitempty"`
 	MutationStrategy  *MutationStrategyConfig  `yaml:"mutation_strategy,omitempty"`
@@ -83,8 +83,8 @@ func ApplyProfile(settings *Settings, profile *ProfileSettings) error {
 	if profile.Spidering != nil {
 		overlays = append(overlays, overlay{profile.Spidering, &settings.Spidering})
 	}
-	if profile.SPA != nil {
-		overlays = append(overlays, overlay{profile.SPA, &settings.SPA})
+	if profile.KnownIssueScan != nil {
+		overlays = append(overlays, overlay{profile.KnownIssueScan, &settings.KnownIssueScan})
 	}
 	if profile.Audit != nil {
 		overlays = append(overlays, overlay{profile.Audit, &settings.Audit})
@@ -177,7 +177,7 @@ func DefaultSettings() *Settings {
 		Scope:             *DefaultScopeConfig(),
 		SourceAware:      *DefaultSourceAwareConfig(),
 		Discovery:        *DefaultDiscoveryConfig(),
-		SPA:              *DefaultSPAConfig(),
+		KnownIssueScan:   *DefaultKnownIssueScanConfig(),
 		ExternalHarvester: *DefaultExternalHarvesterConfig(),
 		ScanningStrategy:  *DefaultScanningStrategyConfig(),
 		ScanningPace:      *DefaultScanningPaceConfig(),

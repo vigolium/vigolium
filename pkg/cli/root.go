@@ -86,6 +86,9 @@ var (
 	globalExtScripts []string // --ext
 	globalExtDir     string   // --ext-dir
 
+	// Stateless mode
+	globalStateless bool
+
 	// Request clustering
 	globalNoClustering bool
 

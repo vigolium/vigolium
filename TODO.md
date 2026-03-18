@@ -1,2 +1,2 @@
-- Join the auth and routes prompt
+- add dockerfile and make sure it is build well with chromium browser installed
 - Added Network scan with nmap in spa phase

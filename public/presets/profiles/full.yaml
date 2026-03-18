@@ -1,4 +1,4 @@
-# description: Full scan — deep discovery, spidering, enriched SPA targets, thorough audit (slow)
+# description: Full scan — deep discovery, spidering, enriched known-issue-scan targets, thorough audit (slow)
 scanning_strategy:
   default_strategy: deep
 
@@ -11,7 +11,7 @@ scanning_pace:
     max_duration: 2h
   spidering:
     max_duration: 1h
-  spa:
+  known_issue_scan:
     max_duration: 3h
     duration_factor: 3.0
   audit:
@@ -54,7 +54,7 @@ spidering:
   strategy: adaptive
   browser_engine: chromium
 
-spa:
+known_issue_scan:
   enrich_targets: true
   exclude_tags:
     - dos

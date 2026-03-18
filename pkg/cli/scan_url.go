@@ -49,21 +49,21 @@ var (
 	scanPhaseDiscover        bool
 	scanPhaseSpider          bool
 	scanPhaseExternalHarvest bool
-	scanPhaseSPA             bool
+	scanPhaseKnownIssueScan  bool
 )
 
-// registerPhaseFlags adds --discover, --spider, --external-harvest, and --spa
+// registerPhaseFlags adds --discover, --spider, --external-harvest, and --known-issue-scan
 // flags to the given FlagSet. Called from both scan-url and scan-request init().
 func registerPhaseFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&scanPhaseDiscover, "discover", false, "Run content discovery before scanning")
 	flags.BoolVar(&scanPhaseSpider, "spider", false, "Run browser-based spidering before scanning")
 	flags.BoolVar(&scanPhaseExternalHarvest, "external-harvest", false, "Run external intelligence harvesting before scanning")
-	flags.BoolVar(&scanPhaseSPA, "spa", false, "Run security posture assessment (Nuclei/Kingfisher)")
+	flags.BoolVar(&scanPhaseKnownIssueScan, "known-issue-scan", false, "Run known issue scan (Nuclei/Kingfisher)")
 }
 
 // hasPhaseFlags returns true if any phase flag is set.
 func hasPhaseFlags() bool {
-	return scanPhaseDiscover || scanPhaseSpider || scanPhaseExternalHarvest || scanPhaseSPA
+	return scanPhaseDiscover || scanPhaseSpider || scanPhaseExternalHarvest || scanPhaseKnownIssueScan
 }
 
 var scanURLCmd = &cobra.Command{
@@ -450,7 +450,7 @@ func buildPhaseOptions(target string) *types.Options {
 	opts.DiscoverEnabled = scanPhaseDiscover
 	opts.SpideringEnabled = scanPhaseSpider
 	opts.ExternalHarvestEnabled = scanPhaseExternalHarvest
-	opts.SPAEnabled = scanPhaseSPA
+	opts.KnownIssueScanEnabled = scanPhaseKnownIssueScan
 
 	// Heuristics: not useful for single-target phase mode
 	opts.HeuristicsCheck = "none"
@@ -463,7 +463,7 @@ func buildPhaseOptions(target string) *types.Options {
 }
 
 // runPhaseMode delegates scanning to the Runner when any phase flag is set.
-// This enables full-pipeline phases (discover, spider, external-harvest, SPA)
+// This enables full-pipeline phases (discover, spider, external-harvest, known-issue-scan)
 // from the lightweight scan-url and scan-request commands.
 func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 	opts := buildPhaseOptions(target)
@@ -509,9 +509,9 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 			return fmt.Errorf("invalid external harvester configuration: %w", err)
 		}
 	}
-	if opts.SPAEnabled {
-		if err := settings.SPA.Validate(); err != nil {
-			return fmt.Errorf("invalid SPA configuration: %w", err)
+	if opts.KnownIssueScanEnabled {
+		if err := settings.KnownIssueScan.Validate(); err != nil {
+			return fmt.Errorf("invalid KnownIssueScan configuration: %w", err)
 		}
 	}
 

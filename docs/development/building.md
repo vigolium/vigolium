@@ -157,7 +157,7 @@ make docker            # build Docker image
 make docker-push       # push to registry (set DOCKER_REGISTRY env var)
 ```
 
-The image uses `alpine:3.21` as the runtime base, runs as a non-root user (`vigolium`, UID 1000), and produces a minimal image with only the binary, CA certificates, and timezone data.
+The full image (`build/Dockerfile`) uses `debian:bookworm-slim` as the runtime base and includes Chromium, source-aware tools, and Python. A minimal variant (`build/Dockerfile.minimal`) uses `alpine:3.21`, runs as a non-root user (`vigolium`, UID 1000), and contains only the binary, CA certificates, and timezone data. See [Running with Docker](docker.md) for the full guide.
 
 ## Version Information
 

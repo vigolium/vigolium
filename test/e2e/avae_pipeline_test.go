@@ -482,7 +482,7 @@ func TestAVAE_FullPipeline_IngestThenScan(t *testing.T) {
 	_ = env.repo.CompleteScan(ctx, scan.UUID, ")
 }
 
-// --- Phase 2: SPA (Kingfisher Batch) Tests ---
+// --- Phase 2: KnownIssueScan (Kingfisher Batch) Tests ---
 
 // TestAVAE_Phase2_KingfisherBatch verifies that the kingfisher batch scanner
 // can scan response bodies stored in the DB for leaked secrets.
@@ -548,10 +548,10 @@ func TestAVAE_Phase2_KingfisherBatch(t *testing.T) {
 
 // --- Edge Cases ---
 
-// TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled verifies that the
+// TestAVAE_Phase3_FilterSecretDetectWhenKnownIssueScanEnabled verifies that the
 // secret-detect module is correctly filtered out of Phase 3
-// when SPA mode is enabled (to avoid duplicate kingfisher findings).
-func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
+// when KnownIssueScan mode is enabled (to avoid duplicate kingfisher findings).
+func TestAVAE_Phase3_FilterSecretDetectWhenKnownIssueScanEnabled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -571,13 +571,13 @@ func TestAVAE_Phase3_FilterSecretDetectWhenSPAEnabled(t *testing.T) {
 		t.Skip("secret-detect module not registered, skipping filter test")
 	}
 
-	// Simulate the filtering that runAuditPhase does when SPA is enabled
+	// Simulate the filtering that runAuditPhase does when KnownIssueScan is enabled
 	filtered := filterOutPassiveModuleTest(passiveModules, secret_detect.ModuleID)
 
 	// Verify it was removed
 	for _, m := range filtered {
 		assert.NotEqual(t, secret_detect.ModuleID, m.ID(),
-			"secret-detect should be filtered out when SPA is enabled")
+			"secret-detect should be filtered out when KnownIssueScan is enabled")
 	}
 	assert.Equal(t, len(passiveModules)-1, len(filtered),
 		"Filtered list should have exactly one fewer module")

@@ -80,7 +80,7 @@ func newScanRunnerWithSettings(t *testing.T, opts *types.Options, settings *conf
 // --- Tests ---
 
 // TestScanRunner_VAmPI_OnlyAudit validates --only audit
-// flag behavior via the Runner. Discovery, external harvest, and SPA are disabled;
+// flag behavior via the Runner. Discovery, external harvest, and KnownIssueScan are disabled;
 // only the audit phase runs against known vulnerable endpoints.
 func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
 	if testing.Short() {
@@ -99,7 +99,7 @@ func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
 	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 
 	r, db, _ := newScanRunner(t, opts)
 
@@ -136,7 +136,7 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 	// --only discovery equivalent
 	opts.DiscoverEnabled = true
 	opts.ExternalHarvestEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 	opts.SkipAudit = true
 
 	r, db, repo := newScanRunner(t, opts)
@@ -177,7 +177,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 	// No OnlyPhase, no strategy override — default audit
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -201,7 +201,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 }
 
 // TestScanRunner_VAmPI_StrategyLite validates the "lite" strategy preset:
-// audit only, no discovery, no external harvest, no SPA.
+// audit only, no discovery, no external harvest, no KnownIssueScan.
 func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
@@ -218,7 +218,7 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 	// Lite strategy fields: audit only
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 	opts.SkipAudit = false
 
 	r, db, repo := newScanRunner(t, opts)
@@ -247,7 +247,7 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 
 // TestScanRunner_VAmPI_OnlyExternalHarvest validates --only external-harvest:
 // external intelligence sources are queried, original targets are ingested,
-// but discovery/SPA/DA are all skipped. External sources won't find anything
+// but discovery/KnownIssueScan/DA are all skipped. External sources won't find anything
 // for a local container, so this also exercises the empty-harvest path.
 func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 	if testing.Short() {
@@ -265,7 +265,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 	// --only external-harvest equivalent
 	opts.ExternalHarvestEnabled = true
 	opts.DiscoverEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 	opts.SkipAudit = true
 
 	r, db, repo := newScanRunner(t, opts)
@@ -287,9 +287,9 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 		"Expected 0 findings when only external-harvest is enabled (DA skipped)")
 }
 
-// TestScanRunner_VAmPI_OnlySPA validates --only spa: the SPA phase runs nuclei
+// TestScanRunner_VAmPI_OnlyKnownIssueScan validates --only known-issue-scan: the KnownIssueScan phase runs nuclei
 // and kingfisher batch scans after ingesting targets, but audit is skipped.
-func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
+func TestScanRunner_VAmPI_OnlyKnownIssueScan(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
 	}
@@ -302,8 +302,8 @@ func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	// --only spa equivalent
-	opts.SPAEnabled = true
+	// --only known-issue-scan equivalent
+	opts.KnownIssueScanEnabled = true
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.SkipAudit = true
@@ -317,16 +317,16 @@ func TestScanRunner_VAmPI_OnlySPA(t *testing.T) {
 	hosts, err := repo.GetDistinctHosts(ctx)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1,
-		"Expected at least one host in DB after SPA pipeline")
-	t.Logf("SPA: %d distinct hosts ingested", len(hosts))
+		"Expected at least one host in DB after KnownIssueScan pipeline")
+	t.Logf("KnownIssueScan: %d distinct hosts ingested", len(hosts))
 
-	// SPA runs nuclei + kingfisher. Nuclei may or may not find issues in VAmPI
+	// KnownIssueScan runs nuclei + kingfisher. Nuclei may or may not find issues in VAmPI
 	// depending on available templates. Kingfisher may not be installed.
 	// Both sub-phases log errors but don't fail the pipeline.
-	// Assert that scan completed and log any SPA findings.
+	// Assert that scan completed and log any KnownIssueScan findings.
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
 	require.NoError(t, err)
-	t.Logf("SPA: %d findings (nuclei + kingfisher)", len(findings))
+	t.Logf("KnownIssueScan: %d findings (nuclei + kingfisher)", len(findings))
 	for _, f := range findings {
 		t.Logf("  [%s] %s — %s", f.Severity, f.ModuleID, f.ModuleName)
 	}
@@ -417,7 +417,7 @@ module.exports = {
 	opts.SkipAudit = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SPAEnabled = false
+	opts.KnownIssueScanEnabled = false
 
 	r, db, repo := newScanRunnerWithSettings(t, opts, settings)
 

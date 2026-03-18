@@ -17,7 +17,7 @@ type ScanningPaceConfig struct {
 
 	Discovery         PhasePace `yaml:"discovery"`
 	Spidering         PhasePace `yaml:"spidering"`
-	SPA               PhasePace `yaml:"spa"`
+	KnownIssueScan    PhasePace `yaml:"known_issue_scan"`
 	ExternalHarvester PhasePace `yaml:"external_harvester"`
 	Audit PhasePace `yaml:"audit"`
 }
@@ -56,7 +56,7 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		MaxPerHost:  10,
 		MaxDuration: "2h",
 
-		SPA:               PhasePace{DurationFactor: 3.0},
+		KnownIssueScan:    PhasePace{DurationFactor: 3.0},
 		Spidering:         PhasePace{DurationFactor: 0.15},
 		ExternalHarvester: PhasePace{DurationFactor: 0.2},
 		Audit: PhasePace{DurationFactor: 1.0, ParallelPassive: boolPtr(true), FeedbackDrainTimeout: "500ms"},
@@ -98,8 +98,8 @@ func (c *ScanningPaceConfig) ResolvePhase(phase string) ResolvedPhasePace {
 		pp = c.Discovery
 	case "spidering":
 		pp = c.Spidering
-	case "spa":
-		pp = c.SPA
+	case "known-issue-scan":
+		pp = c.KnownIssueScan
 	case "external_harvester":
 		pp = c.ExternalHarvester
 	case "audit":
@@ -176,7 +176,7 @@ func (c *ScanningPaceConfig) Validate() error {
 	phases := map[string]*PhasePace{
 		"discovery":          &c.Discovery,
 		"spidering":          &c.Spidering,
-		"spa":                &c.SPA,
+		"known-issue-scan":   &c.KnownIssueScan,
 		"external_harvester": &c.ExternalHarvester,
 		"audit": &c.Audit,
 	}

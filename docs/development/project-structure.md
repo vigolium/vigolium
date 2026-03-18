@@ -34,7 +34,7 @@ vigolium/
 │   ├── queue/             # Hybrid in-memory/disk/Redis queue
 │   ├── server/            # REST API server (Fiber)
 │   ├── sourcetools/       # Third-party SAST tool integration
-│   ├── spa/               # Security Posture Assessment (Nuclei)
+│   ├── knownissuescan/     # Known Issue Scan (Nuclei)
 │   ├── spitolas/          # Browser-based spider (Chromium/CDP)
 │   ├── terminal/          # Terminal UI, colors, symbols
 │   ├── types/             # Shared types and options
@@ -66,7 +66,7 @@ Ingestion ──► Database (SQLite/PostgreSQL)
 │  Phase 1: External Harvesting (opt-in)      │
 │  Phase 2: Content Discovery — Deparos       │
 │  Phase 3: Browser Spidering — Spitolas      │
-│  Phase 4: SPA — Nuclei + Kingfisher         │
+│  Phase 4: KnownIssueScan — Nuclei + Kingfisher│
 │  Phase 5: Audit — Executor                   │
 └──────────────────┬──────────────────────────┘
                    ▼
@@ -222,9 +222,9 @@ Browser-based state-machine crawler driving headless Chromium via CDP. Discovers
 
 See [../scan-layers/spitolas.md](../scan-layers/spitolas.md) and [../scan-layers/spa.md](../scan-layers/spa.md).
 
-#### `pkg/spa/`
+#### `pkg/knownissuescan/`
 
-Security Posture Assessment integration. Runs Nuclei templates and Kingfisher secret detection against in-scope hosts. Supports template tag/severity filtering, custom templates directory, rate limiting, and proxy support.
+Known Issue Scan integration. Runs Nuclei templates and Kingfisher secret detection against in-scope hosts. Supports template tag/severity filtering, custom templates directory, rate limiting, and proxy support.
 
 #### `pkg/harvester/`
 

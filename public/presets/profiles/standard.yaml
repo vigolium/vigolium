@@ -51,7 +51,7 @@ spidering:
   strategy: adaptive
   browser_engine: chromium
 
-spa:
+known_issue_scan:
   enrich_targets: true
   exclude_tags:
     - dos

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -73,11 +74,11 @@ func init() {
 	// External intelligence harvesting flags
 	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Enable external intelligence gathering phase (Wayback, CT logs, etc.)")
 
-	// SPA (Security Posture Assessment) flags
-	flags.StringSliceVar(&scanOpts.SPATags, "spa-tags", nil, "Nuclei template tags to include (comma-separated)")
-	flags.StringSliceVar(&scanOpts.SPAExcludeTags, "spa-exclude-tags", nil, "Nuclei template tags to exclude (comma-separated)")
-	flags.StringSliceVar(&scanOpts.SPASeverities, "spa-severities", nil, "Filter Nuclei templates by severity (critical,high,medium,low,info)")
-	flags.StringVar(&scanOpts.SPATemplatesDir, "spa-templates-dir", "", "Custom Nuclei templates directory")
+	// KnownIssueScan flags
+	flags.StringSliceVar(&scanOpts.KnownIssueScanTags, "known-issue-scan-tags", nil, "Nuclei template tags to include (comma-separated)")
+	flags.StringSliceVar(&scanOpts.KnownIssueScanExcludeTags, "known-issue-scan-exclude-tags", nil, "Nuclei template tags to exclude (comma-separated)")
+	flags.StringSliceVar(&scanOpts.KnownIssueScanSeverities, "known-issue-scan-severities", nil, "Filter Nuclei templates by severity (critical,high,medium,low,info)")
+	flags.StringVar(&scanOpts.KnownIssueScanTemplatesDir, "known-issue-scan-templates-dir", "", "Custom Nuclei templates directory")
 
 	// SAST flags
 	flags.StringVar(&scanOpts.SASTRuleFilter, "rule", "", "Filter SAST rules by fuzzy name match (e.g. 'gin', 'route')")
@@ -85,6 +86,9 @@ func init() {
 
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed out-of-band callback URL (overrides auto-generated interactsh URL)")
+
+	// Stateless mode
+	flags.BoolVar(&globalStateless, "stateless", false, "Use a temporary database, export results to --output, then discard the database")
 
 	// Multi-session authentication flags
 	flags.StringSliceVar(&scanOpts.Sessions, "session", nil, "Inline session for IDOR/BOLA testing (repeatable, format: name:Header:value)")
@@ -167,6 +171,17 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		scanOpts.Silent = true
 	}
 
+	// Stateless mode validation
+	scanOpts.Stateless = globalStateless
+	if scanOpts.Stateless {
+		if scanOpts.Output == "" {
+			return fmt.Errorf("--stateless requires -o/--output to specify the export file path")
+		}
+		if globalDB != "" {
+			return fmt.Errorf("--stateless and --db are mutually exclusive")
+		}
+	}
+
 	// Initialize database (always enabled)
 	var repo *database.Repository
 	var db *database.DB
@@ -196,6 +211,29 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	if globalDB != "" {
 		settings.Database.Driver = "sqlite"
 		settings.Database.SQLite.Path = globalDB
+	}
+
+	// Stateless mode: create a temporary SQLite database
+	var statelessDBPath string
+	if scanOpts.Stateless {
+		tmpFile, tmpErr := os.CreateTemp("", "vigolium-stateless-*.sqlite")
+		if tmpErr != nil {
+			return fmt.Errorf("failed to create temporary database: %w", tmpErr)
+		}
+		statelessDBPath = tmpFile.Name()
+		_ = tmpFile.Close()
+		// Cleanup temp DB and WAL/SHM sidecar files on exit
+		defer func() {
+			_ = os.Remove(statelessDBPath)
+			_ = os.Remove(statelessDBPath + "-wal")
+			_ = os.Remove(statelessDBPath + "-shm")
+		}()
+
+		settings.Database.Driver = "sqlite"
+		settings.Database.SQLite.Path = statelessDBPath
+		if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s Stateless mode: using temporary database\n", terminal.InfoSymbol())
+		}
 	}
 
 	// Validate database config
@@ -260,7 +298,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		scanOpts.ExternalHarvestEnabled = phases.ExternalHarvesting
 		scanOpts.DiscoverEnabled = phases.Discovery
 		scanOpts.SpideringEnabled = phases.Spidering
-		scanOpts.SPAEnabled = phases.SPA
+		scanOpts.KnownIssueScanEnabled = phases.KnownIssueScan
 		if phases.SourceAware {
 			scanOpts.SASTEnabled = true
 		}
@@ -298,30 +336,30 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipAudit = true
 		case "discovery":
 			scanOpts.DiscoverEnabled = true
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipAudit = true
 		case "external-harvest":
 			scanOpts.ExternalHarvestEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipIngestion = true
 			scanOpts.SkipAudit = true
 		case "spidering":
 			scanOpts.SpideringEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipIngestion = true
 			scanOpts.SkipAudit = true
-		case "spa":
-			scanOpts.SPAEnabled = true
+		case "known-issue-scan":
+			scanOpts.KnownIssueScanEnabled = true
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
@@ -331,7 +369,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipIngestion = true
 			scanOpts.SkipAudit = false
 		case "sast":
@@ -339,20 +377,20 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipIngestion = true
 			scanOpts.SkipAudit = true
 		case "extension":
 			scanOpts.DiscoverEnabled = false
 			scanOpts.ExternalHarvestEnabled = false
 			scanOpts.SpideringEnabled = false
-			scanOpts.SPAEnabled = false
+			scanOpts.KnownIssueScanEnabled = false
 			scanOpts.SkipIngestion = true
 			scanOpts.SkipAudit = false
 			scanOpts.ExtensionsOnly = true
 			settings.Audit.Extensions.Enabled = true
 		default:
-			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, spa, sast, audit, extension (ext)", scanOpts.OnlyPhase)
+			return fmt.Errorf("invalid --only value %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, known-issue-scan, sast, audit, extension (ext)", scanOpts.OnlyPhase)
 		}
 		scanOpts.HeuristicsCheck = "none"
 		zap.L().Info("Phase isolation active", zap.String("only", scanOpts.OnlyPhase))
@@ -369,14 +407,14 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 				scanOpts.ExternalHarvestEnabled = false
 			case "spidering":
 				scanOpts.SpideringEnabled = false
-			case "spa":
-				scanOpts.SPAEnabled = false
+			case "known-issue-scan":
+				scanOpts.KnownIssueScanEnabled = false
 			case "sast":
 				scanOpts.SASTEnabled = false
 			case "audit":
 				scanOpts.SkipAudit = true
 			default:
-				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), spa, sast, audit", phase)
+				return fmt.Errorf("invalid --skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), known-issue-scan, sast, audit", phase)
 			}
 		}
 		zap.L().Info("Phases skipped", zap.Strings("skip", scanOpts.SkipPhases))
@@ -430,22 +468,22 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid discovery configuration: %w", err)
 		}
 	}
-	if scanOpts.SPAEnabled {
-		// Apply CLI overrides for SPA config
-		if cmd.Flags().Changed("spa-tags") {
-			settings.SPA.Tags = scanOpts.SPATags
+	if scanOpts.KnownIssueScanEnabled {
+		// Apply CLI overrides for KnownIssueScan config
+		if cmd.Flags().Changed("known-issue-scan-tags") {
+			settings.KnownIssueScan.Tags = scanOpts.KnownIssueScanTags
 		}
-		if cmd.Flags().Changed("spa-exclude-tags") {
-			settings.SPA.ExcludeTags = scanOpts.SPAExcludeTags
+		if cmd.Flags().Changed("known-issue-scan-exclude-tags") {
+			settings.KnownIssueScan.ExcludeTags = scanOpts.KnownIssueScanExcludeTags
 		}
-		if cmd.Flags().Changed("spa-severities") {
-			settings.SPA.Severities = scanOpts.SPASeverities
+		if cmd.Flags().Changed("known-issue-scan-severities") {
+			settings.KnownIssueScan.Severities = scanOpts.KnownIssueScanSeverities
 		}
-		if cmd.Flags().Changed("spa-templates-dir") {
-			settings.SPA.TemplatesDir = scanOpts.SPATemplatesDir
+		if cmd.Flags().Changed("known-issue-scan-templates-dir") {
+			settings.KnownIssueScan.TemplatesDir = scanOpts.KnownIssueScanTemplatesDir
 		}
-		if err := settings.SPA.Validate(); err != nil {
-			return fmt.Errorf("invalid spa configuration: %w", err)
+		if err := settings.KnownIssueScan.Validate(); err != nil {
+			return fmt.Errorf("invalid known-issue-scan configuration: %w", err)
 		}
 	}
 	if scanOpts.SpideringEnabled {
@@ -527,6 +565,16 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+
+	// For stateless + jsonl/html: suppress StandardWriter file output; we export the full DB post-scan.
+	// For stateless + console: let StandardWriter write to --output normally (findings-only is fine).
+	var statelessOutputPath string
+	if scanOpts.Stateless && scanOpts.OutputFormat != "console" {
+		statelessOutputPath = scanOpts.Output
+		scanOpts.Output = "" // prevent StandardWriter from creating the output file
+	}
+	// Defer stateless export so all exit paths are covered automatically.
+	defer func() { finishStatelessExport(db, scanOpts, statelessOutputPath) }()
 
 	// If -i was explicitly provided, use two-phase ingest-then-scan
 	hasInputFile := globalInput != "" && globalInput != "-"
@@ -644,7 +692,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 }
 
 // runScanWithIngest delegates to the Runner's 3-phase pipeline when -i is provided.
-// The Runner's Phase 1 ingests the input file, Phase 2 runs SPA if enabled,
+// The Runner's Phase 1 ingests the input file, Phase 2 runs KnownIssueScan if enabled,
 // and Phase 3 scans from DB with all modules.
 func runScanWithIngest(settings *config.Settings, db *database.DB, repo *database.Repository) error {
 	// Auto-detect format from file extension
@@ -730,7 +778,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 
 // runDBScan scans records already in the database (no explicit targets).
 // Delegates to RunNativeScan(): Phase 1 is a no-op (empty source),
-// Phase 2 runs SPA if enabled, Phase 3 reads existing DB records.
+// Phase 2 runs KnownIssueScan if enabled, Phase 3 reads existing DB records.
 func runDBScan(settings *config.Settings, db *database.DB, repo *database.Repository) error {
 	// Create Runner with an empty input source — Phase 1 becomes a no-op
 	scanRunner, err := runner.NewWithInputSource(scanOpts, &emptySource{})
@@ -860,6 +908,56 @@ func normalizePhase(phase string) string {
 	}
 }
 
+// finishStatelessExport writes the full database export to the output file
+// when running in stateless mode with jsonl or html format.
+// For console format, StandardWriter already handles the output file.
+// For html format, generateHTMLFromDB is already called in the normal flow
+// (with scanOpts.Output cleared, it's a no-op), so we handle it here.
+func finishStatelessExport(db *database.DB, opts *types.Options, outputPath string) {
+	if !opts.Stateless || outputPath == "" {
+		return
+	}
+
+	ctx := context.Background()
+
+	switch opts.OutputFormat {
+	case "html":
+		if err := generateHTMLFromDB(ctx, db, outputPath); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
+		} else if !opts.Silent {
+			fmt.Fprintf(os.Stderr, "%s HTML report exported to %s\n", terminal.InfoSymbol(), terminal.Cyan(outputPath))
+		}
+	case "jsonl":
+		items, err := queryExportData(ctx, db)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
+			return
+		}
+		f, err := os.Create(outputPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to create output file: %v\n", terminal.ErrorPrefix(), err)
+			return
+		}
+		defer func() { _ = f.Close() }()
+
+		enc := json.NewEncoder(f)
+		enc.SetEscapeHTML(false)
+		var writeErr error
+		for _, item := range items {
+			if err := enc.Encode(item); err != nil {
+				writeErr = err
+				break
+			}
+		}
+		if writeErr != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), writeErr)
+		} else if !opts.Silent {
+			fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
+				terminal.InfoSymbol(), terminal.Cyan(outputPath), len(items))
+		}
+	}
+}
+
 func setupScanSignalHandler(r *runner.Runner) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
@@ -920,7 +1018,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 
 	discoveryEnabled := opts.DiscoverEnabled
 	spideringEnabled := opts.SpideringEnabled
-	spaEnabled := opts.SPAEnabled
+	knownIssueScanEnabled := opts.KnownIssueScanEnabled
 	daEnabled := !opts.SkipAudit
 	ehEnabled := opts.ExternalHarvestEnabled
 
@@ -975,7 +1073,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		phaseLabel("Spidering", "spidering", spideringEnabled),
 		phaseLabel("Discovery", "discovery", discoveryEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
-		phaseLabel("SPA", "spa", spaEnabled),
+		phaseLabel("KnownIssueScan", "known-issue-scan", knownIssueScanEnabled),
 		phaseLabel("Audit", "audit", daEnabled),
 		phaseLabel("SAST", "sast", sastEnabled))
 	if sastEnabled && opts.SASTAdhoc != "" {
@@ -1031,10 +1129,10 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		fmt.Fprintf(os.Stderr, "  %s view scanning pace via %s\n",
 			terminal.TipPrefix(),
 			terminal.HiCyan("vigolium config ls scanning_pace"))
-		if spaEnabled && !settings.SPA.EnrichTargets {
-			fmt.Fprintf(os.Stderr, "  %s enrich SPA targets with discovered paths via %s\n",
+		if knownIssueScanEnabled && !settings.KnownIssueScan.EnrichTargets {
+			fmt.Fprintf(os.Stderr, "  %s enrich KnownIssueScan targets with discovered paths via %s\n",
 				terminal.TipPrefix(),
-				terminal.HiCyan("vigolium config spa.enrich_targets=true"))
+				terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
 		}
 	}
 	fmt.Fprintln(os.Stderr)

@@ -1,4 +1,4 @@
-# description: Fast scan — minimal discovery, no spidering, host-only SPA targets
+# description: Fast scan — minimal discovery, no spidering, host-only known-issue-scan targets
 scanning_strategy:
   default_strategy: lite
 
@@ -39,7 +39,7 @@ discovery:
     observed_max_items: 1000
     disable_kingfisher: true
 
-spa:
+known_issue_scan:
   enrich_targets: false
   exclude_tags:
     - dos

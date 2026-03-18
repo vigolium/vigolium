@@ -55,7 +55,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/notify/discord"
 	"github.com/vigolium/vigolium/pkg/notify/telegram"
 	"github.com/vigolium/vigolium/pkg/output"
-	"github.com/vigolium/vigolium/pkg/spa"
+	"github.com/vigolium/vigolium/pkg/knownissuescan"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -608,7 +608,7 @@ func fmtDuration(d time.Duration) string {
 //	ExternalHarvest   — harvest URLs from external intelligence sources (opt-in)
 //	Spidering         — browser-based crawling (opt-in)
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
-//	SPA               — nuclei + kingfisher batch (opt-in via --spa)
+//	KnownIssueScan    — nuclei + kingfisher batch (opt-in via --known-issue-scan)
 //	Audit             — modules + extensions scan DB records
 //
 // printScanConfig prints a human-readable scan configuration summary to stderr.
@@ -681,7 +681,7 @@ func (r *Runner) printScanConfig() {
 		phaseLabel("Spidering", "spidering", opts.SpideringEnabled),
 		phaseLabel("Discovery", "discovery", opts.DiscoverEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
-		phaseLabel("SPA", "spa", opts.SPAEnabled),
+		phaseLabel("KnownIssueScan", "known-issue-scan", opts.KnownIssueScanEnabled),
 		phaseLabel("Audit", "audit", !opts.SkipAudit),
 		phaseLabel("SAST", "sast", opts.SASTEnabled))
 
@@ -821,7 +821,7 @@ func (r *Runner) logConfigSnapshot() {
 		"passive_modules":   passiveCount,
 		"spidering_enabled": opts.SpideringEnabled,
 		"discovery_enabled": opts.DiscoverEnabled,
-		"spa_enabled":       opts.SPAEnabled,
+		"known_issue_scan_enabled": opts.KnownIssueScanEnabled,
 		"sast_enabled":      opts.SASTEnabled,
 		"external_harvest":  opts.ExternalHarvestEnabled,
 		"skip_dynamic":      opts.SkipAudit,
@@ -1010,8 +1010,8 @@ func (r *Runner) RunNativeScan() error {
 			}
 		}
 	} else {
-		// Discovery skipped — still seed CLI targets if SPA or DA will run
-		needsDBRecords := r.options.SPAEnabled || !r.options.SkipAudit
+		// Discovery skipped — still seed CLI targets if KnownIssueScan or DA will run
+		needsDBRecords := r.options.KnownIssueScanEnabled || !r.options.SkipAudit
 		if needsDBRecords {
 			r.setPhaseTag("seed")
 			r.scanLogger.Info("seed", "seeding CLI targets")
@@ -1026,18 +1026,18 @@ func (r *Runner) RunNativeScan() error {
 		}
 	}
 
-	// SPA — opt-in via --spa or yaml spa.enabled
-	if r.options.SPAEnabled {
-		r.setPhaseTag("spa")
-		r.scanLogger.Info("spa", "phase started")
-		if err := r.runSPAPhase(ctx, infra); err != nil {
-			zap.L().Error("SPA phase failed", zap.Error(err))
-			r.scanLogger.Error("spa", "phase failed: "+err.Error())
+	// KnownIssueScan — opt-in via --known-issue-scan or yaml known_issue_scan.enabled
+	if r.options.KnownIssueScanEnabled {
+		r.setPhaseTag("known-issue-scan")
+		r.scanLogger.Info("known-issue-scan", "phase started")
+		if err := r.runKnownIssueScanPhase(ctx, infra); err != nil {
+			zap.L().Error("KnownIssueScan phase failed", zap.Error(err))
+			r.scanLogger.Error("known-issue-scan", "phase failed: "+err.Error())
 		} else {
-			r.scanLogger.Info("spa", "phase completed")
+			r.scanLogger.Info("known-issue-scan", "phase completed")
 
-			// Deduplicate findings after SPA phase
-			r.deduplicateFindings(ctx, "SPA")
+			// Deduplicate findings after KnownIssueScan phase
+			r.deduplicateFindings(ctx, "KnownIssueScan")
 		}
 	}
 
@@ -1608,7 +1608,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 }
 
 // seedCLITargets ingests CLI targets into the database without running deparos or modules.
-// This is used when discovery is skipped but downstream phases (SPA, Audit)
+// This is used when discovery is skipped but downstream phases (KnownIssueScan, Audit)
 // need DB records to operate on.
 func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	r.printPhaseStart("Seed", "ingest CLI targets into database (discovery skipped)")
@@ -1803,47 +1803,47 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	return nil
 }
 
-// runSPAPhase orchestrates nuclei + kingfisher batch scanning.
-func (r *Runner) runSPAPhase(ctx context.Context, infra *phaseInfra) error {
+// runKnownIssueScanPhase orchestrates nuclei + kingfisher batch scanning.
+func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) error {
 	phaseStart := time.Now()
 
-	r.printPhaseStart("SPA", "assess security posture with Nuclei templates and third-party validation checks")
+	r.printPhaseStart("KnownIssueScan", "assess security posture with Nuclei templates and third-party validation checks")
 	if r.settings != nil {
-		spaPace := r.settings.ScanningPace.ResolvePhase("spa")
-		if spaPace.MaxDuration > 0 || spaPace.DurationFactor > 0 {
+		knownIssueScanPace := r.settings.ScanningPace.ResolvePhase("known-issue-scan")
+		if knownIssueScanPace.MaxDuration > 0 || knownIssueScanPace.DurationFactor > 0 {
 			detail := "Speed:"
-			if spaPace.MaxDuration > 0 {
-				detail += fmt.Sprintf(" max-duration=%s", terminal.HiTeal(spaPace.MaxDuration.String()))
+			if knownIssueScanPace.MaxDuration > 0 {
+				detail += fmt.Sprintf(" max-duration=%s", terminal.HiTeal(knownIssueScanPace.MaxDuration.String()))
 			}
-			if spaPace.DurationFactor > 0 {
-				detail += fmt.Sprintf(" (duration_factor=%s)", terminal.HiBlue(fmt.Sprintf("%.1f", spaPace.DurationFactor)))
+			if knownIssueScanPace.DurationFactor > 0 {
+				detail += fmt.Sprintf(" (duration_factor=%s)", terminal.HiBlue(fmt.Sprintf("%.1f", knownIssueScanPace.DurationFactor)))
 			}
 			r.printPhaseDetail(detail)
 		}
 	}
 	enrichTargets := true
 	if r.settings != nil {
-		enrichTargets = r.settings.SPA.EnrichTargets
+		enrichTargets = r.settings.KnownIssueScan.EnrichTargets
 	}
 	if !enrichTargets && !r.options.Silent {
-		fmt.Fprintf(os.Stderr, "  %s enrich SPA targets with discovered paths via %s\n",
+		fmt.Fprintf(os.Stderr, "  %s enrich KnownIssueScan targets with discovered paths via %s\n",
 			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config spa.enrich_targets=true"))
+			terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
 	}
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 	if r.repository != nil && r.options.Verbose {
 		paths, _ := r.repository.GetDistinctPaths(ctx, r.options.ProjectUUID)
 		if len(paths) > 0 {
-			var spaTargets []string
+			var knownIssueScanTargets []string
 			if enrichTargets {
-				spaTargets = buildSPATargetsFromPaths(paths)
+				knownIssueScanTargets = buildKnownIssueScanTargetsFromPaths(paths)
 			} else {
-				spaTargets = buildSPAHostTargets(paths)
+				knownIssueScanTargets = buildKnownIssueScanHostTargets(paths)
 			}
-			r.printVerboseTargets(spaTargets)
+			r.printVerboseTargets(knownIssueScanTargets)
 		}
 	}
-	zap.L().Info("SPA: running security posture assessment")
+	zap.L().Info("KnownIssueScan: running security posture assessment")
 
 	// Track findings by severity
 	var mu sync.Mutex
@@ -1855,18 +1855,18 @@ func (r *Runner) runSPAPhase(ctx context.Context, infra *phaseInfra) error {
 		mu.Unlock()
 
 		if err := r.output.Write(result); err != nil {
-			zap.L().Error("SPA: failed to write result", zap.Error(err))
+			zap.L().Error("KnownIssueScan: failed to write result", zap.Error(err))
 		}
 	}
 
 	// Nuclei scan on distinct hosts
-	if err := r.runSPA(ctx, onResult); err != nil {
-		zap.L().Error("SPA: Nuclei scan failed", zap.Error(err))
+	if err := r.runKnownIssueScan(ctx, onResult); err != nil {
+		zap.L().Error("KnownIssueScan: Nuclei scan failed", zap.Error(err))
 	}
 
 	// Kingfisher batch scan on all response bodies
 	if err := r.runKingfisherBatch(ctx, infra, onResult); err != nil {
-		zap.L().Error("SPA: Kingfisher batch failed", zap.Error(err))
+		zap.L().Error("KnownIssueScan: Kingfisher batch failed", zap.Error(err))
 	}
 
 	// Print summary
@@ -1875,23 +1875,23 @@ func (r *Runner) runSPAPhase(ctx context.Context, infra *phaseInfra) error {
 		total += c
 	}
 	if total > 0 {
-		r.printPhaseDetail(formatSPASummary(counts, total))
+		r.printPhaseDetail(formatKnownIssueScanSummary(counts, total))
 	}
 
-	// Increment processed_count for SPA phase
+	// Increment processed_count for KnownIssueScan phase
 	if r.repository != nil && total > 0 {
 		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, int64(total)); err != nil {
-			zap.L().Warn("SPA: failed to increment processed count", zap.Error(err))
+			zap.L().Warn("KnownIssueScan: failed to increment processed count", zap.Error(err))
 		}
 	}
 
 	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("SPA", fmt.Sprintf("completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
+	r.printPhaseComplete("KnownIssueScan", fmt.Sprintf("completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 	return nil
 }
 
-// formatSPASummary builds a compact severity breakdown string for SPA findings.
-func formatSPASummary(counts map[severity.Severity]int, total int) string {
+// formatKnownIssueScanSummary builds a compact severity breakdown string for KnownIssueScan findings.
+func formatKnownIssueScanSummary(counts map[severity.Severity]int, total int) string {
 	var parts []string
 	for _, s := range []severity.Severity{
 		severity.Critical, severity.High, severity.Medium, severity.Low, severity.Info,
@@ -1917,7 +1917,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 		return fmt.Errorf("kingfisher batch: binary unavailable: %w", err)
 	}
 
-	zap.L().Info("SPA: Kingfisher batch — scanning response bodies for secrets")
+	zap.L().Info("KnownIssueScan: Kingfisher batch — scanning response bodies for secrets")
 
 	var cursor string
 	var totalFindings int
@@ -1954,13 +1954,13 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 				}
 
 				event := &output.ResultEvent{
-					ModuleID: "spa-kingfisher",
+					ModuleID: "known-issue-scan-kingfisher",
 					Info: output.Info{
 						Name:        f.RuleName(),
 						Description: "Leaked secret detected: " + f.RuleID(),
 						Severity:    sev,
 						Confidence:  conf,
-						Tags:        []string{"secret", "credential", "exposure", "spa"},
+						Tags:        []string{"secret", "credential", "exposure", "known-issue-scan"},
 					},
 					Host:             record.Hostname,
 					URL:              record.URL,
@@ -1972,7 +1972,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 						"validated": f.IsValidated(),
 					},
 					ModuleType:    database.ModuleTypeSecretScan,
-					FindingSource: database.FindingSourceSPA,
+					FindingSource: database.FindingSourceKnownIssueScan,
 					ModuleShort:   "Leaked secret detected in HTTP response body",
 				}
 
@@ -1994,7 +1994,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 		}
 	}
 
-	zap.L().Info("SPA: Kingfisher batch completed", zap.Int("findings", totalFindings))
+	zap.L().Info("KnownIssueScan: Kingfisher batch completed", zap.Int("findings", totalFindings))
 	return nil
 }
 
@@ -2039,8 +2039,8 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
-	// If SPA was enabled, filter out secret-detect to avoid duplicate kingfisher findings
-	if r.options.SPAEnabled {
+	// If KnownIssueScan was enabled, filter out secret-detect to avoid duplicate kingfisher findings
+	if r.options.KnownIssueScanEnabled {
 		passiveModules = filterOutPassiveModule(passiveModules, secret_detect.ModuleID)
 	}
 
@@ -2411,9 +2411,9 @@ func (r *Runner) ScanLogger() *database.ScanLogger {
 	return r.scanLogger
 }
 
-// buildSPATargetsFromPaths takes distinct path records from the DB and returns
+// buildKnownIssueScanTargetsFromPaths takes distinct path records from the DB and returns
 // deduplicated target URLs with path prefixes (last segment stripped).
-func buildSPATargetsFromPaths(paths []database.PathTarget) []string {
+func buildKnownIssueScanTargetsFromPaths(paths []database.PathTarget) []string {
 	seen := make(map[string]struct{})
 	var targets []string
 
@@ -2453,9 +2453,9 @@ func buildSPATargetsFromPaths(paths []database.PathTarget) []string {
 	return targets
 }
 
-// buildSPAHostTargets returns deduplicated host-level URLs (scheme://host[:port]/)
+// buildKnownIssueScanHostTargets returns deduplicated host-level URLs (scheme://host[:port]/)
 // without path-prefix expansion. This is faster but provides less granular coverage.
-func buildSPAHostTargets(paths []database.PathTarget) []string {
+func buildKnownIssueScanHostTargets(paths []database.PathTarget) []string {
 	seen := make(map[string]struct{})
 	var targets []string
 
@@ -2511,38 +2511,38 @@ func buildDiscoveryTargetsFromPaths(paths []database.PathTarget) []string {
 	return targets
 }
 
-// runSPA executes Security Posture Assessment using the nuclei Go library.
-func (r *Runner) runSPA(ctx context.Context, onResult func(*output.ResultEvent)) error {
+// runKnownIssueScan executes known issue scanning using the nuclei Go library.
+func (r *Runner) runKnownIssueScan(ctx context.Context, onResult func(*output.ResultEvent)) error {
 	if r.repository == nil {
-		return fmt.Errorf("spa: database repository required")
+		return fmt.Errorf("known-issue-scan: database repository required")
 	}
 
 	// Query distinct paths from DB and build targets
 	paths, err := r.repository.GetDistinctPaths(ctx, r.options.ProjectUUID)
 	if err != nil {
-		return fmt.Errorf("spa: failed to query paths: %w", err)
+		return fmt.Errorf("known-issue-scan: failed to query paths: %w", err)
 	}
 	if len(paths) == 0 {
-		zap.L().Info("SPA: no hosts in database, skipping")
+		zap.L().Info("KnownIssueScan: no hosts in database, skipping")
 		return nil
 	}
 
 	enrichTargets := true
 	if r.settings != nil {
-		enrichTargets = r.settings.SPA.EnrichTargets
+		enrichTargets = r.settings.KnownIssueScan.EnrichTargets
 	}
 
 	var targets []string
 	if enrichTargets {
-		targets = buildSPATargetsFromPaths(paths)
+		targets = buildKnownIssueScanTargetsFromPaths(paths)
 	} else {
-		targets = buildSPAHostTargets(paths)
+		targets = buildKnownIssueScanHostTargets(paths)
 	}
 
-	zap.L().Info("SPA: targets from database", zap.Int("count", len(targets)))
+	zap.L().Info("KnownIssueScan: targets from database", zap.Int("count", len(targets)))
 
-	// Build SPA config from settings
-	cfg := spa.Config{
+	// Build KnownIssueScan config from settings
+	cfg := knownissuescan.Config{
 		Targets:     targets,
 		Concurrency: r.options.Concurrency,
 		ScanUUID:    r.options.ScanUUID,
@@ -2555,28 +2555,28 @@ func (r *Runner) runSPA(ctx context.Context, onResult func(*output.ResultEvent))
 
 	// Apply YAML settings
 	if r.settings != nil {
-		spaCfg := &r.settings.SPA
-		cfg.Tags = spaCfg.Tags
-		cfg.ExcludeTags = spaCfg.ExcludeTags
-		cfg.Severities = spaCfg.Severities
-		if spaCfg.TemplatesDir != "" {
-			cfg.TemplatesDir = config.ExpandPath(spaCfg.TemplatesDir)
+		knownIssueScanCfg := &r.settings.KnownIssueScan
+		cfg.Tags = knownIssueScanCfg.Tags
+		cfg.ExcludeTags = knownIssueScanCfg.ExcludeTags
+		cfg.Severities = knownIssueScanCfg.Severities
+		if knownIssueScanCfg.TemplatesDir != "" {
+			cfg.TemplatesDir = config.ExpandPath(knownIssueScanCfg.TemplatesDir)
 		}
 
-		// scanning_pace.spa controls speed
-		spaPace := r.settings.ScanningPace.ResolvePhase("spa")
-		if !r.options.ConcurrencyExplicitlySet && spaPace.Concurrency > 0 {
-			cfg.Concurrency = spaPace.Concurrency
+		// scanning_pace.known-issue-scan controls speed
+		knownIssueScanPace := r.settings.ScanningPace.ResolvePhase("known-issue-scan")
+		if !r.options.ConcurrencyExplicitlySet && knownIssueScanPace.Concurrency > 0 {
+			cfg.Concurrency = knownIssueScanPace.Concurrency
 		}
-		if spaPace.RateLimit > 0 {
-			cfg.RateLimit = spaPace.RateLimit
+		if knownIssueScanPace.RateLimit > 0 {
+			cfg.RateLimit = knownIssueScanPace.RateLimit
 		}
-		if spaPace.MaxDuration > 0 {
-			cfg.Timeout = spaPace.MaxDuration
+		if knownIssueScanPace.MaxDuration > 0 {
+			cfg.Timeout = knownIssueScanPace.MaxDuration
 		}
 	}
 
-	return spa.Run(ctx, cfg)
+	return knownissuescan.Run(ctx, cfg)
 }
 
 // buildDeparosConfig maps YAML DiscoveryConfig + CLI flags into a DeparosDiscoveryConfig.

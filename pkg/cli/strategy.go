@@ -51,7 +51,7 @@ func runStrategyLs(_ *cobra.Command, _ []string) error {
 		terminal.BoldCyan(defaultName),
 		activeProfile)
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "NAME", "EXT HARVESTER", "DISCOVERY", "SPIDERING", "SPA", "DYNAMIC", "SOURCE-AWARE")
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "NAME", "EXT HARVESTER", "DISCOVERY", "SPIDERING", "KNOWN-ISSUE-SCAN", "DYNAMIC", "SOURCE-AWARE")
 	for _, name := range cfg.StrategyNames() {
 		phases, _ := cfg.GetStrategy(name)
 
@@ -65,7 +65,7 @@ func runStrategyLs(_ *cobra.Command, _ []string) error {
 			boolCell(phases.ExternalHarvesting),
 			boolCell(phases.Discovery),
 			boolCell(phases.Spidering),
-			boolCell(phases.SPA),
+			boolCell(phases.KnownIssueScan),
 			boolCell(phases.Audit),
 			boolCell(phases.SourceAware),
 		)
@@ -89,8 +89,8 @@ func runStrategyLs(_ *cobra.Command, _ []string) error {
 	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("spidering"))
 	fmt.Printf("    %s\n", terminal.Gray("Crawl the target using a headless browser to discover dynamic"))
 	fmt.Printf("    %s\n", terminal.Gray("content, JavaScript-driven routes, and client-side state transitions"))
-	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("spa"))
-	fmt.Printf("    %s\n", terminal.Gray("Perform a security posture assessment leveraging Nuclei templates"))
+	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("known-issue-scan"))
+	fmt.Printf("    %s\n", terminal.Gray("Perform a known issue scan leveraging Nuclei templates"))
 	fmt.Printf("    %s\n", terminal.Gray("and trusted third-party validation checks"))
 	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("audit"))
 	fmt.Printf("    %s\n", terminal.Gray("The core Vigolium engine for executing dynamic security assessments"))

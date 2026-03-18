@@ -117,12 +117,12 @@ type Options struct {
 	SpideringNoForms       bool
 	SpideringPilotMode     bool
 
-	// Security Posture Assessment options
-	SPAEnabled      bool
-	SPATags         []string
-	SPAExcludeTags  []string
-	SPASeverities   []string
-	SPATemplatesDir string
+	// Known Issue Scan options
+	KnownIssueScanEnabled      bool
+	KnownIssueScanTags         []string
+	KnownIssueScanExcludeTags  []string
+	KnownIssueScanSeverities   []string
+	KnownIssueScanTemplatesDir string
 
 	// Pre-scan external intelligence harvesting
 	ExternalHarvestEnabled bool
@@ -181,6 +181,10 @@ type Options struct {
 	AuthConfigPath string
 	// SessionFiles are paths to individual session YAML files from --session-file flags
 	SessionFiles []string
+
+	// Stateless uses a temporary SQLite database that is deleted after the scan completes.
+	// Requires --output to be set. Incompatible with --db.
+	Stateless bool
 }
 
 // DefaultOptions returns default options for the scanner

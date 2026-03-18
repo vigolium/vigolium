@@ -1,4 +1,4 @@
-package spa
+package knownissuescan
 
 import (
 	"testing"
