@@ -1147,6 +1147,38 @@ agent:
     cache_ttl: 300
 
   # --------------------------------------------------------------------------
+  # MCP Server Configuration
+  # --------------------------------------------------------------------------
+  # Attach Model Context Protocol (MCP) servers to ACP agent sessions.
+  # MCP servers provide tools (e.g., Playwright browser, file search, databases)
+  # that the agent can invoke during execution.
+  #
+  # When mcp_enabled is true, the global mcp_servers listed here are attached
+  # to all ACP sessions (merged with any per-backend mcp_servers).
+  # Per-backend servers take precedence on name collision.
+  #
+  # Can also be enabled per-run with the --mcp-enabled flag in autopilot mode.
+  # Default: false
+  mcp_enabled: false
+
+  # Global MCP servers available to all agent backends when mcp_enabled is true.
+  # Each server uses either stdio transport (command + args) or HTTP transport (url).
+  mcp_servers:
+    # Example: Playwright browser for DOM testing and screenshot capture
+    # - name: playwright
+    #   command: npx
+    #   args: ["-y", "@anthropic-ai/mcp-server-playwright"]
+
+    # Example: Filesystem search server
+    # - name: filesystem
+    #   command: npx
+    #   args: ["-y", "@anthropic-ai/mcp-server-filesystem", "/path/to/project"]
+
+    # Example: Remote MCP server via HTTP
+    # - name: custom-tools
+    #   url: http://localhost:8080/mcp
+
+  # --------------------------------------------------------------------------
   # Warm Session Pooling (ACP)
   # --------------------------------------------------------------------------
   # Keep ACP agent subprocesses alive between runs to avoid cold-start latency.
@@ -1209,6 +1241,11 @@ agent:
             extra_args:
               permission-mode: bypassPermissions
               dangerously-skip-permissions: ""
+      # Per-backend MCP servers (in addition to global mcp_servers when mcp_enabled is true).
+      # mcp_servers:
+      #   - name: playwright
+      #     command: npx
+      #     args: ["-y", "@anthropic-ai/mcp-server-playwright"]
 
     # ── Claude Code (pipe mode) ────────────────────────────────────
     claude-cli:

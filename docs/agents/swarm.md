@@ -8,7 +8,7 @@ Swarm supports both **targeted single-request scanning** and **full-scope scanni
 
 Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
 
-When `--source` is provided, swarm runs a **consolidated 3-call source analysis**: a single explore call reads the codebase and documents routes, auth flows, and vulnerability sinks, then a format call and an extensions call run in parallel to produce structured output. This is followed by a **native SAST phase** (ast-grep + secret detection) and a **SAST review sub-agent** to validate findings — all before the master agent plans the attack. When `--discover` is enabled, native discovery+spidering expands the attack surface further.
+When `--source` is provided, swarm runs a **consolidated 3-call source analysis**: a single explore call reads the codebase and documents routes, auth flows, and vulnerability sinks, then a format call and an extensions call run in parallel to produce structured output. When `--code-audit` is also enabled, a **deep AI security code audit** identifies business logic flaws, data flow vulnerabilities, and framework misconfigurations that static analysis misses. This is followed by a **native SAST phase** (ast-grep + secret detection) and a **SAST review sub-agent** to validate all findings — before the master agent plans the attack. When `--discover` is enabled, native discovery+spidering expands the attack surface further.
 
 ## Architecture Overview
 
@@ -33,24 +33,24 @@ When `--source` is provided, swarm runs a **consolidated 3-call source analysis*
               |  - Execute multi-phase pipeline                 |
               +------------------------------------------------+
                                        |
-  +------+------+------+------+------+------+------+------+------+
-  |      |      |      |      |      |      |      |      |      |
-  v      v      v      v      v      v      v      v      v      v
-+----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+
-| 1  | |1.5 | |1.6 | |1.6 | |1.7 | | 2  | | 3  | | 4  | | 5  | | 6  |
-|Norm| |Src | |SAST| |SAST| |Disc| |Plan| |Ext | |Scan| |Tri | |Re- |
-|    | |Anlz| |    | |Rev | |over| |    | |    | |    | |age | |scan|
-|(Go)| |(AI)| |(Go)| |(AI)| |(Go)| |(AI)| |(Go)| |(Go)| |(AI)| |(Go)|
-+----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+
-  |      |      |      |      |      |      |      |      |      |
-  v      v      v      v      v      v      v      v      v      v
-HTTP   routes  SAST   valid  crawl  Swarm  JS     find-  Triage target
-RR     auth    find-  routes HTTP   Plan   files  ings   Result rescan
-in DB  exts    ings   + exts RR            disk   in DB         loop
-       config  in DB        in DB
+  +------+------+------+------+------+------+------+------+------+------+------+
+  |      |      |      |      |      |      |      |      |      |      |      |
+  v      v      v      v      v      v      v      v      v      v      v      v
++----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+
+| 1  | |1.5 | |1.55| |1.6 | |1.6 | |1.7 | | 2  | | 3  | | 4  | | 5  | |5-6 |
+|Norm| |Src | |Code| |SAST| |SAST| |Disc| |Plan| |Ext | |Scan| |Tri | |Re- |
+|    | |Anlz| |Aud | |    | |Rev | |over| |    | |    | |    | |age | |scan|
+|(Go)| |(AI)| |(AI)| |(Go)| |(AI)| |(Go)| |(AI)| |(Go)| |(Go)| |(AI)| |(Go)|
++----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+ +----+
+  |      |      |      |      |      |      |      |      |      |      |
+  v      v      v      v      v      v      v      v      v      v      v
+HTTP   routes  find-  SAST   valid  crawl  Swarm  JS     find-  Triage target
+RR     auth    ings   find-  routes HTTP   Plan   files  ings   Result rescan
+in DB  exts    in DB  ings   + exts RR            disk   in DB         loop
+       config        in DB        in DB
 ```
 
-Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provided, SAST runs when `--source` is provided, and discovery runs when `--discover` is enabled.
+Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provided, code-audit runs when both `--source` and `--code-audit` are provided, SAST runs when `--source` is provided, and discovery runs when `--discover` is enabled.
 
 ### Detailed Data Flow
 
@@ -101,6 +101,21 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |     +-- HTTP Records  --> filtered by target hostname --> appended    |
   |     +-- Session Config --> auth-config.yaml --> used by scan/discover |
   |     +-- Extensions     --> held for merge with plan extensions        |
+  +=======================================================================+
+                                   |
+                                   v
+  +=======================================================================+
+  |  PHASE 1.55: CODE AUDIT (AI — conditional, only if --code-audit)     |
+  |                                                                        |
+  |   Deep security code audit focusing on logic-level vulnerabilities:   |
+  |     +-- Business logic flaws (IDOR, race conditions, privilege esc.) |
+  |     +-- Auth/authz gaps (missing middleware, JWT issues, OAuth)       |
+  |     +-- Data flow vulnerabilities (2nd-order injection, SSTI, deser) |
+  |     +-- Framework misconfigurations (CORS, CSRF, debug endpoints)    |
+  |                                                                        |
+  |   Receives source analysis notes as context (avoids re-reading code) |
+  |   Findings saved to DB with module_id="agent-swarm-code-audit"       |
+  |   Reviewed by SAST review + triage phases downstream                 |
   +=======================================================================+
                                    |
                                    v
@@ -390,6 +405,9 @@ vigolium agent swarm -t https://example.com/api/users --show-prompt
 # Run only source analysis (extract routes, auth flows, extensions)
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --source-analysis-only
 
+# Source-aware with deep code audit: find business logic flaws, auth gaps, data flow issues
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --code-audit
+
 # Source-aware with discovery: SAST + crawling + AI planning
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --discover
 
@@ -404,7 +422,7 @@ vigolium agent swarm -t https://example.com --discover --focus "API injection"
 vigolium agent swarm -t https://example.com --start-from plan
 
 # Resume from discovery phase (useful after editing source analysis artifacts)
-vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start-from discover
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start-from native-discover
 
 # Using the pipeline alias — equivalent to: vigolium agent swarm --discover -t ...
 vigolium agent pipeline -t https://example.com --source ~/projects/my-app
@@ -436,7 +454,8 @@ Inputs are auto-detected from their content:
 | `-m, --modules` | — | Explicit module names to include alongside agent selections |
 | `--max-iterations` | 3 | Maximum triage-rescan iterations |
 | `--max-rescan-rounds` | 3 | Alias for `--max-iterations` |
-| `--start-from` | — | Resume from a specific phase (`normalize`, `source-analysis`, `sast`, `discover`, `plan`, `extension`, `native-scan`, `triage`) |
+| `--code-audit` | false | Enable AI security code audit phase (requires `--source`) |
+| `--start-from` | — | Resume from a specific phase (`native-normalize`, `source-analysis`, `code-audit`, `native-sast`, `native-discover`, `plan`, `native-extension`, `native-scan`, `triage`). Legacy names without `native-` prefix are also accepted |
 | `--agent` | from config | Agent backend to use |
 | `--agent-acp-cmd` | — | Custom ACP agent command (e.g., `traecli acp`), overrides `--agent` |
 | `--timeout` | 15m | Maximum swarm duration |
@@ -454,24 +473,27 @@ When `--source` is provided, SAST analysis is automatically enabled (no extra fl
 
 ## Phase Overview
 
+Phases prefixed with `native-` are executed by native Go code without AI agent involvement.
+
 ```
-Phase 1:     Normalize         — Parse input(s) into HttpRequestResponse objects
-Phase 1.5:   Source Analysis   — 3 parallel two-phase AI sub-agents: explore → format (if --source)
-Phase 1.6:   SAST              — Native ast-grep + secret detection (if --source)
-Phase 1.6.1: SAST Review       — AI sub-agent reviews SAST findings, validates routes (if --source)
-Phase 1.7:   Discovery         — Native crawling + spidering (if --discover)
-Phase 2:     Plan              — Master agent analyzes request, selects modules, generates extensions
-Phase 3:     Extension         — Merge + write all JS extensions to session directory
-Phase 4:     Scan              — Audit with selected modules + extensions
-Phase 5:     Triage            — Agent reviews all findings (extension + built-in)
-Phase 6:     Rescan            — Targeted rescan based on triage follow-ups (loop)
+Phase 1:      native-normalize  — Parse input(s) into HttpRequestResponse objects
+Phase 1.5:    source-analysis   — 3 parallel two-phase AI sub-agents: explore → format (if --source)
+Phase 1.55:   code-audit        — AI security code audit: business logic, data flow, auth gaps (if --code-audit)
+Phase 1.6:    native-sast       — Native ast-grep + secret detection (if --source)
+Phase 1.6.1:  sast-review       — AI sub-agent reviews SAST + code-audit findings, validates routes (if --source)
+Phase 1.7:    native-discover   — Native crawling + spidering (if --discover)
+Phase 2:      plan              — Master agent analyzes request, selects modules, generates extensions
+Phase 3:      native-extension  — Merge + write all JS extensions to session directory
+Phase 4:      native-scan       — Audit with selected modules + extensions
+Phase 5:      triage            — Agent reviews all findings (extension + built-in + code-audit)
+Phase 6:      native-rescan     — Targeted rescan based on triage follow-ups (loop)
 ```
 
-Phases 1.5–1.7 are conditional. The triage→rescan loop (phases 5-6) repeats until the agent sets verdict to `"done"`, there are no follow-ups, or `--max-iterations` is reached.
+Phases 1.5–1.7 are conditional. Code-audit requires both `--source` and `--code-audit`. The triage→rescan loop (phases 5-6) repeats until the agent sets verdict to `"done"`, there are no follow-ups, or `--max-iterations` is reached.
 
 ## Step-by-Step Flow
 
-### Phase 1: Normalize
+### Phase 1: native-normalize
 
 Input strings are converted to `HttpRequestResponse` objects using deterministic format detection (no AI needed):
 
@@ -510,7 +532,26 @@ Results are merged with mutex protection.
 
 **Extension handling:** Source-analysis extensions are held and later merged with plan extensions (Phase 2). Plan extensions take priority on filename collision.
 
-### Phase 1.6: SAST (Native — No AI)
+### Phase 1.55: code-audit (AI — Optional)
+
+When `--code-audit` is enabled (requires `--source`), an AI agent performs a deep security code review focusing on vulnerabilities that static analysis tools miss:
+
+- **Business logic flaws** — IDOR, race conditions, privilege escalation, workflow bypasses, mass assignment
+- **Authentication/authorization gaps** — missing auth middleware, JWT weaknesses, OAuth misconfigurations
+- **Data flow vulnerabilities** — second-order injection, SSTI, unsafe deserialization, path traversal
+- **Framework misconfigurations** — CORS, CSRF, debug endpoints, verbose error messages
+- **Cryptographic misuse** — weak algorithms, hardcoded keys, timing-unsafe comparisons
+
+The agent receives source analysis output (routes, auth flows, sinks) as context to avoid redundant codebase reads. If source analysis produced no output, the agent reads the source code directly via `--source`.
+
+Findings are saved directly to the database with `module_type="agent"` and `module_id="agent-swarm-code-audit"`. These findings are:
+1. Included in the SAST review phase for validation alongside SAST findings
+2. Included in the triage phase for final verification
+3. Visible in the findings table alongside all other scan findings
+
+Prompt template: `swarm-code-audit.md`
+
+### Phase 1.6: native-sast (Native — No AI)
 
 When `--source` is provided, the native SAST phase runs automatically:
 
@@ -522,7 +563,7 @@ Findings are saved to the database with `module_type="sast"`. Auth config from s
 
 ### Phase 1.6.1: SAST Review (AI Sub-Agent)
 
-After SAST completes, a review sub-agent (`swarm-sast-review` template) evaluates the SAST findings:
+After SAST completes, a review sub-agent (`swarm-sast-review` template) evaluates both SAST findings and code-audit findings (if `--code-audit` was enabled):
 
 1. **Validate routes** — Cross-references SAST findings with discovered routes, adds new/corrected routes
 2. **Assess quality** — Classifies each finding as high/medium/low confidence
@@ -530,7 +571,7 @@ After SAST completes, a review sub-agent (`swarm-sast-review` template) evaluate
 
 The agent receives up to 200 SAST findings and all discovered routes for the target hostname. Output is parsed as `SourceAnalysisResult` — validated routes merge into input records, extensions merge with source-analysis extensions.
 
-### Phase 1.7: Discovery (Native — No AI)
+### Phase 1.7: native-discover (Native — No AI)
 
 When `--discover` is enabled, native discovery + spidering runs before the master agent:
 
@@ -579,7 +620,7 @@ The agent analyzes the request surface and returns a **SwarmPlan** JSON:
 
 Module tags are resolved against the registry. User-specified `--modules` are merged with agent selections.
 
-### Phase 3: Extension (Write Generated Code)
+### Phase 3: native-extension (Write Generated Code)
 
 Each extension from the plan is written to a temporary directory:
 
@@ -592,7 +633,7 @@ Each extension from the plan is written to a temporary directory:
 
 The directory is passed to the scan phase and cleaned up when the swarm exits.
 
-### Phase 4: Scan (Native — No AI)
+### Phase 4: native-scan (Native — No AI)
 
 The audit phase runs with:
 
@@ -609,7 +650,7 @@ The triage agent reviews **all findings** — both extension-generated and built
 
 The agent returns a **TriageResult** with confirmed findings, false positives, and optional follow-up scan recommendations.
 
-### Phase 6: Rescan (Conditional Loop)
+### Phase 6: native-rescan (Conditional Loop)
 
 If the triage verdict is `"rescan"` and follow-ups are recommended, a targeted rescan runs with the suggested modules. The triage→rescan loop continues up to `--max-iterations` times.
 
@@ -666,6 +707,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 | `stream` | bool | No | Enable SSE streaming |
 | `timeout` | string | No | Go duration string (default `15m`) |
 | `dry_run` | bool | No | Render prompts without executing |
+| `code_audit` | bool | No | Enable AI security code audit phase |
 
 \* At least one of `input`, `inputs`, or `http_request_base64` must be provided.
 
@@ -678,7 +720,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 
 | Event | Description |
 |-------|-------------|
-| `phase` | Phase transition (`{"type":"phase","phase":"normalize"}`) |
+| `phase` | Phase transition (`{"type":"phase","phase":"native-normalize"}`) |
 | `chunk` | Real-time text from the agent |
 | `done` | Swarm completed (`{"type":"done","swarm_result":{...}}`) |
 | `error` | Swarm failed |
@@ -914,7 +956,7 @@ type TriageResult struct {
 |--------|-------|-----------|
 | **Scope** | Single request/endpoint, or full target with `--discover` | Entire target |
 | **Input** | URL, curl, raw HTTP, Burp XML, DB record | Target URL |
-| **AI involvement** | 2-12 calls (3x2 two-phase source analysis + SAST review + plan + triage), warm sessions auto-enabled | Many calls (agent-driven) |
+| **AI involvement** | 2-12+ calls (source analysis + optional code-audit + SAST review + plan + triage), warm sessions auto-enabled | Many calls (agent-driven) |
 | **Custom payloads** | Yes — from source analysis, SAST review, and master agent | No |
 | **Discovery** | Optional (`--discover`) — crawling + spidering | Yes — agent decides |
 | **SAST** | Automatic when `--source` provided + AI review sub-agent | No |
@@ -935,6 +977,8 @@ Every swarm run creates a session directory (configurable via `agent.sessions_di
 ├── inputs.json                    # Normalized input records (JSON array)
 ├── prompt-source-analysis.md      # Rendered source analysis explore prompts (if --source)
 ├── source-analysis-output.md      # Raw source analysis output (explore + format phases)
+├── prompt-code-audit.md           # Rendered code audit prompt (if --code-audit)
+├── code-audit-output.md           # Raw code audit agent output
 ├── prompt-sast-review.md          # Rendered SAST review prompt (if --source)
 ├── sast-review-output.md          # Raw SAST review agent output
 ├── prompt-master.md               # Rendered master agent planning prompt
@@ -968,5 +1012,6 @@ The session directory path is included in the `SwarmResult` (`session_dir` field
 | `public/presets/prompts/swarm/swarm-source-explore.md` | Source analysis: explore routes, auth, and sinks |
 | `public/presets/prompts/swarm/swarm-source-format.md` | Source analysis: format to JSONL http_records + JSON session_config |
 | `public/presets/prompts/swarm/swarm-source-extensions.md` | Source analysis: generate JS scanner extensions from notes |
+| `public/presets/prompts/swarm/swarm-code-audit.md` | Security code audit agent |
 | `public/presets/prompts/swarm/swarm-sast-review.md` | SAST review sub-agent |
 | `public/presets/prompts/swarm/agent-swarm-triage.md` | Triage agent prompt template |

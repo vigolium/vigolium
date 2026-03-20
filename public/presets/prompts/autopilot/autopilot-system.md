@@ -111,6 +111,37 @@ vigolium module ls --type active --json
    - False positive assessment
    - Recommendations
 
+## Browser-Based Testing
+
+When a Playwright MCP server is available, use it for scenarios where the native
+scanner cannot reach:
+
+**When to use Playwright:**
+- DOM XSS — payloads that execute in the browser (innerHTML, document.write)
+- SPA applications — client-side routing, AJAX-heavy pages
+- Form-based login — multi-step auth flows, CSRF-token-protected forms
+- UI-based access control — admin panels, role-gated views
+
+**When to use `vigolium scan-url` instead:**
+- API endpoints (REST, GraphQL) — native scanner is faster and more thorough
+- Server-side vulnerabilities (SQLi, SSRF, LFI) — no browser needed
+- Header-based injection — native scanner handles this well
+
+**Screenshot Evidence:**
+When verifying a browser-based vulnerability, take a screenshot as proof:
+1. Navigate to the vulnerable page
+2. Inject the payload
+3. Take a screenshot showing the effect
+4. Include the screenshot path in your findings
+
+## TOTP Support
+
+When 2FA is required during authenticated scanning:
+```
+vigolium auth totp --secret <base32-secret>
+```
+Returns JSON: `{"code": "123456", "expires_in": 18}`
+
 ## Guidelines
 - Always use `--json` flag for structured output you can analyze
 - Don't scan static assets (CSS, JS bundles, images, fonts)

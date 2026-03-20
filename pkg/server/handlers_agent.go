@@ -219,6 +219,7 @@ func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeo
 // pipelineToSwarmPhase maps pipeline phase names to swarm phase names.
 var pipelineToSwarmPhase = map[string]string{
 	"source-analysis": agent.SwarmPhaseSourceAnalysis,
+	"code-audit":      agent.SwarmPhaseCodeAudit,
 	"discover":        agent.SwarmPhaseDiscover,
 	"plan":            agent.SwarmPhasePlan,
 	"scan":            agent.SwarmPhaseScan,
@@ -254,6 +255,7 @@ func (h *Handlers) buildPipelineSwarmConfig(req AgentPipelineRequest) agent.Swar
 	if mapped, ok := pipelineToSwarmPhase[startFrom]; ok && mapped != "" {
 		startFrom = mapped
 	}
+	startFrom = agent.NormalizeSwarmPhase(startFrom)
 
 	cfg := agent.SwarmConfig{
 		Inputs:        []string{req.Target},
@@ -274,6 +276,7 @@ func (h *Handlers) buildPipelineSwarmConfig(req AgentPipelineRequest) agent.Swar
 		allPhases := []string{
 			agent.SwarmPhaseNormalize,
 			agent.SwarmPhaseSourceAnalysis,
+			agent.SwarmPhaseCodeAudit,
 			agent.SwarmPhaseSAST,
 			agent.SwarmPhaseDiscover,
 			agent.SwarmPhasePlan,
@@ -646,6 +649,12 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		maxIter = 3
 	}
 
+	// Normalize skip phases to support legacy aliases
+	normalizedSkip := make([]string, len(req.SkipPhases))
+	for i, p := range req.SkipPhases {
+		normalizedSkip[i] = agent.NormalizeSwarmPhase(p)
+	}
+
 	cfg := agent.SwarmConfig{
 		Inputs:        req.EffectiveInputs(),
 		Instruction:   req.Instruction,
@@ -653,10 +662,11 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		Focus:         req.Focus,
 		ModuleNames:   req.ModuleNames,
 		OnlyPhase:     req.OnlyPhase,
-		SkipPhases:    req.SkipPhases,
+		SkipPhases:    normalizedSkip,
 		MaxIterations: maxIter,
 		AgentName:     agentName,
 		DryRun:        req.DryRun,
+		CodeAudit:     req.CodeAudit,
 		ProjectUUID:   req.ProjectUUID,
 		ScanUUID:      req.ScanUUID,
 	}

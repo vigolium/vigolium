@@ -56,6 +56,7 @@ type SwarmConfig struct {
 	DryRun             bool
 	ShowPrompt         bool   // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool   // run only source analysis phase and exit
+	CodeAudit          bool   // enable AI security code audit phase (--code-audit)
 
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
@@ -102,18 +103,39 @@ type SwarmConfig struct {
 }
 
 // SwarmPhase constants for the agent swarm mode.
+// Phases prefixed with "native-" are executed by native Go code without AI agent involvement.
 const (
-	SwarmPhaseNormalize      = "normalize"
+	SwarmPhaseNormalize      = "native-normalize"
 	SwarmPhaseSourceAnalysis = "source-analysis"
-	SwarmPhaseSAST           = "sast"
+	SwarmPhaseCodeAudit      = "code-audit"
+	SwarmPhaseSAST           = "native-sast"
 	SwarmPhaseSASTReview     = "sast-review"
-	SwarmPhaseDiscover       = "discover"
+	SwarmPhaseDiscover       = "native-discover"
 	SwarmPhasePlan           = "plan"
-	SwarmPhaseExtension      = "extension"
+	SwarmPhaseExtension      = "native-extension"
 	SwarmPhaseScan           = "native-scan"
 	SwarmPhaseTriage         = "triage"
-	SwarmPhaseRescan         = "rescan"
+	SwarmPhaseRescan         = "native-rescan"
 )
+
+// swarmPhaseAliases maps legacy phase names to their current constant values.
+// This provides backward compatibility for checkpoints, --start-from, and --skip flags.
+var swarmPhaseAliases = map[string]string{
+	"normalize": SwarmPhaseNormalize,
+	"sast":      SwarmPhaseSAST,
+	"discover":  SwarmPhaseDiscover,
+	"extension": SwarmPhaseExtension,
+	"scan":      SwarmPhaseScan,
+	"rescan":    SwarmPhaseRescan,
+}
+
+// NormalizeSwarmPhase resolves a phase name, accepting both current and legacy names.
+func NormalizeSwarmPhase(phase string) string {
+	if mapped, ok := swarmPhaseAliases[phase]; ok {
+		return mapped
+	}
+	return phase
+}
 
 // Prompt template constants for the agent swarm mode.
 const (
@@ -121,6 +143,7 @@ const (
 	SwarmPromptPlan           = "agent-swarm-plan"
 	SwarmPromptExtensions     = "agent-swarm-extensions"
 	SwarmPromptSourceAnalysis = "agent-swarm-source-analysis"
+	SwarmPromptCodeAudit      = "swarm-code-audit"
 	SwarmPromptSASTReview     = "swarm-sast-review"
 	SwarmPromptTriage         = "agent-swarm-triage"
 )
@@ -132,6 +155,8 @@ func SwarmPhaseDescription(phase string) string {
 		return "parse and normalize input targets into scannable HTTP records"
 	case SwarmPhaseSourceAnalysis:
 		return "analyze source code for routes, auth flows, and security-relevant patterns"
+	case SwarmPhaseCodeAudit:
+		return "AI security code audit — identify business logic flaws, data flow issues, and framework misconfigurations"
 	case SwarmPhaseSAST:
 		return "run static analysis tools for route extraction and secret detection"
 	case SwarmPhaseSASTReview:
@@ -158,6 +183,8 @@ func SwarmPhasePrompt(phase string) string {
 	switch phase {
 	case SwarmPhaseSourceAnalysis:
 		return SwarmPromptSourceAnalysis
+	case SwarmPhaseCodeAudit:
+		return SwarmPromptCodeAudit
 	case SwarmPhaseSASTReview:
 		return SwarmPromptSASTReview
 	case SwarmPhasePlan:
@@ -494,6 +521,26 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if len(saRecords) > 0 {
 			printPhaseLine("source-analysis", fmt.Sprintf("%s source analysis routes: %d %s",
 				terminal.SymbolBullet, len(saRecords), formatRouteStatusSummary(saRecords)))
+		}
+
+		// --- Phase 1.55: AI Code Audit (conditional, only if --code-audit) ---
+		// Runs after source analysis so it can use the discovered routes and auth flows
+		// as context, avoiding redundant codebase reads. Produces findings directly.
+		if cfg.CodeAudit && !phaseCompleted(checkpoint, SwarmPhaseCodeAudit) {
+			s.emitPhase(cfg, SwarmPhaseCodeAudit)
+
+			// Pass source analysis raw output as context; if empty, the agent
+			// will read the source code directly via --source.
+			codeAuditFindings, caErr := s.runCodeAudit(ctx, cfg, targetURL, sessionDir, saRawOutput)
+			if caErr != nil {
+				zap.L().Warn("Code audit failed, continuing", zap.Error(caErr))
+			} else if codeAuditFindings > 0 {
+				printPhaseLine("code-audit", fmt.Sprintf("%s %d findings saved to database",
+					terminal.SymbolBullet, codeAuditFindings))
+			} else {
+				printPhaseLine("code-audit", "no findings")
+			}
+			completedPhases = append(completedPhases, SwarmPhaseCodeAudit)
 		}
 
 		// --- Phase 1.6: Native SAST (runs after source analysis) ---
@@ -964,12 +1011,14 @@ func (s *SwarmRunner) emitPhase(cfg SwarmConfig, phase string) {
 }
 
 // phaseCompleted returns true if the given phase is in the checkpoint's completed list.
+// It normalizes legacy phase names for backward compatibility with old checkpoints.
 func phaseCompleted(cp *SwarmCheckpoint, phase string) bool {
 	if cp == nil {
 		return false
 	}
+	normalized := NormalizeSwarmPhase(phase)
 	for _, p := range cp.CompletedPhases {
-		if p == phase {
+		if NormalizeSwarmPhase(p) == normalized {
 			return true
 		}
 	}
@@ -2040,6 +2089,23 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		return nil
 	}
 
+	// Also query code-audit findings if they exist, so the SAST review
+	// can validate them alongside SAST findings.
+	codeAuditModuleID := "agent-" + SwarmPromptCodeAudit
+	allAgentFindings, caErr := database.NewFindingsQueryBuilder(s.repo.DB(), database.QueryFilters{
+		ProjectUUID: cfg.ProjectUUID,
+		ModuleType:  database.ModuleTypeAgent,
+		Limit:       100,
+	}).Execute(ctx)
+	if caErr != nil {
+		zap.L().Debug("Failed to query agent findings for SAST review", zap.Error(caErr))
+	}
+	for _, f := range allAgentFindings {
+		if f.ModuleID == codeAuditModuleID {
+			sastFindings = append(sastFindings, f)
+		}
+	}
+
 	if len(sastFindings) == 0 {
 		zap.L().Info("No SAST findings to review")
 		return nil
@@ -2146,6 +2212,103 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 	}
 
 	return saResult
+}
+
+// runCodeAudit performs an AI-driven security code audit that identifies business logic flaws,
+// data flow vulnerabilities, and framework misconfigurations that static analysis tools miss.
+// It receives source analysis output as context (routes, auth flows) to avoid redundant codebase reads.
+// Findings are saved directly to the database with module_type "agent-code-audit".
+func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string, sourceAnalysisNotes string) (int, error) {
+	if s.repo == nil {
+		return 0, fmt.Errorf("code audit skipped: no database repository")
+	}
+
+	hostname := hostnameFromURL(targetURL)
+
+	// Build extra context for the prompt
+	extra := map[string]string{
+		"TargetURL": targetURL,
+		"Hostname":  hostname,
+	}
+
+	// If source analysis produced notes, pass them as context so the agent
+	// doesn't need to re-read the entire codebase.
+	if sourceAnalysisNotes != "" {
+		extra["SourceAnalysisContext"] = sourceAnalysisNotes
+	}
+
+	// Query existing routes from DB to give the agent endpoint context
+	if hostname != "" {
+		dbRecords, recErr := s.repo.GetRecordsByHostname(ctx, cfg.ProjectUUID, hostname, 100)
+		if recErr == nil && len(dbRecords) > 0 {
+			var rs strings.Builder
+			for i, rec := range dbRecords {
+				if i >= 100 {
+					fmt.Fprintf(&rs, "\n... and %d more routes", len(dbRecords)-100)
+					break
+				}
+				fmt.Fprintf(&rs, "- %s %s\n", rec.Method, rec.URL)
+			}
+			extra["DiscoveredRoutes"] = rs.String()
+		}
+	}
+
+	opts := Options{
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: SwarmPromptCodeAudit,
+		TargetURL:      targetURL,
+		Hostname:       hostname,
+		SourcePath:     cfg.SourcePath,
+		Files:          cfg.Files,
+		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhaseCodeAudit,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		StreamWriter:   cfg.StreamWriter,
+	}
+
+	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, extra)
+	if runErr != nil {
+		return 0, fmt.Errorf("code audit agent failed: %w", runErr)
+	}
+
+	// Save prompt and output to session dir
+	writePromptToSessionDir(sessionDir, "prompt-code-audit.md", agentResult.RenderedPrompt)
+	if sessionDir != "" && agentResult.RawOutput != "" {
+		_ = os.WriteFile(filepath.Join(sessionDir, "code-audit-output.md"), []byte(agentResult.RawOutput), 0644)
+	}
+
+	if cfg.DryRun {
+		return 0, nil
+	}
+
+	// Parse findings from agent output
+	findings, parseErr := ParseFindings(agentResult.RawOutput)
+	if parseErr != nil {
+		zap.L().Warn("Failed to parse code audit findings", zap.Error(parseErr))
+		return 0, nil
+	}
+
+	if len(findings) == 0 {
+		zap.L().Info("Code audit produced no findings")
+		return 0, nil
+	}
+
+	// Save findings to database
+	saved, skipped, ingestErr := s.engine.ingestFindings(ctx, findings, opts)
+	if ingestErr != nil {
+		return saved, fmt.Errorf("failed to ingest code audit findings: %w", ingestErr)
+	}
+
+	zap.L().Info("Code audit completed",
+		zap.Int("findings", len(findings)),
+		zap.Int("saved", saved),
+		zap.Int("skipped", skipped))
+
+	return saved, nil
 }
 
 // probeRecords sends HTTP requests for records that don't have responses,

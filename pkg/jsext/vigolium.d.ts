@@ -77,6 +77,12 @@ declare namespace vigolium {
      * Returns the encoded body and the Content-Type header (with boundary).
      */
     function multipart(fields: MultipartField[]): MultipartResult;
+
+    /**
+     * Generate a TOTP code from a base32-encoded secret (RFC 6238).
+     * Returns null if the secret is empty or invalid.
+     */
+    function totpCode(secret: string): TOTPResult | null;
   }
 
   namespace parse {
@@ -925,6 +931,13 @@ interface MultipartResult {
   body: string;
   /** The Content-Type header value (includes boundary). */
   contentType: string;
+}
+
+interface TOTPResult {
+  /** The generated TOTP code (typically 6 digits). */
+  code: string;
+  /** Seconds until the current code expires (within a 30-second period). */
+  expires_in: number;
 }
 
 // ── vigolium.http authTest types ─────────────────────────────────────────────

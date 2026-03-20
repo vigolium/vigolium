@@ -51,18 +51,19 @@ type Options struct {
 
 // Result holds the outcome of an agent run.
 type Result struct {
-	AgentName      string            `json:"agent_name"`
-	TemplateID     string            `json:"template_id,omitempty"`
-	SessionID      string            `json:"session_id,omitempty"` // ACP session ID for resume (e.g. claude --resume <id>)
-	RawOutput      string            `json:"raw_output"`
-	RenderedPrompt string            `json:"-"` // rendered prompt sent to agent (not serialized)
-	Stderr         string            `json:"stderr,omitempty"`
-	Findings       []AgentFinding    `json:"findings,omitempty"`
-	HTTPRecords    []AgentHTTPRecord `json:"http_records,omitempty"`
-	OutputSchema   string            `json:"output_schema,omitempty"` // "findings" or "http_records"
-	SavedCount     int               `json:"saved_count"`
-	SkippedCount   int               `json:"skipped_count"`
-	DryRun         bool              `json:"dry_run,omitempty"`
+	AgentName      string                 `json:"agent_name"`
+	TemplateID     string                 `json:"template_id,omitempty"`
+	SessionID      string                 `json:"session_id,omitempty"` // ACP session ID for resume (e.g. claude --resume <id>)
+	RawOutput      string                 `json:"raw_output"`
+	RenderedPrompt string                 `json:"-"` // rendered prompt sent to agent (not serialized)
+	Stderr         string                 `json:"stderr,omitempty"`
+	Findings       []AgentFinding         `json:"findings,omitempty"`
+	HTTPRecords    []AgentHTTPRecord      `json:"http_records,omitempty"`
+	Evidence       []ExploitationEvidence `json:"evidence,omitempty"`
+	OutputSchema   string                 `json:"output_schema,omitempty"` // "findings" or "http_records"
+	SavedCount     int                    `json:"saved_count"`
+	SkippedCount   int                    `json:"skipped_count"`
+	DryRun         bool                   `json:"dry_run,omitempty"`
 }
 
 // PromptTemplate represents a parsed prompt template with frontmatter metadata.
@@ -166,4 +167,66 @@ func (r *AgentHTTPRecord) UnmarshalJSON(data []byte) error {
 // AgentHTTPRecordsOutput is the expected JSON output for http_records-type templates.
 type AgentHTTPRecordsOutput struct {
 	HTTPRecords []AgentHTTPRecord `json:"http_records"`
+}
+
+// ReconDeliverable is the structured output from the recon phase of the autopilot v2 pipeline.
+type ReconDeliverable struct {
+	Endpoints []ReconEndpoint `json:"endpoints"`
+	TechStack []string        `json:"tech_stack,omitempty"`
+	AuthFlows []AuthFlowInfo  `json:"auth_flows,omitempty"`
+	Notes     string          `json:"notes,omitempty"`
+}
+
+// ReconEndpoint represents a discovered endpoint from the recon phase.
+type ReconEndpoint struct {
+	URL       string `json:"url"`
+	Method    string `json:"method,omitempty"`
+	Parameter string `json:"parameter,omitempty"`
+	Notes     string `json:"notes,omitempty"`
+}
+
+// AuthFlowInfo describes an authentication flow discovered during recon.
+type AuthFlowInfo struct {
+	Type     string `json:"type"`               // "session", "jwt", "api_key", "oauth"
+	Endpoint string `json:"endpoint,omitempty"`
+	Notes    string `json:"notes,omitempty"`
+}
+
+// VulnQueue is the structured output from a vuln analysis specialist.
+type VulnQueue struct {
+	Class string          `json:"class"`
+	Items []VulnQueueItem `json:"items"`
+}
+
+// VulnQueueItem represents a potential vulnerability sink identified by a specialist.
+type VulnQueueItem struct {
+	Endpoint       string `json:"endpoint"`
+	Method         string `json:"method,omitempty"`
+	Parameter      string `json:"parameter,omitempty"`
+	SinkType       string `json:"sink_type,omitempty"`
+	WitnessPayload string `json:"witness_payload,omitempty"`
+	Context        string `json:"context,omitempty"`
+	Confidence     string `json:"confidence,omitempty"` // "high", "medium", "low"
+	Notes          string `json:"notes,omitempty"`
+}
+
+// Evidence status values.
+const (
+	EvidenceStatusExploited     = "exploited"
+	EvidenceStatusBlocked       = "blocked"
+	EvidenceStatusFalsePositive = "false_positive"
+)
+
+// ExploitationEvidence records proof that a finding is exploitable.
+type ExploitationEvidence struct {
+	FindingRef  string   `json:"finding_ref"`
+	Status      string   `json:"status"`      // "exploited", "blocked", "false_positive"
+	VulnClass   string   `json:"vuln_class"`
+	Payload     string   `json:"payload"`
+	Request     string   `json:"request"`
+	Response    string   `json:"response"`
+	Impact      string   `json:"impact"`
+	Screenshots []string `json:"screenshots,omitempty"`
+	Confidence  string   `json:"confidence"` // "proven", "likely", "unconfirmed"
+	Notes       string   `json:"notes,omitempty"`
 }

@@ -46,6 +46,30 @@ func (e *Engine) Close() {
 	}
 }
 
+// mergeGlobalMcpServers merges global MCP servers from AgentConfig into a copy
+// of the agent definition. Per-backend servers take precedence on name collision.
+func (e *Engine) mergeGlobalMcpServers(agentDef *config.AgentDef) *config.AgentDef {
+	// Work on a copy to avoid mutating the config map
+	merged := *agentDef
+	// Explicitly copy the slice to avoid shared backing array corruption on append
+	merged.McpServers = append([]config.McpServerConfig(nil), agentDef.McpServers...)
+
+	// Build set of per-backend server names
+	backendNames := make(map[string]struct{}, len(merged.McpServers))
+	for _, s := range merged.McpServers {
+		backendNames[s.Name] = struct{}{}
+	}
+
+	// Append global servers that don't collide
+	for _, s := range e.settings.Agent.McpServers {
+		if _, exists := backendNames[s.Name]; !exists {
+			merged.McpServers = append(merged.McpServers, s)
+		}
+	}
+
+	return &merged
+}
+
 // EnsureWarmSessions activates ACP session pooling if it is not already enabled.
 // This is useful for modes like swarm that make multiple agent calls and benefit
 // from subprocess reuse even when warm sessions are not explicitly configured.
@@ -123,6 +147,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	if zap.L().Core().Enabled(zap.DebugLevel) {
 		fmt.Fprintf(os.Stderr, "\n── prompt sent to agent (%s) ──\n\n%s\n\n── end prompt ──\n\n", templateID, prompt)
+	}
+
+	// Merge global MCP servers into agentDef when mcp_enabled is true
+	if e.settings != nil && e.settings.Agent.IsMcpEnabled() && len(e.settings.Agent.McpServers) > 0 {
+		agentDef = e.mergeGlobalMcpServers(agentDef)
 	}
 
 	// Execute the agent using the configured protocol
@@ -242,6 +271,15 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	case "swarm_plan":
 		// Parsing and ingestion are handled by the swarm runner (runMasterAgent)
 		// to avoid double-ingestion. Engine only stores raw output for the caller.
+
+	case "recon_deliverable":
+		// Parsed by autopilot pipeline runner.
+
+	case "vuln_queue":
+		// Parsed by autopilot pipeline runner.
+
+	case "exploitation_evidence":
+		// Parsed by autopilot pipeline runner.
 	}
 
 	return result, nil

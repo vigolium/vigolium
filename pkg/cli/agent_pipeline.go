@@ -89,12 +89,13 @@ func init() {
 
 // pipelinePhaseToSwarm maps pipeline phase names to swarm phase names.
 var pipelinePhaseToSwarm = map[string]string{
-	"source-analysis": "source-analysis",
-	"discover":        "discover",
-	"plan":            "plan",
-	"scan":            "native-scan",
-	"triage":          "triage",
-	"rescan":          "rescan",
+	"source-analysis": agent.SwarmPhaseSourceAnalysis,
+	"code-audit":      agent.SwarmPhaseCodeAudit,
+	"discover":        agent.SwarmPhaseDiscover,
+	"plan":            agent.SwarmPhasePlan,
+	"scan":            agent.SwarmPhaseScan,
+	"triage":          agent.SwarmPhaseTriage,
+	"rescan":          agent.SwarmPhaseRescan,
 	"report":          "", // no-op in swarm
 }
 

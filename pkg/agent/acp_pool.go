@@ -540,9 +540,13 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	sess.authMethods = initResp.AuthMethods
 
 	// Create session
+	mcpServers := toACPMcpServers(agentDef.McpServers)
+	if mcpServers == nil {
+		mcpServers = []acp.McpServer{}
+	}
 	sessReq := acp.NewSessionRequest{
 		Cwd:        absCwd,
-		McpServers: []acp.McpServer{},
+		McpServers: mcpServers,
 	}
 	if agentDef.SessionMeta != nil {
 		sessReq.Meta = agentDef.SessionMeta

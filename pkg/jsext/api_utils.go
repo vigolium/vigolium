@@ -761,6 +761,7 @@ func utilsFuncDefs() []JSFuncDef {
 	defs = append(defs, multipartUtilsFuncDefs()...)
 	defs = append(defs, responseUtilsFuncDefs()...)
 	defs = append(defs, tokenUtilsFuncDefs()...)
+	defs = append(defs, totpUtilsFuncDefs()...)
 
 	return defs
 }

@@ -26,6 +26,7 @@ type acpRunConfig struct {
 	Cwd         string // explicit working directory (bypasses probe extraction from opts)
 	MaxCalls    int    // max terminal commands (only used when Terminal is true)
 	SessionMeta *config.ACPSessionMeta // optional session metadata passed via NewSessionRequest._meta
+	McpServers  []acp.McpServer        // MCP servers to attach to the ACP session
 }
 
 // acpResult holds the output of an ACP agent run.
@@ -35,11 +36,48 @@ type acpResult struct {
 	SessionID string // ACP session ID for resume
 }
 
+// toACPMcpServers converts config MCP server definitions to ACP SDK types.
+// Stdio mode when Command is set, HTTP mode when URL is set.
+func toACPMcpServers(servers []config.McpServerConfig) []acp.McpServer {
+	if len(servers) == 0 {
+		return nil
+	}
+	result := make([]acp.McpServer, 0, len(servers))
+	for _, s := range servers {
+		var ms acp.McpServer
+		if s.Command != "" {
+			// Stdio transport
+			var envVars []acp.EnvVariable
+			for k, v := range s.Env {
+				envVars = append(envVars, acp.EnvVariable{Name: k, Value: v})
+			}
+			ms.Stdio = &acp.McpServerStdio{
+				Name:    s.Name,
+				Command: s.Command,
+				Args:    s.Args,
+				Env:     envVars,
+			}
+		} else if s.URL != "" {
+			// HTTP transport
+			ms.Http = &acp.McpServerHttp{
+				Name:    s.Name,
+				Url:     s.URL,
+				Headers: []acp.HttpHeader{},
+			}
+		} else {
+			continue // skip invalid entries
+		}
+		result = append(result, ms)
+	}
+	return result
+}
+
 // RunAgenticACP executes an AI agent using the ACP protocol.
 // It returns the collected agent output, stderr, and any execution error.
 func RunAgenticACP(ctx context.Context, agentDef config.AgentDef, prompt string, opts ...acpClientOption) (result acpResult, err error) {
 	return runACP(ctx, agentDef, prompt, acpRunConfig{
 		SessionMeta: agentDef.SessionMeta,
+		McpServers:  toACPMcpServers(agentDef.McpServers),
 	}, opts...)
 }
 
@@ -52,6 +90,7 @@ func RunAgenticAutopilot(ctx context.Context, agentDef config.AgentDef, prompt s
 		Cwd:         cwd,
 		MaxCalls:    maxCalls,
 		SessionMeta: agentDef.SessionMeta,
+		McpServers:  toACPMcpServers(agentDef.McpServers),
 	}, opts...)
 }
 
@@ -190,9 +229,13 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	zap.L().Debug("creating ACP session", zap.String("cwd", cwd))
 
 	// Create a new session
+	mcpServers := cfg.McpServers
+	if mcpServers == nil {
+		mcpServers = []acp.McpServer{}
+	}
 	sessReq := acp.NewSessionRequest{
 		Cwd:        cwd,
-		McpServers: []acp.McpServer{},
+		McpServers: mcpServers,
 	}
 	if cfg.SessionMeta != nil {
 		sessReq.Meta = cfg.SessionMeta

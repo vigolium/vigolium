@@ -11,6 +11,13 @@ type AgentConfig struct {
 	Stream       *bool               `yaml:"stream,omitempty"`
 	LLM          LLMConfig           `yaml:"llm"`
 	WarmSession  WarmSessionConfig   `yaml:"warm_session"`
+	McpEnabled   *bool               `yaml:"mcp_enabled,omitempty"`   // enable MCP server passthrough to ACP sessions (default: false)
+	McpServers   []McpServerConfig   `yaml:"mcp_servers,omitempty"`   // global MCP servers attached to all ACP sessions when mcp_enabled is true
+}
+
+// IsMcpEnabled returns whether MCP server passthrough is enabled. Defaults to false.
+func (c *AgentConfig) IsMcpEnabled() bool {
+	return c.McpEnabled != nil && *c.McpEnabled
 }
 
 // WarmSessionConfig controls ACP subprocess pooling for session reuse.
@@ -155,6 +162,17 @@ func DefaultProviderConfig() *ProviderConfig {
 	}
 }
 
+// McpServerConfig defines an MCP server to attach to ACP sessions.
+// Stdio mode: set Command (and optionally Args, Env).
+// HTTP mode: set URL instead.
+type McpServerConfig struct {
+	Name    string            `yaml:"name"`
+	Command string            `yaml:"command,omitempty"`
+	Args    []string          `yaml:"args,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
+	URL     string            `yaml:"url,omitempty"`
+}
+
 // AgentDef defines a single AI agent backend.
 type AgentDef struct {
 	Command        string            `yaml:"command"`
@@ -166,6 +184,7 @@ type AgentDef struct {
 	Model          string            `yaml:"model,omitempty"`           // universal model override
 	SessionMeta    *ACPSessionMeta   `yaml:"session_meta,omitempty"`    // ACP _meta passthrough (Claude)
 	ProviderConfig *ProviderConfig   `yaml:"provider_config,omitempty"` // spawn-time injection (OpenCode)
+	McpServers     []McpServerConfig `yaml:"mcp_servers,omitempty"`     // MCP servers to attach to ACP sessions
 }
 
 // IsEnabled returns whether this agent is enabled. Defaults to true when nil.

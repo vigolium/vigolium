@@ -477,6 +477,7 @@ type AgentSwarmRequest struct {
 	Stream             bool     `json:"stream,omitempty"`               // enable SSE streaming
 	Timeout            string   `json:"timeout,omitempty"`              // Go duration string
 	DryRun             bool     `json:"dry_run,omitempty"`              // render prompts without executing
+	CodeAudit          bool     `json:"code_audit,omitempty"`           // enable AI security code audit phase
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

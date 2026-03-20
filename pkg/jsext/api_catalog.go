@@ -76,6 +76,9 @@ const exParseURLFile = `vigolium.utils.parse_url_file("urls.txt", "%s://%d", "ho
 // ─── vigolium.utils / Detection ──────────────────────────────────────────────
 const exDetectAnomaly = `var ranked = vigolium.utils.detectAnomaly(responses)`
 
+// ─── vigolium.utils / TOTP ──────────────────────────────────────────────────
+const exTOTPCode = `var otp = vigolium.utils.totpCode("JBSWY3DPEHPK3PXP"); // {code: "123456", expires_in: 18}`
+
 // ─── vigolium.http ───────────────────────────────────────────────────────────
 const exHTTPGet = `var resp = vigolium.http.get("https://example.com/api")`
 const exHTTPPost = `var resp = vigolium.http.post("https://example.com/api", "data=test")`

@@ -50,6 +50,7 @@ var (
 	swarmMaxMasterRetries    int
 	swarmSubAgentConcurrency int
 	swarmSkipSAST            bool
+	swarmCodeAudit           bool
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -148,10 +149,11 @@ func init() {
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
 	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
-	f.StringVar(&swarmStartFrom, "start-from", "", "Resume from a specific phase (normalize, source-analysis, sast, discover, plan, extension, native-scan, triage)")
+	f.StringVar(&swarmStartFrom, "start-from", "", "Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage)")
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
+	f.BoolVar(&swarmCodeAudit, "code-audit", false, "Enable AI security code audit phase (requires --source)")
 	// Hidden alias for pipeline backward compatibility
 	f.IntVar(&swarmMaxIterations, "max-rescan-rounds", 3, "Alias for --max-iterations (pipeline backward compatibility)")
 	_ = agentSwarmCmd.Flags().MarkHidden("max-rescan-rounds")
@@ -255,6 +257,12 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		swarmVulnType = swarmFocus
 	}
 
+	// Normalize phase names to support legacy aliases (e.g., "normalize" → "native-normalize")
+	swarmStartFrom = agent.NormalizeSwarmPhase(swarmStartFrom)
+	for i, p := range swarmSkipPhases {
+		swarmSkipPhases[i] = agent.NormalizeSwarmPhase(p)
+	}
+
 	// Build swarm config
 	cfg := agent.SwarmConfig{
 		Inputs:             inputs,
@@ -275,6 +283,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		DryRun:             swarmDryRun,
 		ShowPrompt:         swarmShowPrompt,
 		SourceAnalysisOnly: swarmSourceAnalysisOnly,
+		CodeAudit:          swarmCodeAudit,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
 		SessionDir:         sessionDir,
 		ProjectUUID:        projectUUID,
@@ -397,9 +406,10 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	}
 	sourceAnalysisOnly := swarmSourceAnalysisOnly
 
-	fmt.Fprintf(os.Stderr, "  %s Phases: %s | %s | %s | %s\n",
+	fmt.Fprintf(os.Stderr, "  %s Phases: %s | %s | %s | %s | %s\n",
 		terminal.Purple(terminal.SymbolInfo),
 		swarmPhaseLabel("SourceAnalysis", hasSource),
+		swarmPhaseLabel("CodeAudit", swarmCodeAudit && hasSource),
 		swarmPhaseLabel("SAST", hasSAST),
 		swarmPhaseLabel("Discovery", swarmDiscover && !isSkipped("discovery")),
 		swarmPhaseLabel("Plan", !sourceAnalysisOnly))
@@ -796,6 +806,7 @@ func buildSyntheticCheckpoint(startFrom string) *agent.SwarmCheckpoint {
 	allPhases := []string{
 		agent.SwarmPhaseNormalize,
 		agent.SwarmPhaseSourceAnalysis,
+		agent.SwarmPhaseCodeAudit,
 		agent.SwarmPhaseSAST,
 		agent.SwarmPhaseDiscover,
 		agent.SwarmPhasePlan,
