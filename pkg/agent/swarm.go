@@ -41,6 +41,7 @@ type SwarmConfig struct {
 
 	// Scanning parameters
 	VulnType         string   // optional: focus on specific vulnerability type
+	Focus            string   // optional: broad strategic hint (e.g. "API injection", "auth bypass")
 	ModuleNames      []string // optional: explicit module IDs to use
 	OnlyPhase        string   // isolate a single phase (empty = all phases)
 	SkipPhases       []string // skip specific phases (empty = skip none)
@@ -1129,8 +1130,18 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		SessionWeight:  3,
 	}
 
-	if cfg.VulnType != "" {
-		opts.Append = fmt.Sprintf("## Vulnerability Focus\n\n%s", cfg.VulnType)
+	// Resolve effective vuln focus: --vuln-type takes precedence, --focus is a broader hint
+	effectiveVulnType := cfg.VulnType
+	if effectiveVulnType == "" && cfg.Focus != "" {
+		effectiveVulnType = cfg.Focus
+	}
+
+	if effectiveVulnType != "" {
+		header := "## Vulnerability Focus"
+		if cfg.VulnType == "" && cfg.Focus != "" {
+			header = "## Focus Area"
+		}
+		opts.Append = fmt.Sprintf("%s\n\n%s", header, effectiveVulnType)
 	}
 
 	// Retry loop — plan output is simple markdown sections, so failures are rare.
@@ -1149,13 +1160,13 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			zap.L().Info("retrying plan agent (previous output was unparseable)",
 				zap.Int("attempt", attempt),
 				zap.Error(lastParseErr))
-			opts.Append = buildPlanRetryFeedback(cfg.VulnType, lastParseErr, lastRawOutput)
+			opts.Append = buildPlanRetryFeedback(effectiveVulnType, lastParseErr, lastRawOutput)
 			extraContext = retryTruncateContext(records)
 		}
 
 		result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
 			"RequestContext": extraContext,
-			"VulnType":       cfg.VulnType,
+			"VulnType":       effectiveVulnType,
 		})
 		if runErr != nil {
 			return nil, "", "", "", fmt.Errorf("plan agent execution failed: %w", runErr)
@@ -1213,10 +1224,16 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		SessionWeight:  2,
 	}
 
+	// Resolve effective vuln focus for extension agent
+	extVulnType := cfg.VulnType
+	if extVulnType == "" && cfg.Focus != "" {
+		extVulnType = cfg.Focus
+	}
+
 	result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
 		"RequestContext": requestContext,
 		"PlanContext":    planContext,
-		"VulnType":       cfg.VulnType,
+		"VulnType":       extVulnType,
 	})
 	if runErr != nil {
 		return nil, "", "", "", fmt.Errorf("extension agent execution failed: %w", runErr)

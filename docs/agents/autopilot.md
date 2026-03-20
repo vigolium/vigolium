@@ -48,8 +48,6 @@ vigolium agent autopilot -t http://localhost:3000 --source ./src --dry-run
 | `--instruction-file` | — | Path to a file containing custom instructions |
 | `--dry-run` | false | Render system prompt without launching |
 
-> **Note:** `--repo` is accepted as a deprecated alias for `--source`.
-
 ## Architecture Overview
 
 ```
@@ -219,7 +217,7 @@ When `--source` is provided, the system prompt includes an expanded workflow tha
 
 ## Session Pooling (`pkg/agent/acp_pool.go`)
 
-For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startup overhead:
+For swarm mode, warm ACP sessions are pooled to avoid subprocess startup overhead:
 
 - Maintains map of `agentName -> acpSession`
 - Sessions are reused if still alive, same working directory, and not in use
@@ -245,8 +243,6 @@ For non-autopilot modes, warm ACP sessions are pooled to avoid subprocess startu
   "dry_run": false
 }
 ```
-
-> **Backward compatibility:** `repo_path` is accepted as an alias for `source`.
 
 **Response modes:**
 - **Streaming (SSE):** Real-time events of type `data: {type, text, result, error}`

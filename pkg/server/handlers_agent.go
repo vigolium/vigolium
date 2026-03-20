@@ -9,7 +9,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -217,62 +216,97 @@ func (h *Handlers) startPipelineRun(c fiber.Ctx, req AgentPipelineRequest, timeo
 	})
 }
 
-// buildPipelineConfig creates an agent.PipelineConfig from an API request.
-// The returned cleanup function releases shared infrastructure and must be deferred by the caller.
-func (h *Handlers) buildPipelineConfig(req AgentPipelineRequest) (agent.PipelineConfig, func(), error) {
+// pipelineToSwarmPhase maps pipeline phase names to swarm phase names.
+var pipelineToSwarmPhase = map[string]string{
+	"source-analysis": agent.SwarmPhaseSourceAnalysis,
+	"discover":        agent.SwarmPhaseDiscover,
+	"plan":            agent.SwarmPhasePlan,
+	"scan":            agent.SwarmPhaseScan,
+	"triage":          agent.SwarmPhaseTriage,
+	"rescan":          agent.SwarmPhaseRescan,
+	"report":          "", // no-op in swarm
+}
+
+// buildPipelineSwarmConfig creates an agent.SwarmConfig from a pipeline API request,
+// with discovery enabled (pipeline is an alias for swarm --discover).
+func (h *Handlers) buildPipelineSwarmConfig(req AgentPipelineRequest) agent.SwarmConfig {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
 	}
 
-	skipPhases := make(map[agent.PipelinePhase]bool)
+	maxIter := req.MaxRescanRounds
+	if maxIter <= 0 {
+		maxIter = 2
+	}
+
+	// Map pipeline skip phases to swarm phase names
+	var swarmSkip []string
 	for _, p := range req.SkipPhases {
-		phase := agent.PipelinePhase(strings.TrimSpace(p))
-		skipPhases[phase] = true
-	}
-
-	maxRescan := req.MaxRescanRounds
-	if maxRescan <= 0 {
-		maxRescan = 2
-	}
-
-	// Clone settings so profile application doesn't mutate server-wide settings.
-	settings := h.settings
-	if req.Profile != "" {
-		settingsCopy := *h.settings
-		settings = &settingsCopy
-
-		profilePath := settings.ScanningStrategy.ResolveProfilePath(req.Profile)
-		profile, err := config.LoadProfile(profilePath)
-		if err != nil {
-			return agent.PipelineConfig{}, nil, fmt.Errorf("failed to load scanning profile %q: %w", req.Profile, err)
-		}
-		if err := config.ApplyProfile(settings, profile); err != nil {
-			return agent.PipelineConfig{}, nil, fmt.Errorf("failed to apply scanning profile %q: %w", req.Profile, err)
+		p = strings.TrimSpace(p)
+		if mapped, ok := pipelineToSwarmPhase[p]; ok && mapped != "" {
+			swarmSkip = append(swarmSkip, mapped)
 		}
 	}
 
-	cfg := agent.PipelineConfig{
-		TargetURL:       req.Target,
-		AgentName:       agentName,
-		Focus:           req.Focus,
-		Instruction:     req.Instruction,
-		SourcePath:      req.EffectiveSourcePath(),
-		Files:           req.Files,
-		MaxRescanRounds: maxRescan,
-		SkipPhases:      skipPhases,
-		StartFrom:       agent.PipelinePhase(req.StartFrom),
-		DryRun:          req.DryRun,
-		ProjectUUID:     req.ProjectUUID,
-		ScanUUID:        req.ScanUUID,
+	// Map pipeline start-from to swarm phase name
+	startFrom := req.StartFrom
+	if mapped, ok := pipelineToSwarmPhase[startFrom]; ok && mapped != "" {
+		startFrom = mapped
 	}
 
-	// Wire native scan callbacks.
-	cfg.DiscoverFunc = h.buildServerDiscoverFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
-	scanFunc, scanCleanup := h.buildServerScanFunc(req.Target, req.ProjectUUID, req.ScanUUID, settings)
-	cfg.ScanFunc = scanFunc
+	cfg := agent.SwarmConfig{
+		Inputs:        []string{req.Target},
+		Instruction:   req.Instruction,
+		Focus:         req.Focus,
+		SourcePath:    req.EffectiveSourcePath(),
+		Files:         req.Files,
+		SkipPhases:    swarmSkip,
+		MaxIterations: maxIter,
+		AgentName:     agentName,
+		DryRun:        req.DryRun,
+		ProjectUUID:   req.ProjectUUID,
+		ScanUUID:      req.ScanUUID,
+	}
 
-	return cfg, scanCleanup, nil
+	// Build synthetic checkpoint for --start-from
+	if startFrom != "" {
+		allPhases := []string{
+			agent.SwarmPhaseNormalize,
+			agent.SwarmPhaseSourceAnalysis,
+			agent.SwarmPhaseSAST,
+			agent.SwarmPhaseDiscover,
+			agent.SwarmPhasePlan,
+			agent.SwarmPhaseExtension,
+			agent.SwarmPhaseScan,
+			agent.SwarmPhaseTriage,
+		}
+		var completed []string
+		for _, p := range allPhases {
+			if p == startFrom {
+				break
+			}
+			completed = append(completed, p)
+		}
+		if len(completed) > 0 {
+			sessionDir, sdErr := agent.EnsureSessionDir(h.settings.Agent.EffectiveSessionsDir(), "agt-pipeline-resume")
+			if sdErr == nil {
+				_ = agent.WriteCheckpointToDir(sessionDir, &agent.SwarmCheckpoint{
+					CompletedPhases: completed,
+				})
+				cfg.ResumeDir = sessionDir
+			}
+		}
+	}
+
+	// Resolve a target URL for the scan runner
+	targetURL := req.Target
+
+	// Wire scan callback and discovery callback (pipeline = swarm --discover)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, "", nil, h.settings)
+	cfg.DiscoverFunc = h.buildServerDiscoverFunc(targetURL, req.ProjectUUID, req.ScanUUID, h.settings)
+
+	return cfg
 }
 
 // buildServerDiscoverFunc creates a callback that runs discovery + spidering using the native runner.
@@ -301,68 +335,9 @@ func (h *Handlers) buildServerDiscoverFunc(target, projectUUID, scanUUID string,
 	}
 }
 
-// buildServerScanFunc creates a callback that runs audit with specified module filters.
-// It returns the scan function and a cleanup function that should be deferred by the caller.
-func (h *Handlers) buildServerScanFunc(target, projectUUID, scanUUID string, settings *config.Settings) (agent.ScanFunc, func()) {
-	var sharedInfra *runner.SharedInfra
-	var buildOnce sync.Once
-	var buildErr error
 
-	cleanup := func() {
-		if sharedInfra != nil {
-			sharedInfra.Close()
-		}
-	}
 
-	scanFunc := func(ctx context.Context, req agent.ScanRequest) error {
-		opts := types.DefaultOptions()
-		opts.Targets = []string{target}
-		opts.ProjectUUID = projectUUID
-		opts.ScanUUID = scanUUID
-		opts.OnlyPhase = "audit"
-		opts.SkipIngestion = true
-		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
-		opts.PassiveModules = []string{"all"}
-		opts.Silent = true
-		opts.ScanConfigPrinted = true
-
-		// For rescans, build SharedInfra once and reuse across invocations
-		if req.IsRescan {
-			buildOnce.Do(func() {
-				sharedInfra, buildErr = runner.BuildSharedInfra(opts, settings, h.repo)
-				if buildErr != nil {
-					if sharedInfra != nil && sharedInfra.HTTPRequester != nil {
-						zap.L().Warn("Partial SharedInfra built — HTTPRequester available, continuing with degraded components", zap.Error(buildErr))
-					} else {
-						zap.L().Warn("SharedInfra build failed — HTTPRequester missing, discarding partial infra", zap.Error(buildErr))
-						if sharedInfra != nil {
-							sharedInfra.Close()
-						}
-						sharedInfra = nil
-					}
-				}
-			})
-		}
-
-		scanRunner, err := runner.New(opts)
-		if err != nil {
-			return err
-		}
-		defer scanRunner.Close()
-
-		scanRunner.SetSettings(settings)
-		scanRunner.SetRepository(h.repo)
-		if sharedInfra != nil && req.IsRescan {
-			scanRunner.SetSharedInfra(sharedInfra)
-		}
-		return scanRunner.RunNativeScan()
-	}
-
-	return scanFunc, cleanup
-}
-
-// handlePipelineSSE runs the pipeline synchronously while streaming SSE events.
+// handlePipelineSSE runs the pipeline (via swarm) synchronously while streaming SSE events.
 func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelineRequest, timeout time.Duration) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
@@ -378,42 +353,39 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		cfg, scanCleanup, err := h.buildPipelineConfig(req)
-		if err != nil {
-			h.updateStatusFailed(runID, err)
-			_ = writeSSE(w, sseEvent{Type: "error", Error: err.Error()})
-			return
-		}
-		if scanCleanup != nil {
-			defer scanCleanup()
-		}
+		cfg := h.buildPipelineSwarmConfig(req)
 
 		// Wire phase callback for SSE events and status updates.
-		cfg.PhaseCallback = func(phase agent.PipelinePhase) {
+		cfg.PhaseCallback = func(phase string) {
 			h.agentMu.Lock()
 			if status := h.agentRunStatus[runID]; status != nil {
-				status.CurrentPhase = string(phase)
+				status.CurrentPhase = phase
 			}
 			h.agentMu.Unlock()
 
-			_ = writeSSE(w, sseEvent{Type: "phase", Phase: string(phase)})
+			_ = writeSSE(w, sseEvent{Type: "phase", Phase: phase})
+		}
+
+		// Wire progress callback for SSE events
+		cfg.ProgressCallback = func(evt agent.ProgressEvent) {
+			_ = writeSSE(w, sseEvent{Type: "progress", Progress: &evt})
 		}
 
 		// Set up stream writer pipe.
 		pr, pw := io.Pipe()
 		cfg.StreamWriter = pw
 
-		type pipeResult struct {
-			result *agent.PipelineResult
+		type swarmRunResult struct {
+			result *agent.SwarmResult
 			err    error
 		}
-		done := make(chan pipeResult, 1)
+		done := make(chan swarmRunResult, 1)
 
-		pipelineRunner := agent.NewPipelineRunner(h.agentEngine, h.repo)
+		swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
 		go func() {
-			result, runErr := pipelineRunner.Run(ctx, cfg)
+			result, runErr := swarmRunner.Run(ctx, cfg)
 			_ = pw.Close()
-			done <- pipeResult{result: result, err: runErr}
+			done <- swarmRunResult{result: result, err: runErr}
 		}()
 
 		// Stream chunks.
@@ -456,8 +428,7 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 			status.Status = "completed"
 			status.CompletedAt = &now
 			status.FindingCount = res.result.TotalFindings
-			status.PipelineResult = res.result
-			status.PhasesRun = pipelinePhasesToStrings(res.result.PhasesRun)
+			status.SwarmResult = res.result
 		}
 		h.agentMu.Unlock()
 
@@ -466,14 +437,14 @@ func (h *Handlers) handlePipelineSSE(c fiber.Ctx, runID string, req AgentPipelin
 			h.persistAgentRunCompleted(runID, status)
 		}
 
-		_ = writeSSE(w, sseEvent{Type: "done", PipelineResult: res.result})
+		_ = writeSSE(w, sseEvent{Type: "done", SwarmResult: res.result})
 		zap.L().Info("Pipeline run completed (streaming)",
 			zap.String("run_id", runID),
 			zap.Int("findings", res.result.TotalFindings))
 	})
 }
 
-// runBackgroundPipeline executes a pipeline run in a goroutine and updates status.
+// runBackgroundPipeline executes a pipeline run (via swarm) in a goroutine and updates status.
 func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
@@ -484,26 +455,19 @@ func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest,
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cfg, scanCleanup, err := h.buildPipelineConfig(req)
-	if err != nil {
-		h.updateStatusFailed(runID, err)
-		return
-	}
-	if scanCleanup != nil {
-		defer scanCleanup()
-	}
+	cfg := h.buildPipelineSwarmConfig(req)
 
 	// Wire phase callback for status updates.
-	cfg.PhaseCallback = func(phase agent.PipelinePhase) {
+	cfg.PhaseCallback = func(phase string) {
 		h.agentMu.Lock()
 		if status := h.agentRunStatus[runID]; status != nil {
-			status.CurrentPhase = string(phase)
+			status.CurrentPhase = phase
 		}
 		h.agentMu.Unlock()
 	}
 
-	pipelineRunner := agent.NewPipelineRunner(h.agentEngine, h.repo)
-	result, runErr := pipelineRunner.Run(ctx, cfg)
+	swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
+	result, runErr := swarmRunner.Run(ctx, cfg)
 
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
@@ -527,8 +491,7 @@ func (h *Handlers) runBackgroundPipeline(runID string, req AgentPipelineRequest,
 	status.Status = "completed"
 	status.CompletedAt = &now
 	status.FindingCount = result.TotalFindings
-	status.PipelineResult = result
-	status.PhasesRun = pipelinePhasesToStrings(result.PhasesRun)
+	status.SwarmResult = result
 
 	// Persist to DB
 	h.persistAgentRunCompleted(runID, status)
@@ -687,6 +650,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		Inputs:        req.EffectiveInputs(),
 		Instruction:   req.Instruction,
 		VulnType:      req.VulnType,
+		Focus:         req.Focus,
 		ModuleNames:   req.ModuleNames,
 		OnlyPhase:     req.OnlyPhase,
 		SkipPhases:    req.SkipPhases,
@@ -1464,23 +1428,6 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 // Utility helpers
 // ---------------------------------------------------------------------------
 
-// updateStatusFailed marks an agent run status as failed.
-func (h *Handlers) updateStatusFailed(runID string, err error) {
-	now := time.Now()
-	h.agentMu.Lock()
-	status := h.agentRunStatus[runID]
-	if status != nil {
-		status.Status = "failed"
-		status.Error = err.Error()
-		status.CompletedAt = &now
-	}
-	h.agentMu.Unlock()
-
-	// Persist to DB
-	if status != nil {
-		h.persistAgentRunCompleted(runID, status)
-	}
-}
 
 // parseDurationOrDefault parses a Go duration string, returning the default on failure or empty input.
 func parseDurationOrDefault(s string, def time.Duration) time.Duration {
@@ -1494,11 +1441,3 @@ func parseDurationOrDefault(s string, def time.Duration) time.Duration {
 	return d
 }
 
-// pipelinePhasesToStrings converts pipeline phases to string slice for status response.
-func pipelinePhasesToStrings(phases []agent.PipelinePhase) []string {
-	result := make([]string, len(phases))
-	for i, p := range phases {
-		result[i] = string(p)
-	}
-	return result
-}

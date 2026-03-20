@@ -1,15 +1,11 @@
 package cli
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
@@ -17,8 +13,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
-	"go.uber.org/zap"
-	"gopkg.in/yaml.v3"
 )
 
 // pipeline command flags
@@ -43,21 +37,21 @@ var (
 
 var agentPipelineCmd = &cobra.Command{
 	Use:   "pipeline",
-	Short: "Agentic scan: multi-phase pipeline with native scan phases",
-	Long: `Run an agentic scan pipeline with AI checkpoints and native scan phases.
+	Short: "Alias for 'swarm --discover' — multi-phase agentic scan pipeline",
+	Long: `Run an agentic scan pipeline (alias for 'vigolium agent swarm --discover').
 
-Phases:
-  0. Source Analysis — AI agent analyzes source code (when --source provided)
-  1. Discover        — Content discovery and spidering (native, no AI)
-  2. Plan            — AI agent analyzes discovery results, plans attack strategy
-  3. Scan            — Dynamic assessment with agent-selected modules (native)
-  4. Triage          — AI agent reviews findings, identifies false positives
-  5. Rescan          — Targeted re-scanning based on triage recommendations
-  6. Report          — Structured output from scan results
+This command delegates to the swarm engine with discovery enabled, providing
+the same multi-phase pipeline experience: source analysis, discovery, planning,
+scanning, triage, and rescan.
 
-The AI agent is only called at phases 0, 2, and 4, keeping costs low while
-leveraging AI for strategic decisions. Phase 0 extracts routes, session
-configuration, and custom scanner extensions from source code.
+Pipeline phase names are mapped to swarm phases:
+  source-analysis → source-analysis
+  discover        → discover
+  plan            → plan
+  scan            → native-scan
+  triage          → triage
+  rescan          → rescan
+  report          → (no-op, swarm reports inline)
 
 Supported input types for --input (auto-detected):
   - URL:         https://example.com/api/login
@@ -93,180 +87,121 @@ func init() {
 	f.StringVar(&pipelineInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 }
 
-func runAgentPipeline(_ *cobra.Command, _ []string) error {
-	defer syncLogger()
-	defer closeDatabaseOnExit()
+// pipelinePhaseToSwarm maps pipeline phase names to swarm phase names.
+var pipelinePhaseToSwarm = map[string]string{
+	"source-analysis": "source-analysis",
+	"discover":        "discover",
+	"plan":            "plan",
+	"scan":            "native-scan",
+	"triage":          "triage",
+	"rescan":          "rescan",
+	"report":          "", // no-op in swarm
+}
 
-	// Resolve input and target
+// mapPipelinePhases converts pipeline --skip-phase values to swarm --skip values.
+func mapPipelinePhases(pipelinePhases []string) []string {
+	var swarmPhases []string
+	for _, p := range pipelinePhases {
+		p = strings.TrimSpace(p)
+		if mapped, ok := pipelinePhaseToSwarm[p]; ok && mapped != "" {
+			swarmPhases = append(swarmPhases, mapped)
+		}
+	}
+	return swarmPhases
+}
+
+// mapPipelineStartFrom converts a pipeline --start-from value to a swarm phase name.
+func mapPipelineStartFrom(phase string) string {
+	if mapped, ok := pipelinePhaseToSwarm[phase]; ok && mapped != "" {
+		return mapped
+	}
+	return phase
+}
+
+// runAgentPipeline delegates to runAgentSwarm with --discover enabled.
+// Pipeline flags are mapped to their swarm equivalents.
+func runAgentPipeline(cmd *cobra.Command, args []string) error {
+	// Resolve input and target (pipeline derives target from input)
 	resolved, err := resolveInputAndTarget(pipelineTarget, pipelineInput)
 	if err != nil {
 		return err
 	}
-	pipelineTarget = resolved.Target
 
-	if pipelineTarget == "" {
+	if resolved.Target == "" {
 		return fmt.Errorf("target is required: use --target, --input, or pipe via stdin")
 	}
 
-	settings, err := config.LoadSettings(globalConfig)
-	if err != nil {
-		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
-		settings = config.DefaultSettings()
+	// Save current swarm flags to restore after delegation
+	savedTarget := swarmTarget
+	savedInput := swarmInput
+	savedAgentName := swarmAgentName
+	savedAgentACPCmd := swarmAgentACPCmd
+	savedSource := swarmSource
+	savedFiles := swarmFiles
+	savedFocus := swarmFocus
+	savedVulnType := swarmVulnType
+	savedTimeout := swarmTimeout
+	savedDryRun := swarmDryRun
+	savedShowPrompt := swarmShowPrompt
+	savedMaxIterations := swarmMaxIterations
+	savedSkipPhases := swarmSkipPhases
+	savedStartFrom := swarmStartFrom
+	savedProfile := swarmProfile
+	savedInstruction := swarmInstruction
+	savedInstructionFile := swarmInstructionFile
+	savedDiscover := swarmDiscover
+
+	// Map pipeline flags → swarm flags
+	swarmTarget = resolved.Target
+	// Only set swarmInput if the raw input differs from the resolved target (avoids duplicate inputs)
+	if resolved.InputData != "" && resolved.InputData != resolved.Target {
+		swarmInput = resolved.InputData
+	} else {
+		swarmInput = ""
 	}
+	swarmAgentName = pipelineAgent
+	swarmAgentACPCmd = pipelineACPCmd
+	swarmSource = pipelineSource
+	swarmFiles = pipelineFiles
+	swarmFocus = pipelineFocus
+	swarmVulnType = "" // pipeline uses --focus, not --vuln-type
+	swarmTimeout = pipelineTimeout
+	swarmDryRun = pipelineDryRun
+	swarmShowPrompt = pipelineShowPrompt
+	swarmMaxIterations = pipelineMaxRescanRounds
+	swarmSkipPhases = mapPipelinePhases(pipelineSkipPhases)
+	swarmStartFrom = mapPipelineStartFrom(pipelineStartFrom)
+	swarmProfile = pipelineProfile
+	swarmInstruction = pipelineInstruction
+	swarmInstructionFile = pipelineInstructionFile
+	swarmDiscover = true // key alias behavior
 
-	// Override SQLite path if --db flag is set
-	if globalDB != "" {
-		settings.Database.Driver = "sqlite"
-		settings.Database.SQLite.Path = globalDB
-	}
+	// Restore swarm flags after delegation
+	defer func() {
+		swarmTarget = savedTarget
+		swarmInput = savedInput
+		swarmAgentName = savedAgentName
+		swarmAgentACPCmd = savedAgentACPCmd
+		swarmSource = savedSource
+		swarmFiles = savedFiles
+		swarmFocus = savedFocus
+		swarmVulnType = savedVulnType
+		swarmTimeout = savedTimeout
+		swarmDryRun = savedDryRun
+		swarmShowPrompt = savedShowPrompt
+		swarmMaxIterations = savedMaxIterations
+		swarmSkipPhases = savedSkipPhases
+		swarmStartFrom = savedStartFrom
+		swarmProfile = savedProfile
+		swarmInstruction = savedInstruction
+		swarmInstructionFile = savedInstructionFile
+		swarmDiscover = savedDiscover
+	}()
 
-	// Apply scanning profile if specified
-	if pipelineProfile != "" {
-		profilePath := settings.ScanningStrategy.ResolveProfilePath(pipelineProfile)
-		profile, profileErr := config.LoadProfile(profilePath)
-		if profileErr != nil {
-			return fmt.Errorf("failed to load scanning profile %q: %w", pipelineProfile, profileErr)
-		}
-		if err := config.ApplyProfile(settings, profile); err != nil {
-			return fmt.Errorf("failed to apply scanning profile %q: %w", pipelineProfile, err)
-		}
-	}
+	fmt.Fprintf(os.Stderr, "%s Pipeline mode (delegating to swarm --discover)\n",
+		terminal.InfoSymbol())
 
-	// Open DB
-	db, err := database.NewDB(&settings.Database)
-	if err != nil {
-		return fmt.Errorf("failed to create database: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	ctx := context.Background()
-	if err := db.CreateSchema(ctx); err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
-	}
-	repo := database.NewRepository(db)
-
-	// Create agent engine
-	engine := agent.NewEngine(settings, repo)
-	defer engine.Close()
-
-	// Build skip phases map
-	skipPhases := make(map[agent.PipelinePhase]bool)
-	for _, p := range pipelineSkipPhases {
-		phase := agent.PipelinePhase(strings.TrimSpace(p))
-		skipPhases[phase] = true
-	}
-
-	instruction, instrErr := resolveInstruction(pipelineInstruction, pipelineInstructionFile)
-	if instrErr != nil {
-		return instrErr
-	}
-
-	pipelineProjectUUID, err := resolveProjectUUID()
-	if err != nil {
-		return err
-	}
-
-	// Create session directory for pipeline artifacts
-	pipelineRunID := "agt-" + uuid.New().String()
-	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), pipelineRunID)
-	if sdErr != nil {
-		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
-	}
-
-	// Track generated auth config path (set by SourceAnalysisCallback, used by scan callbacks)
-	var generatedAuthConfig string
-
-	// Build pipeline config
-	cfg := agent.PipelineConfig{
-		TargetURL:       pipelineTarget,
-		AgentName:       pipelineAgent,
-		AgentACPCmd:     pipelineACPCmd,
-		Focus:           pipelineFocus,
-		Instruction:     instruction,
-		SourcePath:      pipelineSource,
-		Files:           pipelineFiles,
-		MaxRescanRounds: pipelineMaxRescanRounds,
-		SkipPhases:      skipPhases,
-		StartFrom:       agent.PipelinePhase(pipelineStartFrom),
-		DryRun:          pipelineDryRun,
-		ShowPrompt:      pipelineShowPrompt,
-		ProjectUUID:     pipelineProjectUUID,
-		ScanUUID:        globalScanID,
-	}
-
-	// Wire source analysis callback to process generated extensions and session config
-	cfg.SourceAnalysisCallback = func(saResult *agent.SourceAnalysisResult) error {
-		// Write generated extensions to session directory
-		if len(saResult.Extensions) > 0 {
-			dir, writeErr := agent.WriteExtensionsToSessionDir(saResult.Extensions, sessionDir)
-			if writeErr != nil {
-				return fmt.Errorf("failed to write generated extensions: %w", writeErr)
-			}
-			settings.Audit.Extensions.Enabled = true
-			settings.Audit.Extensions.CustomDir = append(settings.Audit.Extensions.CustomDir, filepath.Join(dir, "*.js"))
-		}
-
-		// Write session config to session directory
-		if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-			yamlData, marshalErr := yaml.Marshal(convertSessionConfig(saResult.SessionConfig))
-			if marshalErr != nil {
-				return fmt.Errorf("failed to marshal session config: %w", marshalErr)
-			}
-			authPath := filepath.Join(sessionDir, "auth-config.yaml")
-			if writeErr := os.WriteFile(authPath, yamlData, 0644); writeErr != nil {
-				return fmt.Errorf("failed to write auth config: %w", writeErr)
-			}
-			generatedAuthConfig = authPath
-			zap.L().Info("Generated auth config written",
-				zap.String("path", authPath),
-				zap.Int("sessions", len(saResult.SessionConfig.Sessions)))
-		}
-		return nil
-	}
-
-	if settings.Agent.StreamEnabled() {
-		cfg.StreamWriter = os.Stdout
-	}
-
-	// Wire up native scan callbacks.
-	// Pass &generatedAuthConfig so closures see the value set by SourceAnalysisCallback.
-	cfg.DiscoverFunc = buildDiscoverFunc(settings, repo, &generatedAuthConfig)
-	cfg.ScanFunc = buildScanFunc(settings, repo, &generatedAuthConfig)
-
-	// Set up timeout
-	if pipelineTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, pipelineTimeout)
-		defer cancel()
-	}
-
-	// Print banner
-	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (pipeline) against %s\n",
-		terminal.InfoSymbol(), terminal.Cyan(pipelineTarget))
-	if pipelineSource != "" {
-		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), pipelineSource)
-	}
-	if pipelineFocus != "" {
-		fmt.Fprintf(os.Stderr, "%s Focus: %s\n",
-			terminal.InfoSymbol(), pipelineFocus)
-	}
-
-	if sessionDir != "" {
-		fmt.Fprintf(os.Stderr, "%s Session: %s\n",
-			terminal.InfoSymbol(), terminal.Gray(sessionDir))
-	}
-
-	// Run pipeline
-	pipelineRunner := agent.NewPipelineRunner(engine, repo)
-	result, err := pipelineRunner.Run(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("pipeline failed: %w", err)
-	}
-
-	// Print results
-	printPipelineResult(result)
-	return nil
+	return runAgentSwarm(cmd, args)
 }
 
 // sessionConfigYAML is the YAML-serializable session config format
@@ -341,68 +276,6 @@ func runPipelinePhaseRunner(opts *types.Options, settings *config.Settings, repo
 	return scanRunner.RunNativeScan()
 }
 
-// pipelineBaseOpts returns default options pre-filled with common pipeline fields.
-func pipelineBaseOpts() (*types.Options, error) {
-	opts := types.DefaultOptions()
-	opts.Targets = []string{pipelineTarget}
-	opts.ScanUUID = globalScanID
-	projectUUID, err := resolveProjectUUID()
-	if err != nil {
-		return nil, err
-	}
-	opts.ProjectUUID = projectUUID
-	opts.ConfigPath = globalConfig
-	opts.Silent = true
-	opts.ScanConfigPrinted = true
-	return opts, nil
-}
-
-// buildDiscoverFunc creates a callback that runs discovery + spidering using the native runner.
-func buildDiscoverFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		opts, err := pipelineBaseOpts()
-		if err != nil {
-			return err
-		}
-		opts.OnlyPhase = "discovery"
-		opts.DiscoverEnabled = true
-		opts.SpideringEnabled = true
-		opts.HeuristicsCheck = "basic"
-		if *authConfigPath != "" {
-			opts.AuthConfigPath = *authConfigPath
-		}
-
-		fmt.Fprintf(os.Stderr, "\n%s Phase 1: Discovery & Spidering\n",
-			terminal.Aqua(terminal.SymbolSparkle))
-
-		return runPipelinePhaseRunner(opts, settings, repo)
-	}
-}
-
-// buildScanFunc creates a callback that runs audit with specified module filters.
-func buildScanFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) agent.ScanFunc {
-	return func(ctx context.Context, req agent.ScanRequest) error {
-		opts, err := pipelineBaseOpts()
-		if err != nil {
-			return err
-		}
-		opts.OnlyPhase = "audit"
-		opts.SkipIngestion = true
-		opts.HeuristicsCheck = "none"
-		opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
-		opts.PassiveModules = []string{"all"}
-		if *authConfigPath != "" {
-			opts.AuthConfigPath = *authConfigPath
-		}
-
-		fmt.Fprintf(os.Stderr, "\n%s Scanning with modules: %s\n",
-			terminal.Aqua(terminal.SymbolSparkle),
-			summarizeModules(opts.Modules))
-
-		return runPipelinePhaseRunner(opts, settings, repo)
-	}
-}
-
 // summarizeModules returns a human-readable summary of selected modules.
 func summarizeModules(mods []string) string {
 	if len(mods) == 1 && mods[0] == "all" {
@@ -412,59 +285,4 @@ func summarizeModules(mods []string) string {
 		return strings.Join(mods, ", ")
 	}
 	return fmt.Sprintf("%d modules", len(mods))
-}
-
-// printPipelineResult prints a summary of the pipeline execution.
-func printPipelineResult(result *agent.PipelineResult) {
-	if globalJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(result)
-		return
-	}
-
-	fmt.Fprintf(os.Stderr, "\n%s %s\n",
-		terminal.Aqua(terminal.SymbolSparkle),
-		terminal.BoldAqua("Agentic scan (pipeline) completed"))
-
-	fmt.Fprintf(os.Stderr, "  Duration:        %s\n", result.Duration.Round(time.Second))
-	fmt.Fprintf(os.Stderr, "  Phases run:      %s\n", formatPhases(result.PhasesRun))
-	fmt.Fprintf(os.Stderr, "  Total findings:  %d\n", result.TotalFindings)
-
-	if result.SourceAnalysis != nil {
-		fmt.Fprintf(os.Stderr, "\n  %s Source Analysis:\n", terminal.InfoSymbol())
-		fmt.Fprintf(os.Stderr, "    HTTP records:    %d\n", len(result.SourceAnalysis.HTTPRecords))
-		fmt.Fprintf(os.Stderr, "    Extensions:      %d\n", len(result.SourceAnalysis.Extensions))
-		if result.SourceAnalysis.SessionConfig != nil {
-			fmt.Fprintf(os.Stderr, "    Session config:  %d session(s)\n", len(result.SourceAnalysis.SessionConfig.Sessions))
-		}
-	}
-
-	if len(result.TriageResults) > 0 {
-		fmt.Fprintf(os.Stderr, "  Confirmed:       %d\n", result.Confirmed)
-		fmt.Fprintf(os.Stderr, "  False positives: %d\n", result.FalsePositives)
-		fmt.Fprintf(os.Stderr, "  Rescan rounds:   %d\n", result.RescanRounds)
-	}
-
-	if result.Plan != nil {
-		fmt.Fprintf(os.Stderr, "\n  %s Attack Plan:\n", terminal.InfoSymbol())
-		if len(result.Plan.ModuleTags) > 0 {
-			fmt.Fprintf(os.Stderr, "    Module tags:   %s\n", strings.Join(result.Plan.ModuleTags, ", "))
-		}
-		if len(result.Plan.FocusAreas) > 0 {
-			fmt.Fprintf(os.Stderr, "    Focus areas:   %s\n", strings.Join(result.Plan.FocusAreas, ", "))
-		}
-		if result.Plan.Notes != "" {
-			fmt.Fprintf(os.Stderr, "    Notes:         %s\n", result.Plan.Notes)
-		}
-	}
-}
-
-// formatPhases returns a comma-separated list of phase names.
-func formatPhases(phases []agent.PipelinePhase) string {
-	names := make([]string, len(phases))
-	for i, p := range phases {
-		names[i] = string(p)
-	}
-	return strings.Join(names, " -> ")
 }

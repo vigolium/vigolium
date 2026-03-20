@@ -16,6 +16,7 @@ import { useConfig, useUpdateConfig } from '@/api/hooks';
 import type { ConfigEntry } from '@/api/types';
 import { useToast } from '@/contexts/ToastContext';
 import PageShell from './PageShell';
+import GitHubConnect from '@/components/shared/GitHubConnect';
 
 const ABOUT_CONTENT = `Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision.
 
@@ -177,6 +178,13 @@ export default function SettingsPage() {
         </div>
 
         {activeTab === 'config' && (
+          <div className="space-y-4">
+            {/* GitHub Integration */}
+            <div className="border p-3" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
+              <div className="text-xs font-bold mb-2" style={{ color: 'var(--v-accent)' }}>Integrations</div>
+              <GitHubConnect />
+            </div>
+
           <div className="border overflow-hidden" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
             <div className="px-3 py-1.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--v-border)' }}>
               <span className="text-xs font-bold" style={{ color: 'var(--v-accent)' }}>~/.vigolium/vigolium-configs.yaml</span>
@@ -284,6 +292,7 @@ export default function SettingsPage() {
                 <div className="px-3 py-4 text-xs" style={{ color: 'var(--v-text-muted)' }}>no config entries</div>
               )}
             </div>
+          </div>
           </div>
         )}
 

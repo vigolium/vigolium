@@ -3,16 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/gitutil"
 	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/spf13/cobra"
@@ -179,7 +177,7 @@ func runSourceAdd(cmd *cobra.Command, _ []string) error {
 
 // looksLikeGitURL returns true if the value looks like a git URL rather than a local path.
 func looksLikeGitURL(s string) bool {
-	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "git@")
+	return gitutil.LooksLikeGitURL(s)
 }
 
 // cloneGitRepo clones a git URL into the configured storage directory.
@@ -196,77 +194,16 @@ func cloneGitRepo(gitURL string) (string, error) {
 		cloneDepth = 1
 	}
 
-	// Derive directory name from git URL
-	dirName, err := gitURLToDirName(gitURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid git URL: %w", err)
-	}
-
-	destPath := filepath.Join(storagePath, dirName)
-
-	// Ensure storage directory exists
-	if err := os.MkdirAll(storagePath, 0755); err != nil {
-		return "", fmt.Errorf("failed to create storage directory %s: %w", storagePath, err)
-	}
-
-	// Idempotent: skip clone if directory already exists
-	if info, statErr := os.Stat(destPath); statErr == nil && info.IsDir() {
-		fmt.Printf("%s Repository already exists at %s, skipping clone\n",
-			terminal.InfoSymbol(), terminal.Gray(destPath))
-		return destPath, nil
-	}
-
-	// Run git clone with timeout
-	fmt.Printf("%s Cloning %s ...\n", terminal.InfoSymbol(), terminal.Cyan(gitURL))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	args := []string{"clone", fmt.Sprintf("--depth=%d", cloneDepth), gitURL, destPath}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git clone failed: %w", err)
-	}
-
-	fmt.Printf("%s Cloned to %s\n", terminal.SuccessSymbol(), terminal.Gray(destPath))
-	return destPath, nil
-}
-
-// gitURLToDirName derives a filesystem-safe directory name from a git URL.
-// e.g. "https://github.com/juice-shop/juice-shop" -> "github.com_juice-shop_juice-shop"
-func gitURLToDirName(rawURL string) (string, error) {
-	// Handle git@ SSH URLs by converting to parseable form
-	normalized := rawURL
-	if strings.HasPrefix(rawURL, "git@") {
-		// git@github.com:org/repo.git -> https://github.com/org/repo.git
-		normalized = strings.Replace(rawURL, ":", "/", 1)
-		normalized = strings.Replace(normalized, "git@", "https://", 1)
-	}
-
-	u, err := url.Parse(normalized)
+	clonedPath, err := gitutil.CloneRepo(gitURL, gitutil.CloneOptions{
+		StoragePath: storagePath,
+		CloneDepth:  cloneDepth,
+	})
 	if err != nil {
 		return "", err
 	}
 
-	host := u.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("no hostname in URL: %s", rawURL)
-	}
-
-	// Clean up path: remove leading slash and .git suffix
-	path := strings.TrimPrefix(u.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-	if path == "" {
-		return "", fmt.Errorf("no repository path in URL: %s", rawURL)
-	}
-
-	// Replace / with _ for filesystem safety
-	safePath := strings.ReplaceAll(path, "/", "_")
-
-	return host + "_" + safePath, nil
+	fmt.Printf("%s Cloned to %s\n", terminal.SuccessSymbol(), terminal.Gray(clonedPath))
+	return clonedPath, nil
 }
 
 func runSourceRm(_ *cobra.Command, args []string) error {

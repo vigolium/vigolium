@@ -24,30 +24,32 @@ import (
 
 // agent swarm command flags
 var (
-	swarmTarget             string
-	swarmInput              string
-	swarmRecordUUID         string
-	swarmSource             string
-	swarmFiles              []string
-	swarmVulnType           string
-	swarmModules            []string
-	swarmMaxIterations      int
-	swarmAgentName          string
-	swarmAgentACPCmd        string
-	swarmDryRun             bool
-	swarmShowPrompt         bool
-	swarmSourceAnalysisOnly bool
-	swarmTimeout            time.Duration
-	swarmProfile            string
-	swarmOnlyPhase          string
-	swarmSkipPhases         []string
-	swarmInstruction        string
-	swarmInstructionFile    string
-	swarmDiscover           bool
-	swarmBatchConcurrency   int
-	swarmMaxMasterRetries   int
+	swarmTarget              string
+	swarmInput               string
+	swarmRecordUUID          string
+	swarmSource              string
+	swarmFiles               []string
+	swarmVulnType            string
+	swarmFocus               string
+	swarmModules             []string
+	swarmMaxIterations       int
+	swarmAgentName           string
+	swarmAgentACPCmd         string
+	swarmDryRun              bool
+	swarmShowPrompt          bool
+	swarmSourceAnalysisOnly  bool
+	swarmTimeout             time.Duration
+	swarmProfile             string
+	swarmOnlyPhase           string
+	swarmSkipPhases          []string
+	swarmStartFrom           string
+	swarmInstruction         string
+	swarmInstructionFile     string
+	swarmDiscover            bool
+	swarmBatchConcurrency    int
+	swarmMaxMasterRetries    int
 	swarmSubAgentConcurrency int
-	swarmSkipSAST           bool
+	swarmSkipSAST            bool
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -134,6 +136,7 @@ func init() {
 	f.StringVar(&swarmSource, "source", "", "Path to application source code for route discovery")
 	f.StringSliceVar(&swarmFiles, "files", nil, "Specific source files to include (relative to --source)")
 	f.StringVar(&swarmVulnType, "vuln-type", "", "Vulnerability type focus (e.g. sqli, xss, ssrf)")
+	f.StringVar(&swarmFocus, "focus", "", "Focus area hint for the agent (e.g. 'API injection', 'auth bypass')")
 	f.StringSliceVarP(&swarmModules, "modules", "m", nil, "Explicit module names to include")
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentName, "agent", "", "Agent backend to use (default from config)")
@@ -145,9 +148,14 @@ func init() {
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
 	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
+	f.StringVar(&swarmStartFrom, "start-from", "", "Resume from a specific phase (normalize, source-analysis, sast, discover, plan, extension, native-scan, triage)")
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
+	// Hidden alias for pipeline backward compatibility
+	f.IntVar(&swarmMaxIterations, "max-rescan-rounds", 3, "Alias for --max-iterations (pipeline backward compatibility)")
+	_ = agentSwarmCmd.Flags().MarkHidden("max-rescan-rounds")
+
 	f.IntVar(&swarmBatchConcurrency, "batch-concurrency", 0, "Max parallel master agent batches (0 = auto, scales with CPU count)")
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
 	f.IntVar(&swarmSubAgentConcurrency, "sub-agent-concurrency", 3, "Max parallel source analysis sub-agents (routes, auth, extensions)")
@@ -242,6 +250,11 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	// Track generated auth config path (set by SourceAnalysisCallback, used by scan callbacks)
 	var generatedAuthConfig string
 
+	// --focus is a fallback for --vuln-type
+	if swarmFocus != "" && swarmVulnType == "" {
+		swarmVulnType = swarmFocus
+	}
+
 	// Build swarm config
 	cfg := agent.SwarmConfig{
 		Inputs:             inputs,
@@ -249,6 +262,7 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		SourcePath:         swarmSource,
 		Files:              swarmFiles,
 		VulnType:           swarmVulnType,
+		Focus:              swarmFocus,
 		ModuleNames:        swarmModules,
 		OnlyPhase:          swarmOnlyPhase,
 		SkipPhases:         swarmSkipPhases,
@@ -265,6 +279,15 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		SessionDir:         sessionDir,
 		ProjectUUID:        projectUUID,
 		ScanUUID:           globalScanID,
+	}
+
+	// --start-from: build a synthetic checkpoint with all prior phases marked completed
+	if swarmStartFrom != "" {
+		syntheticCP := buildSyntheticCheckpoint(swarmStartFrom)
+		if syntheticCP != nil {
+			_ = agent.WriteCheckpointToDir(sessionDir, syntheticCP)
+			cfg.ResumeDir = sessionDir
+		}
 	}
 
 	if settings.Agent.StreamEnabled() {
@@ -385,9 +408,11 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		swarmPhaseLabel("Triage", !sourceAnalysisOnly && !isSkipped("triage")),
 		swarmPhaseLabel("Rescan", !sourceAnalysisOnly && !isSkipped("rescan")))
 
-	// Vulnerability focus
+	// Vulnerability focus / focus area
 	if swarmVulnType != "" {
 		fmt.Fprintf(os.Stderr, "  %s Vuln focus: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.Orange(swarmVulnType))
+	} else if swarmFocus != "" {
+		fmt.Fprintf(os.Stderr, "  %s Focus area: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.Orange(swarmFocus))
 	}
 
 	// SAST tools detail
@@ -761,6 +786,39 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 			terminal.GrbRed(terminal.SymbolSparkle))
 
 		return runPipelinePhaseRunner(opts, settings, repo)
+	}
+}
+
+// buildSyntheticCheckpoint creates a checkpoint with all phases before the target marked as completed.
+// This enables --start-from to skip earlier phases without a real resume directory.
+func buildSyntheticCheckpoint(startFrom string) *agent.SwarmCheckpoint {
+	// Ordered swarm phases
+	allPhases := []string{
+		agent.SwarmPhaseNormalize,
+		agent.SwarmPhaseSourceAnalysis,
+		agent.SwarmPhaseSAST,
+		agent.SwarmPhaseDiscover,
+		agent.SwarmPhasePlan,
+		agent.SwarmPhaseExtension,
+		agent.SwarmPhaseScan,
+		agent.SwarmPhaseTriage,
+	}
+
+	var completed []string
+	for _, p := range allPhases {
+		if p == startFrom {
+			break
+		}
+		completed = append(completed, p)
+	}
+
+	if len(completed) == 0 {
+		return nil
+	}
+
+	return &agent.SwarmCheckpoint{
+		CompletedPhases: completed,
+		Timestamp:       time.Now(),
 	}
 }
 

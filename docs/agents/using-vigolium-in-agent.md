@@ -35,7 +35,7 @@ The skill teaches the AI agent how to:
 2. **Construct correct flag combinations** with proper syntax
 3. **Follow scanning workflows** end-to-end (ingest → scan → triage → export)
 4. **Write custom JavaScript extensions** using the `vigolium.*` API
-5. **Operate AI agent modes** (query, autopilot, pipeline)
+5. **Operate AI agent modes** (query, autopilot, swarm)
 6. **Manage data** — browse traffic, filter findings, export reports, clean databases
 
 The skill uses lazy-loaded references: the main `SKILL.md` stays small, and detailed docs are loaded on demand when the agent needs deep flag information or extension authoring guidance.
@@ -50,7 +50,7 @@ public/skills/vigolium-scanner/
 └── references/
     ├── scanning-commands.md              # scan, scan-url, scan-request, run
     ├── server-and-ingestion.md           # server, ingest, traffic, traffic replay
-    ├── agent-commands.md                 # agent, agent query, autopilot, pipeline
+    ├── agent-commands.md                 # agent, agent query, autopilot, swarm
     ├── data-and-management.md            # db, module, ext, config, scope, source, export
     ├── flags-reference.md                # Complete alphabetical flag index
     └── writing-extensions.md             # JS extension API and examples
@@ -541,7 +541,7 @@ vigolium ingest -t https://example.com -I burp -i export.xml --disable-fetch-res
 > Review my source code for security vulnerabilities
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src
+vigolium agent --prompt-template security-code-review --source ./src
 ```
 
 **Endpoint discovery from source:**
@@ -549,7 +549,7 @@ vigolium agent --prompt-template security-code-review --repo ./src
 > Find all API endpoints in my source code
 ```
 ```bash
-vigolium agent --prompt-template endpoint-discovery --repo ./src
+vigolium agent --prompt-template endpoint-discovery --source ./src
 ```
 
 **Review specific files only:**
@@ -557,7 +557,7 @@ vigolium agent --prompt-template endpoint-discovery --repo ./src
 > Review only auth.go and middleware.go for security issues
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --files "src/auth.go,src/middleware.go"
 ```
 
@@ -566,7 +566,7 @@ vigolium agent --prompt-template security-code-review --repo ./src \
 > Code review, but focus on authentication and authorization
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --append "Focus specifically on authentication and authorization vulnerabilities"
 ```
 
@@ -575,7 +575,7 @@ vigolium agent --prompt-template security-code-review --repo ./src \
 > Run the agent with my own prompt template
 ```
 ```bash
-vigolium agent --prompt-file custom-prompt.md --repo ./src
+vigolium agent --prompt-file custom-prompt.md --source ./src
 ```
 
 **Select a specific agent backend:**
@@ -583,7 +583,7 @@ vigolium agent --prompt-file custom-prompt.md --repo ./src
 > Use the Claude backend for code review
 ```
 ```bash
-vigolium agent --agent claude --prompt-template security-code-review --repo ./src
+vigolium agent --agent claude --prompt-template security-code-review --source ./src
 ```
 
 **Dry-run to preview the rendered prompt:**
@@ -591,7 +591,7 @@ vigolium agent --agent claude --prompt-template security-code-review --repo ./sr
 > Show me what prompt would be sent to the agent
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src --dry-run
+vigolium agent --prompt-template security-code-review --source ./src --dry-run
 ```
 
 **Save agent output to a file:**
@@ -599,7 +599,7 @@ vigolium agent --prompt-template security-code-review --repo ./src --dry-run
 > Save the review results to a JSON file
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --output review-results.json
 ```
 
@@ -682,7 +682,7 @@ vigolium agent autopilot -t https://example.com
 > Autonomous scan focused on auth bypass, with source code for context
 ```
 ```bash
-vigolium agent autopilot -t https://api.example.com --repo ./src --focus "auth bypass"
+vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 ```
 
 **Custom limits (fewer commands, shorter timeout):**
@@ -725,17 +725,19 @@ vigolium agent autopilot -t https://example.com --agent gemini
 - Max 100 commands by default (configurable)
 - Output capped at 256KB per command
 
-#### Agent Pipeline (Multi-Phase AI-Guided Scan)
+#### Agent Swarm (AI-Guided Multi-Phase Scan)
 
-**Basic pipeline scan (all 6 phases):**
+**Basic swarm scan with discovery (all phases):**
 ```
-> Run the full AI pipeline scan
+> Run the full AI swarm scan
 ```
 ```bash
-vigolium agent pipeline -t https://example.com
+vigolium agent swarm --discover -t https://example.com
 ```
 
-The pipeline runs:
+> **Note:** `vigolium agent pipeline` still works as a backward-compatible alias for `vigolium agent swarm --discover`.
+
+The swarm runs:
 1. **Discover** — Native content discovery + spidering (no AI)
 2. **Plan** — AI analyzes discovery results, produces an attack plan
 3. **Scan** — Native executor with agent-selected modules (no AI)
@@ -743,12 +745,12 @@ The pipeline runs:
 5. **Rescan** — Targeted re-scanning from triage recommendations (no AI)
 6. **Report** — Structured output from database (no AI)
 
-**Pipeline with focus area and source code:**
+**Swarm with focus area and source code:**
 ```
-> Pipeline scan focused on SQL injection, with source code
+> Swarm scan focused on SQL injection, with source code
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --repo ./src
+vigolium agent swarm --discover -t https://example.com --focus "SQL injection" --source ./src
 ```
 
 **Control rescan iterations:**
@@ -756,7 +758,7 @@ vigolium agent pipeline -t https://example.com --focus "SQL injection" --repo ./
 > Allow up to 3 triage→rescan iterations
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
+vigolium agent swarm --discover -t https://example.com --max-iterations 3
 ```
 
 **Skip discovery and start from planning (use existing DB data):**
@@ -764,23 +766,23 @@ vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
 > I already have traffic in the database, start from planning
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
+vigolium agent swarm --discover -t https://example.com --skip discover --start-from plan
 ```
 
 **Skip triage (just discover → plan → scan):**
 ```
-> Run pipeline but skip triage and rescan
+> Run swarm but skip triage and rescan
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --skip-phase triage --skip-phase rescan
+vigolium agent swarm --discover -t https://example.com --skip triage --skip rescan
 ```
 
 **Use a scanning profile:**
 ```
-> Run pipeline with the deep scanning profile
+> Run swarm with the deep scanning profile
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --profile deep
+vigolium agent swarm --discover -t https://example.com --profile deep
 ```
 
 **Preview agent prompts (dry run):**
@@ -788,7 +790,7 @@ vigolium agent pipeline -t https://example.com --profile deep
 > Show me the prompts without executing
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --dry-run
+vigolium agent swarm --discover -t https://example.com --dry-run
 ```
 
 **Specific source files for agent context:**
@@ -796,16 +798,16 @@ vigolium agent pipeline -t https://example.com --dry-run
 > Only include routes.go and handlers.go as context
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --repo ./src \
+vigolium agent swarm --discover -t https://example.com --source ./src \
   --files "routes.go,handlers.go"
 ```
 
 **Use a different agent backend:**
 ```
-> Run pipeline with Gemini
+> Run swarm with Gemini
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --agent gemini
+vigolium agent swarm --discover -t https://example.com --agent gemini
 ```
 
 ---
@@ -1482,9 +1484,9 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Import my Burp export and scan it" | `vigolium scan -I burp -i export.xml` |
 | "Scan my OpenAPI spec with auth" | `vigolium scan -I openapi -i spec.yaml -t <url> --spec-header "Authorization: Bearer ..."` |
 | "Only run XSS modules" | `vigolium scan -t <url> --module-tag xss` |
-| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --repo ./src` |
+| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --source ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
-| "Run the full AI pipeline" | `vigolium agent pipeline -t <url>` |
+| "Run the full AI pipeline" | `vigolium agent swarm --discover -t <url>` |
 | "Show me all critical findings" | `vigolium finding --severity critical` |
 | "Export results as HTML report" | `vigolium export --format html -o report.html` |
 | "What traffic is in the database?" | `vigolium traffic` |
@@ -1503,7 +1505,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 4. **Module tags** — Filter modules by technology (`spring`, `nodejs`) or vulnerability class (`xss`, `injection`) to reduce noise.
 5. **Watch mode** — Add `--watch 5s` to `traffic`, `finding`, or `db stats` for real-time monitoring during long scans.
 6. **Dry-run agents** — Always `--dry-run` first for agent commands to preview prompts before spending AI tokens.
-7. **Pipeline over autopilot** — Use `agent pipeline` for structured scans (lower cost, reproducible). Use `agent autopilot` for exploratory, creative scanning.
+7. **Swarm over autopilot** — Use `agent swarm --discover` for structured scans (lower cost, reproducible). Use `agent autopilot` for exploratory, creative scanning.
 8. **Extensions for custom logic** — Write JS extensions instead of modifying core modules. They run alongside built-in modules with `--ext`.
 9. **Projects for isolation** — Use `vigolium project create` to keep scan data separate across engagements.
 10. **Export early** — Run `vigolium export --format html -o report.html` to share results as interactive reports.

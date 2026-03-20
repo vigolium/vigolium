@@ -249,6 +249,35 @@ export async function login(username: string, accessCode: string): Promise<{ tok
   return res.json();
 }
 
+// --- GitHub integration ---
+export function getGitHubAuthURL() {
+  return apiGet<{ url: string }>('/api/github/auth-url');
+}
+
+export function sendGitHubCallback(code: string, state: string) {
+  return apiPost<{ connected: boolean; github_login: string }>('/api/github/callback', { code, state });
+}
+
+export function getGitHubStatus() {
+  return apiGet<import('./types').GitHubConnectionStatus>('/api/github/status');
+}
+
+export function disconnectGitHub() {
+  return apiDelete<{ disconnected: boolean }>('/api/github/disconnect');
+}
+
+export function listGitHubRepos(params?: { page?: number; per_page?: number; q?: string }) {
+  return apiGet<import('./types').GitHubRepo[]>('/api/github/repos', params as Record<string, string | number | undefined>);
+}
+
+export function listGitHubBranches(owner: string, repo: string) {
+  return apiGet<import('./types').GitHubBranch[]>(`/api/github/repos/${owner}/${repo}/branches`);
+}
+
+export function cloneGitHubRepo(payload: import('./types').GitHubCloneRequest) {
+  return apiPost<import('./types').GitHubCloneResponse>('/api/github/repos/clone', payload);
+}
+
 // Check if backend requires auth
 export async function checkServerInfo(): Promise<{ ok: boolean; noAuth: boolean }> {
   try {

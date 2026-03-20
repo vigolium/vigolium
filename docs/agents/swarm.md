@@ -1,8 +1,10 @@
 # Agent Swarm
 
-Swarm is a **multi-agent targeted vulnerability scanning** mode. A master AI agent analyzes a specific HTTP request, selects scanner modules, generates custom attack payloads as JavaScript extensions, executes the scan, and triages the results — all in a single command.
+Swarm is the **primary agentic scan mode** in Vigolium (alongside autopilot). A master AI agent analyzes HTTP requests, selects scanner modules, generates custom attack payloads as JavaScript extensions, executes the scan, and triages the results — all in a single command.
 
-Unlike pipeline (which scans an entire target), swarm focuses on a **single request** and applies deep, targeted analysis to it.
+Swarm supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs the complete pipeline: source analysis, SAST, discovery/spidering, AI planning, native scanning, and triage — making it the unified replacement for the former `agent pipeline` command.
+
+> **Note:** `vigolium agent pipeline` is now an alias for `vigolium agent swarm --discover`. Existing pipeline invocations continue to work unchanged.
 
 Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
 
@@ -163,9 +165,11 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |     +-- {{.ModuleTags}}           available module tags (JSON)         |
   |     +-- {{.Extra.RequestContext}} full HTTP request/response pairs     |
   |     +-- {{.Extra.VulnType}}       --vuln-type value                   |
+  |     +-- {{.Extra.Focus}}          --focus value                        |
   |                                                                        |
   |   Appended sections:                                                   |
   |     +-- ## Vulnerability Focus    (if --vuln-type provided)            |
+  |     +-- ## Focus Area             (if --focus provided)                |
   |     +-- ## Custom Instructions    (if --instruction provided)          |
   |                                                                        |
   |   Output: SwarmPlan                                                    |
@@ -368,6 +372,9 @@ vigolium agent swarm -t https://staging.example.com \
 # Focus on a specific vulnerability type
 vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
 
+# Broader focus area hint for the agent
+vigolium agent swarm -t https://example.com/api/users --focus "auth bypass"
+
 # Specify modules explicitly
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
 
@@ -389,6 +396,18 @@ vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --disco
 # Full pipeline: source analysis + SAST + discovery + AI swarm
 vigolium agent swarm -t https://staging.example.com \
   --source https://github.com/org/repo.git --discover --vuln-type sqli
+
+# Full-scope scanning with focus area (equivalent to the old pipeline mode)
+vigolium agent swarm -t https://example.com --discover --focus "API injection"
+
+# Resume a scan from a specific phase (e.g. skip normalize and source analysis)
+vigolium agent swarm -t https://example.com --start-from plan
+
+# Resume from discovery phase (useful after editing source analysis artifacts)
+vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start-from discover
+
+# Using the pipeline alias — equivalent to: vigolium agent swarm --discover -t ...
+vigolium agent pipeline -t https://example.com --source ~/projects/my-app
 ```
 
 ### Supported Input Types
@@ -413,8 +432,11 @@ Inputs are auto-detected from their content:
 | `--source` | — | Path to application source code for route discovery |
 | `--files` | — | Specific source files to include (relative to `--source`) |
 | `--vuln-type` | — | Vulnerability type focus (e.g., `sqli`, `xss`, `ssrf`) |
+| `--focus` | — | Focus area hint for the agent (e.g., `API injection`, `auth bypass`). Broader than `--vuln-type` |
 | `-m, --modules` | — | Explicit module names to include alongside agent selections |
 | `--max-iterations` | 3 | Maximum triage-rescan iterations |
+| `--max-rescan-rounds` | 3 | Alias for `--max-iterations` |
+| `--start-from` | — | Resume from a specific phase (`normalize`, `source-analysis`, `sast`, `discover`, `plan`, `extension`, `native-scan`, `triage`) |
 | `--agent` | from config | Agent backend to use |
 | `--agent-acp-cmd` | — | Custom ACP agent command (e.g., `traecli acp`), overrides `--agent` |
 | `--timeout` | 15m | Maximum swarm duration |
@@ -529,6 +551,7 @@ The master agent receives the `agent-swarm-master` prompt template with:
 | `ModuleList` | JSON of all available active/passive scanner modules |
 | `Extra.RequestContext` | Full HTTP request/response pairs (responses truncated at 4KB) |
 | `Extra.VulnType` | User-specified vulnerability focus (if any) |
+| `Extra.Focus` | User-specified focus area hint (if any) |
 
 The agent analyzes the request surface and returns a **SwarmPlan** JSON:
 
@@ -613,6 +636,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 {
   "input": "curl -X POST https://example.com/api/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"pass\":\"test\"}'",
   "vuln_type": "sqli",
+  "focus": "API injection and auth bypass",
   "instruction": "Focus on JSON deserialization. Generate extensions that test type juggling.",
   "module_names": ["sqli-error-based"],
   "max_iterations": 3,
@@ -631,6 +655,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 | `http_response_base64` | string | No | Base64-encoded raw HTTP response. Attached to the request above |
 | `url` | string | No | URL hint for parsing the base64 request (used when the raw request lacks a full URL) |
 | `vuln_type` | string | No | Vulnerability type focus (e.g., `sqli`, `xss`) |
+| `focus` | string | No | Focus area hint for the agent (e.g., `API injection`, `auth bypass`). Broader than `vuln_type` |
 | `instruction` | string | No | Custom instruction appended to all agent prompts |
 | `module_names` | string[] | No | Explicit module IDs to include |
 | `scanning_phase` | string | No | Scan phase to run (default `audit`) |
@@ -723,6 +748,15 @@ curl -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <api-key>" \
   -d '{"input": "550e8400-e29b-41d4-a716-446655440000"}'
+
+# Swarm with focus area hint
+curl -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <api-key>" \
+  -d '{
+    "input": "https://example.com/api/users?id=1",
+    "focus": "API injection and privilege escalation"
+  }'
 
 # Dry run — render prompts without executing agent calls
 curl -X POST http://localhost:9002/api/agent/run/swarm \
@@ -874,23 +908,21 @@ type TriageResult struct {
 }
 ```
 
-## Comparison: Swarm vs Pipeline vs Autopilot
+## Comparison: Swarm vs Autopilot
 
-| Aspect | Swarm | Pipeline | Autopilot |
-|--------|-------|----------|-----------|
-| **Scope** | Single request/endpoint | Entire target | Entire target |
-| **Input** | URL, curl, raw HTTP, Burp XML, DB record | Target URL | Target URL |
-| **AI involvement** | 2-12 calls (3×2 two-phase source analysis + SAST review + plan + triage), warm sessions auto-enabled | 2-4 calls (source analysis + plan + triage) | Many calls (agent-driven) |
-| **Custom payloads** | Yes — from source analysis, SAST review, and master agent | Only via source analysis (Phase 0) | No |
-| **Discovery** | Optional (`--discover`) — crawling + spidering | Yes — full deparos + spidering | Yes — agent decides |
-| **SAST** | Automatic when `--source` provided + AI review sub-agent | No | No |
-| **Triage scope** | All findings (extension + built-in) | All findings | Agent decides |
-| **Default timeout** | 15 minutes | 1 hour | 30 minutes |
-| **Best for** | Deep testing of a specific endpoint | Full-scope production scanning | Exploratory research |
+| Aspect | Swarm | Autopilot |
+|--------|-------|-----------|
+| **Scope** | Single request/endpoint, or full target with `--discover` | Entire target |
+| **Input** | URL, curl, raw HTTP, Burp XML, DB record | Target URL |
+| **AI involvement** | 2-12 calls (3x2 two-phase source analysis + SAST review + plan + triage), warm sessions auto-enabled | Many calls (agent-driven) |
+| **Custom payloads** | Yes — from source analysis, SAST review, and master agent | No |
+| **Discovery** | Optional (`--discover`) — crawling + spidering | Yes — agent decides |
+| **SAST** | Automatic when `--source` provided + AI review sub-agent | No |
+| **Triage scope** | All findings (extension + built-in) | Agent decides |
+| **Default timeout** | 15 minutes | 30 minutes |
+| **Best for** | Deep targeted testing or full-scope structured scanning | Exploratory research |
 
-**Use `agent swarm`** when you have a specific request you want to attack deeply — the master agent crafts targeted payloads and modules just for that endpoint.
-
-**Use `agent pipeline`** when you need full-scope scanning of an entire target with structured phases.
+**Use `agent swarm`** when you want structured, repeatable scanning — whether targeting a single endpoint for deep analysis or running full-scope scans with `--discover`.
 
 **Use `agent autopilot`** when you want the AI to explore freely and decide its own approach.
 

@@ -465,6 +465,7 @@ type AgentSwarmRequest struct {
 	HTTPResponseBase64 string   `json:"http_response_base64,omitempty"` // base64-encoded raw HTTP response (attached to the request above)
 	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
 	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
+	Focus              string   `json:"focus,omitempty"`                // broad focus area hint (e.g. "API injection", "auth bypass")
 	Instruction        string   `json:"instruction,omitempty"`          // custom instruction appended to agent prompts
 	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
 	OnlyPhase          string   `json:"only_phase,omitempty"`           // isolate a single phase

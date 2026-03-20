@@ -293,6 +293,11 @@ func (cp *SwarmCheckpoint) LastPhase() string {
 	return cp.CompletedPhases[len(cp.CompletedPhases)-1]
 }
 
+// WriteCheckpointToDir persists a SwarmCheckpoint to the session directory (exported for CLI use).
+func WriteCheckpointToDir(sessionDir string, cp *SwarmCheckpoint) error {
+	return writeCheckpoint(sessionDir, cp)
+}
+
 // writeCheckpoint persists a SwarmCheckpoint to the session directory.
 func writeCheckpoint(sessionDir string, cp *SwarmCheckpoint) error {
 	if sessionDir == "" {

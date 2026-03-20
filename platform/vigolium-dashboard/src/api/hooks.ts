@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { apiGet, apiPost, apiPut, apiDelete, apiUpload, getProjectUUID } from './client';
+import {
+  apiGet, apiPost, apiPut, apiDelete, apiUpload, getProjectUUID,
+  getGitHubStatus, disconnectGitHub, sendGitHubCallback, cloneGitHubRepo, listGitHubRepos, listGitHubBranches,
+} from './client';
 import type {
   Project,
   CreateProjectRequest,
@@ -53,6 +56,11 @@ import type {
   AgentSessionsQueryParams,
   ScanLogsResponse,
   ScanLogsQueryParams,
+  GitHubConnectionStatus,
+  GitHubRepo,
+  GitHubBranch,
+  GitHubCloneRequest,
+  GitHubCloneResponse,
 } from './types';
 
 /** Prefix query keys with current project UUID so switching projects invalidates all data. */
@@ -566,5 +574,58 @@ export function useAgentRunStatus(runId: string | null) {
     refetchInterval: (query) => {
       return query.state.data?.status === 'running' ? 3_000 : false;
     },
+  });
+}
+
+// --- GitHub integration hooks ---
+
+export function useGitHubStatus() {
+  return useQuery({
+    queryKey: projectKey('github-status'),
+    queryFn: () => getGitHubStatus(),
+  });
+}
+
+export function useGitHubRepos(params?: { page?: number; per_page?: number; q?: string }, enabled = true) {
+  return useQuery({
+    queryKey: projectKey('github-repos', params),
+    queryFn: () => listGitHubRepos(params),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useGitHubBranches(owner: string, repo: string, enabled = true) {
+  return useQuery({
+    queryKey: projectKey('github-branches', owner, repo),
+    queryFn: () => listGitHubBranches(owner, repo),
+    enabled: enabled && !!owner && !!repo,
+  });
+}
+
+export function useGitHubCallback() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ code, state }: { code: string; state: string }) =>
+      sendGitHubCallback(code, state),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: projectKey('github-status') });
+    },
+  });
+}
+
+export function useGitHubDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => disconnectGitHub(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: projectKey('github-status') });
+    },
+  });
+}
+
+export function useGitHubClone() {
+  return useMutation({
+    mutationFn: (payload: GitHubCloneRequest) => cloneGitHubRepo(payload),
   });
 }

@@ -54,7 +54,7 @@ Module helper code lives in `pkg/modules/modkit/` (shared constants, default imp
 
 ### Ignored Directories
 
-- **`platform/`** — Contains external tooling only. Do not read or modify files in this directory.
+- **`platform/`** — Contains external tooling only. Do not read or modify files in this directory, except for `platform/vigolium-dashboard/` which is the Next.js UI frontend — only go into it when making changes to the UI.
 
 ### Key Packages
 

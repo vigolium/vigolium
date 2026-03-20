@@ -9,6 +9,8 @@ import type { AgentSession, AgentSessionDetail } from '@/api/types';
 import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
+import GitHubConnect from '@/components/shared/GitHubConnect';
+import RepoBrowserModal from '@/components/shared/RepoBrowserModal';
 
 type MainTab = 'swarm' | 'query' | 'autopilot' | 'pipeline' | 'chat';
 type ScanMode = 'template' | 'custom';
@@ -253,6 +255,7 @@ export default function AgentsPage() {
   const [swarmInput, setSwarmInput] = useState('');
   const [swarmInputs, setSwarmInputs] = useState('');
   const [swarmSource, setSwarmSource] = useState('');
+  const [repoBrowserOpen, setRepoBrowserOpen] = useState(false);
   const [swarmModuleTags, setSwarmModuleTags] = useState('');
   const [swarmAgent, setSwarmAgent] = useState('');
   const [swarmVulnType, setSwarmVulnType] = useState('');
@@ -623,8 +626,16 @@ export default function AgentsPage() {
               <div className="grid grid-cols-3 gap-2 mt-1.5">
                 <div>
                   <label className="text-[#708e8e] text-xs block mb-0.5">Source Path</label>
-                  <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source" className={inputClass} />
+                  <div className="flex items-center gap-1">
+                    <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source" className={`${inputClass} flex-1`} />
+                    <GitHubConnect compact onBrowseRepos={() => setRepoBrowserOpen(true)} />
+                  </div>
                 </div>
+                <RepoBrowserModal
+                  open={repoBrowserOpen}
+                  onClose={() => setRepoBrowserOpen(false)}
+                  onSelect={(path) => setSwarmSource(path)}
+                />
                 <div>
                   <label className="text-[#708e8e] text-xs block mb-0.5">Max Iterations</label>
                   <input value={swarmMaxIterations} onChange={(e) => setSwarmMaxIterations(e.target.value)} placeholder="3" className={inputClass} />

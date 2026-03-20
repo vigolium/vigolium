@@ -688,6 +688,43 @@ export interface AgentSessionsQueryParams {
   offset?: number;
 }
 
+// GitHub integration types
+export interface GitHubConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  github_login?: string;
+  connected_at?: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  full_name: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  default_branch: string;
+  language: string | null;
+  description: string | null;
+  html_url: string;
+  clone_url: string;
+  updated_at: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+}
+
+export interface GitHubCloneRequest {
+  clone_url: string;
+  branch?: string;
+  hostname?: string;
+}
+
+export interface GitHubCloneResponse {
+  path: string;
+  source_repo_id?: number;
+}
+
 // Project types
 export interface Project {
   uuid: string;
