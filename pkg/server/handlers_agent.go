@@ -1436,8 +1436,7 @@ type sseEvent struct {
 	Text            string                         `json:"text,omitempty"`             // for "chunk" events
 	Result          *agent.Result                  `json:"result,omitempty"`           // for "done" events (query)
 	AutopilotResult *agent.AutopilotPipelineResult `json:"autopilot_result,omitempty"` // for "done" events (autopilot)
-	PipelineResult  *agent.PipelineResult          `json:"pipeline_result,omitempty"`  // for "done" events (pipeline)
-	SwarmResult     *agent.SwarmResult              `json:"swarm_result,omitempty"`     // for "done" events (swarm)
+	SwarmResult     *agent.SwarmResult              `json:"swarm_result,omitempty"`     // for "done" events (swarm/pipeline)
 	Phase           string                         `json:"phase,omitempty"`            // for "phase" events
 	Progress        *agent.ProgressEvent           `json:"progress,omitempty"`         // for "progress" events
 	Error           string                         `json:"error,omitempty"`            // for "error" events

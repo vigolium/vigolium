@@ -68,6 +68,19 @@ function projectKey(...parts: unknown[]): unknown[] {
   return [getProjectUUID() ?? 'default', ...parts];
 }
 
+// Current user from WorkOS session (server-side)
+export function useCurrentUser() {
+  return useQuery({
+    queryKey: ['current-user'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/me');
+      if (!res.ok) return null;
+      return res.json() as Promise<{ name: string; email: string; role: string }>;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
 // Project CRUD hooks (not project-scoped — they manage projects themselves)
 export function useProjects(owner?: string) {
   return useQuery({

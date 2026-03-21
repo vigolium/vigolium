@@ -1,4 +1,4 @@
-import { getBaseUrl, getToken, getProjectUUID } from '@/api/client';
+import { getBaseUrl, getProjectUUID } from '@/api/client';
 
 export interface SSECallbacks {
   onChunk: (text: string) => void;
@@ -15,13 +15,11 @@ export async function fetchSSE(
 ) {
   const base = getBaseUrl();
   const url = new URL(path, base).toString();
-  const token = getToken();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
   };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
   const projectUUID = getProjectUUID();
   if (projectUUID) headers['X-Project-UUID'] = projectUUID;
 

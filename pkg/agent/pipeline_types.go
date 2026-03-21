@@ -15,27 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// PipelinePhase identifies a phase in the multi-phase scanning pipeline.
-type PipelinePhase string
-
-const (
-	PhaseSourceAnalysis PipelinePhase = "source-analysis"
-	PhaseDiscover       PipelinePhase = "discover"
-	PhasePlan           PipelinePhase = "plan"
-	PhaseScan           PipelinePhase = "scan"
-	PhaseTriage         PipelinePhase = "triage"
-	PhaseRescan         PipelinePhase = "rescan"
-	PhaseReport         PipelinePhase = "report"
-)
-
-// AllPipelinePhases returns the ordered list of pipeline phases.
-func AllPipelinePhases() []PipelinePhase {
-	return []PipelinePhase{
-		PhaseSourceAnalysis, PhaseDiscover, PhasePlan, PhaseScan,
-		PhaseTriage, PhaseRescan, PhaseReport,
-	}
-}
-
 // AttackPlan is the structured output from the plan agent checkpoint (phase 2).
 // The agent analyzes discovery results and produces a scanning strategy.
 type AttackPlan struct {
@@ -913,7 +892,7 @@ type SourceAnalysisConfig struct {
 	SourcePath     string
 	Files          []string
 	Instruction    string // user-provided custom instruction appended to the prompt
-	PromptTemplate string // override template ID (default: "pipeline-source-analysis")
+	PromptTemplate string // override template ID (default: "agent-swarm-source-analysis")
 	SessionKey     string // pool session key override (prevents context accumulation across phases)
 	DryRun         bool
 	ShowPrompt     bool // print rendered prompt to stderr before executing
@@ -1049,58 +1028,7 @@ type ScanRequest struct {
 }
 
 // ScanFunc is the unified callback signature for running scans.
-// Both Pipeline and Swarm modes use this type for their scan callbacks.
 type ScanFunc func(ctx context.Context, req ScanRequest) error
-
-// PipelineConfig configures a pipeline run.
-type PipelineConfig struct {
-	TargetURL       string
-	AgentName       string
-	AgentACPCmd     string // ad-hoc ACP command override (e.g. "traecli acp")
-	Focus           string
-	Instruction     string // user-provided custom instruction appended to agent prompts
-	SourcePath      string
-	Files           []string
-	MaxRescanRounds int
-	SkipPhases      map[PipelinePhase]bool
-	StartFrom       PipelinePhase
-	DryRun          bool
-	ShowPrompt      bool // print rendered prompts to stderr before executing
-	StreamWriter    io.Writer
-	ProjectUUID     string
-	ScanUUID        string
-
-	// DiscoverFunc runs the discovery phase (deparos + spidering).
-	// It should populate the database with HTTP records.
-	DiscoverFunc func(ctx context.Context) error
-
-	// ScanFunc runs the audit phase with the given module filters.
-	ScanFunc ScanFunc
-
-	// PhaseCallback is called when a pipeline phase starts.
-	// Used by the API server to emit SSE phase events and update status.
-	PhaseCallback func(phase PipelinePhase)
-
-	// SourceAnalysisCallback is called after Phase 0 completes to allow the caller
-	// to process generated extensions and session config (e.g. write to disk).
-	SourceAnalysisCallback func(result *SourceAnalysisResult) error
-}
-
-// PipelineResult holds the outcome of a full pipeline run.
-type PipelineResult struct {
-	SourceAnalysis *SourceAnalysisResult `json:"source_analysis,omitempty"`
-	Plan           *AttackPlan           `json:"plan,omitempty"`
-	TriageResults  []*TriageResult       `json:"triage_results,omitempty"`
-	TotalFindings  int                   `json:"total_findings"`
-	Confirmed      int                   `json:"confirmed"`
-	FalsePositives int                   `json:"false_positives"`
-	RescanRounds   int                   `json:"rescan_rounds"`
-	PhasesRun      []PipelinePhase                `json:"phases_run"`
-	PhaseTimings   map[PipelinePhase]time.Duration `json:"phase_timings,omitempty"`
-	Duration       time.Duration                  `json:"duration"`
-	SessionID      string                         `json:"session_id,omitempty"` // ACP session ID for resume
-	TokenUsage     TokenUsage                     `json:"token_usage,omitempty"`
-}
 
 // attackPlanWrapper wraps AttackPlan for JSON parsing flexibility.
 type attackPlanWrapper struct {
@@ -1281,19 +1209,36 @@ func ParseSourceAnalysisResult(raw string) (*SourceAnalysisResult, error) {
 	return nil, fmt.Errorf("failed to parse source analysis result: no http_records found")
 }
 
+// normalizeSessionConfigKeys fixes common LLM key-name garbling in session config JSON.
+// Maps: "session" → "session_config", "sessions_config" → "sessions", "sessionConfig" → "session_config".
+func normalizeSessionConfigKeys(block string) string {
+	// Order matters — replace the garbled nested key first, then the outer key.
+	// "sessions_config" → "sessions" (garbled inner key)
+	block = strings.ReplaceAll(block, `"sessions_config"`, `"sessions"`)
+	// "sessionConfig" → "session_config" (camelCase variant)
+	block = strings.ReplaceAll(block, `"sessionConfig"`, `"session_config"`)
+	// "session" → "session_config" (truncated key) — but only when followed by :{
+	// to avoid replacing "session" inside "session_config" or "sessions"
+	block = strings.ReplaceAll(block, `"session":{`, `"session_config":{`)
+	return block
+}
+
 // extractSessionConfigFromJSON scans all ```json fenced blocks for session_config data.
 // Returns the first valid session_config found, or nil if none.
 func extractSessionConfigFromJSON(raw string) *AgentSessionConfig {
 	blocks := extractAllJSONFromFencedBlocks(raw)
 	for _, block := range blocks {
-		var sa SourceAnalysisResult
-		if err := json.Unmarshal([]byte(block), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
-			return sa.SessionConfig
-		}
-		// Try wrapper format too
-		var wrapper sourceAnalysisWrapper
-		if err := json.Unmarshal([]byte(block), &wrapper); err == nil && wrapper.SourceAnalysis.SessionConfig != nil {
-			return wrapper.SourceAnalysis.SessionConfig
+		// Try as-is first, then with key normalization.
+		for _, b := range []string{block, normalizeSessionConfigKeys(block)} {
+			var sa SourceAnalysisResult
+			if err := json.Unmarshal([]byte(b), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
+				return sa.SessionConfig
+			}
+			// Try wrapper format too
+			var wrapper sourceAnalysisWrapper
+			if err := json.Unmarshal([]byte(b), &wrapper); err == nil && wrapper.SourceAnalysis.SessionConfig != nil {
+				return wrapper.SourceAnalysis.SessionConfig
+			}
 		}
 	}
 	return nil
@@ -1303,47 +1248,58 @@ func extractSessionConfigFromJSON(raw string) *AgentSessionConfig {
 // It uses a layered approach: clean extraction first, then needle-based scanning
 // for "session_config", "sessions", and individual "login" objects.
 func extractSessionConfigFromGarbled(raw string) *AgentSessionConfig {
-	// Layer 1: delegate to clean path — zero overhead for well-formed output
+	// Layer 1: delegate to clean path — zero overhead for well-formed output.
+	// extractSessionConfigFromJSON already applies key normalization internally.
 	if cfg := extractSessionConfigFromJSON(raw); cfg != nil {
 		return cfg
 	}
 
-	// Layer 2: scan for "session_config" needle, extract enclosing JSON block
-	if idx := strings.Index(raw, `"session_config"`); idx >= 0 {
-		// Walk backward to find the opening { for the enclosing object
-		start := idx - 1
-		for start >= 0 && raw[start] != '{' {
-			start--
-		}
-		if start >= 0 {
-			block := findJSONBlockFrom(raw, start)
-			if block != "" {
-				// Try as SourceAnalysisResult
-				var sa SourceAnalysisResult
-				if err := json.Unmarshal([]byte(block), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
-					return sa.SessionConfig
-				}
-				// Try as bare AgentSessionConfig
-				var cfg AgentSessionConfig
-				if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
-					return &cfg
+	// Normalize key names in the full raw text for subsequent needle searches.
+	// This handles cases like "sessions_config" → "sessions", "session":{ → "session_config":{
+	normalized := normalizeSessionConfigKeys(raw)
+
+	// Layer 2: scan for "session_config" needle, extract enclosing JSON block.
+	// Search both original and normalized text.
+	for _, text := range []string{raw, normalized} {
+		if idx := strings.Index(text, `"session_config"`); idx >= 0 {
+			// Walk backward to find the opening { for the enclosing object
+			start := idx - 1
+			for start >= 0 && text[start] != '{' {
+				start--
+			}
+			if start >= 0 {
+				block := findJSONBlockFrom(text, start)
+				if block != "" {
+					// Try as SourceAnalysisResult
+					var sa SourceAnalysisResult
+					if err := json.Unmarshal([]byte(block), &sa); err == nil && sa.SessionConfig != nil && len(sa.SessionConfig.Sessions) > 0 {
+						return sa.SessionConfig
+					}
+					// Try as bare AgentSessionConfig
+					var cfg AgentSessionConfig
+					if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
+						return &cfg
+					}
 				}
 			}
 		}
 	}
 
-	// Layer 3: scan for "sessions" needle with enclosing object
-	if idx := strings.Index(raw, `"sessions"`); idx >= 0 {
-		start := idx - 1
-		for start >= 0 && raw[start] != '{' {
-			start--
-		}
-		if start >= 0 {
-			block := findJSONBlockFrom(raw, start)
-			if block != "" {
-				var cfg AgentSessionConfig
-				if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
-					return &cfg
+	// Layer 3: scan for "sessions" needle with enclosing object.
+	// Search both original and normalized text.
+	for _, text := range []string{raw, normalized} {
+		if idx := strings.Index(text, `"sessions"`); idx >= 0 {
+			start := idx - 1
+			for start >= 0 && text[start] != '{' {
+				start--
+			}
+			if start >= 0 {
+				block := findJSONBlockFrom(text, start)
+				if block != "" {
+					var cfg AgentSessionConfig
+					if err := json.Unmarshal([]byte(block), &cfg); err == nil && len(cfg.Sessions) > 0 {
+						return &cfg
+					}
 				}
 			}
 		}

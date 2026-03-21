@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { ProjectProvider } from '@/contexts/ProjectContext';
-import AuthGate from '@/components/shared/AuthGate';
 import './globals.css';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -31,9 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="antialiased">
         <QueryClientProvider client={queryClient}>
-          <AuthGate>
-            <ProjectProvider><ThemeProvider><ToastProvider>{children}</ToastProvider></ThemeProvider></ProjectProvider>
-          </AuthGate>
+          <ProjectProvider><ThemeProvider><ToastProvider>{children}</ToastProvider></ThemeProvider></ProjectProvider>
         </QueryClientProvider>
       </body>
     </html>

@@ -663,12 +663,11 @@ type AgentRunStatusResponse struct {
 	CompletedAt  *time.Time   `json:"completed_at,omitempty"`
 	Result       *agent.Result `json:"result,omitempty"`
 
-	// Pipeline-specific progress fields
-	CurrentPhase   string               `json:"current_phase,omitempty"`
-	PhasesRun      []string             `json:"phases_run,omitempty"`
-	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"`
+	// Phase progress fields
+	CurrentPhase string   `json:"current_phase,omitempty"`
+	PhasesRun    []string `json:"phases_run,omitempty"`
 
-	// Swarm-specific result
+	// Swarm/pipeline result
 	SwarmResult *agent.SwarmResult `json:"swarm_result,omitempty"`
 }
 

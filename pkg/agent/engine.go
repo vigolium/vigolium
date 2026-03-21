@@ -333,7 +333,7 @@ func (e *Engine) RunSourceAnalysis(ctx context.Context, cfg SourceAnalysisConfig
 
 	templateID := cfg.PromptTemplate
 	if templateID == "" {
-		templateID = "pipeline-source-analysis"
+		templateID = "agent-swarm-source-analysis"
 	}
 
 	exploreTemplateID := templateID + "-explore"
@@ -378,8 +378,8 @@ func (e *Engine) runSourceAnalysisTwoPhase(ctx context.Context, cfg SourceAnalys
 
 	// Write explore phase artifacts to session dir regardless of success/failure
 	if cfg.SessionDir != "" && exploreResult != nil {
-		writePromptToSessionDir(cfg.SessionDir, "prompt-"+originalTemplateID+"-explore.md", exploreResult.RenderedPrompt)
-		writePromptToSessionDir(cfg.SessionDir, "output-"+originalTemplateID+"-explore.md", exploreResult.RawOutput)
+		writePromptToSessionDir(cfg.SessionDir, originalTemplateID+"-explore-prompt.md", exploreResult.RenderedPrompt)
+		writePromptToSessionDir(cfg.SessionDir, originalTemplateID+"-explore-output.md", exploreResult.RawOutput)
 	}
 
 	if exploreRunErr != nil {
@@ -435,8 +435,8 @@ func (e *Engine) runSourceAnalysisTwoPhase(ctx context.Context, cfg SourceAnalys
 
 	// Write format phase artifacts to session dir regardless of success/failure
 	if cfg.SessionDir != "" && formatResult != nil {
-		writePromptToSessionDir(cfg.SessionDir, "prompt-"+originalTemplateID+"-format.md", formatResult.RenderedPrompt)
-		writePromptToSessionDir(cfg.SessionDir, "output-"+originalTemplateID+"-format.md", formatResult.RawOutput)
+		writePromptToSessionDir(cfg.SessionDir, originalTemplateID+"-format-prompt.md", formatResult.RenderedPrompt)
+		writePromptToSessionDir(cfg.SessionDir, originalTemplateID+"-format-output.md", formatResult.RawOutput)
 	}
 
 	if formatRunErr != nil {
@@ -649,6 +649,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 	// --- Wave 1: Explore (reads source code, produces notes) ---
 	var exploreOutput string
+	// Track individual explore outputs for split format calls in wave 2.
+	var routesExploreOutput, sessionExploreOutput string
 
 	if useSplitExplore {
 		// Split explore: routes + session in parallel
@@ -688,8 +690,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 			}
 			result, err := e.Run(ctx, opts)
 			if cfg.SessionDir != "" && result != nil {
-				writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore-routes.md", result.RenderedPrompt)
-				writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore-routes.md", result.RawOutput)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-routes-prompt.md", result.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-routes-output.md", result.RawOutput)
 			}
 			if err != nil {
 				routesErr = err
@@ -723,8 +725,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 			}
 			result, err := e.Run(ctx, opts)
 			if cfg.SessionDir != "" && result != nil {
-				writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore-session.md", result.RenderedPrompt)
-				writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore-session.md", result.RawOutput)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-session-prompt.md", result.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-session-output.md", result.RawOutput)
 			}
 			if err != nil {
 				sessionErr = err
@@ -761,7 +763,11 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 			zap.L().Warn("Session exploration failed, continuing with route results only", zap.Error(sessionErr))
 		}
 
-		// Combine outputs for downstream calls.
+		// Save individual outputs for split format calls in wave 2.
+		routesExploreOutput = routesOutput
+		sessionExploreOutput = sessionOutput
+
+		// Combine outputs for downstream calls (extensions needs both).
 		var parts []string
 		if routesOutput != "" {
 			parts = append(parts, "## Application Routes\n\n"+routesOutput)
@@ -795,8 +801,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		exploreResult, exploreErr := e.Run(ctx, exploreOpts)
 
 		if cfg.SessionDir != "" && exploreResult != nil {
-			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore.md", exploreResult.RenderedPrompt)
-			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore.md", exploreResult.RawOutput)
+			writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-prompt.md", exploreResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, "swarm-source-explore-output.md", exploreResult.RawOutput)
 		}
 
 		if exploreErr != nil {
@@ -832,88 +838,214 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	// Wrap the shared StreamWriter in a synchronized writer so parallel ACP
 	// sessions don't interleave their output on the real-time display.
 	var safeStreamWriter io.Writer
-	if !useSplitExplore && cfg.StreamWriter != nil {
+	if cfg.StreamWriter != nil {
 		safeStreamWriter = &safeWriter{w: cfg.StreamWriter}
 	}
-	if useSplitExplore && cfg.StreamWriter != nil {
-		// Already created in wave 1 for split explore, recreate for wave 2
-		safeStreamWriter = &safeWriter{w: cfg.StreamWriter}
+
+	// Determine whether to use split format (routes + session separately).
+	formatRoutesTemplate := "swarm-source-format-routes"
+	formatSessionTemplate := "swarm-source-format-session"
+	useSplitFormat := useSplitExplore
+	if useSplitFormat {
+		for _, tmpl := range []string{formatRoutesTemplate, formatSessionTemplate} {
+			if _, err := LoadTemplate(tmpl, e.settings.Agent.TemplatesDir); err != nil {
+				useSplitFormat = false
+				break
+			}
+		}
+	}
+
+	// Prepare per-topic explore contexts for split format (truncated to 48KB each).
+	const maxSplitExploreBytes = 48 * 1024
+	routesExploreContext := routesExploreOutput
+	if len(routesExploreContext) > maxSplitExploreBytes {
+		routesExploreContext = routesExploreContext[:maxSplitExploreBytes] + "\n\n... (truncated)"
+	}
+	sessionExploreContext := sessionExploreOutput
+	if len(sessionExploreContext) > maxSplitExploreBytes {
+		sessionExploreContext = sessionExploreContext[:maxSplitExploreBytes] + "\n\n... (truncated)"
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	wg.Add(2)
 
-	// Call 2: Format (notes → JSONL http_records + session_config JSON)
-	go func() {
-		defer wg.Done()
+	if useSplitFormat {
+		// Split format: format-routes + format-session + extensions (3 goroutines)
+		wg.Add(3)
 
-		formatSessionKey := "sa-explore" // reuse warm session from single explore
-		if useSplitExplore {
-			formatSessionKey = "sa-format" // no single warm session with split explore
-		}
+		// Call 2a: Format routes (route notes → JSONL http_records)
+		go func() {
+			defer wg.Done()
 
-		formatOpts := Options{
-			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
-			PromptTemplate: formatTemplate,
-			TargetURL:      cfg.TargetURL,
-			SourcePath:     cfg.SourcePath,
-			SessionKey:     formatSessionKey,
-			DryRun:         cfg.DryRun,
-			ShowPrompt:     cfg.ShowPrompt,
-			ScanUUID:       cfg.ScanUUID,
-			ProjectUUID:    cfg.ProjectUUID,
-			Source:         formatTemplate,
-			StreamWriter:   safeStreamWriter,
-		}
-		// When warm sessions are not available or using split explore,
-		// append explore notes so the format agent has the context it needs.
-		if e.pool == nil || useSplitExplore {
-			formatOpts.Append = "## Analysis Notes from Exploration Phase\n\n" + exploreContext
-		}
+			opts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: formatRoutesTemplate,
+				TargetURL:      cfg.TargetURL,
+				SourcePath:     cfg.SourcePath,
+				SessionKey:     "sa-format-routes",
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         formatRoutesTemplate,
+				StreamWriter:   safeStreamWriter,
+				Append:         "## Route Analysis Notes\n\n" + routesExploreContext,
+			}
 
-		formatResult, formatErr := e.Run(ctx, formatOpts)
+			formatResult, formatErr := e.Run(ctx, opts)
 
-		if cfg.SessionDir != "" && formatResult != nil {
-			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-format.md", formatResult.RenderedPrompt)
-			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-format.md", formatResult.RawOutput)
-		}
+			if cfg.SessionDir != "" && formatResult != nil {
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-routes-prompt.md", formatResult.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-routes-output.md", formatResult.RawOutput)
+			}
 
-		mu.Lock()
-		defer mu.Unlock()
+			mu.Lock()
+			defer mu.Unlock()
 
-		if formatErr != nil {
-			// Format failed — fall back to parsing explore output directly.
-			zap.L().Warn("Source analysis format phase failed, falling back to explore output",
-				zap.Error(formatErr))
-			errs = append(errs, fmt.Errorf("format: %w", formatErr))
-			// Try parsing the raw explore output for any structured data
-			if fallbackResult, parseErr := ParseSourceAnalysisResult(exploreOutput); parseErr == nil && fallbackResult != nil {
-				merged.HTTPRecords = append(merged.HTTPRecords, fallbackResult.HTTPRecords...)
-				if fallbackResult.SessionConfig != nil && len(fallbackResult.SessionConfig.Sessions) > 0 {
-					merged.SessionConfig = fallbackResult.SessionConfig
+			if formatErr != nil {
+				zap.L().Warn("Route format phase failed", zap.Error(formatErr))
+				errs = append(errs, fmt.Errorf("format-routes: %w", formatErr))
+				return
+			}
+
+			allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format-routes ---\n%s", formatResult.RawOutput))
+			allPrompts = append(allPrompts, fmt.Sprintf("--- format-routes ---\n%s", formatResult.RenderedPrompt))
+
+			result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+			if parseErr != nil {
+				zap.L().Warn("Failed to parse format-routes output", zap.Error(parseErr))
+				errs = append(errs, fmt.Errorf("format-routes parse: %w", parseErr))
+				return
+			}
+			if result != nil {
+				merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
+			}
+		}()
+
+		// Call 2b: Format session (auth notes → session_config JSON)
+		go func() {
+			defer wg.Done()
+
+			opts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: formatSessionTemplate,
+				TargetURL:      cfg.TargetURL,
+				SourcePath:     cfg.SourcePath,
+				SessionKey:     "sa-format-session",
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         formatSessionTemplate,
+				StreamWriter:   safeStreamWriter,
+				Append:         "## Authentication & Session Analysis Notes\n\n" + sessionExploreContext,
+			}
+
+			formatResult, formatErr := e.Run(ctx, opts)
+
+			if cfg.SessionDir != "" && formatResult != nil {
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-session-prompt.md", formatResult.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-session-output.md", formatResult.RawOutput)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if formatErr != nil {
+				zap.L().Warn("Session format phase failed", zap.Error(formatErr))
+				errs = append(errs, fmt.Errorf("format-session: %w", formatErr))
+				return
+			}
+
+			allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format-session ---\n%s", formatResult.RawOutput))
+			allPrompts = append(allPrompts, fmt.Sprintf("--- format-session ---\n%s", formatResult.RenderedPrompt))
+
+			result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+			if parseErr != nil {
+				zap.L().Warn("Failed to parse format-session output", zap.Error(parseErr))
+				errs = append(errs, fmt.Errorf("format-session parse: %w", parseErr))
+				return
+			}
+			if result != nil {
+				if result.SessionConfig != nil && len(result.SessionConfig.Sessions) > 0 {
+					merged.SessionConfig = result.SessionConfig
 				}
 			}
-			return
-		}
+		}()
 
-		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format ---\n%s", formatResult.RawOutput))
-		allPrompts = append(allPrompts, fmt.Sprintf("--- format ---\n%s", formatResult.RenderedPrompt))
+	} else {
+		// Single format: combined format call + extensions (2 goroutines)
+		wg.Add(2)
 
-		result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
-		if parseErr != nil {
-			zap.L().Warn("Failed to parse format output", zap.Error(parseErr))
-			errs = append(errs, fmt.Errorf("format parse: %w", parseErr))
-			return
-		}
-		if result != nil {
-			merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
-			if result.SessionConfig != nil && len(result.SessionConfig.Sessions) > 0 {
-				merged.SessionConfig = result.SessionConfig
+		// Call 2: Format (notes → JSONL http_records + session_config JSON)
+		go func() {
+			defer wg.Done()
+
+			formatSessionKey := "sa-explore" // reuse warm session from single explore
+			formatOpts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: formatTemplate,
+				TargetURL:      cfg.TargetURL,
+				SourcePath:     cfg.SourcePath,
+				SessionKey:     formatSessionKey,
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         formatTemplate,
+				StreamWriter:   safeStreamWriter,
 			}
-		}
-	}()
+			// When warm sessions are not available, append explore notes so the
+			// format agent has the context it needs.
+			if e.pool == nil {
+				formatOpts.Append = "## Analysis Notes from Exploration Phase\n\n" + exploreContext
+			}
+
+			formatResult, formatErr := e.Run(ctx, formatOpts)
+
+			if cfg.SessionDir != "" && formatResult != nil {
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-prompt.md", formatResult.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "swarm-source-format-output.md", formatResult.RawOutput)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if formatErr != nil {
+				// Format failed — fall back to parsing explore output directly.
+				zap.L().Warn("Source analysis format phase failed, falling back to explore output",
+					zap.Error(formatErr))
+				errs = append(errs, fmt.Errorf("format: %w", formatErr))
+				// Try parsing the raw explore output for any structured data
+				if fallbackResult, parseErr := ParseSourceAnalysisResult(exploreOutput); parseErr == nil && fallbackResult != nil {
+					merged.HTTPRecords = append(merged.HTTPRecords, fallbackResult.HTTPRecords...)
+					if fallbackResult.SessionConfig != nil && len(fallbackResult.SessionConfig.Sessions) > 0 {
+						merged.SessionConfig = fallbackResult.SessionConfig
+					}
+				}
+				return
+			}
+
+			allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format ---\n%s", formatResult.RawOutput))
+			allPrompts = append(allPrompts, fmt.Sprintf("--- format ---\n%s", formatResult.RenderedPrompt))
+
+			result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+			if parseErr != nil {
+				zap.L().Warn("Failed to parse format output", zap.Error(parseErr))
+				errs = append(errs, fmt.Errorf("format parse: %w", parseErr))
+				return
+			}
+			if result != nil {
+				merged.HTTPRecords = append(merged.HTTPRecords, result.HTTPRecords...)
+				if result.SessionConfig != nil && len(result.SessionConfig.Sessions) > 0 {
+					merged.SessionConfig = result.SessionConfig
+				}
+			}
+		}()
+	}
 
 	// Call 3: Extensions (notes → JS scanner extensions, single call)
 	go func() {
@@ -938,8 +1070,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		extResult, extErr := e.Run(ctx, extOpts)
 
 		if cfg.SessionDir != "" && extResult != nil {
-			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-extensions.md", extResult.RenderedPrompt)
-			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-extensions.md", extResult.RawOutput)
+			writePromptToSessionDir(cfg.SessionDir, "swarm-source-extensions-prompt.md", extResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, "swarm-source-extensions-output.md", extResult.RawOutput)
 		}
 
 		mu.Lock()
@@ -969,8 +1101,12 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	combinedRaw := strings.Join(allRawOutputs, "\n\n")
 	combinedPrompt := strings.Join(allPrompts, "\n\n")
 
-	// All 3 calls failed (explore succeeded but format + extensions both failed)
-	if len(errs) >= 2 {
+	// All format + extensions calls failed — fall back to parsing explore output directly.
+	minErrsForFallback := 2 // single format + extensions
+	if useSplitFormat {
+		minErrsForFallback = 3 // format-routes + format-session + extensions
+	}
+	if len(errs) >= minErrsForFallback {
 		// Still try postProcessSourceAnalysis with explore output as fallback
 		zap.L().Warn("Format and extensions both failed, falling back to explore output parsing")
 		return e.postProcessSourceAnalysis(ctx, cfg, exploreOutput, combinedPrompt)

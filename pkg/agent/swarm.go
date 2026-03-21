@@ -420,7 +420,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
 
-		writePromptToSessionDir(sessionDir, "prompt-source-analysis.md", saRenderedPrompt)
+		writePromptToSessionDir(sessionDir, "source-analysis-prompt.md", saRenderedPrompt)
 		if sessionDir != "" && saRawOutput != "" {
 			outputPath := filepath.Join(sessionDir, "source-analysis-output.md")
 			_ = os.WriteFile(outputPath, []byte(saRawOutput), 0644)
@@ -728,9 +728,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 
 		// Save rendered prompt and raw output to session dir regardless of parse success
-		writePromptToSessionDir(sessionDir, "prompt-master.md", masterRenderedPrompt)
+		writePromptToSessionDir(sessionDir, "master-prompt.md", masterRenderedPrompt)
 		if sessionDir != "" && masterRawOutput != "" {
-			_ = os.WriteFile(filepath.Join(sessionDir, "master-agent-output.md"), []byte(masterRawOutput), 0644)
+			_ = os.WriteFile(filepath.Join(sessionDir, "master-output.md"), []byte(masterRawOutput), 0644)
 		}
 
 		if err != nil {
@@ -2306,7 +2306,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 	}
 
 	// Save prompt and output to session dir
-	writePromptToSessionDir(sessionDir, "prompt-sast-review.md", agentResult.RenderedPrompt)
+	writePromptToSessionDir(sessionDir, "sast-review-prompt.md", agentResult.RenderedPrompt)
 	if sessionDir != "" && agentResult.RawOutput != "" {
 		_ = os.WriteFile(filepath.Join(sessionDir, "sast-review-output.md"), []byte(agentResult.RawOutput), 0644)
 	}
@@ -2423,7 +2423,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 	}
 
 	// Save prompt and output to session dir
-	writePromptToSessionDir(sessionDir, "prompt-code-audit.md", agentResult.RenderedPrompt)
+	writePromptToSessionDir(sessionDir, "code-audit-prompt.md", agentResult.RenderedPrompt)
 	if sessionDir != "" && agentResult.RawOutput != "" {
 		_ = os.WriteFile(filepath.Join(sessionDir, "code-audit-output.md"), []byte(agentResult.RawOutput), 0644)
 	}

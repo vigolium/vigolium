@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useProjectContext } from '@/contexts/ProjectContext';
 import type { ServerInfoResponse } from '@/api/types';
-import { getUserInfo } from '@/api/client';
+import { useCurrentUser } from '@/api/hooks';
 
 interface HeaderProps {
   serverInfo?: ServerInfoResponse;
@@ -15,6 +15,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
   const { toggleTheme } = useTheme();
   const { toasts, dismiss } = useToast();
   const { projectUUID, projects, setProject, createProject } = useProjectContext();
+  const { data: currentUser } = useCurrentUser();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -125,14 +126,14 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
           <span style={{ color: isConnected ? 'var(--v-success)' : 'var(--v-error)' }}>
             {isConnected ? '[CONNECTED]' : '[OFFLINE]'}
           </span>
-          {isConnected && getUserInfo() && (
+          {isConnected && currentUser && (
             <span className="hidden lg:inline" style={{ color: 'var(--v-secondary)' }}>
-              [Login as <span style={{ color: '#fde68a' }}>{getUserInfo()!.name}</span>]
+              [Login as <span style={{ color: '#fde68a' }}>{currentUser.name}</span>]
             </span>
           )}
           {isConnected && (
             <button
-              onClick={() => document.getElementById('vigolium-logout')?.click()}
+              onClick={() => { window.location.href = '/api/auth/logout'; }}
               className="v-header-btn-danger transition-colors"
             >
               [LOG OUT]

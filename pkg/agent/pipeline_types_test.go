@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -1459,6 +1460,63 @@ func TestExtractSessionConfigFromGarbled_SessionsArrayDirect(t *testing.T) {
 	}
 	if cfg.Sessions[1].Name != "guest" {
 		t.Errorf("expected second session 'guest', got %q", cfg.Sessions[1].Name)
+	}
+}
+
+func TestNormalizeSessionConfigKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantSess int // expected number of sessions after normalize + parse
+	}{
+		{
+			name:     "sessions_config garble",
+			input:    `{"http_records":[],"session":{"sessions_config":[{"name":"admin","role":"primary","login":{"url":"http://app/login","method":"POST","content_type":"application/json","body":"{}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}`,
+			wantSess: 1,
+		},
+		{
+			name:     "sessionConfig camelCase",
+			input:    `{"http_records":[],"sessionConfig":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://app/login","method":"POST","content_type":"application/json","body":"{}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}`,
+			wantSess: 1,
+		},
+		{
+			name:     "correct keys unchanged",
+			input:    `{"http_records":[],"session_config":{"sessions":[{"name":"admin","role":"primary","login":{"url":"http://app/login","method":"POST","content_type":"application/json","body":"{}","extract":[{"source":"json","path":"$.token","apply_as":"Authorization: Bearer {value}"}]}}]}}`,
+			wantSess: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized := normalizeSessionConfigKeys(tt.input)
+			var sa SourceAnalysisResult
+			if err := json.Unmarshal([]byte(normalized), &sa); err != nil {
+				t.Fatalf("failed to unmarshal normalized JSON: %v\nnormalized: %s", err, normalized)
+			}
+			if sa.SessionConfig == nil {
+				t.Fatal("expected non-nil SessionConfig after normalization")
+			}
+			if len(sa.SessionConfig.Sessions) != tt.wantSess {
+				t.Errorf("expected %d sessions, got %d", tt.wantSess, len(sa.SessionConfig.Sessions))
+			}
+		})
+	}
+}
+
+func TestExtractSessionConfigFromGarbled_GarbledKeyNames(t *testing.T) {
+	// Real-world case: LLM outputs "session":{"sessions_config":[...]} instead of "session_config":{"sessions":[...]}
+	input := "```json\n" +
+		`{"http_records":[],"session":{"sessions_config":[{"name":"admin","role":"primary","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}},{"name":"regular_user","role":"compare","login":{"url":"http://localhost:3000/rest/user/login","method":"POST","content_type":"application/json","body":"{\"email\":\"jim@juice-sh.op\",\"password\":\"ncc-1701\"}","extract":[{"source":"json","path":"$.authentication.token","apply_as":"Authorization: Bearer {value}"}]}}]}}` +
+		"\n```"
+	cfg := extractSessionConfigFromGarbled(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil session config from garbled key names")
+	}
+	if len(cfg.Sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].Name != "admin" {
+		t.Errorf("expected first session 'admin', got %q", cfg.Sessions[0].Name)
 	}
 }
 

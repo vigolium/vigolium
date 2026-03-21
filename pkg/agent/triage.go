@@ -217,8 +217,8 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			if findingBatches != nil {
 				batchSuffix = fmt.Sprintf("-batch%d", batchIdx+1)
 			}
-			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("prompt-triage-%d%s.md", round, batchSuffix), agentResult.RenderedPrompt)
-			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("triage-output-%d%s.md", round, batchSuffix), agentResult.RawOutput)
+			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("triage-%d%s-prompt.md", round, batchSuffix), agentResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, fmt.Sprintf("triage-%d%s-output.md", round, batchSuffix), agentResult.RawOutput)
 
 			if cfg.DryRun {
 				_, _ = fmt.Fprint(os.Stdout, agentResult.RawOutput)

@@ -530,11 +530,6 @@ Templates use YAML frontmatter with fields like:
 - `interactive-scan` — Interactive scan template
 - `targeted-retest` — Re-test specific findings
 
-**Pipeline:**
-- `pipeline-plan` — Phase 2 attack planning checkpoint
-- `pipeline-triage` — Phase 4 finding triage checkpoint
-- `pipeline-source-analysis` — Phase 0 source code analysis checkpoint
-
 **Autopilot:**
 - `autopilot-system` — System prompt for autonomous mode
 
