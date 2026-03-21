@@ -7,10 +7,8 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats"
-	"github.com/vigolium/vigolium/pkg/input/formats/apivoyagerlist"
 	"github.com/vigolium/vigolium/pkg/input/formats/burpraw"
 	"github.com/vigolium/vigolium/pkg/input/formats/burpxml"
-	"github.com/vigolium/vigolium/pkg/input/formats/crawlerxdir"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
 	"github.com/vigolium/vigolium/pkg/input/formats/deparos"
 	"github.com/vigolium/vigolium/pkg/input/formats/har"
@@ -77,10 +75,6 @@ func resolveFormat(name string) (formats.Format, error) {
 		return nuclei.New(), nil
 	case "urls", "url", "list":
 		return urls.New(), nil
-	case "crawlerxdir", "crawlerx", "parquet", "spitolas", "spitolas-output":
-		return crawlerxdir.New(), nil
-	case "apivoyagerlist", "apivoyager":
-		return apivoyagerlist.New(), nil
 	case "openapi", "swagger":
 		return openapi.New(), nil
 	case "postman":

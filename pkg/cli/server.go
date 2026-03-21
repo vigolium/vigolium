@@ -55,6 +55,9 @@ type serverOptions struct {
 	// Agent ACP command override
 	AgentACPCmd string
 
+	// Disable agent endpoints entirely
+	NoAgent bool
+
 	// View-only mode
 	ViewOnly bool
 }
@@ -101,6 +104,10 @@ func init() {
 	flags.StringVar(&serverOpts.AgentACPCmd, "agent-acp-cmd", "",
 		"Custom ACP agent command for all agent runs (e.g. 'traecli acp')")
 
+	// Disable agent
+	flags.BoolVar(&serverOpts.NoAgent, "no-agent", false,
+		"Disable all agent endpoints and warm session pooling")
+
 	// View-only mode
 	flags.BoolVar(&serverOpts.ViewOnly, "view-only", false,
 		"Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints)")
@@ -116,19 +123,25 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		settings = config.DefaultSettings()
 	}
 
-	// Auto-enable warm sessions in server mode unless explicitly disabled via flag.
-	// The server runs in the background anyway, so warm sessions are a natural fit.
-	if serverOpts.DisableWarmSession {
+	// When --no-agent is set, force-disable warm sessions and skip ACP command registration.
+	if serverOpts.NoAgent {
 		f := false
 		settings.Agent.WarmSession.Enable = &f
-	} else if !settings.Agent.WarmSession.IsEnabled() {
-		t := true
-		settings.Agent.WarmSession.Enable = &t
+	} else {
+		// Auto-enable warm sessions in server mode unless explicitly disabled via flag.
+		// The server runs in the background anyway, so warm sessions are a natural fit.
+		if serverOpts.DisableWarmSession {
+			f := false
+			settings.Agent.WarmSession.Enable = &f
+		} else if !settings.Agent.WarmSession.IsEnabled() {
+			t := true
+			settings.Agent.WarmSession.Enable = &t
+		}
 	}
 
 	// Register ad-hoc ACP agent command and set it as default when --agent-acp-cmd is provided.
 	// This makes all API agent requests use the custom command by default, including warm sessions.
-	if serverOpts.AgentACPCmd != "" {
+	if serverOpts.AgentACPCmd != "" && !serverOpts.NoAgent {
 		if def := agent.ParseACPCmd(serverOpts.AgentACPCmd); def != nil {
 			def.Description = "Custom ACP agent from --agent-acp-cmd"
 			if settings.Agent.Backends == nil {
@@ -292,6 +305,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		ShutdownTimeout:      30 * time.Second,
 		CORSAllowedOrigins:   settings.Server.CORSAllowedOrigins,
 		EnableMetrics:        settings.Server.EnableMetrics,
+		NoAgent:              serverOpts.NoAgent,
 		ViewOnly:             serverOpts.ViewOnly,
 		Debug:                globalDebug,
 		Version:              Version,
@@ -424,7 +438,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %s Workers %s\n",
 			terminal.InfoSymbol(),
 			terminal.Cyan(fmt.Sprintf("%d", globalConcurrency)))
-		if agentName := settings.Agent.DefaultAgent; agentName != "" {
+		if serverOpts.NoAgent {
+			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow("Agent disabled — all agent endpoints skipped"))
+		} else if agentName := settings.Agent.DefaultAgent; agentName != "" {
 			if agentDef, ok := settings.Agent.Backends[agentName]; ok {
 				warmLabel := "off"
 				if settings.Agent.WarmSession.IsEnabled() {

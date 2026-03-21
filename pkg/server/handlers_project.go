@@ -26,7 +26,20 @@ func (h *Handlers) HandleListProjects(c fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(projects)
+	// Bulk-fetch stats for all projects
+	allStats, err := h.repo.GetAllProjectsStats(c.Context())
+	if err != nil {
+		// Non-fatal: return projects without stats
+		allStats = make(map[string]*database.ProjectStatsRow)
+	}
+
+	result := make([]ProjectWithStats, 0, len(projects))
+	for _, p := range projects {
+		ps := buildProjectStats(allStats[p.UUID])
+		result = append(result, ProjectWithStats{Project: p, Stats: ps})
+	}
+
+	return c.JSON(result)
 }
 
 // HandleCreateProject handles POST /api/projects
@@ -91,7 +104,15 @@ func (h *Handlers) HandleGetProject(c fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(project)
+	statsRow, err := h.repo.GetProjectStats(c.Context(), projectUUID)
+	if err != nil {
+		statsRow = nil // non-fatal
+	}
+
+	return c.JSON(ProjectWithStats{
+		Project: project,
+		Stats:   buildProjectStats(statsRow),
+	})
 }
 
 // HandleUpdateProject handles PUT /api/projects/:uuid
@@ -139,6 +160,34 @@ func (h *Handlers) HandleUpdateProject(c fiber.Ctx) error {
 	}
 
 	return c.JSON(project)
+}
+
+// buildProjectStats converts a database ProjectStatsRow into the API response type.
+func buildProjectStats(row *database.ProjectStatsRow) ProjectStats {
+	if row == nil {
+		return ProjectStats{}
+	}
+	return ProjectStats{
+		HTTPRecords: ProjectHTTPRecordStats{
+			Total:     row.HTTPRecords,
+			Success:   row.HTTP2xx,
+			Redirect:  row.HTTP3xx,
+			ClientErr: row.HTTP4xx,
+			ServerErr: row.HTTP5xx,
+		},
+		Findings: ProjectFindingStats{
+			Total:    row.Findings,
+			Critical: row.Critical,
+			High:     row.High,
+			Medium:   row.Medium,
+			Low:      row.Low,
+			Info:     row.Info,
+		},
+		Scans:            row.Scans,
+		AgentRuns:        row.AgentRuns,
+		SourceRepos:      row.SourceRepos,
+		OASTInteractions: row.OASTInteractions,
+	}
 }
 
 // HandleDeleteProject handles DELETE /api/projects/:uuid

@@ -55,6 +55,24 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 	}
 
 	// Use ON CONFLICT DO NOTHING so re-running is idempotent
+	// --- Users ---
+	users := seedUsers()
+	for _, u := range users {
+		if _, err := db.NewInsert().Model(u).On("CONFLICT DO NOTHING").Exec(ctx); err != nil {
+			return fmt.Errorf("failed to insert user %s: %w", u.UUID, err)
+		}
+	}
+	fmt.Printf("  %s Inserted %d users\n", terminal.SuccessSymbol(), len(users))
+
+	// --- Projects ---
+	projects := seedProjects(users)
+	for _, p := range projects {
+		if _, err := db.NewInsert().Model(p).On("CONFLICT DO NOTHING").Exec(ctx); err != nil {
+			return fmt.Errorf("failed to insert project %s: %w", p.UUID, err)
+		}
+	}
+	fmt.Printf("  %s Inserted %d projects\n", terminal.SuccessSymbol(), len(projects))
+
 	// --- Scans ---
 	scans := seedScans(rng)
 	for _, s := range scans {
@@ -90,6 +108,30 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 		findingsInserted++
 	}
 	fmt.Printf("  %s Inserted %d findings\n", terminal.SuccessSymbol(), findingsInserted)
+
+	// --- Finding Records (junction table: finding ↔ HTTP record) ---
+	findingRecordsInserted := 0
+	for _, f := range findings {
+		if f.ID == 0 {
+			// Look up the finding ID by hash (it was just inserted or already exists)
+			var fid int64
+			err := db.NewSelect().Model((*database.Finding)(nil)).Column("id").Where("finding_hash = ?", f.FindingHash).Scan(ctx, &fid)
+			if err != nil || fid == 0 {
+				continue
+			}
+			f.ID = fid
+		}
+		for _, recUUID := range f.HTTPRecordUUIDs {
+			if _, err := db.NewRaw(
+				"INSERT INTO finding_records (finding_id, record_uuid) VALUES (?, ?) ON CONFLICT DO NOTHING",
+				f.ID, recUUID,
+			).Exec(ctx); err != nil {
+				continue // skip on error (e.g. FK violation)
+			}
+			findingRecordsInserted++
+		}
+	}
+	fmt.Printf("  %s Inserted %d finding_records\n", terminal.SuccessSymbol(), findingRecordsInserted)
 
 	// --- Scopes (check by name to avoid duplicates on re-seed) ---
 	scopes := seedScopes()
@@ -166,6 +208,22 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 		agentRunsInserted++
 	}
 	fmt.Printf("  %s Inserted %d agent runs\n", terminal.SuccessSymbol(), agentRunsInserted)
+
+	// --- Session Hostnames ---
+	sessions := seedSessionHostnames(scans)
+	sessionsInserted := 0
+	for _, sh := range sessions {
+		sh.ProjectUUID = projectUUID
+		exists, _ := db.NewSelect().Model((*database.SessionHostname)(nil)).Where("hostname = ? AND session_name = ?", sh.Hostname, sh.SessionName).Exists(ctx)
+		if exists {
+			continue
+		}
+		if _, err := db.NewInsert().Model(sh).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to insert session hostname %s/%s: %w", sh.Hostname, sh.SessionName, err)
+		}
+		sessionsInserted++
+	}
+	fmt.Printf("  %s Inserted %d session hostnames\n", terminal.SuccessSymbol(), sessionsInserted)
 
 	fmt.Printf("\n%s Seed complete! Use 'vigolium db stats' or 'vigolium traffic' to inspect.\n", terminal.SuccessSymbol())
 	return nil
@@ -1938,6 +1996,174 @@ JWT token uses HS256 with weak secret. Token can be forged.
 			Status:     "pending",
 			PromptSent: "Perform a security code review of the blog application focusing on comment handling and content injection vectors.",
 			CreatedAt:  now.Add(-30 * time.Second),
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// User seeds
+// ---------------------------------------------------------------------------
+
+func seedUsers() []*database.User {
+	now := time.Now()
+	return []*database.User{
+		{
+			UUID:      "user-0001-aaaa-bbbb-cccc-ddddeeee0001",
+			Email:     "admin@vigolium.dev",
+			Name:      "Admin User",
+			CreatedAt: now.Add(-30 * 24 * time.Hour),
+			UpdatedAt: now.Add(-1 * time.Hour),
+		},
+		{
+			UUID:      "user-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			Email:     "analyst@vigolium.dev",
+			Name:      "Security Analyst",
+			CreatedAt: now.Add(-14 * 24 * time.Hour),
+			UpdatedAt: now.Add(-3 * time.Hour),
+		},
+		{
+			UUID:      "user-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Email:     "ci-bot@vigolium.dev",
+			Name:      "CI Pipeline Bot",
+			CreatedAt: now.Add(-7 * 24 * time.Hour),
+			UpdatedAt: now.Add(-7 * 24 * time.Hour),
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Project seeds
+// ---------------------------------------------------------------------------
+
+func seedProjects(users []*database.User) []*database.Project {
+	now := time.Now()
+	return []*database.Project{
+		{
+			UUID:        database.DefaultProjectUUID,
+			Name:        "Default Project",
+			Description: "Default project for all scan data when no project is specified",
+			OwnerUUID:   users[0].UUID,
+			CreatedAt:   now.Add(-30 * 24 * time.Hour),
+			UpdatedAt:   now.Add(-1 * time.Hour),
+		},
+		{
+			UUID:        "proj-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			Name:        "E-Commerce Platform Audit",
+			Description: "Security assessment of the api.shop.local e-commerce platform including API and frontend",
+			OwnerUUID:   users[1].UUID,
+			CreatedAt:   now.Add(-7 * 24 * time.Hour),
+			UpdatedAt:   now.Add(-2 * time.Hour),
+		},
+		{
+			UUID:        "proj-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Name:        "Blog Application Pentest",
+			Description: "Targeted pentest of blog.test for XSS and content injection vulnerabilities",
+			OwnerUUID:   users[1].UUID,
+			CreatedAt:   now.Add(-3 * 24 * time.Hour),
+			UpdatedAt:   now.Add(-3 * time.Hour),
+		},
+		{
+			UUID:        "proj-0004-aaaa-bbbb-cccc-ddddeeee0004",
+			Name:        "CI Nightly Scan",
+			Description: "Automated nightly security scans triggered by CI pipeline",
+			OwnerUUID:   users[2].UUID,
+			CreatedAt:   now.Add(-1 * 24 * time.Hour),
+			UpdatedAt:   now.Add(-12 * time.Hour),
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Session hostname seeds
+// ---------------------------------------------------------------------------
+
+func seedSessionHostnames(scans []*database.Scan) []*database.SessionHostname {
+	now := time.Now()
+	return []*database.SessionHostname{
+		// example.com — admin session with static Bearer token
+		{
+			Hostname:     "example.com",
+			ScanUUID:     scans[0].UUID,
+			SessionName:  "admin",
+			SessionRole:  "administrator",
+			Position:     0,
+			SessionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIn0.fake-admin-token",
+			Headers:      map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIn0.fake-admin-token"},
+			Source:       "manual",
+			CreatedAt:    now.Add(-2 * time.Hour),
+			UpdatedAt:    now.Add(-2 * time.Hour),
+		},
+		// example.com — regular user session with static Bearer token
+		{
+			Hostname:     "example.com",
+			ScanUUID:     scans[0].UUID,
+			SessionName:  "user",
+			SessionRole:  "user",
+			Position:     1,
+			SessionToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MiIsInJvbGUiOiJ1c2VyIn0.fake-user-token",
+			Headers:      map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MiIsInJvbGUiOiJ1c2VyIn0.fake-user-token"},
+			Source:       "manual",
+			CreatedAt:    now.Add(-2 * time.Hour),
+			UpdatedAt:    now.Add(-2 * time.Hour),
+		},
+		// api.shop.local — authenticated session via login flow
+		{
+			Hostname:         "api.shop.local",
+			ScanUUID:         scans[1].UUID,
+			SessionName:      "shop-admin",
+			SessionRole:      "admin",
+			Position:         0,
+			LoginURL:         "https://api.shop.local/api/v1/auth/login",
+			LoginMethod:      "POST",
+			LoginContentType: "application/json",
+			LoginBody:        `{"username":"admin","password":"admin123"}`,
+			LoginRequest:     "POST /api/v1/auth/login HTTP/1.1\r\nHost: api.shop.local\r\nContent-Type: application/json\r\n\r\n{\"username\":\"admin\",\"password\":\"admin123\"}",
+			LoginResponse:    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"token\":\"eyJhbGciOiJIUzI1NiJ9.shop-admin-token\",\"expires_in\":3600}",
+			ExtractRules:     `[{"source":"body","name":"token","type":"json","expression":"$.token","apply_as":"header","header_name":"Authorization","header_prefix":"Bearer "}]`,
+			Source:           "agent",
+			CreatedAt:        now.Add(-90 * time.Minute),
+			UpdatedAt:        now.Add(-90 * time.Minute),
+		},
+		// api.shop.local — regular customer session
+		{
+			Hostname:         "api.shop.local",
+			ScanUUID:         scans[1].UUID,
+			SessionName:      "shop-customer",
+			SessionRole:      "customer",
+			Position:         1,
+			LoginURL:         "https://api.shop.local/api/v1/auth/login",
+			LoginMethod:      "POST",
+			LoginContentType: "application/json",
+			LoginBody:        `{"username":"customer1","password":"custpass"}`,
+			ExtractRules:     `[{"source":"body","name":"token","type":"json","expression":"$.token","apply_as":"header","header_name":"Authorization","header_prefix":"Bearer "}]`,
+			Source:           "agent",
+			CreatedAt:        now.Add(-90 * time.Minute),
+			UpdatedAt:        now.Add(-90 * time.Minute),
+		},
+		// blog.test — cookie-based session
+		{
+			Hostname:     "blog.test",
+			ScanUUID:     scans[2].UUID,
+			SessionName:  "blogger",
+			SessionRole:  "author",
+			Position:     0,
+			SessionToken: "session_id=abc123def456; csrf_token=xyz789",
+			Headers:      map[string]string{"Cookie": "session_id=abc123def456; csrf_token=xyz789"},
+			Source:       "manual",
+			CreatedAt:    now.Add(-30 * time.Minute),
+			UpdatedAt:    now.Add(-30 * time.Minute),
+		},
+		// legacy.example.com — basic auth session
+		{
+			Hostname:     "legacy.example.com",
+			SessionName:  "legacy-admin",
+			SessionRole:  "admin",
+			Position:     0,
+			SessionToken: "Basic YWRtaW46cGFzc3dvcmQ=",
+			Headers:      map[string]string{"Authorization": "Basic YWRtaW46cGFzc3dvcmQ="},
+			Source:       "manual",
+			CreatedAt:    now.Add(-2 * time.Hour),
+			UpdatedAt:    now.Add(-2 * time.Hour),
 		},
 	}
 }

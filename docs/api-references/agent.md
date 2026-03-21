@@ -6,15 +6,15 @@ The agent API provides three run modes that mirror the `vigolium agent` CLI subc
 
 | Endpoint                         | CLI Equivalent              | Description                              |
 |----------------------------------|-----------------------------|------------------------------------------|
-| `POST /api/agent/run/query`      | `vigolium agent [query]`    | Single-shot prompt execution             |
+| `POST /api/agent/run/query`      | `vigolium agent query`      | Single-shot prompt execution             |
 | `POST /api/agent/run/autopilot`  | `vigolium agent autopilot`  | Autonomous AI-driven scanning session    |
-| `POST /api/agent/run/pipeline`   | `vigolium agent pipeline`   | Multi-phase scanning pipeline            |
+| `POST /api/agent/run/swarm`      | `vigolium agent swarm`      | AI-guided multi-phase vulnerability swarm|
 | `GET /api/agent/status/list`     | —                           | List runs with in-memory status          |
 | `GET /api/agent/status/:id`      | —                           | Get run status by ID                     |
 | `GET /api/agent/sessions`        | `vigolium agent sessions`   | Paginated session history from DB        |
 | `GET /api/agent/sessions/:id`    | —                           | Full session detail with debug fields    |
 
-All three run modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
+All run modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
 
 ---
 
@@ -126,66 +126,307 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
 
 ---
 
-## POST /api/agent/run/pipeline — Multi-Phase Scanning Pipeline
+## POST /api/agent/run/swarm — AI-Guided Vulnerability Swarm
 
-Runs the fixed multi-phase scanning pipeline with AI agent checkpoints. The pipeline phases are:
+Launches an AI-guided multi-phase vulnerability swarm. The master agent analyzes inputs, selects scanner modules, generates custom JS extensions, executes scans, and triages results. The swarm phases are:
 
-1. **Discover** — Content discovery and spidering (native, no AI)
-2. **Plan** — AI agent analyzes discovery results, plans attack strategy
-3. **Scan** — Dynamic assessment with agent-selected modules (native)
-4. **Triage** — AI agent reviews findings, identifies false positives
-5. **Rescan** — Targeted re-scanning based on triage recommendations
-6. **Report** — Structured output from scan results
+1. **Normalize** — Parse and normalize inputs (native, no AI)
+2. **Source Analysis** — AI agents extract routes, auth flows, and extensions from source code *(conditional, requires source path)*
+3. **Code Audit** — AI security code audit *(conditional, requires `code_audit: true`)*
+4. **SAST** — Static analysis route extraction and secret detection *(conditional, requires source path)*
+5. **Discovery** — Content discovery and spidering *(conditional, requires discover flag)*
+6. **Plan** — Master agent analyzes targets, selects modules, generates quick checks and extensions
+7. **Extension** — Validate, merge, and write JS extensions to disk (native)
+8. **Scan** — Execute scanner modules with agent-selected filters and extensions (native)
+9. **Triage** — AI agent reviews findings, confirms or marks as false positive
+10. **Rescan** — Targeted re-scanning based on triage follow-ups *(conditional, triggered by triage)*
 
-AI agents are only called at phases 2 (Plan) and 4 (Triage).
+AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the master agent runs in parallel batches (max 5 records per batch) with plan merging.
 
 **Request body:**
 
-| Field               | Type     | Required | Description                                                    |
-|---------------------|----------|----------|----------------------------------------------------------------|
-| `target`            | string   | **Yes**  | Target URL to scan                                             |
-| `agent`             | string   | No       | Agent backend name (default from config)                       |
-| `repo_path`         | string   | No       | Path to source code repository for context                     |
-| `files`             | string[] | No       | Specific files to include as context                           |
-| `focus`             | string   | No       | Focus area hint for the planning agent                         |
-| `profile`           | string   | No       | Scanning profile name (e.g. `"light"`, `"thorough"`)           |
-| `timeout`           | string   | No       | Go duration string (default `"1h"`)                            |
-| `max_rescan_rounds` | int      | No       | Max triage→rescan iterations (default `2`)                     |
-| `skip_phases`       | string[] | No       | Phases to skip (e.g. `["rescan"]`)                             |
-| `start_from`        | string   | No       | Resume pipeline from a specific phase                          |
-| `dry_run`           | bool     | No       | Render agent prompts without executing                         |
-| `stream`            | bool     | No       | If `true`, returns an SSE stream with phase events             |
-| `scan_uuid`         | string   | No       | Link results to a specific scan UUID                           |
-| `project_uuid`      | string   | No       | Scope results to a project                                     |
+*Inputs:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `input`                | string   | No*      | Single input (URL, curl command, raw HTTP, Burp XML, or record UUID)  |
+| `inputs`               | string[] | No*      | Multiple inputs                                                       |
+| `http_request_base64`  | string   | No*      | Base64-encoded raw HTTP request (ingested into DB, UUID used as input)|
+| `http_response_base64` | string   | No       | Base64-encoded raw HTTP response (attached to the request above)      |
+| `url`                  | string   | No       | URL hint for parsing the base64 request                               |
+
+\* At least one of `input`, `inputs`, or `http_request_base64` is required.
+
+*Source analysis:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `source_path`          | string   | No       | Path to source code for route discovery (triggers source analysis)    |
+| `files`                | string[] | No       | Specific source files to include (relative to `source_path`)          |
+| `source_analysis_only` | bool     | No       | Run only the source analysis phase and exit                           |
+| `skip_sast`            | bool     | No       | Skip native SAST tools (ast-grep, trivy) during source analysis       |
+
+*Scanning parameters:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `vuln_type`            | string   | No       | Vulnerability type focus (e.g. `"sqli"`, `"xss"`)                     |
+| `focus`                | string   | No       | Broad focus area hint (e.g. `"API injection"`, `"auth bypass"`)       |
+| `instruction`          | string   | No       | Custom instruction appended to agent prompts                          |
+| `module_names`         | string[] | No       | Explicit module IDs to use                                            |
+| `only_phase`           | string   | No       | Isolate a single phase                                                |
+| `skip_phases`          | string[] | No       | Skip specific phases                                                  |
+| `start_from`           | string   | No       | Resume from a specific phase (e.g. `"plan"`, `"triage"`)              |
+| `max_iterations`       | int      | No       | Max triage→rescan rounds (default `3`)                                |
+| `discover`             | bool     | No       | Run discovery+spidering before master agent planning                  |
+| `code_audit`           | bool     | No       | Enable AI security code audit phase (requires `source_path`)          |
+| `profile`              | string   | No       | Scanning profile name (e.g. `"light"`, `"thorough"`)                  |
+
+*Agent selection:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `agent`                | string   | No       | Agent backend name (default from config)                              |
+| `agent_acp_cmd`        | string   | No       | Custom ACP agent command override (e.g. `"traecli acp"`)              |
+
+*Concurrency tuning:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `batch_concurrency`    | int      | No       | Max parallel master agent batches (0 = auto, scales with CPU)         |
+| `max_master_retries`   | int      | No       | Max master agent retries on parse failure (default `3`)               |
+| `sa_max_concurrency`   | int      | No       | Max parallel source analysis sub-agents (default `3`)                 |
+
+*Terminal capability:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `slash_commands`       | string[] | No       | Custom slash commands for the ACP session                             |
+| `custom_agents`        | string[] | No       | Custom agent names for sub-agent invocation                           |
+| `max_commands`         | int      | No       | Max terminal commands per session (default `50`)                      |
+
+*Output control:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `dry_run`              | bool     | No       | Render prompts without executing agents                               |
+| `show_prompt`          | bool     | No       | Include rendered prompts in output                                    |
+| `stream`               | bool     | No       | If `true`, returns an SSE stream with phase events                    |
+| `timeout`              | string   | No       | Go duration string (default `"15m"`)                                  |
+
+*Project/scan scoping:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `project_uuid`         | string   | No       | Scope results to a project                                            |
+| `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
+
+**Basic examples:**
 
 ```bash
-# Basic pipeline scan
-curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
+# Swarm a single URL
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
-    "target": "https://example.com",
+    "input": "https://example.com/api/search?q=test",
     "agent": "claude"
   }' | jq .
 
-# Pipeline with focus, profile, and streaming
-curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
+# Swarm a curl command (auto-detected)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
-    "target": "https://example.com",
-    "focus": "auth bypass",
-    "profile": "thorough",
-    "skip_phases": ["rescan"],
-    "timeout": "2h",
-    "stream": true
-  }'
-
-# Resume a pipeline from the triage phase
-curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target": "https://example.com",
-    "start_from": "triage"
+    "input": "curl -X POST -H '\''Content-Type: application/json'\'' -d '\''{\"user\":\"admin\",\"pass\":\"secret\"}'\'' https://example.com/api/login"
   }' | jq .
+
+# Swarm with multiple inputs (e.g. an auth flow)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inputs": [
+      "https://example.com/api/users",
+      "https://example.com/api/products?id=1",
+      "https://example.com/api/login"
+    ],
+    "vuln_type": "sqli",
+    "focus": "API injection",
+    "max_iterations": 2
+  }' | jq .
+
+# Swarm a base64-encoded HTTP request (e.g. exported from Burp Suite)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "http_request_base64": "R0VUIC9hcGkvc2VhcmNoP3E9dGVzdCBIVFRQLzEuMQ0KSG9zdDogZXhhbXBsZS5jb20NCg0K",
+    "http_response_base64": "SFRUUC8xLjEgMjAwIE9LDQpDb250ZW50LVR5cGU6IGFwcGxpY2F0aW9uL2pzb24NCg0Key...",
+    "url": "https://example.com"
+  }' | jq .
+
+# Swarm a record already stored in the database
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  }' | jq .
+```
+
+**Source-aware scanning:**
+
+```bash
+# Source-aware swarm — discovers routes from source code, then scans
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "agent": "claude"
+  }' | jq .
+
+# Source-aware with specific files (faster, focused analysis)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "files": ["routes/api.js", "controllers/auth.js", "middleware/session.js"]
+  }' | jq .
+
+# Only run source analysis (no scanning) — useful for route extraction
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "source_analysis_only": true
+  }' | jq .
+
+# Source-aware with code audit + SAST + discovery — full pipeline
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "discover": true,
+    "code_audit": true,
+    "instruction": "Focus on business logic flaws in the payment flow",
+    "profile": "thorough"
+  }' | jq .
+
+# Source-aware but skip SAST tools (only AI source analysis)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "skip_sast": true
+  }' | jq .
+```
+
+**Scanning control:**
+
+```bash
+# Use specific scanner modules only
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com/api/users?id=1",
+    "module_names": ["sqli-error-based", "sqli-blind-time", "sqli-blind-boolean"]
+  }' | jq .
+
+# Skip specific phases (e.g. skip triage for raw scan results)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "skip_phases": ["triage", "native-rescan"]
+  }' | jq .
+
+# Resume from a specific phase (e.g. re-run triage after reviewing plan)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "start_from": "triage",
+    "max_iterations": 1
+  }' | jq .
+
+# Run only the planning phase (isolate plan generation)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com/api/search?q=test",
+    "only_phase": "plan"
+  }' | jq .
+
+# Run with discovery+spidering before the master agent plans
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "discover": true,
+    "profile": "light"
+  }' | jq .
+```
+
+**Advanced configuration:**
+
+```bash
+# Concurrency tuning for large input sets (>5 records trigger batching)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "inputs": [
+      "https://example.com/api/users",
+      "https://example.com/api/orders",
+      "https://example.com/api/products",
+      "https://example.com/api/payments",
+      "https://example.com/api/auth",
+      "https://example.com/api/settings",
+      "https://example.com/api/files",
+      "https://example.com/api/admin"
+    ],
+    "batch_concurrency": 4,
+    "max_master_retries": 5,
+    "max_iterations": 2
+  }' | jq .
+
+# Use a custom ACP agent command
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "agent_acp_cmd": "traecli acp"
+  }' | jq .
+
+# Terminal capability: custom slash commands and sub-agents
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "slash_commands": ["/security-review", "/auth-check"],
+    "custom_agents": ["sqli-specialist", "xss-expert"],
+    "max_commands": 100
+  }' | jq .
+
+# Dry run — render all prompts without executing agents
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com/api/search?q=test",
+    "dry_run": true,
+    "show_prompt": true
+  }' | jq .
+
+# SSE streaming with project scoping
+curl -N -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -H "X-Project-UUID: proj-123" \
+  -d '{
+    "input": "https://example.com",
+    "stream": true,
+    "timeout": "30m",
+    "project_uuid": "proj-123"
+  }'
 ```
 
 **Response (202):**
@@ -194,7 +435,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
 {
   "run_id": "agt-550e8400-e29b-41d4-a716-446655440000",
   "status": "running",
-  "message": "pipeline run started"
+  "message": "swarm run started"
 }
 ```
 
@@ -202,14 +443,14 @@ curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
 
 ## SSE Streaming
 
-All three run endpoints support `"stream": true`, which returns a `text/event-stream` (Server-Sent Events) response. Each event is a JSON object on a `data:` line.
+All run endpoints support `"stream": true`, which returns a `text/event-stream` (Server-Sent Events) response. Each event is a JSON object on a `data:` line.
 
 **Event types:**
 
 | Type    | Description                                                        | Modes              |
 |---------|--------------------------------------------------------------------|---------------------|
 | `chunk` | Incremental text output from the agent                             | All                 |
-| `phase` | Pipeline phase transition (includes `phase` field)                 | Pipeline only       |
+| `phase` | Phase transition (includes `phase` field)                          | Swarm only          |
 | `done`  | Final event with the complete result object                        | All                 |
 | `error` | Agent run failed; includes `error` message                         | All                 |
 
@@ -224,24 +465,24 @@ data: {"type":"done","result":{"agent_name":"claude","findings":[...],"saved_cou
 
 ```
 
-**Example SSE stream (pipeline):**
+**Example SSE stream (swarm):**
 
 ```
-data: {"type":"phase","phase":"discover"}
-
-data: {"type":"chunk","text":"Running discovery..."}
+data: {"type":"phase","phase":"native-normalize"}
 
 data: {"type":"phase","phase":"plan"}
 
-data: {"type":"chunk","text":"Analyzing endpoints for attack strategy..."}
+data: {"type":"chunk","text":"Analyzing targets for attack strategy..."}
 
-data: {"type":"phase","phase":"scan"}
+data: {"type":"phase","phase":"native-extension"}
+
+data: {"type":"phase","phase":"native-scan"}
 
 data: {"type":"phase","phase":"triage"}
 
 data: {"type":"chunk","text":"Reviewing findings..."}
 
-data: {"type":"done","pipeline_result":{"total_findings":5,"confirmed":3,"false_positives":2,"phases_run":["discover","plan","scan","triage"]}}
+data: {"type":"done","swarm_result":{"total_findings":5,"confirmed":3,"false_positives":2,"iterations":2,"severity_counts":{"high":2,"medium":3}}}
 
 ```
 
@@ -269,10 +510,10 @@ curl -s http://localhost:9002/api/agent/status/list | jq .
   },
   {
     "run_id": "agt-661f9511-f3ac-52e5-b827-557766551111",
-    "mode": "pipeline",
+    "mode": "swarm",
     "status": "running",
-    "current_phase": "scan",
-    "phases_run": ["discover", "plan"]
+    "current_phase": "native-scan",
+    "phases_run": ["native-normalize", "plan", "native-extension"]
   }
 ]
 ```
@@ -292,7 +533,7 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400-e29b-41d4-a716-44665
 | Field              | Type     | Description                                                |
 |--------------------|----------|------------------------------------------------------------|
 | `run_id`           | string   | Unique run identifier                                      |
-| `mode`             | string   | Run mode: `"query"`, `"autopilot"`, or `"pipeline"`        |
+| `mode`             | string   | Run mode: `"query"`, `"autopilot"`, or `"swarm"`           |
 | `status`           | string   | `"running"`, `"completed"`, or `"failed"`                  |
 | `agent_name`       | string   | Agent backend used                                         |
 | `template_id`      | string   | Prompt template ID (query mode)                            |
@@ -302,9 +543,9 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400-e29b-41d4-a716-44665
 | `error`            | string   | Error message (failed runs only)                           |
 | `completed_at`     | string   | ISO 8601 completion timestamp                              |
 | `result`           | object   | Full agent result (query/autopilot, completed runs only)   |
-| `current_phase`    | string   | Currently executing phase (pipeline, running only)         |
-| `phases_run`       | string[] | Completed phases (pipeline only)                           |
-| `pipeline_result`  | object   | Full pipeline result (pipeline, completed runs only)       |
+| `current_phase`    | string   | Currently executing phase (swarm, running only)            |
+| `phases_run`       | string[] | Completed phases (swarm only)                              |
+| `swarm_result`     | object   | Full swarm result (swarm, completed runs only)             |
 
 **Query/autopilot completed run:**
 
@@ -330,18 +571,18 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400-e29b-41d4-a716-44665
 }
 ```
 
-**Pipeline completed run:**
+**Swarm completed run:**
 
 ```json
 {
   "run_id": "agt-772a0622-g4bd-63f6-c938-668877662222",
-  "mode": "pipeline",
+  "mode": "swarm",
   "status": "completed",
   "finding_count": 5,
   "completed_at": "2026-02-16T16:30:00Z",
-  "phases_run": ["discover", "plan", "scan", "triage", "report"],
-  "pipeline_result": {
-    "plan": {
+  "phases_run": ["native-normalize", "plan", "native-extension", "native-scan", "triage"],
+  "swarm_result": {
+    "swarm_plan": {
       "module_tags": ["xss", "sqli"],
       "focus_areas": ["authentication", "API endpoints"]
     },
@@ -355,9 +596,10 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400-e29b-41d4-a716-44665
     "total_findings": 5,
     "confirmed": 3,
     "false_positives": 2,
-    "rescan_rounds": 0,
-    "phases_run": ["discover", "plan", "scan", "triage", "report"],
-    "duration": "45m12s"
+    "iterations": 1,
+    "severity_counts": {"high": 2, "medium": 3},
+    "total_records": 3,
+    "duration": "2m15s"
   }
 }
 ```
@@ -384,7 +626,7 @@ Returns a paginated list of agent sessions from the database. Unlike `/api/agent
 
 | Parameter | Type   | Default | Description                                      |
 |-----------|--------|---------|--------------------------------------------------|
-| `mode`    | string | —       | Filter by mode: `query`, `autopilot`, `pipeline`, `swarm` |
+| `mode`    | string | —       | Filter by mode: `query`, `autopilot`, `swarm`    |
 | `limit`   | int    | `50`    | Page size (max `500`)                            |
 | `offset`  | int    | `0`     | Offset for pagination                            |
 
@@ -410,20 +652,20 @@ curl -s "http://localhost:9002/api/agent/sessions?mode=swarm&limit=10&offset=0" 
   "data": [
     {
       "uuid": "agt-550e8400-e29b-41d4-a716-446655440000",
-      "mode": "pipeline",
+      "mode": "swarm",
       "status": "completed",
       "agent_name": "claude",
       "template_id": "",
       "target_url": "https://example.com",
       "input_type": "url",
-      "current_phase": "report",
-      "phases_run": ["discover", "plan", "scan", "triage", "report"],
+      "current_phase": "triage",
+      "phases_run": ["native-normalize", "plan", "native-extension", "native-scan", "triage"],
       "finding_count": 5,
-      "record_count": 42,
-      "saved_count": 42,
-      "duration_ms": 271200,
+      "record_count": 3,
+      "saved_count": 3,
+      "duration_ms": 135000,
       "started_at": "2026-02-16T15:00:00Z",
-      "completed_at": "2026-02-16T15:04:31Z",
+      "completed_at": "2026-02-16T15:02:15Z",
       "created_at": "2026-02-16T15:00:00Z"
     },
     {
@@ -466,8 +708,8 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 | `session_id`       | string   | ACP session ID (for autopilot resume)                  |
 | `prompt_sent`      | string   | Full prompt text sent to the agent                     |
 | `agent_raw_output` | string   | Complete raw output from the agent                     |
-| `attack_plan`      | string   | JSON attack plan (pipeline/swarm modes)                |
-| `triage_result`    | string   | JSON triage result (pipeline mode)                     |
+| `attack_plan`      | string   | JSON attack plan (swarm mode)                          |
+| `triage_result`    | string   | JSON triage result (swarm mode)                        |
 | `result_json`      | string   | Full result object as JSON                             |
 
 **Response (200):**
@@ -475,21 +717,21 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 ```json
 {
   "uuid": "agt-550e8400-e29b-41d4-a716-446655440000",
-  "mode": "pipeline",
+  "mode": "swarm",
   "status": "completed",
   "agent_name": "claude",
   "target_url": "https://example.com",
   "input_type": "url",
-  "current_phase": "report",
-  "phases_run": ["discover", "plan", "scan", "triage", "report"],
+  "current_phase": "triage",
+  "phases_run": ["native-normalize", "plan", "native-extension", "native-scan", "triage"],
   "finding_count": 5,
-  "record_count": 42,
-  "saved_count": 42,
-  "duration_ms": 271200,
+  "record_count": 3,
+  "saved_count": 3,
+  "duration_ms": 135000,
   "started_at": "2026-02-16T15:00:00Z",
-  "completed_at": "2026-02-16T15:04:31Z",
+  "completed_at": "2026-02-16T15:02:15Z",
   "created_at": "2026-02-16T15:00:00Z",
-  "input_raw": "https://example.com",
+  "input_raw": "https://example.com/api/search?q=test",
   "module_names": ["xss-reflected", "sqli-error"],
   "session_id": "",
   "prompt_sent": "You are a security scanning agent...",
@@ -579,4 +821,4 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-See [Agent Mode](../agent-mode.md) for full agent documentation.
+See [Agent Mode](../agents/agent-mode.md) for full agent documentation.

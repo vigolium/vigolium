@@ -61,16 +61,19 @@ type terminalManager struct {
 }
 
 // newTerminalManager creates a terminal manager with the given working directory and call limit.
-func newTerminalManager(cwd string, maxCalls int) *terminalManager {
+// Extra commands are appended to the default allowlist (which always includes "vigolium").
+func newTerminalManager(cwd string, maxCalls int, extraCmds ...string) *terminalManager {
 	if maxCalls <= 0 {
 		maxCalls = defaultMaxCalls
 	}
+	allowed := []string{"vigolium"}
+	allowed = append(allowed, extraCmds...)
 	return &terminalManager{
 		sessions:       make(map[string]*terminalSession),
 		cwd:            cwd,
 		maxCalls:       maxCalls,
 		commandTimeout: defaultCommandTimeout,
-		allowedCmds:    []string{"vigolium"},
+		allowedCmds:    allowed,
 		blockedSubcmds: [][]string{
 			{"db", "clean"},
 			{"db", "seed"},
@@ -79,10 +82,11 @@ func newTerminalManager(cwd string, maxCalls int) *terminalManager {
 	}
 }
 
-// withTerminal enables terminal execution for autopilot mode.
-func withTerminal(cwd string, maxCalls int) acpClientOption {
+// withTerminal enables terminal execution. Extra commands are appended to the
+// default allowlist (which always includes "vigolium").
+func withTerminal(cwd string, maxCalls int, extraCmds ...string) acpClientOption {
 	return func(c *acpClient) {
-		c.termMgr = newTerminalManager(cwd, maxCalls)
+		c.termMgr = newTerminalManager(cwd, maxCalls, extraCmds...)
 	}
 }
 

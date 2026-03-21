@@ -264,7 +264,7 @@ Converts various security tool output formats into normalized HTTP request strea
 
 | Sub-package | Purpose |
 |---|---|
-| `formats/` | Format parsers: `openapi/`, `burpxml/`, `burpraw/`, `postman/`, `curl/`, `nuclei/`, `crawlerxdir/`, `urls/`, `apivoyagerlist/` |
+| `formats/` | Format parsers: `openapi/`, `burpxml/`, `burpraw/`, `postman/`, `curl/`, `nuclei/`, `urls/` |
 | `source/` | Request stream providers: file, stdin, concurrent wrapper, multi-source aggregation, deparos/harvester integration |
 
 #### `pkg/output/`

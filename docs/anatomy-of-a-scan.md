@@ -143,7 +143,7 @@ Resolved by `resolveFormat()` in `file.go`:
 | `burpxml`, `burp-xml`, `burp` | Burp XML export |
 | `nuclei`, `nuclei-output` | Nuclei JSONL output |
 | `deparos`, `deparos-output` | Deparos discovery output |
-| `crawlerxdir`, `spitolas` | Spitolas spider output (Parquet) |
+
 
 ### The WorkItem — `pkg/work/item.go`
 

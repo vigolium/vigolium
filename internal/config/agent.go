@@ -11,8 +11,9 @@ type AgentConfig struct {
 	Stream       *bool               `yaml:"stream,omitempty"`
 	LLM          LLMConfig           `yaml:"llm"`
 	WarmSession  WarmSessionConfig   `yaml:"warm_session"`
-	McpEnabled   *bool               `yaml:"mcp_enabled,omitempty"`   // enable MCP server passthrough to ACP sessions (default: false)
-	McpServers   []McpServerConfig   `yaml:"mcp_servers,omitempty"`   // global MCP servers attached to all ACP sessions when mcp_enabled is true
+	McpEnabled    *bool               `yaml:"mcp_enabled,omitempty"`    // enable MCP server passthrough to ACP sessions (default: false)
+	McpServers    []McpServerConfig   `yaml:"mcp_servers,omitempty"`    // global MCP servers attached to all ACP sessions when mcp_enabled is true
+	SwarmTerminal SwarmTerminalConfig `yaml:"swarm_terminal,omitempty"` // terminal config for swarm agent sessions
 }
 
 // IsMcpEnabled returns whether MCP server passthrough is enabled. Defaults to false.
@@ -46,6 +47,28 @@ func (c *WarmSessionConfig) EffectiveMaxSessions() int {
 		return 2
 	}
 	return c.MaxSessions
+}
+
+// SwarmTerminalConfig configures terminal capability for swarm agent sessions.
+// When SlashCommands or CustomAgents are set, the swarm enables CreateTerminal
+// in ACP sessions so the agent can invoke slash commands and sub-agents.
+type SwarmTerminalConfig struct {
+	SlashCommands []string `yaml:"slash_commands,omitempty"`  // custom slash commands available inside the ACP session (e.g. /security-review)
+	CustomAgents  []string `yaml:"custom_agents,omitempty"`   // agent backend names the agent can invoke via "vigolium agent query --agent=X"
+	MaxCommands   int      `yaml:"max_commands,omitempty"`    // max terminal commands per session (default: 50)
+}
+
+// HasTerminal returns true if any terminal capability is configured.
+func (c *SwarmTerminalConfig) HasTerminal() bool {
+	return len(c.SlashCommands) > 0 || len(c.CustomAgents) > 0
+}
+
+// EffectiveMaxCommands returns the max commands, defaulting to 50.
+func (c *SwarmTerminalConfig) EffectiveMaxCommands() int {
+	if c.MaxCommands <= 0 {
+		return 50
+	}
+	return c.MaxCommands
 }
 
 // LLMConfig holds settings for direct LLM API calls (used by JS extension agent API).

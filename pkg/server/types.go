@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/database"
 )
 
 // ServerConfig holds configuration for the API server.
@@ -22,6 +23,7 @@ type ServerConfig struct {
 	CORSAllowedOrigins   string
 	UserStore            *UserStore // File-based user store (nil = legacy auth only)
 	ScanQueueCapacity    int        // 0 = reject with 409 when busy (default), >0 = per-project queue depth
+	NoAgent              bool       // If true, disable all agent endpoints and warm sessions
 	ViewOnly             bool       // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
 	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
 	Debug                bool       // Log raw request body, query params, and headers
@@ -348,6 +350,41 @@ type ConfigEntryResponse struct {
 // Keys are dot-notation paths, values are string representations.
 type ConfigUpdateRequest map[string]string
 
+// ProjectStats holds aggregated statistics for a project.
+type ProjectStats struct {
+	HTTPRecords      ProjectHTTPRecordStats `json:"http_records"`
+	Findings         ProjectFindingStats    `json:"findings"`
+	Scans            int64                  `json:"scans"`
+	AgentRuns        int64                  `json:"agent_runs"`
+	SourceRepos      int64                  `json:"source_repos"`
+	OASTInteractions int64                  `json:"oast_interactions"`
+}
+
+// ProjectHTTPRecordStats holds HTTP record counts with status breakdown.
+type ProjectHTTPRecordStats struct {
+	Total     int64 `json:"total"`
+	Success   int64 `json:"success"`    // 2xx
+	Redirect  int64 `json:"redirect"`   // 3xx
+	ClientErr int64 `json:"client_err"` // 4xx
+	ServerErr int64 `json:"server_err"` // 5xx
+}
+
+// ProjectFindingStats holds finding counts with severity breakdown.
+type ProjectFindingStats struct {
+	Total    int64            `json:"total"`
+	Critical int64            `json:"critical"`
+	High     int64            `json:"high"`
+	Medium   int64            `json:"medium"`
+	Low      int64            `json:"low"`
+	Info     int64            `json:"info"`
+}
+
+// ProjectWithStats wraps a Project with its aggregated stats.
+type ProjectWithStats struct {
+	*database.Project
+	Stats ProjectStats `json:"stats"`
+}
+
 // ProjectRequest is the request body for POST/PUT /api/projects.
 type ProjectRequest struct {
 	Name        string `json:"name"`
@@ -404,20 +441,22 @@ func (r AgentRunRequest) EffectiveSourcePath() string {
 
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
 type AgentAutopilotRequest struct {
-	Target       string   `json:"target,omitempty"`              // target URL (derived from input if not set)
-	Input        string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
-	Agent        string   `json:"agent,omitempty"`               // agent backend name
-	SourcePath   string   `json:"source,omitempty"`              // path to application source code
-	RepoPath     string   `json:"repo_path,omitempty"`           // deprecated: use source
-	Files        []string `json:"files,omitempty"`               // specific files to include
-	Focus        string   `json:"focus,omitempty"`               // focus area hint
-	Instruction  string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
-	SystemPrompt string   `json:"system_prompt,omitempty"`       // custom system prompt file path
-	Timeout      string   `json:"timeout,omitempty"`             // Go duration string, default "30m"
-	MaxCommands  int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
-	DryRun       bool     `json:"dry_run,omitempty"`             // render prompt without executing
-	Stream       bool     `json:"stream,omitempty"`              // enable SSE streaming
-	ScanUUID     string   `json:"scan_uuid,omitempty"`           // optional scan UUID
+	Target      string   `json:"target,omitempty"`              // target URL (derived from input if not set)
+	Input       string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
+	Agent       string   `json:"agent,omitempty"`               // agent backend name
+	SourcePath  string   `json:"source,omitempty"`              // path to application source code
+	RepoPath    string   `json:"repo_path,omitempty"`           // deprecated: use source
+	Files       []string `json:"files,omitempty"`               // specific files to include
+	Focus       string   `json:"focus,omitempty"`               // focus area hint
+	Instruction string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
+	Specialists []string `json:"specialists,omitempty"`         // vulnerability classes (injection, xss, auth, ssrf, authz)
+	Timeout     string   `json:"timeout,omitempty"`             // Go duration string, default "30m"
+	MaxCommands int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
+	DryRun      bool     `json:"dry_run,omitempty"`             // render prompt without executing
+	Stream      bool     `json:"stream,omitempty"`              // enable SSE streaming
+	ScanUUID    string   `json:"scan_uuid,omitempty"`           // optional scan UUID
+	ResumeDir   string   `json:"resume_dir,omitempty"`          // resume from a previous session directory
+	ProjectUUID string   `json:"project_uuid,omitempty"`        // project UUID for data scoping
 }
 
 // EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
@@ -459,25 +498,55 @@ func (r AgentPipelineRequest) EffectiveSourcePath() string {
 
 // AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
 type AgentSwarmRequest struct {
+	// Inputs
 	Input              string   `json:"input,omitempty"`                // single input (URL, curl, raw HTTP, Burp XML, record UUID)
 	Inputs             []string `json:"inputs,omitempty"`               // multiple inputs (for auth flows)
 	HTTPRequestBase64  string   `json:"http_request_base64,omitempty"`  // base64-encoded raw HTTP request (ingested into DB, UUID used as input)
 	HTTPResponseBase64 string   `json:"http_response_base64,omitempty"` // base64-encoded raw HTTP response (attached to the request above)
 	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
+
+	// Source analysis
+	SourcePath         string   `json:"source_path,omitempty"`          // path to source code for route discovery (triggers source analysis phase)
+	Files              []string `json:"files,omitempty"`                // specific source files to include (relative to source_path)
+	SourceAnalysisOnly bool     `json:"source_analysis_only,omitempty"` // run only source analysis phase and exit
+	SkipSAST           bool     `json:"skip_sast,omitempty"`            // skip native SAST tools during source analysis
+
+	// Scanning parameters
 	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
 	Focus              string   `json:"focus,omitempty"`                // broad focus area hint (e.g. "API injection", "auth bypass")
 	Instruction        string   `json:"instruction,omitempty"`          // custom instruction appended to agent prompts
 	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
 	OnlyPhase          string   `json:"only_phase,omitempty"`           // isolate a single phase
 	SkipPhases         []string `json:"skip_phases,omitempty"`          // skip specific phases
+	StartFrom          string   `json:"start_from,omitempty"`           // resume from a specific phase
 	MaxIterations      int      `json:"max_iterations,omitempty"`       // max triage-rescan rounds (default 3)
-	Agent              string   `json:"agent,omitempty"`                // agent backend name
-	ProjectUUID        string   `json:"project_uuid,omitempty"`         // optional project UUID
-	ScanUUID           string   `json:"scan_uuid,omitempty"`            // optional scan UUID
-	Stream             bool     `json:"stream,omitempty"`               // enable SSE streaming
-	Timeout            string   `json:"timeout,omitempty"`              // Go duration string
-	DryRun             bool     `json:"dry_run,omitempty"`              // render prompts without executing
+	Discover           bool     `json:"discover,omitempty"`             // run discovery+spidering before master agent planning
 	CodeAudit          bool     `json:"code_audit,omitempty"`           // enable AI security code audit phase
+	Profile            string   `json:"profile,omitempty"`              // scanning profile name (e.g. "light", "thorough")
+
+	// Agent selection
+	Agent              string   `json:"agent,omitempty"`                // agent backend name
+	AgentACPCmd        string   `json:"agent_acp_cmd,omitempty"`        // custom ACP agent command override (e.g. "traecli acp")
+
+	// Concurrency tuning
+	BatchConcurrency    int `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
+	MaxMasterRetries    int `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
+	SAMaxConcurrency    int `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
+
+	// Terminal capability
+	SlashCommands []string `json:"slash_commands,omitempty"` // custom slash commands for ACP session
+	CustomAgents  []string `json:"custom_agents,omitempty"`  // custom agent names for sub-agent invocation
+	MaxCommands   int      `json:"max_commands,omitempty"`   // max terminal commands per session (0 = default 50)
+
+	// Output control
+	DryRun      bool   `json:"dry_run,omitempty"`      // render prompts without executing
+	ShowPrompt  bool   `json:"show_prompt,omitempty"`   // include rendered prompts in output
+	Stream      bool   `json:"stream,omitempty"`        // enable SSE streaming
+	Timeout     string `json:"timeout,omitempty"`       // Go duration string
+
+	// Project/scan scoping
+	ProjectUUID string `json:"project_uuid,omitempty"` // optional project UUID
+	ScanUUID    string `json:"scan_uuid,omitempty"`    // optional scan UUID
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

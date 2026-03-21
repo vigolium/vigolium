@@ -522,6 +522,10 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 	conn.SetLogger(slog.New(newZapSlogHandler()))
 	sess.conn = conn
 
+	// Enable terminal capability when the client has a terminal manager
+	// (set via withTerminal option, e.g. for swarm custom commands or autopilot).
+	hasTerminal := client.termMgr != nil
+
 	// Initialize
 	initResp, initErr := conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
@@ -530,7 +534,7 @@ func (p *ACPPool) spawnSession(ctx context.Context, agentName string, cwd string
 				ReadTextFile:  true,
 				WriteTextFile: false,
 			},
-			Terminal: false,
+			Terminal: hasTerminal,
 		},
 	})
 	if initErr != nil {

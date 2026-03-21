@@ -30,12 +30,6 @@ var inputModes = []inputModeEntry{
 		Example:     "vigolium scan -T nuclei-results.json -I nuclei-output",
 	},
 	{
-		Name:        "spitolas",
-		Aliases:     []string{"spitolas-output", "crawlerxdir", "crawlerx", "parquet"},
-		Description: "Spitolas output directory containing Parquet files",
-		Example:     "vigolium scan -T ./spitolas-output/ -I spitolas",
-	},
-	{
 		Name:        "openapi",
 		Aliases:     []string{"swagger"},
 		Description: "OpenAPI 3.0 / Swagger 2.0 specification (JSON or YAML)",

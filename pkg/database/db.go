@@ -79,10 +79,12 @@ func openSQLite(cfg *config.SQLiteConfig) (*sql.DB, error) {
 	// Expand path (handle ~ and environment variables)
 	path := expandPath(cfg.Path)
 
-	// Ensure parent directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	// Ensure parent directory exists (skip for in-memory databases)
+	if path != ":memory:" {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
 	}
 
 	// Build DSN with PRAGMA settings
@@ -107,9 +109,15 @@ func openSQLite(cfg *config.SQLiteConfig) (*sql.DB, error) {
 
 	// In WAL mode, SQLite supports concurrent readers alongside a single writer.
 	// Default to 4 connections to allow read parallelism.
+	// For in-memory databases (:memory:), force a single connection since each
+	// connection gets its own isolated database — multiple connections would cause
+	// "no such table" errors as schema created on one connection is invisible to others.
 	maxConns := cfg.MaxOpenConns
 	if maxConns <= 0 {
 		maxConns = 4
+	}
+	if path == ":memory:" {
+		maxConns = 1
 	}
 	sqldb.SetMaxOpenConns(maxConns)
 	sqldb.SetMaxIdleConns(maxConns)
@@ -177,6 +185,7 @@ func (db *DB) adaptDDL(ddl string) string {
 	ddl = strings.ReplaceAll(ddl, "BLOB", "BYTEA")
 	// SQLite uses INTEGER for booleans; PostgreSQL needs BOOLEAN
 	ddl = strings.ReplaceAll(ddl, "has_response INTEGER NOT NULL DEFAULT 0", "has_response BOOLEAN NOT NULL DEFAULT FALSE")
+	ddl = strings.ReplaceAll(ddl, "is_authenticated INTEGER NOT NULL DEFAULT 0", "is_authenticated BOOLEAN NOT NULL DEFAULT FALSE")
 	ddl = strings.ReplaceAll(ddl, "enabled INTEGER NOT NULL DEFAULT 1", "enabled BOOLEAN NOT NULL DEFAULT TRUE")
 	return ddl
 }
@@ -198,6 +207,9 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			description TEXT,
 			owner_uuid TEXT,
 			config_path TEXT,
+			tags TEXT,
+			default_target TEXT,
+			last_scan_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -210,6 +222,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			target TEXT,
 			modules TEXT,
 			threads INTEGER DEFAULT 0,
+			profile TEXT,
+			source_path TEXT,
+			tags TEXT,
+			triggered_by TEXT,
+			agent_run_uuid TEXT,
 			scan_source TEXT,
 			scan_mode TEXT,
 			start_cursor_at TIMESTAMP,
@@ -235,6 +252,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS http_records (
 			uuid TEXT PRIMARY KEY NOT NULL,
 			project_uuid TEXT NOT NULL,
+			scan_uuid TEXT,
 			scheme TEXT NOT NULL,
 			hostname TEXT NOT NULL,
 			port INTEGER NOT NULL,
@@ -268,6 +286,10 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			received_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			source TEXT DEFAULT '',
+			technology TEXT,
+			content_hash TEXT,
+			is_authenticated INTEGER NOT NULL DEFAULT 0,
+			parent_uuid TEXT,
 			remarks TEXT,
 			risk_score INTEGER DEFAULT 0
 		)`,
@@ -276,6 +298,9 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			project_uuid TEXT NOT NULL,
 			http_record_uuids TEXT NOT NULL,
 			scan_uuid TEXT,
+			agent_run_uuid TEXT,
+			url TEXT,
+			hostname TEXT,
 			module_id TEXT NOT NULL,
 			module_name TEXT NOT NULL,
 			module_type TEXT DEFAULT '',
@@ -285,6 +310,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			severity TEXT NOT NULL,
 			confidence TEXT NOT NULL DEFAULT 'firm',
 			tags TEXT,
+			status TEXT DEFAULT 'open',
+			remediation TEXT,
+			cwe_id TEXT,
+			cvss_score REAL DEFAULT 0,
+			source_file TEXT,
 			matched_at TEXT,
 			extracted_results TEXT,
 			additional_evidence TEXT,
@@ -307,11 +337,14 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			rule_type TEXT NOT NULL,
 			host_pattern TEXT,
 			path_pattern TEXT,
+			content_type_pattern TEXT,
 			methods TEXT,
 			ports TEXT,
 			schemes TEXT,
 			priority INTEGER NOT NULL DEFAULT 100,
 			enabled INTEGER NOT NULL DEFAULT 1,
+			hit_count INTEGER DEFAULT 0,
+			last_matched_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -326,13 +359,18 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			repo_type TEXT NOT NULL DEFAULT 'folder',
 			language TEXT,
 			framework TEXT,
+			branch TEXT,
+			commit_hash TEXT,
 			endpoints TEXT,
 			route_params TEXT,
 			sinks TEXT,
+			auth_endpoints TEXT,
 			tags TEXT,
 			metadata TEXT,
+			line_count INTEGER DEFAULT 0,
 			third_party_scan_status TEXT,
 			third_party_scan_at TIMESTAMP,
+			last_scanned_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -352,6 +390,8 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			parameter_name TEXT,
 			injection_type TEXT,
 			module_id TEXT,
+			finding_id INTEGER,
+			payload TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS agent_runs (
@@ -373,6 +413,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			finding_count INTEGER DEFAULT 0,
 			record_count INTEGER DEFAULT 0,
 			saved_count INTEGER DEFAULT 0,
+			source_path TEXT,
+			token_usage TEXT,
+			retry_count INTEGER DEFAULT 0,
+			parent_run_uuid TEXT,
+			input_record_count INTEGER DEFAULT 0,
 			attack_plan TEXT,
 			triage_result TEXT,
 			prompt_sent TEXT,
@@ -390,11 +435,10 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			project_uuid TEXT NOT NULL,
 			scan_uuid TEXT,
 			hostname TEXT NOT NULL,
-			port INTEGER DEFAULT 0,
-			scheme TEXT DEFAULT '',
 			session_name TEXT NOT NULL,
 			session_role TEXT DEFAULT '',
 			position INTEGER DEFAULT 0,
+			session_token TEXT,
 			headers TEXT,
 			login_url TEXT,
 			login_method TEXT,
@@ -404,6 +448,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			login_response TEXT,
 			extract_rules TEXT,
 			source TEXT DEFAULT '',
+			hydrated_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -437,6 +482,9 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_records_request_hash ON http_records(request_hash)",
 		"CREATE INDEX IF NOT EXISTS idx_records_response_hash ON http_records(response_hash)",
 
+		// -- http_records: scan_uuid index --
+		"CREATE INDEX IF NOT EXISTS idx_records_project_scan ON http_records(project_uuid, scan_uuid)",
+
 		// -- findings: project-aware composite indexes --
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_severity ON findings(project_uuid, severity)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_module ON findings(project_uuid, module_id)",
@@ -444,6 +492,8 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_module_type ON findings(project_uuid, module_type)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_finding_source ON findings(project_uuid, finding_source)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_scan ON findings(project_uuid, scan_uuid)",
+		"CREATE INDEX IF NOT EXISTS idx_findings_project_status ON findings(project_uuid, status)",
+		"CREATE INDEX IF NOT EXISTS idx_findings_project_hostname ON findings(project_uuid, hostname)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_hash_unique ON findings(finding_hash)",
 
 		// -- finding_records --
@@ -543,6 +593,64 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 
 	// Agent runs schema migrations
 	db.addColumnIfNotExists(ctx, "agent_runs", "session_id", "TEXT")
+
+	// -- New field migrations (v2) --
+
+	// Projects
+	db.addColumnIfNotExists(ctx, "projects", "tags", "TEXT")
+	db.addColumnIfNotExists(ctx, "projects", "default_target", "TEXT")
+	db.addColumnIfNotExists(ctx, "projects", "last_scan_at", "TIMESTAMP")
+
+	// Scans
+	db.addColumnIfNotExists(ctx, "scans", "profile", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "source_path", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "tags", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "triggered_by", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "agent_run_uuid", "TEXT")
+
+	// HTTP Records
+	db.addColumnIfNotExists(ctx, "http_records", "scan_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "http_records", "technology", "TEXT")
+	db.addColumnIfNotExists(ctx, "http_records", "content_hash", "TEXT")
+	db.addColumnIfNotExists(ctx, "http_records", "is_authenticated", "INTEGER NOT NULL DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "http_records", "parent_uuid", "TEXT")
+
+	// Findings
+	db.addColumnIfNotExists(ctx, "findings", "agent_run_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "url", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "hostname", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "status", "TEXT DEFAULT 'open'")
+	db.addColumnIfNotExists(ctx, "findings", "remediation", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "cwe_id", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "cvss_score", "REAL DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "findings", "source_file", "TEXT")
+
+	// Source Repos
+	db.addColumnIfNotExists(ctx, "source_repos", "branch", "TEXT")
+	db.addColumnIfNotExists(ctx, "source_repos", "commit_hash", "TEXT")
+	db.addColumnIfNotExists(ctx, "source_repos", "auth_endpoints", "TEXT")
+	db.addColumnIfNotExists(ctx, "source_repos", "line_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "source_repos", "last_scanned_at", "TIMESTAMP")
+
+	// Agent Runs
+	db.addColumnIfNotExists(ctx, "agent_runs", "source_path", "TEXT")
+	db.addColumnIfNotExists(ctx, "agent_runs", "token_usage", "TEXT")
+	db.addColumnIfNotExists(ctx, "agent_runs", "retry_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agent_runs", "parent_run_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "agent_runs", "input_record_count", "INTEGER DEFAULT 0")
+
+	// OAST Interactions
+	db.addColumnIfNotExists(ctx, "oast_interactions", "finding_id", "INTEGER")
+	db.addColumnIfNotExists(ctx, "oast_interactions", "payload", "TEXT")
+
+	// Scopes
+	db.addColumnIfNotExists(ctx, "scopes", "content_type_pattern", "TEXT")
+	db.addColumnIfNotExists(ctx, "scopes", "hit_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "scopes", "last_matched_at", "TIMESTAMP")
+
+	// Session Hostnames
+	db.addColumnIfNotExists(ctx, "session_hostnames", "session_token", "TEXT")
+	db.addColumnIfNotExists(ctx, "session_hostnames", "hydrated_at", "TIMESTAMP")
 
 	// Project UUID migration for existing databases (backfill with default project)
 	projectTables := []string{"scans", "http_records", "findings", "scopes", "source_repos", "oast_interactions", "scan_logs"}

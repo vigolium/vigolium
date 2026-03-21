@@ -17,6 +17,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// safeWriter wraps an io.Writer with a mutex so concurrent writes don't interleave.
+// Used when parallel ACP sessions share the same StreamWriter for real-time display.
+type safeWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *safeWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
 // Engine orchestrates AI agent runs: context gathering, prompt rendering,
 // agent execution, output parsing, and result ingestion.
 type Engine struct {
@@ -172,20 +185,27 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			acpOpts = append(acpOpts, withSessionKey(opts.SessionKey))
 		}
 
+		// Resolve working directory once for all ACP paths
+		cwd := "."
+		if opts.SourcePath != "" {
+			cwd = opts.SourcePath
+		}
+
+		// Enable terminal when slash commands or custom agents are configured (swarm mode).
+		if len(opts.SlashCommands) > 0 || len(opts.CustomAgents) > 0 {
+			maxCmds := opts.MaxCommands
+			if maxCmds <= 0 {
+				maxCmds = 50
+			}
+			acpOpts = append(acpOpts, withTerminal(cwd, maxCmds, opts.SlashCommands...))
+		}
+
 		var ar acpResult
 		if opts.Autopilot {
 			// Autopilot mode: use terminal-enabled ACP runner
-			cwd := "."
-			if opts.SourcePath != "" {
-				cwd = opts.SourcePath
-			}
 			ar, err = RunAgenticAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
 		} else if e.pool != nil && opts.AgentACPCmd == "" {
 			// Warm session pooling — skip for ad-hoc ACP commands (no stable name to key on)
-			cwd := "."
-			if opts.SourcePath != "" {
-				cwd = opts.SourcePath
-			}
 			ar, err = e.pool.Prompt(ctx, opts.AgentName, prompt, cwd, acpOpts...)
 		} else {
 			ar, err = RunAgenticACP(ctx, *agentDef, prompt, acpOpts...)
@@ -573,31 +593,51 @@ func (e *Engine) postProcessSourceAnalysisWithMerged(ctx context.Context, cfg So
 	return merged, combinedRaw, combinedPrompt, nil
 }
 
-// RunSourceAnalysisParallel executes consolidated source analysis in 3 LLM calls:
-// explore (routes+auth+sinks), then format and extensions in parallel.
+// RunSourceAnalysisParallel executes consolidated source analysis in up to 4 LLM calls:
+// explore-routes + explore-session in parallel, then format + extensions in parallel.
 // Falls back to the monolithic RunSourceAnalysis if consolidated templates don't exist.
 func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalysisConfig) (saResult *SourceAnalysisResult, rawOutput string, renderedPrompt string, err error) {
 	if cfg.SourcePath == "" {
 		return nil, "", "", nil
 	}
 
-	// Consolidated source analysis: 3 LLM calls instead of 6.
+	// Consolidated source analysis: 4 LLM calls in 2 parallel waves.
 	//
-	//   Call 1: swarm-source-explore (reads source → notes on routes + auth + sinks)
-	//   Call 2: swarm-source-format  (notes → JSONL http_records + session_config JSON)
-	//   Call 3: swarm-source-extensions (notes → JS scanner extensions)
+	//   Wave 1 (parallel):
+	//     Call 1a: swarm-source-explore-routes   (reads source → notes on routes + sinks)
+	//     Call 1b: swarm-source-explore-session   (reads source → notes on auth + credentials + sessions)
+	//   Wave 2 (parallel, consumes combined Wave 1 output):
+	//     Call 2: swarm-source-format             (notes → JSONL http_records + session_config JSON)
+	//     Call 3: swarm-source-extensions          (notes → JS scanner extensions)
 	//
-	// Call 1 runs first. Calls 2 and 3 run in parallel — both consume the explore
-	// notes without needing source code access.
+	// Falls back to single-explore flow if split templates don't exist.
 
-	exploreTemplate := "swarm-source-explore"
+	exploreRoutesTemplate := "swarm-source-explore-routes"
+	exploreSessionTemplate := "swarm-source-explore-session"
+	exploreTemplate := "swarm-source-explore" // fallback if split templates unavailable
 	formatTemplate := "swarm-source-format"
 	extensionsTemplate := "swarm-source-extensions"
 
-	// Check if the consolidated templates exist (handles file-based and embedded templates).
-	for _, tmpl := range []string{exploreTemplate, formatTemplate, extensionsTemplate} {
+	// Check if the base templates exist (format + extensions are required).
+	for _, tmpl := range []string{formatTemplate, extensionsTemplate} {
 		if _, err := LoadTemplate(tmpl, e.settings.Agent.TemplatesDir); err != nil {
 			zap.L().Debug("Consolidated source analysis templates not found, falling back to monolithic analysis")
+			return e.RunSourceAnalysis(ctx, cfg)
+		}
+	}
+
+	// Determine whether to use split explore (routes + session in parallel) or single explore.
+	useSplitExplore := true
+	for _, tmpl := range []string{exploreRoutesTemplate, exploreSessionTemplate} {
+		if _, err := LoadTemplate(tmpl, e.settings.Agent.TemplatesDir); err != nil {
+			useSplitExplore = false
+			break
+		}
+	}
+	if !useSplitExplore {
+		// Need at least the single explore template as fallback.
+		if _, err := LoadTemplate(exploreTemplate, e.settings.Agent.TemplatesDir); err != nil {
+			zap.L().Debug("No explore templates found, falling back to monolithic analysis")
 			return e.RunSourceAnalysis(ctx, cfg)
 		}
 	}
@@ -607,48 +647,175 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	var allPrompts []string
 	var errs []error
 
-	// --- Call 1: Explore (reads source code, produces notes on routes + auth + sinks) ---
-	printPhaseLine("source-analysis", "running source exploration (routes + auth + sinks)")
+	// --- Wave 1: Explore (reads source code, produces notes) ---
+	var exploreOutput string
 
-	exploreOpts := Options{
-		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
-		PromptTemplate: exploreTemplate,
-		TargetURL:      cfg.TargetURL,
-		SourcePath:     cfg.SourcePath,
-		Files:          cfg.Files,
-		Instruction:    cfg.Instruction,
-		SessionKey:     "sa-explore",
-		DryRun:         cfg.DryRun,
-		ShowPrompt:     cfg.ShowPrompt,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		Source:         exploreTemplate,
-		StreamWriter:   cfg.StreamWriter,
-	}
+	if useSplitExplore {
+		// Split explore: routes + session in parallel
+		printPhaseLine("source-analysis", "running source exploration (routes + session in parallel)")
 
-	exploreResult, exploreErr := e.Run(ctx, exploreOpts)
+		var routesOutput, sessionOutput string
+		var routesPrompt, sessionPrompt string
+		var routesErr, sessionErr error
 
-	if cfg.SessionDir != "" && exploreResult != nil {
-		writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore.md", exploreResult.RenderedPrompt)
-		writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore.md", exploreResult.RawOutput)
-	}
-
-	if exploreErr != nil {
-		prompt := ""
-		if exploreResult != nil {
-			prompt = exploreResult.RenderedPrompt
+		// Wrap StreamWriter for safe concurrent writes.
+		var safeStreamWriter io.Writer
+		if cfg.StreamWriter != nil {
+			safeStreamWriter = &safeWriter{w: cfg.StreamWriter}
 		}
-		return nil, "", prompt, fmt.Errorf("source exploration failed: %w", exploreErr)
-	}
 
-	exploreOutput := exploreResult.RawOutput
-	allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- explore ---\n%s", exploreOutput))
-	allPrompts = append(allPrompts, fmt.Sprintf("--- explore ---\n%s", exploreResult.RenderedPrompt))
+		var wgExplore sync.WaitGroup
+		wgExplore.Add(2)
+
+		// Call 1a: Explore routes
+		go func() {
+			defer wgExplore.Done()
+			opts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: exploreRoutesTemplate,
+				TargetURL:      cfg.TargetURL,
+				SourcePath:     cfg.SourcePath,
+				Files:          cfg.Files,
+				Instruction:    cfg.Instruction,
+				SessionKey:     "sa-explore-routes",
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         exploreRoutesTemplate,
+				StreamWriter:   safeStreamWriter,
+			}
+			result, err := e.Run(ctx, opts)
+			if cfg.SessionDir != "" && result != nil {
+				writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore-routes.md", result.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore-routes.md", result.RawOutput)
+			}
+			if err != nil {
+				routesErr = err
+				if result != nil {
+					routesPrompt = result.RenderedPrompt
+				}
+				return
+			}
+			routesOutput = result.RawOutput
+			routesPrompt = result.RenderedPrompt
+		}()
+
+		// Call 1b: Explore session/auth
+		go func() {
+			defer wgExplore.Done()
+			opts := Options{
+				AgentName:      cfg.AgentName,
+				AgentACPCmd:    cfg.AgentACPCmd,
+				PromptTemplate: exploreSessionTemplate,
+				TargetURL:      cfg.TargetURL,
+				SourcePath:     cfg.SourcePath,
+				Files:          cfg.Files,
+				Instruction:    cfg.Instruction,
+				SessionKey:     "sa-explore-session",
+				DryRun:         cfg.DryRun,
+				ShowPrompt:     cfg.ShowPrompt,
+				ScanUUID:       cfg.ScanUUID,
+				ProjectUUID:    cfg.ProjectUUID,
+				Source:         exploreSessionTemplate,
+				StreamWriter:   safeStreamWriter,
+			}
+			result, err := e.Run(ctx, opts)
+			if cfg.SessionDir != "" && result != nil {
+				writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore-session.md", result.RenderedPrompt)
+				writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore-session.md", result.RawOutput)
+			}
+			if err != nil {
+				sessionErr = err
+				if result != nil {
+					sessionPrompt = result.RenderedPrompt
+				}
+				return
+			}
+			sessionOutput = result.RawOutput
+			sessionPrompt = result.RenderedPrompt
+		}()
+
+		wgExplore.Wait()
+
+		// Collect outputs and prompts from both explore calls.
+		if routesOutput != "" {
+			allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- explore-routes ---\n%s", routesOutput))
+			allPrompts = append(allPrompts, fmt.Sprintf("--- explore-routes ---\n%s", routesPrompt))
+		}
+		if sessionOutput != "" {
+			allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- explore-session ---\n%s", sessionOutput))
+			allPrompts = append(allPrompts, fmt.Sprintf("--- explore-session ---\n%s", sessionPrompt))
+		}
+
+		// Both failed — abort.
+		if routesErr != nil && sessionErr != nil {
+			combinedPrompt := strings.Join(allPrompts, "\n\n")
+			return nil, "", combinedPrompt, fmt.Errorf("source exploration failed: routes: %w; session: %v", routesErr, sessionErr)
+		}
+		if routesErr != nil {
+			zap.L().Warn("Route exploration failed, continuing with session results only", zap.Error(routesErr))
+		}
+		if sessionErr != nil {
+			zap.L().Warn("Session exploration failed, continuing with route results only", zap.Error(sessionErr))
+		}
+
+		// Combine outputs for downstream calls.
+		var parts []string
+		if routesOutput != "" {
+			parts = append(parts, "## Application Routes\n\n"+routesOutput)
+		}
+		if sessionOutput != "" {
+			parts = append(parts, "## Authentication & Session Management\n\n"+sessionOutput)
+		}
+		exploreOutput = strings.Join(parts, "\n\n---\n\n")
+
+	} else {
+		// Single explore fallback
+		printPhaseLine("source-analysis", "running source exploration (routes + auth + sinks)")
+
+		exploreOpts := Options{
+			AgentName:      cfg.AgentName,
+			AgentACPCmd:    cfg.AgentACPCmd,
+			PromptTemplate: exploreTemplate,
+			TargetURL:      cfg.TargetURL,
+			SourcePath:     cfg.SourcePath,
+			Files:          cfg.Files,
+			Instruction:    cfg.Instruction,
+			SessionKey:     "sa-explore",
+			DryRun:         cfg.DryRun,
+			ShowPrompt:     cfg.ShowPrompt,
+			ScanUUID:       cfg.ScanUUID,
+			ProjectUUID:    cfg.ProjectUUID,
+			Source:         exploreTemplate,
+			StreamWriter:   cfg.StreamWriter,
+		}
+
+		exploreResult, exploreErr := e.Run(ctx, exploreOpts)
+
+		if cfg.SessionDir != "" && exploreResult != nil {
+			writePromptToSessionDir(cfg.SessionDir, "prompt-swarm-source-explore.md", exploreResult.RenderedPrompt)
+			writePromptToSessionDir(cfg.SessionDir, "output-swarm-source-explore.md", exploreResult.RawOutput)
+		}
+
+		if exploreErr != nil {
+			prompt := ""
+			if exploreResult != nil {
+				prompt = exploreResult.RenderedPrompt
+			}
+			return nil, "", prompt, fmt.Errorf("source exploration failed: %w", exploreErr)
+		}
+
+		exploreOutput = exploreResult.RawOutput
+		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- explore ---\n%s", exploreOutput))
+		allPrompts = append(allPrompts, fmt.Sprintf("--- explore ---\n%s", exploreResult.RenderedPrompt))
+	}
 
 	if cfg.DryRun {
 		_, _ = fmt.Fprint(os.Stdout, exploreOutput)
-		return nil, exploreOutput, exploreResult.RenderedPrompt, nil
+		combinedPrompt := strings.Join(allPrompts, "\n\n")
+		return nil, exploreOutput, combinedPrompt, nil
 	}
 
 	printPhaseLine("source-analysis", "exploration complete, running format + extensions in parallel")
@@ -661,7 +828,18 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		exploreContext = exploreContext[:maxExploreBytes] + "\n\n... (truncated)"
 	}
 
-	// --- Calls 2 & 3: Format + Extensions in parallel ---
+	// --- Wave 2: Format + Extensions in parallel ---
+	// Wrap the shared StreamWriter in a synchronized writer so parallel ACP
+	// sessions don't interleave their output on the real-time display.
+	var safeStreamWriter io.Writer
+	if !useSplitExplore && cfg.StreamWriter != nil {
+		safeStreamWriter = &safeWriter{w: cfg.StreamWriter}
+	}
+	if useSplitExplore && cfg.StreamWriter != nil {
+		// Already created in wave 1 for split explore, recreate for wave 2
+		safeStreamWriter = &safeWriter{w: cfg.StreamWriter}
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	wg.Add(2)
@@ -670,23 +848,28 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	go func() {
 		defer wg.Done()
 
+		formatSessionKey := "sa-explore" // reuse warm session from single explore
+		if useSplitExplore {
+			formatSessionKey = "sa-format" // no single warm session with split explore
+		}
+
 		formatOpts := Options{
 			AgentName:      cfg.AgentName,
 			AgentACPCmd:    cfg.AgentACPCmd,
 			PromptTemplate: formatTemplate,
 			TargetURL:      cfg.TargetURL,
 			SourcePath:     cfg.SourcePath,
-			SessionKey:     "sa-explore", // reuse warm session from explore
+			SessionKey:     formatSessionKey,
 			DryRun:         cfg.DryRun,
 			ShowPrompt:     cfg.ShowPrompt,
 			ScanUUID:       cfg.ScanUUID,
 			ProjectUUID:    cfg.ProjectUUID,
 			Source:         formatTemplate,
-			StreamWriter:   cfg.StreamWriter,
+			StreamWriter:   safeStreamWriter,
 		}
-		// When warm sessions are not available, append explore notes so the
-		// format agent has the context it needs.
-		if e.pool == nil {
+		// When warm sessions are not available or using split explore,
+		// append explore notes so the format agent has the context it needs.
+		if e.pool == nil || useSplitExplore {
 			formatOpts.Append = "## Analysis Notes from Exploration Phase\n\n" + exploreContext
 		}
 
@@ -747,7 +930,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 			ScanUUID:       cfg.ScanUUID,
 			ProjectUUID:    cfg.ProjectUUID,
 			Source:         extensionsTemplate,
-			StreamWriter:   cfg.StreamWriter,
+			StreamWriter:   safeStreamWriter,
 			// Always append explore notes — extensions agent doesn't read source code
 			Append: "## Source Code Analysis Notes\n\n" + exploreContext,
 		}
@@ -940,14 +1123,35 @@ func (e *Engine) gatherContext(ctx context.Context, opts Options, templateVars [
 
 	data.Language = detectLanguage(files)
 
-	// Generate directory tree listing if requested (lightweight context for agent exploration)
-	if wantsDirectoryTree {
+	// Generate skip guidance if requested (tells the agent what to avoid, no tree dump)
+	if hasVar(templateVars, "SkipGuidance") {
+		data.SkipGuidance = generateSkipGuidance()
+	}
+
+	// Generate directory tree listing if requested and SkipGuidance is not used
+	// (SkipGuidance replaces the tree — the agent explores on its own)
+	if wantsDirectoryTree && !hasVar(templateVars, "SkipGuidance") {
 		tree, err := generateDirectoryTree(opts.SourcePath)
 		if err != nil {
 			zap.L().Warn("Failed to generate directory tree", zap.Error(err))
 		} else {
 			data.DirectoryTree = tree
 		}
+	}
+
+	// Build a source hint summarizing the pre-filtered codebase
+	if hasVar(templateVars, "SourceHint") && (data.DirectoryTree != "" || data.SkipGuidance != "" || len(files) > 0) {
+		lang := data.Language
+		if lang == "" {
+			lang = "unknown"
+		}
+		data.SourceHint = fmt.Sprintf(
+			"This directory tree has been pre-filtered to remove build artifacts, "+
+				"dependencies, media assets, generated code, and lock files. "+
+				"%d source files detected (%s). "+
+				"Focus on route definitions, request handlers, authentication logic, "+
+				"and input validation code.",
+			len(files), lang)
 	}
 
 	// Only embed full source code if the template declares SourceCode variable
@@ -1017,12 +1221,6 @@ func generateDirectoryTree(root string) (string, error) {
 	var sb strings.Builder
 	entries := 0
 
-	skipDirs := map[string]bool{
-		"node_modules": true, ".git": true, "vendor": true, "__pycache__": true,
-		".venv": true, "dist": true, "build": true, ".next": true, ".nuxt": true,
-		"coverage": true, ".tox": true, ".mypy_cache": true, ".pytest_cache": true,
-	}
-
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -1046,7 +1244,7 @@ func generateDirectoryTree(root string) (string, error) {
 		depth := strings.Count(rel, string(filepath.Separator))
 
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if shouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			if depth >= maxDepth {
@@ -1055,6 +1253,11 @@ func generateDirectoryTree(root string) (string, error) {
 			indent := strings.Repeat("  ", depth)
 			fmt.Fprintf(&sb, "%s%s/\n", indent, d.Name())
 			entries++
+			return nil
+		}
+
+		// Skip non-source files (media, binaries, lock files, minified bundles)
+		if shouldSkipFile(d.Name()) {
 			return nil
 		}
 
@@ -1071,6 +1274,22 @@ func generateDirectoryTree(root string) (string, error) {
 	}
 
 	return sb.String(), err
+}
+
+// generateSkipGuidance returns a concise list of file/directory categories
+// that the agent should avoid when exploring source code. Instead of dumping
+// the full directory tree into the prompt, we let the agent explore on its own
+// and just tell it what to skip.
+func generateSkipGuidance() string {
+	return `Do NOT spend time reading or exploring these categories of files and directories:
+
+1. **Third-party libraries & dependencies** — node_modules/, vendor/, bower_components/, Pods/, .cargo/, .gradle/, .mvn/, .bundle/, .dart_tool/, .pub-cache/, site-packages/
+2. **Compiled & generated files** — dist/, build/, out/, .next/, .nuxt/, target/, *.min.js, *.min.css, *.pb.go, *_generated.*, *.d.ts, *.pyc, *.class, *.o, *.so, *.dll
+3. **Static media assets** — images (*.png, *.jpg, *.gif, *.svg, *.ico, *.webp), fonts (*.woff, *.woff2, *.ttf, *.eot), audio/video (*.mp4, *.mp3, *.wav)
+4. **Database migrations** — migrations/, db/migrate/, alembic/, flyway/, sql/migrations/, schema/
+5. **Lock & checksum files** — package-lock.json, yarn.lock, bun.lock, Gemfile.lock, poetry.lock, go.sum, *.lock, *.sum
+6. **VCS, IDE & CI/CD config** — .git/, .svn/, .idea/, .vscode/, .github/, .gitlab/, .circleci/, .terraform/
+7. **Test fixtures & snapshots** — __snapshots__/, fixtures/ (but DO read test source files — they often contain credentials and auth patterns)`
 }
 
 // ingestFindings saves parsed findings to the database.
@@ -1278,16 +1497,15 @@ func collectSourceFiles(ctx context.Context, dir string) ([]string, error) {
 				}
 				return nil
 			}
-			// Skip common non-source directories
+			// Skip non-source directories (dependencies, build output, etc.)
 			if d.IsDir() {
-				name := d.Name()
-				if name == "node_modules" || name == ".git" || name == "vendor" || name == "__pycache__" || name == ".venv" {
+				if shouldSkipDir(d.Name()) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 			ext := filepath.Ext(d.Name())
-			if sourceExts[ext] {
+			if sourceExts[ext] && !shouldSkipFile(d.Name()) {
 				files = append(files, path)
 			}
 			return nil

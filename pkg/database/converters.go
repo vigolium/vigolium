@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +15,48 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 )
+
+// dnsCache caches hostname → IP resolution results to avoid repeated lookups.
+// A zero-value (empty string) means the lookup was attempted but failed.
+var dnsCache = struct {
+	sync.RWMutex
+	m map[string]string
+}{m: make(map[string]string)}
+
+// resolveHostnameIP resolves a hostname to its first IPv4 (or IPv6) address,
+// caching the result so subsequent calls for the same hostname skip DNS.
+// Returns empty string on failure (also cached to avoid repeated failures).
+func resolveHostnameIP(hostname string) string {
+	// Check cache first (fast path)
+	dnsCache.RLock()
+	ip, found := dnsCache.m[hostname]
+	dnsCache.RUnlock()
+	if found {
+		return ip
+	}
+
+	// If the hostname is already an IP address, cache and return it directly
+	if parsed := net.ParseIP(hostname); parsed != nil {
+		dnsCache.Lock()
+		dnsCache.m[hostname] = hostname
+		dnsCache.Unlock()
+		return hostname
+	}
+
+	// Resolve via DNS
+	addrs, err := net.LookupHost(hostname)
+	resolved := ""
+	if err == nil && len(addrs) > 0 {
+		resolved = addrs[0]
+	}
+
+	// Cache the result (including empty string for failed lookups)
+	dnsCache.Lock()
+	dnsCache.m[hostname] = resolved
+	dnsCache.Unlock()
+
+	return resolved
+}
 
 // FromHttpRequestResponse populates an HTTPRecord from httpmsg.HttpRequestResponse
 func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) error {
@@ -41,6 +85,11 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 		port = 80
 	}
 	r.Port = port
+
+	// Resolve hostname to IP (cached per hostname)
+	if ip := resolveHostnameIP(r.Hostname); ip != "" {
+		r.IP = ip
+	}
 
 	// Request fields
 	r.Method = req.Method()
@@ -78,7 +127,7 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 		resp := ctx.Response()
 		r.HasResponse = true
 		r.StatusCode = resp.StatusCode()
-		r.ResponseHTTPVersion = "HTTP/1.1"
+		r.ResponseHTTPVersion = extractResponseHTTPVersion(resp.Raw())
 
 		// Response headers
 		r.ResponseHeaders = make(map[string][]string)
@@ -157,6 +206,28 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.FoundAt = time.Now()
 
 	return nil
+}
+
+// extractResponseHTTPVersion extracts the HTTP version from the raw response status line.
+// Falls back to "HTTP/1.1" if parsing fails.
+func extractResponseHTTPVersion(raw []byte) string {
+	if len(raw) == 0 {
+		return "HTTP/1.1"
+	}
+	// Find end of first line (status line)
+	end := bytes.IndexByte(raw, '\n')
+	if end < 0 {
+		end = len(raw)
+	}
+	line := string(raw[:end])
+	// Status line format: "HTTP/1.1 200 OK" — version is the first space-delimited token
+	if idx := strings.IndexByte(line, ' '); idx > 0 {
+		version := strings.TrimSpace(line[:idx])
+		if strings.HasPrefix(version, "HTTP/") {
+			return version
+		}
+	}
+	return "HTTP/1.1"
 }
 
 // extractHTMLTitle parses the <title> element from an HTML body.

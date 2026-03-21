@@ -120,12 +120,14 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		startTime:        time.Now(),
 		scanStates:       make(map[string]*scanState),
 		scanQueues:       make(map[string]chan *queuedScan),
-		agentEngine:      agent.NewEngine(settings, repo),
 		agentRunStatus:   make(map[string]*AgentRunStatusResponse),
 		agentCleanupStop: make(chan struct{}),
 		counts:           newCountCache(10 * time.Second),
 	}
-	go h.agentDBCleanupLoop()
+	if !cfg.NoAgent {
+		h.agentEngine = agent.NewEngine(settings, repo)
+		go h.agentDBCleanupLoop()
+	}
 	return h
 }
 

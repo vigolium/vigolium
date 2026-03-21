@@ -1401,8 +1401,10 @@ func extractSessionConfigFromGarbled(raw string) *AgentSessionConfig {
 // sessionNameRe matches "name": "value" patterns in garbled JSON.
 var sessionNameRe = regexp.MustCompile(`"name"\s*:\s*"([^"]+)"`)
 
-// sessionRoleRe matches "role": "value" patterns.
-var sessionRoleRe = regexp.MustCompile(`"role"\s*:\s*"([^"]+)"`)
+// sessionRoleRe matches "role": "primary" or "role": "compare" patterns.
+// Only valid role values are accepted to prevent garbled JSON from producing
+// concatenated strings like "comparelocalhost:3000/rest/user".
+var sessionRoleRe = regexp.MustCompile(`"role"\s*:\s*"(primary|compare)"`)
 
 // loginURLRe matches "url": "http..." patterns inside login objects.
 var loginURLRe = regexp.MustCompile(`"url"\s*:\s*"(https?://[^"]+)"`)

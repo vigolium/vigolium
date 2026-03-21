@@ -7,7 +7,7 @@ variables:
   - TargetURL
   - Hostname
   - SourcePath
-  - DirectoryTree
+  - SkipGuidance
   - Language
   - Framework
 ---
@@ -24,12 +24,10 @@ You are an application security engineer. Your task is to **explore the applicat
 
 The application source code is located at: `{{.SourcePath}}`
 
-**You MUST explore this codebase deeply and thoroughly.** Read files, search for patterns, and navigate the directory structure. Do not rely only on the tree listing below — actually open and read every relevant source file.
+**You MUST explore this codebase deeply and thoroughly.** Use your file reading and search tools to navigate the directory structure, find route definitions, and read handler implementations. Start from the project root and work your way in — do not wait for a directory listing.
 
-### Directory Structure
-```
-{{.DirectoryTree}}
-```
+### What to Skip
+{{.SkipGuidance}}
 
 ---
 

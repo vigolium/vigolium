@@ -410,19 +410,67 @@ func (r *Repository) GetScanByUUID(ctx context.Context, uuid string) (*Scan, err
 }
 
 // CompleteScan marks a scan as completed (or failed if errMsg is non-empty)
+// and populates severity counts from the findings table.
 func (r *Repository) CompleteScan(ctx context.Context, scanUUID string, errMsg string) error {
 	status := "completed"
 	if errMsg != "" {
 		status = "failed"
 	}
-	_, err := r.db.NewUpdate().
+
+	// Populate severity counts from findings associated with this scan
+	type severityCount struct {
+		Severity string `bun:"severity"`
+		Count    int64  `bun:"count"`
+	}
+	var counts []severityCount
+	_ = r.db.NewSelect().
+		TableExpr("findings").
+		ColumnExpr("severity").
+		ColumnExpr("COUNT(*) AS count").
+		Where("scan_uuid = ?", scanUUID).
+		GroupExpr("severity").
+		Scan(ctx, &counts)
+
+	var critical, high, medium, low, info, suspect int64
+	var totalFindings int64
+	for _, c := range counts {
+		totalFindings += c.Count
+		switch c.Severity {
+		case "critical":
+			critical = c.Count
+		case "high":
+			high = c.Count
+		case "medium":
+			medium = c.Count
+		case "low":
+			low = c.Count
+		case "info":
+			info = c.Count
+		case "suspect":
+			suspect = c.Count
+		}
+	}
+
+	q := r.db.NewUpdate().
 		Model((*Scan)(nil)).
 		Set("status = ?", status).
 		Set("error_message = ?", errMsg).
 		Set("finished_at = CURRENT_TIMESTAMP").
 		Set("updated_at = CURRENT_TIMESTAMP").
-		Where("uuid = ?", scanUUID).
-		Exec(ctx)
+		Set("critical_count = ?", critical).
+		Set("high_count = ?", high).
+		Set("medium_count = ?", medium).
+		Set("low_count = ?", low).
+		Set("info_count = ?", info).
+		Set("suspect_count = ?", suspect).
+		Where("uuid = ?", scanUUID)
+
+	// Only update total_findings if we got counts (avoid overwriting a value set elsewhere)
+	if totalFindings > 0 {
+		q = q.Set("total_findings = ?", totalFindings)
+	}
+
+	_, err := q.Exec(ctx)
 	return err
 }
 
@@ -810,6 +858,242 @@ func (r *Repository) DeleteProject(ctx context.Context, uuid string) error {
 		return fmt.Errorf("failed to delete project: %w", err)
 	}
 	return nil
+}
+
+// ProjectStatsRow holds per-project aggregated counts used by GetAllProjectsStats.
+type ProjectStatsRow struct {
+	ProjectUUID      string `bun:"project_uuid"`
+	HTTPRecords      int64  `bun:"http_records"`
+	HTTP2xx          int64  `bun:"http_2xx"`
+	HTTP3xx          int64  `bun:"http_3xx"`
+	HTTP4xx          int64  `bun:"http_4xx"`
+	HTTP5xx          int64  `bun:"http_5xx"`
+	Findings         int64  `bun:"findings"`
+	Critical         int64  `bun:"critical"`
+	High             int64  `bun:"high"`
+	Medium           int64  `bun:"medium"`
+	Low              int64  `bun:"low"`
+	Info             int64  `bun:"info"`
+	Scans            int64  `bun:"scans"`
+	AgentRuns        int64  `bun:"agent_runs"`
+	SourceRepos      int64  `bun:"source_repos"`
+	OASTInteractions int64  `bun:"oast_interactions"`
+}
+
+// GetProjectStats returns aggregated stats for a single project.
+func (r *Repository) GetProjectStats(ctx context.Context, projectUUID string) (*ProjectStatsRow, error) {
+	stats := &ProjectStatsRow{ProjectUUID: projectUUID}
+
+	// HTTP records with status breakdown
+	type httpRow struct {
+		Total   int64 `bun:"total"`
+		HTTP2xx int64 `bun:"http_2xx"`
+		HTTP3xx int64 `bun:"http_3xx"`
+		HTTP4xx int64 `bun:"http_4xx"`
+		HTTP5xx int64 `bun:"http_5xx"`
+	}
+	var hr httpRow
+	err := r.db.NewSelect().Model((*HTTPRecord)(nil)).
+		ColumnExpr("COUNT(*) AS total").
+		ColumnExpr("SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) AS http_2xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) AS http_3xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) AS http_4xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 500 AND status_code < 600 THEN 1 ELSE 0 END) AS http_5xx").
+		Where("project_uuid = ?", projectUUID).
+		Scan(ctx, &hr)
+	if err != nil {
+		return nil, fmt.Errorf("http record stats: %w", err)
+	}
+	stats.HTTPRecords = hr.Total
+	stats.HTTP2xx = hr.HTTP2xx
+	stats.HTTP3xx = hr.HTTP3xx
+	stats.HTTP4xx = hr.HTTP4xx
+	stats.HTTP5xx = hr.HTTP5xx
+
+	// Findings with severity breakdown
+	type findingRow struct {
+		Total    int64 `bun:"total"`
+		Critical int64 `bun:"critical"`
+		High     int64 `bun:"high"`
+		Medium   int64 `bun:"medium"`
+		Low      int64 `bun:"low"`
+		Info     int64 `bun:"info"`
+	}
+	var fr findingRow
+	err = r.db.NewSelect().Model((*Finding)(nil)).
+		ColumnExpr("COUNT(*) AS total").
+		ColumnExpr("SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical").
+		ColumnExpr("SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) AS high").
+		ColumnExpr("SUM(CASE WHEN severity = 'medium' THEN 1 ELSE 0 END) AS medium").
+		ColumnExpr("SUM(CASE WHEN severity = 'low' THEN 1 ELSE 0 END) AS low").
+		ColumnExpr("SUM(CASE WHEN severity = 'info' THEN 1 ELSE 0 END) AS info").
+		Where("project_uuid = ?", projectUUID).
+		Scan(ctx, &fr)
+	if err != nil {
+		return nil, fmt.Errorf("finding stats: %w", err)
+	}
+	stats.Findings = fr.Total
+	stats.Critical = fr.Critical
+	stats.High = fr.High
+	stats.Medium = fr.Medium
+	stats.Low = fr.Low
+	stats.Info = fr.Info
+
+	// Scans
+	scanCount, err := r.db.NewSelect().Model((*Scan)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("scan count: %w", err)
+	}
+	stats.Scans = int64(scanCount)
+
+	// Agent runs
+	agentCount, err := r.db.NewSelect().Model((*AgentRun)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agent run count: %w", err)
+	}
+	stats.AgentRuns = int64(agentCount)
+
+	// Source repos
+	repoCount, err := r.db.NewSelect().Model((*SourceRepo)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("source repo count: %w", err)
+	}
+	stats.SourceRepos = int64(repoCount)
+
+	// OAST interactions
+	oastCount, err := r.db.NewSelect().Model((*OASTInteraction)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("oast count: %w", err)
+	}
+	stats.OASTInteractions = int64(oastCount)
+
+	return stats, nil
+}
+
+// GetAllProjectsStats returns aggregated stats for all projects in bulk.
+// Uses GROUP BY to avoid N+1 queries when listing projects.
+func (r *Repository) GetAllProjectsStats(ctx context.Context) (map[string]*ProjectStatsRow, error) {
+	result := make(map[string]*ProjectStatsRow)
+
+	// HTTP records with status breakdown
+	type httpGroupRow struct {
+		ProjectUUID string `bun:"project_uuid"`
+		Total       int64  `bun:"total"`
+		HTTP2xx     int64  `bun:"http_2xx"`
+		HTTP3xx     int64  `bun:"http_3xx"`
+		HTTP4xx     int64  `bun:"http_4xx"`
+		HTTP5xx     int64  `bun:"http_5xx"`
+	}
+	var httpRows []httpGroupRow
+	err := r.db.NewSelect().Model((*HTTPRecord)(nil)).
+		Column("project_uuid").
+		ColumnExpr("COUNT(*) AS total").
+		ColumnExpr("SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) AS http_2xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 300 AND status_code < 400 THEN 1 ELSE 0 END) AS http_3xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) AS http_4xx").
+		ColumnExpr("SUM(CASE WHEN status_code >= 500 AND status_code < 600 THEN 1 ELSE 0 END) AS http_5xx").
+		Group("project_uuid").
+		Scan(ctx, &httpRows)
+	if err != nil {
+		return nil, fmt.Errorf("http record stats: %w", err)
+	}
+	for _, row := range httpRows {
+		s := getOrCreate(result, row.ProjectUUID)
+		s.HTTPRecords = row.Total
+		s.HTTP2xx = row.HTTP2xx
+		s.HTTP3xx = row.HTTP3xx
+		s.HTTP4xx = row.HTTP4xx
+		s.HTTP5xx = row.HTTP5xx
+	}
+
+	// Findings with severity breakdown
+	type findingGroupRow struct {
+		ProjectUUID string `bun:"project_uuid"`
+		Total       int64  `bun:"total"`
+		Critical    int64  `bun:"critical"`
+		High        int64  `bun:"high"`
+		Medium      int64  `bun:"medium"`
+		Low         int64  `bun:"low"`
+		Info        int64  `bun:"info"`
+	}
+	var findingRows []findingGroupRow
+	err = r.db.NewSelect().Model((*Finding)(nil)).
+		Column("project_uuid").
+		ColumnExpr("COUNT(*) AS total").
+		ColumnExpr("SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical").
+		ColumnExpr("SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) AS high").
+		ColumnExpr("SUM(CASE WHEN severity = 'medium' THEN 1 ELSE 0 END) AS medium").
+		ColumnExpr("SUM(CASE WHEN severity = 'low' THEN 1 ELSE 0 END) AS low").
+		ColumnExpr("SUM(CASE WHEN severity = 'info' THEN 1 ELSE 0 END) AS info").
+		Group("project_uuid").
+		Scan(ctx, &findingRows)
+	if err != nil {
+		return nil, fmt.Errorf("finding stats: %w", err)
+	}
+	for _, row := range findingRows {
+		s := getOrCreate(result, row.ProjectUUID)
+		s.Findings = row.Total
+		s.Critical = row.Critical
+		s.High = row.High
+		s.Medium = row.Medium
+		s.Low = row.Low
+		s.Info = row.Info
+	}
+
+	// Simple counts: scans, agent_runs, source_repos, oast_interactions
+	type countRow struct {
+		ProjectUUID string `bun:"project_uuid"`
+		Count       int64  `bun:"count"`
+	}
+
+	tables := []struct {
+		model interface{}
+		field string
+	}{
+		{(*Scan)(nil), "scans"},
+		{(*AgentRun)(nil), "agent_runs"},
+		{(*SourceRepo)(nil), "source_repos"},
+		{(*OASTInteraction)(nil), "oast_interactions"},
+	}
+
+	for _, t := range tables {
+		var rows []countRow
+		err = r.db.NewSelect().
+			TableExpr("(?) AS sub",
+				r.db.NewSelect().Model(t.model).
+					Column("project_uuid").
+					ColumnExpr("COUNT(*) AS count").
+					Group("project_uuid"),
+			).Scan(ctx, &rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s stats: %w", t.field, err)
+		}
+		for _, row := range rows {
+			s := getOrCreate(result, row.ProjectUUID)
+			switch t.field {
+			case "scans":
+				s.Scans = row.Count
+			case "agent_runs":
+				s.AgentRuns = row.Count
+			case "source_repos":
+				s.SourceRepos = row.Count
+			case "oast_interactions":
+				s.OASTInteractions = row.Count
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// getOrCreate returns an existing ProjectStatsRow for the UUID or creates a new one.
+func getOrCreate(m map[string]*ProjectStatsRow, uuid string) *ProjectStatsRow {
+	if s, ok := m[uuid]; ok {
+		return s
+	}
+	s := &ProjectStatsRow{ProjectUUID: uuid}
+	m[uuid] = s
+	return s
 }
 
 // GetRelatedRecords finds HTTP records with the same hostname and a path
@@ -1621,10 +1905,9 @@ func (r *Repository) SaveSessionHostname(ctx context.Context, sh *SessionHostnam
 	_, err := r.db.NewInsert().Model(sh).
 		On("CONFLICT (project_uuid, hostname, session_name) DO UPDATE").
 		Set("scan_uuid = EXCLUDED.scan_uuid").
-		Set("port = EXCLUDED.port").
-		Set("scheme = EXCLUDED.scheme").
 		Set("session_role = EXCLUDED.session_role").
 		Set("position = EXCLUDED.position").
+		Set("session_token = EXCLUDED.session_token").
 		Set("headers = EXCLUDED.headers").
 		Set("login_url = EXCLUDED.login_url").
 		Set("login_method = EXCLUDED.login_method").
@@ -1634,6 +1917,7 @@ func (r *Repository) SaveSessionHostname(ctx context.Context, sh *SessionHostnam
 		Set("login_response = EXCLUDED.login_response").
 		Set("extract_rules = EXCLUDED.extract_rules").
 		Set("source = EXCLUDED.source").
+		Set("hydrated_at = EXCLUDED.hydrated_at").
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Exec(ctx)
 	if err != nil {
@@ -1657,10 +1941,9 @@ func (r *Repository) SaveSessionHostnames(ctx context.Context, rows []*SessionHo
 			_, err := tx.NewInsert().Model(sh).
 				On("CONFLICT (project_uuid, hostname, session_name) DO UPDATE").
 				Set("scan_uuid = EXCLUDED.scan_uuid").
-				Set("port = EXCLUDED.port").
-				Set("scheme = EXCLUDED.scheme").
 				Set("session_role = EXCLUDED.session_role").
 				Set("position = EXCLUDED.position").
+				Set("session_token = EXCLUDED.session_token").
 				Set("headers = EXCLUDED.headers").
 				Set("login_url = EXCLUDED.login_url").
 				Set("login_method = EXCLUDED.login_method").
@@ -1670,6 +1953,7 @@ func (r *Repository) SaveSessionHostnames(ctx context.Context, rows []*SessionHo
 				Set("login_response = EXCLUDED.login_response").
 				Set("extract_rules = EXCLUDED.extract_rules").
 				Set("source = EXCLUDED.source").
+				Set("hydrated_at = EXCLUDED.hydrated_at").
 				Set("updated_at = CURRENT_TIMESTAMP").
 				Exec(ctx)
 			if err != nil {

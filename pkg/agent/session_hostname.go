@@ -15,6 +15,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/session"
 	"go.uber.org/zap"
 )
 
@@ -28,14 +29,15 @@ func AgentSessionConfigToSessionHostnames(cfg *AgentSessionConfig, projectUUID, 
 	rows := make([]*database.SessionHostname, 0, len(cfg.Sessions))
 	for i, entry := range cfg.Sessions {
 		sh := &database.SessionHostname{
-			ProjectUUID: projectUUID,
-			ScanUUID:    scanUUID,
-			Hostname:    hostname,
-			SessionName: entry.Name,
-			SessionRole: entry.Role,
-			Position:    i,
-			Headers:     entry.Headers,
-			Source:      source,
+			ProjectUUID:  projectUUID,
+			ScanUUID:     scanUUID,
+			Hostname:     hostname,
+			SessionName:  entry.Name,
+			SessionRole:  entry.Role,
+			Position:     i,
+			SessionToken: database.ExtractPrimaryToken(entry.Headers),
+			Headers:      entry.Headers,
+			Source:       source,
 		}
 
 		if entry.Login != nil {
@@ -55,6 +57,51 @@ func AgentSessionConfigToSessionHostnames(cfg *AgentSessionConfig, projectUUID, 
 	}
 
 	return rows
+}
+
+// AgentSessionConfigToSessions converts an AgentSessionConfig to native session.Session
+// objects. This is used by `vigolium auth load` to import agent-discovered session files.
+func AgentSessionConfigToSessions(cfg *AgentSessionConfig) []*session.Session {
+	if cfg == nil || len(cfg.Sessions) == 0 {
+		return nil
+	}
+
+	sessions := make([]*session.Session, 0, len(cfg.Sessions))
+	for _, entry := range cfg.Sessions {
+		// Skip entries with invalid roles — garbled LLM output can produce
+		// concatenated values like "comparelocalhost:3000/rest/user".
+		if entry.Role != "" && entry.Role != "primary" && entry.Role != "compare" {
+			continue
+		}
+
+		s := &session.Session{
+			Name:    entry.Name,
+			Role:    session.Role(entry.Role),
+			Headers: entry.Headers,
+		}
+
+		if entry.Login != nil {
+			lf := &session.LoginFlow{
+				URL:         entry.Login.URL,
+				Method:      entry.Login.Method,
+				ContentType: entry.Login.ContentType,
+				Body:        entry.Login.Body,
+			}
+			for _, r := range entry.Login.Extract {
+				lf.Extract = append(lf.Extract, session.ExtractRule{
+					Source:  session.ExtractSource(r.Source),
+					Name:    r.Name,
+					Path:    r.Path,
+					ApplyAs: r.ApplyAs,
+				})
+			}
+			s.Login = lf
+		}
+
+		sessions = append(sessions, s)
+	}
+
+	return sessions
 }
 
 // SessionConfigToHTTPRecords converts login flows from an AgentSessionConfig into

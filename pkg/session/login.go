@@ -214,6 +214,74 @@ func extractHeader(sess *Session, resp *http.Response, rule ExtractRule) error {
 	return nil
 }
 
+// ProbeLogin sends the login request and returns the HTTP status code.
+// Unlike executeLogin, it does not fail on non-2xx status codes — it returns
+// the status code and lets the caller decide. If extract rules are present and
+// the status is 2xx/3xx, it also runs extraction to populate session headers.
+// Returns an error only on network/request-building failures.
+func ProbeLogin(sess *Session) (statusCode int, err error) {
+	if sess.Login == nil {
+		return 0, fmt.Errorf("session %q: no login flow defined", sess.Name)
+	}
+	login := sess.Login
+
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	if err != nil {
+		return 0, fmt.Errorf("session %q: failed to create cookie jar: %w", sess.Name, err)
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+	}
+
+	var body io.Reader
+	if login.Body != "" {
+		body = strings.NewReader(login.Body)
+	}
+
+	req, err := http.NewRequest(strings.ToUpper(login.Method), login.URL, body)
+	if err != nil {
+		return 0, fmt.Errorf("session %q: failed to create login request: %w", sess.Name, err)
+	}
+
+	if login.ContentType != "" {
+		req.Header.Set("Content-Type", login.ContentType)
+	} else if login.Body != "" {
+		if strings.HasPrefix(strings.TrimSpace(login.Body), "{") {
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("session %q: login request failed: %w", sess.Name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
+	if err != nil {
+		return resp.StatusCode, fmt.Errorf("session %q: failed to read login response: %w", sess.Name, err)
+	}
+
+	// If status is OK and extract rules exist, run extraction.
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 && len(login.Extract) > 0 {
+		if sess.Headers == nil {
+			sess.Headers = make(map[string]string)
+		}
+		for _, rule := range login.Extract {
+			if extractErr := applyExtractRule(sess, resp, respBody, jar, req, rule); extractErr != nil {
+				return resp.StatusCode, fmt.Errorf("session %q: extraction failed: %w", sess.Name, extractErr)
+			}
+		}
+		sess.hydrated = true
+	}
+
+	return resp.StatusCode, nil
+}
+
 // applyHeaderTemplate sets a header from a template like "Authorization: Bearer {value}".
 func applyHeaderTemplate(sess *Session, template, value string) error {
 	resolved := strings.ReplaceAll(template, "{value}", value)

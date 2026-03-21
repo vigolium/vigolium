@@ -1614,6 +1614,22 @@ func TestExtractSessionConfigFromRegex_NoSessionContext(t *testing.T) {
 	}
 }
 
+func TestExtractSessionConfigFromRegex_GarbledRole(t *testing.T) {
+	// Garbled JSON where role "compare" is concatenated with a URL — the regex
+	// should only match valid role values ("primary" or "compare"), not the
+	// concatenated "comparelocalhost:3000/rest/user".
+	input := `{"sessions": [{"name": "support_admin", "role": "comparelocalhost:3000/rest/user", "login": {"url": "http://localhost:3000/rest/user/login", "method": "POST"}}]}`
+	cfg := extractSessionConfigFromRegex(input)
+	if cfg == nil {
+		t.Fatal("expected non-nil config (name anchor is present)")
+	}
+	for _, entry := range cfg.Sessions {
+		if entry.Role != "" && entry.Role != "primary" && entry.Role != "compare" {
+			t.Errorf("extracted invalid role %q — regex should only capture valid role values", entry.Role)
+		}
+	}
+}
+
 func TestSessionConfigToHTTPRecords(t *testing.T) {
 	cfg := &AgentSessionConfig{
 		Sessions: []AgentSessionEntry{

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// AutopilotPhase identifies a phase in the autopilot v2 pipeline.
+// AutopilotPhase identifies a phase in the autopilot pipeline.
 type AutopilotPhase string
 
 const (
@@ -77,7 +77,7 @@ type AutopilotPipelineConfig struct {
 	PhaseCallback           func(AutopilotPhase)
 }
 
-// AutopilotPipelineResult holds the outcome of an autopilot v2 pipeline run.
+// AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
 type AutopilotPipelineResult struct {
 	VulnQueues     map[VulnClass]*VulnQueue
 	Evidence       map[VulnClass][]ExploitationEvidence
@@ -107,7 +107,7 @@ func (cp *AutopilotCheckpoint) LastPhase() AutopilotPhase {
 	return cp.CompletedPhases[len(cp.CompletedPhases)-1]
 }
 
-// AutopilotPipelineRunner orchestrates the autopilot v2 multi-agent pipeline.
+// AutopilotPipelineRunner orchestrates the autopilot multi-agent pipeline.
 type AutopilotPipelineRunner struct {
 	engine *Engine
 	repo   *database.Repository
@@ -118,7 +118,7 @@ func NewAutopilotPipelineRunner(engine *Engine, repo *database.Repository) *Auto
 	return &AutopilotPipelineRunner{engine: engine, repo: repo}
 }
 
-// Run executes the full autopilot v2 pipeline.
+// Run executes the full autopilot pipeline.
 func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
 	start := time.Now()
 

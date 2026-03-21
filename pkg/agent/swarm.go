@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,6 +54,12 @@ type SwarmConfig struct {
 	// Agent
 	AgentName   string
 	AgentACPCmd string // ad-hoc ACP command override (e.g. "traecli acp")
+
+	// Terminal capability: custom slash commands and sub-agents
+	SlashCommands []string // custom slash commands available inside the ACP session (e.g. /security-review)
+	CustomAgents  []string // agent backend names the agent can invoke via "vigolium agent query --agent=X"
+	MaxCommands   int      // max terminal commands per session (0 = default 50)
+
 	DryRun             bool
 	ShowPrompt         bool   // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool   // run only source analysis phase and exit
@@ -71,6 +78,11 @@ type SwarmConfig struct {
 	// SessionDir is the pre-created session directory for this run.
 	// When set, the swarm runner uses it directly instead of creating one.
 	SessionDir string
+
+	// RunUUID overrides the auto-generated agent run UUID.
+	// When set (e.g. by CLI), the swarm runner uses this UUID for the DB record,
+	// ensuring it matches the pre-created session directory name.
+	RunUUID string
 
 	// ResumeDir is the session directory of a previous run to resume from.
 	// When set, the swarm runner loads the checkpoint and skips completed phases.
@@ -226,8 +238,11 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 3
 	}
-	// Create agent run record
-	runUUID := "agt-" + uuid.New().String()
+	// Create agent run record — use pre-assigned UUID if provided (e.g. from CLI session dir)
+	runUUID := cfg.RunUUID
+	if runUUID == "" {
+		runUUID = "agt-" + uuid.New().String()
+	}
 	agentRun := &database.AgentRun{
 		UUID:        runUUID,
 		ProjectUUID: cfg.ProjectUUID,
@@ -416,7 +431,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if saErr != nil {
 			zap.L().Warn("Source analysis failed, continuing with input records only", zap.Error(saErr))
 		} else if saResult != nil {
-			printPhaseLine("source-analysis", fmt.Sprintf("result: %d http_records, %d extensions, has_session_config=%v",
+			printPhaseLine("source-analysis", fmt.Sprintf("result: %d http_records, %d extensions  has_session_config=%v",
 				len(saResult.HTTPRecords), len(saResult.Extensions), saResult.SessionConfig != nil))
 
 			filteredRecords, filteredNotes := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
@@ -428,6 +443,27 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 			if len(saResult.Extensions) > 0 {
 				saExtensions = append(saExtensions, saResult.Extensions...)
+			}
+			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
+				originalSessionCount := len(saResult.SessionConfig.Sessions)
+				originalConfig := saResult.SessionConfig
+				saResult.SessionConfig = ValidateSessionConfig(saResult.SessionConfig)
+
+				// If validation dropped all sessions, attempt LLM repair
+				if saResult.SessionConfig == nil && originalSessionCount > 0 {
+					printPhaseLine("source-analysis", fmt.Sprintf("session config invalid (%d entries dropped), attempting LLM repair", originalSessionCount))
+					repaired := RepairInvalidSessionConfig(ctx, s.engine, originalConfig, targetURL, repairConfig{
+						AgentName:   cfg.AgentName,
+						AgentACPCmd: cfg.AgentACPCmd,
+						ShowPrompt:  cfg.ShowPrompt,
+					})
+					if repaired != nil {
+						printPhaseLine("source-analysis", fmt.Sprintf("LLM repaired session config  sessions=%d", len(repaired.Sessions)))
+						saResult.SessionConfig = repaired
+					} else {
+						printPhaseLine("source-analysis", "LLM session config repair failed, continuing without auth")
+					}
+				}
 			}
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
 				writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
@@ -470,6 +506,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 					rows := AgentSessionConfigToSessionHostnames(
 						discoveredSessionConfig, cfg.ProjectUUID, cfg.ScanUUID, hostname, "agent-swarm-source",
 					)
+					if len(authHeaders) > 0 {
+						now := time.Now()
+						for _, r := range rows {
+							r.HydratedAt = &now
+						}
+					}
 					if len(rows) > 0 {
 						if shErr := s.repo.SaveSessionHostnames(ctx, rows); shErr != nil {
 							zap.L().Warn("Failed to persist session config to database", zap.Error(shErr))
@@ -846,13 +888,20 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		validExts, invalidExts := ValidateExtensionSyntax(allExtensions)
 		allExtensions = validExts
 
-		// Attempt LLM repair for invalid extensions
+		// Attempt LLM repair for invalid extensions.
+		// Pass plan context so garbled extensions can be regenerated from intent.
 		if len(invalidExts) > 0 {
-			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, repairConfig{
+			rc := repairConfig{
 				AgentName:   cfg.AgentName,
 				AgentACPCmd: cfg.AgentACPCmd,
 				ShowPrompt:  cfg.ShowPrompt,
-			})
+				TargetURL:   targetURL,
+			}
+			if plan != nil {
+				rc.FocusAreas = plan.FocusAreas
+				rc.ModuleTags = plan.ModuleTags
+			}
+			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, rc)
 			if len(repaired) > 0 {
 				zap.L().Info("LLM repaired extensions",
 					zap.Int("repaired", len(repaired)),
@@ -920,7 +969,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			scanReq.ModuleIDs = plan.ModuleIDs
 		}
 		if err := cfg.ScanFunc(ctx, scanReq); err != nil {
-			return fmt.Errorf("scan execution failed: %w", err)
+			// Log the error but continue — a partial scan failure (e.g. session
+			// init on an auto-generated auth config) should not abort the entire
+			// swarm. Triage and report phases can still process any findings
+			// that were collected before the error.
+			zap.L().Warn("Scan phase encountered an error, continuing with remaining phases", zap.Error(err))
+			printPhaseLine(string(SwarmPhaseScan), fmt.Sprintf("scan error (non-fatal): %v", err))
 		}
 		phaseTimings[SwarmPhaseScan] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseScan)
@@ -1047,6 +1101,28 @@ func (s *SwarmRunner) normalizeInputs(ctx context.Context, cfg SwarmConfig) ([]*
 	return allRecords, targetURL, nil
 }
 
+// buildTerminalPromptContext generates prompt text describing available custom
+// agents and slash commands. Returns empty string when nothing is configured.
+func buildTerminalPromptContext(customAgents, slashCommands []string) string {
+	if len(customAgents) == 0 && len(slashCommands) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if len(customAgents) > 0 {
+		b.WriteString("\n\n## Available Custom Agents\n\nYou can invoke the following custom agents via terminal:\n")
+		for _, a := range customAgents {
+			fmt.Fprintf(&b, "- `vigolium agent query --agent=%s --prompt \"<your analysis request>\"`\n", a)
+		}
+	}
+	if len(slashCommands) > 0 {
+		b.WriteString("\n\n## Available Slash Commands\n\nThe following custom slash commands are available in this session:\n")
+		for _, cmd := range slashCommands {
+			fmt.Fprintf(&b, "- `%s`\n", cmd)
+		}
+	}
+	return b.String()
+}
+
 // buildSmartHTTPContext builds a formatted HTTP context string for the master agent prompt.
 // It always includes full raw requests and response headers, but truncates response bodies
 // to maxRespBytes to manage token usage.
@@ -1154,6 +1230,24 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	return plan, sessionID, rawOutput, renderedPrompt, nil
 }
 
+// isRetryableAgentError returns true if the error is a transient ACP/agent error
+// that can be retried (e.g., deadline exceeded, prompt timeout).
+// It does NOT retry when the parent context itself is cancelled.
+func isRetryableAgentError(ctx context.Context, err error) bool {
+	// If the parent context is done, retrying won't help
+	if ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "ACP prompt timed out") ||
+		strings.Contains(msg, "ACP initialize timed out") ||
+		strings.Contains(msg, "ACP session creation timed out") ||
+		strings.Contains(msg, "ACP prompt failed")
+}
+
 // runPlanAgent executes Phase 1: analysis and module selection.
 // The prompt asks for markdown sections only (no JSON, no code), making parsing robust.
 func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, requestContext string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
@@ -1177,6 +1271,9 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
 		SessionWeight:  3,
+		SlashCommands:  cfg.SlashCommands,
+		CustomAgents:   cfg.CustomAgents,
+		MaxCommands:    cfg.MaxCommands,
 	}
 
 	// Resolve effective vuln focus: --vuln-type takes precedence, --focus is a broader hint
@@ -1193,7 +1290,11 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		opts.Append = fmt.Sprintf("%s\n\n%s", header, effectiveVulnType)
 	}
 
-	// Retry loop — plan output is simple markdown sections, so failures are rare.
+	// Inject terminal context: custom agents and slash commands
+	terminalContext := buildTerminalPromptContext(cfg.CustomAgents, cfg.SlashCommands)
+	opts.Append += terminalContext
+
+	// Retry loop — retries on both parse failures and transient ACP errors (timeouts, etc.).
 	maxAttempts := cfg.MaxMasterRetries
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -1201,15 +1302,15 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 	var lastSessionID string
 	var lastRawOutput string
 	var lastRenderedPrompt string
-	var lastParseErr error
+	var lastErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		extraContext := requestContext
-		if attempt > 1 {
-			zap.L().Info("retrying plan agent (previous output was unparseable)",
+		if attempt > 1 && lastErr != nil {
+			zap.L().Info("retrying plan agent",
 				zap.Int("attempt", attempt),
-				zap.Error(lastParseErr))
-			opts.Append = buildPlanRetryFeedback(effectiveVulnType, lastParseErr, lastRawOutput)
+				zap.Error(lastErr))
+			opts.Append = buildPlanRetryFeedback(effectiveVulnType, lastErr, lastRawOutput) + terminalContext
 			extraContext = retryTruncateContext(records)
 		}
 
@@ -1218,6 +1319,13 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			"VulnType":       effectiveVulnType,
 		})
 		if runErr != nil {
+			if isRetryableAgentError(ctx, runErr) && attempt < maxAttempts {
+				zap.L().Warn("plan agent execution failed (retryable), will retry",
+					zap.Int("attempt", attempt),
+					zap.Error(runErr))
+				lastErr = runErr
+				continue
+			}
 			return nil, "", "", "", fmt.Errorf("plan agent execution failed: %w", runErr)
 		}
 
@@ -1234,14 +1342,14 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			zap.L().Debug("plan agent raw output (parse failed)",
 				zap.String("output", result.RawOutput),
 				zap.Int("attempt", attempt))
-			lastParseErr = parseErr
+			lastErr = parseErr
 			continue
 		}
 
 		return parsed, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 	}
 
-	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse plan after %d attempts: %w", maxAttempts, lastParseErr)
+	return nil, lastSessionID, lastRawOutput, lastRenderedPrompt, fmt.Errorf("failed to parse plan after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // runExtensionAgent executes Phase 2: custom extension generation.
@@ -1271,6 +1379,9 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
 		SessionWeight:  2,
+		SlashCommands:  cfg.SlashCommands,
+		CustomAgents:   cfg.CustomAgents,
+		MaxCommands:    cfg.MaxCommands,
 	}
 
 	// Resolve effective vuln focus for extension agent
@@ -1279,12 +1390,24 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		extVulnType = cfg.Focus
 	}
 
-	result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
-		"RequestContext": requestContext,
-		"PlanContext":    planContext,
-		"VulnType":       extVulnType,
-	})
-	if runErr != nil {
+	const maxExtRetries = 3
+	var result *Result
+	for extAttempt := 1; extAttempt <= maxExtRetries; extAttempt++ {
+		var runErr error
+		result, runErr = s.engine.RunWithExtra(ctx, opts, map[string]string{
+			"RequestContext": requestContext,
+			"PlanContext":    planContext,
+			"VulnType":       extVulnType,
+		})
+		if runErr == nil {
+			break
+		}
+		if isRetryableAgentError(ctx, runErr) && extAttempt < maxExtRetries {
+			zap.L().Warn("extension agent failed (retryable), will retry",
+				zap.Int("attempt", extAttempt),
+				zap.Error(runErr))
+			continue
+		}
 		return nil, "", "", "", fmt.Errorf("extension agent execution failed: %w", runErr)
 	}
 
@@ -2023,6 +2146,9 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
+		SlashCommands:  cfg.SlashCommands,
+		CustomAgents:   cfg.CustomAgents,
+		MaxCommands:    cfg.MaxCommands,
 		MaxRounds:                 cfg.MaxIterations,
 		MaxFindingsPerTriageBatch: 25,
 		ResumeFromRound:           triageResumeRound,
@@ -2164,6 +2290,9 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
+		SlashCommands:  cfg.SlashCommands,
+		CustomAgents:   cfg.CustomAgents,
+		MaxCommands:    cfg.MaxCommands,
 	}
 
 	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
@@ -2206,7 +2335,22 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		writeSourceExtensionsToSessionDir(saResult.Extensions, sessionDir)
 	}
 
-	// Write session config to session dir if the SAST review produced one
+	// Validate and write session config to session dir if the SAST review produced one
+	if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
+		originalConfig := saResult.SessionConfig
+		saResult.SessionConfig = ValidateSessionConfig(saResult.SessionConfig)
+		// If validation dropped all sessions, attempt LLM repair
+		if saResult.SessionConfig == nil && len(originalConfig.Sessions) > 0 {
+			repaired := RepairInvalidSessionConfig(ctx, s.engine, originalConfig, targetURL, repairConfig{
+				AgentName:   cfg.AgentName,
+				AgentACPCmd: cfg.AgentACPCmd,
+				ShowPrompt:  cfg.ShowPrompt,
+			})
+			if repaired != nil {
+				saResult.SessionConfig = repaired
+			}
+		}
+	}
 	if sessionDir != "" && saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
 		writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
 	}
@@ -2268,6 +2412,9 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
+		SlashCommands:  cfg.SlashCommands,
+		CustomAgents:   cfg.CustomAgents,
+		MaxCommands:    cfg.MaxCommands,
 	}
 
 	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, extra)

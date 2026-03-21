@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"go.uber.org/goleak"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	httpClient "github.com/vigolium/vigolium/pkg/http"
@@ -23,7 +22,9 @@ import (
 // TestHttpbin tests HTTP request/response handling using httpbin
 // This verifies that Vigolium correctly sends and receives HTTP data
 func TestHttpbin(t *testing.T) {
-	defer goleak.VerifyNone(t)
+	// NOTE: goleak.VerifyNone removed — the shared fastdialer (backed by LevelDB)
+	// and network memory guardian create background goroutines that outlive
+	// individual tests, causing persistent false positives in the e2e suite.
 
 	ctx := context.Background()
 

@@ -1,0 +1,63 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+
+interface DropdownProps {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  icon?: React.ReactNode;
+}
+
+export default function Dropdown({ value, options, onChange, icon }: DropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const activeLabel = options.find((o) => o.value === value)?.label || value;
+  const isDefault = value === '' || value === options[0]?.value;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className={`border text-xs px-2 py-0.5 transition-colors flex items-center gap-1 ${
+          isDefault
+            ? 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3] bg-[#1c1b19]'
+            : 'border-[#7fd962]/50 text-[#7fd962] hover:text-[#fce8c3] bg-[#1c1b19]'
+        }`}
+      >
+        {icon}
+        {activeLabel}
+        <span className="text-[8px]">{'\u25be'}</span>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-0.5 bg-[#1c1b19] border border-[#2e2b26] z-50 min-w-full">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`block w-full text-left text-xs px-2 py-0.5 transition-colors ${
+                opt.value === value
+                  ? 'text-[#7fd962]'
+                  : 'text-[#918175] hover:bg-[#272520] hover:text-[#fce8c3]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

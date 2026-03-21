@@ -815,7 +815,7 @@ func TestAPI_Ingest_MissingInputMode(t *testing.T) {
 func TestAPI_Ingest_UnsupportedMode(t *testing.T) {
 	env := newAPITestEnv(t, "")
 
-	resp := env.post(t, "/api/ingest-http", `{"input_mode": "har", "content": "data"}`)
+	resp := env.post(t, "/api/ingest-http", `{"input_mode": "foobar", "content": "data"}`)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	var body server.ErrorResponse

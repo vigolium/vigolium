@@ -306,16 +306,27 @@ func TestGenerateDirectoryTree(t *testing.T) {
 		}
 	}
 
-	// Also create node_modules (should be skipped)
+	// Create directories that should be skipped
 	_ = os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte("//"), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, ".github", "workflows"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, ".github", "workflows", "ci.yml"), []byte("name: CI"), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "coverage"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "coverage", "lcov.info"), []byte(""), 0644)
+	_ = os.MkdirAll(filepath.Join(dir, "dist"), 0755)
+	_ = os.WriteFile(filepath.Join(dir, "dist", "bundle.js"), []byte(""), 0644)
+
+	// Create files that should be filtered from the tree
+	_ = os.WriteFile(filepath.Join(dir, "src", "logo.png"), []byte("PNG"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "src", "app.min.js"), []byte(""), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "package-lock.lock"), []byte(""), 0644)
 
 	tree, err := generateDirectoryTree(dir)
 	if err != nil {
 		t.Fatalf("generateDirectoryTree() error = %v", err)
 	}
 
-	// Should contain our source dirs
+	// Should contain our source dirs and files
 	if !strings.Contains(tree, "src/") {
 		t.Errorf("tree should contain src/, got:\n%s", tree)
 	}
@@ -325,9 +336,19 @@ func TestGenerateDirectoryTree(t *testing.T) {
 	if !strings.Contains(tree, "go.mod") {
 		t.Errorf("tree should contain go.mod, got:\n%s", tree)
 	}
-	// Should NOT contain node_modules
-	if strings.Contains(tree, "node_modules") {
-		t.Errorf("tree should skip node_modules, got:\n%s", tree)
+
+	// Should NOT contain skipped directories
+	for _, skipDir := range []string{"node_modules", ".github", "coverage", "dist"} {
+		if strings.Contains(tree, skipDir) {
+			t.Errorf("tree should skip %s, got:\n%s", skipDir, tree)
+		}
+	}
+
+	// Should NOT contain filtered files
+	for _, skipFile := range []string{"logo.png", "app.min.js", "package-lock.lock"} {
+		if strings.Contains(tree, skipFile) {
+			t.Errorf("tree should skip %s, got:\n%s", skipFile, tree)
+		}
 	}
 }
 
@@ -367,6 +388,31 @@ func TestGatherContext_SkipsSourceCode(t *testing.T) {
 	}
 	if data.SourcePath != dir {
 		t.Errorf("SourcePath = %q, want %q", data.SourcePath, dir)
+	}
+}
+
+func TestGatherContext_SkipGuidance(t *testing.T) {
+	// When template declares SkipGuidance, DirectoryTree should NOT be populated
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main(){}"), 0644)
+
+	e := &Engine{}
+	data, err := e.gatherContext(context.Background(), Options{
+		SourcePath: dir,
+		TargetURL:  "http://localhost:3000",
+	}, []string{"TargetURL", "SourcePath", "SkipGuidance", "DirectoryTree"})
+
+	if err != nil {
+		t.Fatalf("gatherContext error: %v", err)
+	}
+	if data.SkipGuidance == "" {
+		t.Error("expected non-empty SkipGuidance")
+	}
+	if data.DirectoryTree != "" {
+		t.Error("expected empty DirectoryTree when SkipGuidance is declared")
+	}
+	if !strings.Contains(data.SkipGuidance, "Third-party") {
+		t.Errorf("SkipGuidance should mention third-party libraries, got %q", data.SkipGuidance)
 	}
 }
 

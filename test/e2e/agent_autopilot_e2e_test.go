@@ -18,7 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// ─── Fake agent scripts for autopilot v2 ────────────────────────────────────
+// ─── Fake agent scripts for autopilot pipeline ──────────────────────────────
 
 // fakeReconAgentScript returns a script that outputs a valid recon_deliverable JSON.
 func fakeReconAgentScript(t *testing.T) string {
@@ -195,118 +195,11 @@ func newAutopilotTestSettings(t *testing.T, agentName, scriptPath string) *confi
 	}
 }
 
-// ─── V1 (single-agent) tests ────────────────────────────────────────────────
+// ─── Pipeline tests ─────────────────────────────────────────────────────────
 
-// TestAutopilotV1DryRun tests that --dry-run renders the prompt without launching the agent.
-func TestAutopilotV1DryRun(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping e2e test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	_, repo := setupTestDB(t)
-
-	settings := newAutopilotTestSettings(t, "fake-autopilot", "/bin/echo")
-	engine := agent.NewEngine(settings, repo)
-	defer engine.Close()
-
-	opts := agent.Options{
-		AgentName:      "fake-autopilot",
-		PromptTemplate: "autopilot-system",
-		TargetURL:      "http://localhost:3000",
-		Source:         "autopilot",
-		DryRun:         true,
-		Autopilot:      true,
-	}
-
-	result, err := engine.Run(ctx, opts)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.DryRun)
-	assert.Contains(t, result.RawOutput, "http://localhost:3000")
-	assert.Contains(t, result.RawOutput, "autonomous security scanner")
-	assert.Contains(t, result.RawOutput, "vigolium scan-url")
-}
-
-// TestAutopilotV1DryRunWithSource tests that source code context is included in the prompt.
-func TestAutopilotV1DryRunWithSource(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping e2e test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	_, repo := setupTestDB(t)
-
-	// Create a fake source directory with a file
-	sourceDir := t.TempDir()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(sourceDir, "app.js"),
-		[]byte("const express = require('express');\napp.get('/api/search', (req, res) => { db.query('SELECT * FROM items WHERE name = ' + req.query.q); });\n"),
-		0644))
-
-	settings := newAutopilotTestSettings(t, "fake-autopilot", "/bin/echo")
-	engine := agent.NewEngine(settings, repo)
-	defer engine.Close()
-
-	opts := agent.Options{
-		AgentName:      "fake-autopilot",
-		PromptTemplate: "autopilot-system",
-		TargetURL:      "http://localhost:3000",
-		SourcePath:     sourceDir,
-		Source:         "autopilot",
-		DryRun:         true,
-		Autopilot:      true,
-	}
-
-	result, err := engine.Run(ctx, opts)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.DryRun)
-	// Prompt should contain source-aware workflow section
-	assert.Contains(t, result.RawOutput, "Source-Aware Workflow")
-	assert.Contains(t, result.RawOutput, "Source Code Context")
-}
-
-// TestAutopilotV1BrowserSection tests that browser-based testing section is in the prompt.
-func TestAutopilotV1BrowserSection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping e2e test in short mode")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	_, repo := setupTestDB(t)
-
-	settings := newAutopilotTestSettings(t, "fake-autopilot", "/bin/echo")
-	engine := agent.NewEngine(settings, repo)
-	defer engine.Close()
-
-	opts := agent.Options{
-		AgentName:      "fake-autopilot",
-		PromptTemplate: "autopilot-system",
-		TargetURL:      "http://localhost:3000",
-		DryRun:         true,
-		Autopilot:      true,
-	}
-
-	result, err := engine.Run(ctx, opts)
-	require.NoError(t, err)
-	assert.Contains(t, result.RawOutput, "Browser-Based Testing")
-	assert.Contains(t, result.RawOutput, "Playwright")
-	assert.Contains(t, result.RawOutput, "TOTP Support")
-	assert.Contains(t, result.RawOutput, "vigolium auth totp")
-}
-
-// ─── V2 (parallel pipeline) tests ───────────────────────────────────────────
-
-// TestAutopilotV2ReconPhase tests the recon phase with a fake agent that outputs
+// TestAutopilotReconPhase tests the recon phase with a fake agent that outputs
 // a valid recon deliverable JSON.
-func TestAutopilotV2ReconPhase(t *testing.T) {
+func TestAutopilotReconPhase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -357,8 +250,8 @@ func TestAutopilotV2ReconPhase(t *testing.T) {
 	assert.Equal(t, "http://localhost:3000", cp.TargetURL)
 }
 
-// TestAutopilotV2VulnAnalysisPhase tests the parallel vuln analysis specialists.
-func TestAutopilotV2VulnAnalysisPhase(t *testing.T) {
+// TestAutopilotVulnAnalysisPhase tests the parallel vuln analysis specialists.
+func TestAutopilotVulnAnalysisPhase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -374,7 +267,7 @@ func TestAutopilotV2VulnAnalysisPhase(t *testing.T) {
 	reconScript := fakeReconAgentScript(t)
 
 	// Use the same script for all templates (the fake agent ignores the prompt)
-	agentName := "fake-autopilot-v2"
+	agentName := "fake-autopilot-pipeline"
 	settings := &config.Settings{
 		Agent: config.AgentConfig{
 			DefaultAgent: agentName,
@@ -428,8 +321,8 @@ func TestAutopilotV2VulnAnalysisPhase(t *testing.T) {
 	}
 }
 
-// TestAutopilotV2ExploitVerifyPhase tests the exploit verification phase.
-func TestAutopilotV2ExploitVerifyPhase(t *testing.T) {
+// TestAutopilotExploitVerifyPhase tests the exploit verification phase.
+func TestAutopilotExploitVerifyPhase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -492,8 +385,8 @@ func TestAutopilotV2ExploitVerifyPhase(t *testing.T) {
 	}
 }
 
-// TestAutopilotV2FullPipeline tests the entire 5-phase pipeline end-to-end.
-func TestAutopilotV2FullPipeline(t *testing.T) {
+// TestAutopilotFullPipeline tests the entire 5-phase pipeline end-to-end.
+func TestAutopilotFullPipeline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -551,8 +444,8 @@ func TestAutopilotV2FullPipeline(t *testing.T) {
 	}
 }
 
-// TestAutopilotV2CheckpointResume tests that a pipeline can be resumed from a checkpoint.
-func TestAutopilotV2CheckpointResume(t *testing.T) {
+// TestAutopilotCheckpointResume tests that a pipeline can be resumed from a checkpoint.
+func TestAutopilotCheckpointResume(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -625,8 +518,8 @@ func TestAutopilotV2CheckpointResume(t *testing.T) {
 	}
 }
 
-// TestAutopilotV2DryRun tests that --dry-run renders the recon prompt without launching agents.
-func TestAutopilotV2DryRun(t *testing.T) {
+// TestAutopilotDryRun tests that --dry-run renders the recon prompt without launching agents.
+func TestAutopilotDryRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
@@ -784,9 +677,9 @@ func TestParseExploitationEvidenceSingleObject(t *testing.T) {
 
 // ─── Real agent tests (conditional) ─────────────────────────────────────────
 
-// TestAutopilotV2RealAgent runs the full pipeline with a real agent backend.
+// TestAutopilotRealAgent runs the full pipeline with a real agent backend.
 // Skipped unless -agent flag is provided.
-func TestAutopilotV2RealAgent(t *testing.T) {
+func TestAutopilotRealAgent(t *testing.T) {
 	if *testAgentName == "" {
 		t.Skip("Skipping: use -agent=<name> to run with real agent")
 	}

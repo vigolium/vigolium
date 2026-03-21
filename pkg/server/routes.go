@@ -133,6 +133,12 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/agent/sessions", handlers.HandleAgentSessionList)
 	viewer.Get("/agent/sessions/:id", handlers.HandleAgentSessionDetail)
 
+	// --- Generic database API (read-only for viewer) ---
+	viewer.Get("/db/tables", handlers.HandleListDBTables)
+	viewer.Get("/db/tables/:table/columns", handlers.HandleListDBTableColumns)
+	viewer.Get("/db/tables/:table/records", handlers.HandleListDBRecords)
+	viewer.Get("/db/tables/:table/records/:id", handlers.HandleGetDBRecord)
+
 	// In view-only mode, skip all write/mutation routes (operator + admin).
 	if cfg.ViewOnly {
 		return
@@ -150,11 +156,13 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	operator.Post("/scans/:uuid/pause", handlers.HandlePauseScan)
 	operator.Post("/scans/:uuid/resume", handlers.HandleResumeScan)
 	operator.Post("/ingest-http", handlers.HandleIngestHTTP)
-	operator.Post("/agent/run/query", handlers.HandleAgentQuery)
-	operator.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
-	operator.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
-	operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
-	operator.Post("/agent/chat/completions", handlers.HandleChatCompletions)
+	if !cfg.NoAgent {
+		operator.Post("/agent/run/query", handlers.HandleAgentQuery)
+		operator.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
+		operator.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
+		operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
+		operator.Post("/agent/chat/completions", handlers.HandleChatCompletions)
+	}
 
 	// --- Admin routes (admin only) ---
 	// Destructive operations, config changes, project/resource management
@@ -175,5 +183,10 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	admin.Put("/extensions/:name", handlers.HandleEditExtension)
 	admin.Post("/projects", handlers.HandleCreateProject)
 	admin.Put("/projects/:uuid", handlers.HandleUpdateProject)
+
+	// --- Generic database API (writes for admin only) ---
+	admin.Post("/db/tables/:table/records", handlers.HandleCreateDBRecord)
+	admin.Put("/db/tables/:table/records/:id", handlers.HandleUpdateDBRecord)
+	admin.Delete("/db/tables/:table/records/:id", handlers.HandleDeleteDBRecord)
 
 }

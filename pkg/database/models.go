@@ -26,8 +26,13 @@ type Project struct {
 	Description string `bun:"description,nullzero" json:"description,omitempty"`
 	OwnerUUID   string `bun:"owner_uuid,nullzero" json:"owner_uuid,omitempty"` // soft FK → users
 	ConfigPath  string `bun:"config_path,nullzero" json:"config_path,omitempty"`
-	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt   time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+
+	Tags          []string  `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
+	DefaultTarget string    `bun:"default_target,nullzero" json:"default_target,omitempty"`
+	LastScanAt    time.Time `bun:"last_scan_at,nullzero" json:"last_scan_at,omitempty"`
+
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 // DefaultProjectUUID is the well-known UUID for the default project created during init.
@@ -74,6 +79,13 @@ type Scan struct {
 	Modules string `bun:"modules,nullzero" json:"modules,omitempty"`
 	Threads int    `bun:"threads,default:0" json:"threads"`
 
+	// Scan context
+	Profile      string   `bun:"profile,nullzero" json:"profile,omitempty"`             // scanning profile used (light, full, api, etc.)
+	SourcePath   string   `bun:"source_path,nullzero" json:"source_path,omitempty"`     // source code path for whitebox/SAST scans
+	Tags         []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`         // arbitrary tags for filtering/grouping
+	TriggeredBy  string   `bun:"triggered_by,nullzero" json:"triggered_by,omitempty"`   // user, schedule, webhook, agent
+	AgentRunUUID string   `bun:"agent_run_uuid,nullzero" json:"agent_run_uuid,omitempty"` // link to agent_run that spawned this scan
+
 	// Cursor-based scan tracking
 	ScanSource      string    `bun:"scan_source,nullzero" json:"scan_source,omitempty"`         // "cli", "api", "scan-on-receive"
 	ScanMode        string    `bun:"scan_mode,nullzero" json:"scan_mode,omitempty"`             // "incremental" or "full"
@@ -109,12 +121,13 @@ type HTTPRecord struct {
 
 	UUID        string `bun:"uuid,pk,notnull" json:"uuid"`
 	ProjectUUID string `bun:"project_uuid,notnull" json:"project_uuid"`
+	ScanUUID    string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"` // link to scan that produced this record
 
 	// Host info (embedded, replaces hosts table)
 	Scheme   string `bun:"scheme,notnull" json:"scheme"`
 	Hostname string `bun:"hostname,notnull" json:"hostname"`
 	Port     int    `bun:"port,notnull" json:"port"`
-	IP       string `bun:"ip,nullzero" json:"ip,omitempty"`
+	IP       string `bun:"ip,nullzero" json:"ip,omitempty"` // resolved IP address (cached per hostname)
 
 	// Request fields
 	Method               string              `bun:"method,notnull" json:"method"`
@@ -154,6 +167,12 @@ type HTTPRecord struct {
 
 	Source string `bun:"source,nullzero,default:''" json:"source,omitempty"`
 
+	// Analysis & enrichment
+	Technology      []string `bun:"technology,type:jsonb,nullzero" json:"technology,omitempty"`     // detected technologies/frameworks
+	ContentHash     string   `bun:"content_hash,nullzero" json:"content_hash,omitempty"`           // hash of meaningful response content for change detection
+	IsAuthenticated bool     `bun:"is_authenticated,notnull,default:false" json:"is_authenticated"` // whether request was sent with valid auth
+	ParentUUID      string   `bun:"parent_uuid,nullzero" json:"parent_uuid,omitempty"`             // parent record UUID (crawl/spider parent)
+
 	// Risk labeling (populated by background analysis)
 	Remarks   []string `bun:"remarks,type:jsonb,nullzero" json:"remarks,omitempty"`
 	RiskScore int      `bun:"risk_score,default:0" json:"risk_score"`
@@ -182,20 +201,36 @@ type Finding struct {
 	HTTPRecordUUIDs []string `bun:"http_record_uuids,type:jsonb,notnull" json:"http_record_uuids"`
 
 	// Scan reference (soft, no FK)
-	ScanUUID string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
+	ScanUUID     string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
+	AgentRunUUID string `bun:"agent_run_uuid,nullzero" json:"agent_run_uuid,omitempty"` // link to agent_run that produced this finding
+
+	// Denormalized target info (for fast display/filtering without joining)
+	URL      string `bun:"url,nullzero" json:"url,omitempty"`
+	Hostname string `bun:"hostname,nullzero" json:"hostname,omitempty"`
 
 	// Module info
-	ModuleID      string   `bun:"module_id,notnull" json:"module_id"`
-	ModuleName    string   `bun:"module_name,notnull" json:"module_name"`
-	ModuleType    string   `bun:"module_type,nullzero" json:"module_type,omitempty"`
-	FindingSource string   `bun:"finding_source,nullzero" json:"finding_source,omitempty"`
-	ModuleShort   string   `bun:"module_short,nullzero" json:"module_short,omitempty"`
-	Description string   `bun:"description,nullzero" json:"description,omitempty"`
-	Severity    string   `bun:"severity,notnull" json:"severity"`
-	Confidence  string   `bun:"confidence,notnull,default:'firm'" json:"confidence"`
-	Tags        []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
+	ModuleID      string `bun:"module_id,notnull" json:"module_id"`
+	ModuleName    string `bun:"module_name,notnull" json:"module_name"`
+	ModuleType    string `bun:"module_type,nullzero" json:"module_type,omitempty"`
+	FindingSource string `bun:"finding_source,nullzero" json:"finding_source,omitempty"`
+	ModuleShort   string `bun:"module_short,nullzero" json:"module_short,omitempty"`
+	Description   string `bun:"description,nullzero" json:"description,omitempty"`
+	Severity      string `bun:"severity,notnull" json:"severity"`
+	Confidence    string `bun:"confidence,notnull,default:'firm'" json:"confidence"`
+	Tags          []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
 
-	MatchedAt        []string `bun:"matched_at,type:jsonb,nullzero" json:"matched_at,omitempty"`
+	// Finding lifecycle
+	Status      string `bun:"status,nullzero,default:'open'" json:"status,omitempty"` // open, confirmed, false_positive, accepted_risk, fixed
+	Remediation string `bun:"remediation,nullzero" json:"remediation,omitempty"`
+
+	// Classification
+	CWEID     string  `bun:"cwe_id,nullzero" json:"cwe_id,omitempty"`
+	CVSSScore float64 `bun:"cvss_score,default:0" json:"cvss_score"`
+
+	// Source info (for SAST findings)
+	SourceFile string `bun:"source_file,nullzero" json:"source_file,omitempty"`
+
+	MatchedAt          []string `bun:"matched_at,type:jsonb,nullzero" json:"matched_at,omitempty"`
 	ExtractedResults   []string `bun:"extracted_results,type:jsonb,nullzero" json:"extracted_results,omitempty"`
 	AdditionalEvidence []string `bun:"additional_evidence,type:jsonb,nullzero" json:"additional_evidence,omitempty"`
 
@@ -222,14 +257,21 @@ type SourceRepo struct {
 	Language  string `bun:"language,nullzero" json:"language,omitempty"`
 	Framework string `bun:"framework,nullzero" json:"framework,omitempty"`
 
-	Endpoints   []string               `bun:"endpoints,type:jsonb,nullzero" json:"endpoints,omitempty"`
-	RouteParams []string               `bun:"route_params,type:jsonb,nullzero" json:"route_params,omitempty"`
-	Sinks       []string               `bun:"sinks,type:jsonb,nullzero" json:"sinks,omitempty"`
-	Tags        []string               `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
-	Metadata    map[string]interface{} `bun:"metadata,type:jsonb,nullzero" json:"metadata,omitempty"`
+	// Git info
+	Branch     string `bun:"branch,nullzero" json:"branch,omitempty"`
+	CommitHash string `bun:"commit_hash,nullzero" json:"commit_hash,omitempty"`
+
+	Endpoints     []string               `bun:"endpoints,type:jsonb,nullzero" json:"endpoints,omitempty"`
+	RouteParams   []string               `bun:"route_params,type:jsonb,nullzero" json:"route_params,omitempty"`
+	Sinks         []string               `bun:"sinks,type:jsonb,nullzero" json:"sinks,omitempty"`
+	AuthEndpoints []string               `bun:"auth_endpoints,type:jsonb,nullzero" json:"auth_endpoints,omitempty"` // login, register, oauth endpoints
+	Tags          []string               `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
+	Metadata      map[string]interface{} `bun:"metadata,type:jsonb,nullzero" json:"metadata,omitempty"`
+	LineCount     int64                  `bun:"line_count,default:0" json:"line_count"`
 
 	ThirdPartyScanStatus string    `bun:"third_party_scan_status,nullzero" json:"third_party_scan_status,omitempty"` // "", "running", "completed", "failed"
 	ThirdPartyScanAt     time.Time `bun:"third_party_scan_at,nullzero" json:"third_party_scan_at,omitempty"`
+	LastScannedAt        time.Time `bun:"last_scanned_at,nullzero" json:"last_scanned_at,omitempty"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
@@ -243,13 +285,14 @@ type SessionHostname struct {
 	ProjectUUID string `bun:"project_uuid,notnull" json:"project_uuid"`
 	ScanUUID    string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
 
-	Hostname    string `bun:"hostname,notnull" json:"hostname"`
-	Port        int    `bun:"port,default:0" json:"port"`
-	Scheme      string `bun:"scheme,nullzero,default:''" json:"scheme,omitempty"`
+	Hostname string `bun:"hostname,notnull" json:"hostname"`
 
 	SessionName string `bun:"session_name,notnull" json:"session_name"`
 	SessionRole string `bun:"session_role,nullzero,default:''" json:"session_role,omitempty"`
 	Position    int    `bun:"position,default:0" json:"position"`
+
+	// Primary session token (JWT, cookie value, API key) for quick access.
+	SessionToken string `bun:"session_token,nullzero" json:"session_token,omitempty"`
 
 	// Static auth headers (JSON map)
 	Headers map[string]string `bun:"headers,type:jsonb,nullzero" json:"headers,omitempty"`
@@ -262,12 +305,13 @@ type SessionHostname struct {
 	LoginRequest     string `bun:"login_request,nullzero" json:"login_request,omitempty"`
 	LoginResponse    string `bun:"login_response,nullzero" json:"login_response,omitempty"`
 
-	// Extract rules (JSON array stored as text)
-	ExtractRules string `bun:"extract_rules,nullzero" json:"extract_rules,omitempty"`
+	// Extract rules (JSON array)
+	ExtractRules string `bun:"extract_rules,type:jsonb,nullzero" json:"extract_rules,omitempty"`
 
-	Source    string    `bun:"source,nullzero,default:''" json:"source,omitempty"`
-	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+	Source     string     `bun:"source,nullzero,default:''" json:"source,omitempty"`
+	HydratedAt *time.Time `bun:"hydrated_at,nullzero" json:"hydrated_at,omitempty"`
+	CreatedAt  time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt  time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 // OASTInteraction records an out-of-band interaction received from an interactsh server.
@@ -291,6 +335,8 @@ type OASTInteraction struct {
 	ParameterName string `bun:"parameter_name,nullzero" json:"parameter_name,omitempty"`
 	InjectionType string `bun:"injection_type,nullzero" json:"injection_type,omitempty"`
 	ModuleID      string `bun:"module_id,nullzero" json:"module_id,omitempty"`
+	FindingID     int64  `bun:"finding_id,nullzero" json:"finding_id,omitempty"` // link to finding this interaction proves
+	Payload       string `bun:"payload,nullzero" json:"payload,omitempty"`       // exact payload that triggered the interaction
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 }
@@ -339,6 +385,13 @@ type AgentRun struct {
 	RecordCount  int `bun:"record_count,default:0" json:"record_count"`
 	SavedCount   int `bun:"saved_count,default:0" json:"saved_count"`
 
+	// Agent context
+	SourcePath       string                 `bun:"source_path,nullzero" json:"source_path,omitempty"`          // source code path used
+	TokenUsage       map[string]interface{} `bun:"token_usage,type:jsonb,nullzero" json:"token_usage,omitempty"` // input/output token counts per phase
+	RetryCount       int                    `bun:"retry_count,default:0" json:"retry_count"`
+	ParentRunUUID    string                 `bun:"parent_run_uuid,nullzero" json:"parent_run_uuid,omitempty"`   // for swarm sub-runs
+	InputRecordCount int                    `bun:"input_record_count,default:0" json:"input_record_count"`
+
 	// Agent session (ACP session ID for resume)
 	SessionID string `bun:"session_id,nullzero" json:"session_id,omitempty"`
 
@@ -370,14 +423,17 @@ type Scope struct {
 
 	RuleType string `bun:"rule_type,notnull" json:"rule_type"` // "include" or "exclude"
 
-	HostPattern string   `bun:"host_pattern,nullzero" json:"host_pattern,omitempty"`
-	PathPattern string   `bun:"path_pattern,nullzero" json:"path_pattern,omitempty"`
-	Methods     []string `bun:"methods,type:jsonb,nullzero" json:"methods,omitempty"`
-	Ports       []int    `bun:"ports,type:jsonb,nullzero" json:"ports,omitempty"`
-	Schemes     []string `bun:"schemes,type:jsonb,nullzero" json:"schemes,omitempty"`
+	HostPattern        string   `bun:"host_pattern,nullzero" json:"host_pattern,omitempty"`
+	PathPattern        string   `bun:"path_pattern,nullzero" json:"path_pattern,omitempty"`
+	ContentTypePattern string   `bun:"content_type_pattern,nullzero" json:"content_type_pattern,omitempty"` // e.g., "image/*" to exclude
+	Methods            []string `bun:"methods,type:jsonb,nullzero" json:"methods,omitempty"`
+	Ports              []int    `bun:"ports,type:jsonb,nullzero" json:"ports,omitempty"`
+	Schemes            []string `bun:"schemes,type:jsonb,nullzero" json:"schemes,omitempty"`
 
-	Priority int  `bun:"priority,notnull,default:100" json:"priority"`
-	Enabled  bool `bun:"enabled,notnull,default:true" json:"enabled"`
+	Priority     int       `bun:"priority,notnull,default:100" json:"priority"`
+	Enabled      bool      `bun:"enabled,notnull,default:true" json:"enabled"`
+	HitCount     int64     `bun:"hit_count,default:0" json:"hit_count"`
+	LastMatchedAt time.Time `bun:"last_matched_at,nullzero" json:"last_matched_at,omitempty"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`

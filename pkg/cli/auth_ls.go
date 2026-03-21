@@ -74,7 +74,7 @@ func runAuthLs(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s %d session auth config(s)\n\n", terminal.InfoSymbol(), len(rows))
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "HOSTNAME", "SESSION NAME", "ROLE", "POS", "EXTRACT RULES")
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "HOSTNAME", "SESSION NAME", "ROLE", "POS", "TOKEN", "EXTRACT RULES")
 	for _, sh := range rows {
 		role := sh.SessionRole
 		switch role {
@@ -82,6 +82,13 @@ func runAuthLs(cmd *cobra.Command, args []string) error {
 			role = terminal.Green(role)
 		case "compare":
 			role = terminal.Yellow(role)
+		}
+
+		token := sh.SessionToken
+		if token == "" {
+			token = "–"
+		} else if len(token) > 40 {
+			token = token[:37] + "..."
 		}
 
 		extractRules := sh.ExtractRules
@@ -96,6 +103,7 @@ func runAuthLs(cmd *cobra.Command, args []string) error {
 			sh.SessionName,
 			role,
 			fmt.Sprintf("%d", sh.Position),
+			terminal.Gray(token),
 			terminal.Gray(extractRules),
 		)
 	}

@@ -481,7 +481,7 @@ update-ui:
 	@echo "$(PREFIX) Updating dashboard UI..."
 	@rm -rf public/ui/
 	@mkdir -p public/ui/
-	@cp -r platform/vigolium-dashboard/dist/* public/ui/
+	@cp -r platform/vigolium-workbench/dist/* public/ui/
 	@echo "$(PREFIX) UI assets updated"
 
 # Docker parameters

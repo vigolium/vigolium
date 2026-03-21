@@ -56,7 +56,7 @@ type SourceConfig struct {
 
 	// File-based input
 	FilePath string
-	Format   string // "urls", "nuclei", "crawlerxdir", "apivoyagerlist"
+	Format   string // "urls", "nuclei", "openapi", etc.
 
 	// Stdin
 	UseStdin bool
@@ -127,7 +127,7 @@ func NewInputSource(cfg SourceConfig) (InputSource, error) {
 
 // SupportedFormats returns comma-separated list of supported input formats.
 func SupportedFormats() string {
-	return "urls, nuclei, crawlerxdir, apivoyagerlist, openapi, swagger, deparos"
+	return "urls, nuclei, openapi, swagger, deparos"
 }
 
 // TargetSource provides input from direct URL targets (from -u flag).

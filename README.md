@@ -1,7 +1,7 @@
 <p align="center">
   <a href="https://www.osmedeus.org"><img alt="Osmedeus" src="static/vigolium-logo.png" height="140" /></a>
   <br />
-  <strong>Vigolium - High-fidelity vulnerability scanner with native scan precision and agentic scan intelligence.</strong>
+  <strong>Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</strong>
 </p>
 
 ***
@@ -46,7 +46,7 @@ It also operates as an API server with traffic ingestion, or a standalone ingest
 - **Value-aware mutation** — classify parameter values by semantic type (integer, UUID, JWT, email, etc.) and generate intelligent mutations per intent (neighbor, boundary, escalation)
 - **Multi-phase pipeline** — external harvesting, content discovery, SPA crawling, and audit controlled by strategy presets
 - **Scanning profiles** — bundle strategy, pace, scope, and module config into a single YAML file (`--scanning-profile`)
-- **Multiple input formats** — URLs, OpenAPI/Swagger, Postman, Burp Suite, cURL, Nuclei JSONL, CrawlerX
+- **Multiple input formats** — URLs, OpenAPI/Swagger, Postman, Burp Suite, cURL, Nuclei JSONL
 - **Browser-based spider** — Chromium-driven crawler (Spitolas) with SPA support, form filling, and JS analysis
 - **Content discovery** — adaptive directory/file enumeration engine (Deparos) with soft-404 detection
 - **Header injection** — automatic fuzzing of existing and synthetic headers (X-Forwarded-For, X-Forwarded-Host, True-Client-IP, Referer)

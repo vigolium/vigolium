@@ -26,7 +26,6 @@ var (
 	autopilotSource          string
 	autopilotFiles           []string
 	autopilotFocus           string
-	autopilotSystemPrompt    string
 	autopilotTimeout         time.Duration
 	autopilotACPCmd          string
 	autopilotDryRun          bool
@@ -35,10 +34,9 @@ var (
 	autopilotInstruction     string
 	autopilotInstructionFile string
 	autopilotMcpServers      []string
-	autopilotMcpEnabled      bool
-	autopilotParallel        bool
-	autopilotSpecialists     []string
-	autopilotResume          string
+	autopilotMcpEnabled  bool
+	autopilotSpecialists []string
+	autopilotResume      string
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -78,7 +76,6 @@ func init() {
 	f.StringVar(&autopilotSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --source)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
-	f.StringVar(&autopilotSystemPrompt, "system-prompt", "", "Custom system prompt file (overrides default)")
 	f.DurationVar(&autopilotTimeout, "timeout", 30*time.Minute, "Maximum duration for the autopilot session")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
@@ -87,8 +84,7 @@ func init() {
 	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.StringSliceVar(&autopilotMcpServers, "mcp-server", nil, "MCP servers to attach (format: name=command,arg1,arg2 or name=http://url)")
 	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to ACP sessions")
-	f.BoolVar(&autopilotParallel, "parallel", false, "Enable v2 multi-agent specialist pipeline")
-	f.StringSliceVar(&autopilotSpecialists, "specialists", nil, "Vulnerability classes for parallel pipeline (injection, xss, auth, ssrf, authz)")
+	f.StringSliceVar(&autopilotSpecialists, "specialists", nil, "Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz)")
 	f.StringVar(&autopilotResume, "resume", "", "Resume from a previous session directory")
 }
 
@@ -169,66 +165,7 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	// Merge CLI MCP servers onto the resolved agent definition
 	mergeAgentMcpServers(settings, autopilotAgent, cliMcpServers)
 
-	// Parallel pipeline (v2)
-	if autopilotParallel {
-		return runAutopilotParallel(ctx, engine, settings, repo, sessionDir, instruction)
-	}
-
-	// Build agent options (single-agent v1 path)
-	opts := agent.Options{
-		AgentName:      autopilotAgent,
-		AgentACPCmd:    autopilotACPCmd,
-		PromptTemplate: "autopilot-system",
-		SourcePath:     autopilotSource,
-		Files:          autopilotFiles,
-		TargetURL:      autopilotTarget,
-		Source:         "autopilot",
-		DryRun:         autopilotDryRun,
-		ShowPrompt:     autopilotShowPrompt,
-		ScanUUID:       globalScanID,
-		Autopilot:      true,
-		MaxCommands:    autopilotMaxCommands,
-		Instruction:    instruction,
-	}
-
-	// Custom system prompt overrides default template
-	if autopilotSystemPrompt != "" {
-		opts.PromptTemplate = ""
-		opts.PromptFile = autopilotSystemPrompt
-	}
-
-	// Append focus area if provided
-	if autopilotFocus != "" {
-		opts.Append = fmt.Sprintf("## Focus Area\n\n%s", autopilotFocus)
-	}
-
-	if settings.Agent.StreamEnabled() {
-		opts.StreamWriter = os.Stdout
-	}
-
-	result, err := engine.Run(ctx, opts)
-	if err != nil {
-		if result != nil && result.Stderr != "" {
-			fmt.Fprintf(os.Stderr, "%s Agent stderr:\n%s\n", terminal.WarningSymbol(), result.Stderr)
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("autopilot timed out after %s (use --timeout to adjust)", autopilotTimeout)
-		}
-		return fmt.Errorf("autopilot failed: %w", err)
-	}
-
-	// Save raw output to session directory
-	if sessionDir != "" && result.RawOutput != "" {
-		_ = os.WriteFile(sessionDir+"/output.md", []byte(result.RawOutput), 0644)
-	}
-
-	if result.DryRun {
-		fmt.Print(result.RawOutput)
-		return nil
-	}
-
-	printAgentResult(result)
-	return nil
+	return runAutopilotPipeline(ctx, engine, settings, repo, sessionDir, instruction)
 }
 
 // parseMcpServerFlags parses --mcp-server flag values into McpServerConfig.
@@ -296,8 +233,8 @@ func mergeAgentMcpServers(settings *config.Settings, agentName string, cliServer
 	settings.Agent.Backends[agentName] = agentDef
 }
 
-// runAutopilotParallel runs the v2 multi-agent specialist pipeline.
-func runAutopilotParallel(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string) error {
+// runAutopilotPipeline runs the multi-agent specialist pipeline.
+func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string) error {
 	// Resolve specialists
 	specialists := autopilotSpecialists
 	if len(specialists) == 0 {

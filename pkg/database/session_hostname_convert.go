@@ -2,9 +2,46 @@ package database
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/session"
 )
+
+// extractPrimaryToken extracts the primary session token value from a headers map.
+// It checks Authorization (Bearer/token) first, then Cookie, then falls back to
+// the first header value. Returns empty string if no headers.
+func ExtractPrimaryToken(headers map[string]string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+
+	// Prefer Authorization header — strip "Bearer " / "Token " prefix.
+	for k, v := range headers {
+		lower := strings.ToLower(k)
+		if lower == "authorization" {
+			v = strings.TrimSpace(v)
+			for _, prefix := range []string{"Bearer ", "bearer ", "Token ", "token "} {
+				if strings.HasPrefix(v, prefix) {
+					return strings.TrimPrefix(v, prefix)
+				}
+			}
+			return v
+		}
+	}
+
+	// Fall back to Cookie header value.
+	for k, v := range headers {
+		if strings.ToLower(k) == "cookie" {
+			return v
+		}
+	}
+
+	// Last resort: first header value.
+	for _, v := range headers {
+		return v
+	}
+	return ""
+}
 
 // SessionHostnameToSession converts a DB SessionHostname row to a native session.Session.
 func SessionHostnameToSession(sh *SessionHostname) *session.Session {
@@ -70,11 +107,12 @@ func SessionToSessionHostname(s *session.Session, position int) *SessionHostname
 	}
 
 	sh := &SessionHostname{
-		SessionName: s.Name,
-		SessionRole: string(s.Role),
-		Position:    position,
-		Headers:     s.Headers,
-		Source:      "cli",
+		SessionName:  s.Name,
+		SessionRole:  string(s.Role),
+		Position:     position,
+		SessionToken: ExtractPrimaryToken(s.Headers),
+		Headers:      s.Headers,
+		Source:       "cli",
 	}
 
 	if s.Login != nil {

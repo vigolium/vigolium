@@ -100,11 +100,14 @@ func (c *acpClient) SessionUpdate(_ context.Context, n acp.SessionNotification) 
 			text := update.AgentMessageChunk.Content.Text.Text
 			c.mu.Lock()
 			c.output.WriteString(text)
+			sw := c.streamWriter
 			c.mu.Unlock()
 
-			if c.streamWriter != nil {
+			if sw != nil {
 				// Best-effort write; don't fail the session on stream errors.
-				_, _ = io.WriteString(c.streamWriter, text)
+				// The write is outside the mutex — callers sharing a StreamWriter
+				// across parallel sessions should use a synchronized writer.
+				_, _ = io.WriteString(sw, text)
 			}
 		}
 	}

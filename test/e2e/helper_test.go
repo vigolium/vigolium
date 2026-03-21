@@ -72,7 +72,10 @@ func SetupTestInfra() (*TestInfra, error) {
 	}, nil
 }
 
-// Cleanup performs cleanup after tests
+// Cleanup performs cleanup after tests.
+// Does NOT close the global network dialer — it may be shared with scan runners
+// that call network.Close() themselves. The dialer now nils itself on Close(),
+// so Init() will re-create it if needed by a subsequent test.
 func (infra *TestInfra) Cleanup() {
 	if infra.HostErrors != nil {
 		infra.HostErrors.Close()
@@ -80,7 +83,10 @@ func (infra *TestInfra) Cleanup() {
 	if infra.HostLimiter != nil {
 		_ = infra.HostLimiter.Close()
 	}
-	network.Close()
+	// NOTE: Intentionally NOT calling network.Close() here.
+	// The runner.Close() already calls it, and closing a second time
+	// from a different test would destroy the dialer for concurrent tests.
+	// Since network.Close() now nils the Dialer, Init() will re-create it.
 }
 
 // ContainerConfig holds configuration for starting a vulnerable app container

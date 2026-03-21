@@ -1649,73 +1649,6 @@ func fakeSourceAnalysisAgentScript(t *testing.T) string {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-sa-agent.sh")
 
-	// Routes output — realistic Juice Shop routes with parameters
-	routesJSON := `{
-  "http_records": [
-    {"method": "GET", "url": "http://localhost:3000/rest/products/search?q=test", "notes": "Product search - q parameter is user-controlled"},
-    {"method": "POST", "url": "http://localhost:3000/rest/user/login", "headers": {"Content-Type": "application/json"}, "body": "{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}", "notes": "Login endpoint"},
-    {"method": "GET", "url": "http://localhost:3000/api/Users", "notes": "User listing endpoint"},
-    {"method": "GET", "url": "http://localhost:3000/rest/products/:id/reviews", "notes": "Product reviews - id parameter"},
-    {"method": "POST", "url": "http://localhost:3000/api/Feedbacks", "headers": {"Content-Type": "application/json"}, "body": "{\"comment\":\"test\",\"rating\":5}", "notes": "Feedback submission"},
-    {"method": "GET", "url": "http://localhost:3000/api/Challenges", "notes": "Challenge listing"},
-    {"method": "GET", "url": "http://localhost:3000/rest/basket/:id", "notes": "Shopping basket by ID - potential IDOR"},
-    {"method": "POST", "url": "http://localhost:3000/api/BasketItems", "headers": {"Content-Type": "application/json"}, "body": "{\"ProductId\":1,\"BasketId\":1,\"quantity\":1}", "notes": "Add item to basket"},
-    {"method": "GET", "url": "http://localhost:3000/rest/user/whoami", "notes": "Current user info - requires auth"},
-    {"method": "PUT", "url": "http://localhost:3000/rest/user/change-password?current=admin123&new=newpass&repeat=newpass", "notes": "Password change via query params"}
-  ]
-}`
-
-	// Auth output — login flow with JWT extraction
-	// Note: http_records must contain at least one record for ParseSourceAnalysisResult
-	// to accept the output. The auth sub-agent includes the login endpoint as a record.
-	authJSON := `{
-  "http_records": [
-    {"method": "POST", "url": "http://localhost:3000/rest/user/login", "headers": {"Content-Type": "application/json"}, "body": "{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}", "notes": "Login endpoint for session management"}
-  ],
-  "session_config": {
-    "sessions": [
-      {
-        "name": "admin_user",
-        "role": "primary",
-        "login": {
-          "url": "http://localhost:3000/rest/user/login",
-          "method": "POST",
-          "content_type": "application/json",
-          "body": "{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}",
-          "extract": [
-            {
-              "source": "json",
-              "path": "$.authentication.token",
-              "apply_as": "Authorization: Bearer {value}"
-            },
-            {
-              "source": "cookie",
-              "name": "token"
-            }
-          ]
-        }
-      },
-      {
-        "name": "regular_user",
-        "role": "compare",
-        "login": {
-          "url": "http://localhost:3000/rest/user/login",
-          "method": "POST",
-          "content_type": "application/json",
-          "body": "{\"email\":\"jim@juice-sh.op\",\"password\":\"ncc-1701\"}",
-          "extract": [
-            {
-              "source": "json",
-              "path": "$.authentication.token",
-              "apply_as": "Authorization: Bearer {value}"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}`
-
 	// Extensions output — custom extensions for Juice Shop vulns
 	// Must include at least one http_record for ParseSourceAnalysisResult to accept the JSON
 	extensionsOutput := `Here are vulnerability-targeted extensions for Juice Shop:
@@ -1809,30 +1742,109 @@ Reason: Test IDOR vulnerability in basket endpoint by accessing other users bask
 };` + "\n```\n\n" + `
 ` + "```json\n" + `[{"id":"password-change-qparams","scan":"per_host","severity":"high","requests":[{"method":"PUT","path":"/rest/user/change-password?current=admin123&new=hacked&repeat=hacked"}],"match":{"status":200,"body_regex":"(password|changed|success)"}}]` + "\n```\n"
 
+	// Consolidated source analysis notes — output for the explore phase.
+	// This is free-form text that the format phase will convert to structured JSON.
+	exploreNotes := `## Part 1: Application Routes (non-auth)
+
+1. GET /rest/products/search?q=test — Product search, q parameter is user-controlled, uses Sequelize raw query
+2. GET /api/Users — User listing endpoint
+3. GET /rest/products/:id/reviews — Product reviews, id parameter
+4. POST /api/Feedbacks — Feedback submission, body: {"comment":"test","rating":5}
+5. GET /api/Challenges — Challenge listing
+6. GET /rest/basket/:id — Shopping basket by ID, potential IDOR
+7. POST /api/BasketItems — Add item to basket, body: {"ProductId":1,"BasketId":1,"quantity":1}
+8. GET /rest/user/whoami — Current user info, requires auth
+9. PUT /rest/user/change-password?current=admin123&new=newpass&repeat=newpass — Password change via query params
+
+## Part 2: Authentication Routes
+
+1. POST /rest/user/login — Login endpoint, body: {"email":"...","password":"..."}, returns JWT
+
+## Part 3: Credentials and Session Management
+
+- Admin: admin@juice-sh.op / admin123
+- Regular: jim@juice-sh.op / ncc-1701
+- JWT stored in response body (authentication.token) and cookie (token)
+- Sequelize ORM with SQLite backend`
+
+	// Combined format output — routes + auth + session_config for the format phase
+	formatJSON := `{"method":"GET","url":"http://localhost:3000/rest/products/search?q=test","notes":"Product search - q parameter is user-controlled"}
+{"method":"POST","url":"http://localhost:3000/rest/user/login","headers":{"Content-Type":"application/json"},"body":"{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}","notes":"Login endpoint"}
+{"method":"GET","url":"http://localhost:3000/api/Users","notes":"User listing endpoint"}
+{"method":"GET","url":"http://localhost:3000/rest/products/:id/reviews","notes":"Product reviews - id parameter"}
+{"method":"POST","url":"http://localhost:3000/api/Feedbacks","headers":{"Content-Type":"application/json"},"body":"{\"comment\":\"test\",\"rating\":5}","notes":"Feedback submission"}
+{"method":"GET","url":"http://localhost:3000/api/Challenges","notes":"Challenge listing"}
+{"method":"GET","url":"http://localhost:3000/rest/basket/:id","notes":"Shopping basket by ID - potential IDOR"}
+{"method":"POST","url":"http://localhost:3000/api/BasketItems","headers":{"Content-Type":"application/json"},"body":"{\"ProductId\":1,\"BasketId\":1,\"quantity\":1}","notes":"Add item to basket"}
+{"method":"GET","url":"http://localhost:3000/rest/user/whoami","notes":"Current user info - requires auth"}
+{"method":"PUT","url":"http://localhost:3000/rest/user/change-password?current=admin123&new=newpass&repeat=newpass","notes":"Password change via query params"}`
+
+	formatSessionConfig := `{
+  "sessions": [
+    {
+      "name": "admin_user",
+      "role": "primary",
+      "login": {
+        "url": "http://localhost:3000/rest/user/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"email\":\"admin@juice-sh.op\",\"password\":\"admin123\"}",
+        "extract": [
+          {"source": "json", "path": "$.authentication.token", "apply_as": "Authorization: Bearer {value}"},
+          {"source": "cookie", "name": "token"}
+        ]
+      }
+    },
+    {
+      "name": "regular_user",
+      "role": "compare",
+      "login": {
+        "url": "http://localhost:3000/rest/user/login",
+        "method": "POST",
+        "content_type": "application/json",
+        "body": "{\"email\":\"jim@juice-sh.op\",\"password\":\"ncc-1701\"}",
+        "extract": [
+          {"source": "json", "path": "$.authentication.token", "apply_as": "Authorization: Bearer {value}"}
+        ]
+      }
+    }
+  ]
+}`
+
 	// The script reads stdin, detects role by keywords, and outputs the appropriate response.
-	// We use a series of grep checks to determine which sub-agent role this is.
-	// Use unique markers from the actual prompt templates to distinguish sub-agents:
-	// - swarm-source-routes.md: "extract all HTTP routes and endpoints"
-	// - swarm-source-auth.md: "discover authentication flows and session management"
-	// - swarm-source-extensions.md: "identify vulnerability sinks"
+	// Use unique markers from the consolidated prompt templates to distinguish sub-agents:
+	// - swarm-source-explore.md: "explore the application source code"
+	// - swarm-source-format.md: "previously analyzed the application source code"
+	// - swarm-source-extensions.md: "Generate targeted JavaScript scanner extensions"
 	// - agent-swarm-extensions.md (Phase 2): "Plan Context" in {{.Extra.PlanContext}}
 	// - agent-swarm-plan.md (Phase 1): fallback
 	content := fmt.Sprintf(`#!/bin/sh
 INPUT=$(cat)
 
-# Detect role from actual prompt template content
-if echo "$INPUT" | grep -qi 'extract all HTTP routes'; then
-  cat <<'ROUTES_EOF'
+# Detect role from actual prompt template content (consolidated 3-call flow)
+if echo "$INPUT" | grep -qi 'previously analyzed the application source code'; then
+  # Format phase: output JSONL records + session_config
+  echo '` + "```jsonl" + `'
+  cat <<'FORMAT_EOF'
 %s
-ROUTES_EOF
-elif echo "$INPUT" | grep -qi 'discover authentication flows'; then
-  cat <<'AUTH_EOF'
+FORMAT_EOF
+  echo '` + "```" + `'
+  echo ''
+  echo '` + "```json" + `'
+  cat <<'SESSION_EOF'
 %s
-AUTH_EOF
-elif echo "$INPUT" | grep -qi 'identify vulnerability sinks'; then
+SESSION_EOF
+  echo '` + "```" + `'
+elif echo "$INPUT" | grep -qi 'Generate targeted JavaScript scanner extensions'; then
+  # Extensions phase
   cat <<'EXT_EOF'
 %s
 EXT_EOF
+elif echo "$INPUT" | grep -qi 'explore the application source code'; then
+  # Explore phase: output free-form notes
+  cat <<'EXPLORE_EOF'
+%s
+EXPLORE_EOF
 elif echo "$INPUT" | grep -qi 'Plan Context\|PlanContext\|plan context'; then
   cat <<'EXTPHASE_EOF'
 %s
@@ -1842,7 +1854,7 @@ else
 %s
 PLAN_EOF
 fi
-`, routesJSON, authJSON, extensionsOutput, extPhaseOutput, planOutput)
+`, formatJSON, formatSessionConfig, extensionsOutput, exploreNotes, extPhaseOutput, planOutput)
 
 	require.NoError(t, os.WriteFile(script, []byte(content), 0755))
 	return script
@@ -2231,27 +2243,40 @@ func TestSwarmSourceAnalysisHostnameFiltering(t *testing.T) {
 	db, repo := setupTestDB(t)
 	_ = db
 
-	// Agent that outputs routes including some for external hosts
+	// Agent that outputs routes including some for external hosts.
+	// Matches consolidated 3-call flow: explore → format → extensions.
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-filter-agent.sh")
 	filterContent := `#!/bin/sh
 INPUT=$(cat)
-if echo "$INPUT" | grep -qi 'extract all HTTP routes'; then
-  cat <<'EOF'
-{
-  "http_records": [
-    {"method": "GET", "url": "http://localhost:3000/api/products", "notes": "should match"},
-    {"method": "GET", "url": "http://localhost:3000/api/users", "notes": "should match"},
-    {"method": "GET", "url": "https://evil.com/api/data", "notes": "should be filtered out"},
-    {"method": "POST", "url": "http://external-api.example.com/webhook", "notes": "should be filtered out"},
-    {"method": "GET", "url": "/relative/path", "notes": "relative - should resolve to target host"}
-  ]
-}
-EOF
-elif echo "$INPUT" | grep -qi 'discover authentication flows'; then
-  echo '{"http_records": [{"method":"GET","url":"http://localhost:3000/","notes":"placeholder"}], "session_config": {"sessions": []}}'
-elif echo "$INPUT" | grep -qi 'identify vulnerability sinks'; then
-  echo '{"http_records": [{"method":"GET","url":"http://localhost:3000/","notes":"placeholder"}], "extensions": []}'
+if echo "$INPUT" | grep -qi 'previously analyzed the application source code'; then
+  # Format phase: output JSONL records (some external hosts to be filtered)
+  echo '` + "```jsonl" + `'
+  echo '{"method":"GET","url":"http://localhost:3000/api/products","notes":"should match"}'
+  echo '{"method":"GET","url":"http://localhost:3000/api/users","notes":"should match"}'
+  echo '{"method":"GET","url":"https://evil.com/api/data","notes":"should be filtered out"}'
+  echo '{"method":"POST","url":"http://external-api.example.com/webhook","notes":"should be filtered out"}'
+  echo '{"method":"GET","url":"/relative/path","notes":"relative - should resolve to target host"}'
+  echo '` + "```" + `'
+elif echo "$INPUT" | grep -qi 'Generate targeted JavaScript scanner extensions'; then
+  # Extensions phase: no extensions for this test
+  echo 'No vulnerability sinks identified for extension generation.'
+elif echo "$INPUT" | grep -qi 'explore the application source code'; then
+  # Explore phase: free-form notes
+  cat <<'EXPLORE'
+## Part 1: Application Routes
+1. GET /api/products — should match
+2. GET /api/users — should match
+3. GET https://evil.com/api/data — external, should be filtered
+4. POST http://external-api.example.com/webhook — external, should be filtered
+5. GET /relative/path — relative path
+
+## Part 2: Authentication Routes
+None identified.
+
+## Part 3: Credentials
+None identified.
+EXPLORE
 else
   cat <<'PLAN'
 ## MODULE_TAGS

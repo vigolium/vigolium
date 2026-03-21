@@ -51,6 +51,9 @@ var (
 	swarmSubAgentConcurrency int
 	swarmSkipSAST            bool
 	swarmCodeAudit           bool
+	swarmSlashCmds           []string
+	swarmCustomAgents        []string
+	swarmMaxCommands         int
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -145,7 +148,7 @@ func init() {
 	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing")
 	f.BoolVar(&swarmShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
-	f.DurationVar(&swarmTimeout, "timeout", 15*time.Minute, "Maximum swarm duration")
+	f.DurationVar(&swarmTimeout, "swarm-duration", 12*time.Hour, "Maximum swarm duration (0 = unlimited)")
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
 	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
@@ -153,7 +156,7 @@ func init() {
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.BoolVar(&swarmDiscover, "discover", false, "Run discovery+spidering before master agent planning to expand attack surface")
-	f.BoolVar(&swarmCodeAudit, "code-audit", false, "Enable AI security code audit phase (requires --source)")
+	f.BoolVar(&swarmCodeAudit, "code-audit", false, "Enable AI security code audit phase (on by default when --source is provided, use --code-audit=false to disable)")
 	// Hidden alias for pipeline backward compatibility
 	f.IntVar(&swarmMaxIterations, "max-rescan-rounds", 3, "Alias for --max-iterations (pipeline backward compatibility)")
 	_ = agentSwarmCmd.Flags().MarkHidden("max-rescan-rounds")
@@ -162,9 +165,14 @@ func init() {
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
 	f.IntVar(&swarmSubAgentConcurrency, "sub-agent-concurrency", 3, "Max parallel source analysis sub-agents (routes, auth, extensions)")
 	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, trivy, semgrep) during source analysis")
+
+	// Terminal capability: custom slash commands and sub-agents
+	f.StringSliceVar(&swarmSlashCmds, "custom-slash-command", nil, "Slash commands available inside the ACP session (repeatable, e.g. --custom-slash-command /security-review)")
+	f.StringSliceVar(&swarmCustomAgents, "custom-agent", nil, "Custom agents the swarm can invoke via 'vigolium agent query --agent=X' (repeatable, e.g. --custom-agent @my-sqli-specialist)")
+	f.IntVar(&swarmMaxCommands, "max-commands", 0, "Max terminal commands per session (default: 50, only applies when --custom-slash-command or --custom-agent is set)")
 }
 
-func runAgentSwarm(_ *cobra.Command, _ []string) error {
+func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
@@ -181,6 +189,11 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 	// --source-analysis-only requires --source
 	if swarmSourceAnalysisOnly && swarmSource == "" {
 		return fmt.Errorf("--source-analysis-only requires --source")
+	}
+
+	// Enable code-audit by default when --source is provided
+	if swarmSource != "" && !cmd.Flags().Changed("code-audit") {
+		swarmCodeAudit = true
 	}
 
 	settings, err := config.LoadSettings(globalConfig)
@@ -263,6 +276,20 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		swarmSkipPhases[i] = agent.NormalizeSwarmPhase(p)
 	}
 
+	// Merge terminal config: CLI flags take precedence over config file
+	slashCmds := swarmSlashCmds
+	customAgents := swarmCustomAgents
+	maxCommands := swarmMaxCommands
+	if len(slashCmds) == 0 {
+		slashCmds = settings.Agent.SwarmTerminal.SlashCommands
+	}
+	if len(customAgents) == 0 {
+		customAgents = settings.Agent.SwarmTerminal.CustomAgents
+	}
+	if maxCommands <= 0 {
+		maxCommands = settings.Agent.SwarmTerminal.EffectiveMaxCommands()
+	}
+
 	// Build swarm config
 	cfg := agent.SwarmConfig{
 		Inputs:             inputs,
@@ -280,12 +307,16 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 		SAMaxConcurrency:   swarmSubAgentConcurrency,
 		AgentName:          swarmAgentName,
 		AgentACPCmd:        swarmAgentACPCmd,
+		SlashCommands:      slashCmds,
+		CustomAgents:       customAgents,
+		MaxCommands:        maxCommands,
 		DryRun:             swarmDryRun,
 		ShowPrompt:         swarmShowPrompt,
 		SourceAnalysisOnly: swarmSourceAnalysisOnly,
 		CodeAudit:          swarmCodeAudit,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
 		SessionDir:         sessionDir,
+		RunUUID:            swarmRunID,
 		ProjectUUID:        projectUUID,
 		ScanUUID:           globalScanID,
 	}
@@ -443,17 +474,45 @@ func runAgentSwarm(_ *cobra.Command, _ []string) error {
 			terminal.HiGreen("enabled"), terminal.Muted("("+sastTools+")"))
 	}
 
+	// Terminal capability
+	if len(slashCmds) > 0 || len(customAgents) > 0 {
+		fmt.Fprintf(os.Stderr, "  %s Terminal: %s", terminal.Purple(terminal.SymbolInfo), terminal.HiGreen("enabled"))
+		if len(slashCmds) > 0 {
+			fmt.Fprintf(os.Stderr, " | slash-cmds: %s", terminal.Cyan(strings.Join(slashCmds, ", ")))
+		}
+		if len(customAgents) > 0 {
+			fmt.Fprintf(os.Stderr, " | agents: %s", terminal.Cyan(strings.Join(customAgents, ", ")))
+		}
+		fmt.Fprintf(os.Stderr, " | max: %s\n", terminal.HiBlue(fmt.Sprintf("%d", maxCommands)))
+	}
+
 	// Iteration limits
-	fmt.Fprintf(os.Stderr, "  %s Limits: max-iterations=%s | timeout=%s\n",
+	durationStr := "unlimited"
+	if swarmTimeout > 0 {
+		durationStr = swarmTimeout.String()
+	}
+	fmt.Fprintf(os.Stderr, "  %s Limits: max-iterations=%s | duration=%s\n",
 		terminal.Purple(terminal.SymbolInfo),
 		terminal.HiBlue(fmt.Sprintf("%d", swarmMaxIterations)),
-		terminal.HiBlue(swarmTimeout.String()))
+		terminal.HiBlue(durationStr))
 
 	// Session dir
 	if sessionDir != "" {
 		fmt.Fprintf(os.Stderr, "  %s Session: %s\n", terminal.Purple(terminal.SymbolInfo),
 			terminal.Muted(terminal.ShortenHome(sessionDir)))
 	}
+
+	// Tips
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "  %s Use %s to tell the agent to focus on a specific area (e.g. auth bypass, IDOR, SQLi)\n",
+		terminal.Muted("tip:"), terminal.Cyan("--instruction \"focus on ...\""))
+	fmt.Fprintf(os.Stderr, "  %s Use %s to run discovery+spidering before planning to expand the attack surface\n",
+		terminal.Muted("tip:"), terminal.Cyan("--discover"))
+	fmt.Fprintf(os.Stderr, "  %s Use %s to add a specialist agent (e.g. %s)\n",
+		terminal.Muted("tip:"), terminal.Cyan("--custom-agent"), terminal.Muted("@my-sqli-specialist"))
+	fmt.Fprintf(os.Stderr, "  %s Use %s to expose slash commands inside the ACP session\n",
+		terminal.Muted("tip:"), terminal.Cyan("--custom-slash-command /security-review"))
+	fmt.Fprintln(os.Stderr)
 
 	// Wire phase callback for verbose output
 	cfg.PhaseCallback = func(phase string) {

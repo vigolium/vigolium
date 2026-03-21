@@ -69,11 +69,13 @@ func NewDialer(options *types.Options) (*fastdialer.Dialer, error) {
 	return dialer, nil
 }
 
-// Close closes the global shared fastdialer.
+// Close closes the global shared fastdialer and resets it to nil,
+// allowing Init() to re-create it if called again.
 // Deprecated: Close the dialer instance directly instead.
 func Close() {
 	if Dialer != nil {
 		Dialer.Close()
+		Dialer = nil
 	}
 	StopActiveMemGuardian()
 }

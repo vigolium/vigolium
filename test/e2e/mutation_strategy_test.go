@@ -248,9 +248,19 @@ func TestMutationStrategy_InsertionPointModes(t *testing.T) {
 	t.Run("MultipleParams_IndependentMutation", func(t *testing.T) {
 		rawReq := fmt.Sprintf("GET /get?a=1&b=2&c=3 HTTP/1.1\r\nHost: %s\r\n\r\n", host)
 
-		ips, err := httpmsg.CreateAllInsertionPoints([]byte(rawReq), false)
+		allIPs, err := httpmsg.CreateAllInsertionPoints([]byte(rawReq), false)
 		require.NoError(t, err)
-		require.GreaterOrEqual(t, len(ips), 3, "Expected at least 3 insertion points")
+
+		// Filter to URL query params only — CreateAllInsertionPoints also
+		// produces header insertion points (e.g., True-Client-IP, X-Real-IP)
+		// which are not relevant for this URL parameter mutation test.
+		var ips []httpmsg.InsertionPoint
+		for _, ip := range allIPs {
+			if ip.Type() == httpmsg.INS_PARAM_URL {
+				ips = append(ips, ip)
+			}
+		}
+		require.GreaterOrEqual(t, len(ips), 3, "Expected at least 3 URL param insertion points")
 
 		// Mutate each param independently and verify others stay intact
 		for _, ip := range ips {

@@ -98,14 +98,52 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		})
 	}
 
-	opts := h.buildAutopilotOpts(req)
 	timeout := parseDurationOrDefault(req.Timeout, 30*time.Minute)
 
-	return h.startAgentRun(c, "autopilot", req.Stream, opts, timeout)
+	return h.startAutopilotRun(c, req, timeout)
 }
 
-// buildAutopilotOpts creates agent.Options from an autopilot request.
-func (h *Handlers) buildAutopilotOpts(req AgentAutopilotRequest) agent.Options {
+// startAutopilotRun acquires concurrency lock, creates status tracking, and runs the autopilot pipeline.
+func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, timeout time.Duration) error {
+	h.agentMu.Lock()
+	if h.agentHeavyRunning {
+		h.agentMu.Unlock()
+		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
+			Error: ErrAgentHeavyAlreadyRunning.Error(),
+		})
+	}
+	h.agentHeavyRunning = true
+
+	runID := "agt-" + uuid.New().String()
+	h.agentRunStatus[runID] = &AgentRunStatusResponse{
+		RunID:  runID,
+		Mode:   "autopilot",
+		Status: "running",
+	}
+	h.agentMu.Unlock()
+
+	// Persist to DB
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = h.settings.Agent.DefaultAgent
+	}
+	h.persistAgentRun(runID, "autopilot", agentName)
+
+	if req.Stream {
+		return h.handleAutopilotSSE(c, runID, req, timeout)
+	}
+
+	go h.runBackgroundAutopilot(runID, req, timeout)
+
+	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+		RunID:   runID,
+		Status:  "running",
+		Message: "autopilot run started",
+	})
+}
+
+// buildAutopilotPipelineConfig creates an AutopilotPipelineConfig from an autopilot request.
+func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent.AutopilotPipelineConfig {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
@@ -116,30 +154,163 @@ func (h *Handlers) buildAutopilotOpts(req AgentAutopilotRequest) agent.Options {
 		maxCmds = 100
 	}
 
-	opts := agent.Options{
-		AgentName:      agentName,
-		PromptTemplate: "autopilot-system",
-		TargetURL:      req.Target,
-		SourcePath:     req.EffectiveSourcePath(),
-		Files:          req.Files,
-		Source:         "autopilot",
-		Autopilot:      true,
-		MaxCommands:    maxCmds,
-		Instruction:    req.Instruction,
-		DryRun:         req.DryRun,
-		ScanUUID:       req.ScanUUID,
+	specialists := req.Specialists
+	if len(specialists) == 0 {
+		specialists = []string{"injection", "xss", "auth", "ssrf", "authz"}
 	}
 
-	if req.SystemPrompt != "" {
-		opts.PromptTemplate = ""
-		opts.PromptFile = req.SystemPrompt
+	return agent.AutopilotPipelineConfig{
+		TargetURL:   req.Target,
+		SourcePath:  req.EffectiveSourcePath(),
+		Files:       req.Files,
+		Instruction: req.Instruction,
+		Focus:       req.Focus,
+		Specialists: agent.ToVulnClasses(specialists),
+		AgentName:   agentName,
+		MaxCommands: maxCmds,
+		DryRun:      req.DryRun,
+		SessionsDir: h.settings.Agent.EffectiveSessionsDir(),
+		ResumeDir:   req.ResumeDir,
+		ProjectUUID: req.ProjectUUID,
+		ScanUUID:    req.ScanUUID,
+	}
+}
+
+// handleAutopilotSSE runs the autopilot pipeline synchronously while streaming SSE events.
+func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopilotRequest, timeout time.Duration) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		defer func() {
+			h.agentMu.Lock()
+			h.agentHeavyRunning = false
+			h.agentMu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		cfg := h.buildAutopilotPipelineConfig(req)
+
+		// Set up stream writer pipe.
+		pr, pw := io.Pipe()
+		cfg.StreamWriter = pw
+
+		type autopilotRunResult struct {
+			result *agent.AutopilotPipelineResult
+			err    error
+		}
+		done := make(chan autopilotRunResult, 1)
+
+		runner := agent.NewAutopilotPipelineRunner(h.agentEngine, h.repo)
+		go func() {
+			result, runErr := runner.Run(ctx, cfg)
+			_ = pw.Close()
+			done <- autopilotRunResult{result: result, err: runErr}
+		}()
+
+		// Stream chunks.
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := pr.Read(buf)
+			if n > 0 {
+				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
+					_ = pr.Close()
+					<-done
+					return
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		res := <-done
+		now := time.Now()
+		h.agentMu.Lock()
+		status := h.agentRunStatus[runID]
+
+		if res.err != nil {
+			if status != nil {
+				status.Status = "failed"
+				status.Error = res.err.Error()
+				status.CompletedAt = &now
+			}
+			h.agentMu.Unlock()
+
+			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			zap.L().Error("Autopilot run failed (streaming)",
+				zap.String("run_id", runID),
+				zap.Error(res.err))
+			return
+		}
+
+		if status != nil && res.result != nil {
+			status.Status = "completed"
+			status.CompletedAt = &now
+			status.FindingCount = res.result.TotalFindings
+		}
+		h.agentMu.Unlock()
+
+		// Persist to DB
+		if status != nil {
+			h.persistAgentRunCompleted(runID, status)
+		}
+
+		_ = writeSSE(w, sseEvent{Type: "done", AutopilotResult: res.result})
+		zap.L().Info("Autopilot run completed (streaming)",
+			zap.String("run_id", runID),
+			zap.Int("findings", res.result.TotalFindings))
+	})
+}
+
+// runBackgroundAutopilot executes the autopilot pipeline in a goroutine and updates status.
+func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotRequest, timeout time.Duration) {
+	defer func() {
+		h.agentMu.Lock()
+		h.agentHeavyRunning = false
+		h.agentMu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cfg := h.buildAutopilotPipelineConfig(req)
+
+	runner := agent.NewAutopilotPipelineRunner(h.agentEngine, h.repo)
+	result, runErr := runner.Run(ctx, cfg)
+
+	h.agentMu.Lock()
+	defer h.agentMu.Unlock()
+
+	status := h.agentRunStatus[runID]
+	if status == nil {
+		return
 	}
 
-	if req.Focus != "" {
-		opts.Append = fmt.Sprintf("## Focus Area\n\n%s", req.Focus)
+	now := time.Now()
+	if runErr != nil {
+		status.Status = "failed"
+		status.Error = runErr.Error()
+		status.CompletedAt = &now
+		zap.L().Error("Autopilot run failed",
+			zap.String("run_id", runID),
+			zap.Error(runErr))
+		return
 	}
 
-	return opts
+	status.Status = "completed"
+	status.CompletedAt = &now
+	status.FindingCount = result.TotalFindings
+
+	// Persist to DB
+	h.persistAgentRunCompleted(runID, status)
+
+	zap.L().Info("Autopilot run completed",
+		zap.String("run_id", runID),
+		zap.Int("findings", result.TotalFindings))
 }
 
 // ---------------------------------------------------------------------------
@@ -655,20 +826,59 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		normalizedSkip[i] = agent.NormalizeSwarmPhase(p)
 	}
 
+	// Merge terminal config: request fields take precedence over config file
+	slashCmds := req.SlashCommands
+	customAgents := req.CustomAgents
+	maxCommands := req.MaxCommands
+	if len(slashCmds) == 0 {
+		slashCmds = h.settings.Agent.SwarmTerminal.SlashCommands
+	}
+	if len(customAgents) == 0 {
+		customAgents = h.settings.Agent.SwarmTerminal.CustomAgents
+	}
+	if maxCommands <= 0 {
+		maxCommands = h.settings.Agent.SwarmTerminal.EffectiveMaxCommands()
+	}
+
+	// Apply scanning profile if specified
+	settings := h.settings
+	if req.Profile != "" {
+		profilePath := settings.ScanningStrategy.ResolveProfilePath(req.Profile)
+		profile, profileErr := config.LoadProfile(profilePath)
+		if profileErr == nil {
+			settingsCopy := *settings
+			if applyErr := config.ApplyProfile(&settingsCopy, profile); applyErr == nil {
+				settings = &settingsCopy
+			}
+		}
+	}
+
 	cfg := agent.SwarmConfig{
-		Inputs:        req.EffectiveInputs(),
-		Instruction:   req.Instruction,
-		VulnType:      req.VulnType,
-		Focus:         req.Focus,
-		ModuleNames:   req.ModuleNames,
-		OnlyPhase:     req.OnlyPhase,
-		SkipPhases:    normalizedSkip,
-		MaxIterations: maxIter,
-		AgentName:     agentName,
-		DryRun:        req.DryRun,
-		CodeAudit:     req.CodeAudit,
-		ProjectUUID:   req.ProjectUUID,
-		ScanUUID:      req.ScanUUID,
+		Inputs:             req.EffectiveInputs(),
+		Instruction:        req.Instruction,
+		SourcePath:         req.SourcePath,
+		Files:              req.Files,
+		VulnType:           req.VulnType,
+		Focus:              req.Focus,
+		ModuleNames:        req.ModuleNames,
+		OnlyPhase:          req.OnlyPhase,
+		SkipPhases:         normalizedSkip,
+		MaxIterations:      maxIter,
+		BatchConcurrency:   req.BatchConcurrency,
+		MaxMasterRetries:   req.MaxMasterRetries,
+		SAMaxConcurrency:   req.SAMaxConcurrency,
+		AgentName:          agentName,
+		AgentACPCmd:        req.AgentACPCmd,
+		SlashCommands:      slashCmds,
+		CustomAgents:       customAgents,
+		MaxCommands:        maxCommands,
+		DryRun:             req.DryRun,
+		ShowPrompt:         req.ShowPrompt,
+		SourceAnalysisOnly: req.SourceAnalysisOnly,
+		CodeAudit:          req.CodeAudit,
+		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
+		ProjectUUID:        req.ProjectUUID,
+		ScanUUID:           req.ScanUUID,
 	}
 
 	// Resolve a target URL for the scan runner.
@@ -676,7 +886,27 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 	targetURL := h.resolveSwarmTargetURL(req)
 
 	// Wire scan callback using the server's runner infrastructure
-	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, h.settings)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, settings)
+
+	// Wire optional discovery callback
+	if req.Discover {
+		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, req.ProjectUUID, req.ScanUUID, settings)
+	}
+
+	// Wire SAST callback when source_path is provided (unless skip_sast)
+	if req.SourcePath != "" && !req.SkipSAST {
+		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, req.SourcePath, req.ProjectUUID, req.ScanUUID, settings)
+	}
+
+	// Handle --start-from via synthetic checkpoint
+	if req.StartFrom != "" {
+		startFrom := agent.NormalizeSwarmPhase(req.StartFrom)
+		syntheticCP := buildServerSyntheticCheckpoint(startFrom)
+		if syntheticCP != nil && cfg.SessionDir != "" {
+			_ = agent.WriteCheckpointToDir(cfg.SessionDir, syntheticCP)
+			cfg.ResumeDir = cfg.SessionDir
+		}
+	}
 
 	return cfg
 }
@@ -732,6 +962,96 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		scanRunner.SetSettings(&settingsCopy)
 		scanRunner.SetRepository(h.repo)
 		return scanRunner.RunNativeScan()
+	}
+}
+
+// buildServerSwarmDiscoverFunc creates a callback that runs discovery+spidering.
+func (h *Handlers) buildServerSwarmDiscoverFunc(targetURL, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		opts := types.DefaultOptions()
+		if targetURL != "" {
+			opts.Targets = []string{targetURL}
+		}
+		opts.ProjectUUID = projectUUID
+		opts.ScanUUID = scanUUID
+		opts.OnlyPhase = "discovery"
+		opts.DiscoverEnabled = true
+		opts.SpideringEnabled = true
+		opts.HeuristicsCheck = "basic"
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		scanRunner, err := runner.New(opts)
+		if err != nil {
+			return err
+		}
+		defer scanRunner.Close()
+
+		scanRunner.SetSettings(settings)
+		scanRunner.SetRepository(h.repo)
+		return scanRunner.RunNativeScan()
+	}
+}
+
+// buildServerSwarmSASTFunc creates a callback that runs the native SAST phase
+// (ast-grep route extraction, secret detection, third-party tools).
+func (h *Handlers) buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		opts := types.DefaultOptions()
+		if targetURL != "" {
+			opts.Targets = []string{targetURL}
+		}
+		opts.ProjectUUID = projectUUID
+		opts.ScanUUID = scanUUID
+		opts.SourcePath = sourcePath
+		opts.SASTEnabled = true
+		opts.OnlyPhase = "sast"
+		opts.SkipIngestion = true
+		opts.SkipAudit = true
+		opts.HeuristicsCheck = "none"
+		opts.Silent = true
+		opts.ScanConfigPrinted = true
+
+		scanRunner, err := runner.New(opts)
+		if err != nil {
+			return err
+		}
+		defer scanRunner.Close()
+
+		scanRunner.SetSettings(settings)
+		scanRunner.SetRepository(h.repo)
+		return scanRunner.RunNativeScan()
+	}
+}
+
+// buildServerSyntheticCheckpoint creates a checkpoint with all phases before the target
+// marked as completed, enabling --start-from to skip earlier phases.
+func buildServerSyntheticCheckpoint(startFrom string) *agent.SwarmCheckpoint {
+	allPhases := []string{
+		agent.SwarmPhaseNormalize,
+		agent.SwarmPhaseSourceAnalysis,
+		agent.SwarmPhaseCodeAudit,
+		agent.SwarmPhaseSAST,
+		agent.SwarmPhaseDiscover,
+		agent.SwarmPhasePlan,
+		agent.SwarmPhaseExtension,
+		agent.SwarmPhaseScan,
+		agent.SwarmPhaseTriage,
+	}
+
+	var completed []string
+	for _, p := range allPhases {
+		if p == startFrom {
+			break
+		}
+		completed = append(completed, p)
+	}
+
+	if len(completed) == 0 {
+		return nil
+	}
+	return &agent.SwarmCheckpoint{
+		CompletedPhases: completed,
 	}
 }
 
@@ -929,7 +1249,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 // Shared agent run helpers
 // ---------------------------------------------------------------------------
 
-// startAgentRun is the shared entry point for query and autopilot modes.
+// startAgentRun is the entry point for query mode.
 // It acquires the concurrency lock, creates status tracking, and runs the agent.
 func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
 	h.agentMu.Lock()
@@ -1112,14 +1432,15 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 
 // sseEvent is an SSE event payload sent during streaming agent runs.
 type sseEvent struct {
-	Type           string                `json:"type"`                      // "chunk", "done", "error", "phase", "progress"
-	Text           string                `json:"text,omitempty"`            // for "chunk" events
-	Result         *agent.Result         `json:"result,omitempty"`          // for "done" events (query/autopilot)
-	PipelineResult *agent.PipelineResult `json:"pipeline_result,omitempty"` // for "done" events (pipeline)
-	SwarmResult    *agent.SwarmResult     `json:"swarm_result,omitempty"`    // for "done" events (swarm)
-	Phase          string                `json:"phase,omitempty"`           // for "phase" events
-	Progress       *agent.ProgressEvent  `json:"progress,omitempty"`        // for "progress" events
-	Error          string                `json:"error,omitempty"`           // for "error" events
+	Type            string                         `json:"type"`                       // "chunk", "done", "error", "phase", "progress"
+	Text            string                         `json:"text,omitempty"`             // for "chunk" events
+	Result          *agent.Result                  `json:"result,omitempty"`           // for "done" events (query)
+	AutopilotResult *agent.AutopilotPipelineResult `json:"autopilot_result,omitempty"` // for "done" events (autopilot)
+	PipelineResult  *agent.PipelineResult          `json:"pipeline_result,omitempty"`  // for "done" events (pipeline)
+	SwarmResult     *agent.SwarmResult              `json:"swarm_result,omitempty"`     // for "done" events (swarm)
+	Phase           string                         `json:"phase,omitempty"`            // for "phase" events
+	Progress        *agent.ProgressEvent           `json:"progress,omitempty"`         // for "progress" events
+	Error           string                         `json:"error,omitempty"`            // for "error" events
 }
 
 // writeSSE marshals an event to JSON and writes it as an SSE data line, then flushes.

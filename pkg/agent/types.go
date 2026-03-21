@@ -47,6 +47,10 @@ type Options struct {
 	Autopilot   bool // enable terminal execution for autonomous scanning
 	MaxCommands   int // max terminal commands the agent can run (0 = default 100)
 	SessionWeight int `json:"-"` // session weight for pool scheduling (0 = default)
+
+	// Swarm terminal: custom slash commands and sub-agents
+	SlashCommands []string // custom slash commands available inside the ACP session (e.g. /security-review)
+	CustomAgents  []string // custom agent names available via "vigolium agent query --agent=X"
 }
 
 // Result holds the outcome of an agent run.
@@ -85,6 +89,8 @@ type TemplateData struct {
 	FilePath            string
 	SourcePath          string
 	DirectoryTree       string
+	SkipGuidance        string
+	SourceHint          string
 	TargetURL           string
 	Hostname            string
 	Endpoints           string
@@ -169,7 +175,7 @@ type AgentHTTPRecordsOutput struct {
 	HTTPRecords []AgentHTTPRecord `json:"http_records"`
 }
 
-// ReconDeliverable is the structured output from the recon phase of the autopilot v2 pipeline.
+// ReconDeliverable is the structured output from the recon phase of the autopilot pipeline.
 type ReconDeliverable struct {
 	Endpoints []ReconEndpoint `json:"endpoints"`
 	TechStack []string        `json:"tech_stack,omitempty"`

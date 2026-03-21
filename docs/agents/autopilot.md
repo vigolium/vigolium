@@ -1,26 +1,16 @@
 # Agent Autopilot
 
-Autopilot is an **agentic scan mode** in Vigolium where an AI agent autonomously drives the vigolium CLI through a sandboxed terminal. The agent decides what to discover, what to scan, how to interpret results, and when to iterate — producing a final vulnerability report with minimal human intervention.
+Autopilot is an **agentic scan mode** in Vigolium where AI agents autonomously drive the vigolium CLI through a sandboxed terminal. The agents decide what to discover, what to scan, how to interpret results, and when to iterate — producing a final vulnerability report with minimal human intervention.
 
-Autopilot operates in two modes:
-
-- **V1 (default):** A single long-running agent session. The agent has full autonomy over its workflow — discovery, scanning, review, iteration — within a sandboxed terminal. Best for exploratory testing where you want the AI to figure out the attack strategy.
-
-- **V2 (`--parallel`):** A multi-agent specialist pipeline. Dedicated specialists handle recon, per-vulnerability-class code analysis, native scanning, and exploit verification in parallel. Produces structured exploitation evidence with proven/unconfirmed/false-positive classifications. Best for thorough assessments where you want depth across vulnerability classes.
+Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists handle recon, per-vulnerability-class code analysis, native scanning, and exploit verification in parallel. Produces structured exploitation evidence with proven/unconfirmed/false-positive classifications. Best for thorough assessments where you want depth across vulnerability classes.
 
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
-  - [V1: Single-Agent Architecture](#v1-single-agent-architecture)
-  - [V2: Multi-Agent Pipeline Architecture](#v2-multi-agent-pipeline-architecture)
 - [CLI](#cli)
-  - [V1 Examples](#v1-examples)
-  - [V2 Examples](#v2-examples)
 - [Key Flags](#key-flags)
 - [API](#api)
 - [How It Works](#how-it-works)
-  - [V1: Single-Agent Mode](#v1-single-agent-mode)
-  - [V2: Multi-Agent Pipeline](#v2-multi-agent-pipeline)
 - [MCP Server Support](#mcp-server-support)
 - [TOTP Support](#totp-support)
 - [Security Sandbox](#security-sandbox)
@@ -28,7 +18,7 @@ Autopilot operates in two modes:
 - [Checkpoint and Resume](#checkpoint-and-resume)
 - [Input Types](#input-types)
 - [Output](#output)
-- [Comparison: V1 vs V2 vs Swarm](#comparison-v1-vs-v2-vs-swarm)
+- [Comparison: Autopilot vs Swarm](#comparison-autopilot-vs-swarm)
 - [When to Use](#when-to-use)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
@@ -37,63 +27,8 @@ Autopilot operates in two modes:
 
 ## Architecture Overview
 
-### V1: Single-Agent Architecture
-
 ```
-                    vigolium agent autopilot -t <url>
-                                  |
-                                  v
-                 +------------------------------------+
-                 |        CLI Initialization           |
-                 |  - Resolve input / target           |
-                 |  - Load settings + agent config     |
-                 |  - Merge MCP servers (if enabled)   |
-                 |  - Create session directory          |
-                 +------------------------------------+
-                                  |
-                                  v
-                 +------------------------------------+
-                 |        Engine.Run() (ACP)           |
-                 |  - Build prompt from template       |
-                 |  - Spawn agent subprocess           |
-                 |  - Establish ACP connection          |
-                 |  - Attach MCP servers (if any)      |
-                 |  - Create terminal sandbox           |
-                 +------------------------------------+
-                                  |
-                                  v
-        +--------------------------------------------------+
-        |           Agent Autonomous Loop                    |
-        |                                                    |
-        |   +------------+    +----------+    +-----------+  |
-        |   | Discovery  |--->| Scanning |--->| Review    |  |
-        |   | scan --only|    | scan-url |    | finding   |  |
-        |   | discovery  |    | -m <mod> |    | traffic   |  |
-        |   +------------+    +----------+    +-----------+  |
-        |        ^                                  |        |
-        |        |          +----------+            |        |
-        |        +----------| Iterate  |<-----------+        |
-        |                   | (agent   |                     |
-        |                   |  decides)|                     |
-        |                   +----------+                     |
-        |                        |                           |
-        |                        v                           |
-        |                   +----------+                     |
-        |                   | Report   |                     |
-        |                   +----------+                     |
-        +--------------------------------------------------+
-                                  |
-                                  v
-                     Session artifacts saved
-                     (output.md in session dir)
-```
-
-The agent runs inside a **sandboxed ACP terminal**. Every command is validated against an allowlist before execution. The agent autonomously cycles through discover -> scan -> review -> iterate until it decides the assessment is complete.
-
-### V2: Multi-Agent Pipeline Architecture
-
-```
-              vigolium agent autopilot --parallel -t <url> --source ./app
+              vigolium agent autopilot -t <url> --source ./app
                                         |
                                         v
               +--------------------------------------------------+
@@ -137,20 +72,30 @@ The agent runs inside a **sandboxed ACP terminal**. Every command is validated a
                        Extensions
 ```
 
-**Key difference from V1:** The LLM does the thinking (code analysis, exploitation verification) while the native Go scanner handles bulk detection. This division of labor means the AI budget goes toward depth (understanding sinks, proving exploitability) rather than breadth (sending thousands of payloads).
+**Key design:** The LLM does the thinking (code analysis, exploitation verification) while the native Go scanner handles bulk detection. This division of labor means the AI budget goes toward depth (understanding sinks, proving exploitability) rather than breadth (sending thousands of payloads).
 
 ---
 
 ## CLI
 
-### V1 Examples
-
 ```bash
 # Basic autonomous scan
 vigolium agent autopilot -t https://example.com
 
-# With source code context (agent reads code to find sinks)
+# With source code context
 vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
+
+# Specify which vulnerability classes to analyze
+vigolium agent autopilot -t https://example.com \
+  --specialists injection,xss,ssrf
+
+# All specialists with source code and focus area
+vigolium agent autopilot -t http://localhost:3000 \
+  --source ./src --focus "API injection in search endpoints"
+
+# Resume a previous run from checkpoint
+vigolium agent autopilot -t https://example.com \
+  --resume ~/.vigolium/agent-sessions/agt-abc123
 
 # Focus on a specific vulnerability class
 vigolium agent autopilot -t https://api.example.com --focus "auth bypass"
@@ -180,44 +125,19 @@ vigolium agent autopilot -t https://example.com --max-commands 20 --timeout 5m
 # Use a different agent backend
 vigolium agent autopilot -t https://example.com --agent gemini
 
-# Preview the rendered system prompt without launching
+# Dry-run to preview the recon prompt
 vigolium agent autopilot -t https://example.com --dry-run
 
 # Show prompt before execution for debugging
 vigolium agent autopilot -t https://example.com --show-prompt
 
-# Override the system prompt entirely
-vigolium agent autopilot -t https://example.com --system-prompt custom-autopilot.md
-
 # Attach a Playwright MCP server for browser-based testing
 vigolium agent autopilot -t https://example.com \
   --mcp-enabled \
   --mcp-server "playwright=npx,-y,@anthropic-ai/mcp-server-playwright"
-```
 
-### V2 Examples
-
-```bash
-# Run the multi-agent specialist pipeline
-vigolium agent autopilot --parallel -t https://example.com --source ./app
-
-# Specify which vulnerability classes to analyze
-vigolium agent autopilot --parallel -t https://example.com \
-  --specialists injection,xss,ssrf
-
-# All specialists with source code and focus area
-vigolium agent autopilot --parallel -t http://localhost:3000 \
-  --source ./src --focus "API injection in search endpoints"
-
-# Resume a previous run from checkpoint
-vigolium agent autopilot --parallel -t https://example.com \
-  --resume ~/.vigolium/agent-sessions/agt-abc123
-
-# Dry-run to preview the recon prompt
-vigolium agent autopilot --parallel -t https://example.com --dry-run
-
-# V2 with MCP servers and custom instructions
-vigolium agent autopilot --parallel -t https://example.com \
+# With MCP servers and custom instructions
+vigolium agent autopilot -t https://example.com \
   --source ./app \
   --mcp-enabled \
   --mcp-server "playwright=npx,-y,@anthropic-ai/mcp-server-playwright" \
@@ -227,8 +147,6 @@ vigolium agent autopilot --parallel -t https://example.com \
 ---
 
 ## Key Flags
-
-### Common Flags (V1 and V2)
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -245,7 +163,8 @@ vigolium agent autopilot --parallel -t https://example.com \
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
 | `--dry-run` | false | Render prompt without launching the agent |
 | `--show-prompt` | false | Print rendered prompt to stderr before executing |
-| `--system-prompt` | — | Custom system prompt file (overrides default template) |
+| `--specialists` | all 5 | Vulnerability classes to analyze: `injection`, `xss`, `auth`, `ssrf`, `authz` |
+| `--resume` | — | Resume from a previous session directory |
 
 ### MCP Flags
 
@@ -253,14 +172,6 @@ vigolium agent autopilot --parallel -t https://example.com \
 |------|---------|-------------|
 | `--mcp-enabled` | false | Enable MCP server passthrough to ACP sessions |
 | `--mcp-server` | — | MCP servers to attach (repeatable). Format: `name=command,arg1,arg2` or `name=http://url` |
-
-### V2-Only Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--parallel` | false | Enable v2 multi-agent specialist pipeline |
-| `--specialists` | all 5 | Vulnerability classes to analyze: `injection`, `xss`, `auth`, `ssrf`, `authz` |
-| `--resume` | — | Resume from a previous session directory |
 
 ---
 
@@ -292,41 +203,9 @@ GET /api/agent/status/:id
 
 ## How It Works
 
-### V1: Single-Agent Mode
+Autopilot splits the work across specialized agents in a fixed 5-phase pipeline, trading flexibility for depth and parallelism.
 
-V1 autopilot gives a single AI agent full control over the scanning workflow. The agent receives a system prompt with:
-
-1. **Target information** — URL, hostname
-2. **Available commands** — the full vigolium CLI reference (discovery, scanning, querying)
-3. **Workflow guidance** — discover, enumerate, prioritize, scan, review, iterate, report
-4. **Source code** *(optional)* — when `--source` is provided, the full source context is included
-
-The agent then autonomously:
-
-```
-1. Runs content discovery           vigolium scan --only discovery -t <url> --json
-2. Spiders for linked endpoints     vigolium scan --only spidering -t <url> --json
-3. Reviews discovered traffic       vigolium traffic --json --host <hostname>
-4. Prioritizes high-value targets   (agent reasoning — parameters, methods, paths)
-5. Runs targeted scans              vigolium scan-url <url> --module-tag <tag> --json
-6. Reviews findings                 vigolium finding --json --severity critical,high
-7. Iterates on interesting results  (agent decides next steps)
-8. Reports summary                  (final markdown output)
-```
-
-The agent can execute up to `--max-commands` (default: 100) vigolium commands within the `--timeout` window (default: 30m). Each command runs in the security sandbox with a 5-minute per-command timeout.
-
-**When `--source` is provided**, the agent follows a source-aware workflow:
-- Analyzes routes from framework patterns (Express `app.get()`, Flask `@app.route()`, etc.)
-- Identifies authentication flows (JWT, sessions, API keys)
-- Maps dangerous sinks (SQL concatenation, command execution, template rendering)
-- Crafts targeted scans based on code understanding
-
-### V2: Multi-Agent Pipeline
-
-V2 (`--parallel`) splits the work across specialized agents in a fixed 5-phase pipeline. This trades V1's flexibility for depth and parallelism.
-
-#### Phase 1: Recon (AI, terminal enabled)
+### Phase 1: Recon (AI, terminal enabled)
 
 A recon specialist discovers the target's attack surface:
 
@@ -351,7 +230,7 @@ A recon specialist discovers the target's attack surface:
 
 **Prompt template:** `autopilot-recon.md`
 
-#### Phase 2: Vuln Analysis (AI, parallel, no terminal)
+### Phase 2: Vuln Analysis (AI, parallel, no terminal)
 
 Specialist agents analyze the codebase for each vulnerability class **in parallel**. Each specialist:
 
@@ -398,7 +277,7 @@ Each `VulnQueue` item contains:
 
 Extensions from all specialists are merged and written to `<session>/extensions/`.
 
-#### Phase 3: Native Scan (Go, no AI)
+### Phase 3: Native Scan (Go, no AI)
 
 The Go scanner runs using the merged module tags and extensions from Phase 2. This is the same scanner engine used by `vigolium scan` — no LLM involvement.
 
@@ -411,7 +290,7 @@ ScanFunc(ctx, ScanRequest{
 
 Findings are saved to the database.
 
-#### Phase 4: Exploit Verify (AI, parallel, terminal enabled)
+### Phase 4: Exploit Verify (AI, parallel, terminal enabled)
 
 For each vulnerability class that produced a `VulnQueue`, an exploit verification specialist runs **in parallel**:
 
@@ -441,7 +320,7 @@ For each vulnerability class that produced a `VulnQueue`, an exploit verificatio
 
 **Prompt templates:** `autopilot-exploit-injection.md`, `autopilot-exploit-xss.md`, `autopilot-exploit-auth.md`, `autopilot-exploit-ssrf.md`, `autopilot-exploit-authz.md`
 
-#### Phase 5: Report (AI, no terminal)
+### Phase 5: Report (AI, no terminal)
 
 A report agent assembles a structured markdown report from all evidence:
 
@@ -540,13 +419,13 @@ var otp = vigolium.utils.totpCode("JBSWY3DPEHPK3PXP");
 // otp.expires_in = 18
 ```
 
-The TOTP utility implements RFC 6238 with a standard 30-second period. Agents in exploit verification phases (V2) are instructed to use `vigolium auth totp` when 2FA is encountered.
+The TOTP utility implements RFC 6238 with a standard 30-second period. Agents in exploit verification phases are instructed to use `vigolium auth totp` when 2FA is encountered.
 
 ---
 
 ## Security Sandbox
 
-Both V1 and V2 autopilot sessions execute commands inside a strict security sandbox enforced by the ACP terminal manager (`pkg/agent/acp_terminal.go`).
+Autopilot sessions execute commands inside a strict security sandbox enforced by the ACP terminal manager (`pkg/agent/acp_terminal.go`).
 
 **Allowed commands:** Only `vigolium` subcommands.
 
@@ -571,12 +450,11 @@ Each autopilot run creates a session directory under `~/.vigolium/agent-sessions
 
 ```
 agt-abc123-def4-5678-9012-abcdef345678/
-  output.md                    # V1: raw agent output
-  report.md                   # V2: assembled vulnerability report
-  extensions/                 # V2: merged JS extensions from specialists
+  report.md                   # Assembled vulnerability report
+  extensions/                 # Merged JS extensions from specialists
     injection-sqli-check.js
     xss-dom-sink.js
-  autopilot-checkpoint.json   # V2: pipeline checkpoint for resume
+  autopilot-checkpoint.json   # Pipeline checkpoint for resume
 ```
 
 The session directory is configurable via `agent.sessions_dir` in `vigolium-configs.yaml`.
@@ -585,15 +463,15 @@ The session directory is configurable via `agent.sessions_dir` in `vigolium-conf
 
 ## Checkpoint and Resume
 
-V2 (`--parallel`) saves a checkpoint after each phase completes. If a run is interrupted (timeout, crash, Ctrl+C), resume from the last completed phase:
+Autopilot saves a checkpoint after each phase completes. If a run is interrupted (timeout, crash, Ctrl+C), resume from the last completed phase:
 
 ```bash
 # Original run (interrupted during Phase 4)
-vigolium agent autopilot --parallel -t https://example.com --source ./app
+vigolium agent autopilot -t https://example.com --source ./app
 # Session: ~/.vigolium/agent-sessions/agt-abc123
 
 # Resume — skips Phases 1-3, continues from Phase 4
-vigolium agent autopilot --parallel -t https://example.com --source ./app \
+vigolium agent autopilot -t https://example.com --source ./app \
   --resume ~/.vigolium/agent-sessions/agt-abc123
 ```
 
@@ -610,8 +488,6 @@ The checkpoint file (`autopilot-checkpoint.json`) contains:
   "timestamp": "2026-03-21T14:30:00Z"
 }
 ```
-
-> **Note:** V1 mode does not support checkpoint/resume — the single-agent session is atomic.
 
 ---
 
@@ -634,24 +510,7 @@ When `--target` is not provided, the target URL is extracted from the input auto
 
 ## Output
 
-### V1 Output
-
-V1 produces free-form markdown output — the agent's own summary of what it found. Output is:
-
-- **Streamed** to stdout in real-time (when `agent.stream: true`, the default)
-- **Saved** to `<session>/output.md`
-
-```bash
-# Stream output to terminal
-vigolium agent autopilot -t https://example.com
-
-# Capture output to a file
-vigolium agent autopilot -t https://example.com 2>/dev/null > report.md
-```
-
-### V2 Output
-
-V2 produces structured results at each phase:
+Autopilot produces structured results at each phase:
 
 | Phase | Output Type | Persisted |
 |-------|-----------|-----------|
@@ -669,21 +528,21 @@ Terminal summary on completion:
 
 ---
 
-## Comparison: V1 vs V2 vs Swarm
+## Comparison: Autopilot vs Swarm
 
-| Aspect | Autopilot V1 | Autopilot V2 (`--parallel`) | Swarm |
-|--------|-------------|---------------------------|-------|
-| **Agent calls** | 1 long session | 5+ parallel specialists | 2-4 (plan + triage) |
-| **AI decides workflow** | Yes (full autonomy) | No (fixed 5-phase pipeline) | Partially (plan only) |
-| **Terminal access** | Yes (entire session) | Phases 1 & 4 only | No |
-| **Parallelism** | None | Phases 2 & 4 run specialists in parallel | Batch parallelism |
-| **Exploit verification** | Agent may verify ad-hoc | Dedicated Phase 4 with evidence JSON | Via triage rescan |
-| **Evidence format** | Free-form text | Structured `ExploitationEvidence` | Triage verdict |
-| **Checkpoint/resume** | No | Yes | Yes |
-| **Source code analysis** | In-prompt (agent reads) | Dedicated specialists per vuln class | Consolidated 3-call |
-| **Native scanner** | Agent runs `scan-url` | Phase 3 (bulk scan with extensions) | Phase 4 (bulk scan) |
-| **Best for** | Exploratory testing | Thorough multi-class assessment | Targeted request analysis |
-| **AI cost** | Highest (long session) | High (many parallel calls) | Lowest (2-4 calls) |
+| Aspect | Autopilot | Swarm |
+|--------|-----------|-------|
+| **Agent calls** | 5+ parallel specialists | 2-4 (plan + triage) |
+| **AI decides workflow** | No (fixed 5-phase pipeline) | Partially (plan only) |
+| **Terminal access** | Phases 1 & 4 only | No |
+| **Parallelism** | Phases 2 & 4 run specialists in parallel | Batch parallelism |
+| **Exploit verification** | Dedicated Phase 4 with evidence JSON | Via triage rescan |
+| **Evidence format** | Structured `ExploitationEvidence` | Triage verdict |
+| **Checkpoint/resume** | Yes | Yes |
+| **Source code analysis** | Dedicated specialists per vuln class | Consolidated 3-call |
+| **Native scanner** | Phase 3 (bulk scan with extensions) | Phase 4 (bulk scan) |
+| **Best for** | Thorough multi-class assessment | Targeted request analysis |
+| **AI cost** | High (many parallel calls) | Lowest (2-4 calls) |
 
 ### Decision Guide
 
@@ -692,10 +551,8 @@ Do you have specific HTTP requests to test?
   Yes --> Use Swarm (vigolium agent swarm --input <request>)
   No  --> Continue...
 
-Do you want the AI to figure out the attack strategy?
-  Yes --> Do you need structured evidence with exploit verification?
-    Yes --> Autopilot V2 (--parallel)
-    No  --> Autopilot V1 (default)
+Do you want structured evidence with exploit verification?
+  Yes --> Autopilot (vigolium agent autopilot -t <url>)
   No  --> Use Swarm with --discover for full-scope structured scanning
 ```
 
@@ -703,14 +560,7 @@ Do you want the AI to figure out the attack strategy?
 
 ## When to Use
 
-### Use Autopilot V1 when:
-
-- **Exploratory testing** of unfamiliar targets — let the AI figure out what's there
-- **Research and experimentation** — trying creative attack strategies the agent discovers
-- You want **hands-off scanning** and don't mind variable runtime
-- Quick **ad-hoc assessments** where structure isn't needed
-
-### Use Autopilot V2 (`--parallel`) when:
+### Use Autopilot when:
 
 - You want **depth across multiple vulnerability classes** simultaneously
 - You need **structured exploitation evidence** (proven/blocked/false_positive)
@@ -743,7 +593,7 @@ agent:
       command: npx
       args: ["-y", "@anthropic-ai/mcp-server-playwright"]
 
-  # Warm session pooling (auto-enabled by V2 --parallel)
+  # Warm session pooling (auto-enabled by autopilot)
   warm_session:
     enable: false
     idle_timeout: 300
@@ -765,13 +615,12 @@ agent:
 
 Autopilot uses prompt templates stored in `~/.vigolium/prompts/` (user overrides) or embedded in the binary (`public/presets/prompts/autopilot/`).
 
-| Template | Mode | Output Schema | Terminal |
-|----------|------|--------------|---------|
-| `autopilot-system` | V1 | text | Yes |
-| `autopilot-recon` | V2 Phase 1 | recon_deliverable | Yes |
-| `autopilot-vuln-{class}` | V2 Phase 2 | vuln_queue | No |
-| `autopilot-exploit-{class}` | V2 Phase 4 | exploitation_evidence | Yes |
-| `autopilot-report` | V2 Phase 5 | text | No |
+| Template | Phase | Output Schema | Terminal |
+|----------|-------|--------------|---------|
+| `autopilot-recon` | Phase 1 | recon_deliverable | Yes |
+| `autopilot-vuln-{class}` | Phase 2 | vuln_queue | No |
+| `autopilot-exploit-{class}` | Phase 4 | exploitation_evidence | Yes |
+| `autopilot-report` | Phase 5 | text | No |
 
 Where `{class}` is one of: `injection`, `xss`, `auth`, `ssrf`, `authz`.
 
@@ -788,14 +637,14 @@ The LLM backend may not be processing prompts. Check:
 - The ACP bridge is installed (`npx @zed-industries/claude-agent-acp@latest`)
 - Use `--show-prompt` to verify the prompt renders correctly
 
-### V2 specialist returns empty VulnQueue
+### Specialist returns empty VulnQueue
 
 The specialist may not have found any sinks for its vulnerability class. This is normal — not every codebase has every vulnerability type. Check:
 - `--source` points to the correct directory
 - `--files` is not too restrictive
 - The codebase language is supported by the specialist prompts
 
-### Timeout during V2 Phase 4 (Exploit Verify)
+### Timeout during Phase 4 (Exploit Verify)
 
 Exploit verification can be slow when the agent runs many CLI commands. Options:
 - Increase `--timeout` (default: 30m)
@@ -812,5 +661,4 @@ Exploit verification can be slow when the agent runs many CLI commands. Options:
 ### Resume fails with "no checkpoint found"
 
 - The `--resume` path must point to a session directory containing `autopilot-checkpoint.json`
-- V1 mode does not create checkpoints — only V2 (`--parallel`) supports resume
 - Verify the path: `ls ~/.vigolium/agent-sessions/agt-<uuid>/autopilot-checkpoint.json`

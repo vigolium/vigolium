@@ -32,6 +32,11 @@ type TriageLoopConfig struct {
 	ProjectUUID    string
 	StreamWriter   io.Writer
 
+	// Terminal capability (custom slash commands / sub-agents)
+	SlashCommands []string
+	CustomAgents  []string
+	MaxCommands   int
+
 	// Loop control
 	MaxRounds                 int
 	MaxFindingsPerTriageBatch int // if >0, split findings into batches of this size for triage
@@ -165,6 +170,9 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				ProjectUUID:    cfg.ProjectUUID,
 				Source:         cfg.PromptTemplate,
 				StreamWriter:   cfg.StreamWriter,
+				SlashCommands:  cfg.SlashCommands,
+				CustomAgents:   cfg.CustomAgents,
+				MaxCommands:    cfg.MaxCommands,
 			}
 
 			var appendParts []string
@@ -185,9 +193,23 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				opts.Append = strings.Join(appendParts, "\n\n")
 			}
 
-			agentResult, err := cfg.Engine.Run(ctx, opts)
-			if err != nil {
-				return result, fmt.Errorf("triage round %d batch %d failed: %w", round, batchIdx+1, err)
+			var agentResult *Result
+			const maxTriageRetries = 3
+			for triageAttempt := 1; triageAttempt <= maxTriageRetries; triageAttempt++ {
+				var runErr error
+				agentResult, runErr = cfg.Engine.Run(ctx, opts)
+				if runErr == nil {
+					break
+				}
+				if isRetryableAgentError(ctx, runErr) && triageAttempt < maxTriageRetries {
+					zap.L().Warn("triage agent failed (retryable), will retry",
+						zap.Int("round", round),
+						zap.Int("batch", batchIdx+1),
+						zap.Int("attempt", triageAttempt),
+						zap.Error(runErr))
+					continue
+				}
+				return result, fmt.Errorf("triage round %d batch %d failed: %w", round, batchIdx+1, runErr)
 			}
 
 			// Save rendered prompt and raw output to session dir
