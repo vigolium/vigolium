@@ -1,4 +1,4 @@
-import { Sun, ShieldCheck } from 'lucide-react';
+import { Sun, ShieldCheck, Coins } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -127,9 +127,15 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
             {isConnected ? '[CONNECTED]' : '[OFFLINE]'}
           </span>
           {isConnected && currentUser && (
-            <span className="hidden lg:inline" style={{ color: 'var(--v-secondary)' }}>
-              [Login as <span style={{ color: '#fde68a' }}>{currentUser.name}</span>]
-            </span>
+            <>
+              <a href="/billing" className="hidden md:inline-flex items-center gap-1" style={{ color: 'var(--v-accent)' }} title="Credits">
+                <Coins className="w-3 h-3" />
+                <span className="font-bold">{(currentUser.credits ?? 0).toLocaleString()}</span>
+              </a>
+              <span className="hidden lg:inline" style={{ color: 'var(--v-secondary)' }}>
+                [Login as <span style={{ color: '#fde68a' }}>{currentUser.name}</span>]
+              </span>
+            </>
           )}
           {isConnected && (
             <button

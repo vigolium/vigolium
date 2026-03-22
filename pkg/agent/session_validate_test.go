@@ -463,7 +463,7 @@ func TestBuildSessionRepairPrompt(t *testing.T) {
 		`  Session "account": role must be "primary" or "compare", got: ""`,
 	}
 
-	prompt := buildSessionRepairPrompt(garbledJSON, errors, "http://localhost:3000")
+	prompt := buildSessionRepairPrompt(garbledJSON, errors, "http://localhost:3000", "")
 	if !strings.Contains(prompt, "REGENERATE") && !strings.Contains(prompt, "Fix") {
 		t.Error("prompt should contain fix/repair instruction")
 	}

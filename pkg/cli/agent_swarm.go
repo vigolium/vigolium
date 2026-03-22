@@ -393,15 +393,24 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 	fmt.Fprint(os.Stderr, GetBanner())
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
 
-	// Mode
+	// Mode + Agent + Model on one line
 	mode := "swarm"
 	if swarmSourceAnalysisOnly {
 		mode = "swarm (source-analysis-only)"
 	}
-	fmt.Fprintf(os.Stderr, "  %s Mode: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(mode))
-
-	// Agent
-	fmt.Fprintf(os.Stderr, "  %s Agent: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(effectiveAgent))
+	// Resolve model from agent backend definition
+	effectiveModel := ""
+	if def, ok := settings.Agent.Backends[effectiveAgent]; ok && def.Model != "" {
+		effectiveModel = def.Model
+	}
+	modeLine := fmt.Sprintf("  %s Mode: %s | Agent: %s",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiTeal(mode),
+		terminal.HiTeal(effectiveAgent))
+	if effectiveModel != "" {
+		modeLine += fmt.Sprintf(" | Model: %s", terminal.HiTeal(effectiveModel))
+	}
+	fmt.Fprintln(os.Stderr, modeLine)
 
 	// Prompt
 	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
@@ -505,13 +514,13 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 	// Tips
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  %s Use %s to tell the agent to focus on a specific area (e.g. auth bypass, IDOR, SQLi)\n",
-		terminal.Muted("tip:"), terminal.Cyan("--instruction \"focus on ...\""))
+		terminal.TipPrefix(), terminal.Cyan("--instruction \"focus on ...\""))
 	fmt.Fprintf(os.Stderr, "  %s Use %s to run discovery+spidering before planning to expand the attack surface\n",
-		terminal.Muted("tip:"), terminal.Cyan("--discover"))
+		terminal.TipPrefix(), terminal.Cyan("--discover"))
 	fmt.Fprintf(os.Stderr, "  %s Use %s to add a specialist agent (e.g. %s)\n",
-		terminal.Muted("tip:"), terminal.Cyan("--custom-agent"), terminal.Muted("@my-sqli-specialist"))
+		terminal.TipPrefix(), terminal.Cyan("--custom-agent"), terminal.Muted("@my-sqli-specialist"))
 	fmt.Fprintf(os.Stderr, "  %s Use %s to expose slash commands inside the ACP session\n",
-		terminal.Muted("tip:"), terminal.Cyan("--custom-slash-command /security-review"))
+		terminal.TipPrefix(), terminal.Cyan("--custom-slash-command /security-review"))
 	fmt.Fprintln(os.Stderr)
 
 	// Wire phase callback for verbose output

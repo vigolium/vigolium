@@ -833,3 +833,62 @@ export interface DbMutationResponse {
   id?: string;
   message: string;
 }
+
+// --- Billing types ---
+
+export interface CreditBalance {
+  credits: number;
+  org_id: string;
+  org_name: string;
+  customer_id?: string;
+}
+
+export interface CheckoutRequest {
+  credits_amount: number;
+}
+
+export interface CheckoutResponse {
+  url: string;
+}
+
+export interface PaymentHistoryItem {
+  id: string;
+  amount: number;
+  credits: number;
+  status: string;
+  created_at: string;
+}
+
+export interface PortalResponse {
+  url: string;
+}
+
+export interface InsufficientCreditsError {
+  error: string;
+  credits: number;
+  cost: number;
+}
+
+// --- Team types ---
+
+export interface TeamMember {
+  id: string;
+  membership_id: string;
+  name: string;
+  email: string;
+  role: string;
+  joined_at: string;
+}
+
+export interface InviteMemberRequest {
+  email: string;
+}
+
+export interface CurrentUser {
+  id?: string;
+  name: string;
+  email: string;
+  role: string;
+  credits: number;
+  organization: { id: string; name: string } | null;
+}

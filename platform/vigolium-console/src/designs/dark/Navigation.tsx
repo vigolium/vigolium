@@ -16,6 +16,7 @@ import {
   Bot,
   SlidersHorizontal,
   Database,
+  CreditCard,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: '/scan', label: 'NATIVE SCAN', icon: Radar, group: 'orange' as const },
   { href: '/agents', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' as const },
   { href: '/database', label: 'DATABASE', icon: Database, group: 'blue' as const },
+  { href: '/billing', label: 'BILLING', icon: CreditCard, group: 'blue' as const },
   { href: '/settings', label: 'SETTINGS', icon: SlidersHorizontal, group: 'blue' as const },
 ];
 

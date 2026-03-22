@@ -97,7 +97,7 @@ Document the application's role/permission system:
 
 For each auth flow, document:
 - **Token type**: JWT, opaque session ID, cookie-based session, API key
-- **Token issuance**: how the login response delivers the token (JSON body field like `$.token`, `Set-Cookie` header, custom header)
+- **Token issuance**: how the login response delivers the token (JSON body field like `.token`, `Set-Cookie` header, custom response header like `X-JWT-Token`)
 - **Token attachment**: how authenticated requests must send the token:
   - `Authorization: Bearer <token>`
   - `Cookie: session=<token>`
@@ -105,14 +105,38 @@ For each auth flow, document:
 - **Token expiry/refresh**: how long tokens are valid, refresh mechanism if any
 - **JWT secret**: if JWT is used, where the secret is configured (env var name, config key)
 
+### 2D: Multi-Step Login Flows (CSRF, OAuth, etc.)
+
+Check if authentication requires multiple HTTP requests (common patterns):
+- **CSRF protection**: first request fetches a page/token, second request submits login with the CSRF token
+- **OAuth/OIDC flows**: redirect-based flows with authorization codes
+- **Two-factor flows**: initial login followed by a verification step
+
+For multi-step flows, document:
+- **Each step's URL, method, and body**
+- **What is extracted from each step's response** (e.g., CSRF token from HTML, redirect URL, intermediate cookie)
+- **How extracted values are used in subsequent steps** (e.g., CSRF token injected into form body)
+- **The regex pattern or field name** needed to extract intermediate values (e.g., `name="csrf_token" value="([^"]+)"`)
+
+### 2E: Response Validation
+
+For login endpoints, document:
+- **Expected HTTP status codes** on success (e.g., 200, 201, 302)
+- **Expected response body markers** — strings that must be present in a successful response (e.g., `"access_token"`, `"success":true`)
+
 ---
 
 ## Output Format
 
 Write your findings as **plain text notes** organized into two clearly labeled sections:
 1. **PART 1: Authentication Routes** — login/register/auth endpoints only
-2. **PART 2: Credentials, Roles & Sessions** — credentials per role, permission model, token mechanism
+2. **PART 2: Credentials, Roles & Sessions** — credentials per role, permission model, token mechanism, multi-step flows, response validation
 
 Do NOT produce JSON, JSONL, or any structured data format. Just clear, organized documentation. A formatting step will convert your notes into the required format afterward.
 
-**Important:** When listing credentials, always pair them with their role. The scanner needs separate sessions per role to test authorization (e.g., admin session vs regular user session for IDOR testing).
+**Important:**
+- When listing credentials, always pair them with their role. The scanner needs separate sessions per role to test authorization (e.g., admin session vs regular user session for IDOR testing).
+- For bearer token auth, clearly state the **JSON path** in the response where the token lives (e.g., `.data.access_token`, `.token`), or if the token is in a **response header** (e.g., `X-JWT-Token`).
+- For cookie-based auth, note whether the session uses standard `Set-Cookie` headers.
+- For multi-step logins (CSRF, etc.), document each step separately with the extraction pattern for intermediate values.
+- Note the expected success status codes and any response body markers that confirm a successful login.

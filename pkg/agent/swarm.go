@@ -445,24 +445,34 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				saExtensions = append(saExtensions, saResult.Extensions...)
 			}
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-				originalSessionCount := len(saResult.SessionConfig.Sessions)
-				originalConfig := saResult.SessionConfig
-				saResult.SessionConfig = ValidateSessionConfig(saResult.SessionConfig)
+				vr := ValidateSessionConfigDetailed(saResult.SessionConfig)
 
-				// If validation dropped all sessions, attempt LLM repair
-				if saResult.SessionConfig == nil && originalSessionCount > 0 {
-					printPhaseLine("source-analysis", fmt.Sprintf("session config invalid (%d entries dropped), attempting LLM repair", originalSessionCount))
-					repaired := RepairInvalidSessionConfig(ctx, s.engine, originalConfig, targetURL, repairConfig{
-						AgentName:   cfg.AgentName,
-						AgentACPCmd: cfg.AgentACPCmd,
-						ShowPrompt:  cfg.ShowPrompt,
+				if len(vr.Invalid) > 0 {
+					printPhaseLine("source-analysis", fmt.Sprintf("session config: %d valid, %d invalid — attempting LLM repair",
+						len(vr.Valid), len(vr.Invalid)))
+					// Build a config from invalid entries for repair
+					invalidCfg := &AgentSessionConfig{}
+					for _, inv := range vr.Invalid {
+						invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
+					}
+					repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, repairConfig{
+						AgentName:    cfg.AgentName,
+						AgentACPCmd:  cfg.AgentACPCmd,
+						ShowPrompt:   cfg.ShowPrompt,
+						ExploreNotes: saResult.SessionExploreNotes,
 					})
 					if repaired != nil {
-						printPhaseLine("source-analysis", fmt.Sprintf("LLM repaired session config  sessions=%d", len(repaired.Sessions)))
-						saResult.SessionConfig = repaired
-					} else {
+						printPhaseLine("source-analysis", fmt.Sprintf("LLM repaired %d session entries", len(repaired.Sessions)))
+						vr.Valid = append(vr.Valid, repaired.Sessions...)
+					} else if len(vr.Valid) == 0 {
 						printPhaseLine("source-analysis", "LLM session config repair failed, continuing without auth")
 					}
+				}
+
+				if len(vr.Valid) > 0 {
+					saResult.SessionConfig = &AgentSessionConfig{Sessions: vr.Valid}
+				} else {
+					saResult.SessionConfig = nil
 				}
 			}
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
@@ -2337,18 +2347,25 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 
 	// Validate and write session config to session dir if the SAST review produced one
 	if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-		originalConfig := saResult.SessionConfig
-		saResult.SessionConfig = ValidateSessionConfig(saResult.SessionConfig)
-		// If validation dropped all sessions, attempt LLM repair
-		if saResult.SessionConfig == nil && len(originalConfig.Sessions) > 0 {
-			repaired := RepairInvalidSessionConfig(ctx, s.engine, originalConfig, targetURL, repairConfig{
+		vr := ValidateSessionConfigDetailed(saResult.SessionConfig)
+		if len(vr.Invalid) > 0 {
+			invalidCfg := &AgentSessionConfig{}
+			for _, inv := range vr.Invalid {
+				invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
+			}
+			repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, repairConfig{
 				AgentName:   cfg.AgentName,
 				AgentACPCmd: cfg.AgentACPCmd,
 				ShowPrompt:  cfg.ShowPrompt,
 			})
 			if repaired != nil {
-				saResult.SessionConfig = repaired
+				vr.Valid = append(vr.Valid, repaired.Sessions...)
 			}
+		}
+		if len(vr.Valid) > 0 {
+			saResult.SessionConfig = &AgentSessionConfig{Sessions: vr.Valid}
+		} else {
+			saResult.SessionConfig = nil
 		}
 	}
 	if sessionDir != "" && saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {

@@ -6,7 +6,7 @@ const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
 const workosMiddleware = authkitMiddleware({
   middlewareAuth: {
     enabled: true,
-    unauthenticatedPaths: ['/callback'],
+    unauthenticatedPaths: ['/callback', '/api/billing/webhook'],
   },
 });
 

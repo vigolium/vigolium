@@ -14,6 +14,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.91.3",
     "@workos-inc/authkit-nextjs": "^2.17.0",
+    "@workos-inc/node": "^8.9.0",
     "ag-grid-community": "^35.1.0",
     "ag-grid-react": "^35.1.0",
     "fflate": "^0.8.2",
@@ -25,7 +26,8 @@
     "react-markdown": "^10.1.0",
     "react-simple-code-editor": "^0.14.1",
     "recharts": "^3.8.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "stripe": "^20.4.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",

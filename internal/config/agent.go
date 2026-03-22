@@ -240,10 +240,10 @@ func (c *AgentConfig) Validate() error {
 			return fmt.Errorf("agent.backends[%q].command must not be empty", name)
 		}
 		switch d.Protocol {
-		case "", "pipe", "acp":
+		case "", "pipe", "acp", "sdk":
 			// valid
 		default:
-			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\" or \"acp\")", name, d.Protocol)
+			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\", \"acp\", or \"sdk\")", name, d.Protocol)
 		}
 	}
 	if ws := &c.WarmSession; ws.IsEnabled() {
@@ -300,8 +300,13 @@ func DefaultClaudeSessionMeta() *ACPSessionMeta {
 // DefaultAgentConfig returns sensible defaults for all supported agent backends.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
-		DefaultAgent: "claude",
+		DefaultAgent: "claude-sdk",
 		Backends: map[string]AgentDef{
+			"claude-sdk": {
+				Command:     "claude",
+				Description: "Anthropic Claude Code (SDK protocol)",
+				Protocol:    "sdk",
+			},
 			"claude": {
 				Command:     "npx",
 				Args:        []string{"-y", "@zed-industries/claude-agent-acp@latest"},

@@ -36,10 +36,11 @@ type Engine struct {
 	settings *config.Settings
 	repo     *database.Repository
 	pool     *ACPPool // nil when warm sessions disabled
+	sdkPool  *SDKPool // nil when warm sessions disabled or no SDK agents
 }
 
 // NewEngine creates a new agent engine.
-// If warm sessions are enabled in settings, an ACPPool is created automatically.
+// If warm sessions are enabled in settings, session pools are created automatically.
 func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 	e := &Engine{
 		settings: settings,
@@ -47,15 +48,19 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 	}
 	if settings != nil && settings.Agent.WarmSession.IsEnabled() {
 		e.pool = NewACPPool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.sdkPool = NewSDKPool(settings.Agent.WarmSession, settings.Agent.Backends)
 	}
 	return e
 }
 
-// Close shuts down the engine's ACP pool if one exists.
-// Safe to call multiple times or on a nil pool.
+// Close shuts down the engine's session pools.
+// Safe to call multiple times or on nil pools.
 func (e *Engine) Close() {
 	if e.pool != nil {
 		e.pool.Close()
+	}
+	if e.sdkPool != nil {
+		e.sdkPool.Close()
 	}
 }
 
@@ -87,20 +92,25 @@ func (e *Engine) mergeGlobalMcpServers(agentDef *config.AgentDef) *config.AgentD
 // This is useful for modes like swarm that make multiple agent calls and benefit
 // from subprocess reuse even when warm sessions are not explicitly configured.
 func (e *Engine) EnsureWarmSessions() {
-	if e.pool != nil {
+	if e.pool != nil && e.sdkPool != nil {
 		return // already active
 	}
 	if e.settings == nil {
 		return
 	}
-	// Create a pool with default settings if not explicitly configured
+	// Create pools with default settings if not explicitly configured
 	cfg := e.settings.Agent.WarmSession
 	if !cfg.IsEnabled() {
 		enabled := true
 		cfg.Enable = &enabled
 	}
-	e.pool = NewACPPool(cfg, e.settings.Agent.Backends)
-	zap.L().Debug("warm session pool auto-enabled for multi-call mode")
+	if e.pool == nil {
+		e.pool = NewACPPool(cfg, e.settings.Agent.Backends)
+	}
+	if e.sdkPool == nil {
+		e.sdkPool = NewSDKPool(cfg, e.settings.Agent.Backends)
+	}
+	zap.L().Debug("warm session pools auto-enabled for multi-call mode")
 }
 
 // Run executes a full agent pipeline: resolve prompt → render → execute → parse → ingest.
@@ -211,6 +221,63 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			ar, err = RunAgenticACP(ctx, *agentDef, prompt, acpOpts...)
 		}
 		stdout, stderr, sessionID = ar.Stdout, ar.Stderr, ar.SessionID
+	case "sdk":
+		// SDK protocol: full Claude Code CLI tools via JSON-lines protocol.
+		// Provides Read, Grep, Glob, Bash, Edit — unlike ACP's ReadTextFile-only.
+		cwd := "."
+		if opts.SourcePath != "" {
+			cwd = opts.SourcePath
+		}
+		sdkCfg := sdkRunConfig{
+			Cwd:          cwd,
+			StreamWriter: opts.StreamWriter,
+			McpServers:   agentDef.McpServers,
+			Model:        agentDef.Model,
+		}
+
+		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash
+		// (no ACP sandboxed terminal). Set MaxTurns high for multi-step execution.
+		if opts.Autopilot {
+			zap.L().Warn("SDK protocol: autopilot runs vigolium commands via unrestricted Bash (no ACP sandboxed terminal)",
+				zap.String("agent", opts.AgentName))
+			sdkCfg.MaxTurns = opts.MaxCommands * 3
+			if sdkCfg.MaxTurns <= 0 {
+				sdkCfg.MaxTurns = 300
+			}
+			sdkCfg.Effort = "high"
+			// Inject vigolium CLI context for autopilot agents
+			sdkCfg.AppendSystemPrompt = "You have access to the vigolium CLI scanner via the Bash tool. " +
+				"Run 'vigolium --help' to discover available commands. " +
+				"Use 'vigolium scan', 'vigolium run', and other subcommands to execute scans."
+		}
+
+		// Additional directories for source path access
+		if opts.SourcePath != "" {
+			sdkCfg.AdditionalDirs = []string{opts.SourcePath}
+			if sdkCfg.AppendSystemPrompt != "" {
+				sdkCfg.AppendSystemPrompt += "\n\n"
+			}
+			sdkCfg.AppendSystemPrompt += "Application source code is available at: " + opts.SourcePath
+		}
+
+		// Warn about ACP-only terminal features
+		if len(opts.SlashCommands) > 0 || len(opts.CustomAgents) > 0 {
+			zap.L().Warn("SDK protocol does not support ACP terminal features; SlashCommands and CustomAgents will be ignored",
+				zap.Strings("slashCommands", opts.SlashCommands),
+				zap.Strings("customAgents", opts.CustomAgents))
+		}
+
+		var ar acpResult
+		if e.sdkPool != nil && opts.AgentACPCmd == "" {
+			poolKey := opts.AgentName
+			if opts.SessionKey != "" {
+				poolKey = opts.SessionKey
+			}
+			ar, err = e.sdkPool.Prompt(ctx, opts.AgentName, prompt, sdkCfg, poolKey, opts.SessionWeight)
+		} else {
+			ar, err = RunAgenticSDK(ctx, *agentDef, prompt, sdkCfg)
+		}
+		stdout, sessionID = ar.Stdout, ar.SessionID
 	default:
 		stdout, stderr, err = RunAgent(ctx, *agentDef, prompt, opts.StreamWriter)
 	}
@@ -606,10 +673,13 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	//   Wave 1 (parallel):
 	//     Call 1a: swarm-source-explore-routes   (reads source → notes on routes + sinks)
 	//     Call 1b: swarm-source-explore-session   (reads source → notes on auth + credentials + sessions)
-	//   Wave 2 (parallel, consumes combined Wave 1 output):
-	//     Call 2: swarm-source-format             (notes → JSONL http_records + session_config JSON)
-	//     Call 3: swarm-source-extensions          (notes → JS scanner extensions)
+	//   Wave 2 (parallel, consumes Wave 1 output):
+	//     Call 2a: swarm-source-format-routes     (route notes → JSONL http_records)
+	//     Call 2b: swarm-source-format-session    (auth notes → session_config JSON)
+	//     Call 3:  swarm-source-extensions         (combined notes → JS scanner extensions)
 	//
+	// When SDK pool is available, format calls reuse explore sessions (multi-turn)
+	// so the format agent retains full codebase context without 48KB truncation.
 	// Falls back to single-explore flow if split templates don't exist.
 
 	exploreRoutesTemplate := "swarm-source-explore-routes"
@@ -869,6 +939,10 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// When SDK pool is available, format calls reuse the explore session (multi-turn)
+	// so the format agent retains full codebase context without truncation.
+	canReuseExploreSessions := e.sdkPool != nil && useSplitExplore
+
 	if useSplitFormat {
 		// Split format: format-routes + format-session + extensions (3 goroutines)
 		wg.Add(3)
@@ -877,20 +951,30 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		go func() {
 			defer wg.Done()
 
+			// Reuse explore-routes session when SDK pool is available.
+			// The format agent gets full codebase context from the explore phase
+			// via multi-turn, avoiding 48KB truncation of the appended notes.
+			formatRoutesSessionKey := "sa-format-routes"
+			formatRoutesAppend := "## Route Analysis Notes\n\n" + routesExploreContext
+			if canReuseExploreSessions && routesExploreOutput != "" {
+				formatRoutesSessionKey = "sa-explore-routes" // reuse explore session
+				formatRoutesAppend = ""                       // context is in-session
+			}
+
 			opts := Options{
 				AgentName:      cfg.AgentName,
 				AgentACPCmd:    cfg.AgentACPCmd,
 				PromptTemplate: formatRoutesTemplate,
 				TargetURL:      cfg.TargetURL,
 				SourcePath:     cfg.SourcePath,
-				SessionKey:     "sa-format-routes",
+				SessionKey:     formatRoutesSessionKey,
 				DryRun:         cfg.DryRun,
 				ShowPrompt:     cfg.ShowPrompt,
 				ScanUUID:       cfg.ScanUUID,
 				ProjectUUID:    cfg.ProjectUUID,
 				Source:         formatRoutesTemplate,
 				StreamWriter:   safeStreamWriter,
-				Append:         "## Route Analysis Notes\n\n" + routesExploreContext,
+				Append:         formatRoutesAppend,
 			}
 
 			formatResult, formatErr := e.Run(ctx, opts)
@@ -927,20 +1011,28 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		go func() {
 			defer wg.Done()
 
+			// Reuse explore-session session when SDK pool is available.
+			formatSessionSessionKey := "sa-format-session"
+			formatSessionAppend := "## Authentication & Session Analysis Notes\n\n" + sessionExploreContext
+			if canReuseExploreSessions && sessionExploreOutput != "" {
+				formatSessionSessionKey = "sa-explore-session" // reuse explore session
+				formatSessionAppend = ""                        // context is in-session
+			}
+
 			opts := Options{
 				AgentName:      cfg.AgentName,
 				AgentACPCmd:    cfg.AgentACPCmd,
 				PromptTemplate: formatSessionTemplate,
 				TargetURL:      cfg.TargetURL,
 				SourcePath:     cfg.SourcePath,
-				SessionKey:     "sa-format-session",
+				SessionKey:     formatSessionSessionKey,
 				DryRun:         cfg.DryRun,
 				ShowPrompt:     cfg.ShowPrompt,
 				ScanUUID:       cfg.ScanUUID,
 				ProjectUUID:    cfg.ProjectUUID,
 				Source:         formatSessionTemplate,
 				StreamWriter:   safeStreamWriter,
-				Append:         "## Authentication & Session Analysis Notes\n\n" + sessionExploreContext,
+				Append:         formatSessionAppend,
 			}
 
 			formatResult, formatErr := e.Run(ctx, opts)
@@ -1109,7 +1201,11 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	if len(errs) >= minErrsForFallback {
 		// Still try postProcessSourceAnalysis with explore output as fallback
 		zap.L().Warn("Format and extensions both failed, falling back to explore output parsing")
-		return e.postProcessSourceAnalysis(ctx, cfg, exploreOutput, combinedPrompt)
+		result, raw, prompt, retErr := e.postProcessSourceAnalysis(ctx, cfg, exploreOutput, combinedPrompt)
+		if result != nil {
+			result.SessionExploreNotes = sessionExploreNotesOrFallback(sessionExploreContext, exploreContext)
+		}
+		return result, raw, prompt, retErr
 	}
 	if len(errs) > 0 {
 		for _, e := range errs {
@@ -1121,7 +1217,17 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	// Build a synthetic raw output that postProcessSourceAnalysis can parse if needed.
 	// Since we already parsed format output above, pass the merged result directly
 	// by injecting it into the post-processing flow.
+	merged.SessionExploreNotes = sessionExploreNotesOrFallback(sessionExploreContext, exploreContext)
 	return e.postProcessSourceAnalysisWithMerged(ctx, cfg, merged, combinedRaw, combinedPrompt)
+}
+
+// sessionExploreNotesOrFallback returns the split session explore context if
+// available, otherwise falls back to the combined explore context (single-explore path).
+func sessionExploreNotesOrFallback(sessionContext, combinedContext string) string {
+	if sessionContext != "" {
+		return sessionContext
+	}
+	return combinedContext
 }
 
 // resolveAgent looks up an agent definition by name from settings.

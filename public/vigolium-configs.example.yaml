@@ -1081,7 +1081,7 @@ agent:
   # Default agent backend to use when none is specified.
   # Must match a key in the backends map below.
   # Default: claude
-  default_agent: claude
+  default_agent: claude-sdk
 
   # Stream agent output to stdout in real-time.
   # When true (default), agent message text appears incrementally as it is produced.
@@ -1201,21 +1201,46 @@ agent:
   # Agent Backend Definitions
   # --------------------------------------------------------------------------
   # Each entry defines an external command that acts as an AI agent.
-  # Set "protocol" to "acp" or "pipe" (default is "pipe" if omitted).
+  # Set "protocol" to "sdk", "acp", or "pipe" (default is "pipe" if omitted).
+  #
+  # Protocol comparison:
+  #   sdk:  Claude Agent SDK (JSON-lines). Full CLI tools (Read, Grep, Glob, Bash,
+  #         Edit, Write). Best output quality. Requires "claude" CLI in PATH.
+  #   acp:  Agent Communication Protocol. Only provides ReadTextFile tool access.
+  #         Supports warm session pooling and terminal/autopilot mode.
+  #   pipe: Simple stdin/stdout. Prompt piped to stdin, output captured from stdout.
   #
   # Model injection per provider (the "model" field works automatically):
-  #   Claude:   SetSessionModel ACP extension after session creation
-  #   Gemini:   injected as "-m <model>" CLI arg
-  #   OpenCode: injected via OPENCODE_CONFIG_CONTENT env var
-  #   Codex:    injected as "--model <model>" CLI arg
-  #   Cursor:   injected as "--model <model>" CLI arg
+  #   Claude (sdk): passed via SDK Options.Model
+  #   Claude (acp): SetSessionModel ACP extension after session creation
+  #   Gemini:       injected as "-m <model>" CLI arg
+  #   OpenCode:     injected via OPENCODE_CONFIG_CONTENT env var
+  #   Codex:        injected as "--model <model>" CLI arg
+  #   Cursor:       injected as "--model <model>" CLI arg
   #
-  # Claude uses "session_meta" (ACP _meta passthrough) for thinking, effort, tools.
+  # Claude ACP uses "session_meta" (ACP _meta passthrough) for thinking, effort, tools.
   # OpenCode uses "provider_config" for thinking, permissions, custom API.
   backends:
 
+    # ── Claude Code (SDK — recommended) ──────────────────────────────
+    # Uses the Claude Agent SDK (JSON-lines protocol) for full CLI tool access.
+    # Provides Read, Grep, Glob, Bash, Edit, Write — all standard Claude Code
+    # tools. Much higher output quality than ACP (which only gets ReadTextFile).
+    # Requires "claude" CLI in PATH.
+    claude-sdk:
+      command: claude
+      description: "Anthropic Claude Code (SDK protocol)"
+      protocol: sdk
+      model: sonnet                    # "sonnet", "opus", "haiku", or full model ID
+      # Per-backend MCP servers (in addition to global mcp_servers when mcp_enabled is true).
+      # mcp_servers:
+      #   - name: playwright
+      #     command: npx
+      #     args: ["-y", "@anthropic-ai/mcp-server-playwright"]
+
     # ── Claude Code (ACP) ──────────────────────────────────────────
     # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
+    # NOTE: ACP only provides ReadTextFile — limited tool access compared to SDK.
     claude:
       command: npx
       args: ["-y", "@zed-industries/claude-agent-acp@latest"]

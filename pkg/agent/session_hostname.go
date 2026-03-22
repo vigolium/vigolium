@@ -86,6 +86,8 @@ func AgentSessionConfigToSessions(cfg *AgentSessionConfig) []*session.Session {
 				Method:      entry.Login.Method,
 				ContentType: entry.Login.ContentType,
 				Body:        entry.Login.Body,
+				Type:        session.LoginType(entry.Login.Type),
+				TokenPath:   entry.Login.TokenPath,
 			}
 			for _, r := range entry.Login.Extract {
 				lf.Extract = append(lf.Extract, session.ExtractRule{
@@ -93,7 +95,15 @@ func AgentSessionConfigToSessions(cfg *AgentSessionConfig) []*session.Session {
 					Name:    r.Name,
 					Path:    r.Path,
 					ApplyAs: r.ApplyAs,
+					Pattern: r.Pattern,
+					Group:   r.Group,
 				})
+			}
+			if entry.Login.Expect != nil {
+				lf.Expect = &session.ExpectResponse{
+					Status:       entry.Login.Expect.Status,
+					BodyContains: entry.Login.Expect.BodyContains,
+				}
 			}
 			s.Login = lf
 		}

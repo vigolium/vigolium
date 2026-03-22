@@ -225,12 +225,13 @@ func RepairExtensionsWithLLM(ctx context.Context, engine *Engine, invalids []Inv
 
 // repairConfig holds agent settings for the repair LLM call.
 type repairConfig struct {
-	AgentName   string
-	AgentACPCmd string
-	ShowPrompt  bool
-	TargetURL   string   // target URL for regeneration context
-	FocusAreas  []string // focus areas from the swarm plan
-	ModuleTags  []string // module tags from the swarm plan
+	AgentName    string
+	AgentACPCmd  string
+	ShowPrompt   bool
+	TargetURL    string   // target URL for regeneration context
+	FocusAreas   []string // focus areas from the swarm plan
+	ModuleTags   []string // module tags from the swarm plan
+	ExploreNotes string   // session explore notes for context-aware session repair (optional)
 }
 
 // repairSingleExtension sends the broken extension code and its error to the LLM

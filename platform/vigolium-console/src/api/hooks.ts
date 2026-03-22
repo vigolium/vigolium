@@ -61,6 +61,14 @@ import type {
   DbRecordsResponse,
   DbRecordsQueryParams,
   DbMutationResponse,
+  CurrentUser,
+  CreditBalance,
+  CheckoutRequest,
+  CheckoutResponse,
+  PaymentHistoryItem,
+  PortalResponse,
+  TeamMember,
+  InviteMemberRequest,
 } from './types';
 
 /** Prefix query keys with current project UUID so switching projects invalidates all data. */
@@ -75,7 +83,7 @@ export function useCurrentUser() {
     queryFn: async () => {
       const res = await fetch('/api/auth/me');
       if (!res.ok) return null;
-      return res.json() as Promise<{ name: string; email: string; role: string }>;
+      return res.json() as Promise<CurrentUser>;
     },
     staleTime: 5 * 60_000,
   });
@@ -656,6 +664,116 @@ export function useDbDeleteRecord() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['db-records'] });
       qc.invalidateQueries({ queryKey: ['db-tables'] });
+    },
+  });
+}
+
+// --- Billing hooks ---
+// These call /api/billing/* directly (Next.js API routes, not proxied to scan server)
+
+export function useCredits() {
+  return useQuery({
+    queryKey: ['billing', 'credits'],
+    queryFn: async () => {
+      const res = await fetch('/api/billing/credits');
+      if (!res.ok) throw new Error('Failed to fetch credits');
+      return res.json() as Promise<CreditBalance>;
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useCreateCheckout() {
+  return useMutation({
+    mutationFn: async (req: CheckoutRequest) => {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Checkout failed');
+      }
+      return res.json() as Promise<CheckoutResponse>;
+    },
+  });
+}
+
+export function usePaymentHistory() {
+  return useQuery({
+    queryKey: ['billing', 'history'],
+    queryFn: async () => {
+      const res = await fetch('/api/billing/history');
+      if (!res.ok) throw new Error('Failed to fetch history');
+      return res.json() as Promise<PaymentHistoryItem[]>;
+    },
+  });
+}
+
+export function useCreatePortalSession() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/billing/portal', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Portal session failed');
+      }
+      return res.json() as Promise<PortalResponse>;
+    },
+  });
+}
+
+// --- Team hooks ---
+
+export function useTeamMembers() {
+  return useQuery({
+    queryKey: ['team', 'members'],
+    queryFn: async () => {
+      const res = await fetch('/api/team/members');
+      if (!res.ok) throw new Error('Failed to fetch members');
+      return res.json() as Promise<TeamMember[]>;
+    },
+  });
+}
+
+export function useInviteMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: InviteMemberRequest) => {
+      const res = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to invite');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['team', 'members'] });
+    },
+  });
+}
+
+export function useRemoveMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (membershipId: string) => {
+      const res = await fetch(`/api/team/members?membershipId=${membershipId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to remove member');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['team', 'members'] });
     },
   });
 }

@@ -4,6 +4,7 @@ export function generateStaticParams() {
   return [
     { tab: [] },
     { tab: ['config'] },
+    { tab: ['team'] },
     { tab: ['projects'] },
     { tab: ['theme'] },
     { tab: ['about'] },

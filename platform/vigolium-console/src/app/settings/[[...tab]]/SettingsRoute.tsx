@@ -5,7 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import DarkSettingsPage from '@/designs/dark/SettingsPage';
 import LightSettingsPage from '@/designs/light/SettingsPage';
 
-const VALID_TABS = ['config', 'projects', 'theme', 'about'] as const;
+const VALID_TABS = ['config', 'team', 'projects', 'theme', 'about'] as const;
 type SettingsTab = (typeof VALID_TABS)[number];
 
 export default function SettingsRoute({ params }: { params: Promise<{ tab?: string[] }> }) {
