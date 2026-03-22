@@ -43,7 +43,7 @@ func buildSwarmPromptContext(records []*httpmsg.HttpRequestResponse, targetURL s
 	}
 
 	opts = Options{
-		PromptTemplate: "agent-swarm-master",
+		PromptTemplate: "agent-swarm-plan",
 		TargetURL:      targetURL,
 		Hostname:       hostname,
 		Extra: map[string]string{
@@ -415,7 +415,7 @@ func TestSwarmPrompt_MultipleRawRequests(t *testing.T) {
 	}
 }
 
-// renderSwarmTemplate loads the embedded agent-swarm-master template and
+// renderSwarmTemplate loads the embedded agent-swarm-plan template and
 // renders it with the given options, simulating gatherContext + RenderTemplate.
 func renderSwarmTemplate(t *testing.T, opts Options) string {
 	t.Helper()
@@ -428,9 +428,9 @@ func renderSwarmTemplate(t *testing.T, opts Options) string {
 	// Point HOME away so only embedded templates are found
 	t.Setenv("HOME", t.TempDir())
 
-	tmpl, err := LoadTemplate("agent-swarm-master", "")
+	tmpl, err := LoadTemplate("agent-swarm-plan", "")
 	if err != nil {
-		t.Fatalf("LoadTemplate(agent-swarm-master) failed: %v", err)
+		t.Fatalf("LoadTemplate(agent-swarm-plan) failed: %v", err)
 	}
 
 	// Build TemplateData the same way gatherContext does

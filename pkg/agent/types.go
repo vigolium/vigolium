@@ -43,6 +43,10 @@ type Options struct {
 	// accumulation across phases that share the same agent backend.
 	SessionKey string `json:"-"`
 
+	// SessionID is a pre-generated UUID passed as --session-id to the Claude CLI (SDK mode only).
+	// Enables session persistence so the conversation can be resumed with `claude --resume <id>`.
+	SessionID string `json:"-"`
+
 	// Autopilot mode
 	Autopilot   bool // enable terminal execution for autonomous scanning
 	MaxCommands   int // max terminal commands the agent can run (0 = default 100)

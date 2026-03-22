@@ -92,7 +92,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		min(sessionOffset+len(runs), int(total)),
 		total)
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "UUID", "MODE", "AGENT", "STATUS", "SESSION ID", "TARGET", "FINDINGS", "RECORDS", "PHASE", "DURATION", "CREATED")
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "UUID", "MODE", "STATUS", "TARGET", "FINDINGS", "RECORDS", "PHASE", "DURATION", "CREATED")
 	for _, r := range runs {
 		status := r.Status
 		switch status {
@@ -122,11 +122,6 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 
 		uuid := r.UUID
 
-		sid := r.SessionID
-		if len(sid) > 12 {
-			sid = sid[:12] + "…"
-		}
-
 		phase := r.CurrentPhase
 
 		created := r.CreatedAt.Format("2006-01-02 15:04")
@@ -134,9 +129,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		tbl.AddRow(
 			terminal.Gray(uuid),
 			terminal.Cyan(r.Mode),
-			r.AgentName,
 			status,
-			terminal.Gray(sid),
 			target,
 			fmt.Sprintf("%d", r.FindingCount),
 			fmt.Sprintf("%d", r.RecordCount),

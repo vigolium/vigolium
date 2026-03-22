@@ -8,15 +8,13 @@ import {
   Network,
   Radio,
   GitBranch,
-  Blocks,
-  Puzzle,
   Target,
   Import,
   Radar,
   Bot,
   SlidersHorizontal,
-  Database,
   CreditCard,
+  Users,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -25,13 +23,11 @@ const NAV_ITEMS = [
   { href: '/http-records', label: 'HTTP RECORDS', icon: Network, group: 'default' as const },
   { href: '/oast-interactions', label: 'OAST', icon: Radio, group: 'default' as const },
   { href: '/source-repos', label: 'REPOS', icon: GitBranch, group: 'default' as const },
-  { href: '/modules', label: 'MODULES', icon: Blocks, group: 'blue' as const },
-  { href: '/extensions', label: 'EXTENSIONS', icon: Puzzle, group: 'blue' as const },
   { href: '/scope', label: 'SCOPE', icon: Target, group: 'blue' as const },
   { href: '/ingest', label: 'INGEST', icon: Import, group: 'orange' as const },
   { href: '/scan', label: 'NATIVE SCAN', icon: Radar, group: 'orange' as const },
   { href: '/agents', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' as const },
-  { href: '/database', label: 'DATABASE', icon: Database, group: 'blue' as const },
+  { href: '/team', label: 'TEAM', icon: Users, group: 'blue' as const },
   { href: '/billing', label: 'BILLING', icon: CreditCard, group: 'blue' as const },
   { href: '/settings', label: 'SETTINGS', icon: SlidersHorizontal, group: 'blue' as const },
 ];

@@ -151,13 +151,11 @@ func NormalizeSwarmPhase(phase string) string {
 
 // Prompt template constants for the agent swarm mode.
 const (
-	SwarmPromptMaster         = "agent-swarm-master"
-	SwarmPromptPlan           = "agent-swarm-plan"
-	SwarmPromptExtensions     = "agent-swarm-extensions"
-	SwarmPromptSourceAnalysis = "agent-swarm-source-analysis"
-	SwarmPromptCodeAudit      = "swarm-code-audit"
-	SwarmPromptSASTReview     = "swarm-sast-review"
-	SwarmPromptTriage         = "agent-swarm-triage"
+	SwarmPromptPlan       = "agent-swarm-plan"
+	SwarmPromptExtensions = "agent-swarm-extensions"
+	SwarmPromptCodeAudit  = "swarm-code-audit"
+	SwarmPromptSASTReview = "swarm-sast-review"
+	SwarmPromptTriage     = "agent-swarm-triage"
 )
 
 // SwarmPhaseDescription returns a short description of what a swarm phase does.
@@ -193,8 +191,6 @@ func SwarmPhaseDescription(phase string) string {
 // SwarmPhasePrompt returns the prompt template name for a given swarm phase, if any.
 func SwarmPhasePrompt(phase string) string {
 	switch phase {
-	case SwarmPhaseSourceAnalysis:
-		return SwarmPromptSourceAnalysis
 	case SwarmPhaseCodeAudit:
 		return SwarmPromptCodeAudit
 	case SwarmPhaseSASTReview:
@@ -237,6 +233,10 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 3
+	}
+	// Resolve agent name to default if empty — ensures the DB record has the effective name
+	if cfg.AgentName == "" && s.engine != nil && s.engine.settings != nil {
+		cfg.AgentName = s.engine.settings.Agent.DefaultAgent
 	}
 	// Create agent run record — use pre-assigned UUID if provided (e.g. from CLI session dir)
 	runUUID := cfg.RunUUID
@@ -311,6 +311,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 	}
 	result.SessionDir = sessionDir
+	cfg.SessionDir = sessionDir // ensure downstream functions can access the resolved session dir
 
 	// Checkpoint/resume support
 	var checkpoint *SwarmCheckpoint
@@ -366,7 +367,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 
 	// Save normalized inputs to session dir
-	writeInputsToSessionDir(sessionDir, records)
+	writeInputsToSessionDir(sessionDir, records, cfg.SourcePath)
 	phaseTimings[SwarmPhaseNormalize] = time.Since(phaseStart)
 	completedPhases = append(completedPhases, SwarmPhaseNormalize)
 	zap.L().Info("Agent swarm phase completed", zap.String("phase", SwarmPhaseNormalize), zap.Int("records", len(records)))
@@ -407,8 +408,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			SourcePath:     cfg.SourcePath,
 			Files:          cfg.Files,
 			Instruction:    cfg.Instruction,
-			PromptTemplate: SwarmPromptSourceAnalysis,
-			SessionKey:     SwarmPhaseSourceAnalysis,
+			SessionKey: SwarmPhaseSourceAnalysis,
 			DryRun:         cfg.DryRun,
 			ShowPrompt:     cfg.ShowPrompt,
 			ScanUUID:       cfg.ScanUUID,
@@ -581,9 +581,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if cfg.CodeAudit && !phaseCompleted(checkpoint, SwarmPhaseCodeAudit) {
 			s.emitPhase(cfg, SwarmPhaseCodeAudit)
 
-			// Pass source analysis raw output as context; if empty, the agent
-			// will read the source code directly via --source.
-			codeAuditFindings, caErr := s.runCodeAudit(ctx, cfg, targetURL, sessionDir, saRawOutput)
+			// When source analysis ran successfully, reuse the explore session
+			// so the code audit agent has full codebase context without re-reading.
+			reuseExploreSession := saRawOutput != ""
+			codeAuditFindings, caErr := s.runCodeAudit(ctx, cfg, targetURL, sessionDir, saRawOutput, reuseExploreSession)
 			if caErr != nil {
 				zap.L().Warn("Code audit failed, continuing", zap.Error(caErr))
 			} else if codeAuditFindings > 0 {
@@ -1071,7 +1072,7 @@ func (s *SwarmRunner) emitPhase(cfg SwarmConfig, phase string) {
 	if cfg.PhaseCallback != nil {
 		cfg.PhaseCallback(phase)
 	}
-	printPhaseLine("source-analysis", fmt.Sprintf("phase started: %s", phase))
+	printPhaseLine(phase, fmt.Sprintf("phase started: %s", phase))
 }
 
 // phaseCompleted returns true if the given phase is in the checkpoint's completed list.
@@ -1266,6 +1267,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		hostname = hostnameFromURL(targetURL)
 	}
 
+	planSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
@@ -1275,6 +1277,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		SessionKey:     SwarmPhasePlan,
+		SessionID:      planSessionID,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -1343,6 +1346,13 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		lastRawOutput = result.RawOutput
 		lastRenderedPrompt = result.RenderedPrompt
 
+		WriteSDKSessionEntry(cfg.SessionDir, SDKSessionEntry{
+			SessionID: planSessionID,
+			Phase:     SwarmPhasePlan,
+			AgentName: cfg.AgentName,
+			Timestamp: time.Now(),
+		})
+
 		if cfg.DryRun {
 			return nil, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 		}
@@ -1374,6 +1384,7 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 	// Build plan context summary for the extension agent
 	planContext := buildPlanContext(plan)
 
+	extPhaseSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
@@ -1383,6 +1394,7 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		SessionKey:     SwarmPhaseExtension,
+		SessionID:      extPhaseSessionID,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -1420,6 +1432,13 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		}
 		return nil, "", "", "", fmt.Errorf("extension agent execution failed: %w", runErr)
 	}
+
+	WriteSDKSessionEntry(cfg.SessionDir, SDKSessionEntry{
+		SessionID: extPhaseSessionID,
+		Phase:     SwarmPhaseExtension,
+		AgentName: cfg.AgentName,
+		Timestamp: time.Now(),
+	})
 
 	if cfg.DryRun {
 		return nil, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
@@ -1662,9 +1681,9 @@ func writePromptToSessionDir(sessionDir, filename, prompt string) {
 	zap.L().Debug("Prompt written to session dir", zap.String("path", path))
 }
 
-// writeInputsToSessionDir saves the normalized input records as JSON to the session directory.
-func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestResponse) {
-	if sessionDir == "" || len(records) == 0 {
+// writeInputsToSessionDir saves the normalized input records and source path as JSON to the session directory.
+func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestResponse, sourcePath string) {
+	if sessionDir == "" || (len(records) == 0 && sourcePath == "") {
 		return
 	}
 	type inputRecord struct {
@@ -1673,7 +1692,11 @@ func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestRe
 		Headers map[string]string `json:"headers,omitempty"`
 		Body    string            `json:"body,omitempty"`
 	}
-	var inputs []inputRecord
+	type inputsFile struct {
+		SourcePath string        `json:"source_path,omitempty"`
+		Records    []inputRecord `json:"records"`
+	}
+	var inputRecords []inputRecord
 	for _, rr := range records {
 		ir := inputRecord{}
 		if rr.Request() != nil {
@@ -1689,9 +1712,13 @@ func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestRe
 				ir.Body = string(body)
 			}
 		}
-		inputs = append(inputs, ir)
+		inputRecords = append(inputRecords, ir)
 	}
-	data, err := json.MarshalIndent(inputs, "", "  ")
+	out := inputsFile{
+		SourcePath: sourcePath,
+		Records:    inputRecords,
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		zap.L().Warn("Failed to marshal inputs", zap.Error(err))
 		return
@@ -1701,7 +1728,7 @@ func writeInputsToSessionDir(sessionDir string, records []*httpmsg.HttpRequestRe
 		zap.L().Warn("Failed to write inputs to session dir", zap.Error(writeErr))
 		return
 	}
-	zap.L().Debug("Inputs written to session dir", zap.String("path", path), zap.Int("count", len(inputs)))
+	zap.L().Debug("Inputs written to session dir", zap.String("path", path), zap.Int("count", len(inputRecords)))
 }
 
 // ExtensionMergeResult holds the merged extensions plus any rename tracking info.
@@ -2286,6 +2313,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		}
 	}
 
+	sastReviewSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
@@ -2295,6 +2323,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		SourcePath:     cfg.SourcePath,
 		Instruction:    cfg.Instruction,
 		SessionKey:     SwarmPhaseSASTReview,
+		SessionID:      sastReviewSessionID,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -2314,6 +2343,13 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		zap.L().Warn("SAST review agent failed", zap.Error(runErr))
 		return nil
 	}
+
+	WriteSDKSessionEntry(sessionDir, SDKSessionEntry{
+		SessionID: sastReviewSessionID,
+		Phase:     SwarmPhaseSASTReview,
+		AgentName: cfg.AgentName,
+		Timestamp: time.Now(),
+	})
 
 	// Save prompt and output to session dir
 	writePromptToSessionDir(sessionDir, "sast-review-prompt.md", agentResult.RenderedPrompt)
@@ -2379,7 +2415,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 // data flow vulnerabilities, and framework misconfigurations that static analysis tools miss.
 // It receives source analysis output as context (routes, auth flows) to avoid redundant codebase reads.
 // Findings are saved directly to the database with module_type "agent-code-audit".
-func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string, sourceAnalysisNotes string) (int, error) {
+func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string, sourceAnalysisNotes string, reuseExploreSession bool) (int, error) {
 	if s.repo == nil {
 		return 0, fmt.Errorf("code audit skipped: no database repository")
 	}
@@ -2392,9 +2428,14 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 		"Hostname":  hostname,
 	}
 
-	// If source analysis produced notes, pass them as context so the agent
-	// doesn't need to re-read the entire codebase.
-	if sourceAnalysisNotes != "" {
+	// Determine session key: reuse the explore session when available,
+	// so the agent already has full codebase context from source analysis.
+	sessionKey := SwarmPhaseCodeAudit
+	if reuseExploreSession && s.engine.sdkPool != nil {
+		sessionKey = "sa-explore" // reuse explore session (multi-turn)
+		// Context is already in the session — don't append raw notes.
+	} else if sourceAnalysisNotes != "" {
+		// Fallback: pass source analysis notes as extra context.
 		extra["SourceAnalysisContext"] = sourceAnalysisNotes
 	}
 
@@ -2414,6 +2455,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 		}
 	}
 
+	codeAuditSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
 		AgentACPCmd:    cfg.AgentACPCmd,
@@ -2423,7 +2465,8 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 		SourcePath:     cfg.SourcePath,
 		Files:          cfg.Files,
 		Instruction:    cfg.Instruction,
-		SessionKey:     SwarmPhaseCodeAudit,
+		SessionKey:     sessionKey,
+		SessionID:      codeAuditSessionID,
 		DryRun:         cfg.DryRun,
 		ShowPrompt:     cfg.ShowPrompt,
 		ScanUUID:       cfg.ScanUUID,
@@ -2438,6 +2481,13 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 	if runErr != nil {
 		return 0, fmt.Errorf("code audit agent failed: %w", runErr)
 	}
+
+	WriteSDKSessionEntry(sessionDir, SDKSessionEntry{
+		SessionID: codeAuditSessionID,
+		Phase:     SwarmPhaseCodeAudit,
+		AgentName: cfg.AgentName,
+		Timestamp: time.Now(),
+	})
 
 	// Save prompt and output to session dir
 	writePromptToSessionDir(sessionDir, "code-audit-prompt.md", agentResult.RenderedPrompt)

@@ -147,6 +147,26 @@ func TestBuildArgs_Resume(t *testing.T) {
 	assertFlagValue(t, args, "--resume", "session-abc123")
 }
 
+func TestBuildArgs_SessionID(t *testing.T) {
+	opts := &Options{SessionID: "550e8400-e29b-41d4-a716-446655440000"}
+	args := opts.buildArgs()
+	assertFlagValue(t, args, "--session-id", "550e8400-e29b-41d4-a716-446655440000")
+}
+
+func TestBuildArgs_SessionID_OverridesNoSessionPersistence(t *testing.T) {
+	// When SessionID is set, --no-session-persistence must NOT be emitted
+	// even if NoSessionPersistence is true.
+	opts := &Options{
+		SessionID:            "550e8400-e29b-41d4-a716-446655440000",
+		NoSessionPersistence: true,
+	}
+	args := opts.buildArgs()
+	assertFlagValue(t, args, "--session-id", "550e8400-e29b-41d4-a716-446655440000")
+	if slices.Contains(args, "--no-session-persistence") {
+		t.Error("--no-session-persistence should not be present when SessionID is set")
+	}
+}
+
 func TestBuildArgs_AgentsJSON(t *testing.T) {
 	opts := &Options{AgentsJSON: `{"reviewer":{"description":"Reviews code","prompt":"You are a reviewer"}}`}
 	args := opts.buildArgs()

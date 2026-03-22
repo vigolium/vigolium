@@ -32,6 +32,10 @@ type Options struct {
 	// Don't save sessions to disk — scanner doesn't need session persistence.
 	NoSessionPersistence bool
 
+	// Use a specific session ID for the conversation (must be a valid UUID).
+	// When set, NoSessionPersistence is ignored (persistence required for resume).
+	SessionID string
+
 	// Minimal mode: skip hooks, LSP, auto-memory, CLAUDE.md discovery.
 	Bare bool
 
@@ -107,7 +111,10 @@ func (o *Options) buildArgs() []string {
 	if o.IncludePartialMessages {
 		args = append(args, "--include-partial-messages")
 	}
-	if o.NoSessionPersistence {
+	if o.SessionID != "" {
+		// When a session ID is provided, enable persistence so the session can be resumed later.
+		args = append(args, "--session-id", o.SessionID)
+	} else if o.NoSessionPersistence {
 		args = append(args, "--no-session-persistence")
 	}
 	if o.Bare {

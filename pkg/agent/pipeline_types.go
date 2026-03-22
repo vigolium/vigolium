@@ -908,8 +908,7 @@ type SourceAnalysisConfig struct {
 	SourcePath     string
 	Files          []string
 	Instruction    string // user-provided custom instruction appended to the prompt
-	PromptTemplate string // override template ID (default: "agent-swarm-source-analysis")
-	SessionKey     string // pool session key override (prevents context accumulation across phases)
+	SessionKey string // pool session key override (prevents context accumulation across phases)
 	DryRun         bool
 	ShowPrompt     bool // print rendered prompt to stderr before executing
 	ScanUUID       string
@@ -1009,6 +1008,49 @@ func EnsureSessionDir(baseDir, runID string) (string, error) {
 		return "", fmt.Errorf("failed to create session dir: %w", err)
 	}
 	return dir, nil
+}
+
+// SDKSessionEntry records a single Claude Code SDK session for a swarm phase.
+type SDKSessionEntry struct {
+	SessionID string    `json:"session_id"`
+	Phase     string    `json:"phase"`
+	AgentName string    `json:"agent_name"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// SDKSessionManifest maps swarm phases to their Claude Code SDK session IDs.
+// Written to agent-sdk-sessions.json in the session directory.
+type SDKSessionManifest struct {
+	RunID   string            `json:"run_id"`
+	Entries []SDKSessionEntry `json:"entries"`
+}
+
+// WriteSDKSessionEntry appends a session entry to agent-sdk-sessions.json in the session directory.
+// Creates the file if it doesn't exist, otherwise reads and appends.
+func WriteSDKSessionEntry(sessionDir string, entry SDKSessionEntry) {
+	if sessionDir == "" || entry.SessionID == "" {
+		return
+	}
+	manifestPath := filepath.Join(sessionDir, "agent-sdk-sessions.json")
+
+	var manifest SDKSessionManifest
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		_ = json.Unmarshal(data, &manifest)
+	}
+	// Derive RunID from session dir basename
+	if manifest.RunID == "" {
+		manifest.RunID = filepath.Base(sessionDir)
+	}
+	manifest.Entries = append(manifest.Entries, entry)
+
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		zap.L().Warn("failed to marshal SDK session manifest", zap.Error(err))
+		return
+	}
+	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+		zap.L().Warn("failed to write SDK session manifest", zap.Error(err), zap.String("path", manifestPath))
+	}
 }
 
 // WriteExtensionsToSessionDir writes generated JavaScript extensions to <sessionDir>/extensions/

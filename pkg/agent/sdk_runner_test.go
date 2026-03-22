@@ -171,6 +171,32 @@ func TestBuildSDKOptions_Effort(t *testing.T) {
 	}
 }
 
+func TestBuildSDKOptions_SessionID(t *testing.T) {
+	agentDef := config.AgentDef{Command: "claude"}
+	cfg := sdkRunConfig{SessionID: "550e8400-e29b-41d4-a716-446655440000"}
+
+	opts := buildSDKOptions(agentDef, cfg)
+	if opts.SessionID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Errorf("SessionID: got %q", opts.SessionID)
+	}
+	if opts.NoSessionPersistence {
+		t.Error("NoSessionPersistence should be false when SessionID is set")
+	}
+}
+
+func TestBuildSDKOptions_NoSessionID(t *testing.T) {
+	agentDef := config.AgentDef{Command: "claude"}
+	cfg := sdkRunConfig{}
+
+	opts := buildSDKOptions(agentDef, cfg)
+	if opts.SessionID != "" {
+		t.Errorf("SessionID should be empty, got %q", opts.SessionID)
+	}
+	if !opts.NoSessionPersistence {
+		t.Error("NoSessionPersistence should be true when no SessionID")
+	}
+}
+
 func TestBuildSDKOptions_EnvVars(t *testing.T) {
 	agentDef := config.AgentDef{
 		Command: "claude",

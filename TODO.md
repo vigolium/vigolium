@@ -2,3 +2,5 @@
 - add pre-extension setup for cloning repo, fetching related information before starting the scan or agentic scan
 
 - Added Network scan with nmap in spa phase
+
+- Added agent SDK for opencode and codex

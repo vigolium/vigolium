@@ -8,6 +8,7 @@ import type { ScanURLRequest, ScanRequestRequest, RunScanRequest, ScanAllRecords
 import { formatDate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
+import GitHubRepoPicker from './GitHubRepoPicker';
 
 type ScanMode = 'full_scan' | 'url' | 'raw_request' | 'repo_scan' | 'stored_records';
 
@@ -557,6 +558,10 @@ export default function ScanPage() {
                 </button>
                 {fsAdvancedOpen && (
                   <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
+                    <div>
+                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                      <GitHubRepoPicker onSelect={(url) => { setFsRepoUrl(url); setFsRepoPath(''); }} selectedRepo={fsRepoUrl.includes('x-access-token') ? fsRepoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                    </div>
                     <div className="flex gap-2">
                       <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_PATH (local path)</label><input type="text" value={fsRepoPath} onChange={(e) => { setFsRepoPath(e.target.value); if (e.target.value) setFsRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>
                       <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_URL (git URL)</label><input type="text" value={fsRepoUrl} onChange={(e) => { setFsRepoUrl(e.target.value); if (e.target.value) setFsRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} /></div>
@@ -645,6 +650,10 @@ export default function ScanPage() {
                   <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
                   {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — repo_path set</p>}
                   {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
+                </div>
+                <div>
+                  <label className="text-[#918175] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                  <GitHubRepoPicker onSelect={(url) => { setRsRepoUrl(url); setRsRepoPath(''); }} selectedRepo={rsRepoUrl.includes('x-access-token') ? rsRepoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
                 </div>
                 <div className="flex gap-2">
                   <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_PATH (local path or uploaded)</label><input type="text" value={rsRepoPath} onChange={(e) => { setRsRepoPath(e.target.value); if (e.target.value) setRsRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>

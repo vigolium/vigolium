@@ -10,10 +10,10 @@ import 'prismjs/components/prism-bash';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-yaml';
-import { Info, Search, Settings, Palette, FolderKanban, Plus, Trash2, Check, Users, Mail } from 'lucide-react';
+import { Info, Search, Palette, FolderKanban, Plus, Trash2, Check } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { COLOR_SCHEMES, type ColorScheme } from '@/lib/colorSchemes';
-import { useConfig, useUpdateConfig, useProjects, useDeleteProject, useCreateProject, useTeamMembers, useInviteMember, useRemoveMember, useCurrentUser } from '@/api/hooks';
+import { useConfig, useUpdateConfig, useProjects, useDeleteProject, useCreateProject } from '@/api/hooks';
 import type { ConfigEntry, ProjectWithStats } from '@/api/types';
 import { useToast } from '@/contexts/ToastContext';
 import { useProjectContext } from '@/contexts/ProjectContext';
@@ -106,135 +106,15 @@ function SchemeCard({ scheme, isSelected, onSelect }: { scheme: ColorScheme; isS
   );
 }
 
-function TeamTab() {
-  const { data: members, isLoading } = useTeamMembers();
-  const { data: currentUser } = useCurrentUser();
-  const invite = useInviteMember();
-  const remove = useRemoveMember();
-  const { toast } = useToast();
-  const [email, setEmail] = useState('');
+type SettingsTab = 'projects' | 'theme' | 'about';
 
-  const handleInvite = async () => {
-    if (!email.trim()) return;
-    try {
-      await invite.mutateAsync({ email: email.trim() });
-      toast(`Invitation sent to ${email}`, 'success');
-      setEmail('');
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to invite', 'error');
-    }
-  };
-
-  const handleRemove = async (membershipId: string, name: string) => {
-    if (!confirm(`Remove ${name} from the team?`)) return;
-    try {
-      await remove.mutateAsync(membershipId);
-      toast(`${name} removed`, 'success');
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to remove', 'error');
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Users className="w-4 h-4" style={{ color: 'var(--v-secondary)' }} />
-        <h2 className="text-sm font-bold" style={{ color: 'var(--v-accent)' }}>
-          Team{currentUser?.organization ? ` — ${currentUser.organization.name}` : ''}
-        </h2>
-      </div>
-
-      {/* Invite */}
-      <div className="flex items-center gap-2">
-        <Mail className="w-3 h-3" style={{ color: 'var(--v-text-muted)' }} />
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
-          placeholder="email@example.com"
-          className="flex-1 px-2 py-1 text-xs border outline-none"
-          style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
-        />
-        <button
-          onClick={handleInvite}
-          disabled={invite.isPending || !email.trim()}
-          className="px-3 py-1 text-xs font-bold border transition-colors"
-          style={{ borderColor: 'var(--v-accent)', color: 'var(--v-accent)' }}
-        >
-          {invite.isPending ? 'Sending...' : 'Invite'}
-        </button>
-      </div>
-
-      {/* Members */}
-      <div className="border overflow-hidden" style={{ borderColor: 'var(--v-border)' }}>
-        <table className="w-full text-xs">
-          <thead>
-            <tr style={{ backgroundColor: 'color-mix(in srgb, var(--v-surface) 50%, transparent)' }}>
-              <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Name</th>
-              <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Email</th>
-              <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Role</th>
-              <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Joined</th>
-              <th className="w-8"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr><td colSpan={5} className="px-3 py-4 text-center" style={{ color: 'var(--v-text-muted)' }}>Loading...</td></tr>
-            )}
-            {members?.map((m) => (
-              <tr key={m.id} className="border-t" style={{ borderColor: 'var(--v-border)' }}>
-                <td className="px-3 py-1.5" style={{ color: 'var(--v-text)' }}>{m.name}</td>
-                <td className="px-3 py-1.5" style={{ color: 'var(--v-text-muted)' }}>{m.email}</td>
-                <td className="px-3 py-1.5">
-                  <span
-                    className="px-1.5 py-0.5 text-[10px] uppercase rounded"
-                    style={{
-                      backgroundColor: m.role === 'admin'
-                        ? 'color-mix(in srgb, var(--v-accent) 15%, transparent)'
-                        : 'color-mix(in srgb, var(--v-text-muted) 15%, transparent)',
-                      color: m.role === 'admin' ? 'var(--v-accent)' : 'var(--v-text-muted)',
-                    }}
-                  >
-                    {m.role}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5" style={{ color: 'var(--v-text-muted)' }}>
-                  {new Date(m.joined_at).toLocaleDateString()}
-                </td>
-                <td className="px-3 py-1.5">
-                  {m.email !== currentUser?.email && (
-                    <button
-                      onClick={() => handleRemove(m.membership_id, m.name)}
-                      className="transition-colors"
-                      style={{ color: 'var(--v-error)' }}
-                      title="Remove member"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {!isLoading && (!members || members.length === 0) && (
-              <tr><td colSpan={5} className="px-3 py-4 text-center" style={{ color: 'var(--v-text-muted)' }}>No team members</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-type SettingsTab = 'config' | 'team' | 'theme' | 'projects' | 'about';
-
-export default function SettingsPage({ initialTab = 'config' }: { initialTab?: SettingsTab }) {
+export default function SettingsPage({ initialTab = 'projects' }: { initialTab?: SettingsTab }) {
   const { schemeId, setScheme } = useTheme();
   const router = useRouter();
   const [activeTab, setActiveTabState] = useState<SettingsTab>(initialTab);
   const setActiveTab = useCallback((tab: SettingsTab) => {
     setActiveTabState(tab);
-    router.replace(tab === 'config' ? '/settings' : `/settings/${tab}`, { scroll: false });
+    router.replace(tab === 'projects' ? '/settings' : `/settings/${tab}`, { scroll: false });
   }, [router]);
   const [filter, setFilter] = useState('');
 
@@ -354,7 +234,7 @@ export default function SettingsPage({ initialTab = 'config' }: { initialTab?: S
     <PageShell>
       <div className="px-4 py-4">
         <div className="flex items-center gap-4 pb-2 mb-4 border-b" style={{ borderColor: 'var(--v-border)' }}>
-          {(['config', 'team', 'projects', 'theme', 'about'] as const).map((tab) => (
+          {(['projects', 'theme', 'about'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -364,8 +244,6 @@ export default function SettingsPage({ initialTab = 'config' }: { initialTab?: S
                 borderColor: activeTab === tab ? 'var(--v-accent)' : 'transparent',
               }}
             >
-              {tab === 'config' && <Settings className="w-3 h-3" />}
-              {tab === 'team' && <Users className="w-3 h-3" />}
               {tab === 'projects' && <FolderKanban className="w-3 h-3" />}
               {tab === 'theme' && <Palette className="w-3 h-3" />}
               {tab === 'about' && <Info className="w-3 h-3" />}
@@ -373,121 +251,6 @@ export default function SettingsPage({ initialTab = 'config' }: { initialTab?: S
             </button>
           ))}
         </div>
-
-        {activeTab === 'config' && (
-          <div className="space-y-4">
-          <div className="border overflow-hidden" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
-            <div className="px-3 py-1.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--v-border)' }}>
-              <span className="text-xs font-bold" style={{ color: 'var(--v-accent)' }}>~/.vigolium/vigolium-configs.yaml</span>
-              <input
-                type="text"
-                value={configFilter}
-                onChange={(e) => setConfigFilter(e.target.value)}
-                placeholder="filter..."
-                className="border text-xs px-2 py-0.5 w-40 focus:outline-none"
-                style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
-              />
-            </div>
-
-            {Object.keys(grouped).length > 0 && (
-              <div className="px-3 py-1.5 border-b flex items-center gap-1.5 overflow-x-auto" style={{ borderColor: 'var(--v-border)' }}>
-                <button
-                  onClick={() => setActiveTag(null)}
-                  className="shrink-0 px-1.5 py-0.5 text-[10px] font-bold uppercase border transition-colors"
-                  style={activeTag === null
-                    ? { borderColor: 'color-mix(in srgb, var(--v-accent) 50%, transparent)', color: 'var(--v-accent)', backgroundColor: 'color-mix(in srgb, var(--v-accent) 10%, transparent)' }
-                    : { borderColor: 'var(--v-border)', color: 'var(--v-text-muted)' }
-                  }
-                >
-                  ALL
-                </button>
-                {Object.keys(grouped).map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-                    className="shrink-0 px-1.5 py-0.5 text-[10px] font-bold uppercase border transition-colors"
-                    style={activeTag === tag
-                      ? { borderColor: 'color-mix(in srgb, var(--v-accent) 50%, transparent)', color: 'var(--v-accent)', backgroundColor: 'color-mix(in srgb, var(--v-accent) 10%, transparent)' }
-                      : { borderColor: 'var(--v-border)', color: 'var(--v-text-muted)' }
-                    }
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
-              {Object.entries(grouped).filter(([prefix]) => !activeTag || prefix === activeTag).map(([prefix, items]) => {
-                const collapsed = collapsedSections.has(prefix);
-                return (
-                  <div key={prefix}>
-                    <button
-                      onClick={() => toggleSection(prefix)}
-                      className="w-full px-3 py-1 text-[10px] font-bold uppercase border-b flex items-center gap-1 transition-colors"
-                      style={{ backgroundColor: 'var(--v-surface)', color: 'var(--v-accent)', borderColor: 'var(--v-border)' }}
-                    >
-                      <span>{collapsed ? '\u25b8' : '\u25be'}</span> [{prefix}]
-                      <span className="ml-auto font-normal" style={{ color: 'var(--v-text-muted)' }}>{items.length}</span>
-                    </button>
-                    {!collapsed && <div className="divide-y" style={{ borderColor: 'var(--v-surface)' }}>
-                      {items.map((entry) => (
-                        <div key={entry.key} className="px-3 py-1 transition-colors text-xs flex items-center justify-between gap-2" style={{ borderColor: 'var(--v-surface)' }}>
-                          <span className="shrink-0 w-[280px] truncate" style={{ color: 'var(--v-text-muted)' }}>{entry.key}</span>
-                          {editingKey === entry.key ? (
-                            <div className="flex items-center gap-1 flex-1">
-                              <input
-                                type="text"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                                className="border text-xs px-1.5 py-0.5 flex-1 focus:outline-none"
-                                style={{ backgroundColor: 'var(--v-bg)', borderColor: 'color-mix(in srgb, var(--v-accent) 50%, transparent)', color: 'var(--v-text)' }}
-                                autoFocus
-                              />
-                              <button onClick={saveEdit} className="px-1" style={{ color: 'var(--v-success)' }}>[ok]</button>
-                              <button onClick={() => setEditingKey(null)} className="px-1" style={{ color: 'var(--v-error)' }}>[x]</button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className="truncate flex-1" style={{ color: 'var(--v-text)' }}>
-                                {entry.sensitive && !revealedKeys.has(entry.key)
-                                  ? '********'
-                                  : entry.value}
-                              </span>
-                              {entry.sensitive && (
-                                <button
-                                  onClick={() => toggleReveal(entry.key)}
-                                  className="text-[10px] shrink-0"
-                                  style={{ color: 'var(--v-text-muted)' }}
-                                >
-                                  {revealedKeys.has(entry.key) ? '[hide]' : '[show]'}
-                                </button>
-                              )}
-                              <button
-                                onClick={() => startEdit(entry)}
-                                className="text-[10px] shrink-0"
-                                style={{ color: 'var(--v-text-muted)' }}
-                              >
-                                [edit]
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>}
-                  </div>
-                );
-              })}
-              {configEntries.length === 0 && (
-                <div className="px-3 py-4 text-xs" style={{ color: 'var(--v-text-muted)' }}>no config entries</div>
-              )}
-            </div>
-          </div>
-          </div>
-        )}
-
-        {activeTab === 'team' && <TeamTab />}
 
         {activeTab === 'projects' && (
           <div className="space-y-3">

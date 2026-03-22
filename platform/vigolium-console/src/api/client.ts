@@ -37,7 +37,7 @@ export function getBaseUrl(): string {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const base = getBaseUrl();
-  const url = new URL(path, base);
+  const url = base + path;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -47,7 +47,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers['X-Project-UUID'] = projectUUID;
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -97,7 +97,7 @@ export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
 
 export function apiUpload<T>(path: string, file: File): Promise<T> {
   const base = getBaseUrl();
-  const url = new URL(path, base);
+  const url = base + path;
 
   const headers: Record<string, string> = {};
   const projectUUID = getProjectUUID();
@@ -108,7 +108,7 @@ export function apiUpload<T>(path: string, file: File): Promise<T> {
   const formData = new FormData();
   formData.append('file', file);
 
-  return fetch(url.toString(), {
+  return fetch(url, {
     method: 'POST',
     headers,
     body: formData,

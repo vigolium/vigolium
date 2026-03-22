@@ -26,6 +26,18 @@ func printPhaseLine(phaseTag, message string) {
 	fmt.Fprintf(os.Stderr, "%s%s\n", prefix, colorizeMessage(message))
 }
 
+// printPhasePromptLine prints a prompt template line in phase output style:
+//
+//	❯ source-analysis │ prompt: swarm-source-explore (path=~/.vigolium/prompts/swarm/swarm-source-explore.md)
+//
+// The prompt name is colored orange and the path is muted.
+func printPhasePromptLine(phaseTag, promptName, promptPath string) {
+	prefix := terminal.Muted(terminal.SymbolChevron+" "+phaseTag+" "+terminal.SymbolPipe) + " "
+	line := terminal.Bold("prompt: ") + terminal.Orange(promptName) + " " +
+		terminal.Muted("(path="+promptPath+")")
+	fmt.Fprintf(os.Stderr, "%s%s\n", prefix, line)
+}
+
 // colorizeMessage applies color to a phase-line message body.
 // It splits the message into a leading text portion and trailing key=value
 // pairs separated by double-space ("  "). The text is bolded, and each

@@ -1812,9 +1812,10 @@ Reason: Test IDOR vulnerability in basket endpoint by accessing other users bask
 }`
 
 	// The script reads stdin, detects role by keywords, and outputs the appropriate response.
-	// Use unique markers from the consolidated prompt templates to distinguish sub-agents:
-	// - swarm-source-explore.md: "explore the application source code"
-	// - swarm-source-format.md: "previously analyzed the application source code"
+	// Use unique markers from the prompt templates to distinguish sub-agents:
+	// - swarm-source-explore.md: unified route + auth exploration
+	// - swarm-source-format-routes.md: format routes to JSONL
+	// - swarm-source-format-session.md: format session config
 	// - swarm-source-extensions.md: "Generate targeted JavaScript scanner extensions"
 	// - agent-swarm-extensions.md (Phase 2): "Plan Context" in {{.Extra.PlanContext}}
 	// - agent-swarm-plan.md (Phase 1): fallback

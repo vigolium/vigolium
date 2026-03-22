@@ -10,6 +10,7 @@ import type { AgentSession, AgentSessionDetail } from '@/api/types';
 import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
+import GitHubRepoPicker from './GitHubRepoPicker';
 
 type MainTab = 'swarm' | 'autopilot' | 'query' | 'chat';
 type ScanMode = 'template' | 'custom';
@@ -669,10 +670,14 @@ export default function AgentsPage() {
                   {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — source path set</p>}
                   {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
                 </div>
+                <div>
+                  <label className="text-[#918175] text-xs block mb-0.5">GitHub Repo</label>
+                  <GitHubRepoPicker onSelect={(url) => setSwarmSource(url)} selectedRepo={swarmSource.includes('x-access-token') ? swarmSource.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Source Path</label>
-                  <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source" className={inputClass} />
+                  <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source or GitHub clone URL" className={inputClass} />
                 </div>
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Max Iterations</label>
@@ -782,8 +787,12 @@ export default function AgentsPage() {
                   <input value={promptTemplate} onChange={(e) => setPromptTemplate(e.target.value)} placeholder="security-analysis" className={inputClass} />
                 </div>
                 <div>
+                  <label className="text-[#918175] text-xs block mb-0.5">GitHub Repo</label>
+                  <GitHubRepoPicker onSelect={(url) => setRepoPath(url)} selectedRepo={repoPath.includes('x-access-token') ? repoPath.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                </div>
+                <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Repo Path</label>
-                  <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/path/to/repo" className={inputClass} />
+                  <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/path/to/repo or GitHub clone URL" className={inputClass} />
                 </div>
               </div>
             ) : (
@@ -909,8 +918,12 @@ export default function AgentsPage() {
                     <input value={autopilotMaxCommands} onChange={(e) => setAutopilotMaxCommands(e.target.value)} placeholder="50" className={inputClass} />
                   </div>
                   <div>
+                    <label className="text-[#918175] text-xs block mb-0.5">GitHub Repo</label>
+                    <GitHubRepoPicker onSelect={(url) => setAutopilotRepoPath(url)} selectedRepo={autopilotRepoPath.includes('x-access-token') ? autopilotRepoPath.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                  </div>
+                  <div>
                     <label className="text-[#918175] text-xs block mb-0.5">Repo Path</label>
-                    <input value={autopilotRepoPath} onChange={(e) => setAutopilotRepoPath(e.target.value)} placeholder="/path/to/repo" className={inputClass} />
+                    <input value={autopilotRepoPath} onChange={(e) => setAutopilotRepoPath(e.target.value)} placeholder="/path/to/repo or GitHub clone URL" className={inputClass} />
                   </div>
                   <div>
                     <label className="text-[#918175] text-xs block mb-0.5">Scan UUID</label>

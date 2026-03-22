@@ -24,6 +24,9 @@ You are a senior application security engineer performing a **deep security code
 The following notes were produced by a prior source analysis phase that explored the codebase for routes, authentication flows, and vulnerability sinks. Use this context to focus your audit — do not re-discover what is already documented here:
 
 {{.Extra.SourceAnalysisContext}}
+{{- else}}
+
+You have already explored this codebase in a prior conversation turn. Use the routes, authentication flows, and vulnerability sinks you previously documented as context for this audit. Do not re-explore the codebase from scratch — focus on finding vulnerabilities in the code paths you already identified.
 {{- end}}
 
 {{- if .Extra.DiscoveredRoutes}}

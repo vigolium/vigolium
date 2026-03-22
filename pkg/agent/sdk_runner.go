@@ -21,6 +21,7 @@ type sdkRunConfig struct {
 	AdditionalDirs     []string // extra directories the agent can access (--add-dir)
 	AppendSystemPrompt string   // appended to the default Claude Code system prompt
 	Effort             string   // "low", "medium", "high"
+	SessionID          string   // pre-generated UUID for --session-id (enables persistence + resume)
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -76,6 +77,12 @@ func buildSDKOptions(agentDef config.AgentDef, cfg sdkRunConfig) *claudesdk.Opti
 			"EnterPlanMode",
 			"ExitPlanMode",
 		},
+	}
+
+	// Session ID: when provided, enable persistence so the session can be resumed.
+	if cfg.SessionID != "" {
+		opts.SessionID = cfg.SessionID
+		opts.NoSessionPersistence = false
 	}
 
 	// Model: cfg override > agentDef > default

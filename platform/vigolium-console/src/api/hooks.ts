@@ -69,6 +69,10 @@ import type {
   PortalResponse,
   TeamMember,
   InviteMemberRequest,
+  GitHubStatusResponse,
+  GitHubReposResponse,
+  GitHubCloneUrlRequest,
+  GitHubCloneUrlResponse,
 } from './types';
 
 /** Prefix query keys with current project UUID so switching projects invalidates all data. */
@@ -774,6 +778,67 @@ export function useRemoveMember() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['team', 'members'] });
+    },
+  });
+}
+
+// --- GitHub hooks ---
+
+export function useGitHubStatus() {
+  return useQuery({
+    queryKey: ['github', 'status'],
+    queryFn: async () => {
+      const res = await fetch('/api/github/status');
+      if (!res.ok) return { connected: false } as GitHubStatusResponse;
+      return res.json() as Promise<GitHubStatusResponse>;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useGitHubRepos(enabled = true) {
+  return useQuery({
+    queryKey: ['github', 'repos'],
+    queryFn: async () => {
+      const res = await fetch('/api/github/repos');
+      if (!res.ok) throw new Error('Failed to fetch repos');
+      return res.json() as Promise<GitHubReposResponse>;
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useGitHubCloneUrl() {
+  return useMutation({
+    mutationFn: async (req: GitHubCloneUrlRequest) => {
+      const res = await fetch('/api/github/clone-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to generate clone URL');
+      }
+      return res.json() as Promise<GitHubCloneUrlResponse>;
+    },
+  });
+}
+
+export function useGitHubDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/github/disconnect', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to disconnect');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['github'] });
     },
   });
 }

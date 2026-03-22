@@ -8,6 +8,7 @@ import type { ScanURLRequest, ScanRequestRequest, RunScanRequest, ScanAllRecords
 import { formatDate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
+import GitHubRepoPicker from './GitHubRepoPicker';
 
 type ScanMode = 'full_scan' | 'url' | 'raw_request' | 'repo_scan' | 'stored_records';
 
@@ -590,6 +591,10 @@ export default function ScanPage() {
                 </button>
                 {fsAdvancedOpen && (
                   <div className="space-y-2 pl-4 border-l-2 border-[#bbc3c4]">
+                    <div>
+                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                      <GitHubRepoPicker onSelect={(url) => { setFsRepoUrl(url); setFsRepoPath(''); }} selectedRepo={fsRepoUrl.includes('x-access-token') ? fsRepoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                    </div>
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">REPO_PATH (local path)</label>
@@ -752,6 +757,10 @@ export default function ScanPage() {
                   )}
                 </div>
 
+                <div>
+                  <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                  <GitHubRepoPicker onSelect={(url) => { setRsRepoUrl(url); setRsRepoPath(''); }} selectedRepo={rsRepoUrl.includes('x-access-token') ? rsRepoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                </div>
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">REPO_PATH (local path or uploaded)</label>

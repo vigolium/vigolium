@@ -330,7 +330,11 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	if settings.Agent.StreamEnabled() {
+	// Only stream raw agent output to stdout in verbose/debug mode.
+	// In normal mode, phase progress lines (❯ phase │ ...) and output file
+	// paths are printed instead — the full LLM response is saved to the
+	// session directory.
+	if settings.Agent.StreamEnabled() && zap.L().Core().Enabled(zap.DebugLevel) {
 		cfg.StreamWriter = os.Stdout
 	}
 
@@ -413,9 +417,9 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr, modeLine)
 
 	// Prompt
-	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptMaster, settings.Agent.TemplatesDir)
+	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptPlan, settings.Agent.TemplatesDir)
 	fmt.Fprintf(os.Stderr, "  %s Prompt: %s %s\n", terminal.Purple(terminal.SymbolInfo),
-		terminal.Orange(agent.SwarmPromptMaster), terminal.Muted(promptPath))
+		terminal.Orange(agent.SwarmPromptPlan), terminal.Muted(promptPath))
 
 	// Target / Inputs
 	if inputDesc != "" {
@@ -536,8 +540,8 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 		promptName := agent.SwarmPhasePrompt(phase)
 		if promptName != "" {
 			pp := agent.ResolveTemplatePath(promptName, settings.Agent.TemplatesDir)
-			fmt.Fprintf(os.Stderr, "  %s Phase configuration: prompt: %s %s\n\n",
-				terminal.FunctionSymbol(), terminal.Orange(promptName), terminal.Muted(pp))
+			fmt.Fprintf(os.Stderr, "  %s prompt: %s %s\n\n",
+				terminal.FunctionSymbol(), terminal.Orange(promptName), terminal.Muted("(path="+pp+")"))
 		}
 	}
 

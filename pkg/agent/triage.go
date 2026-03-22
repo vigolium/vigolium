@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
@@ -154,6 +156,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			}
 
 			// Build triage agent options
+			triageSessionID := uuid.New().String()
 			opts := Options{
 				AgentName:      cfg.AgentName,
 				AgentACPCmd:    cfg.AgentACPCmd,
@@ -164,6 +167,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				Files:          cfg.Files,
 				Instruction:    cfg.Instruction,
 				SessionKey:     cfg.SessionKey,
+				SessionID:      triageSessionID,
 				DryRun:         cfg.DryRun,
 				ShowPrompt:     cfg.ShowPrompt,
 				ScanUUID:       cfg.ScanUUID,
@@ -211,6 +215,17 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				}
 				return result, fmt.Errorf("triage round %d batch %d failed: %w", round, batchIdx+1, runErr)
 			}
+
+			triagePhase := fmt.Sprintf("%s-round%d", SwarmPhaseTriage, round)
+			if findingBatches != nil {
+				triagePhase = fmt.Sprintf("%s-round%d-batch%d", SwarmPhaseTriage, round, batchIdx+1)
+			}
+			WriteSDKSessionEntry(cfg.SessionDir, SDKSessionEntry{
+				SessionID: triageSessionID,
+				Phase:     triagePhase,
+				AgentName: cfg.AgentName,
+				Timestamp: time.Now(),
+			})
 
 			// Save rendered prompt and raw output to session dir
 			batchSuffix := ""

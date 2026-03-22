@@ -892,3 +892,33 @@ export interface CurrentUser {
   credits: number;
   organization: { id: string; name: string } | null;
 }
+
+// --- GitHub types ---
+
+export interface GitHubRepo {
+  full_name: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  default_branch: string;
+  description: string | null;
+  url: string;
+}
+
+export interface GitHubReposResponse {
+  repos: GitHubRepo[];
+  installation_id: number;
+}
+
+export interface GitHubCloneUrlRequest {
+  repo: string;
+}
+
+export interface GitHubCloneUrlResponse {
+  clone_url: string;
+}
+
+export interface GitHubStatusResponse {
+  connected: boolean;
+  installation_id?: number;
+}
