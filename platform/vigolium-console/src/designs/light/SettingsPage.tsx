@@ -10,13 +10,12 @@ import 'prismjs/components/prism-bash';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-yaml';
-import { Info, Search, Palette, FolderKanban, Plus, Trash2, Check } from 'lucide-react';
+import { Info, Search, Palette, Plus, Trash2, Check, User, Users, Mail } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { COLOR_SCHEMES, type ColorScheme } from '@/lib/colorSchemes';
-import { useConfig, useUpdateConfig, useProjects, useDeleteProject, useCreateProject } from '@/api/hooks';
-import type { ConfigEntry, ProjectWithStats } from '@/api/types';
+import { useConfig, useUpdateConfig, useCurrentUser, useTeamMembers, useInviteMember, useRemoveMember } from '@/api/hooks';
+import type { ConfigEntry } from '@/api/types';
 import { useToast } from '@/contexts/ToastContext';
-import { useProjectContext } from '@/contexts/ProjectContext';
 import PageShell from './PageShell';
 
 const ABOUT_CONTENT = `Vigolium - High-fidelity vulnerability scanner with native scan precision and agentic scan intelligence.
@@ -106,15 +105,16 @@ function SchemeCard({ scheme, isSelected, onSelect }: { scheme: ColorScheme; isS
   );
 }
 
-type SettingsTab = 'projects' | 'theme' | 'about';
 
-export default function SettingsPage({ initialTab = 'projects' }: { initialTab?: SettingsTab }) {
+type SettingsTab = 'profile' | 'team' | 'theme' | 'about';
+
+export default function SettingsPage({ initialTab = 'profile' }: { initialTab?: SettingsTab }) {
   const { schemeId, setScheme } = useTheme();
   const router = useRouter();
   const [activeTab, setActiveTabState] = useState<SettingsTab>(initialTab);
   const setActiveTab = useCallback((tab: SettingsTab) => {
     setActiveTabState(tab);
-    router.replace(tab === 'projects' ? '/settings' : `/settings/${tab}`, { scroll: false });
+    router.replace(tab === 'profile' ? '/settings' : `/settings/${tab}`, { scroll: false });
   }, [router]);
   const [filter, setFilter] = useState('');
 
@@ -174,50 +174,34 @@ export default function SettingsPage({ initialTab = 'projects' }: { initialTab?:
     });
   };
 
-  // ── Projects state ──
-  const { projectUUID, setProject } = useProjectContext();
-  const { data: projectsList = [] } = useProjects();
-  const deleteProjectMutation = useDeleteProject();
-  const createProjectMutation = useCreateProject();
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectDesc, setNewProjectDesc] = useState('');
-  const [confirmDeleteUUID, setConfirmDeleteUUID] = useState<string | null>(null);
-  const [projectSearch, setProjectSearch] = useState('');
+  // ── Profile state ──
+  const { data: currentUser } = useCurrentUser();
 
-  const DEFAULT_PROJECT_UUID = '00000000-0000-0000-0000-000000000001';
+  // ── Team state ──
+  const { data: members, isLoading: membersLoading } = useTeamMembers();
+  const invite = useInviteMember();
+  const remove = useRemoveMember();
+  const [email, setEmail] = useState('');
 
-  const filteredProjects = useMemo(() => {
-    if (!projectSearch) return projectsList;
-    const q = projectSearch.toLowerCase();
-    return projectsList.filter((p: ProjectWithStats) =>
-      p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q))
-    );
-  }, [projectsList, projectSearch]);
-
-  const handleCreateProject = () => {
-    if (!newProjectName.trim()) return;
-    createProjectMutation.mutate({ name: newProjectName.trim(), description: newProjectDesc.trim() || undefined }, {
-      onSuccess: (project) => {
-        toast(`project "${project.name}" created`, 'success');
-        setNewProjectName('');
-        setNewProjectDesc('');
-        setShowCreateForm(false);
-        setProject(project.uuid);
-      },
-      onError: () => toast('error creating project', 'error'),
-    });
+  const handleInvite = async () => {
+    if (!email.trim()) return;
+    try {
+      await invite.mutateAsync({ email: email.trim() });
+      toast(`Invitation sent to ${email}`, 'success');
+      setEmail('');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to invite', 'error');
+    }
   };
 
-  const handleDeleteProject = (uuid: string) => {
-    deleteProjectMutation.mutate(uuid, {
-      onSuccess: () => {
-        toast('project deleted', 'success');
-        setConfirmDeleteUUID(null);
-        if (projectUUID === uuid) setProject(null);
-      },
-      onError: () => toast('error deleting project', 'error'),
-    });
+  const handleRemove = async (membershipId: string, name: string) => {
+    if (!confirm(`Remove ${name} from the team?`)) return;
+    try {
+      await remove.mutateAsync(membershipId);
+      toast(`${name} removed`, 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to remove', 'error');
+    }
   };
 
   // ── Theme state ──
@@ -234,7 +218,7 @@ export default function SettingsPage({ initialTab = 'projects' }: { initialTab?:
     <PageShell>
       <div className="px-4 py-4">
         <div className="flex items-center gap-4 pb-2 mb-4 border-b" style={{ borderColor: 'var(--v-border)' }}>
-          {(['projects', 'theme', 'about'] as const).map((tab) => (
+          {(['profile', 'team', 'theme', 'about'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -244,7 +228,8 @@ export default function SettingsPage({ initialTab = 'projects' }: { initialTab?:
                 borderColor: activeTab === tab ? 'var(--v-accent)' : 'transparent',
               }}
             >
-              {tab === 'projects' && <FolderKanban className="w-3 h-3" />}
+              {tab === 'profile' && <User className="w-3 h-3" />}
+              {tab === 'team' && <Users className="w-3 h-3" />}
               {tab === 'theme' && <Palette className="w-3 h-3" />}
               {tab === 'about' && <Info className="w-3 h-3" />}
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -252,188 +237,125 @@ export default function SettingsPage({ initialTab = 'projects' }: { initialTab?:
           ))}
         </div>
 
-        {activeTab === 'projects' && (
-          <div className="space-y-3">
-            {/* Header */}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold shrink-0" style={{ color: 'var(--v-text-muted)' }}>
-                {projectsList.length} project{projectsList.length !== 1 ? 's' : ''}
-              </span>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 border px-2 py-0.5" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-surface)' }}>
-                  <Search className="w-3 h-3" style={{ color: 'var(--v-text-muted)' }} />
-                  <input
-                    type="text"
-                    value={projectSearch}
-                    onChange={(e) => setProjectSearch(e.target.value)}
-                    placeholder="search projects..."
-                    className="bg-transparent text-xs outline-none w-40"
-                    style={{ color: 'var(--v-text)' }}
-                  />
+        {activeTab === 'profile' && (
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <User className="w-4 h-4" style={{ color: 'var(--v-secondary)' }} />
+              <h2 className="text-sm font-bold" style={{ color: 'var(--v-accent)' }}>Profile</h2>
+            </div>
+            {currentUser ? (
+              <div className="border" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-surface)' }}>
+                <div className="grid grid-cols-[120px_1fr] text-xs">
+                  <span className="px-3 py-2 font-bold uppercase" style={{ color: 'var(--v-text-muted)', borderBottom: '1px solid var(--v-border)' }}>Name</span>
+                  <span className="px-3 py-2" style={{ color: 'var(--v-text)', borderBottom: '1px solid var(--v-border)' }}>{currentUser.name}</span>
+                  <span className="px-3 py-2 font-bold uppercase" style={{ color: 'var(--v-text-muted)', borderBottom: '1px solid var(--v-border)' }}>Email</span>
+                  <span className="px-3 py-2" style={{ color: 'var(--v-text)', borderBottom: '1px solid var(--v-border)' }}>{currentUser.email}</span>
+                  <span className="px-3 py-2 font-bold uppercase" style={{ color: 'var(--v-text-muted)', borderBottom: '1px solid var(--v-border)' }}>Role</span>
+                  <span className="px-3 py-2" style={{ color: 'var(--v-text)', borderBottom: '1px solid var(--v-border)' }}>{currentUser.role}</span>
+                  {currentUser.organization && (
+                    <>
+                      <span className="px-3 py-2 font-bold uppercase" style={{ color: 'var(--v-text-muted)', borderBottom: '1px solid var(--v-border)' }}>Organization</span>
+                      <span className="px-3 py-2" style={{ color: 'var(--v-text)', borderBottom: '1px solid var(--v-border)' }}>{currentUser.organization.name}</span>
+                    </>
+                  )}
+                  <span className="px-3 py-2 font-bold uppercase" style={{ color: 'var(--v-text-muted)' }}>Credits</span>
+                  <span className="px-3 py-2 font-bold" style={{ color: 'var(--v-accent)' }}>{(currentUser.credits ?? 0).toLocaleString()}</span>
                 </div>
-                <button
-                  onClick={() => setShowCreateForm(!showCreateForm)}
-                  className="flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 border transition-colors"
-                  style={{ borderColor: 'var(--v-accent)', color: 'var(--v-accent)' }}
-                >
-                  <Plus className="w-3 h-3" /> new
-                </button>
               </div>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--v-text-muted)' }}>Not signed in</p>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'team' && (
+          <div className="max-w-4xl space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-4 h-4" style={{ color: 'var(--v-secondary)' }} />
+              <h2 className="text-sm font-bold" style={{ color: 'var(--v-accent)' }}>
+                Team{currentUser?.organization ? ` — ${currentUser.organization.name}` : ''}
+              </h2>
             </div>
 
-            {/* Create form */}
-            {showCreateForm && (
-              <div className="border p-3 space-y-2" style={{ borderColor: 'var(--v-accent)', backgroundColor: 'var(--v-surface)' }}>
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-                  placeholder="project name"
-                  className="w-full border text-xs px-2 py-1 focus:outline-none"
-                  style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
-                  autoFocus
-                />
-                <input
-                  type="text"
-                  value={newProjectDesc}
-                  onChange={(e) => setNewProjectDesc(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-                  placeholder="description (optional)"
-                  className="w-full border text-xs px-2 py-1 focus:outline-none"
-                  style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleCreateProject}
-                    disabled={!newProjectName.trim() || createProjectMutation.isPending}
-                    className="text-[10px] font-bold uppercase px-2 py-0.5 border transition-colors disabled:opacity-40"
-                    style={{ borderColor: 'var(--v-success)', color: 'var(--v-success)' }}
-                  >
-                    {createProjectMutation.isPending ? 'creating...' : 'create'}
-                  </button>
-                  <button
-                    onClick={() => { setShowCreateForm(false); setNewProjectName(''); setNewProjectDesc(''); }}
-                    className="text-[10px] font-bold uppercase px-2 py-0.5 border transition-colors"
-                    style={{ borderColor: 'var(--v-border)', color: 'var(--v-text-muted)' }}
-                  >
-                    cancel
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Invite */}
+            <div className="flex items-center gap-2">
+              <Mail className="w-3 h-3" style={{ color: 'var(--v-text-muted)' }} />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
+                placeholder="email@example.com"
+                className="flex-1 px-2 py-1 text-xs border outline-none"
+                style={{ backgroundColor: 'var(--v-bg)', borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
+              />
+              <button
+                onClick={handleInvite}
+                disabled={invite.isPending || !email.trim()}
+                className="px-3 py-1 text-xs font-bold border transition-colors"
+                style={{ borderColor: 'var(--v-accent)', color: 'var(--v-accent)' }}
+              >
+                {invite.isPending ? 'Sending...' : 'Invite'}
+              </button>
+            </div>
 
-            {/* Projects table */}
-            <div className="border overflow-hidden" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}>
-              {/* Table header */}
-              <div className="grid grid-cols-[1fr_1.2fr_60px_200px_50px_50px_80px_100px] px-3 py-1.5 border-b text-[10px] font-bold uppercase"
-                style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-surface)', color: 'var(--v-text-muted)' }}>
-                <span>Name</span>
-                <span>Description</span>
-                <span className="text-right">Records</span>
-                <span className="text-right">Findings</span>
-                <span className="text-right">Scans</span>
-                <span className="text-right">Agents</span>
-                <span className="text-right">Created</span>
-                <span className="text-right">Actions</span>
-              </div>
-
-              {/* Table body */}
-              <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
-                {filteredProjects.map((project: ProjectWithStats) => {
-                  const isCurrent = projectUUID === project.uuid;
-                  const isDefault = project.uuid === DEFAULT_PROJECT_UUID;
-                  const s = project.stats;
-                  return (
-                    <div
-                      key={project.uuid}
-                      className="grid grid-cols-[1fr_1.2fr_60px_200px_50px_50px_80px_100px] px-3 py-1.5 border-b text-xs items-start transition-colors"
-                      style={{
-                        borderColor: 'var(--v-surface)',
-                        backgroundColor: isCurrent ? 'color-mix(in srgb, var(--v-accent) 8%, transparent)' : undefined,
-                      }}
-                    >
-                      {/* Name */}
-                      <div className="flex items-start gap-1 min-w-0 pr-2">
-                        {isCurrent && <Check className="w-3 h-3 shrink-0 mt-0.5" style={{ color: 'var(--v-accent)' }} />}
-                        <div className="min-w-0">
-                          <span className="font-medium break-words leading-tight" style={{ color: isCurrent ? 'var(--v-accent)' : 'var(--v-text)' }}>
-                            {project.name}
-                          </span>
-                          {isDefault && <span className="text-[9px] px-1 border ml-1 inline-block" style={{ borderColor: 'var(--v-border)', color: 'var(--v-text-muted)' }}>default</span>}
-                        </div>
-                      </div>
-                      {/* Description */}
-                      <span className="break-words leading-tight pr-2" style={{ color: 'var(--v-text-muted)' }}>{project.description || '-'}</span>
-                      {/* Records */}
-                      <span className="text-right tabular-nums" style={{ color: 'var(--v-text)' }}>{s?.http_records?.total ?? 0}</span>
-                      {/* Findings */}
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                        {s?.findings?.critical > 0 && <span className="text-[9px] px-1 py-0.5 border" style={{ color: 'var(--v-error)', borderColor: 'color-mix(in srgb, var(--v-error) 30%, transparent)' }}>C:{s.findings.critical}</span>}
-                        {s?.findings?.high > 0 && <span className="text-[9px] px-1 py-0.5 border" style={{ color: '#f97316', borderColor: 'color-mix(in srgb, #f97316 30%, transparent)' }}>H:{s.findings.high}</span>}
-                        {s?.findings?.medium > 0 && <span className="text-[9px] px-1 py-0.5 border" style={{ color: '#eab308', borderColor: 'color-mix(in srgb, #eab308 30%, transparent)' }}>M:{s.findings.medium}</span>}
-                        {s?.findings?.low > 0 && <span className="text-[9px] px-1 py-0.5 border" style={{ color: 'var(--v-secondary)', borderColor: 'color-mix(in srgb, var(--v-secondary) 30%, transparent)' }}>L:{s.findings.low}</span>}
-                        {s?.findings?.info > 0 && <span className="text-[9px] px-1 py-0.5 border" style={{ color: 'var(--v-text-muted)', borderColor: 'var(--v-border)' }}>I:{s.findings.info}</span>}
-                        {(s?.findings?.total ?? 0) === 0 && <span style={{ color: 'var(--v-text-muted)' }}>0</span>}
-                      </div>
-                      {/* Scans */}
-                      <span className="text-right tabular-nums" style={{ color: 'var(--v-text)' }}>{s?.scans ?? 0}</span>
-                      {/* Agents */}
-                      <span className="text-right tabular-nums" style={{ color: 'var(--v-text)' }}>{s?.agent_runs ?? 0}</span>
-                      {/* Created */}
-                      <span className="text-right text-[10px]" style={{ color: 'var(--v-text-muted)' }}>
-                        {new Date(project.created_at).toLocaleDateString()}
-                      </span>
-                      {/* Actions */}
-                      <div className="flex items-center justify-end gap-1">
-                        {!isCurrent && (
+            {/* Members */}
+            <div className="border overflow-hidden" style={{ borderColor: 'var(--v-border)' }}>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ backgroundColor: 'color-mix(in srgb, var(--v-surface) 50%, transparent)' }}>
+                    <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Name</th>
+                    <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Email</th>
+                    <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Role</th>
+                    <th className="text-left px-3 py-2 font-bold" style={{ color: 'var(--v-text-muted)' }}>Joined</th>
+                    <th className="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {membersLoading && (
+                    <tr><td colSpan={5} className="px-3 py-4 text-center" style={{ color: 'var(--v-text-muted)' }}>Loading...</td></tr>
+                  )}
+                  {members?.map((m) => (
+                    <tr key={m.id} className="border-t" style={{ borderColor: 'var(--v-border)' }}>
+                      <td className="px-3 py-1.5" style={{ color: 'var(--v-text)' }}>{m.name}</td>
+                      <td className="px-3 py-1.5" style={{ color: 'var(--v-text-muted)' }}>{m.email}</td>
+                      <td className="px-3 py-1.5">
+                        <span
+                          className="px-1.5 py-0.5 text-[10px] uppercase rounded"
+                          style={{
+                            backgroundColor: m.role === 'admin'
+                              ? 'color-mix(in srgb, var(--v-accent) 15%, transparent)'
+                              : 'color-mix(in srgb, var(--v-text-muted) 15%, transparent)',
+                            color: m.role === 'admin' ? 'var(--v-accent)' : 'var(--v-text-muted)',
+                          }}
+                        >
+                          {m.role}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5" style={{ color: 'var(--v-text-muted)' }}>
+                        {new Date(m.joined_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        {m.email !== currentUser?.email && (
                           <button
-                            onClick={() => setProject(project.uuid)}
-                            className="text-[10px] font-bold px-1"
-                            style={{ color: 'var(--v-accent)' }}
+                            onClick={() => handleRemove(m.membership_id, m.name)}
+                            className="transition-colors"
+                            style={{ color: 'var(--v-error)' }}
+                            title="Remove member"
                           >
-                            [use]
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         )}
-                        {!isDefault && (
-                          confirmDeleteUUID === project.uuid ? (
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                onClick={() => handleDeleteProject(project.uuid)}
-                                className="text-[10px] font-bold px-1"
-                                style={{ color: 'var(--v-error)' }}
-                              >
-                                [yes]
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteUUID(null)}
-                                className="text-[10px] font-bold px-1"
-                                style={{ color: 'var(--v-text-muted)' }}
-                              >
-                                [no]
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteUUID(project.uuid)}
-                              className="text-[10px] font-bold px-1"
-                              style={{ color: 'var(--v-text-muted)' }}
-                            >
-                              [del]
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {filteredProjects.length === 0 && (
-                  <div className="px-3 py-4 text-xs" style={{ color: 'var(--v-text-muted)' }}>
-                    {projectSearch ? `no projects match "${projectSearch}"` : 'no projects found'}
-                  </div>
-                )}
-              </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!membersLoading && (!members || members.length === 0) && (
+                    <tr><td colSpan={5} className="px-3 py-4 text-center" style={{ color: 'var(--v-text-muted)' }}>No team members</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
+
           </div>
         )}
 

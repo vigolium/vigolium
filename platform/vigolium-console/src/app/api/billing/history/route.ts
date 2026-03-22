@@ -16,6 +16,9 @@ export async function GET() {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
+    if (!billing) {
+      return NextResponse.json([]);
+    }
     const stripe = getStripe();
 
     const sessions = await stripe.checkout.sessions.list({

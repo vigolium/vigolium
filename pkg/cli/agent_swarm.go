@@ -51,9 +51,11 @@ var (
 	swarmSubAgentConcurrency int
 	swarmSkipSAST            bool
 	swarmCodeAudit           bool
+	swarmTriage              bool
 	swarmSlashCmds           []string
 	swarmCustomAgents        []string
 	swarmMaxCommands         int
+	swarmMaxPlanRecords      int
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -151,7 +153,7 @@ func init() {
 	f.DurationVar(&swarmTimeout, "swarm-duration", 12*time.Hour, "Maximum swarm duration (0 = unlimited)")
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
 	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
-	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest)")
+	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest, triage, rescan)")
 	f.StringVar(&swarmStartFrom, "start-from", "", "Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage)")
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
@@ -164,7 +166,9 @@ func init() {
 	f.IntVar(&swarmBatchConcurrency, "batch-concurrency", 0, "Max parallel master agent batches (0 = auto, scales with CPU count)")
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
 	f.IntVar(&swarmSubAgentConcurrency, "sub-agent-concurrency", 3, "Max parallel source analysis sub-agents (routes, auth, extensions)")
+	f.IntVar(&swarmMaxPlanRecords, "max-plan-records", 10, "Max records sent to plan agent (selects most interesting; 0 = no limit)")
 	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, trivy, semgrep) during source analysis")
+	f.BoolVar(&swarmTriage, "triage", false, "Enable AI triage and rescan phases (disabled by default)")
 
 	// Terminal capability: custom slash commands and sub-agents
 	f.StringSliceVar(&swarmSlashCmds, "custom-slash-command", nil, "Slash commands available inside the ACP session (repeatable, e.g. --custom-slash-command /security-review)")
@@ -276,6 +280,11 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 		swarmSkipPhases[i] = agent.NormalizeSwarmPhase(p)
 	}
 
+	// Skip triage+rescan by default unless --triage is explicitly set
+	if !swarmTriage && !agent.PhaseSkipped(swarmSkipPhases, agent.SwarmPhaseTriage) {
+		swarmSkipPhases = append(swarmSkipPhases, agent.SwarmPhaseTriage)
+	}
+
 	// Merge terminal config: CLI flags take precedence over config file
 	slashCmds := swarmSlashCmds
 	customAgents := swarmCustomAgents
@@ -305,6 +314,7 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 		BatchConcurrency:   swarmBatchConcurrency,
 		MaxMasterRetries:   swarmMaxMasterRetries,
 		SAMaxConcurrency:   swarmSubAgentConcurrency,
+		MaxPlanRecords:     swarmMaxPlanRecords,
 		AgentName:          swarmAgentName,
 		AgentACPCmd:        swarmAgentACPCmd,
 		SlashCommands:      slashCmds,
@@ -608,9 +618,12 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		opts.HeuristicsCheck = "none"
 		opts.PassiveModules = []string{"all"}
 
-		// Apply generated auth config from source analysis or custom instruction
+		// Apply generated auth config from source analysis or custom instruction.
+		// Use best-effort mode: AI-generated configs may be malformed, so session
+		// init errors become warnings rather than aborting the scan.
 		if authConfigPath != nil && *authConfigPath != "" {
 			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
 		}
 
 		if req.IsRescan {
@@ -637,10 +650,7 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
 			settingsCopy.Audit.Extensions.Enabled = true
-			settingsCopy.Audit.Extensions.CustomDir = append(
-				settingsCopy.Audit.Extensions.CustomDir,
-				filepath.Join(req.ExtensionDir, "*.js"),
-			)
+			settingsCopy.Audit.Extensions.ExtensionDir = req.ExtensionDir
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Scanning with modules: %s\n",
@@ -683,6 +693,7 @@ func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository
 		// Apply generated auth config for authenticated crawling
 		if authConfigPath != nil && *authConfigPath != "" {
 			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Discovery & Spidering (expanding attack surface)\n",
@@ -704,79 +715,51 @@ func printSwarmResult(result *agent.SwarmResult) {
 		terminal.Aqua(terminal.SymbolSparkle),
 		terminal.BoldAqua("Agentic scan (swarm) completed"))
 
-	fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Duration:"), result.Duration.Round(time.Second))
-	fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Agent run:"), terminal.Gray(result.AgentRunUUID))
-	if result.SessionID != "" {
-		fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Session ID:"), terminal.Gray(result.SessionID))
-	}
-	if result.SessionDir != "" {
-		fmt.Fprintf(os.Stderr, "  %-17s %s\n", terminal.Gray("Session dir:"), terminal.Gray(terminal.ShortenHome(result.SessionDir)))
-	}
-
-	// Records summary
+	// Core stats line: duration, records, findings
+	parts := []string{result.Duration.Round(time.Second).String()}
 	if result.TotalRecords > 0 {
-		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
-			terminal.Aqua(terminal.SymbolInfo),
-			terminal.BoldAqua("Records:"),
-			fmt.Sprintf("%s http records ingested", terminal.BoldCyan(fmt.Sprintf("%d", result.TotalRecords))))
+		parts = append(parts, fmt.Sprintf("%d records", result.TotalRecords))
 	}
-
-	// Findings summary with severity breakdown
-	fmt.Fprintf(os.Stderr, "  %s %s %s",
-		terminal.Aqua(terminal.SymbolInfo),
-		terminal.BoldAqua("Findings:"),
-		fmt.Sprintf("%s issues found", colorFindingCount(result.TotalFindings)))
+	findingsStr := fmt.Sprintf("%s findings", colorFindingCount(result.TotalFindings))
 	if len(result.SeverityCounts) > 0 && result.TotalFindings > 0 {
-		fmt.Fprintf(os.Stderr, " — %s", formatSeverityWithSymbols(result.SeverityCounts))
+		findingsStr += " (" + formatSeverityWithSymbols(result.SeverityCounts) + ")"
 	}
-	fmt.Fprintln(os.Stderr)
+	parts = append(parts, findingsStr)
+	fmt.Fprintf(os.Stderr, "  %s\n", strings.Join(parts, " · "))
 
+	// Plan summary (single line)
 	if result.SwarmPlan != nil {
-		fmt.Fprintf(os.Stderr, "\n  %s %s\n", terminal.Aqua(terminal.SymbolInfo), terminal.BoldAqua("Swarm Plan:"))
-		if len(result.SwarmPlan.ModuleTags) > 0 {
-			coloredTags := make([]string, len(result.SwarmPlan.ModuleTags))
-			for i, tag := range result.SwarmPlan.ModuleTags {
-				coloredTags[i] = terminal.Cyan(tag)
-			}
-			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Module tags:"), strings.Join(coloredTags, terminal.Gray(", ")))
-		}
-		if len(result.SwarmPlan.Extensions) > 0 {
-			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Extensions:"), terminal.BoldYellow(fmt.Sprintf("%d generated", len(result.SwarmPlan.Extensions))))
-			for _, ext := range result.SwarmPlan.Extensions {
-				fmt.Fprintf(os.Stderr, "      %s %s %s\n", terminal.Gray("-"), terminal.BoldCyan(ext.Filename+":"), ext.Reason)
-			}
-		}
+		planParts := []string{}
 		if len(result.SwarmPlan.FocusAreas) > 0 {
-			fmt.Fprintf(os.Stderr, "    %-15s %s\n", terminal.Gray("Focus areas:"), terminal.Orange(fmt.Sprintf("%d", len(result.SwarmPlan.FocusAreas))))
-			for _, area := range result.SwarmPlan.FocusAreas {
-				title, detail := splitFocusArea(area)
-				if detail != "" {
-					fmt.Fprintf(os.Stderr, "      %s %s %s\n", terminal.Gray("-"), terminal.BoldCyan(title+":"), terminal.Muted(detail))
-				} else {
-					fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray("-"), terminal.BoldCyan(area))
-				}
-			}
+			planParts = append(planParts, fmt.Sprintf("%d focus areas", len(result.SwarmPlan.FocusAreas)))
 		}
-		if result.SwarmPlan.Notes != "" {
-			fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray("Notes:"))
-			for _, line := range strings.Split(result.SwarmPlan.Notes, "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-				line = strings.TrimPrefix(line, "- ")
-				fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray("-"), terminal.Muted(line))
-			}
+		extCount := len(result.SwarmPlan.Extensions)
+		if extCount > 0 {
+			planParts = append(planParts, fmt.Sprintf("%d extensions", extCount))
+		}
+		if len(planParts) > 0 {
+			fmt.Fprintf(os.Stderr, "  %s %s\n",
+				terminal.Gray("Plan:"),
+				terminal.Cyan(strings.Join(planParts, ", ")))
 		}
 	}
 
+	// Triage summary (single line)
 	if len(result.TriageResults) > 0 {
-		fmt.Fprintf(os.Stderr, "\n  %s %s\n", terminal.Aqua(terminal.SymbolInfo), terminal.BoldAqua("Triage:"))
-		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Confirmed:"), terminal.BoldGreen(fmt.Sprintf("%d", result.Confirmed)))
-		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("False positives:"), terminal.Gray(fmt.Sprintf("%d", result.FalsePositives)))
-		fmt.Fprintf(os.Stderr, "    %-17s %d\n", terminal.Gray("Iterations:"), result.Iterations)
+		fmt.Fprintf(os.Stderr, "  %s %s confirmed, %s false positives (%d iterations)\n",
+			terminal.Gray("Triage:"),
+			terminal.BoldGreen(fmt.Sprintf("%d", result.Confirmed)),
+			terminal.Gray(fmt.Sprintf("%d", result.FalsePositives)),
+			result.Iterations)
 	}
 
+	// Session dir with plan file pointer
+	if result.SessionDir != "" {
+		shortDir := terminal.ShortenHome(result.SessionDir)
+		fmt.Fprintf(os.Stderr, "  %s %s\n",
+			terminal.Gray("Details:"),
+			terminal.Muted(shortDir))
+	}
 }
 
 // colorFindingCount returns a colored finding count based on severity.
@@ -862,6 +845,7 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 		// Apply generated auth config if available
 		if authConfigPath != nil && *authConfigPath != "" {
 			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
 		}
 
 		fmt.Fprintf(os.Stderr, "%s SAST analysis (ast-grep + secret detection + third-party tools)\n",

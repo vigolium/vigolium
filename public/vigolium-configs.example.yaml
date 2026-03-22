@@ -64,8 +64,8 @@ database:
 
     # Busy timeout in milliseconds
     # How long to wait when database is locked
-    # Default: 5000 (5 seconds)
-    busy_timeout: 5000
+    # Default: 15000 (15 seconds)
+    busy_timeout: 15000
 
     # Journal mode
     # Options: DELETE, TRUNCATE, PERSIST, MEMORY, WAL, OFF

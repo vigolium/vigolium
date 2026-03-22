@@ -67,6 +67,7 @@ type SwarmConfig struct {
 
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
+	MaxPlanRecords       int // max records sent to plan agent; 0 = default 10
 
 	// Project/scan
 	ProjectUUID string
@@ -147,6 +148,16 @@ func NormalizeSwarmPhase(phase string) string {
 		return mapped
 	}
 	return phase
+}
+
+// PhaseSkipped returns true if the given phase is in the skip list.
+func PhaseSkipped(skipPhases []string, phase string) bool {
+	for _, s := range skipPhases {
+		if strings.EqualFold(s, phase) {
+			return true
+		}
+	}
+	return false
 }
 
 // Prompt template constants for the agent swarm mode.
@@ -425,7 +436,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			outputPath := filepath.Join(sessionDir, "source-analysis-output.md")
 			_ = os.WriteFile(outputPath, []byte(saRawOutput), 0644)
 			printPhaseLine("source-analysis", fmt.Sprintf("%s output: %s",
-				terminal.SymbolArrow, terminal.ShortenHome(outputPath)))
+				terminal.SymbolStart, terminal.ShortenHome(outputPath)))
 		}
 
 		if saErr != nil {
@@ -712,6 +723,18 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			terminal.Orange(fmt.Sprintf("%d", len(records))))
 	}
 
+	// Filter records for plan phase: select the most interesting ones to keep context focused
+	planRecords := selectPlanRecords(records, cfg.MaxPlanRecords)
+	if len(planRecords) < len(records) {
+		zap.L().Info("Filtered records for plan phase",
+			zap.Int("total", len(records)),
+			zap.Int("selected", len(planRecords)))
+		fmt.Fprintf(os.Stderr, "  %s Selected %s of %s records for planning (most interesting)\n",
+			terminal.Cyan(terminal.SymbolBullet),
+			terminal.Orange(fmt.Sprintf("%d", len(planRecords))),
+			terminal.Orange(fmt.Sprintf("%d", len(records))))
+	}
+
 	// Phase 2: Master agent — analyze and plan (batched if > 5 records)
 	phaseStart = time.Now()
 	var plan *SwarmPlan
@@ -732,10 +755,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		s.persistPhase(ctx, agentRun)
 
 		const masterBatchSize = 5
-		if len(records) <= masterBatchSize {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, records, targetURL)
+		if len(planRecords) <= masterBatchSize {
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, planRecords, targetURL)
 		} else {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, records, targetURL, masterBatchSize)
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, masterBatchSize)
 		}
 
 		// Save rendered prompt and raw output to session dir regardless of parse success
@@ -1022,25 +1045,34 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		})
 	}
 
-	// Phase 5-6: Triage loop
-	phaseStart = time.Now()
-	s.emitPhase(cfg, SwarmPhaseTriage)
-	agentRun.CurrentPhase = SwarmPhaseTriage
-	s.persistPhase(ctx, agentRun)
+	// Phase 5-6: Triage loop (skippable via --skip triage)
+	triageSkipped := PhaseSkipped(cfg.SkipPhases, SwarmPhaseTriage)
+	if triageSkipped {
+		zap.L().Info("Skipping triage and rescan phases (--skip triage)")
+		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+			terminal.Aqua(terminal.SymbolSuccess),
+			terminal.Aqua("Triage"),
+			terminal.Muted("skipped"))
+	} else {
+		phaseStart = time.Now()
+		s.emitPhase(cfg, SwarmPhaseTriage)
+		agentRun.CurrentPhase = SwarmPhaseTriage
+		s.persistPhase(ctx, agentRun)
 
-	completedPhases = append(completedPhases, SwarmPhaseTriage)
-	if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir, checkpoint, extensionRenames, completedPhases); err != nil {
-		zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
+		completedPhases = append(completedPhases, SwarmPhaseTriage)
+		if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir, checkpoint, extensionRenames, completedPhases); err != nil {
+			zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
+		}
+		phaseTimings[SwarmPhaseTriage] = time.Since(phaseStart)
+
+		triageSummary := fmt.Sprintf("completed — %d confirmed, %d false positives, %d iterations in %s",
+			result.Confirmed, result.FalsePositives, result.Iterations,
+			phaseTimings[SwarmPhaseTriage].Round(time.Second))
+		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
+			terminal.Aqua(terminal.SymbolSuccess),
+			terminal.Aqua("Triage"),
+			terminal.Muted(triageSummary))
 	}
-	phaseTimings[SwarmPhaseTriage] = time.Since(phaseStart)
-
-	triageSummary := fmt.Sprintf("completed — %d confirmed, %d false positives, %d iterations in %s",
-		result.Confirmed, result.FalsePositives, result.Iterations,
-		phaseTimings[SwarmPhaseTriage].Round(time.Second))
-	fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-		terminal.Aqua(terminal.SymbolSuccess),
-		terminal.Aqua("Triage"),
-		terminal.Muted(triageSummary))
 
 	// Count total findings with severity breakdown
 	if s.repo != nil {
@@ -1134,12 +1166,120 @@ func buildTerminalPromptContext(customAgents, slashCommands []string) string {
 	return b.String()
 }
 
+// selectPlanRecords filters and ranks records for the plan phase, returning
+// at most maxRecords of the most "interesting" ones. Interesting means the
+// request has query parameters, a body, or uses a non-GET method. Static
+// asset requests are deprioritised. This keeps the plan agent context small
+// and focused on attackable surface.
+func selectPlanRecords(records []*httpmsg.HttpRequestResponse, maxRecords int) []*httpmsg.HttpRequestResponse {
+	if maxRecords <= 0 {
+		maxRecords = 10
+	}
+	if len(records) <= maxRecords {
+		return records
+	}
+
+	// Static file extensions to deprioritise
+	staticExts := map[string]bool{
+		".css": true, ".js": true, ".png": true, ".jpg": true, ".jpeg": true,
+		".gif": true, ".svg": true, ".ico": true, ".woff": true, ".woff2": true,
+		".ttf": true, ".eot": true, ".map": true, ".webp": true, ".avif": true,
+	}
+
+	type scored struct {
+		record *httpmsg.HttpRequestResponse
+		score  int
+		index  int // preserve original order for tie-breaking
+	}
+
+	scored_records := make([]scored, 0, len(records))
+	for i, rr := range records {
+		s := 0
+		req := rr.Request()
+		if req == nil {
+			scored_records = append(scored_records, scored{rr, s, i})
+			continue
+		}
+
+		// Non-GET methods are more interesting (POST, PUT, DELETE, PATCH)
+		method := strings.ToUpper(req.Method())
+		if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+			s += 3
+		}
+
+		// Has request body
+		if len(req.Body()) > 0 {
+			s += 3
+		}
+
+		// Has query parameters (check for '?' in path)
+		path := req.Path()
+		if strings.Contains(path, "?") {
+			s += 2
+		}
+
+		// Check for interesting content types
+		ct := strings.ToLower(req.Header("Content-Type"))
+		if strings.Contains(ct, "json") || strings.Contains(ct, "xml") || strings.Contains(ct, "form") {
+			s += 1
+		}
+
+		// Has auth-related headers
+		if req.HasHeader("Authorization") || req.HasHeader("Cookie") || req.HasHeader("X-API-Key") {
+			s += 1
+		}
+
+		// Penalise static assets
+		pathLower := strings.ToLower(path)
+		if qIdx := strings.Index(pathLower, "?"); qIdx >= 0 {
+			pathLower = pathLower[:qIdx]
+		}
+		if dotIdx := strings.LastIndex(pathLower, "."); dotIdx >= 0 {
+			if staticExts[pathLower[dotIdx:]] {
+				s -= 5
+			}
+		}
+
+		// Penalise error responses (4xx/5xx without body suggest less interesting endpoints)
+		if rr.HasResponse() {
+			sc := rr.Response().StatusCode()
+			if sc == 404 || sc == 405 {
+				s -= 3
+			} else if sc >= 400 {
+				s -= 1
+			}
+		}
+
+		scored_records = append(scored_records, scored{rr, s, i})
+	}
+
+	// Sort by score descending, then by original index ascending (stable-ish)
+	sort.Slice(scored_records, func(i, j int) bool {
+		if scored_records[i].score != scored_records[j].score {
+			return scored_records[i].score > scored_records[j].score
+		}
+		return scored_records[i].index < scored_records[j].index
+	})
+
+	// Take top N, then re-sort by original index to preserve request order
+	top := scored_records[:maxRecords]
+	sort.Slice(top, func(i, j int) bool {
+		return top[i].index < top[j].index
+	})
+
+	result := make([]*httpmsg.HttpRequestResponse, maxRecords)
+	for i, s := range top {
+		result[i] = s.record
+	}
+	return result
+}
+
 // buildSmartHTTPContext builds a formatted HTTP context string for the master agent prompt.
 // It always includes full raw requests and response headers, but truncates response bodies
 // to maxRespBytes to manage token usage.
 func buildSmartHTTPContext(records []*httpmsg.HttpRequestResponse, maxRespBytes int) string {
 	if maxRespBytes <= 0 {
-		maxRespBytes = 4096
+		maxRespBytes = 2048
 	}
 
 	var rc strings.Builder

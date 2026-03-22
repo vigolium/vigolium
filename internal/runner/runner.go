@@ -1212,10 +1212,10 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 	// Initialize multi-session support for IDOR/BOLA testing
 	if err := r.initSessions(infra); err != nil {
 		// If the user explicitly configured sessions, surface the error clearly
-		if len(r.options.Sessions) > 0 || r.options.AuthConfigPath != "" || len(r.options.SessionFiles) > 0 {
+		if (len(r.options.Sessions) > 0 || r.options.AuthConfigPath != "" || len(r.options.SessionFiles) > 0) && !r.options.AuthConfigBestEffort {
 			return nil, fmt.Errorf("session initialization failed: %w", err)
 		}
-		zap.L().Warn("Failed to initialize sessions", zap.Error(err))
+		zap.L().Warn("Failed to initialize sessions, continuing without session support", zap.Error(err))
 	}
 
 	return infra, nil
@@ -1439,7 +1439,9 @@ func (r *Runner) persistSessionsToDB(sessions []*session.Session) {
 		zap.Strings("hostnames", hostnames))
 }
 
-// targetHostnames extracts unique hostnames from CLI targets.
+// targetHostnames extracts unique host:port values from CLI targets.
+// Includes the port when explicitly present (e.g. "localhost:3005"),
+// bare hostname otherwise (e.g. "example.com").
 func (r *Runner) targetHostnames() []string {
 	if len(r.options.Targets) == 0 {
 		return nil
@@ -1449,10 +1451,10 @@ func (r *Runner) targetHostnames() []string {
 	var hostnames []string
 	for _, t := range r.options.Targets {
 		u, err := neturl.Parse(t)
-		if err != nil || u.Hostname() == "" {
+		if err != nil || u.Host == "" {
 			continue
 		}
-		h := u.Hostname()
+		h := u.Host
 		if !seen[h] {
 			seen[h] = true
 			hostnames = append(hostnames, h)

@@ -43,7 +43,7 @@ func DefaultDatabaseConfig() *DatabaseConfig {
 		Driver:  "sqlite",
 		SQLite: SQLiteConfig{
 			Path:        "~/.vigolium/database-vgnm.sqlite",
-			BusyTimeout: 5000,
+			BusyTimeout: 15000,
 			JournalMode: "WAL",
 			Synchronous: "NORMAL",
 			CacheSize:   10000,

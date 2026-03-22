@@ -223,7 +223,15 @@ type loginFlowYAML struct {
 	Method      string            `yaml:"method"`
 	ContentType string            `yaml:"content_type,omitempty"`
 	Body        string            `yaml:"body,omitempty"`
-	Extract     []extractRuleYAML `yaml:"extract"`
+	Extract     []extractRuleYAML `yaml:"extract,omitempty"`
+	Type        string            `yaml:"type,omitempty"`
+	TokenPath   string            `yaml:"token_path,omitempty"`
+	Expect      *expectYAML       `yaml:"expect,omitempty"`
+}
+
+type expectYAML struct {
+	Status       []int  `yaml:"status,omitempty"`
+	BodyContains string `yaml:"body_contains,omitempty"`
 }
 
 type extractRuleYAML struct {
@@ -231,6 +239,8 @@ type extractRuleYAML struct {
 	Name    string `yaml:"name,omitempty"`
 	Path    string `yaml:"path,omitempty"`
 	ApplyAs string `yaml:"apply_as,omitempty"`
+	Pattern string `yaml:"pattern,omitempty"`
+	Group   int    `yaml:"group,omitempty"`
 }
 
 // convertSessionConfig converts agent session config to the YAML format expected by pkg/session.
@@ -248,6 +258,14 @@ func convertSessionConfig(cfg *agent.AgentSessionConfig) sessionConfigYAML {
 				Method:      s.Login.Method,
 				ContentType: s.Login.ContentType,
 				Body:        s.Login.Body,
+				Type:        s.Login.Type,
+				TokenPath:   s.Login.TokenPath,
+			}
+			if s.Login.Expect != nil {
+				login.Expect = &expectYAML{
+					Status:       s.Login.Expect.Status,
+					BodyContains: s.Login.Expect.BodyContains,
+				}
 			}
 			for _, e := range s.Login.Extract {
 				login.Extract = append(login.Extract, extractRuleYAML{
@@ -255,6 +273,8 @@ func convertSessionConfig(cfg *agent.AgentSessionConfig) sessionConfigYAML {
 					Name:    e.Name,
 					Path:    e.Path,
 					ApplyAs: e.ApplyAs,
+					Pattern: e.Pattern,
+					Group:   e.Group,
 				})
 			}
 			entry.Login = login

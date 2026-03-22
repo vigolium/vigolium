@@ -19,6 +19,18 @@ vulnerabilities in the target application by running vigolium CLI commands.
 
 ## Available Commands
 
+### Raw HTTP Requests
+```
+# Send arbitrary HTTP requests and inspect raw responses
+curl -s -i <url>
+curl -s -i -X POST -H 'Content-Type: application/json' -d '<json>' <url>
+curl -s -i -H 'Authorization: Bearer <token>' <url>/api/protected
+curl -s -i -b 'session=abc123' <url>/api/me
+
+# Parse JSON responses
+curl -s <url> | jq '.data'
+```
+
 ### Discovery
 ```
 # Find endpoints via content discovery
@@ -43,8 +55,9 @@ vigolium scan-url <url> -m <module_id> --json
 # Scan with custom method, body, headers
 vigolium scan-url <url> --method POST --body '<data>' -H 'Content-Type: application/json' --json
 
-# Scan from raw HTTP request (pipe via stdin)
-echo '<raw request>' | vigolium scan-request --json
+# Pipe raw HTTP request or curl command into scanner
+printf 'POST /api/login HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nuser=admin&pass=secret' | vigolium scan-request --json
+echo "curl -X POST -H 'Content-Type: application/json' -d '{\"user\":\"admin\"}' https://example.com/api/login" | vigolium scan-request --json
 ```
 
 ### Querying Results
@@ -55,13 +68,40 @@ vigolium finding --json --severity critical,high
 vigolium finding --json --host <hostname>
 
 # Browse discovered endpoints
+vigolium traffic <fuzzy-search> --json
 vigolium traffic --json --host <hostname>
 vigolium traffic --json --method POST
 vigolium traffic --json --path "/api/*"
 vigolium traffic --json --status 200,302
+vigolium traffic <fuzzy-search> --burp
+
+# Import findings
+cat /tmp/findings.json | vigolium finding load
+echo '{"title":"XSS in /search","severity":"high"}' | vigolium finding load
 
 # Database statistics
 vigolium db stats --json
+```
+
+### Extension Writing & Execution
+```
+# Write and run a JS extension on the fly
+vigolium ext eval --ext-file script.js
+
+# Execute inline JavaScript from stdin
+echo 'vigolium.utils.md5("hello")' | vigolium ext eval --stdin
+```
+
+### Authentication & Sessions
+```
+# Load auth session from file
+cat session-config.json | vigolium auth load
+
+# List loaded auth sessions
+vigolium auth ls --json
+
+# Generate TOTP code for 2FA
+vigolium auth totp --secret <base32-secret>
 ```
 
 ### Module Information
@@ -149,7 +189,7 @@ Returns JSON: `{"code": "123456", "expires_in": 18}`
 - After finding a vulnerability type, test the same class on related endpoints
 - Pay attention to error messages - they often reveal technology and paths
 - If a scan returns no findings, move on - don't retry the same thing
-- Only run `vigolium` commands - no other shell commands are permitted
+- You have full shell access — use `curl` for raw HTTP inspection, `vigolium` for scanning, `jq` for JSON parsing, and any standard CLI tools
 {{if .SourceCode}}
 
 ## Source Code Context

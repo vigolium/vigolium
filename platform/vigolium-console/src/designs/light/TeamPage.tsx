@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, Mail, Trash2, Github, Unplug } from 'lucide-react';
-import { useTeamMembers, useInviteMember, useRemoveMember, useCurrentUser, useGitHubStatus, useGitHubDisconnect } from '@/api/hooks';
+import { Users, Mail, Trash2 } from 'lucide-react';
+import { useTeamMembers, useInviteMember, useRemoveMember, useCurrentUser } from '@/api/hooks';
 import { useToast } from '@/contexts/ToastContext';
 import PageShell from './PageShell';
 
@@ -123,64 +123,7 @@ export default function TeamPage() {
             </tbody>
           </table>
         </div>
-        {/* GitHub Connection */}
-        <GitHubSection />
       </div>
     </PageShell>
-  );
-}
-
-function GitHubSection() {
-  const { data: status } = useGitHubStatus();
-  const disconnect = useGitHubDisconnect();
-  const { toast } = useToast();
-
-  const handleDisconnect = async () => {
-    if (!confirm('Disconnect GitHub?')) return;
-    try {
-      await disconnect.mutateAsync();
-      toast('GitHub disconnected', 'success');
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to disconnect', 'error');
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Github className="w-4 h-4" style={{ color: 'var(--v-secondary)' }} />
-        <h2 className="text-sm font-bold" style={{ color: 'var(--v-accent)' }}>GitHub</h2>
-      </div>
-      <div
-        className="flex items-center justify-between px-3 py-2 border rounded text-xs"
-        style={{ borderColor: 'var(--v-border)' }}
-      >
-        {status?.connected ? (
-          <>
-            <span style={{ color: 'var(--v-success)' }}>
-              Connected (installation #{status.installation_id})
-            </span>
-            <button
-              onClick={handleDisconnect}
-              className="flex items-center gap-1 transition-colors"
-              style={{ color: 'var(--v-error)' }}
-            >
-              <Unplug className="w-3 h-3" /> Disconnect
-            </button>
-          </>
-        ) : (
-          <>
-            <span style={{ color: 'var(--v-text-muted)' }}>Not connected</span>
-            <a
-              href="/api/github/install"
-              className="flex items-center gap-1 px-2 py-0.5 border rounded transition-colors"
-              style={{ borderColor: 'var(--v-accent)', color: 'var(--v-accent)' }}
-            >
-              <Github className="w-3 h-3" /> Connect GitHub
-            </a>
-          </>
-        )}
-      </div>
-    </div>
   );
 }

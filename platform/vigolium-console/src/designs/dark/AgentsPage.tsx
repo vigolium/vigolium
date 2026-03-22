@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { Play, Square, Send, Bot, Terminal, MessageSquare, Clock, CheckCircle, XCircle, Loader2, Zap, Layers, Bug, ScrollText, Copy, Check, Upload } from 'lucide-react';
 import { zipSync } from 'fflate';
-import { useAgentSessions, useAgentSessionDetail, useUploadRepo } from '@/api/hooks';
+import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useGitHubCloneUrl } from '@/api/hooks';
 import { fetchSSE } from '@/lib/sse';
 import type { AgentSession, AgentSessionDetail } from '@/api/types';
 import { formatDate, formatDuration, truncate } from '@/lib/formatters';
@@ -180,7 +181,9 @@ function SessionDetailPanel({ session, onClose }: { session: AgentSessionDetail;
 }
 
 export default function AgentsPage() {
+  const searchParams = useSearchParams();
   const [mainTab, setMainTab] = useState<MainTab>('swarm');
+  const cloneUrlMutation = useGitHubCloneUrl();
 
   // Query tab state
   const [scanMode, setScanMode] = useState<ScanMode>('template');
@@ -241,11 +244,32 @@ export default function AgentsPage() {
   const uploadFileInputRef = useRef<HTMLInputElement>(null);
   const uploadRepo = useUploadRepo();
 
+  // Refs
+  const swarmDetailsRef = useRef<HTMLDetailsElement>(null);
+
   // Shared state
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scanOutputRef = useRef<HTMLPreElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-fill repo from query param (e.g., /agents?repo=owner/name)
+  useEffect(() => {
+    const repo = searchParams.get('repo');
+    if (!repo) return;
+    setMainTab('swarm');
+    // Open the optional fields section after render
+    requestAnimationFrame(() => {
+      if (swarmDetailsRef.current) swarmDetailsRef.current.open = true;
+    });
+    cloneUrlMutation.mutateAsync({ repo }).then((res) => {
+      setSwarmSource(res.clone_url);
+    }).catch(() => {
+      setSwarmSource(`https://github.com/${repo}`);
+    });
+    window.history.replaceState({}, '', '/agents');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Agent sessions
   const [expandedSessionUuid, setExpandedSessionUuid] = useState<string | null>(null);
@@ -652,7 +676,7 @@ export default function AgentsPage() {
               </div>
             </div>
 
-            <details className="group">
+            <details ref={swarmDetailsRef} className="group">
               <summary className="text-[#706560] text-xs cursor-pointer hover:text-[#918175] select-none">optional fields</summary>
               <div className="space-y-2 mt-1.5">
                 <div
@@ -677,7 +701,7 @@ export default function AgentsPage() {
                 <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Source Path</label>
-                  <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source or GitHub clone URL" className={inputClass} />
+                  <input value={swarmSource.includes('x-access-token') ? swarmSource.replace(/https:\/\/x-access-token:[^@]+@/, 'https://') : swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source or GitHub clone URL" className={inputClass} title={swarmSource.includes('x-access-token') ? 'Authenticated GitHub clone URL (token hidden)' : undefined} />
                 </div>
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Max Iterations</label>

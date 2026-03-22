@@ -509,7 +509,7 @@ fixture: flask-api-input-gen.json       # Fixture with http_records
 app:
   name: vampi                           # Target app name
   compose_file: vampi/docker-compose.yaml
-  base_url: "http://localhost:5002"     # Base URL of running app
+  base_url: "http://localhost:3006"     # Base URL of running app
   wait_path: "/"                        # Endpoint to poll for readiness
 scan_config:
   modules:                              # Active module IDs to use
@@ -815,7 +815,7 @@ The agent reported an HTTP record with an empty URL. This is expected — some a
 ### E2E target app not reachable
 
 ```
-target app vampi not reachable at http://localhost:5002/, skipping
+target app vampi not reachable at http://localhost:3006/, skipping
 ```
 
 The Docker app must be running before E2E tests. Start it with:

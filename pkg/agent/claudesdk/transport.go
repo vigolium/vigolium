@@ -40,15 +40,19 @@ func startProcess(ctx context.Context, opts *Options) (*process, error) {
 
 	args := opts.buildArgs()
 
-	// Log as a copy-pasteable command line for debugging
+	// Log a readable command line for debugging (truncate long args)
 	var cmdLine strings.Builder
 	cmdLine.WriteString(cmdPath)
 	for _, a := range args {
 		cmdLine.WriteByte(' ')
-		if strings.ContainsAny(a, " \t\n'\"\\") {
-			cmdLine.WriteString("'" + strings.ReplaceAll(a, "'", "'\\''") + "'")
+		display := a
+		if len(a) > 200 {
+			display = a[:200] + fmt.Sprintf("... [%d bytes truncated]", len(a)-200)
+		}
+		if strings.ContainsAny(display, " \t\n'\"\\") {
+			cmdLine.WriteString("'" + strings.ReplaceAll(display, "'", "'\\''") + "'")
 		} else {
-			cmdLine.WriteString(a)
+			cmdLine.WriteString(display)
 		}
 	}
 	zap.L().Debug("starting claude SDK subprocess",

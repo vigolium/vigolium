@@ -14,7 +14,7 @@ import {
   Bot,
   SlidersHorizontal,
   CreditCard,
-  Users,
+  FolderKanban,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -27,7 +27,7 @@ const NAV_ITEMS = [
   { href: '/ingest', label: 'INGEST', icon: Import, group: 'orange' as const },
   { href: '/scan', label: 'NATIVE SCAN', icon: Radar, group: 'orange' as const },
   { href: '/agents', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' as const },
-  { href: '/team', label: 'TEAM', icon: Users, group: 'blue' as const },
+  { href: '/projects', label: 'PROJECTS', icon: FolderKanban, group: 'blue' as const },
   { href: '/billing', label: 'BILLING', icon: CreditCard, group: 'blue' as const },
   { href: '/settings', label: 'SETTINGS', icon: SlidersHorizontal, group: 'blue' as const },
 ];

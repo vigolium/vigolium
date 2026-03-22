@@ -98,7 +98,7 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		})
 	}
 
-	timeout := parseDurationOrDefault(req.Timeout, 30*time.Minute)
+	timeout := parseDurationOrDefault(req.Timeout, 6*time.Hour)
 
 	return h.startAutopilotRun(c, req, timeout)
 }
@@ -419,6 +419,11 @@ func (h *Handlers) buildPipelineSwarmConfig(req AgentPipelineRequest) agent.Swar
 		if mapped, ok := pipelineToSwarmPhase[p]; ok && mapped != "" {
 			swarmSkip = append(swarmSkip, mapped)
 		}
+	}
+
+	// Skip triage+rescan by default unless explicitly enabled
+	if !req.Triage && !agent.PhaseSkipped(swarmSkip, agent.SwarmPhaseTriage) {
+		swarmSkip = append(swarmSkip, agent.SwarmPhaseTriage)
 	}
 
 	// Map pipeline start-from to swarm phase name
@@ -826,6 +831,11 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		normalizedSkip[i] = agent.NormalizeSwarmPhase(p)
 	}
 
+	// Skip triage+rescan by default unless explicitly enabled
+	if !req.Triage && !agent.PhaseSkipped(normalizedSkip, agent.SwarmPhaseTriage) {
+		normalizedSkip = append(normalizedSkip, agent.SwarmPhaseTriage)
+	}
+
 	// Merge terminal config: request fields take precedence over config file
 	slashCmds := req.SlashCommands
 	customAgents := req.CustomAgents
@@ -867,6 +877,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		BatchConcurrency:   req.BatchConcurrency,
 		MaxMasterRetries:   req.MaxMasterRetries,
 		SAMaxConcurrency:   req.SAMaxConcurrency,
+		MaxPlanRecords:     req.MaxPlanRecords,
 		AgentName:          agentName,
 		AgentACPCmd:        req.AgentACPCmd,
 		SlashCommands:      slashCmds,
@@ -947,10 +958,7 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
 			settingsCopy.Audit.Extensions.Enabled = true
-			settingsCopy.Audit.Extensions.CustomDir = append(
-				settingsCopy.Audit.Extensions.CustomDir,
-				req.ExtensionDir+"/*.js",
-			)
+			settingsCopy.Audit.Extensions.ExtensionDir = req.ExtensionDir
 		}
 
 		scanRunner, err := runner.New(opts)

@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -86,6 +88,7 @@ type AutopilotPipelineResult struct {
 	FalsePositives int
 	PhasesRun      []AutopilotPhase
 	PhaseTimings   map[AutopilotPhase]time.Duration
+	PhaseFailed    map[AutopilotPhase]bool // tracks which phases failed
 	Duration       time.Duration
 	SessionDir     string
 }
@@ -118,9 +121,150 @@ func NewAutopilotPipelineRunner(engine *Engine, repo *database.Repository) *Auto
 	return &AutopilotPipelineRunner{engine: engine, repo: repo}
 }
 
-// Run executes the full autopilot pipeline.
+// RunAutonomous executes a fully autonomous autopilot session using the Agent SDK.
+// Instead of the rigid 5-phase pipeline, the agent gets a comprehensive mission brief
+// and full tool access (Bash, Read, Grep, etc.) to decide its own workflow.
+// The agent runs vigolium CLI commands, curl, jq, and any standard tools autonomously.
+func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
+	start := time.Now()
+
+	if err := r.engine.Preflight(cfg.AgentName); err != nil {
+		return nil, fmt.Errorf("autopilot preflight failed: %w", err)
+	}
+
+	result := &AutopilotPipelineResult{
+		VulnQueues:   make(map[VulnClass]*VulnQueue),
+		Evidence:     make(map[VulnClass][]ExploitationEvidence),
+		PhaseTimings: make(map[AutopilotPhase]time.Duration),
+		PhaseFailed:  make(map[AutopilotPhase]bool),
+		SessionDir:   cfg.SessionDir,
+	}
+
+	prompt := buildAutonomousPrompt(cfg)
+
+	autopilotSessionID := uuid.New().String()
+	opts := Options{
+		AgentName:    cfg.AgentName,
+		PromptInline: prompt,
+		SourcePath:   cfg.SourcePath,
+		Files:        cfg.Files,
+		TargetURL:    cfg.TargetURL,
+		Source:       "autopilot",
+		Autopilot:    true,
+		MaxCommands:  cfg.MaxCommands,
+		StreamWriter: cfg.StreamWriter,
+		ScanUUID:     cfg.ScanUUID,
+		ProjectUUID:  cfg.ProjectUUID,
+		SessionKey:   "autopilot-autonomous",
+		SessionID:    autopilotSessionID,
+		SessionDir:   cfg.SessionDir,
+		DryRun:       cfg.DryRun,
+		ShowPrompt:   cfg.ShowPrompt,
+	}
+
+	printPhaseLine("autopilot", "starting autonomous agent session")
+
+	agentResult, err := r.engine.Run(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("autonomous agent failed: %w", err)
+	}
+
+	// Save raw output to session directory
+	if cfg.SessionDir != "" && agentResult != nil && agentResult.RawOutput != "" {
+		_ = os.WriteFile(filepath.Join(cfg.SessionDir, "output.md"), []byte(agentResult.RawOutput), 0644)
+	}
+
+	// Findings are saved to the DB by vigolium commands the agent executes
+	// (scan-url, scan-request, finding load, etc.). The agent reports its own
+	// summary in the output text.
+
+	result.Duration = time.Since(start)
+	return result, nil
+}
+
+// buildAutonomousPrompt constructs the mission brief for a fully autonomous autopilot session.
+func buildAutonomousPrompt(cfg AutopilotPipelineConfig) string {
+	var b strings.Builder
+
+	b.WriteString("# Autonomous Security Assessment\n\n")
+	b.WriteString("## Mission\n\n")
+	b.WriteString(fmt.Sprintf("Perform a comprehensive security assessment of **%s**.\n\n", cfg.TargetURL))
+	b.WriteString("You have full autonomy to decide your approach. Use any combination of vigolium CLI commands, ")
+	b.WriteString("curl, jq, and standard Unix tools. There are no fixed phases — you decide what to do, ")
+	b.WriteString("in what order, and when you're done.\n\n")
+
+	b.WriteString("## Target\n\n")
+	b.WriteString(fmt.Sprintf("- **URL:** %s\n", cfg.TargetURL))
+
+	if cfg.SourcePath != "" {
+		b.WriteString(fmt.Sprintf("- **Source code:** %s\n", cfg.SourcePath))
+		b.WriteString("  - Read the source code to understand routes, auth flows, and vulnerability sinks\n")
+		b.WriteString("  - Use this knowledge to guide your scanning strategy\n")
+	}
+	if len(cfg.Files) > 0 {
+		b.WriteString(fmt.Sprintf("- **Focus files:** %s\n", strings.Join(cfg.Files, ", ")))
+	}
+	b.WriteString("\n")
+
+	if cfg.Focus != "" {
+		b.WriteString("## Focus Area\n\n")
+		b.WriteString(cfg.Focus)
+		b.WriteString("\n\n")
+	}
+
+	if cfg.Instruction != "" {
+		b.WriteString("## Custom Instructions\n\n")
+		b.WriteString(cfg.Instruction)
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("## Recommended Approach\n\n")
+	b.WriteString("1. **Reconnaissance** — Discover the attack surface:\n")
+	b.WriteString("   - Run `vigolium scan --only discovery -t <target> --json` for content discovery\n")
+	b.WriteString("   - Run `vigolium scan --only spidering -t <target> --json --spider` for crawling\n")
+	b.WriteString("   - Use `curl -s -i` to probe interesting endpoints manually\n")
+	if cfg.SourcePath != "" {
+		b.WriteString("   - Read application source code to find routes, auth mechanisms, and sinks\n")
+	}
+	b.WriteString("   - Review discovered endpoints: `vigolium traffic --json`\n\n")
+
+	b.WriteString("2. **Analysis & Scanning** — Test for vulnerabilities:\n")
+	b.WriteString("   - Scan high-value endpoints: `vigolium scan-url <url> --json`\n")
+	b.WriteString("   - Use targeted module tags: `--module-tag injection,xss,auth,ssrf,ssti`\n")
+	b.WriteString("   - Pipe raw requests: `printf '...' | vigolium scan-request --json`\n")
+	b.WriteString("   - Write custom JS extensions for edge cases: `vigolium ext eval --ext-file script.js`\n\n")
+
+	b.WriteString("3. **Verification & Iteration** — Confirm and expand:\n")
+	b.WriteString("   - Review findings: `vigolium finding --json --severity critical,high`\n")
+	b.WriteString("   - Manually verify with curl to confirm exploitability\n")
+	b.WriteString("   - Test related endpoints for similar vulnerabilities\n")
+	b.WriteString("   - Import confirmed findings: `echo '{...}' | vigolium finding load`\n\n")
+
+	b.WriteString("4. **Reporting** — Summarize your work:\n")
+	b.WriteString("   - Provide a clear summary of all confirmed vulnerabilities\n")
+	b.WriteString("   - Include severity, evidence, and remediation guidance\n")
+	b.WriteString("   - Note any false positives you identified and dismissed\n\n")
+
+	b.WriteString("## Guidelines\n\n")
+	b.WriteString("- Always use `--json` for structured output you can analyze\n")
+	b.WriteString("- Don't scan static assets (CSS, JS bundles, images, fonts)\n")
+	b.WriteString("- After finding a vulnerability type, test similar endpoints for the same class\n")
+	b.WriteString("- Pay attention to error messages — they reveal technology and paths\n")
+	b.WriteString("- If a scan returns no findings, move on — don't retry the same thing\n")
+	b.WriteString("- Use `vigolium db stats --json` to check overall progress\n")
+	b.WriteString("- You have full shell access — be creative and thorough\n")
+
+	return b.String()
+}
+
+// Run executes the full autopilot pipeline (legacy 5-phase mode for non-SDK backends).
 func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
 	start := time.Now()
+
+	// Pre-flight: verify agent backend is reachable before starting pipeline
+	if err := r.engine.Preflight(cfg.AgentName); err != nil {
+		return nil, fmt.Errorf("autopilot preflight failed: %w", err)
+	}
 
 	// Ensure warm sessions for multi-call mode
 	r.engine.EnsureWarmSessions()
@@ -129,6 +273,7 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 		VulnQueues:   make(map[VulnClass]*VulnQueue),
 		Evidence:     make(map[VulnClass][]ExploitationEvidence),
 		PhaseTimings: make(map[AutopilotPhase]time.Duration),
+		PhaseFailed:  make(map[AutopilotPhase]bool),
 		SessionDir:   cfg.SessionDir,
 	}
 
@@ -176,6 +321,7 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 
 		if err != nil {
 			zap.L().Warn("Recon phase failed, continuing with empty recon", zap.Error(err))
+			result.PhaseFailed[AutopilotPhaseRecon] = true
 		} else if reconResult != nil {
 			zap.L().Info("Recon completed",
 				zap.Int("endpoints", len(reconResult.Endpoints)),
@@ -196,6 +342,18 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 
 		if err != nil {
 			zap.L().Warn("Vuln analysis phase had errors", zap.Error(err))
+		}
+
+		// Check if vuln analysis produced any results
+		hasResults := false
+		for _, q := range queues {
+			if q != nil && len(q.Items) > 0 {
+				hasResults = true
+				break
+			}
+		}
+		if !hasResults {
+			result.PhaseFailed[AutopilotPhaseVulnAnalysis] = true
 		}
 
 		for class, queue := range queues {
@@ -219,6 +377,13 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 
 	// Phase 3: Native Scan
 	if !phaseCompleted(AutopilotPhaseNativeScan) && cfg.ScanFunc != nil {
+		// Warn if all AI phases failed — scan will run with default modules, not AI-guided targeting
+		if result.PhaseFailed[AutopilotPhaseRecon] && result.PhaseFailed[AutopilotPhaseVulnAnalysis] {
+			zap.L().Warn("All AI phases failed — native scan will run with default modules (no AI-guided targeting). " +
+				"Check agent backend configuration and ensure the agent binary is installed and accessible")
+			printPhaseLine("warning", "AI phases produced no results; falling back to default scan modules")
+		}
+
 		notifyPhase(AutopilotPhaseNativeScan)
 		phaseStart := time.Now()
 

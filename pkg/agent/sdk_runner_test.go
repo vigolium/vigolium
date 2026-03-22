@@ -469,7 +469,9 @@ func TestEngineSDKCase_AutopilotConfig(t *testing.T) {
 		cfg.MaxTurns = 300
 	}
 	cfg.Effort = "high"
-	cfg.AppendSystemPrompt = "You have access to the vigolium CLI scanner via the Bash tool."
+	sysPrompt, source := LoadSDKAutopilotSystemPrompt()
+	cfg.AppendSystemPrompt = sysPrompt
+	cfg.SystemPromptSource = source
 
 	opts := buildSDKOptions(agentDef, cfg)
 
@@ -479,8 +481,9 @@ func TestEngineSDKCase_AutopilotConfig(t *testing.T) {
 	if opts.Effort != "high" {
 		t.Errorf("Effort: got %q, want high", opts.Effort)
 	}
-	if !strings.Contains(opts.AppendSystemPrompt, "vigolium") {
-		t.Error("AppendSystemPrompt should contain vigolium context")
+	// System prompt should be passed either inline or via CLAUDE.md (depending on SystemPromptDir)
+	if !strings.Contains(sysPrompt, "vigolium") {
+		t.Error("system prompt should contain vigolium context")
 	}
 }
 

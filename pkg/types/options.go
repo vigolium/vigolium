@@ -179,6 +179,10 @@ type Options struct {
 	Sessions []string
 	// AuthConfigPath is the path to an auth-config YAML file with session definitions
 	AuthConfigPath string
+	// AuthConfigBestEffort when true treats auth config/session init errors as
+	// warnings instead of hard failures. Use for AI-generated auth configs that
+	// may be malformed — the scan proceeds without sessions rather than aborting.
+	AuthConfigBestEffort bool
 	// SessionFiles are paths to individual session YAML files from --session-file flags
 	SessionFiles []string
 

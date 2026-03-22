@@ -86,9 +86,9 @@ func TestSwarmPrompt_RawHTTPInput(t *testing.T) {
 		t.Errorf("request context missing Authorization header, got:\n%s", reqCtx)
 	}
 
-	// Verify hostname extraction
-	if hostname != "localhost" {
-		t.Errorf("hostname = %q, want %q", hostname, "localhost")
+	// Verify hostname extraction (includes port for non-standard ports)
+	if hostname != "localhost:3000" {
+		t.Errorf("hostname = %q, want %q", hostname, "localhost:3000")
 	}
 
 	// Render the actual template and verify the prompt
@@ -195,8 +195,8 @@ func TestSwarmPrompt_Base64Input(t *testing.T) {
 
 	reqCtx, hostname, opts := buildSwarmPromptContext(records, targetURL, "")
 
-	if hostname != "localhost" {
-		t.Errorf("hostname = %q, want %q", hostname, "localhost")
+	if hostname != "localhost:3000" {
+		t.Errorf("hostname = %q, want %q", hostname, "localhost:3000")
 	}
 	if !strings.Contains(reqCtx, "GET /rest/products/search?q=apple") {
 		t.Errorf("request context missing request line")
@@ -354,9 +354,9 @@ func TestSwarmPrompt_GatherContext_HostnameFromURL(t *testing.T) {
 		t.Fatalf("gatherContext failed: %v", err)
 	}
 
-	// hostnameFromURL uses url.Hostname() which strips the port
-	if data.Hostname != "api.example.com" {
-		t.Errorf("Hostname = %q, want %q", data.Hostname, "api.example.com")
+	// hostnameFromURL uses url.Host which preserves the port
+	if data.Hostname != "api.example.com:8443" {
+		t.Errorf("Hostname = %q, want %q", data.Hostname, "api.example.com:8443")
 	}
 }
 

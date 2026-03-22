@@ -48,9 +48,10 @@ type Options struct {
 	SessionID string `json:"-"`
 
 	// Autopilot mode
-	Autopilot   bool // enable terminal execution for autonomous scanning
-	MaxCommands   int // max terminal commands the agent can run (0 = default 100)
-	SessionWeight int `json:"-"` // session weight for pool scheduling (0 = default)
+	Autopilot   bool   // enable terminal execution for autonomous scanning
+	MaxCommands int    // max terminal commands the agent can run (0 = default 100)
+	SessionWeight int  `json:"-"` // session weight for pool scheduling (0 = default)
+	SessionDir  string `json:"-"` // session directory for artifacts (SDK: CLAUDE.md written here for system prompt)
 
 	// Swarm terminal: custom slash commands and sub-agents
 	SlashCommands []string // custom slash commands available inside the ACP session (e.g. /security-review)

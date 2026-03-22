@@ -1,7 +1,7 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
-import { removeInstallationId } from '@/lib/github';
+import { removeAccessToken } from '@/lib/github';
 
 export async function POST() {
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
@@ -16,7 +16,10 @@ export async function POST() {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
-    await removeInstallationId(billing.customerId);
+    if (!billing) {
+      return NextResponse.json({ ok: true });
+    }
+    await removeAccessToken(billing.customerId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to disconnect';

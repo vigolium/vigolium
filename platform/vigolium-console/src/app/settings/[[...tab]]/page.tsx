@@ -3,7 +3,8 @@ import SettingsRoute from './SettingsRoute';
 export function generateStaticParams() {
   return [
     { tab: [] },
-    { tab: ['projects'] },
+    { tab: ['profile'] },
+    { tab: ['team'] },
     { tab: ['theme'] },
     { tab: ['about'] },
   ];

@@ -89,6 +89,7 @@ var findingCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(findingCmd)
+	findingCmd.AddCommand(findingLoadCmd)
 
 	// Filter flags
 	pf := findingCmd.PersistentFlags()

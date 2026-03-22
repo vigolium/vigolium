@@ -76,7 +76,7 @@ func init() {
 	f.StringVar(&autopilotSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --source)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
-	f.DurationVar(&autopilotTimeout, "timeout", 30*time.Minute, "Maximum duration for the autopilot session")
+	f.DurationVar(&autopilotTimeout, "timeout", 6*time.Hour, "Maximum duration for the autopilot session")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	f.IntVar(&autopilotMaxCommands, "max-commands", 100, "Maximum number of CLI commands the agent can execute")
@@ -165,6 +165,21 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	// Merge CLI MCP servers onto the resolved agent definition
 	mergeAgentMcpServers(settings, autopilotAgent, cliMcpServers)
 
+	// Detect agent protocol: SDK gets fully autonomous mode, others get legacy pipeline
+	protocol := engine.ResolveAgentProtocol(autopilotAgent)
+	if protocol == "sdk" {
+		return runAutopilotAutonomous(ctx, engine, settings, repo, sessionDir, instruction)
+	}
+
+	// Non-SDK backends fall back to the legacy 5-phase pipeline
+	fmt.Fprintf(os.Stderr, "%s Autopilot works best with the Agent SDK backend (protocol: sdk). "+
+		"Current backend uses %q protocol.\n"+
+		"%s For full autonomy, configure an SDK agent: agent.default_agent: claude-sdk\n"+
+		"%s Falling back to legacy specialist pipeline.\n",
+		terminal.WarningSymbol(), protocol,
+		terminal.WarningSymbol(),
+		terminal.WarningSymbol())
+
 	return runAutopilotPipeline(ctx, engine, settings, repo, sessionDir, instruction)
 }
 
@@ -231,6 +246,49 @@ func mergeAgentMcpServers(settings *config.Settings, agentName string, cliServer
 	// Write back a copy with the new slice (agentDef is already a value copy from the map)
 	agentDef.McpServers = merged
 	settings.Agent.Backends[agentName] = agentDef
+}
+
+// runAutopilotAutonomous runs a fully autonomous agent session using the Agent SDK.
+// The agent has full tool access and decides its own workflow — no fixed phases.
+func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string) error {
+	var streamWriter io.Writer
+	if settings.Agent.StreamEnabled() {
+		streamWriter = os.Stdout
+	}
+
+	projectUUID, _ := resolveProjectUUID()
+
+	cfg := agent.AutopilotPipelineConfig{
+		TargetURL:    autopilotTarget,
+		SourcePath:   autopilotSource,
+		Files:        autopilotFiles,
+		Instruction:  instruction,
+		Focus:        autopilotFocus,
+		AgentName:    autopilotAgent,
+		MaxCommands:  autopilotMaxCommands,
+		DryRun:       autopilotDryRun,
+		ShowPrompt:   autopilotShowPrompt,
+		SessionsDir:  settings.Agent.EffectiveSessionsDir(),
+		SessionDir:   sessionDir,
+		ProjectUUID:  projectUUID,
+		ScanUUID:     globalScanID,
+		StreamWriter: streamWriter,
+	}
+
+	runner := agent.NewAutopilotPipelineRunner(engine, repo)
+	result, err := runner.RunAutonomous(ctx, cfg)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("autopilot session timed out after %s", autopilotTimeout)
+		}
+		return fmt.Errorf("autopilot session failed: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%s Autonomous autopilot session complete (%s)\n",
+		terminal.SuccessSymbol(),
+		result.Duration.Round(time.Second))
+
+	return nil
 }
 
 // runAutopilotPipeline runs the multi-agent specialist pipeline.

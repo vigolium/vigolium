@@ -269,11 +269,12 @@ Output format: When --json is used, scan commands return:
 Each finding contains: module_id, matched, info.name, info.severity, info.description.`
 }
 
-// hostnameFromURL extracts the hostname from a raw URL string.
+// hostnameFromURL extracts the host (including port when non-standard) from a raw URL string.
+// Returns host:port for non-standard ports (e.g. "localhost:3005"), bare hostname otherwise.
 func hostnameFromURL(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
 	}
-	return u.Hostname()
+	return u.Host
 }

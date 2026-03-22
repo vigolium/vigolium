@@ -3,7 +3,7 @@ services:
     image: erev0s/vampi:latest
     container_name: vampi-secure
     ports:
-      - "5001:5000"
+      - "3005:5000"
     environment:
       - vulnerable=0
     restart: unless-stopped
@@ -12,7 +12,7 @@ services:
     image: erev0s/vampi:latest
     container_name: vampi-vulnerable
     ports:
-      - "5002:5000"
+      - "3006:5000"
     environment:
       - vulnerable=1
     restart: unless-stopped

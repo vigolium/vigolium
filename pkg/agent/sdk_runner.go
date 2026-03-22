@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -19,9 +21,11 @@ type sdkRunConfig struct {
 	Model              string   // override model for this run
 	MaxTurns           int      // max agentic turns (0 = SDK default); set high for autopilot
 	AdditionalDirs     []string // extra directories the agent can access (--add-dir)
-	AppendSystemPrompt string   // appended to the default Claude Code system prompt
+	AppendSystemPrompt string   // appended to the default Claude Code system prompt (inline, use SystemPromptDir to avoid long CLI args)
+	SystemPromptSource string   // human-readable source description of where the system prompt was loaded from
 	Effort             string   // "low", "medium", "high"
 	SessionID          string   // pre-generated UUID for --session-id (enables persistence + resume)
+	SystemPromptDir    string   // when set, write system prompt to a file here and use as CWD (avoids huge --append-system-prompt arg)
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -126,9 +130,53 @@ func buildSDKOptions(agentDef config.AgentDef, cfg sdkRunConfig) *claudesdk.Opti
 		opts.AdditionalDirs = cfg.AdditionalDirs
 	}
 
-	// System prompt appended to Claude Code's default
+	// System prompt: prefer writing to a file in SystemPromptDir (avoids
+	// passing a multi-KB --append-system-prompt CLI arg).
+	//
+	// For Claude Code: writes CLAUDE.md (auto-discovered from CWD, no CLI arg needed).
+	// For other agents: writes AGENTS.md (reference only) and still passes inline.
 	if cfg.AppendSystemPrompt != "" {
-		opts.AppendSystemPrompt = cfg.AppendSystemPrompt
+		isClaude := isClaudeAgent(agentDef.Command)
+		filename := systemPromptFilename(agentDef.Command)
+
+		if cfg.SystemPromptDir != "" {
+			writtenPath, writeErr := writeSystemPromptFile(cfg.SystemPromptDir, filename, cfg.AppendSystemPrompt)
+			if writeErr != nil {
+				zap.L().Warn("failed to write system prompt file, falling back to inline",
+					zap.String("filename", filename), zap.Error(writeErr))
+				opts.AppendSystemPrompt = cfg.AppendSystemPrompt
+			} else {
+				printSystemPromptInfo(cfg.SystemPromptSource, writtenPath)
+
+				if isClaude {
+					// Claude Code auto-discovers CLAUDE.md — set CWD to prompt dir,
+					// move original CWD to --add-dir so agent retains access.
+					// Skip if CWD is already in AdditionalDirs (e.g. source path).
+					if cfg.Cwd != "" && cfg.Cwd != "." && cfg.Cwd != cfg.SystemPromptDir {
+						alreadyAdded := false
+						for _, d := range opts.AdditionalDirs {
+							if d == cfg.Cwd {
+								alreadyAdded = true
+								break
+							}
+						}
+						if !alreadyAdded {
+							opts.AdditionalDirs = append(opts.AdditionalDirs, cfg.Cwd)
+						}
+					}
+					opts.Cwd = cfg.SystemPromptDir
+				} else {
+					// Other agents don't auto-discover AGENTS.md — still pass inline.
+					opts.AppendSystemPrompt = cfg.AppendSystemPrompt
+				}
+			}
+		} else {
+			// No session dir — pass inline
+			if cfg.SystemPromptSource != "" {
+				printSystemPromptInfo(cfg.SystemPromptSource, "")
+			}
+			opts.AppendSystemPrompt = cfg.AppendSystemPrompt
+		}
 	}
 
 	// Effort level
@@ -137,6 +185,19 @@ func buildSDKOptions(agentDef config.AgentDef, cfg sdkRunConfig) *claudesdk.Opti
 	}
 
 	return opts
+}
+
+// writeSystemPromptFile writes the system prompt to a file in the given directory.
+// Returns the full path of the written file.
+//
+// Claude Code auto-discovers CLAUDE.md from CWD. For other agents, AGENTS.md is
+// written as a reference artifact (the prompt is still passed via CLI arg).
+func writeSystemPromptFile(dir, filename, content string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, filename)
+	return path, os.WriteFile(path, []byte(content), 0o644)
 }
 
 // buildMcpConfigFromServers converts vigolium MCP server configs to a JSON string

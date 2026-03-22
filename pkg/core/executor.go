@@ -1052,22 +1052,30 @@ func (e *Executor) emitResult(result *output.ResultEvent) {
 			recordUUID, exists := e.requestUUIDs.Load(reqHash)
 
 			if !exists {
-				// Finding evidence — save request/response as a new http_record
-				findingRR := httpmsg.NewHttpRequestResponse(
-					httpmsg.NewHttpRequest([]byte(result.Request)),
-					httpmsg.NewHttpResponse([]byte(result.Response)),
-				)
-				var err error
-				if e.recordWriter != nil {
-					recordUUID, err = e.recordWriter.Write(context.Background(), findingRR, "finding", e.projectUUID)
+				// Parse raw request to extract service info (host/port/protocol) from Host header
+				var findingRR *httpmsg.HttpRequestResponse
+				var parseErr error
+				if result.URL != "" {
+					findingRR, parseErr = httpmsg.ParseRawRequestWithURL(result.Request, result.URL)
 				} else {
-					recordUUID, err = e.repo.SaveRecord(context.Background(), findingRR, "finding", e.projectUUID)
+					findingRR, parseErr = httpmsg.ParseRawRequest(result.Request)
 				}
-				if err != nil {
-					zap.L().Warn("Failed to save finding http_record", zap.Error(err))
+				if parseErr != nil {
+					zap.L().Debug("Failed to parse finding request, skipping http_record save", zap.Error(parseErr))
 				} else {
-					e.requestUUIDs.Store(reqHash, recordUUID)
-					exists = true
+					findingRR = findingRR.WithResponse(httpmsg.NewHttpResponse([]byte(result.Response)))
+					var err error
+					if e.recordWriter != nil {
+						recordUUID, err = e.recordWriter.Write(context.Background(), findingRR, "finding", e.projectUUID)
+					} else {
+						recordUUID, err = e.repo.SaveRecord(context.Background(), findingRR, "finding", e.projectUUID)
+					}
+					if err != nil {
+						zap.L().Warn("Failed to save finding http_record", zap.Error(err))
+					} else {
+						e.requestUUIDs.Store(reqHash, recordUUID)
+						exists = true
+					}
 				}
 			}
 

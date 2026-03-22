@@ -1,10 +1,12 @@
 'use client';
 
-import { useTheme } from '@/contexts/ThemeContext';
-import DarkTeamPage from '@/designs/dark/TeamPage';
-import LightTeamPage from '@/designs/light/TeamPage';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function TeamRoute() {
-  const { themeId } = useTheme();
-  return themeId === 'dark' ? <DarkTeamPage /> : <LightTeamPage />;
+export default function TeamRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/settings/team');
+  }, [router]);
+  return null;
 }

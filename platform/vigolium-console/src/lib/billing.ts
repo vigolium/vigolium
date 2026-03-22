@@ -1,38 +1,47 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { getUserOrganization } from './workos-server';
-import { getOrCreateCustomer, getCredits, deductCredits } from './stripe';
+import { getOrCreateCustomer, getOrCreateUserCustomer, getCredits, deductCredits } from './stripe';
 import { getCostForPath } from './billing-costs';
 
 const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
 
-export interface OrgBilling {
-  orgId: string;
-  orgName: string;
+export interface BillingInfo {
+  orgId: string | null;
+  orgName: string | null;
   customerId: string;
   credits: number;
 }
 
+/** @deprecated Use resolveBilling instead */
+export async function resolveOrgBilling(userId: string): Promise<BillingInfo | null> {
+  return resolveBilling(userId);
+}
+
 /**
- * Resolve a user to their org and Stripe customer.
+ * Resolve a user to their Stripe customer — via org if available, otherwise as individual.
  * Creates the Stripe customer on first access.
  */
-export async function resolveOrgBilling(userId: string): Promise<OrgBilling> {
+export async function resolveBilling(userId: string): Promise<BillingInfo | null> {
+  const session = await withAuth();
+  if (!session.user) return null;
+
+  const email = session.user.email || '';
+  const name = session.user.firstName
+    ? `${session.user.firstName} ${session.user.lastName || ''}`.trim()
+    : email;
+
   const org = await getUserOrganization(userId);
-  if (!org) {
-    throw new Error('User has no organization. Please create or join a team first.');
+
+  if (org) {
+    const customer = await getOrCreateCustomer(org.orgId, org.orgName, email);
+    const credits = await getCredits(customer.id);
+    return { orgId: org.orgId, orgName: org.orgName, customerId: customer.id, credits };
   }
 
-  const session = await withAuth();
-  const email = session.user?.email || '';
-  const customer = await getOrCreateCustomer(org.orgId, org.orgName, email);
+  // Individual user — create a user-level Stripe customer
+  const customer = await getOrCreateUserCustomer(userId, name, email);
   const credits = await getCredits(customer.id);
-
-  return {
-    orgId: org.orgId,
-    orgName: org.orgName,
-    customerId: customer.id,
-    credits,
-  };
+  return { orgId: null, orgName: null, customerId: customer.id, credits };
 }
 
 export interface CreditCheckResult {
@@ -59,7 +68,11 @@ export async function checkAndDeductCredits(
     return { allowed: true, cost: 0, remaining: -1 };
   }
 
-  const billing = await resolveOrgBilling(userId);
+  const billing = await resolveBilling(userId);
+  if (!billing) {
+    return { allowed: true, cost: 0, remaining: 999999 };
+  }
+
   const result = await deductCredits(billing.customerId, cost);
 
   if (!result.success) {

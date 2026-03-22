@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
+    if (!billing) {
+      return NextResponse.json({ error: 'Unable to resolve billing' }, { status: 400 });
+    }
     const stripe = getStripe();
 
     const origin = req.headers.get('origin') || 'http://localhost:5002';
@@ -54,7 +57,7 @@ export async function POST(req: NextRequest) {
       ],
       metadata: {
         credits_amount: String(creditsAmount),
-        workos_org_id: billing.orgId,
+        ...(billing.orgId ? { workos_org_id: billing.orgId } : { workos_user_id: session.user.id }),
       },
       success_url: `${origin}/billing?checkout=success`,
       cancel_url: `${origin}/billing?checkout=cancelled`,

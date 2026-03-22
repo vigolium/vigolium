@@ -21,16 +21,11 @@ export async function GET() {
 
   const user = session.user;
 
-  // Try to resolve billing info (org + credits). Gracefully degrade if no org yet.
-  let organization: { id: string; name: string } | null = null;
-  let credits = 0;
-  try {
-    const billing = await resolveOrgBilling(user.id);
-    organization = { id: billing.orgId, name: billing.orgName };
-    credits = billing.credits;
-  } catch {
-    // User may not have an organization yet — that's OK
-  }
+  const billing = await resolveOrgBilling(user.id);
+  const organization = billing?.orgId
+    ? { id: billing.orgId, name: billing.orgName! }
+    : null;
+  const credits = billing?.credits ?? 0;
 
   return NextResponse.json({
     id: user.id,

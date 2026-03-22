@@ -42,6 +42,32 @@ export async function getOrCreateCustomer(
   });
 }
 
+/** Find or create a Stripe customer for an individual user (no org). */
+export async function getOrCreateUserCustomer(
+  userId: string,
+  name: string,
+  email: string,
+): Promise<Stripe.Customer> {
+  const stripe = getStripe();
+
+  const result = await stripe.customers.search({
+    query: `metadata["workos_user_id"]:"${userId}"`,
+  });
+
+  if (result.data.length > 0) {
+    return result.data[0];
+  }
+
+  return stripe.customers.create({
+    name,
+    email,
+    metadata: {
+      workos_user_id: userId,
+      credits: '0',
+    },
+  });
+}
+
 /** Read current credit balance from customer metadata. */
 export async function getCredits(customerId: string): Promise<number> {
   const stripe = getStripe();

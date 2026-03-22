@@ -13,16 +13,15 @@ export async function GET() {
     return NextResponse.json(null, { status: 401 });
   }
 
-  try {
-    const billing = await resolveOrgBilling(session.user.id);
-    return NextResponse.json({
-      credits: billing.credits,
-      org_id: billing.orgId,
-      org_name: billing.orgName,
-      customer_id: billing.customerId,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to resolve billing';
-    return NextResponse.json({ error: message }, { status: 400 });
+  const billing = await resolveOrgBilling(session.user.id);
+  if (!billing) {
+    return NextResponse.json({ credits: 0, org_id: null, org_name: null });
   }
+
+  return NextResponse.json({
+    credits: billing.credits,
+    org_id: billing.orgId,
+    org_name: billing.orgName,
+    customer_id: billing.customerId,
+  });
 }

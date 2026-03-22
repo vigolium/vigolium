@@ -390,7 +390,7 @@ juiceshop-status:
 vampi-up:
 	@echo "$(PREFIX) Starting VAmPI..."
 	docker compose -f $(VAMPI_DIR)/docker-compose.yaml up -d
-	@echo "$(PREFIX) VAmPI secure: http://127.0.0.1:5001  VAmPI vulnerable: http://127.0.0.1:5002"
+	@echo "$(PREFIX) VAmPI secure: http://127.0.0.1:3005  VAmPI vulnerable: http://127.0.0.1:3006"
 
 vampi-down:
 	@echo "$(PREFIX) Stopping VAmPI..."
@@ -662,7 +662,7 @@ help:
 	@echo "    make juiceshop-down   Stop and remove Juice Shop container"
 	@echo "    make juiceshop-logs   Follow Juice Shop logs"
 	@echo "    make juiceshop-status Show Juice Shop service status"
-	@echo "    make vampi-up         Start VAmPI (http://127.0.0.1:5001, :5002)"
+	@echo "    make vampi-up         Start VAmPI (http://127.0.0.1:3005, :3006)"
 	@echo "    make vampi-down       Stop and remove VAmPI containers"
 	@echo "    make vampi-logs       Follow VAmPI logs"
 	@echo "    make vampi-status     Show VAmPI service status"

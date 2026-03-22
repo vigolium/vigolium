@@ -1,7 +1,7 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
-import { getInstallationId, getCloneUrl } from '@/lib/github';
+import { getAccessToken, getCloneUrl } from '@/lib/github';
 
 export async function POST(req: NextRequest) {
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
@@ -22,12 +22,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
-    const installationId = await getInstallationId(billing.customerId);
-    if (!installationId) {
+    if (!billing) {
+      return NextResponse.json({ error: 'Join or create a team to use GitHub integration' }, { status: 400 });
+    }
+    const accessToken = await getAccessToken(billing.customerId);
+    if (!accessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 
-    const cloneUrl = await getCloneUrl(installationId, repo);
+    const cloneUrl = getCloneUrl(accessToken, repo);
     return NextResponse.json({ clone_url: cloneUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to generate clone URL';

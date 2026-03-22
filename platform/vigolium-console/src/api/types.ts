@@ -907,7 +907,6 @@ export interface GitHubRepo {
 
 export interface GitHubReposResponse {
   repos: GitHubRepo[];
-  installation_id: number;
 }
 
 export interface GitHubCloneUrlRequest {
@@ -920,5 +919,5 @@ export interface GitHubCloneUrlResponse {
 
 export interface GitHubStatusResponse {
   connected: boolean;
-  installation_id?: number;
+  username?: string;
 }

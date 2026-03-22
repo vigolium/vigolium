@@ -123,18 +123,25 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
               </span>
             );
           })}
-          <span style={{ color: isConnected ? 'var(--v-success)' : 'var(--v-error)' }}>
-            {isConnected ? '[CONNECTED]' : '[OFFLINE]'}
-          </span>
+          {!isConnected && (
+            <span style={{ color: 'var(--v-error)' }}>
+              Scanner server is offline
+            </span>
+          )}
           {isConnected && currentUser && (
             <>
               <a href="/billing" className="hidden md:inline-flex items-center gap-1" style={{ color: 'var(--v-accent)' }} title="Credits">
                 <Coins className="w-3 h-3" />
-                <span className="font-bold">{(currentUser.credits ?? 0).toLocaleString()}</span>
+                <span>Credits:</span> <span className="font-bold">{(currentUser.credits ?? 0).toLocaleString()}</span>
               </a>
-              <span className="hidden lg:inline" style={{ color: 'var(--v-secondary)' }}>
+              {currentUser.organization && (
+                <a href="/settings/team" className="hidden md:inline" style={{ color: 'var(--v-text-muted)' }} title="Team">
+                  [{currentUser.organization.name}]
+                </a>
+              )}
+              <a href="/settings/profile" className="hidden md:inline" style={{ color: 'var(--v-secondary)' }}>
                 [Login as <span style={{ color: '#e879f9' }}>{currentUser.name}</span>]
-              </span>
+              </a>
             </>
           )}
           {isConnected && (

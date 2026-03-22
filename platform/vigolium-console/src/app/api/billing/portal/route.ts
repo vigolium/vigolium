@@ -16,6 +16,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
+    if (!billing) {
+      return NextResponse.json({ error: 'Unable to resolve billing' }, { status: 400 });
+    }
     const stripe = getStripe();
     const origin = req.headers.get('origin') || 'http://localhost:5002';
 

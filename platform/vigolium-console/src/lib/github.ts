@@ -1,57 +1,72 @@
-import { App } from '@octokit/app';
 import { getStripe } from './stripe';
 
-let _app: App | null = null;
-
-/** Get the GitHub App singleton. */
-export function getGitHubApp(): App {
-  if (!_app) {
-    const appId = process.env.GITHUB_APP_ID;
-    const privateKey = process.env.GITHUB_PRIVATE_KEY;
-    if (!appId || !privateKey) {
-      throw new Error('GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set');
-    }
-    _app = new App({
-      appId,
-      privateKey: privateKey.replace(/\\n/g, '\n'),
-    });
+/** Exchange an OAuth authorization code for an access token. */
+export async function exchangeCodeForToken(code: string): Promise<string> {
+  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set');
   }
-  return _app;
+
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+    }),
+  });
+
+  const data = await res.json();
+  if (data.error) {
+    throw new Error(`GitHub OAuth error: ${data.error_description || data.error}`);
+  }
+
+  return data.access_token;
 }
 
-/** Read github_installation_id from Stripe customer metadata. */
-export async function getInstallationId(customerId: string): Promise<number | null> {
+/** Read github_access_token from Stripe customer metadata. */
+export async function getAccessToken(customerId: string): Promise<string | null> {
   const stripe = getStripe();
   const customer = await stripe.customers.retrieve(customerId);
   if (customer.deleted) return null;
-  const id = customer.metadata.github_installation_id;
-  return id ? parseInt(id, 10) : null;
+  const token = customer.metadata.github_access_token;
+  return token || null;
 }
 
-/** Store github_installation_id in Stripe customer metadata. */
-export async function setInstallationId(customerId: string, installationId: number): Promise<void> {
+/** Store github_access_token in Stripe customer metadata. */
+export async function setAccessToken(customerId: string, accessToken: string): Promise<void> {
   const stripe = getStripe();
   await stripe.customers.update(customerId, {
-    metadata: { github_installation_id: String(installationId) },
+    metadata: { github_access_token: accessToken },
   });
 }
 
-/** Remove github_installation_id from Stripe customer metadata. */
-export async function removeInstallationId(customerId: string): Promise<void> {
+/** Remove github_access_token (and legacy github_installation_id) from Stripe customer metadata. */
+export async function removeAccessToken(customerId: string): Promise<void> {
   const stripe = getStripe();
   await stripe.customers.update(customerId, {
-    metadata: { github_installation_id: '' },
+    metadata: { github_access_token: '', github_installation_id: '' },
   });
 }
 
-/** Generate a short-lived installation access token (~1 hour TTL). */
-export async function getInstallationToken(installationId: number): Promise<string> {
-  const app = getGitHubApp();
-  const octokit = await app.getInstallationOctokit(installationId);
-  const { data } = await octokit.request('POST /app/installations/{installation_id}/access_tokens', {
-    installation_id: installationId,
+/** Fetch the authenticated GitHub user's login name. */
+export async function getGitHubUsername(accessToken: string): Promise<string> {
+  const res = await fetch('https://api.github.com/user', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/vnd.github+json',
+    },
   });
-  return data.token;
+  if (!res.ok) {
+    throw new Error(`GitHub API error: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.login;
 }
 
 export interface GitHubRepo {
@@ -64,22 +79,31 @@ export interface GitHubRepo {
   url: string;
 }
 
-/** List repositories accessible to the installation. */
-export async function listRepos(installationId: number): Promise<GitHubRepo[]> {
-  const app = getGitHubApp();
-  const octokit = await app.getInstallationOctokit(installationId);
-
+/** List repositories accessible to the authenticated user. */
+export async function listRepos(accessToken: string): Promise<GitHubRepo[]> {
   const repos: GitHubRepo[] = [];
   let page = 1;
   const perPage = 100;
 
   while (true) {
-    const { data } = await octokit.request('GET /installation/repositories', {
-      per_page: perPage,
-      page,
-    });
+    const res = await fetch(
+      `https://api.github.com/user/repos?per_page=${perPage}&page=${page}&sort=updated&type=all`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github+json',
+        },
+      },
+    );
 
-    for (const repo of data.repositories) {
+    if (!res.ok) {
+      throw new Error(`GitHub API error: ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) break;
+
+    for (const repo of data) {
       repos.push({
         full_name: repo.full_name,
         name: repo.name,
@@ -91,9 +115,7 @@ export async function listRepos(installationId: number): Promise<GitHubRepo[]> {
       });
     }
 
-    if (repos.length >= data.total_count || data.repositories.length < perPage) {
-      break;
-    }
+    if (data.length < perPage) break;
     page++;
   }
 
@@ -101,7 +123,6 @@ export async function listRepos(installationId: number): Promise<GitHubRepo[]> {
 }
 
 /** Generate an authenticated clone URL for a repo. */
-export async function getCloneUrl(installationId: number, repoFullName: string): Promise<string> {
-  const token = await getInstallationToken(installationId);
-  return `https://x-access-token:${token}@github.com/${repoFullName}.git`;
+export function getCloneUrl(accessToken: string, repoFullName: string): string {
+  return `https://x-access-token:${accessToken}@github.com/${repoFullName}.git`;
 }

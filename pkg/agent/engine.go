@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -240,26 +241,36 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash
 		// (no ACP sandboxed terminal). Set MaxTurns high for multi-step execution.
 		if opts.Autopilot {
-			zap.L().Warn("SDK protocol: autopilot runs vigolium commands via unrestricted Bash (no ACP sandboxed terminal)",
-				zap.String("agent", opts.AgentName))
 			sdkCfg.MaxTurns = opts.MaxCommands * 3
 			if sdkCfg.MaxTurns <= 0 {
 				sdkCfg.MaxTurns = 300
 			}
 			sdkCfg.Effort = "high"
-			// Inject vigolium CLI context for autopilot agents
-			sdkCfg.AppendSystemPrompt = "You have access to the vigolium CLI scanner via the Bash tool. " +
-				"Run 'vigolium --help' to discover available commands. " +
-				"Use 'vigolium scan', 'vigolium run', and other subcommands to execute scans."
+
+			// Inject vigolium toolkit reference — written to CLAUDE.md/AGENTS.md in
+			// session dir to avoid passing multi-KB --append-system-prompt CLI arg.
+			sysPrompt, promptSource := LoadSDKAutopilotSystemPrompt()
+			if opts.SourcePath != "" {
+				sysPrompt += "\n\nApplication source code is available at: " + opts.SourcePath
+			}
+			sdkCfg.AppendSystemPrompt = sysPrompt
+			sdkCfg.SystemPromptSource = promptSource
+
+			// Use session dir for the prompt file when available
+			if opts.SessionDir != "" {
+				sdkCfg.SystemPromptDir = opts.SessionDir
+			}
 		}
 
-		// Additional directories for source path access
+		// Additional directories for source path access (non-autopilot or fallback)
 		if opts.SourcePath != "" {
-			sdkCfg.AdditionalDirs = []string{opts.SourcePath}
-			if sdkCfg.AppendSystemPrompt != "" {
-				sdkCfg.AppendSystemPrompt += "\n\n"
+			sdkCfg.AdditionalDirs = append(sdkCfg.AdditionalDirs, opts.SourcePath)
+			if !opts.Autopilot {
+				if sdkCfg.AppendSystemPrompt != "" {
+					sdkCfg.AppendSystemPrompt += "\n\n"
+				}
+				sdkCfg.AppendSystemPrompt += "Application source code is available at: " + opts.SourcePath
 			}
-			sdkCfg.AppendSystemPrompt += "Application source code is available at: " + opts.SourcePath
 		}
 
 		// Warn about ACP-only terminal features
@@ -372,6 +383,43 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+// Preflight validates that the agent backend is resolvable and its binary exists
+// in $PATH. Call this before starting a multi-phase pipeline to fail fast instead
+// of discovering configuration problems mid-run.
+func (e *Engine) Preflight(agentName string) error {
+	if agentName == "" {
+		agentName = e.settings.Agent.DefaultAgent
+	}
+	agentDef, err := e.resolveAgent(agentName)
+	if err != nil {
+		return fmt.Errorf("agent %q: %w", agentName, err)
+	}
+
+	// Validate the command binary is findable
+	cmd := agentDef.Command
+	if cmd == "" {
+		cmd = "claude" // default for SDK protocol
+	}
+	if _, lookErr := exec.LookPath(cmd); lookErr != nil {
+		return fmt.Errorf("agent %q command %q not found in PATH: %w", agentName, cmd, lookErr)
+	}
+
+	return nil
+}
+
+// ResolveAgentProtocol returns the effective protocol ("sdk", "acp", or "pipe") for
+// the named agent backend. Returns "pipe" if the agent is not found.
+func (e *Engine) ResolveAgentProtocol(agentName string) string {
+	if agentName == "" {
+		agentName = e.settings.Agent.DefaultAgent
+	}
+	def, ok := e.settings.Agent.Backends[agentName]
+	if !ok {
+		return "pipe"
+	}
+	return def.EffectiveProtocol()
 }
 
 // RunWithExtra executes an agent run with additional extra template data injected.

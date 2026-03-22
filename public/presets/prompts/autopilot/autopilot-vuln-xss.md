@@ -30,7 +30,7 @@ and construct a prioritized vulnerability queue for downstream scanning.
 ## Sink Patterns to Identify
 
 ### Reflected XSS
-- Template rendering with unescaped variables (`<%- %>`, `{{ | safe }}`, `{!! !!}`, `v-html`)
+- Template rendering with unescaped variables (`<%- %>`, `{{"{{" }} | safe }}`, `{!! !!}`, `v-html`)
 - Direct response body construction with user input (`res.send("<p>" + input + "</p>")`)
 - Error pages that reflect request parameters
 - Search results pages displaying the query term

@@ -450,7 +450,7 @@ type AgentAutopilotRequest struct {
 	Focus       string   `json:"focus,omitempty"`               // focus area hint
 	Instruction string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
 	Specialists []string `json:"specialists,omitempty"`         // vulnerability classes (injection, xss, auth, ssrf, authz)
-	Timeout     string   `json:"timeout,omitempty"`             // Go duration string, default "30m"
+	Timeout     string   `json:"timeout,omitempty"`             // Go duration string, default "6h"
 	MaxCommands int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
 	DryRun      bool     `json:"dry_run,omitempty"`             // render prompt without executing
 	Stream      bool     `json:"stream,omitempty"`              // enable SSE streaming
@@ -480,6 +480,7 @@ type AgentPipelineRequest struct {
 	Profile         string   `json:"profile,omitempty"`               // scanning profile name
 	Timeout         string   `json:"timeout,omitempty"`               // Go duration string, default "1h"
 	MaxRescanRounds int      `json:"max_rescan_rounds,omitempty"`     // max triage->rescan iterations, default 2
+	Triage          bool     `json:"triage,omitempty"`                // enable AI triage and rescan phases (disabled by default)
 	SkipPhases      []string `json:"skip_phases,omitempty"`           // phases to skip
 	StartFrom       string   `json:"start_from,omitempty"`            // resume from a specific phase
 	DryRun          bool     `json:"dry_run,omitempty"`               // render prompts without executing
@@ -522,6 +523,7 @@ type AgentSwarmRequest struct {
 	MaxIterations      int      `json:"max_iterations,omitempty"`       // max triage-rescan rounds (default 3)
 	Discover           bool     `json:"discover,omitempty"`             // run discovery+spidering before master agent planning
 	CodeAudit          bool     `json:"code_audit,omitempty"`           // enable AI security code audit phase
+	Triage             bool     `json:"triage,omitempty"`               // enable AI triage and rescan phases (disabled by default)
 	Profile            string   `json:"profile,omitempty"`              // scanning profile name (e.g. "light", "thorough")
 
 	// Agent selection
@@ -532,6 +534,7 @@ type AgentSwarmRequest struct {
 	BatchConcurrency    int `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
 	MaxMasterRetries    int `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
 	SAMaxConcurrency    int `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
+	MaxPlanRecords      int `json:"max_plan_records,omitempty"`      // max records sent to plan agent (0 = default 10)
 
 	// Terminal capability
 	SlashCommands []string `json:"slash_commands,omitempty"` // custom slash commands for ACP session

@@ -50,6 +50,12 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
   // Remove host/origin headers so the scan server sees its own
   headers.delete('host');
   headers.delete('origin');
+  // Strip WorkOS internal headers to avoid 431 (header too large) on the scan server
+  headers.delete('x-workos-middleware');
+  headers.delete('x-workos-session');
+  headers.delete('x-redirect-uri');
+  headers.delete('x-sign-up-paths');
+  headers.delete('x-url');
 
   const res = await fetch(target.toString(), {
     method: req.method,

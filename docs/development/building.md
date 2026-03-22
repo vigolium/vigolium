@@ -125,7 +125,7 @@ E2E and canary tests run against containerized vulnerable apps managed via Docke
 | `make apps-down` | All apps | -- |
 | `make crapi-up` | OWASP crAPI | `http://127.0.0.1:8888` |
 | `make juiceshop-up` | Juice Shop | `http://127.0.0.1:3000` |
-| `make vampi-up` | VAmPI | `http://127.0.0.1:5001` |
+| `make vampi-up` | VAmPI | `http://127.0.0.1:3005` |
 
 ## Build Tags
 

@@ -49,6 +49,79 @@ func TestExtractJSON_Invalid(t *testing.T) {
 	}
 }
 
+func TestExtractJSON_InvalidEscapes(t *testing.T) {
+	// LLMs often emit regex patterns with invalid JSON escapes like \w, \d, \.
+	input := "```json\n{\"findings\": [{\"title\": \"ReDoS\", \"description\": \"regex [-.\\.\\w]* and \\d+ pattern\"}]}\n```"
+	result, err := extractJSON(input)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+	// Verify the repaired JSON is parseable
+	var v map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &v); err != nil {
+		t.Fatalf("result is not valid JSON: %v", err)
+	}
+	findings, ok := v["findings"].([]interface{})
+	if !ok || len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %v", v["findings"])
+	}
+}
+
+func TestRepairInvalidEscapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		// Raw strings: \n in backticks is literal backslash+n, which is a valid JSON escape
+		{"valid escapes unchanged", `{"a": "line\nbreak"}`, `{"a": "line\nbreak"}`},
+		// \w is a single backslash+w (invalid JSON escape) — should become \\w (two backslashes+w)
+		{"invalid \\w doubled", `{"a": "\w+"}`, `{"a": "\\w+"}`},
+		{"invalid \\d doubled", `{"a": "\d"}`, `{"a": "\\d"}`},
+		// \n is valid, \w is not — only \w should be doubled
+		{"mixed valid and invalid", `{"a": "foo\nbar\w"}`, `{"a": "foo\nbar\\w"}`},
+		{"no strings", `{"count": 42}`, `{"count": 42}`},
+		// Already valid \\w (double backslash) should stay as-is
+		{"already escaped", `{"a": "\\w+"}`, `{"a": "\\w+"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repairInvalidEscapes(tt.input)
+			if got != tt.want {
+				t.Errorf("repairInvalidEscapes(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseFindingsWithInvalidEscapes(t *testing.T) {
+	// Simulate actual LLM output with regex patterns containing invalid JSON escapes
+	input := "```json\n" + `{
+  "findings": [
+    {
+      "title": "ReDoS via Regex",
+      "description": "The regex [-.\w]*[0-9a-zA-Z] is vulnerable",
+      "severity": "medium",
+      "confidence": "certain",
+      "file": "users.py",
+      "line": 145,
+      "snippet": "re.search(r\"^([0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*@{1})$\")"
+    }
+  ]
+}` + "\n```"
+
+	findings, err := ParseFindings(input)
+	if err != nil {
+		t.Fatalf("ParseFindings() error = %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Title != "ReDoS via Regex" {
+		t.Errorf("unexpected title: %s", findings[0].Title)
+	}
+}
+
 func TestExtractJSON_Array(t *testing.T) {
 	input := `[{"title": "test"}]`
 	result, err := extractJSON(input)

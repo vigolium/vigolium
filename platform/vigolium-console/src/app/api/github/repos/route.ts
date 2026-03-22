@@ -1,7 +1,7 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
-import { getInstallationId, listRepos } from '@/lib/github';
+import { getAccessToken, listRepos } from '@/lib/github';
 
 export async function GET() {
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
@@ -16,13 +16,16 @@ export async function GET() {
 
   try {
     const billing = await resolveOrgBilling(session.user.id);
-    const installationId = await getInstallationId(billing.customerId);
-    if (!installationId) {
+    if (!billing) {
+      return NextResponse.json({ error: 'Join or create a team to connect GitHub' }, { status: 400 });
+    }
+    const accessToken = await getAccessToken(billing.customerId);
+    if (!accessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 
-    const repos = await listRepos(installationId);
-    return NextResponse.json({ repos, installation_id: installationId });
+    const repos = await listRepos(accessToken);
+    return NextResponse.json({ repos });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to list repos';
     return NextResponse.json({ error: message }, { status: 500 });

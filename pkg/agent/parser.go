@@ -80,11 +80,27 @@ func extractJSON(raw string) (string, error) {
 		return stripped, nil
 	}
 
+	// Strategy 2b: repair invalid escape sequences (common in LLM output with regex patterns)
+	// and retry strategies 1-2
+	repaired := repairInvalidEscapes(raw)
+	if repaired != raw && isJSON(repaired) {
+		return repaired, nil
+	}
+	if stripped2 := stripMarkdownFences(repaired); stripped2 != repaired && isJSON(stripped2) {
+		return stripped2, nil
+	}
+
 	// Strategy 3: extract content from ``` fences anywhere in text
 	for _, fenced := range extractFencedBlocks(raw) {
 		fenced = strings.TrimSpace(fenced)
 		if fenced != "" && isJSON(fenced) {
 			return fenced, nil
+		}
+		// Try repairing invalid escapes within the fenced block
+		if fenced != "" {
+			if repairedFenced := repairInvalidEscapes(fenced); repairedFenced != fenced && isJSON(repairedFenced) {
+				return repairedFenced, nil
+			}
 		}
 		// Also try finding a JSON block within the fenced content
 		if block := findJSONBlock(fenced); block != "" && isJSON(block) {
@@ -102,6 +118,10 @@ func extractJSON(raw string) (string, error) {
 			if block != "" {
 				if isJSON(block) {
 					return block, nil
+				}
+				// Try repairing invalid escapes in the block
+				if repairedBlock := repairInvalidEscapes(block); repairedBlock != block && isJSON(repairedBlock) {
+					return repairedBlock, nil
 				}
 				// Track the first (largest) candidate for error reporting
 				if bestCandidate == "" {
@@ -549,6 +569,58 @@ func normalizeBody(body string) string {
 	}
 
 	return body
+}
+
+// repairInvalidEscapes fixes invalid JSON escape sequences produced by LLMs.
+// JSON only allows \", \\, \/, \b, \f, \n, \r, \t, and \uXXXX as escapes.
+// LLMs often emit regex patterns like \w, \d, \. inside JSON strings without
+// double-escaping. This function scans JSON strings and doubles lone backslashes
+// that precede non-valid-escape characters.
+func repairInvalidEscapes(s string) string {
+	var out strings.Builder
+	out.Grow(len(s) + 64) // slight over-allocation for added backslashes
+	inString := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inString {
+			out.WriteByte(c)
+			if c == '"' {
+				inString = true
+			}
+			continue
+		}
+
+		// Inside a JSON string
+		if c == '"' {
+			out.WriteByte(c)
+			inString = false
+			continue
+		}
+		if c != '\\' {
+			out.WriteByte(c)
+			continue
+		}
+
+		// c == '\\' — look at the next character
+		if i+1 >= len(s) {
+			out.WriteByte(c)
+			continue
+		}
+		next := s[i+1]
+		switch next {
+		case '"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u':
+			// Valid JSON escape — emit both characters and skip past the escaped char
+			out.WriteByte(c)
+			out.WriteByte(next)
+			i++ // consume the escape character
+		default:
+			// Invalid escape like \w, \d, \. — double the backslash
+			out.WriteByte('\\')
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
 }
 
 // repairTruncatedJSON attempts to close unclosed braces/brackets and quotes in truncated JSON.
