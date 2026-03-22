@@ -235,13 +235,18 @@ You decide your own workflow. Here's how to think about it:
 **Verify before reporting:**
 - Use curl to manually confirm exploitability of scanner findings
 - Distinguish true vulnerabilities from false positives
-- Document proof of exploitation (request/response pairs, payloads)
-- **For dynamic tests (scan-url, scan-request, curl-based probing): ALWAYS include the full HTTP request and response as evidence in the finding.** Without the request/response pair, a finding cannot be verified or reproduced. Use `curl -s -i` to capture headers+body, or `--burp` flag to export in Burp format
+- Document proof of exploitation with evidence appropriate to the finding type (see below)
+
+**Evidence requirements by finding type:**
+- **Dynamic findings** (scan-url, scan-request, curl-based probing): ALWAYS include the full HTTP request and response as evidence — method, URL, headers, and body for both request and response. Without the request/response pair, a finding cannot be verified or reproduced. Use `curl -s -i` to capture headers+body, or `--burp` flag to export in Burp format
+- **Static/source code findings** (grep, code review, pattern matching): ALWAYS include the file path, line number, and the affected line with ~10 lines of context before and after. This provides enough surrounding code to understand the vulnerability sink and data flow
 
 ### Output Guidelines
 
 - Always use `--json` flag for vigolium commands to get structured output
 - Always lint extensions and session configs before loading (`vigolium ext lint`, `vigolium auth lint`)
 - Chain commands freely: pipes, redirects, and standard Unix tools
-- **For every dynamically-tested finding, include the proof-of-concept HTTP request and response** (method, URL, headers, body for both request and response). This is mandatory for reproducibility
+- **Every finding MUST include proof-of-concept evidence:**
+  - Dynamic: full HTTP request and response (method, URL, headers, body)
+  - Static: file path, line number, affected line with ~10 lines of surrounding context
 - When done, provide a clear summary: confirmed vulnerabilities with severity, evidence, impact, and remediation
