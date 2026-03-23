@@ -8,12 +8,12 @@ func TestDefaultAgentConfig(t *testing.T) {
 	if cfg.DefaultAgent != "claude-sdk" {
 		t.Errorf("expected default_agent=claude-sdk, got %s", cfg.DefaultAgent)
 	}
-	if len(cfg.Backends) != 9 {
-		t.Errorf("expected 9 agents, got %d", len(cfg.Backends))
+	if len(cfg.Backends) != 11 {
+		t.Errorf("expected 11 agents, got %d", len(cfg.Backends))
 	}
 
 	// Check all expected agents exist
-	for _, name := range []string{"claude-sdk", "claude", "claude-cli", "codex", "opencode", "opencode-cli", "gemini", "gemini-cli", "cursor"} {
+	for _, name := range []string{"claude-sdk", "claude", "claude-cli", "codex", "codex-acp", "opencode", "opencode-native", "opencode-cli", "gemini", "gemini-cli", "cursor"} {
 		def, ok := cfg.Backends[name]
 		if !ok {
 			t.Errorf("expected agent %q to exist", name)
@@ -33,6 +33,7 @@ func TestAgentDef_EffectiveProtocol(t *testing.T) {
 		{"", "pipe"},
 		{"pipe", "pipe"},
 		{"acp", "acp"},
+		{"opencode-sdk", "opencode-sdk"},
 	}
 	for _, tt := range tests {
 		def := AgentDef{Command: "test", Protocol: tt.protocol}
@@ -45,12 +46,24 @@ func TestAgentDef_EffectiveProtocol(t *testing.T) {
 func TestDefaultAgentConfig_Protocols(t *testing.T) {
 	cfg := DefaultAgentConfig()
 
-	acpAgents := []string{"claude", "codex", "opencode", "gemini", "cursor"}
+	acpAgents := []string{"claude", "codex-acp", "opencode", "gemini", "cursor"}
 	for _, name := range acpAgents {
 		def := cfg.Backends[name]
 		if def.EffectiveProtocol() != "acp" {
 			t.Errorf("%s protocol = %q, want %q", name, def.EffectiveProtocol(), "acp")
 		}
+	}
+
+	// Codex native SDK protocol
+	codexDef := cfg.Backends["codex"]
+	if codexDef.EffectiveProtocol() != "codex-sdk" {
+		t.Errorf("codex protocol = %q, want %q", codexDef.EffectiveProtocol(), "codex-sdk")
+	}
+
+	// OpenCode native SDK protocol
+	opencodeDef := cfg.Backends["opencode-native"]
+	if opencodeDef.EffectiveProtocol() != "opencode-sdk" {
+		t.Errorf("opencode-native protocol = %q, want %q", opencodeDef.EffectiveProtocol(), "opencode-sdk")
 	}
 
 	pipeAgents := []string{"claude-cli", "opencode-cli", "gemini-cli"}

@@ -32,7 +32,7 @@ func (b *stderrRingBuffer) add(line string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.max == 0 {
-		b.max = 20
+		b.max = 100
 	}
 	b.lines = append(b.lines, line)
 	if len(b.lines) > b.max {

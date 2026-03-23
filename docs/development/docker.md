@@ -8,7 +8,7 @@ Two Dockerfiles are provided in `build/`:
 
 | Dockerfile | Base | Size | Includes |
 |------------|------|------|----------|
-| `build/Dockerfile` | `debian:bookworm-slim` | ~1.5 GB | Chromium, git, curl, wget, Python 3, ast-grep, semgrep, trivy, kingfisher |
+| `build/Dockerfile` | `debian:bookworm-slim` | ~1.5 GB | Chromium, git, curl, wget, Python 3, ast-grep, semgrep, osv-scanner, kingfisher |
 | `build/Dockerfile.minimal` | `alpine:3.21` | ~30 MB | Binary only (CA certs, tzdata) |
 
 Use the **full image** for production scanning (browser-based spidering, source-aware analysis). Use the **minimal image** for headless/API-only workloads that don't need a browser or source-aware tools.

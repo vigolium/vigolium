@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +68,12 @@ type SwarmConfig struct {
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
 	MaxPlanRecords       int // max records sent to plan agent; 0 = default 10
+
+	// Tuning: batching, probing, retries
+	MasterBatchSize  int           // max records per master agent batch; 0 = default 5
+	ProbeConcurrency int           // max parallel probe requests; 0 = default 10
+	ProbeTimeout     time.Duration // per-request probe timeout; 0 = default 10s
+	MaxProbeBodySize int           // max response body bytes during probing; 0 = default 2MB
 
 	// Project/scan
 	ProjectUUID string
@@ -245,6 +251,19 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 3
 	}
+	// Resolve tuning defaults
+	if cfg.MasterBatchSize <= 0 {
+		cfg.MasterBatchSize = 5
+	}
+	if cfg.ProbeConcurrency <= 0 {
+		cfg.ProbeConcurrency = 10
+	}
+	if cfg.ProbeTimeout <= 0 {
+		cfg.ProbeTimeout = 10 * time.Second
+	}
+	if cfg.MaxProbeBodySize <= 0 {
+		cfg.MaxProbeBodySize = 2 * 1024 * 1024 // 2MB
+	}
 	// Resolve agent name to default if empty — ensures the DB record has the effective name
 	if cfg.AgentName == "" && s.engine != nil && s.engine.settings != nil {
 		cfg.AgentName = s.engine.settings.Agent.DefaultAgent
@@ -360,7 +379,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 
 	// Probe records that don't have responses to enrich them with live data
-	probeRecords(ctx, records)
+	probeRecordsWithConfig(ctx, records, ProbeConfig{
+		Concurrency: cfg.ProbeConcurrency,
+		Timeout:     cfg.ProbeTimeout,
+		MaxBodySize: cfg.MaxProbeBodySize,
+	})
 
 	// Save records to DB
 	var recordUUIDs []string
@@ -429,7 +452,24 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			MaxConcurrency: cfg.SAMaxConcurrency,
 		}
 
-		saResult, saRawOutput, saRenderedPrompt, saErr := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
+		// Run source analysis with retry on transient errors
+		const maxSARetries = 2
+		var saResult *SourceAnalysisResult
+		var saRawOutput, saRenderedPrompt string
+		var saErr error
+		for saAttempt := 1; saAttempt <= maxSARetries; saAttempt++ {
+			saResult, saRawOutput, saRenderedPrompt, saErr = s.engine.RunSourceAnalysisParallel(ctx, saCfg)
+			if saErr == nil {
+				break
+			}
+			if isRetryableAgentError(ctx, saErr) && saAttempt < maxSARetries {
+				zap.L().Warn("Source analysis failed (retryable), will retry",
+					zap.Int("attempt", saAttempt),
+					zap.Error(saErr))
+				continue
+			}
+			break
+		}
 
 		writePromptToSessionDir(sessionDir, "source-analysis-prompt.md", saRenderedPrompt)
 		if sessionDir != "" && saRawOutput != "" {
@@ -579,7 +619,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		// Validate, auth-inject, probe, and save source-analysis records to DB
 		// before running SAST so they are available for deduplication.
-		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
+		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, ProbeConfig{
+			Concurrency: cfg.ProbeConcurrency,
+			Timeout:     cfg.ProbeTimeout,
+			MaxBodySize: cfg.MaxProbeBodySize,
+		})
 
 		if len(saRecords) > 0 {
 			printPhaseLine("source-analysis", fmt.Sprintf("%s source analysis routes: %d %s",
@@ -644,7 +688,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
 		// Validate, auth-inject, probe, and save SAST-review records to DB
-		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID)
+		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, ProbeConfig{
+			Concurrency: cfg.ProbeConcurrency,
+			Timeout:     cfg.ProbeTimeout,
+			MaxBodySize: cfg.MaxProbeBodySize,
+		})
 
 		// Re-probe unprobed ast-grep records. The native SAST runner probes via
 		// httpRequester.Execute which goes through clustering/rate-limiting middleware
@@ -680,12 +728,14 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			phaseTimings[SwarmPhaseSourceAnalysis].Round(time.Second)))
 
 		// Write checkpoint after source analysis
-		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
+		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
 			CompletedPhases: completedPhases,
 			TargetURL:       targetURL,
 			RecordCount:     len(records),
 			Timestamp:       time.Now(),
-		})
+		}); cpErr != nil {
+			zap.L().Warn("Failed to write checkpoint after source analysis", zap.Error(cpErr))
+		}
 	}
 
 	// Early exit for --source-analysis-only
@@ -754,11 +804,14 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		agentRun.CurrentPhase = SwarmPhasePlan
 		s.persistPhase(ctx, agentRun)
 
-		const masterBatchSize = 5
-		if len(planRecords) <= masterBatchSize {
+		if len(planRecords) <= cfg.MasterBatchSize {
 			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, planRecords, targetURL)
 		} else {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, masterBatchSize)
+			zap.L().Info("Batching master agent calls",
+				zap.Int("records", len(planRecords)),
+				zap.Int("batch_size", cfg.MasterBatchSize),
+				zap.Int("batches", (len(planRecords)+cfg.MasterBatchSize-1)/cfg.MasterBatchSize))
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, cfg.MasterBatchSize)
 		}
 
 		// Save rendered prompt and raw output to session dir regardless of parse success
@@ -842,13 +895,15 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		completedPhases = append(completedPhases, SwarmPhasePlan)
 
 		// Write checkpoint after planning
-		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
+		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
 			CompletedPhases: completedPhases,
 			TargetURL:       targetURL,
 			RecordCount:     len(records),
 			Plan:            plan,
 			Timestamp:       time.Now(),
-		})
+		}); cpErr != nil {
+			zap.L().Warn("Failed to write checkpoint after plan phase", zap.Error(cpErr))
+		}
 	}
 
 	// Phase 3: Generate and write extensions (quick_checks + snippets + full extensions)
@@ -912,6 +967,12 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		mergeResult := mergeExtensionsTracked(sourceExtensions, plan.Extensions)
 		allExtensions = mergeResult.Extensions
 		extensionRenames = mergeResult.Renames
+		if len(extensionRenames) > 0 {
+			for orig, renamed := range extensionRenames {
+				fmt.Fprintf(os.Stderr, "  %s Extension renamed: %s → %s (collision with different code)\n",
+					terminal.Yellow(terminal.SymbolBullet), orig, renamed)
+			}
+		}
 	} else if len(sourceExtensions) > 0 {
 		allExtensions = sourceExtensions
 	}
@@ -1034,7 +1095,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			terminal.Muted(scanSummary))
 
 		// Write checkpoint after scan
-		_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
+		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
 			CompletedPhases:  completedPhases,
 			TargetURL:        targetURL,
 			RecordCount:      len(records),
@@ -1042,7 +1103,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			ExtensionDir:     extensionDir,
 			Timestamp:        time.Now(),
 			ExtensionRenames: extensionRenames,
-		})
+		}); cpErr != nil {
+			zap.L().Warn("Failed to write checkpoint after scan phase", zap.Error(cpErr))
+		}
 	}
 
 	// Phase 5-6: Triage loop (skippable via --skip triage)
@@ -1261,14 +1324,70 @@ func selectPlanRecords(records []*httpmsg.HttpRequestResponse, maxRecords int) [
 		return scored_records[i].index < scored_records[j].index
 	})
 
-	// Take top N, then re-sort by original index to preserve request order
-	top := scored_records[:maxRecords]
-	sort.Slice(top, func(i, j int) bool {
-		return top[i].index < top[j].index
+	// Diversity-aware selection: greedy pick that penalizes records sharing
+	// the same path prefix as already-selected records. This ensures the plan
+	// agent sees a diverse set of endpoints rather than 10 variants of /api/users.
+	type candidate struct {
+		scored
+		prefix string
+	}
+	candidates := make([]candidate, len(scored_records))
+	for i, sr := range scored_records {
+		prefix := ""
+		if sr.record.Request() != nil {
+			p := sr.record.Request().Path()
+			if qIdx := strings.Index(p, "?"); qIdx >= 0 {
+				p = p[:qIdx]
+			}
+			// Use first two path segments as prefix: /api/users/123 → /api/users
+			parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
+			if len(parts) > 2 {
+				prefix = "/" + strings.Join(parts[:2], "/")
+			} else {
+				prefix = "/" + strings.Join(parts, "/")
+			}
+		}
+		candidates[i] = candidate{scored: sr, prefix: prefix}
+	}
+
+	selected := make([]scored, 0, maxRecords)
+	prefixCount := make(map[string]int)
+	used := make(map[int]bool) // track used indices
+
+	for len(selected) < maxRecords {
+		bestIdx := -1
+		bestEffective := -100
+		for i, c := range candidates {
+			if used[i] {
+				continue
+			}
+			// Effective score: base score minus penalty for duplicate prefixes
+			effective := c.score
+			if c.prefix != "" {
+				effective -= prefixCount[c.prefix] * 2
+			}
+			if effective > bestEffective || (effective == bestEffective && bestIdx >= 0 && c.index < candidates[bestIdx].index) {
+				bestEffective = effective
+				bestIdx = i
+			}
+		}
+		if bestIdx < 0 {
+			break
+		}
+		used[bestIdx] = true
+		selected = append(selected, candidates[bestIdx].scored)
+		if candidates[bestIdx].prefix != "" {
+			prefixCount[candidates[bestIdx].prefix]++
+		}
+	}
+
+	// Re-sort by original index to preserve request order
+	sort.Slice(selected, func(i, j int) bool {
+		return selected[i].index < selected[j].index
 	})
 
-	result := make([]*httpmsg.HttpRequestResponse, maxRecords)
-	for i, s := range top {
+	result := make([]*httpmsg.HttpRequestResponse, len(selected))
+	for i, s := range selected {
 		result[i] = s.record
 	}
 	return result
@@ -1379,24 +1498,6 @@ func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, recor
 	}
 
 	return plan, sessionID, rawOutput, renderedPrompt, nil
-}
-
-// isRetryableAgentError returns true if the error is a transient ACP/agent error
-// that can be retried (e.g., deadline exceeded, prompt timeout).
-// It does NOT retry when the parent context itself is cancelled.
-func isRetryableAgentError(ctx context.Context, err error) bool {
-	// If the parent context is done, retrying won't help
-	if ctx.Err() != nil {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "ACP prompt timed out") ||
-		strings.Contains(msg, "ACP initialize timed out") ||
-		strings.Contains(msg, "ACP session creation timed out") ||
-		strings.Contains(msg, "ACP prompt failed")
 }
 
 // runPlanAgent executes Phase 1: analysis and module selection.
@@ -2155,8 +2256,10 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 	var allRenderedPrompts []string
 	var firstErr error
 
+	var failedBatches int
 	for r := range resultsCh {
 		if r.err != nil {
+			failedBatches++
 			if firstErr == nil {
 				firstErr = r.err
 			}
@@ -2193,6 +2296,11 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 	}
 
 	if firstErr != nil {
+		zap.L().Warn("Batch execution had failures",
+			zap.Int("failed", failedBatches),
+			zap.Int("succeeded", len(plans)),
+			zap.Int("total", len(batches)),
+			zap.Error(firstErr))
 		return mergedPlan, lastSessionID, combinedRaw, lastPrompt, allSessionIDs, batchProv, firstErr
 	}
 
@@ -2339,7 +2447,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 			s.persistPhase(ctx, agentRun)
 		},
 		OnTriageRoundComplete: func(round int) {
-			_ = writeCheckpoint(sessionDir, &SwarmCheckpoint{
+			if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
 				CompletedPhases:  completedPhases,
 				TargetURL:        agentRun.TargetURL,
 				RecordCount:      result.TotalRecords,
@@ -2348,7 +2456,9 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 				TriageRound:      round + 1, // next round to resume from
 				ExtensionRenames: extensionRenames,
 				Timestamp:        time.Now(),
-			})
+			}); cpErr != nil {
+				zap.L().Warn("Failed to write checkpoint after triage round", zap.Int("round", round), zap.Error(cpErr))
+			}
 		},
 	}
 
@@ -2673,7 +2783,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 // probes them for live responses, and saves them to the database.
 // Records that fail the first probe are retried once.
 // The optional notes slice (aligned 1:1 with records) is persisted as remarks.
-func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string) {
+func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string, pc ...ProbeConfig) {
 	if len(records) == 0 {
 		return
 	}
@@ -2699,8 +2809,14 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 	if len(authHeaders) > 0 {
 		injectAuthHeaders(valid, authHeaders)
 	}
+	// Resolve probe config from variadic argument
+	var probeCfg ProbeConfig
+	if len(pc) > 0 {
+		probeCfg = pc[0]
+	}
+
 	if len(valid) > 0 {
-		probeRecords(ctx, valid)
+		probeRecordsWithConfig(ctx, valid, probeCfg)
 
 		// Retry probe for records that still have no response (transient failures).
 		var unprobed []int
@@ -2716,7 +2832,7 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 			for j, idx := range unprobed {
 				retry[j] = valid[idx]
 			}
-			probeRecords(ctx, retry)
+			probeRecordsWithConfig(ctx, retry, probeCfg)
 			for j, idx := range unprobed {
 				valid[idx] = retry[j]
 			}
@@ -2747,9 +2863,43 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 	}
 }
 
+// ProbeConfig holds tuning parameters for HTTP record probing.
+type ProbeConfig struct {
+	Concurrency  int           // max parallel probe requests; 0 = default 10
+	Timeout      time.Duration // per-request probe timeout; 0 = default 10s
+	MaxBodySize  int           // max response body bytes; 0 = default 2MB
+	OnProgress   func(completed, total int) // optional progress callback
+}
+
+func (pc ProbeConfig) effectiveConcurrency() int {
+	if pc.Concurrency <= 0 {
+		return 10
+	}
+	return pc.Concurrency
+}
+
+func (pc ProbeConfig) effectiveTimeout() time.Duration {
+	if pc.Timeout <= 0 {
+		return 10 * time.Second
+	}
+	return pc.Timeout
+}
+
+func (pc ProbeConfig) effectiveMaxBodySize() int {
+	if pc.MaxBodySize <= 0 {
+		return 2 * 1024 * 1024
+	}
+	return pc.MaxBodySize
+}
+
 func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
-	const maxConcurrency = 10
-	const probeTimeout = 10 * time.Second
+	probeRecordsWithConfig(ctx, records, ProbeConfig{})
+}
+
+func probeRecordsWithConfig(ctx context.Context, records []*httpmsg.HttpRequestResponse, pc ProbeConfig) {
+	maxConcurrency := pc.effectiveConcurrency()
+	probeTimeout := pc.effectiveTimeout()
+	maxBody := pc.effectiveMaxBodySize()
 
 	client := &http.Client{
 		Timeout: probeTimeout,
@@ -2766,6 +2916,15 @@ func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
 	sem := make(chan struct{}, maxConcurrency)
 	var wg sync.WaitGroup
 
+	// Count probeable records for progress reporting
+	var probeable int
+	for _, rr := range records {
+		if !rr.HasResponse() && rr.Request() != nil && rr.Target() != "" {
+			probeable++
+		}
+	}
+
+	var completed atomic.Int64 // atomic counter for progress
 	for i, rr := range records {
 		if rr.HasResponse() {
 			continue
@@ -2785,9 +2944,13 @@ func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			probed := probeSingleRecord(ctx, client, rec, target)
+			probed := probeSingleRecordWithLimit(ctx, client, rec, target, maxBody)
 			if probed != nil {
 				records[idx] = probed
+			}
+			done := int(completed.Add(1))
+			if pc.OnProgress != nil {
+				pc.OnProgress(done, probeable)
 			}
 		}(rr, targetURL)
 	}
@@ -2798,6 +2961,11 @@ func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
 // probeSingleRecord sends an HTTP request for a single record and returns
 // the record with the response attached, or nil if probing failed.
 func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string) *httpmsg.HttpRequestResponse {
+	return probeSingleRecordWithLimit(ctx, client, rr, targetURL, 2*1024*1024)
+}
+
+// probeSingleRecordWithLimit sends an HTTP request with a configurable body size limit.
+func probeSingleRecordWithLimit(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string, maxBody int) *httpmsg.HttpRequestResponse {
 	method := "GET"
 	if rr.Request() != nil {
 		method = rr.Request().Method()
@@ -2828,9 +2996,8 @@ func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.Htt
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// Read response body (limit to 2MB to avoid memory issues)
-	const maxBody = 2 * 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	// Read response body (limit size to avoid memory issues)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBody)))
 	if err != nil {
 		zap.L().Debug("Failed to read probe response", zap.String("url", targetURL), zap.Error(err))
 		return nil

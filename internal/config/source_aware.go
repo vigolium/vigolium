@@ -129,7 +129,7 @@ func (c *ThirdPartyIntegrationConfig) TimeoutDuration() time.Duration {
 	return d
 }
 
-// DefaultThirdPartyIntegrationConfig returns sensible defaults with semgrep and trivy.
+// DefaultThirdPartyIntegrationConfig returns sensible defaults with semgrep and osv-scanner.
 func DefaultThirdPartyIntegrationConfig() *ThirdPartyIntegrationConfig {
 	return &ThirdPartyIntegrationConfig{
 		Enabled: true,
@@ -141,10 +141,10 @@ func DefaultThirdPartyIntegrationConfig() *ThirdPartyIntegrationConfig {
 				Args:       []string{"scan", "--sarif", "--quiet", "--sarif-output={{output}}"},
 				OutputFile: "{{output}}",
 			},
-			"trivy": {
+			"osv-scanner": {
 				Enabled:    true,
-				Command:    "trivy",
-				Args:       []string{"fs", "--format", "sarif", "--quiet", "--output={{output}}"},
+				Command:    "osv-scanner",
+				Args:       []string{"scan", "--format", "sarif", "--output={{output}}"},
 				OutputFile: "{{output}}",
 			},
 			"codeql": {

@@ -7,11 +7,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent/claudesdk"
 	"go.uber.org/zap"
 )
+
+// writeStderrToSessionDir writes stderr output to a log file in the session directory.
+func writeStderrToSessionDir(sessionDir, stderr string) {
+	if sessionDir == "" || stderr == "" {
+		return
+	}
+	path := filepath.Join(sessionDir, "agent-stderr.log")
+	if err := os.WriteFile(path, []byte(stderr), 0o644); err != nil {
+		zap.L().Debug("failed to write stderr to session dir", zap.Error(err))
+	}
+}
 
 // sdkRunConfig holds configuration for SDK-based agent runs.
 type sdkRunConfig struct {
@@ -26,6 +38,8 @@ type sdkRunConfig struct {
 	Effort             string   // "low", "medium", "high"
 	SessionID          string   // pre-generated UUID for --session-id (enables persistence + resume)
 	SystemPromptDir    string   // when set, write system prompt to a file here and use as CWD (avoids huge --append-system-prompt arg)
+	Guardrails         config.AutopilotGuardrails // guardrails for SDK autonomous mode
+	SessionDir         string   // session directory for saving stderr logs
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -34,12 +48,20 @@ type sdkRunConfig struct {
 func RunAgenticSDK(ctx context.Context, agentDef config.AgentDef, prompt string, cfg sdkRunConfig) (result acpResult, err error) {
 	opts := buildSDKOptions(agentDef, cfg)
 
-	zap.L().Debug("starting agent via SDK",
-		zap.String("model", opts.Model),
-		zap.String("cwd", opts.Cwd),
-		zap.Int("promptLength", len(prompt)),
-		zap.Bool("streaming", opts.IncludePartialMessages))
+	logLevel := zap.DebugLevel
+	if cfg.Guardrails.LogCommands {
+		logLevel = zap.InfoLevel
+	}
 
+	if ce := zap.L().Check(logLevel, "starting agent via SDK"); ce != nil {
+		ce.Write(
+			zap.String("model", opts.Model),
+			zap.String("cwd", opts.Cwd),
+			zap.Int("promptLength", len(prompt)),
+			zap.Bool("streaming", opts.IncludePartialMessages))
+	}
+
+	start := time.Now()
 	client := claudesdk.NewClient(opts)
 	defer func() {
 		if closeErr := client.Close(); closeErr != nil {
@@ -58,9 +80,17 @@ func RunAgenticSDK(ctx context.Context, agentDef config.AgentDef, prompt string,
 		return acpResult{Stdout: output, SessionID: sessionID}, fmt.Errorf("SDK output collection failed: %w", err)
 	}
 
-	zap.L().Debug("SDK agent completed",
-		zap.Int("outputBytes", len(output)),
-		zap.String("sessionID", sessionID))
+	if ce := zap.L().Check(logLevel, "SDK agent completed"); ce != nil {
+		ce.Write(
+			zap.Int("outputBytes", len(output)),
+			zap.String("sessionID", sessionID),
+			zap.Duration("duration", time.Since(start)))
+	}
+
+	// Write stderr to session dir if available
+	if cfg.SessionDir != "" {
+		writeStderrToSessionDir(cfg.SessionDir, "") // SDK doesn't expose stderr directly
+	}
 
 	return acpResult{
 		Stdout:    output,
@@ -123,6 +153,14 @@ func buildSDKOptions(agentDef config.AgentDef, cfg sdkRunConfig) *claudesdk.Opti
 	// Max turns for autopilot mode
 	if cfg.MaxTurns > 0 {
 		opts.MaxTurns = cfg.MaxTurns
+	}
+
+	// Guardrails: merge extra disallowed tools and enforce max turns ceiling
+	if len(cfg.Guardrails.DisallowedTools) > 0 {
+		opts.DisallowedTools = append(opts.DisallowedTools, cfg.Guardrails.DisallowedTools...)
+	}
+	if cfg.Guardrails.MaxTurns > 0 && (opts.MaxTurns == 0 || opts.MaxTurns > cfg.Guardrails.MaxTurns) {
+		opts.MaxTurns = cfg.Guardrails.MaxTurns
 	}
 
 	// Additional directories the agent can access

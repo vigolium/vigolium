@@ -841,7 +841,7 @@ func extractCodeBlockExtensions(raw string) []GeneratedExtension {
 	return extensions
 }
 
-// isJSFenceOpen returns true if the line opens a JavaScript code fence.
+// isJSFenceOpen returns true if the line opens a JavaScript or TypeScript code fence.
 func isJSFenceOpen(line string) bool {
 	if strings.HasPrefix(line, "```javascript") {
 		return true
@@ -850,7 +850,43 @@ func isJSFenceOpen(line string) bool {
 	if strings.HasPrefix(line, "```js") && !strings.HasPrefix(line, "```json") {
 		return true
 	}
+	// Match ```typescript and ```ts but not ```tsx or ```tsconfig
+	if strings.HasPrefix(line, "```typescript") {
+		return true
+	}
+	if strings.HasPrefix(line, "```ts") && !strings.HasPrefix(line, "```tsx") && !strings.HasPrefix(line, "```tsconfig") {
+		return true
+	}
 	return false
+}
+
+// AgentExtensionsOutput is the structured JSON format for agent-returned extensions.
+type AgentExtensionsOutput struct {
+	Extensions []GeneratedExtension `json:"extensions"`
+}
+
+// ParseExtensionsFromJSON attempts to extract extensions from a structured
+// {"extensions": [...]} JSON block in the agent output. Returns nil if no
+// structured extensions are found.
+func ParseExtensionsFromJSON(raw string) []GeneratedExtension {
+	jsonStr, err := extractJSON(raw)
+	if err != nil {
+		return nil
+	}
+
+	// Try wrapped format: {"extensions": [...]}
+	var output AgentExtensionsOutput
+	if err := json.Unmarshal([]byte(jsonStr), &output); err == nil && len(output.Extensions) > 0 {
+		return output.Extensions
+	}
+
+	// Try as bare array: [{"filename": ..., "code": ..., "reason": ...}, ...]
+	var exts []GeneratedExtension
+	if err := json.Unmarshal([]byte(jsonStr), &exts); err == nil && len(exts) > 0 {
+		return exts
+	}
+
+	return nil
 }
 
 // extractExtensionMeta scans lines backwards from fenceIdx to find a heading

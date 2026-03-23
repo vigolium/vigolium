@@ -56,10 +56,11 @@ type AutopilotPipelineConfig struct {
 	Instruction string
 	Focus       string
 
-	Specialists []VulnClass
-	AgentName   string
-	AgentACPCmd string
-	MaxCommands int
+	Specialists          []VulnClass
+	NoFilterSpecialists  bool // when true, skip smart specialist filtering based on recon
+	AgentName            string
+	AgentACPCmd          string
+	MaxCommands          int
 
 	DryRun     bool
 	ShowPrompt bool
@@ -77,6 +78,7 @@ type AutopilotPipelineConfig struct {
 	ScanFunc                ScanFunc
 	SourceAnalysisCallback  func(*SourceAnalysisResult) error
 	PhaseCallback           func(AutopilotPhase)
+	ProgressCallback        func(phase string, message string)
 }
 
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
@@ -95,11 +97,13 @@ type AutopilotPipelineResult struct {
 
 // AutopilotCheckpoint captures autopilot pipeline state for checkpoint/resume.
 type AutopilotCheckpoint struct {
-	CompletedPhases []AutopilotPhase          `json:"completed_phases"`
-	TargetURL       string                    `json:"target_url"`
-	VulnQueues      map[VulnClass]*VulnQueue  `json:"vuln_queues,omitempty"`
-	ExtensionDir    string                    `json:"extension_dir,omitempty"`
-	Timestamp       time.Time                 `json:"timestamp"`
+	CompletedPhases            []AutopilotPhase          `json:"completed_phases"`
+	TargetURL                  string                    `json:"target_url"`
+	VulnQueues                 map[VulnClass]*VulnQueue  `json:"vuln_queues,omitempty"`
+	ExtensionDir               string                    `json:"extension_dir,omitempty"`
+	Timestamp                  time.Time                 `json:"timestamp"`
+	CompletedSpecialists       map[VulnClass]bool        `json:"completed_specialists,omitempty"`
+	CompletedExploitSpecialists map[VulnClass]bool       `json:"completed_exploit_specialists,omitempty"`
 }
 
 // LastPhase returns the last completed phase, or "" if none.
@@ -163,6 +167,19 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	}
 
 	printPhaseLine("autopilot", "starting autonomous agent session")
+	emitProgress(cfg, "autopilot", "starting autonomous agent session")
+
+	// Wrap stream writer with progress tracking
+	streamWriter := cfg.StreamWriter
+	if cfg.ProgressCallback != nil && streamWriter != nil {
+		streamWriter = &progressWriter{
+			inner:    streamWriter,
+			callback: cfg.ProgressCallback,
+			phase:    "autopilot",
+			interval: 10 * 1024, // emit progress every 10KB
+		}
+	}
+	opts.StreamWriter = streamWriter
 
 	agentResult, err := r.engine.Run(ctx, opts)
 	if err != nil {
@@ -178,6 +195,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	// (scan-url, scan-request, finding load, etc.). The agent reports its own
 	// summary in the output text.
 
+	emitProgress(cfg, "autopilot", "autonomous session completed")
 	result.Duration = time.Since(start)
 	return result, nil
 }
@@ -310,33 +328,105 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 		printPhaseLine(string(phase), "starting")
 	}
 
-	// Phase 1: Recon
+	// Phase 1: Recon (+ parallel source analysis when --source is provided)
+	var reconResult *ReconDeliverable
 	if !phaseCompleted(AutopilotPhaseRecon) {
 		notifyPhase(AutopilotPhaseRecon)
+		emitProgress(cfg, "recon", "starting reconnaissance")
 		phaseStart := time.Now()
 
-		reconResult, err := r.runRecon(ctx, cfg)
+		var reconErr error
+		var sourceResult *SourceAnalysisResult
+
+		if cfg.SourcePath != "" {
+			// Run recon and source analysis in parallel
+			g, gctx := errgroup.WithContext(ctx)
+			g.Go(func() error {
+				reconResult, reconErr = r.runRecon(gctx, cfg)
+				return nil // don't fail the group
+			})
+			g.Go(func() error {
+				saCfg := SourceAnalysisConfig{
+					AgentName:   cfg.AgentName,
+					AgentACPCmd: cfg.AgentACPCmd,
+					TargetURL:   cfg.TargetURL,
+					SourcePath:  cfg.SourcePath,
+					Files:       cfg.Files,
+					Instruction: cfg.Instruction,
+					SessionKey:  "autopilot-source-analysis",
+					DryRun:      cfg.DryRun,
+					ShowPrompt:  cfg.ShowPrompt,
+					ScanUUID:    cfg.ScanUUID,
+					ProjectUUID: cfg.ProjectUUID,
+					StreamWriter: cfg.StreamWriter,
+					SessionDir:  cfg.SessionDir,
+				}
+				emitProgress(cfg, "source-analysis", "running source analysis in parallel with recon")
+				var saErr error
+				sourceResult, _, _, saErr = r.engine.RunSourceAnalysisParallel(gctx, saCfg)
+				if saErr != nil {
+					zap.L().Warn("Parallel source analysis failed", zap.Error(saErr))
+				}
+				return nil // don't fail the group
+			})
+			_ = g.Wait()
+		} else {
+			reconResult, reconErr = r.runRecon(ctx, cfg)
+		}
+
 		result.PhaseTimings[AutopilotPhaseRecon] = time.Since(phaseStart)
 		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseRecon)
 
-		if err != nil {
-			zap.L().Warn("Recon phase failed, continuing with empty recon", zap.Error(err))
+		if reconErr != nil {
+			zap.L().Warn("Recon phase failed, continuing with empty recon", zap.Error(reconErr))
 			result.PhaseFailed[AutopilotPhaseRecon] = true
 		} else if reconResult != nil {
 			zap.L().Info("Recon completed",
 				zap.Int("endpoints", len(reconResult.Endpoints)),
 				zap.Int("tech_stack", len(reconResult.TechStack)))
+			emitProgress(cfg, "recon", fmt.Sprintf("found %d endpoints", len(reconResult.Endpoints)))
+		}
+
+		// Process source analysis results
+		if sourceResult != nil {
+			if cfg.SourceAnalysisCallback != nil {
+				if cbErr := cfg.SourceAnalysisCallback(sourceResult); cbErr != nil {
+					zap.L().Warn("Source analysis callback failed", zap.Error(cbErr))
+				}
+			}
+			emitProgress(cfg, "source-analysis", fmt.Sprintf("found %d routes, %d extensions",
+				len(sourceResult.HTTPRecords), len(sourceResult.Extensions)))
 		}
 
 		r.saveCheckpoint(cfg, result)
 	}
+
+	// Smart specialist filtering: skip irrelevant specialists based on recon output
+	effectiveSpecialists := cfg.Specialists
+	if !cfg.NoFilterSpecialists && reconResult != nil {
+		effectiveSpecialists = filterSpecialistsByRecon(reconResult, cfg.Specialists)
+		if len(effectiveSpecialists) < len(cfg.Specialists) {
+			zap.L().Info("Filtered specialists based on recon",
+				zap.Int("original", len(cfg.Specialists)),
+				zap.Int("remaining", len(effectiveSpecialists)))
+		}
+	}
+	// Use filtered specialists for remaining phases
+	filteredCfg := cfg
+	filteredCfg.Specialists = effectiveSpecialists
 
 	// Phase 2: Vuln Analysis (parallel specialists)
 	if !phaseCompleted(AutopilotPhaseVulnAnalysis) {
 		notifyPhase(AutopilotPhaseVulnAnalysis)
 		phaseStart := time.Now()
 
-		queues, extensions, err := r.runVulnAnalysis(ctx, cfg)
+		// Pass completed specialists from checkpoint for partial resume
+		var completedSpecs map[VulnClass]bool
+		if checkpoint != nil && checkpoint.CompletedSpecialists != nil {
+			completedSpecs = checkpoint.CompletedSpecialists
+		}
+		emitProgress(filteredCfg, "vuln-analysis", fmt.Sprintf("running %d specialists", len(filteredCfg.Specialists)))
+		queues, extensions, err := r.runVulnAnalysis(ctx, filteredCfg, completedSpecs)
 		result.PhaseTimings[AutopilotPhaseVulnAnalysis] = time.Since(phaseStart)
 		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseVulnAnalysis)
 
@@ -419,7 +509,12 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 		notifyPhase(AutopilotPhaseExploitVerify)
 		phaseStart := time.Now()
 
-		evidence, err := r.runExploitVerify(ctx, cfg, result.VulnQueues)
+		var completedExploitSpecs map[VulnClass]bool
+		if checkpoint != nil && checkpoint.CompletedExploitSpecialists != nil {
+			completedExploitSpecs = checkpoint.CompletedExploitSpecialists
+		}
+		emitProgress(filteredCfg, "exploit-verify", "verifying findings")
+		evidence, err := r.runExploitVerify(ctx, filteredCfg, result.VulnQueues, completedExploitSpecs)
 		result.PhaseTimings[AutopilotPhaseExploitVerify] = time.Since(phaseStart)
 		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseExploitVerify)
 
@@ -494,7 +589,8 @@ func (r *AutopilotPipelineRunner) runRecon(ctx context.Context, cfg AutopilotPip
 }
 
 // runVulnAnalysis runs parallel specialist agents for vuln analysis (no terminal).
-func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg AutopilotPipelineConfig) (map[VulnClass]*VulnQueue, []GeneratedExtension, error) {
+// It supports resuming from a checkpoint — already-completed specialists are skipped.
+func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg AutopilotPipelineConfig, completedSpecialists map[VulnClass]bool) (map[VulnClass]*VulnQueue, []GeneratedExtension, error) {
 	queues := make(map[VulnClass]*VulnQueue)
 	var mu sync.Mutex
 	var allExtensions []GeneratedExtension
@@ -503,6 +599,13 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 
 	for _, specialist := range cfg.Specialists {
 		class := specialist
+
+		// Skip already-completed specialists on resume
+		if completedSpecialists[class] {
+			zap.L().Info("Skipping already-completed vuln specialist", zap.String("class", string(class)))
+			continue
+		}
+
 		g.Go(func() error {
 			templateID := fmt.Sprintf("autopilot-vuln-%s", class)
 
@@ -539,8 +642,11 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 				return nil
 			}
 
-			// Extract extensions from the specialist output
-			extensions := extractCodeBlockExtensions(result.RawOutput)
+			// Extract extensions: try structured JSON first, fall back to code blocks
+			extensions := ParseExtensionsFromJSON(result.RawOutput)
+			if len(extensions) == 0 {
+				extensions = extractCodeBlockExtensions(result.RawOutput)
+			}
 
 			mu.Lock()
 			queues[class] = queue
@@ -561,7 +667,8 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 }
 
 // runExploitVerify runs parallel specialist agents for exploit verification (with terminal).
-func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg AutopilotPipelineConfig, queues map[VulnClass]*VulnQueue) (map[VulnClass][]ExploitationEvidence, error) {
+// It supports resuming from a checkpoint — already-completed specialists are skipped.
+func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg AutopilotPipelineConfig, queues map[VulnClass]*VulnQueue, completedSpecialists map[VulnClass]bool) (map[VulnClass][]ExploitationEvidence, error) {
 	evidence := make(map[VulnClass][]ExploitationEvidence)
 	var mu sync.Mutex
 
@@ -573,6 +680,12 @@ func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg Auto
 
 		// Skip if no vuln queue items for this class
 		if queue == nil || len(queue.Items) == 0 {
+			continue
+		}
+
+		// Skip already-completed specialists on resume
+		if completedSpecialists[class] {
+			zap.L().Info("Skipping already-completed exploit specialist", zap.String("class", string(class)))
 			continue
 		}
 
@@ -708,4 +821,105 @@ func loadAutopilotCheckpoint(sessionDir string) (*AutopilotCheckpoint, error) {
 		return nil, fmt.Errorf("failed to parse autopilot checkpoint: %w", err)
 	}
 	return &cp, nil
+}
+
+// filterSpecialistsByRecon prunes the specialist list based on recon results.
+// Returns all configured specialists if recon is nil/empty or filtering is disabled.
+func filterSpecialistsByRecon(recon *ReconDeliverable, configured []VulnClass) []VulnClass {
+	if recon == nil || len(recon.Endpoints) == 0 {
+		return configured
+	}
+
+	// Build a set of interesting signals from the recon data
+	hasAuthEndpoints := false
+	hasIDParams := false
+	hasSSRFPatterns := false
+
+	authKeywords := []string{"login", "register", "password", "token", "session", "oauth", "auth", "signup", "signin"}
+	ssrfKeywords := []string{"url=", "redirect", "proxy", "fetch", "callback", "next=", "return=", "dest=", "target="}
+	idKeywords := []string{"id=", "user_id", "account_id", "order_id", "item_id"}
+
+	for _, ep := range recon.Endpoints {
+		epLower := strings.ToLower(ep.URL + " " + ep.Parameter + " " + ep.Notes)
+		for _, kw := range authKeywords {
+			if strings.Contains(epLower, kw) {
+				hasAuthEndpoints = true
+				break
+			}
+		}
+		for _, kw := range ssrfKeywords {
+			if strings.Contains(epLower, kw) {
+				hasSSRFPatterns = true
+				break
+			}
+		}
+		for _, kw := range idKeywords {
+			if strings.Contains(epLower, kw) {
+				hasIDParams = true
+				break
+			}
+		}
+	}
+
+	// Also check auth flows from recon
+	if len(recon.AuthFlows) > 0 {
+		hasAuthEndpoints = true
+	}
+
+	var filtered []VulnClass
+	for _, class := range configured {
+		switch class {
+		case VulnClassAuth:
+			if !hasAuthEndpoints {
+				zap.L().Info("Skipping specialist (no auth endpoints detected)", zap.String("class", string(class)))
+				continue
+			}
+		case VulnClassAuthz:
+			if !hasAuthEndpoints && !hasIDParams {
+				zap.L().Info("Skipping specialist (no auth flows or ID parameters detected)", zap.String("class", string(class)))
+				continue
+			}
+		case VulnClassSSRF:
+			if !hasSSRFPatterns {
+				zap.L().Info("Skipping specialist (no SSRF-related patterns detected)", zap.String("class", string(class)))
+				continue
+			}
+		}
+		filtered = append(filtered, class)
+	}
+
+	// Always run at least injection and XSS — they're universally applicable
+	if len(filtered) == 0 {
+		return configured
+	}
+
+	return filtered
+}
+
+// emitProgress calls the progress callback if set.
+func emitProgress(cfg AutopilotPipelineConfig, phase, message string) {
+	if cfg.ProgressCallback != nil {
+		cfg.ProgressCallback(phase, message)
+	}
+}
+
+// progressWriter wraps an io.Writer and emits progress callbacks at byte intervals.
+type progressWriter struct {
+	inner       io.Writer
+	callback    func(phase string, message string)
+	phase       string
+	interval    int64 // bytes between progress emissions
+	written     int64
+	lastEmitted int64
+}
+
+// Write delegates to the inner writer and emits progress at intervals.
+func (pw *progressWriter) Write(p []byte) (n int, err error) {
+	n, err = pw.inner.Write(p)
+	pw.written += int64(n)
+	if pw.written-pw.lastEmitted >= pw.interval {
+		pw.callback(pw.phase, fmt.Sprintf("agent output: %dKB", pw.written/1024))
+		pw.lastEmitted = pw.written
+	}
+	return n, err
 }

@@ -111,7 +111,7 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 // colorFileLocation highlights the filename:line portion for SAST module types.
 func colorFileLocation(urlStr, moduleType string) string {
 	switch moduleType {
-	case "semgrep", "codeql", "trivy", "ast-grep":
+	case "semgrep", "codeql", "osv-scanner", "ast-grep":
 	default:
 		return urlStr
 	}
@@ -159,7 +159,7 @@ func moduleTypeColor(moduleType string) string {
 		return terminal.BoldBlue(moduleType)
 	case "ast-grep":
 		return terminal.BoldCyan(moduleType)
-	case "semgrep", "trivy", "codeql":
+	case "semgrep", "osv-scanner", "codeql":
 		return terminal.BoldYellow(moduleType)
 	default:
 		return moduleType

@@ -131,7 +131,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |   Runs native SAST phase via runner:                                   |
   |     +-- ast-grep route extraction (discovers routes from code)        |
   |     +-- Kingfisher secret detection (hardcoded credentials, keys)     |
-  |     +-- Third-party tools (semgrep, trivy, CodeQL if available)       |
+  |     +-- Third-party tools (semgrep, osv-scanner, CodeQL if available)       |
   |                                                                        |
   |   Findings saved to DB with module_type="sast"                        |
   |   Routes ingested with parameterized path resolution + probing        |
@@ -418,7 +418,7 @@ vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --code-
 # Source-aware with discovery: SAST + crawling + AI planning
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --discover
 
-# Source-aware without SAST (skip ast-grep, trivy, semgrep)
+# Source-aware without SAST (skip ast-grep, osv-scanner, semgrep)
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --skip-sast
 
 # Full pipeline: source analysis + SAST + discovery + AI swarm
@@ -481,7 +481,7 @@ Inputs are auto-detected from their content:
 | `-m, --modules` | — | Explicit module names to include alongside agent selections |
 | `--max-iterations` | 3 | Maximum triage-rescan iterations (hidden alias: `--max-rescan-rounds`) |
 | `--code-audit` | true (when `--source`) | Enable AI security code audit phase (requires `--source`). Enabled by default when `--source` is provided; disable with `--code-audit=false` |
-| `--skip-sast` | false | Skip native SAST tools (ast-grep, trivy, semgrep) when `--source` is provided |
+| `--skip-sast` | false | Skip native SAST tools (ast-grep, osv-scanner, semgrep) when `--source` is provided |
 | `--start-from` | — | Resume from a specific phase (`native-normalize`, `source-analysis`, `code-audit`, `native-sast`, `native-discover`, `plan`, `native-extension`, `native-scan`, `triage`). Legacy names without `native-` prefix are also accepted |
 | `--skip` | — | Skip specific phases (repeatable, e.g., `--skip discovery --skip spidering`) |
 | `--agent` | from config | Agent backend to use |
@@ -677,7 +677,7 @@ When `--source` is provided, the native SAST phase runs automatically:
 
 - **ast-grep** — Extracts routes from source code using AST patterns, ingests them into the database with parameterized path resolution and concurrent probing
 - **Kingfisher** — Detects hardcoded secrets, API keys, and credentials
-- **Third-party tools** — semgrep, trivy, CodeQL (when available on the system)
+- **Third-party tools** — semgrep, osv-scanner, CodeQL (when available on the system)
 
 Findings are saved to the database with `module_type="sast"`. Auth config from source analysis is applied for authenticated SAST analysis.
 

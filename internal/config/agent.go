@@ -14,6 +14,55 @@ type AgentConfig struct {
 	McpEnabled    *bool               `yaml:"mcp_enabled,omitempty"`    // enable MCP server passthrough to ACP sessions (default: false)
 	McpServers    []McpServerConfig   `yaml:"mcp_servers,omitempty"`    // global MCP servers attached to all ACP sessions when mcp_enabled is true
 	SwarmTerminal SwarmTerminalConfig `yaml:"swarm_terminal,omitempty"` // terminal config for swarm agent sessions
+	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
+	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
+}
+
+// ContextLimits controls how much data is pulled from the DB for agent context enrichment.
+type ContextLimits struct {
+	MaxFindings  int `yaml:"max_findings,omitempty"`  // default: 50
+	MaxEndpoints int `yaml:"max_endpoints,omitempty"` // default: 100
+	MaxHighRisk  int `yaml:"max_high_risk,omitempty"` // default: 20
+	MinRiskScore int `yaml:"min_risk_score,omitempty"` // default: 50
+}
+
+// EffectiveMaxFindings returns MaxFindings or the default (50).
+func (c *ContextLimits) EffectiveMaxFindings() int {
+	if c.MaxFindings > 0 {
+		return c.MaxFindings
+	}
+	return 50
+}
+
+// EffectiveMaxEndpoints returns MaxEndpoints or the default (100).
+func (c *ContextLimits) EffectiveMaxEndpoints() int {
+	if c.MaxEndpoints > 0 {
+		return c.MaxEndpoints
+	}
+	return 100
+}
+
+// EffectiveMaxHighRisk returns MaxHighRisk or the default (20).
+func (c *ContextLimits) EffectiveMaxHighRisk() int {
+	if c.MaxHighRisk > 0 {
+		return c.MaxHighRisk
+	}
+	return 20
+}
+
+// EffectiveMinRiskScore returns MinRiskScore or the default (50).
+func (c *ContextLimits) EffectiveMinRiskScore() int {
+	if c.MinRiskScore > 0 {
+		return c.MinRiskScore
+	}
+	return 50
+}
+
+// AutopilotGuardrails controls safety and observability for SDK autonomous mode.
+type AutopilotGuardrails struct {
+	LogCommands     bool     `yaml:"log_commands,omitempty"`     // log agent tool use at INFO level (default: false)
+	MaxTurns        int      `yaml:"max_turns,omitempty"`        // hard ceiling for max turns (0 = no override, use MaxCommands*3)
+	DisallowedTools []string `yaml:"disallowed_tools,omitempty"` // extra tools to block in SDK mode
 }
 
 // IsMcpEnabled returns whether MCP server passthrough is enabled. Defaults to false.
@@ -240,10 +289,10 @@ func (c *AgentConfig) Validate() error {
 			return fmt.Errorf("agent.backends[%q].command must not be empty", name)
 		}
 		switch d.Protocol {
-		case "", "pipe", "acp", "sdk":
+		case "", "pipe", "acp", "sdk", "codex-sdk", "opencode-sdk":
 			// valid
 		default:
-			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\", \"acp\", or \"sdk\")", name, d.Protocol)
+			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\", \"acp\", \"sdk\", \"codex-sdk\", or \"opencode-sdk\")", name, d.Protocol)
 		}
 	}
 	if ws := &c.WarmSession; ws.IsEnabled() {
@@ -321,8 +370,13 @@ func DefaultAgentConfig() *AgentConfig {
 			},
 			"codex": {
 				Command:     "codex",
+				Description: "OpenAI Codex CLI (native JSON-RPC v2)",
+				Protocol:    "codex-sdk",
+			},
+			"codex-acp": {
+				Command:     "codex",
 				Args:        []string{"app-server"},
-				Description: "OpenAI Codex CLI (ACP)",
+				Description: "OpenAI Codex CLI (ACP, legacy)",
 				Protocol:    "acp",
 			},
 			"opencode": {
@@ -330,6 +384,12 @@ func DefaultAgentConfig() *AgentConfig {
 				Args:           []string{"acp"},
 				Description:    "OpenCode agent (ACP)",
 				Protocol:       "acp",
+				ProviderConfig: DefaultProviderConfig(),
+			},
+			"opencode-native": {
+				Command:        "opencode",
+				Description:    "OpenCode agent (native SDK)",
+				Protocol:       "opencode-sdk",
 				ProviderConfig: DefaultProviderConfig(),
 			},
 			"opencode-cli": {

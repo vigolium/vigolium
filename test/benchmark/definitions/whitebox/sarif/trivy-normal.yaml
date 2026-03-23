@@ -1,5 +1,5 @@
 fixture: trivy-normal.sarif
-tool_name: trivy
+tool_name: osv-scanner
 format: sarif
 
 expected:

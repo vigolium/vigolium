@@ -25,7 +25,7 @@
 | Blackbox | `blackbox` | manual | Internet | Scanner against 3 external live sites (soft assertions) |
 | XBOW | `xbow` | `test-xbow` | Docker + source | 13 challenge apps across 7 vuln categories |
 | SAST Extraction | `sast` | `test-sast-extraction` | None | Route extraction from 7 framework stubs |
-| SAST SARIF | `sast` | `test-sast-sarif` | None | Parsing Semgrep/Trivy SARIF (9 fixtures) |
+| SAST SARIF | `sast` | `test-sast-sarif` | None | Parsing Semgrep/OSV-Scanner SARIF (9 fixtures) |
 | SAST Handoff | `sast` | `test-sast-handoff` | None | Route → HRR conversion (3 frameworks) |
 | SAST E2E | `sast_e2e` | `test-sast-e2e` | `ast-grep` | Full source → route → HRR pipeline |
 | Agent Parsing (L1) | `agent_benchmark` | `test-agent-parsing` | None | Raw LLM output → structured data |
@@ -128,7 +128,7 @@ The harness is the backbone — 12 files providing:
 
 **Extraction**: Given a framework stub directory, runs `ast-grep` to extract routes. Validates expected routes found, methods correct, match counts within bounds, negative routes absent.
 
-**SARIF**: Parses Semgrep/Trivy output files. Validates finding count, severity mapping, required fields.
+**SARIF**: Parses Semgrep/OSV-Scanner output files. Validates finding count, severity mapping, required fields.
 
 **Handoff**: Converts extracted routes to HRR objects. Validates method normalization (ANY→GET), URI construction, host header presence, insertion point creation from URL params.
 

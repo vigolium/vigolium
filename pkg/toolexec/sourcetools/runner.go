@@ -269,8 +269,8 @@ func parseToolOutput(toolName string, data []byte) ([]RawFinding, error) {
 	switch toolName {
 	case "semgrep":
 		return ParseSemgrepOutput(data)
-	case "trivy":
-		return ParseTrivyOutput(data)
+	case "osv-scanner":
+		return ParseOSVScannerOutput(data)
 	default:
 		return ParseGenericJSON(data, toolName)
 	}

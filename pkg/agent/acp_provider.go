@@ -17,7 +17,7 @@ const (
 	providerClaude               // model via SetSessionModel; config via ACP _meta
 	providerGemini               // model via -m CLI arg
 	providerOpenCode             // model + config via OPENCODE_CONFIG_CONTENT env var
-	providerCodex                // model via --model CLI arg
+	providerCodex                // model via --model CLI arg (legacy ACP mode only)
 	providerCursor               // model via --model CLI arg
 )
 

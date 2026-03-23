@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/codexsdk"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"go.uber.org/zap"
@@ -35,10 +36,12 @@ func (s *safeWriter) Write(p []byte) (int, error) {
 // Engine orchestrates AI agent runs: context gathering, prompt rendering,
 // agent execution, output parsing, and result ingestion.
 type Engine struct {
-	settings *config.Settings
-	repo     *database.Repository
-	pool     *ACPPool // nil when warm sessions disabled
-	sdkPool  *SDKPool // nil when warm sessions disabled or no SDK agents
+	settings     *config.Settings
+	repo         *database.Repository
+	pool         *ACPPool      // nil when warm sessions disabled
+	sdkPool      *SDKPool      // nil when warm sessions disabled
+	codexPool    *CodexPool    // nil when warm sessions disabled
+	opencodePool *OpenCodePool // nil when warm sessions disabled
 }
 
 // NewEngine creates a new agent engine.
@@ -51,6 +54,8 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 	if settings != nil && settings.Agent.WarmSession.IsEnabled() {
 		e.pool = NewACPPool(settings.Agent.WarmSession, settings.Agent.Backends)
 		e.sdkPool = NewSDKPool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.codexPool = NewCodexPool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.opencodePool = NewOpenCodePool(settings.Agent.WarmSession, settings.Agent.Backends)
 	}
 	return e
 }
@@ -63,6 +68,12 @@ func (e *Engine) Close() {
 	}
 	if e.sdkPool != nil {
 		e.sdkPool.Close()
+	}
+	if e.codexPool != nil {
+		e.codexPool.Close()
+	}
+	if e.opencodePool != nil {
+		e.opencodePool.Close()
 	}
 }
 
@@ -94,13 +105,12 @@ func (e *Engine) mergeGlobalMcpServers(agentDef *config.AgentDef) *config.AgentD
 // This is useful for modes like swarm that make multiple agent calls and benefit
 // from subprocess reuse even when warm sessions are not explicitly configured.
 func (e *Engine) EnsureWarmSessions() {
-	if e.pool != nil && e.sdkPool != nil {
+	if e.pool != nil && e.sdkPool != nil && e.codexPool != nil && e.opencodePool != nil {
 		return // already active
 	}
 	if e.settings == nil {
 		return
 	}
-	// Create pools with default settings if not explicitly configured
 	cfg := e.settings.Agent.WarmSession
 	if !cfg.IsEnabled() {
 		enabled := true
@@ -111,6 +121,12 @@ func (e *Engine) EnsureWarmSessions() {
 	}
 	if e.sdkPool == nil {
 		e.sdkPool = NewSDKPool(cfg, e.settings.Agent.Backends)
+	}
+	if e.codexPool == nil {
+		e.codexPool = NewCodexPool(cfg, e.settings.Agent.Backends)
+	}
+	if e.opencodePool == nil {
+		e.opencodePool = NewOpenCodePool(cfg, e.settings.Agent.Backends)
 	}
 	zap.L().Debug("warm session pools auto-enabled for multi-call mode")
 }
@@ -179,8 +195,25 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		agentDef = e.mergeGlobalMcpServers(agentDef)
 	}
 
-	// Execute the agent using the configured protocol
-	var stdout, stderr, sessionID string
+	// Execute the agent using the configured protocol, with optional retry.
+	retryCfg := DefaultRetryConfig()
+	if opts.Retry != nil {
+		retryCfg = *opts.Retry
+	}
+
+	type execResult struct {
+		stdout, stderr, sessionID string
+	}
+	er, err := retryAgentCall(ctx, retryCfg, func(ctx context.Context, attempt int) (execResult, error) {
+		var stdout, stderr, sessionID string
+		var runErr error
+
+		runPrompt := prompt
+		if attempt > 0 {
+			// On retry, nudge the agent to respond
+			runPrompt = "Please provide your full response.\n\n" + prompt
+		}
+
 	switch agentDef.EffectiveProtocol() {
 	case "acp":
 		var acpOpts []acpClientOption
@@ -215,12 +248,12 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		var ar acpResult
 		if opts.Autopilot {
 			// Autopilot mode: use terminal-enabled ACP runner
-			ar, err = RunAgenticAutopilot(ctx, *agentDef, prompt, cwd, opts.MaxCommands, acpOpts...)
+			ar, runErr = RunAgenticAutopilot(ctx, *agentDef, runPrompt, cwd, opts.MaxCommands, acpOpts...)
 		} else if e.pool != nil && opts.AgentACPCmd == "" {
 			// Warm session pooling — skip for ad-hoc ACP commands (no stable name to key on)
-			ar, err = e.pool.Prompt(ctx, opts.AgentName, prompt, cwd, acpOpts...)
+			ar, runErr = e.pool.Prompt(ctx, opts.AgentName, runPrompt, cwd, acpOpts...)
 		} else {
-			ar, err = RunAgenticACP(ctx, *agentDef, prompt, acpOpts...)
+			ar, runErr = RunAgenticACP(ctx, *agentDef, runPrompt, acpOpts...)
 		}
 		stdout, stderr, sessionID = ar.Stdout, ar.Stderr, ar.SessionID
 	case "sdk":
@@ -236,6 +269,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			McpServers:   agentDef.McpServers,
 			Model:        agentDef.Model,
 			SessionID:    opts.SessionID,
+			SessionDir:   opts.SessionDir,
+		}
+		if e.settings != nil {
+			sdkCfg.Guardrails = e.settings.Agent.Guardrails
 		}
 
 		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash
@@ -286,14 +323,88 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			if opts.SessionKey != "" {
 				poolKey = opts.SessionKey
 			}
-			ar, err = e.sdkPool.Prompt(ctx, opts.AgentName, prompt, sdkCfg, poolKey, opts.SessionWeight)
+			ar, runErr = e.sdkPool.Prompt(ctx, opts.AgentName, runPrompt, sdkCfg, poolKey, opts.SessionWeight)
 		} else {
-			ar, err = RunAgenticSDK(ctx, *agentDef, prompt, sdkCfg)
+			ar, runErr = RunAgenticSDK(ctx, *agentDef, runPrompt, sdkCfg)
+		}
+		stdout, sessionID = ar.Stdout, ar.SessionID
+	case "codex-sdk":
+		// Codex SDK protocol: native JSON-RPC v2 over stdio via `codex app-server`.
+		cwd := "."
+		if opts.SourcePath != "" {
+			cwd = opts.SourcePath
+		}
+		codexCfg := codexRunConfig{
+			Cwd:          cwd,
+			StreamWriter: opts.StreamWriter,
+			Model:        agentDef.Model,
+			Sandbox:      codexsdk.SandboxModeDanger_full_access,
+		}
+
+		// Source path context in instructions
+		if opts.SourcePath != "" {
+			codexCfg.DeveloperInstructions = "Application source code is available at: " + opts.SourcePath
+		}
+
+		var ar acpResult
+		if e.codexPool != nil && opts.AgentACPCmd == "" {
+			poolKey := opts.AgentName
+			if opts.SessionKey != "" {
+				poolKey = opts.SessionKey
+			}
+			ar, runErr = e.codexPool.Prompt(ctx, opts.AgentName, runPrompt, codexCfg, poolKey, opts.SessionWeight)
+		} else {
+			ar, runErr = RunCodexSDK(ctx, *agentDef, runPrompt, codexCfg)
+		}
+		stdout, sessionID = ar.Stdout, ar.SessionID
+	case "opencode-sdk":
+		// OpenCode SDK protocol: REST API + SSE streaming via local daemon.
+		cwd := "."
+		if opts.SourcePath != "" {
+			cwd = opts.SourcePath
+		}
+		osCfg := opencodeRunConfig{
+			Cwd:          cwd,
+			StreamWriter: opts.StreamWriter,
+			Model:        agentDef.Model,
+		}
+
+		// Source path context in system prompt
+		if opts.SourcePath != "" {
+			osCfg.SystemPrompt = "Application source code is available at: " + opts.SourcePath
+		}
+
+		var ar acpResult
+		if e.opencodePool != nil && opts.AgentACPCmd == "" {
+			poolKey := opts.AgentName
+			if opts.SessionKey != "" {
+				poolKey = opts.SessionKey
+			}
+			ar, runErr = e.opencodePool.Prompt(ctx, opts.AgentName, runPrompt, osCfg, poolKey, opts.SessionWeight)
+		} else {
+			ar, runErr = RunOpenCodeSDK(ctx, *agentDef, runPrompt, osCfg)
 		}
 		stdout, sessionID = ar.Stdout, ar.SessionID
 	default:
-		stdout, stderr, err = RunAgent(ctx, *agentDef, prompt, opts.StreamWriter)
+		stdout, stderr, runErr = RunAgent(ctx, *agentDef, runPrompt, opts.StreamWriter)
 	}
+
+		if runErr != nil {
+			return execResult{stdout, stderr, sessionID}, runErr
+		}
+
+		// Detect empty output — treat as retryable error
+		if strings.TrimSpace(stdout) == "" {
+			zap.L().Warn("agent returned empty output, treating as retryable",
+				zap.String("agent", opts.AgentName),
+				zap.String("protocol", agentDef.EffectiveProtocol()))
+			return execResult{stdout, stderr, sessionID}, errEmptyAgentOutput
+		}
+
+		return execResult{stdout, stderr, sessionID}, nil
+	})
+
+	stdout, stderr, sessionID := er.stdout, er.stderr, er.sessionID
 
 	// Ensure streamed output ends with a newline so subsequent console lines
 	// (e.g. session dir, phase banners) don't start on the same line.
@@ -879,7 +990,11 @@ func (e *Engine) resolveAgent(name string) (*config.AgentDef, error) {
 // enrichContext populates context fields in the template data from database
 // and module registry. Only fields declared in the template's variables list are queried.
 func (e *Engine) enrichContext(ctx context.Context, data *TemplateData, templateVars []string) {
-	enrichContextFromDB(ctx, data, e.repo, data.Hostname, templateVars)
+	var limits config.ContextLimits
+	if e.settings != nil {
+		limits = e.settings.Agent.ContextLimits
+	}
+	enrichContextFromDB(ctx, data, e.repo, data.Hostname, templateVars, limits)
 	enrichContextModules(data, templateVars)
 	enrichContextCommands(data, templateVars)
 }

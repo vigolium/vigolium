@@ -26,7 +26,7 @@ The whitebox SAST benchmarks validate the three layers of the source-aware scann
 | Layer | What It Tests | Key Package |
 |-------|---------------|-------------|
 | **1. Route Extraction** | ast-grep scans framework source code and extracts routes | `pkg/toolexec/astgrep/` |
-| **2. SARIF Parsing** | Semgrep, Trivy, and generic SARIF outputs parse into findings | `pkg/toolexec/sourcetools/` |
+| **2. SARIF Parsing** | Semgrep, OSV-Scanner, and generic SARIF outputs parse into findings | `pkg/toolexec/sourcetools/` |
 | **3. SAST→DAST Handoff** | Extracted routes convert into `HttpRequestResponse` with insertion points | `pkg/httpmsg/` |
 | **4. E2E Pipeline** | Full chain from source stub to scannable insertion points | All of the above |
 
@@ -95,7 +95,7 @@ Unlike the existing DAST-focused whitebox benchmarks (DVWA, VAmPI, Juice Shop), 
 1. **YAML-driven**: All test expectations are declared in YAML files. Adding a new framework or fixture is a YAML addition, not a code change.
 2. **No external dependencies for Layers 2-3**: SARIF fixtures are static JSON files; handoff tests build raw HTTP requests from route definitions. Only Layer 1 requires the ast-grep binary.
 3. **Graceful degradation**: If ast-grep has compatibility issues (e.g., newer versions changing config format), extraction tests skip with a clear message rather than failing the suite.
-4. **Fixture-based SARIF testing**: Static `.sarif` files enable deterministic testing without running semgrep or trivy.
+4. **Fixture-based SARIF testing**: Static `.sarif` files enable deterministic testing without running semgrep or osv-scanner.
 5. **Separation of concerns**: Each layer tests exactly one component. Layer 4 (E2E) ties them together.
 
 ---
@@ -222,7 +222,7 @@ Tests the SARIF/JSON parser's ability to correctly extract findings from tool ou
 
 - `sourcetools.ParseSARIF()` parses standard SARIF format
 - `sourcetools.ParseSemgrepOutput()` parses semgrep's native JSON
-- `sourcetools.ParseTrivyOutput()` parses trivy's native JSON
+- `sourcetools.ParseTrivyOutput()` parses osv-scanner's native JSON
 - Finding counts match expectations
 - Individual findings have correct rule_id, severity, file_path, start_line
 - Severity distributions match (e.g., 2 high, 3 medium, 1 low)
@@ -239,9 +239,9 @@ Tests the SARIF/JSON parser's ability to correctly extract findings from tool ou
 | `semgrep-empty.sarif` | semgrep | 0 | Empty result handling |
 | `semgrep-multirule.sarif` | semgrep | 11 | Multiple rules (sqli, xss, ssrf, idor, crypto) |
 | `semgrep-nextjs-vulnexamples.sarif` | semgrep | 6 | Next.js auth/authz/secrets/XSS (4 high, 2 medium) |
-| `trivy-normal.sarif` | trivy | 3 | Vuln + secret + misconfig |
-| `trivy-empty.sarif` | trivy | 0 | Empty result handling |
-| `trivy-multirule.sarif` | trivy | 5 | All trivy categories |
+| `trivy-normal.sarif` | osv-scanner | 3 | Vuln + secret + misconfig |
+| `trivy-empty.sarif` | osv-scanner | 0 | Empty result handling |
+| `trivy-multirule.sarif` | osv-scanner | 5 | All osv-scanner categories |
 | `sarif-malformed-1.json` | any | N/A | Missing "runs" key → 0 findings |
 | `sarif-malformed-2.json` | any | N/A | Invalid JSON → parse error |
 | `sarif-severity-mapping.sarif` | test | 4 | Level mapping validation |
@@ -253,8 +253,8 @@ Tests the SARIF/JSON parser's ability to correctly extract findings from tool ou
 | `TestSARIF_All` | Runs all SARIF definitions from YAML |
 | `TestSARIF_Semgrep_Normal` | Standard semgrep parsing |
 | `TestSARIF_Semgrep_Multirule` | Multi-rule diversity |
-| `TestSARIF_Trivy_Normal` | Standard trivy parsing |
-| `TestSARIF_Trivy_Multirule` | All trivy categories |
+| `TestSARIF_Trivy_Normal` | Standard osv-scanner parsing |
+| `TestSARIF_Trivy_Multirule` | All osv-scanner categories |
 | `TestSARIF_EdgeCases` | Severity mapping edge cases |
 | `TestSARIF_Empty` | Zero-finding fixtures |
 | `TestSARIF_Malformed` | Invalid/incomplete input |
@@ -402,7 +402,7 @@ Each file in `definitions/whitebox/sarif/` declares expectations for a fixture:
 ```yaml
 fixture: semgrep-normal.sarif      # File in test/testdata/sast-sarif/
 tool_name: semgrep                 # Tool name passed to ParseSARIF
-format: sarif                      # sarif | semgrep-json | trivy-json
+format: sarif                      # sarif | semgrep-json | osv-scanner-json
 
 expected:
   finding_count: 4                 # Total expected findings
@@ -473,7 +473,7 @@ Each stub directory contains a manifest file (`go.mod`, `requirements.txt`, or `
 
 ## SARIF Fixtures
 
-SARIF fixtures in `test/testdata/sast-sarif/` are static JSON files that simulate real tool output. They test the parser without requiring semgrep or trivy to be installed.
+SARIF fixtures in `test/testdata/sast-sarif/` are static JSON files that simulate real tool output. They test the parser without requiring semgrep or osv-scanner to be installed.
 
 ### Fixture Design
 

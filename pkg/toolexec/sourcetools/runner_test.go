@@ -67,72 +67,78 @@ func TestParseSemgrepOutput(t *testing.T) {
 	}
 }
 
-func TestParseTrivyOutput(t *testing.T) {
+func TestParseOSVScannerOutput(t *testing.T) {
 	data := []byte(`{
-		"Results": [
+		"results": [
 			{
-				"Target": "package-lock.json",
-				"Vulnerabilities": [
+				"source": {
+					"path": "package-lock.json",
+					"type": "lockfile"
+				},
+				"packages": [
 					{
-						"VulnerabilityID": "CVE-2021-44228",
-						"Title": "Log4Shell",
-						"Description": "Remote code execution via JNDI",
-						"Severity": "CRITICAL"
-					}
-				],
-				"Misconfigurations": [
+						"package": {
+							"name": "log4j-core",
+							"version": "2.14.1",
+							"ecosystem": "Maven"
+						},
+						"vulnerabilities": [
+							{
+								"id": "CVE-2021-44228",
+								"summary": "Log4Shell remote code execution",
+								"detail": "Remote code execution via JNDI in Log4j",
+								"severity": [
+									{"type": "CVSS_V3", "score": "10.0"}
+								]
+							}
+						]
+					},
 					{
-						"ID": "DS001",
-						"Title": "No healthcheck in Dockerfile",
-						"Description": "Missing HEALTHCHECK",
-						"Severity": "LOW",
-						"Message": "Add HEALTHCHECK instruction"
-					}
-				],
-				"Secrets": [
-					{
-						"RuleID": "aws-access-key-id",
-						"Category": "AWS",
-						"Title": "AWS Access Key ID",
-						"Severity": "HIGH",
-						"StartLine": 15,
-						"EndLine": 15
+						"package": {
+							"name": "express",
+							"version": "4.17.0",
+							"ecosystem": "npm"
+						},
+						"vulnerabilities": [
+							{
+								"id": "GHSA-rv95-896h-c2yt",
+								"summary": "Express open redirect",
+								"severity": [
+									{"type": "CVSS_V3", "score": "5.4"}
+								]
+							}
+						]
 					}
 				]
 			}
 		]
 	}`)
 
-	findings, err := ParseTrivyOutput(data)
+	findings, err := ParseOSVScannerOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(findings) != 3 {
-		t.Fatalf("expected 3 findings, got %d", len(findings))
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
 	}
 
-	// Vulnerability
+	// Critical vuln (CVSS 10.0)
 	if findings[0].RuleID != "CVE-2021-44228" {
 		t.Errorf("unexpected vuln ID: %s", findings[0].RuleID)
 	}
 	if findings[0].Severity != "critical" {
 		t.Errorf("expected critical, got %s", findings[0].Severity)
 	}
-
-	// Misconfiguration
-	if findings[1].RuleID != "DS001" {
-		t.Errorf("unexpected misconfig ID: %s", findings[1].RuleID)
-	}
-	if findings[1].Severity != "low" {
-		t.Errorf("expected low, got %s", findings[1].Severity)
+	if findings[0].ToolName != "osv-scanner" {
+		t.Errorf("expected tool name osv-scanner, got %s", findings[0].ToolName)
 	}
 
-	// Secret
-	if findings[2].RuleID != "aws-access-key-id" {
-		t.Errorf("unexpected secret rule ID: %s", findings[2].RuleID)
+	// Medium vuln (CVSS 5.4)
+	if findings[1].RuleID != "GHSA-rv95-896h-c2yt" {
+		t.Errorf("unexpected vuln ID: %s", findings[1].RuleID)
 	}
-	if findings[2].StartLine != 15 {
-		t.Errorf("expected start line 15, got %d", findings[2].StartLine)
+	if findings[1].Severity != "medium" {
+		t.Errorf("expected medium, got %s", findings[1].Severity)
 	}
 }
 
@@ -147,9 +153,9 @@ func TestParseSemgrepOutput_Empty(t *testing.T) {
 	}
 }
 
-func TestParseTrivyOutput_Empty(t *testing.T) {
-	data := []byte(`{"Results": []}`)
-	findings, err := ParseTrivyOutput(data)
+func TestParseOSVScannerOutput_Empty(t *testing.T) {
+	data := []byte(`{"results": []}`)
+	findings, err := ParseOSVScannerOutput(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -341,13 +347,14 @@ func TestParseSARIF_Semgrep(t *testing.T) {
 	}
 }
 
-func TestParseSARIF_Trivy(t *testing.T) {
+func TestParseSARIF_OSVScanner(t *testing.T) {
+	// Uses existing SARIF fixture to test generic SARIF parsing
 	data, err := os.ReadFile(testdataPath("trivy-fs-report.sarif"))
 	if err != nil {
 		t.Fatalf("failed to read test data: %v", err)
 	}
 
-	findings, err := ParseSARIF(data, "trivy")
+	findings, err := ParseSARIF(data, "osv-scanner")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,8 +497,8 @@ func TestIsSARIF(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "trivy JSON",
-			data: `{"Results": [{"Target": "a.go", "Vulnerabilities": []}]}`,
+			name: "osv-scanner JSON",
+			data: `{"results": [{"source": {"path": "go.mod"}, "packages": []}]}`,
 			want: false,
 		},
 		{
@@ -528,7 +535,7 @@ func TestParseToolOutput_SARIFAutoDetect(t *testing.T) {
 	}
 
 	// parseToolOutput should auto-detect SARIF and route correctly
-	findings, err := parseToolOutput("trivy", data)
+	findings, err := parseToolOutput("osv-scanner", data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -538,8 +545,8 @@ func TestParseToolOutput_SARIFAutoDetect(t *testing.T) {
 	if findings[0].RuleID != "CVE-2023-30861" {
 		t.Errorf("unexpected rule ID: %s", findings[0].RuleID)
 	}
-	if findings[0].ToolName != "trivy" {
-		t.Errorf("expected tool name 'trivy', got %s", findings[0].ToolName)
+	if findings[0].ToolName != "osv-scanner" {
+		t.Errorf("expected tool name 'osv-scanner', got %s", findings[0].ToolName)
 	}
 }
 
@@ -609,13 +616,14 @@ func TestParseSARIF_Semgrep_RuleName(t *testing.T) {
 	}
 }
 
-func TestParseSARIF_Trivy_RuleName(t *testing.T) {
+func TestParseSARIF_OSVScanner_RuleName(t *testing.T) {
+	// Uses existing SARIF fixture to test rule name extraction
 	data, err := os.ReadFile(testdataPath("trivy-fs-report.sarif"))
 	if err != nil {
 		t.Fatalf("failed to read test data: %v", err)
 	}
 
-	findings, err := ParseSARIF(data, "trivy")
+	findings, err := ParseSARIF(data, "osv-scanner")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -637,7 +645,7 @@ func TestToFinding_WithRuleName(t *testing.T) {
 		Severity:  "high",
 		FilePath:  "requirements.txt",
 		StartLine: 5,
-		ToolName:  "trivy",
+		ToolName:  "osv-scanner",
 	}
 	sr := &database.SourceRepo{
 		ID:          1,

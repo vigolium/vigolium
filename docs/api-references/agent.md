@@ -164,7 +164,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `source_path`          | string   | No       | Path to source code for route discovery (triggers source analysis)    |
 | `files`                | string[] | No       | Specific source files to include (relative to `source_path`)          |
 | `source_analysis_only` | bool     | No       | Run only the source analysis phase and exit                           |
-| `skip_sast`            | bool     | No       | Skip native SAST tools (ast-grep, trivy) during source analysis       |
+| `skip_sast`            | bool     | No       | Skip native SAST tools (ast-grep, osv-scanner) during source analysis       |
 
 *Scanning parameters:*
 

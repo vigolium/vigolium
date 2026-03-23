@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sort"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"go.uber.org/zap"
@@ -59,7 +60,8 @@ func variablesDeclared(vars []string, name string) bool {
 
 // enrichContextFromDB populates PreviousFindings, DiscoveredEndpoints, and ScanStats
 // from the database. Only queries fields that the template declares in its variables list.
-func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database.Repository, hostname string, templateVars []string) {
+// Limits are read from the provided ContextLimits config; zero values use defaults.
+func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database.Repository, hostname string, templateVars []string, limits config.ContextLimits) {
 	if repo == nil {
 		return
 	}
@@ -67,7 +69,7 @@ func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database
 
 	// Previous findings
 	if variablesDeclared(templateVars, "PreviousFindings") {
-		filters := database.QueryFilters{Limit: 50}
+		filters := database.QueryFilters{Limit: limits.EffectiveMaxFindings()}
 		if hostname != "" {
 			filters.HostPattern = hostname
 		}
@@ -96,7 +98,7 @@ func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database
 
 	// Discovered endpoints
 	if variablesDeclared(templateVars, "DiscoveredEndpoints") {
-		filters := database.QueryFilters{Limit: 100}
+		filters := database.QueryFilters{Limit: limits.EffectiveMaxEndpoints()}
 		if hostname != "" {
 			filters.HostPattern = hostname
 		}
@@ -139,8 +141,8 @@ func enrichContextFromDB(ctx context.Context, data *TemplateData, repo *database
 	// High risk endpoints (top-N by risk_score)
 	if variablesDeclared(templateVars, "HighRiskEndpoints") {
 		filters := database.QueryFilters{
-			Limit:        20,
-			MinRiskScore: 50,
+			Limit:        limits.EffectiveMaxHighRisk(),
+			MinRiskScore: limits.EffectiveMinRiskScore(),
 			SortBy:       "risk_score",
 		}
 		if hostname != "" {

@@ -56,6 +56,9 @@ type Options struct {
 	// Swarm terminal: custom slash commands and sub-agents
 	SlashCommands []string // custom slash commands available inside the ACP session (e.g. /security-review)
 	CustomAgents  []string // custom agent names available via "vigolium agent query --agent=X"
+
+	// Retry: when non-nil, retries transient agent failures with exponential backoff.
+	Retry *RetryConfig `json:"-"`
 }
 
 // Result holds the outcome of an agent run.

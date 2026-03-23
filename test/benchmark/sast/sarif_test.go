@@ -36,11 +36,11 @@ func TestSARIF_Semgrep_Multirule(t *testing.T) {
 	runSARIFForFixture(t, "semgrep-multirule.yaml")
 }
 
-func TestSARIF_Trivy_Normal(t *testing.T) {
+func TestSARIF_OSVScanner_Normal(t *testing.T) {
 	runSARIFForFixture(t, "trivy-normal.yaml")
 }
 
-func TestSARIF_Trivy_Multirule(t *testing.T) {
+func TestSARIF_OSVScanner_Multirule(t *testing.T) {
 	runSARIFForFixture(t, "trivy-multirule.yaml")
 }
 
@@ -55,7 +55,7 @@ func TestSARIF_Empty(t *testing.T) {
 		toolName string
 	}{
 		{"semgrep-empty.sarif", "semgrep"},
-		{"trivy-empty.sarif", "trivy"},
+		{"trivy-empty.sarif", "osv-scanner"},
 	}
 
 	for _, tc := range fixtures {
@@ -162,8 +162,8 @@ func runSARIFDefinition(t *testing.T, def *harness.SASTSARIFDefinition) {
 		findings, parseErr = sourcetools.ParseSARIF(data, def.ToolName)
 	case "semgrep-json":
 		findings, parseErr = sourcetools.ParseSemgrepOutput(data)
-	case "trivy-json":
-		findings, parseErr = sourcetools.ParseTrivyOutput(data)
+	case "osv-scanner-json":
+		findings, parseErr = sourcetools.ParseOSVScannerOutput(data)
 	default:
 		findings, parseErr = sourcetools.ParseSARIF(data, def.ToolName)
 	}

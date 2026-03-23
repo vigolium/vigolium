@@ -50,7 +50,7 @@ ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
 # Source-aware tools
 RUN curl -sfL https://raw.githubusercontent.com/mongodb/kingfisher/main/scripts/install-kingfisher.sh | bash
 
-RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+RUN go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest && cp $(go env GOPATH)/bin/osv-scanner /usr/local/bin/
 
 RUN pip install --break-system-packages --no-cache-dir ast-grep-cli semgrep
 

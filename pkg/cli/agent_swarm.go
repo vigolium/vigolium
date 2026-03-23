@@ -56,6 +56,10 @@ var (
 	swarmCustomAgents        []string
 	swarmMaxCommands         int
 	swarmMaxPlanRecords      int
+	swarmMasterBatchSize     int
+	swarmProbeConcurrency    int
+	swarmProbeTimeout        time.Duration
+	swarmMaxProbeBody        int
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -167,7 +171,11 @@ func init() {
 	f.IntVar(&swarmMaxMasterRetries, "max-master-retries", 3, "Max master agent retries on parse failure")
 	f.IntVar(&swarmSubAgentConcurrency, "sub-agent-concurrency", 3, "Max parallel source analysis sub-agents (routes, auth, extensions)")
 	f.IntVar(&swarmMaxPlanRecords, "max-plan-records", 10, "Max records sent to plan agent (selects most interesting; 0 = no limit)")
-	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, trivy, semgrep) during source analysis")
+	f.IntVar(&swarmMasterBatchSize, "master-batch-size", 0, "Max records per master agent batch (0 = default 5)")
+	f.IntVar(&swarmProbeConcurrency, "probe-concurrency", 0, "Max parallel probe requests (0 = default 10)")
+	f.DurationVar(&swarmProbeTimeout, "probe-timeout", 0, "Per-request probe timeout (0 = default 10s)")
+	f.IntVar(&swarmMaxProbeBody, "max-probe-body", 0, "Max response body size in bytes during probing (0 = default 2MB)")
+	f.BoolVar(&swarmSkipSAST, "skip-sast", false, "Skip native SAST tools (ast-grep, osv-scanner, semgrep) during source analysis")
 	f.BoolVar(&swarmTriage, "triage", false, "Enable AI triage and rescan phases (disabled by default)")
 
 	// Terminal capability: custom slash commands and sub-agents
@@ -329,6 +337,10 @@ func runAgentSwarm(cmd *cobra.Command, _ []string) error {
 		RunUUID:            swarmRunID,
 		ProjectUUID:        projectUUID,
 		ScanUUID:           globalScanID,
+		MasterBatchSize:    swarmMasterBatchSize,
+		ProbeConcurrency:   swarmProbeConcurrency,
+		ProbeTimeout:       swarmProbeTimeout,
+		MaxProbeBodySize:   swarmMaxProbeBody,
 	}
 
 	// --start-from: build a synthetic checkpoint with all prior phases marked completed

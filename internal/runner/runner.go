@@ -3108,7 +3108,7 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 		}
 	}
 
-	// Run third-party tools (semgrep, trivy, codeql) if enabled
+	// Run third-party tools (semgrep, osv-scanner, codeql) if enabled
 	var totalThirdPartyFindings int
 	tpCfg := r.thirdPartyConfig()
 	if tpCfg == nil {

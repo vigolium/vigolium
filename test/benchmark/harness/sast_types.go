@@ -29,7 +29,7 @@ type MatchCountBounds struct {
 type SASTSARIFDefinition struct {
 	Fixture  string           `yaml:"fixture"`
 	ToolName string           `yaml:"tool_name"`
-	Format   string           `yaml:"format"` // sarif | semgrep-json | trivy-json (default: sarif)
+	Format   string           `yaml:"format"` // sarif | semgrep-json | osv-scanner-json (default: sarif)
 	Expected SARIFExpectation `yaml:"expected"`
 }
 

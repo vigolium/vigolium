@@ -1,6 +1,9 @@
 package sourcetools
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // RawFinding represents a finding parsed from a third-party tool's JSON output.
 type RawFinding struct {
@@ -61,91 +64,103 @@ func ParseSemgrepOutput(data []byte) ([]RawFinding, error) {
 	return findings, nil
 }
 
-// --- Trivy JSON output structures ---
+// --- OSV-Scanner JSON output structures ---
 
-type trivyOutput struct {
-	Results []trivyResult `json:"Results"`
+type osvScannerOutput struct {
+	Results []osvResult `json:"results"`
 }
 
-type trivyResult struct {
-	Target          string             `json:"Target"`
-	Vulnerabilities []trivyVuln        `json:"Vulnerabilities"`
-	Misconfigs      []trivyMisconfig   `json:"Misconfigurations"`
-	Secrets         []trivySecret      `json:"Secrets"`
+type osvResult struct {
+	Source   osvSource    `json:"source"`
+	Packages []osvPackage `json:"packages"`
 }
 
-type trivyVuln struct {
-	VulnerabilityID string `json:"VulnerabilityID"`
-	Title           string `json:"Title"`
-	Description     string `json:"Description"`
-	Severity        string `json:"Severity"`
+type osvSource struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
 }
 
-type trivyMisconfig struct {
-	ID          string `json:"ID"`
-	Title       string `json:"Title"`
-	Description string `json:"Description"`
-	Severity    string `json:"Severity"`
-	Message     string `json:"Message"`
+type osvPackage struct {
+	Package         osvPackageInfo    `json:"package"`
+	Vulnerabilities []osvVulnerability `json:"vulnerabilities"`
 }
 
-type trivySecret struct {
-	RuleID   string `json:"RuleID"`
-	Category string `json:"Category"`
-	Title    string `json:"Title"`
-	Severity string `json:"Severity"`
-	StartLine int   `json:"StartLine"`
-	EndLine   int   `json:"EndLine"`
+type osvPackageInfo struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Ecosystem string `json:"ecosystem"`
 }
 
-// ParseTrivyOutput parses trivy JSON output into RawFindings.
-func ParseTrivyOutput(data []byte) ([]RawFinding, error) {
-	var out trivyOutput
+type osvVulnerability struct {
+	ID       string           `json:"id"`
+	Summary  string           `json:"summary"`
+	Detail   string           `json:"detail"`
+	Severity []osvSeverityEntry `json:"severity"`
+}
+
+type osvSeverityEntry struct {
+	Type  string `json:"type"`
+	Score string `json:"score"`
+}
+
+// ParseOSVScannerOutput parses osv-scanner JSON output into RawFindings.
+func ParseOSVScannerOutput(data []byte) ([]RawFinding, error) {
+	var out osvScannerOutput
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, err
 	}
 
 	var findings []RawFinding
 	for _, r := range out.Results {
-		for _, v := range r.Vulnerabilities {
-			msg := v.Title
-			if msg == "" {
-				msg = v.Description
+		for _, pkg := range r.Packages {
+			for _, v := range pkg.Vulnerabilities {
+				msg := v.Summary
+				if msg == "" {
+					msg = v.Detail
+				}
+				sev := osvSeverityFromCVSS(v.Severity)
+				findings = append(findings, RawFinding{
+					RuleID:   v.ID,
+					Message:  fmt.Sprintf("%s (%s %s)", msg, pkg.Package.Name, pkg.Package.Version),
+					Severity: sev,
+					FilePath: r.Source.Path,
+					ToolName: "osv-scanner",
+				})
 			}
-			findings = append(findings, RawFinding{
-				RuleID:   v.VulnerabilityID,
-				Message:  msg,
-				Severity: normalizeSeverity(v.Severity),
-				FilePath: r.Target,
-				ToolName: "trivy",
-			})
-		}
-		for _, m := range r.Misconfigs {
-			msg := m.Title
-			if msg == "" {
-				msg = m.Description
-			}
-			findings = append(findings, RawFinding{
-				RuleID:   m.ID,
-				Message:  msg,
-				Severity: normalizeSeverity(m.Severity),
-				FilePath: r.Target,
-				ToolName: "trivy",
-			})
-		}
-		for _, s := range r.Secrets {
-			findings = append(findings, RawFinding{
-				RuleID:    s.RuleID,
-				Message:   s.Title,
-				Severity:  normalizeSeverity(s.Severity),
-				FilePath:  r.Target,
-				StartLine: s.StartLine,
-				EndLine:   s.EndLine,
-				ToolName:  "trivy",
-			})
 		}
 	}
 	return findings, nil
+}
+
+// osvSeverityFromCVSS derives a normalized severity from OSV CVSS scores.
+func osvSeverityFromCVSS(entries []osvSeverityEntry) string {
+	for _, e := range entries {
+		if e.Type == "CVSS_V3" || e.Type == "CVSS_V4" {
+			// Parse CVSS base score from vector string or raw score
+			score := parseCVSSScore(e.Score)
+			switch {
+			case score >= 9.0:
+				return "critical"
+			case score >= 7.0:
+				return "high"
+			case score >= 4.0:
+				return "medium"
+			case score > 0:
+				return "low"
+			}
+		}
+	}
+	return "medium" // default when no CVSS available
+}
+
+// parseCVSSScore extracts the base score from a CVSS vector or numeric string.
+func parseCVSSScore(s string) float64 {
+	// Try plain numeric score first
+	var score float64
+	if _, err := fmt.Sscanf(s, "%f", &score); err == nil {
+		return score
+	}
+	return 0
 }
 
 // ParseGenericJSON attempts to parse JSON output as a list of objects with common fields.
@@ -330,7 +345,7 @@ func ParseSARIF(data []byte, toolName string) ([]RawFinding, error) {
 }
 
 // resolveSARIFSeverity determines severity using a priority chain:
-// 1. result.level (trivy sets this; semgrep does not)
+// 1. result.level (osv-scanner sets this; semgrep does not)
 // 2. rule.defaultConfiguration.level
 // 3. rule.properties.tags scanned for severity keywords
 // 4. fallback: "info"
