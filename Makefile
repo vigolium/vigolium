@@ -526,9 +526,11 @@ release:
 	@echo "$(PREFIX) Building release..."
 	goreleaser release --snapshot --clean
 	@echo "$(PREFIX) Cleaning old files on R2..."
-	@mc rm --recursive --force r2/binaries/vigolium/ || true
+	@mc rm --recursive --force r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/ || true
 	@echo "$(PREFIX) Uploading to R2..."
-	mc cp dist/*.tar.gz r2/binaries/vigolium/
+	mc cp build/dist/*.tar.gz r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/dist/checksums.txt r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/scripts/install.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
 	@echo "$(PREFIX) Release uploaded successfully!"
 
 # Clean build artifacts

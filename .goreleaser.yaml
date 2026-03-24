@@ -1,10 +1,10 @@
 version: 2
 
 project_name: vigolium
-dist: dist
+dist: build/dist
 
 snapshot:
-  version_template: "1.0.0"
+  version_template: "0.0.1-alpha"
 
 before:
   hooks:
@@ -26,13 +26,13 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
+      # - windows
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
+    # ignore:
+    #   - goos: windows
+    #     goarch: arm64
 
 archives:
   - formats:
