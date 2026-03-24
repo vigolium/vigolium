@@ -87,11 +87,6 @@ func RunAgenticSDK(ctx context.Context, agentDef config.AgentDef, prompt string,
 			zap.Duration("duration", time.Since(start)))
 	}
 
-	// Write stderr to session dir if available
-	if cfg.SessionDir != "" {
-		writeStderrToSessionDir(cfg.SessionDir, "") // SDK doesn't expose stderr directly
-	}
-
 	return acpResult{
 		Stdout:    output,
 		SessionID: sessionID,

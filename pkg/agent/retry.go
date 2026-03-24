@@ -32,7 +32,11 @@ func DefaultRetryConfig() RetryConfig {
 }
 
 // effectiveMaxRetries returns MaxRetries or the default if unset.
+// Use MaxRetries=-1 to explicitly disable retries (returns 0).
 func (rc RetryConfig) effectiveMaxRetries() int {
+	if rc.MaxRetries < 0 {
+		return 0
+	}
 	if rc.MaxRetries > 0 {
 		return rc.MaxRetries
 	}

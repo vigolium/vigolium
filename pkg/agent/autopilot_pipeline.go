@@ -840,6 +840,9 @@ func filterSpecialistsByRecon(recon *ReconDeliverable, configured []VulnClass) [
 	idKeywords := []string{"id=", "user_id", "account_id", "order_id", "item_id"}
 
 	for _, ep := range recon.Endpoints {
+		if hasAuthEndpoints && hasSSRFPatterns && hasIDParams {
+			break // all signals found, no need to check more endpoints
+		}
 		epLower := strings.ToLower(ep.URL + " " + ep.Parameter + " " + ep.Notes)
 		for _, kw := range authKeywords {
 			if strings.Contains(epLower, kw) {

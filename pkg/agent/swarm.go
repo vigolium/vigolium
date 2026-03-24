@@ -76,6 +76,7 @@ type SwarmConfig struct {
 	MaxProbeBodySize int           // max response body bytes during probing; 0 = default 2MB
 
 	// Project/scan
+
 	ProjectUUID string
 	ScanUUID    string
 
@@ -244,6 +245,11 @@ func (s *SwarmRunner) persistPhase(ctx context.Context, agentRun *database.Agent
 	}
 }
 
+// probeConfig returns a ProbeConfig from the swarm's tuning parameters.
+func (cfg *SwarmConfig) probeConfig() ProbeConfig {
+	return cfg.probeConfig()
+}
+
 // Run executes the full agent swarm pipeline.
 func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, error) {
 	start := time.Now()
@@ -254,15 +260,6 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	// Resolve tuning defaults
 	if cfg.MasterBatchSize <= 0 {
 		cfg.MasterBatchSize = 5
-	}
-	if cfg.ProbeConcurrency <= 0 {
-		cfg.ProbeConcurrency = 10
-	}
-	if cfg.ProbeTimeout <= 0 {
-		cfg.ProbeTimeout = 10 * time.Second
-	}
-	if cfg.MaxProbeBodySize <= 0 {
-		cfg.MaxProbeBodySize = 2 * 1024 * 1024 // 2MB
 	}
 	// Resolve agent name to default if empty — ensures the DB record has the effective name
 	if cfg.AgentName == "" && s.engine != nil && s.engine.settings != nil {
@@ -379,11 +376,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 
 	// Probe records that don't have responses to enrich them with live data
-	probeRecordsWithConfig(ctx, records, ProbeConfig{
-		Concurrency: cfg.ProbeConcurrency,
-		Timeout:     cfg.ProbeTimeout,
-		MaxBodySize: cfg.MaxProbeBodySize,
-	})
+	probeRecordsWithConfig(ctx, records, cfg.probeConfig())
 
 	// Save records to DB
 	var recordUUIDs []string
@@ -453,23 +446,18 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 
 		// Run source analysis with retry on transient errors
-		const maxSARetries = 2
-		var saResult *SourceAnalysisResult
-		var saRawOutput, saRenderedPrompt string
-		var saErr error
-		for saAttempt := 1; saAttempt <= maxSARetries; saAttempt++ {
-			saResult, saRawOutput, saRenderedPrompt, saErr = s.engine.RunSourceAnalysisParallel(ctx, saCfg)
-			if saErr == nil {
-				break
-			}
-			if isRetryableAgentError(ctx, saErr) && saAttempt < maxSARetries {
-				zap.L().Warn("Source analysis failed (retryable), will retry",
-					zap.Int("attempt", saAttempt),
-					zap.Error(saErr))
-				continue
-			}
-			break
+		type saResultBundle struct {
+			result         *SourceAnalysisResult
+			rawOutput      string
+			renderedPrompt string
 		}
+		saBundle, saErr := retryAgentCall(ctx, RetryConfig{MaxRetries: 1}, func(ctx context.Context, _ int) (saResultBundle, error) {
+			r, raw, prompt, err := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
+			return saResultBundle{r, raw, prompt}, err
+		})
+		saResult := saBundle.result
+		saRawOutput := saBundle.rawOutput
+		saRenderedPrompt := saBundle.renderedPrompt
 
 		writePromptToSessionDir(sessionDir, "source-analysis-prompt.md", saRenderedPrompt)
 		if sessionDir != "" && saRawOutput != "" {
@@ -619,11 +607,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		// Validate, auth-inject, probe, and save source-analysis records to DB
 		// before running SAST so they are available for deduplication.
-		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, ProbeConfig{
-			Concurrency: cfg.ProbeConcurrency,
-			Timeout:     cfg.ProbeTimeout,
-			MaxBodySize: cfg.MaxProbeBodySize,
-		})
+		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, cfg.probeConfig())
 
 		if len(saRecords) > 0 {
 			printPhaseLine("source-analysis", fmt.Sprintf("%s source analysis routes: %d %s",
@@ -688,11 +672,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		sourceExtensions = append(sourceExtensions, sastExtensions...)
 
 		// Validate, auth-inject, probe, and save SAST-review records to DB
-		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, ProbeConfig{
-			Concurrency: cfg.ProbeConcurrency,
-			Timeout:     cfg.ProbeTimeout,
-			MaxBodySize: cfg.MaxProbeBodySize,
-		})
+		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, cfg.probeConfig())
 
 		// Re-probe unprobed ast-grep records. The native SAST runner probes via
 		// httpRequester.Execute which goes through clustering/rate-limiting middleware
@@ -2783,7 +2763,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 // probes them for live responses, and saves them to the database.
 // Records that fail the first probe are retried once.
 // The optional notes slice (aligned 1:1 with records) is persisted as remarks.
-func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string, pc ...ProbeConfig) {
+func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string, pc ProbeConfig) {
 	if len(records) == 0 {
 		return
 	}
@@ -2809,14 +2789,8 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 	if len(authHeaders) > 0 {
 		injectAuthHeaders(valid, authHeaders)
 	}
-	// Resolve probe config from variadic argument
-	var probeCfg ProbeConfig
-	if len(pc) > 0 {
-		probeCfg = pc[0]
-	}
-
 	if len(valid) > 0 {
-		probeRecordsWithConfig(ctx, valid, probeCfg)
+		probeRecordsWithConfig(ctx, valid, pc)
 
 		// Retry probe for records that still have no response (transient failures).
 		var unprobed []int
@@ -2832,7 +2806,7 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 			for j, idx := range unprobed {
 				retry[j] = valid[idx]
 			}
-			probeRecordsWithConfig(ctx, retry, probeCfg)
+			probeRecordsWithConfig(ctx, retry, pc)
 			for j, idx := range unprobed {
 				valid[idx] = retry[j]
 			}
