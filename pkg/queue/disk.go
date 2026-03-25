@@ -267,6 +267,71 @@ func (q *DiskQueue) Enqueue(ctx context.Context, task *ScanTask) error {
 	return nil
 }
 
+// EnqueueBatch enqueues multiple tasks efficiently using batch writes.
+func (q *DiskQueue) EnqueueBatch(ctx context.Context, tasks []*ScanTask) error {
+	if q.closed.Load() {
+		return ErrQueueClosed
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	// Validate all tasks first
+	for _, task := range tasks {
+		if !task.IsValid() {
+			return ErrInvalidTask
+		}
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-q.closeChan:
+		return ErrQueueClosed
+	default:
+	}
+
+	if q.activeSegment == nil {
+		return ErrNoActiveSegment
+	}
+
+	// Prepare tasks
+	now := time.Now()
+	for _, task := range tasks {
+		task.Status = TaskStatusPending
+		if task.CreatedAt.IsZero() {
+			task.CreatedAt = now
+		}
+		task.UpdatedAt = task.CreatedAt
+	}
+
+	// Check if rotation needed before batch write
+	if q.activeSegment.TotalTasks()+int64(len(tasks)) >= int64(q.maxRecordsPerSeg) {
+		q.activeSegment.Seal()
+		if err := q.createNewSegment(); err != nil {
+			return fmt.Errorf("failed to create new segment: %w", err)
+		}
+	}
+
+	if err := q.activeSegment.WriteTasks(tasks); err != nil {
+		q.enqueueErrors.Add(int64(len(tasks)))
+		return err
+	}
+
+	q.totalEnqueued.Add(int64(len(tasks)))
+
+	// Wake up blocked Dequeue callers
+	select {
+	case q.notify <- struct{}{}:
+	default:
+	}
+
+	return nil
+}
+
 // Dequeue retrieves the next pending task.
 // Blocks until a task is available or context is cancelled.
 // Uses event-driven wakeup from Enqueue with a fallback ticker for recovery
@@ -470,7 +535,7 @@ func (q *DiskQueue) Metrics() *QueueMetrics {
 	var diskUsage int64
 	for _, seg := range q.segments {
 		depth += seg.PendingTasks()
-		diskUsage += seg.DiskSize()
+		diskUsage += seg.CachedDiskSize()
 	}
 
 	return &QueueMetrics{

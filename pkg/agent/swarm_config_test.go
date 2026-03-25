@@ -67,11 +67,6 @@ func TestProbeConfig_CustomValues(t *testing.T) {
 	assert.Equal(t, 1024, pc.effectiveMaxBodySize())
 }
 
-// makeTestRecord creates a simple HTTP request/response pair for testing.
-func makeTestRecord(method, rawReq string) *httpmsg.HttpRequestResponse {
-	req := httpmsg.NewHttpRequest([]byte(rawReq))
-	return httpmsg.NewHttpRequestResponse(req, nil)
-}
 
 func TestSelectPlanRecords_DiversitySelection(t *testing.T) {
 	// Create 10 records all under /api/users and 2 under /api/products

@@ -29,25 +29,29 @@ type poolEntry[S warmSession] struct {
 // It replaces the per-backend pool implementations (SDKPool, CodexPool, OpenCodePool)
 // with a single parameterized type.
 type SessionPool[S warmSession] struct {
-	mu         sync.Mutex
-	entries    map[string]*poolEntry[S]
-	cfg        config.WarmSessionConfig
-	agents     map[string]config.AgentDef
-	reaperStop chan struct{}
-	reaperDone chan struct{}
-	closed     bool
-	name       string // pool name for logging
+	mu          sync.Mutex
+	entries     map[string]*poolEntry[S]
+	cfg         config.WarmSessionConfig
+	agents      map[string]config.AgentDef
+	reaperStop  chan struct{}
+	reaperDone  chan struct{}
+	closed      bool
+	name        string        // pool name for logging
+	waitTimeout time.Duration // max time to wait for a busy session before fallback (0 = no wait)
+	notifyCh    chan struct{} // signaled when a session is released
 }
 
 // NewSessionPool creates a new generic session pool.
 func NewSessionPool[S warmSession](name string, cfg config.WarmSessionConfig, agents map[string]config.AgentDef) *SessionPool[S] {
 	p := &SessionPool[S]{
-		entries:    make(map[string]*poolEntry[S]),
-		cfg:        cfg,
-		agents:     agents,
-		reaperStop: make(chan struct{}),
-		reaperDone: make(chan struct{}),
-		name:       name,
+		entries:     make(map[string]*poolEntry[S]),
+		cfg:         cfg,
+		agents:      agents,
+		reaperStop:  make(chan struct{}),
+		reaperDone:  make(chan struct{}),
+		name:        name,
+		waitTimeout: 15 * time.Second, // wait up to 15s for a busy session before one-shot fallback
+		notifyCh:    make(chan struct{}, 1),
 	}
 	go p.reaper()
 	return p
@@ -87,6 +91,35 @@ func (p *SessionPool[S]) Use(
 			exists = false
 		} else if entry.inUse {
 			p.mu.Unlock()
+			// Backpressure: wait for the session to become available before
+			// falling back to one-shot, preventing subprocess explosion.
+			if p.waitTimeout > 0 {
+				if acquired := p.waitForSession(ctx, poolKey); acquired {
+					// Re-read entry under lock
+					p.mu.Lock()
+					entry = p.entries[poolKey]
+					if entry != nil && entry.session.alive() && !entry.inUse {
+						entry.inUse = true
+						p.mu.Unlock()
+						defer func() {
+							p.mu.Lock()
+							entry.inUse = false
+							entry.lastUsed = time.Now()
+							p.mu.Unlock()
+							p.notifyWaiters()
+						}()
+						result, err := promptFn(ctx, entry.session)
+						if err != nil {
+							p.mu.Lock()
+							delete(p.entries, poolKey)
+							p.mu.Unlock()
+							entry.session.kill()
+						}
+						return result, err
+					}
+					p.mu.Unlock()
+				}
+			}
 			zap.L().Debug(p.name+" warm session busy, falling back to one-shot",
 				zap.String("agent", agentName),
 				zap.String("poolKey", poolKey))
@@ -101,7 +134,12 @@ func (p *SessionPool[S]) Use(
 
 	// Create new session if needed
 	if !exists {
-		sess, err := createFn(ctx)
+		// Enforce a creation timeout to prevent indefinite blocking if the
+		// subprocess hangs during startup. Uses the parent context's deadline
+		// if it is shorter than 2 minutes.
+		createCtx, createCancel := context.WithTimeout(ctx, 2*time.Minute)
+		sess, err := createFn(createCtx)
+		createCancel()
 		if err != nil {
 			return acpResult{}, err
 		}
@@ -141,6 +179,7 @@ func (p *SessionPool[S]) Use(
 		entry.inUse = false
 		entry.lastUsed = time.Now()
 		p.mu.Unlock()
+		p.notifyWaiters()
 	}()
 
 	result, err := promptFn(ctx, entry.session)
@@ -153,6 +192,40 @@ func (p *SessionPool[S]) Use(
 	}
 
 	return result, nil
+}
+
+// waitForSession waits up to waitTimeout for the session at poolKey to become available.
+// Returns true if the session was released during the wait period.
+func (p *SessionPool[S]) waitForSession(ctx context.Context, poolKey string) bool {
+	timer := time.NewTimer(p.waitTimeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return false
+		case <-p.notifyCh:
+			// A session was released — check if it's the one we want
+			p.mu.Lock()
+			entry, exists := p.entries[poolKey]
+			if exists && entry.session.alive() && !entry.inUse {
+				p.mu.Unlock()
+				return true
+			}
+			p.mu.Unlock()
+			// Not our session, keep waiting
+		}
+	}
+}
+
+// notifyWaiters signals that a session was released, waking any waiting goroutines.
+func (p *SessionPool[S]) notifyWaiters() {
+	select {
+	case p.notifyCh <- struct{}{}:
+	default:
+	}
 }
 
 // evictLRU removes the least-recently-used, lowest-weight, not-in-use session.

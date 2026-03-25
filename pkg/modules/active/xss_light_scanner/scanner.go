@@ -61,7 +61,7 @@ func (m *Module) ScanPerRequest(
 		return results, nil
 	}
 
-	points, err := httpmsg.CreateAllInsertionPoints(ctx.Request().Raw(), true)
+	points, err := scanCtx.GetInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
 	if err != nil {
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}

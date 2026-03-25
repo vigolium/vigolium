@@ -58,24 +58,54 @@ func (b *stderrRingBuffer) last(n int) []string {
 	return out
 }
 
-// killProcessGroup sends SIGKILL to a process group and logs errors instead of
-// silently discarding them. ESRCH (no such process) is expected when the process
-// has already exited and is logged at Debug level; other errors are logged as Warn.
+// killProcessGroup gracefully terminates a process group by sending SIGTERM first,
+// waiting up to 3 seconds for a clean exit, then escalating to SIGKILL.
+// ESRCH (no such process) is expected when the process has already exited.
 func killProcessGroup(pid int, label string) {
-	err := syscall.Kill(-pid, syscall.SIGKILL)
-	if err == nil {
-		return
-	}
-	if errors.Is(err, syscall.ESRCH) {
-		zap.L().Debug("process group already exited",
+	// Try graceful shutdown first
+	err := syscall.Kill(-pid, syscall.SIGTERM)
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			zap.L().Debug("process group already exited",
+				zap.String("label", label),
+				zap.Int("pid", pid))
+			return
+		}
+		// SIGTERM failed for unexpected reason — fall through to SIGKILL
+		zap.L().Debug("SIGTERM failed, escalating to SIGKILL",
 			zap.String("label", label),
-			zap.Int("pid", pid))
-		return
+			zap.Int("pid", pid),
+			zap.Error(err))
+	} else {
+		// Wait up to 3 seconds for graceful exit
+		deadline := time.After(3 * time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-deadline:
+				// Grace period expired — escalate to SIGKILL
+				zap.L().Debug("grace period expired, sending SIGKILL",
+					zap.String("label", label),
+					zap.Int("pid", pid))
+				goto forceKill
+			case <-ticker.C:
+				// Check if process has exited
+				if checkErr := syscall.Kill(-pid, 0); checkErr != nil {
+					// Process exited cleanly
+					return
+				}
+			}
+		}
 	}
-	zap.L().Warn("failed to kill process group",
-		zap.String("label", label),
-		zap.Int("pid", pid),
-		zap.Error(err))
+
+forceKill:
+	if killErr := syscall.Kill(-pid, syscall.SIGKILL); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
+		zap.L().Warn("failed to kill process group",
+			zap.String("label", label),
+			zap.Int("pid", pid),
+			zap.Error(killErr))
+	}
 }
 
 // acpSession holds a warm ACP subprocess and its connection state.
@@ -299,9 +329,9 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 
 		r := acpResult{Stdout: sess.client.collectedOutput(), SessionID: sessionID}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+			return r, fmt.Errorf("%w: %w", errACPPromptTimeout, ctx.Err())
 		}
-		return r, fmt.Errorf("ACP prompt failed on warm session: %w", promptErr)
+		return r, fmt.Errorf("%w (warm session): %w", errACPPromptFailed, promptErr)
 	}
 
 	output := sess.client.collectedOutput()
@@ -347,7 +377,7 @@ func (p *ACPPool) Prompt(ctx context.Context, agentName string, prompt string, c
 			Stdout:    output,
 			Stderr:    stderrSummary,
 			SessionID: sessionID,
-		}, fmt.Errorf("agent %q returned empty output (0 tokens) — the LLM backend did not process the prompt%s", agentName, authHint)
+		}, fmt.Errorf("%w: agent %q — the LLM backend did not process the prompt%s", errEmptyAgentOutput, agentName, authHint)
 	}
 
 	return acpResult{
@@ -374,9 +404,9 @@ func (p *ACPPool) promptOneShot(ctx context.Context, agentName string, sess *acp
 	if promptErr != nil {
 		r := acpResult{Stdout: sess.client.collectedOutput(), SessionID: sessionID}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+			return r, fmt.Errorf("%w: %w", errACPPromptTimeout, ctx.Err())
 		}
-		return r, fmt.Errorf("ACP prompt failed on one-shot session: %w", promptErr)
+		return r, fmt.Errorf("%w (one-shot session): %w", errACPPromptFailed, promptErr)
 	}
 
 	output := sess.client.collectedOutput()
@@ -405,7 +435,7 @@ func (p *ACPPool) promptOneShot(ctx context.Context, agentName string, sess *acp
 			Stdout:    output,
 			Stderr:    stderrSummary,
 			SessionID: sessionID,
-		}, fmt.Errorf("agent %q returned empty output (0 tokens) — the LLM backend did not process the prompt", agentName)
+		}, fmt.Errorf("%w: agent %q — the LLM backend did not process the prompt", errEmptyAgentOutput, agentName)
 	}
 
 	return acpResult{

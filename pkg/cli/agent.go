@@ -156,6 +156,11 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 	engine := agent.NewEngine(settings, repo)
 	defer engine.Close()
 
+	// Preflight: validate agent backend is available before building prompts
+	if err := engine.Preflight(agentName); err != nil {
+		return fmt.Errorf("agent preflight failed: %w", err)
+	}
+
 	opts := agent.Options{
 		AgentName:      agentName,
 		AgentACPCmd:    agentACPCmd,

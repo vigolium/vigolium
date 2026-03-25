@@ -42,6 +42,7 @@ type TriageLoopConfig struct {
 	// Loop control
 	MaxRounds                 int
 	MaxFindingsPerTriageBatch int // if >0, split findings into batches of this size for triage
+	MaxFindingsPerRound       int // max findings loaded per triage round; 0 = default 5000
 	ResumeFromRound           int // skip triage rounds before this (0 = start from beginning)
 	ProgressCallback          func(ProgressEvent)
 
@@ -117,9 +118,13 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 		// Determine finding batches for this round
 		var findingBatches [][]int64 // nil means single unbatched call
 		if cfg.MaxFindingsPerTriageBatch > 0 && cfg.Repository != nil && cfg.ProjectUUID != "" {
+			findingsLimit := cfg.MaxFindingsPerRound
+			if findingsLimit <= 0 {
+				findingsLimit = 5000
+			}
 			roundFindings, findErr := database.NewFindingsQueryBuilder(cfg.Repository.DB(), database.QueryFilters{
 				ProjectUUID: cfg.ProjectUUID,
-				Limit:       5000,
+				Limit:       findingsLimit,
 			}).Execute(ctx)
 			if findErr == nil && len(roundFindings) > cfg.MaxFindingsPerTriageBatch {
 				for i := 0; i < len(roundFindings); i += cfg.MaxFindingsPerTriageBatch {
@@ -320,16 +325,27 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 	return result, nil
 }
 
-// aggregateFollowUps collects module tags and IDs from triage follow-ups into a single ScanRequest.
+// aggregateFollowUps collects module tags, IDs, and target URLs from triage follow-ups
+// into a single ScanRequest. Target URLs are preserved so the rescan can restrict
+// scanning to only the endpoints the triage agent identified.
 func aggregateFollowUps(followUps []FollowUpScan) ScanRequest {
 	tagSet := make(map[string]bool)
 	idSet := make(map[string]bool)
+	urlSet := make(map[string]bool)
 	for _, fu := range followUps {
 		for _, t := range fu.ModuleTags {
 			tagSet[t] = true
 		}
 		for _, id := range fu.ModuleIDs {
 			idSet[id] = true
+		}
+		// Collect explicit target URLs from follow-ups
+		for _, u := range fu.TargetURLs {
+			urlSet[u] = true
+		}
+		// Also use the follow-up's own URL if present
+		if fu.URL != "" {
+			urlSet[fu.URL] = true
 		}
 	}
 
@@ -341,6 +357,10 @@ func aggregateFollowUps(followUps []FollowUpScan) ScanRequest {
 	for id := range idSet {
 		ids = append(ids, id)
 	}
+	var targetURLs []string
+	for u := range urlSet {
+		targetURLs = append(targetURLs, u)
+	}
 
 	if len(tags) == 0 && len(ids) == 0 {
 		zap.L().Debug("Rescan with no specific modules, using all")
@@ -349,6 +369,7 @@ func aggregateFollowUps(followUps []FollowUpScan) ScanRequest {
 	return ScanRequest{
 		ModuleTags: tags,
 		ModuleIDs:  ids,
+		TargetURLs: targetURLs,
 		IsRescan:   true,
 	}
 }

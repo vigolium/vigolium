@@ -77,14 +77,15 @@ func LintQuickCheck(qc QuickCheck) []QuickCheckLintIssue {
 	}
 
 	// Type-specific: per_insertion_point needs payloads, per_request/per_host needs requests
-	if qc.Scan == "per_insertion_point" {
+	switch qc.Scan {
+	case "per_insertion_point":
 		if len(qc.Payloads) == 0 {
 			issues = append(issues, QuickCheckLintIssue{
 				Severity: "error",
 				Message:  "per_insertion_point quick check requires 'payloads'",
 			})
 		}
-	} else if qc.Scan == "per_request" || qc.Scan == "per_host" {
+	case "per_request", "per_host":
 		if len(qc.Requests) == 0 {
 			issues = append(issues, QuickCheckLintIssue{
 				Severity: "error",

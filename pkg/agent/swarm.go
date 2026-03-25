@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -47,7 +46,7 @@ type SwarmConfig struct {
 	OnlyPhase        string   // isolate a single phase (empty = all phases)
 	SkipPhases       []string // skip specific phases (empty = skip none)
 	MaxIterations    int      // max triage-rescan loops (default 3)
-	BatchConcurrency int      // max parallel master agent batches (0 = min(batch_count, NumCPU))
+	BatchConcurrency int      // max parallel master agent batches (0 = default 3)
 	MaxMasterRetries int      // max master agent retries on parse failure (0 = default 3)
 	SAMaxConcurrency int      // max parallel source analysis sub-agents (0 = default 3)
 
@@ -247,12 +246,21 @@ func (s *SwarmRunner) persistPhase(ctx context.Context, agentRun *database.Agent
 
 // probeConfig returns a ProbeConfig from the swarm's tuning parameters.
 func (cfg *SwarmConfig) probeConfig() ProbeConfig {
-	return cfg.probeConfig()
+	return ProbeConfig{
+		Concurrency: cfg.ProbeConcurrency,
+		Timeout:     cfg.ProbeTimeout,
+		MaxBodySize: cfg.MaxProbeBodySize,
+	}
 }
 
 // Run executes the full agent swarm pipeline.
 func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, error) {
 	start := time.Now()
+
+	// Set up context cache for DB enrichment across phases
+	if s.engine != nil {
+		s.engine.SetContextCache(NewContextCache(0))
+	}
 
 	if cfg.MaxIterations <= 0 {
 		cfg.MaxIterations = 3
@@ -753,13 +761,17 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			terminal.Orange(fmt.Sprintf("%d", len(records))))
 	}
 
-	// Filter records for plan phase: select the most interesting ones to keep context focused
+	// Filter records for plan phase: select the most interesting ones to keep context focused.
+	// When records are filtered, a compact summary of ALL records is generated so the plan
+	// agent still sees the full API surface at a glance.
 	planRecords := selectPlanRecords(records, cfg.MaxPlanRecords)
+	var recordSummary string
 	if len(planRecords) < len(records) {
+		recordSummary = buildRecordSummary(records)
 		zap.L().Info("Filtered records for plan phase",
 			zap.Int("total", len(records)),
 			zap.Int("selected", len(planRecords)))
-		fmt.Fprintf(os.Stderr, "  %s Selected %s of %s records for planning (most interesting)\n",
+		fmt.Fprintf(os.Stderr, "  %s Selected %s of %s records for planning (most interesting, summary of all included)\n",
 			terminal.Cyan(terminal.SymbolBullet),
 			terminal.Orange(fmt.Sprintf("%d", len(planRecords))),
 			terminal.Orange(fmt.Sprintf("%d", len(records))))
@@ -785,13 +797,13 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		s.persistPhase(ctx, agentRun)
 
 		if len(planRecords) <= cfg.MasterBatchSize {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, planRecords, targetURL)
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, planRecords, targetURL, recordSummary)
 		} else {
 			zap.L().Info("Batching master agent calls",
 				zap.Int("records", len(planRecords)),
 				zap.Int("batch_size", cfg.MasterBatchSize),
 				zap.Int("batches", (len(planRecords)+cfg.MasterBatchSize-1)/cfg.MasterBatchSize))
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, cfg.MasterBatchSize)
+			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, cfg.MasterBatchSize, recordSummary)
 		}
 
 		// Save rendered prompt and raw output to session dir regardless of parse success
@@ -978,10 +990,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			}
 			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, rc)
 			if len(repaired) > 0 {
+				// Re-validate repaired extensions to catch repair failures
+				validRepaired, stillBroken := ValidateExtensionSyntax(repaired)
+				if len(stillBroken) > 0 {
+					zap.L().Warn("Some LLM-repaired extensions still invalid, dropping",
+						zap.Int("dropped", len(stillBroken)))
+				}
 				zap.L().Info("LLM repaired extensions",
-					zap.Int("repaired", len(repaired)),
-					zap.Int("still_invalid", len(invalidExts)-len(repaired)))
-				allExtensions = append(allExtensions, repaired...)
+					zap.Int("repaired", len(validRepaired)),
+					zap.Int("still_invalid", len(invalidExts)-len(validRepaired)))
+				allExtensions = append(allExtensions, validRepaired...)
 			}
 		}
 
@@ -1053,6 +1071,10 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		}
 		phaseTimings[SwarmPhaseScan] = time.Since(phaseStart)
 		completedPhases = append(completedPhases, SwarmPhaseScan)
+		// Invalidate context cache — native scan produced new findings
+		if s.engine != nil {
+			s.engine.InvalidateContextCache()
+		}
 
 		// Print scan phase completion with finding count
 		scanFindings := 0
@@ -1373,6 +1395,37 @@ func selectPlanRecords(records []*httpmsg.HttpRequestResponse, maxRecords int) [
 	return result
 }
 
+// buildRecordSummary generates a compact one-line-per-record summary of ALL records.
+// This is appended to the plan agent context when records were filtered down by
+// selectPlanRecords, so the agent sees the full API surface at a glance even when
+// only the top-N most interesting records have full request/response details.
+func buildRecordSummary(records []*httpmsg.HttpRequestResponse) string {
+	if len(records) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## All Discovered Endpoints (summary)\n\n")
+	b.WriteString("| # | Method | Path | Status |\n")
+	b.WriteString("|---|--------|------|--------|\n")
+	for i, rr := range records {
+		method := "?"
+		path := "?"
+		status := "?"
+		if req := rr.Request(); req != nil {
+			method = req.Method()
+			path = req.Path()
+			if qIdx := strings.Index(path, "?"); qIdx >= 0 {
+				path = path[:qIdx]
+			}
+		}
+		if rr.HasResponse() {
+			status = fmt.Sprintf("%d", rr.Response().StatusCode())
+		}
+		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", i+1, method, path, status)
+	}
+	return b.String()
+}
+
 // buildSmartHTTPContext builds a formatted HTTP context string for the master agent prompt.
 // It always includes full raw requests and response headers, but truncates response bodies
 // to maxRespBytes to manage token usage.
@@ -1438,9 +1491,13 @@ func buildSmartHTTPContext(records []*httpmsg.HttpRequestResponse, maxRespBytes 
 // custom extensions are needed — and produces JavaScript code blocks in isolation.
 // If Phase 2 fails, the plan from Phase 1 is still valid and the scan proceeds
 // without custom extensions (graceful degradation).
-func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
+func (s *SwarmRunner) runMasterAgent(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, extraSummary ...string) (plan *SwarmPlan, sessionID string, rawOutput string, renderedPrompt string, err error) {
 	// Pre-compute request context once for both phases
 	requestContext := buildSmartHTTPContext(records, cfg.MaxResponseBodyBytes)
+	// Append record summary (if provided) so the agent sees the full API surface
+	if len(extraSummary) > 0 && extraSummary[0] != "" {
+		requestContext += extraSummary[0]
+	}
 
 	// Phase 1: Plan agent — analyze and select modules (no code generation)
 	plan, sessionID, rawOutput, renderedPrompt, err = s.runPlanAgent(ctx, cfg, records, targetURL, requestContext)
@@ -2140,7 +2197,7 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 // runMasterAgentBatched calls the master agent in parallel batches when there are many records.
 // Each batch produces a SwarmPlan; plans are merged incrementally as results arrive.
 // On first error, remaining in-flight batches are cancelled and the partial merged plan is returned.
-func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int) (*SwarmPlan, string, string, string, []string, *BatchProvenance, error) {
+func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig, records []*httpmsg.HttpRequestResponse, targetURL string, batchSize int, recordSummary string) (*SwarmPlan, string, string, string, []string, *BatchProvenance, error) {
 	// Pre-compute batch boundaries
 	type batchRange struct {
 		start, end, num int
@@ -2166,7 +2223,9 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 	resultsCh := make(chan batchResult, len(batches))
 	batchConcurrency := cfg.BatchConcurrency
 	if batchConcurrency <= 0 {
-		batchConcurrency = runtime.NumCPU()
+		// Default to 3: agent sessions are I/O-bound (LLM API), not CPU-bound.
+		// NumCPU was too aggressive — each session uses 200-500MB and hits rate limits.
+		batchConcurrency = 3
 	}
 	if batchConcurrency > len(batches) {
 		batchConcurrency = len(batches)
@@ -2197,7 +2256,7 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 				zap.Int("total_records", len(records)))
 
 			batch := records[b.start:b.end]
-			plan, sid, rawOutput, prompt, err := s.runMasterAgent(gCtx, cfg, batch, targetURL)
+			plan, sid, rawOutput, prompt, err := s.runMasterAgent(gCtx, cfg, batch, targetURL, recordSummary)
 			if err != nil {
 				cancel() // Cancel remaining batches on first error
 				resultsCh <- batchResult{err: fmt.Errorf("master agent batch %d-%d failed: %w", b.start, b.end, err)}
@@ -2425,6 +2484,10 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
 			s.persistPhase(ctx, agentRun)
+			// Invalidate context cache — rescan may produce new findings
+			if s.engine != nil {
+				s.engine.InvalidateContextCache()
+			}
 		},
 		OnTriageRoundComplete: func(round int) {
 			if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
@@ -2866,9 +2929,6 @@ func (pc ProbeConfig) effectiveMaxBodySize() int {
 	return pc.MaxBodySize
 }
 
-func probeRecords(ctx context.Context, records []*httpmsg.HttpRequestResponse) {
-	probeRecordsWithConfig(ctx, records, ProbeConfig{})
-}
 
 func probeRecordsWithConfig(ctx context.Context, records []*httpmsg.HttpRequestResponse, pc ProbeConfig) {
 	maxConcurrency := pc.effectiveConcurrency()
@@ -2932,11 +2992,6 @@ func probeRecordsWithConfig(ctx context.Context, records []*httpmsg.HttpRequestR
 	wg.Wait()
 }
 
-// probeSingleRecord sends an HTTP request for a single record and returns
-// the record with the response attached, or nil if probing failed.
-func probeSingleRecord(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string) *httpmsg.HttpRequestResponse {
-	return probeSingleRecordWithLimit(ctx, client, rr, targetURL, 2*1024*1024)
-}
 
 // probeSingleRecordWithLimit sends an HTTP request with a configurable body size limit.
 func probeSingleRecordWithLimit(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string, maxBody int) *httpmsg.HttpRequestResponse {

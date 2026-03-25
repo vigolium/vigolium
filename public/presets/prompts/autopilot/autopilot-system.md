@@ -95,13 +95,13 @@ echo 'vigolium.utils.md5("hello")' | vigolium ext eval --stdin
 ### Authentication & Sessions
 ```
 # Load auth session from file
-cat session-config.json | vigolium auth load
+cat session-config.json | vigolium session load
 
 # List loaded auth sessions
-vigolium auth ls --json
+vigolium session ls --json
 
 # Generate TOTP code for 2FA
-vigolium auth totp --secret <base32-secret>
+vigolium session totp --secret <base32-secret>
 ```
 
 ### Module Information
@@ -178,7 +178,7 @@ When verifying a browser-based vulnerability, take a screenshot as proof:
 
 When 2FA is required during authenticated scanning:
 ```
-vigolium auth totp --secret <base32-secret>
+vigolium session totp --secret <base32-secret>
 ```
 Returns JSON: `{"code": "123456", "expires_in": 18}`
 

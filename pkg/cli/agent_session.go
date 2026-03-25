@@ -273,8 +273,8 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		fmt.Fprintf(os.Stderr, "\n  %s %s\n", terminal.Aqua(terminal.SymbolInfo), terminal.BoldAqua("Token Usage"))
 		for phase, usage := range run.TokenUsage {
 			if usageMap, ok := usage.(map[string]interface{}); ok {
-				inputTokens, _ := usageMap["input_tokens"]
-				outputTokens, _ := usageMap["output_tokens"]
+				inputTokens := usageMap["input_tokens"]
+				outputTokens := usageMap["output_tokens"]
 				fmt.Fprintf(os.Stderr, "    %-17s %s input, %s output\n",
 					terminal.Gray(phase+":"),
 					terminal.Cyan(formatTokenCount(inputTokens)),

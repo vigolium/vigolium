@@ -231,7 +231,7 @@ func newBFSTestCrawler(t *testing.T) (*PilotCrawler, *state.Graph, *SessionTrace
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { trace.Close() })
+	t.Cleanup(func() { _ = trace.Close() })
 	bc := &PilotCrawler{
 		graph:       graph,
 		trace:       trace,
@@ -475,7 +475,7 @@ func TestSessionTrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	before := StateSnapshot{StateID: "state_001", URL: "http://test.com"}
 	after := StateSnapshot{StateID: "state_002", URL: "http://test.com/page2", IsNew: true}

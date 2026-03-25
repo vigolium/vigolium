@@ -18,7 +18,7 @@ Vigolium provides two complementary scanning modes:
   - **Cloud & Infra** — Firebase (RTDB, storage, auth, functions), cloud storage listing/takeover, default credentials, web cache poisoning, CORS misconfiguration
   - **Out-of-Band** — Blind vulnerabilities via OAST callbacks (blind SSRF, blind SSTI, OAST probes)
 
-- **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Gemini, or OpenCode. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Three modes: autopilot, pipeline, and swarm.
+- **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Codex, Gemini, OpenCode, or Cursor via protocol-specific SDK integration. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Two agentic scan modes: autopilot (autonomous) and swarm (targeted or full-scope with `--discover`), plus query mode for single-shot code review.
 
 It also operates as an API server with traffic ingestion, or a standalone ingestor client.
 
@@ -58,12 +58,11 @@ It also operates as an API server with traffic ingestion, or a standalone ingest
 
 ### Agentic Scan
 
-- **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings via a sandboxed terminal with command allowlisting
-- **Multi-phase pipeline (Pipeline)** — fixed 7-phase workflow (source-analysis → discover → plan → scan → triage → rescan → report) where AI agents handle strategy at checkpoints while native scan phases handle heavy lifting
-- **Targeted vulnerability swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results with batched execution for large input sets
+- **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal with command allowlisting. Supports multi-agent specialist pipeline and session resume
+- **AI-guided swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results. Supports both targeted single-request scanning and full-scope scanning with `--discover`. Includes AI code audit, native SAST (ast-grep), and batched execution for large input sets. `agent pipeline` is a backward-compatible alias for `swarm --discover`
 - **Query mode** — single-shot prompt execution for code review, endpoint discovery, and secret detection (not a scan — simple Q&A utility)
-- **Source-aware intelligence** — when `--source` is provided, agents analyze application source code to discover routes, understand auth flows, and identify vulnerability sinks before scanning
-- **Multiple AI backends** — Claude, Gemini, OpenCode, or custom ACP-compatible agents via CLI or REST API (with SSE streaming)
+- **Source-aware intelligence** — when `--source` is provided, agents run consolidated source analysis (route extraction, auth flow discovery, custom extension generation), AI code audit, and native SAST before scanning
+- **Multiple AI backends** — Claude (SDK/ACP/pipe), Codex (native/ACP), OpenCode (native/ACP), Gemini (ACP), Cursor (ACP), or custom agents via CLI or REST API (with SSE streaming)
 
 ### Platform
 
@@ -105,7 +104,7 @@ vigolium run discovery -t https://example.com
 vigolium scan -t https://example.com --only discovery --format html -o report.html
 ```
 
-See [docs/scanning-guide.md](docs/scanning-guide.md) for the full guide on scan phases, strategies, profiles, pace configuration, and source-aware scanning.
+See [docs/overview.md](docs/overview.md) for the full overview and [docs/native-scan/strategies.md](docs/native-scan/strategies.md) for strategies, profiles, and pace configuration.
 
 ## Server Mode
 
@@ -128,7 +127,7 @@ cat urls.txt | vigolium ingest -s http://localhost:9002
 vigolium ingest -s http://localhost:9002 -i api.yaml -I openapi
 ```
 
-See [docs/server-and-ingestion.md](docs/server-and-ingestion.md) for ingestion workflows and [docs/api-overview.md](docs/api-overview.md) for the full REST API reference.
+See [docs/server-mode/running-the-server.md](docs/server-mode/running-the-server.md) for server setup, [docs/server-mode/ingestion.md](docs/server-mode/ingestion.md) for ingestion workflows, and [docs/api-overview.md](docs/api-overview.md) for the full REST API reference.
 
 ## Authenticated Scanning
 
@@ -150,33 +149,31 @@ vigolium scan -t https://example.com --auth-config ./auth-config.yaml
 vigolium scan -t https://example.com -H "Authorization: Bearer token123"
 ```
 
-Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs/running-scan/authenticated-scan.md](docs/running-scan/authenticated-scan.md) for the full guide.
+Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs/native-scan/authentication.md](docs/native-scan/authentication.md) for the full guide.
 
 ## Agentic Scan
 
 AI-driven scanning where agents autonomously plan, execute, and triage vulnerability assessments with the native scan engine underneath:
 
 ```bash
-# Autopilot: agent autonomously runs scanner commands in a sandboxed terminal
+# Autopilot: autonomous AI-driven scanning (SDK protocol — full tool access)
 vigolium agent autopilot -t https://example.com
+vigolium agent autopilot -t https://example.com --source ./src --focus "auth bypass"
+vigolium agent autopilot -t https://example.com --specialists injection,xss,auth
 
-# Pipeline: multi-phase agentic scan (discover → plan → scan → triage → report)
+# Swarm: AI-guided targeted or full-scope vulnerability scanning
+vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
+vigolium agent swarm -t https://example.com --discover  # full-scope (replaces pipeline)
+vigolium agent swarm -t https://example.com --source ./src --discover  # source-aware full-scope
+vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
+
+# Pipeline: backward-compatible alias for swarm --discover
 vigolium agent pipeline -t https://example.com
-vigolium agent pipeline -t https://example.com --focus 'API injection'
-vigolium agent pipeline -t https://example.com --source ./src --max-rescan-rounds 3
-vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
-
-# Swarm: AI-guided targeted vulnerability swarm
-vigolium agent swarm -t https://example.com
-vigolium agent swarm -t https://example.com --source ./src --vuln-type sqli
-vigolium agent swarm -t https://example.com -m xss-reflected,sqli-error --max-iterations 5
-vigolium agent swarm -t https://example.com --source ./src --source-analysis-only --profile deep
 ```
 
-Three agentic scan modes:
-- **Autopilot** — interactive ACP session where the agent autonomously executes scanner commands via a sandboxed terminal with command allowlisting
-- **Pipeline** — fixed multi-phase agentic scan (source-analysis → discover → plan → scan → triage → rescan → report) where native scan phases handle discovery and scanning, while AI agents intervene at checkpoints
-- **Swarm** — AI-guided targeted vulnerability swarm where the master agent analyzes inputs, selects modules, generates custom JS extensions, executes scans, and triages results. Supports `--source` for source-aware route discovery and batched execution for large input sets
+Two agentic scan modes:
+- **Autopilot** — autonomous scanning with multi-agent specialist pipeline. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal restricted to `vigolium` commands
+- **Swarm** — AI-guided vulnerability scanning supporting both targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results. `agent pipeline` is a backward-compatible alias for `swarm --discover`
 
 ### Agent Query (Utility)
 
@@ -200,7 +197,7 @@ vigolium agent --list-agents
 vigolium agent --list-templates
 ```
 
-Configure agent backends in `~/.vigolium/vigolium-configs.yaml`. Custom prompt templates go in `~/.vigolium/prompts/`. See [docs/agent-mode.md](docs/agent-mode.md) for the full guide.
+Configure agent backends in `~/.vigolium/vigolium-configs.yaml`. The default backend (`claude`) uses the SDK protocol with full CLI tool access. Custom prompt templates go in `~/.vigolium/prompts/`. See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
 
 ## Native Scan Layers
 
@@ -208,40 +205,44 @@ The native scan pipeline is composed of modular layers, each documented separate
 
 | Layer | Description | Docs |
 |-------|-------------|------|
-| **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs/scan-layers/deparos.md](docs/scan-layers/deparos.md) |
-| **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
-| **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
-| **Scanner Modules** | 130 active and 85 passive modules covering OWASP Top 10 and beyond | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
-
-Discovery configuration: [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md)
+| **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs/native-scan/phases/discovery.md](docs/native-scan/phases/discovery.md) |
+| **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/native-scan/phases/spidering.md](docs/native-scan/phases/spidering.md) |
+| **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/native-scan/phases/spa.md](docs/native-scan/phases/spa.md) |
+| **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/native-scan/phases/audit.md](docs/native-scan/phases/audit.md) |
+| **Scanner Modules** | 130 active and 85 passive modules covering OWASP Top 10 and beyond | [docs/native-scan/modules-reference.md](docs/native-scan/modules-reference.md) |
 
 ## Documentation
 
 | Topic | Link |
 |-------|------|
-| Scanning Guide | [docs/scanning-guide.md](docs/scanning-guide.md) |
-| Scanning Modes Overview | [docs/running-scan/scanning-modes-overview.md](docs/running-scan/scanning-modes-overview.md) |
-| Blackbox Scanning | [docs/running-scan/blackbox-scan.md](docs/running-scan/blackbox-scan.md) |
-| Authenticated Scanning | [docs/running-scan/authenticated-scan.md](docs/running-scan/authenticated-scan.md) |
-| Whitebox Scanning (SAST) | [docs/running-scan/whitebox-scan.md](docs/running-scan/whitebox-scan.md) |
-| Whitebox Agent Scanning | [docs/running-scan/whitebox-agent-scan.md](docs/running-scan/whitebox-agent-scan.md) |
-| Full Scan Pipeline | [docs/running-scan/full-scan.md](docs/running-scan/full-scan.md) |
-| Server & Ingestion | [docs/server-and-ingestion.md](docs/server-and-ingestion.md) |
+| Overview | [docs/overview.md](docs/overview.md) |
+| Getting Started | [docs/getting-started.md](docs/getting-started.md) |
+| Configuration | [docs/configuration.md](docs/configuration.md) |
+| Output & Reporting | [docs/output-and-reporting.md](docs/output-and-reporting.md) |
+| Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
+| Scanning Modes Overview | [docs/native-scan/scanning-modes-overview.md](docs/native-scan/scanning-modes-overview.md) |
+| Scanning Strategies | [docs/native-scan/strategies.md](docs/native-scan/strategies.md) |
+| Authenticated Scanning | [docs/native-scan/authentication.md](docs/native-scan/authentication.md) |
+| Content Discovery (Deparos) | [docs/native-scan/phases/discovery.md](docs/native-scan/phases/discovery.md) |
+| Browser Spider (Spitolas) | [docs/native-scan/phases/spidering.md](docs/native-scan/phases/spidering.md) |
+| SPA Scanning | [docs/native-scan/phases/spa.md](docs/native-scan/phases/spa.md) |
+| Audit | [docs/native-scan/phases/audit.md](docs/native-scan/phases/audit.md) |
+| Scanner Modules Reference | [docs/native-scan/modules-reference.md](docs/native-scan/modules-reference.md) |
+| Agent Mode | [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) |
+| Agentic Scan: How It Works | [docs/agentic-scan/how-it-works.md](docs/agentic-scan/how-it-works.md) |
+| Autopilot | [docs/agentic-scan/autopilot.md](docs/agentic-scan/autopilot.md) |
+| Swarm | [docs/agentic-scan/swarm.md](docs/agentic-scan/swarm.md) |
+| Query Mode | [docs/agentic-scan/query.md](docs/agentic-scan/query.md) |
+| Server Mode | [docs/server-mode/running-the-server.md](docs/server-mode/running-the-server.md) |
+| Ingestion | [docs/server-mode/ingestion.md](docs/server-mode/ingestion.md) |
 | REST API Reference | [docs/api-overview.md](docs/api-overview.md) |
-| Agent Mode | [docs/agent-mode.md](docs/agent-mode.md) |
-| Content Discovery (Deparos) | [docs/scan-layers/discovery-with-deparos.md](docs/scan-layers/discovery-with-deparos.md) |
-| Deparos Configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
-| Browser Spider (Spitolas) | [docs/scan-layers/spidering-with-spitolas.md](docs/scan-layers/spidering-with-spitolas.md) |
-| SPA Scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Audit | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
-| Scan Scope & Module Dispatch | [docs/scan-layers/scan-scope.md](docs/scan-layers/scan-scope.md) |
-| Scanner Modules Reference | [docs/scan-layers/scanner-modules.md](docs/scan-layers/scanner-modules.md) |
-| Writing Extensions | [docs/development/writing-extensions.md](docs/development/writing-extensions.md) |
+| Writing Extensions | [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) |
+| Extending Vigolium | [docs/customization/extending-vigolium.md](docs/customization/extending-vigolium.md) |
 | Developing Modules | [docs/development/developing-modules.md](docs/development/developing-modules.md) |
 | Building from Source | [docs/development/building.md](docs/development/building.md) |
 | Project Structure | [docs/development/project-structure.md](docs/development/project-structure.md) |
-| Benchmark Testing | [docs/development/benchmark-testing.md](docs/development/benchmark-testing.md) |
+| Whitebox Scanning | [docs/guides/whitebox-scanning.md](docs/guides/whitebox-scanning.md) |
+| CI/CD Integration | [docs/guides/ci-cd-integration.md](docs/guides/ci-cd-integration.md) |
 
 ## JavaScript Engine
 
@@ -301,7 +302,7 @@ let varied = vigolium.http.replay(rawRequest, [
 ]);
 ```
 
-See [docs/development/writing-extensions.md](docs/development/writing-extensions.md) for the extension authoring guide and `pkg/jsext/vigolium.d.ts` for the full TypeScript API definitions.
+See [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) for the extension authoring guide and `pkg/jsext/vigolium.d.ts` for the full TypeScript API definitions.
 
 ## CLI Reference
 
@@ -314,8 +315,8 @@ vigolium scan-url <url>      Quick native scan of a single URL
 vigolium scan-request        Native scan from a raw HTTP request
 
 vigolium agent autopilot     Agentic scan: autonomous AI-driven vulnerability scanning
-vigolium agent pipeline      Agentic scan: multi-phase pipeline with native scan phases
-vigolium agent swarm         Agentic scan: AI-guided targeted vulnerability swarm
+vigolium agent swarm         Agentic scan: AI-guided targeted or full-scope vulnerability scanning
+vigolium agent pipeline      Agentic scan: alias for swarm --discover (backward compat)
 vigolium agent query         Send a prompt to an AI agent and get a response
 
 vigolium server              Start the API server with traffic ingestion

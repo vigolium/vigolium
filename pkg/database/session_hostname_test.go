@@ -7,7 +7,7 @@ import (
 
 func TestSessionHostname_SaveAndGet(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 
@@ -44,7 +44,7 @@ func TestSessionHostname_SaveAndGet(t *testing.T) {
 
 func TestSessionHostname_Upsert(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 
@@ -90,7 +90,7 @@ func TestSessionHostname_Upsert(t *testing.T) {
 
 func TestSessionHostname_BatchSave(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 
@@ -121,7 +121,7 @@ func TestSessionHostname_BatchSave(t *testing.T) {
 
 func TestSessionHostname_GetByScan(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 
@@ -147,7 +147,7 @@ func TestSessionHostname_GetByScan(t *testing.T) {
 
 func TestSessionHostname_DeleteByID(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 
@@ -175,7 +175,7 @@ func TestSessionHostname_DeleteByID(t *testing.T) {
 
 func TestSessionHostname_DeleteByHostname(t *testing.T) {
 	db := newTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := NewRepository(db)
 	ctx := context.Background()
 

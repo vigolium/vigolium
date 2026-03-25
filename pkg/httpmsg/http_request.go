@@ -28,6 +28,7 @@ type HttpRequest struct {
 	headers    []HttpHeader
 	bodyOffset int
 	parsed     bool
+	cachedID   string // Cached SHA-256 hash (computed once by ID())
 	mu         sync.RWMutex
 }
 
@@ -134,12 +135,26 @@ func (r *HttpRequest) Parameters() ([]*Param, error) {
 }
 
 // ID returns a unique hash identifier for this request.
+// The hash is computed once and cached for subsequent calls. Thread-safe.
 func (r *HttpRequest) ID() string {
+	r.mu.RLock()
+	if r.cachedID != "" {
+		r.mu.RUnlock()
+		return r.cachedID
+	}
+	r.mu.RUnlock()
+
 	if len(r.raw) == 0 {
 		return ""
 	}
+
 	val := sha256.Sum256(r.raw)
-	return hex.EncodeToString(val[:])
+	id := hex.EncodeToString(val[:])
+
+	r.mu.Lock()
+	r.cachedID = id
+	r.mu.Unlock()
+	return id
 }
 
 // ensureParsed lazily parses the raw request into cached fields.

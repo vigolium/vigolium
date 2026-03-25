@@ -36,7 +36,7 @@ func RunCodexSDK(ctx context.Context, agentDef config.AgentDef, prompt string, c
 	client := codexsdk.NewClient(opts)
 
 	if err := client.Start(ctx); err != nil {
-		return acpResult{}, fmt.Errorf("Codex SDK start failed: %w", err)
+		return acpResult{}, fmt.Errorf("%w: %w", errCodexStartFailed, err)
 	}
 	defer func() {
 		if closeErr := client.Close(); closeErr != nil {
@@ -47,7 +47,7 @@ func RunCodexSDK(ctx context.Context, agentDef config.AgentDef, prompt string, c
 	// Initialize handshake
 	initResp, err := client.Initialize(ctx)
 	if err != nil {
-		return acpResult{}, fmt.Errorf("Codex SDK initialize failed: %w", err)
+		return acpResult{}, fmt.Errorf("%w: %w", errCodexInitFailed, err)
 	}
 	zap.L().Debug("codex app-server initialized", zap.Any("serverInfo", initResp))
 
@@ -55,7 +55,7 @@ func RunCodexSDK(ctx context.Context, agentDef config.AgentDef, prompt string, c
 	threadParams := buildCodexThreadParams(opts, cfg)
 	threadResp, err := client.ThreadStart(ctx, threadParams)
 	if err != nil {
-		return acpResult{}, fmt.Errorf("Codex SDK thread/start failed: %w", err)
+		return acpResult{}, fmt.Errorf("codex SDK thread/start failed: %w", err)
 	}
 	threadID := threadResp.Thread.Id
 	zap.L().Debug("codex thread created",
@@ -65,7 +65,7 @@ func RunCodexSDK(ctx context.Context, agentDef config.AgentDef, prompt string, c
 	// Execute turn and collect output
 	output, err := executeCodexTurn(ctx, client, threadID, prompt, cfg.StreamWriter)
 	if err != nil {
-		return acpResult{Stdout: output}, fmt.Errorf("Codex SDK turn failed: %w", err)
+		return acpResult{Stdout: output}, fmt.Errorf("%w: %w", errCodexTurnFailed, err)
 	}
 
 	zap.L().Debug("Codex SDK agent completed",

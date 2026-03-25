@@ -477,12 +477,16 @@ ensure-jsscan:
 update-ui:
 	@echo "$(PREFIX) Updating static report template..."
 	@rm -f public/static-reports/template.html
-	@cp platform/report-generator/dist/template.html public/static-reports/template.html
+	@cp platform/static-reports/dist/template.html public/static-reports/template.html
 	@echo "$(PREFIX) Updating dashboard UI..."
 	@rm -rf public/ui/
 	@mkdir -p public/ui/
 	@cp -r platform/vigolium-workbench/dist/* public/ui/
 	@echo "$(PREFIX) UI assets updated"
+
+# Sync platform sub-repos to standalone repos
+sync-platform:
+	@bash build/scripts/sync-platform.sh
 
 # Docker parameters
 DOCKER_IMAGE=vigolium

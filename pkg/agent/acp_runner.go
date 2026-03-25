@@ -200,7 +200,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	})
 	if initErr != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP initialize timed out: %w", ctx.Err())
+			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("%w: %w", errACPInitTimeout, ctx.Err())
 		}
 		return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP initialize failed: %w", initErr)
 	}
@@ -243,7 +243,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	sess, sessErr := conn.NewSession(ctx, sessReq)
 	if sessErr != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP session creation timed out: %w", ctx.Err())
+			return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("%w: %w", errACPSessionTimeout, ctx.Err())
 		}
 		return acpResult{Stderr: stderrBuf.String()}, fmt.Errorf("ACP new session failed: %w", sessErr)
 	}
@@ -275,9 +275,9 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 	if promptErr != nil {
 		r := acpResult{Stdout: client.collectedOutput(), Stderr: stderrBuf.String(), SessionID: sessionID}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return r, fmt.Errorf("ACP prompt timed out: %w", ctx.Err())
+			return r, fmt.Errorf("%w: %w", errACPPromptTimeout, ctx.Err())
 		}
-		return r, fmt.Errorf("ACP prompt failed: %w", promptErr)
+		return r, fmt.Errorf("%w: %w", errACPPromptFailed, promptErr)
 	}
 
 	output := client.collectedOutput()
@@ -317,7 +317,7 @@ func runACP(ctx context.Context, agentDef config.AgentDef, prompt string, cfg ac
 			Stdout:    output,
 			Stderr:    stderrOutput,
 			SessionID: sessionID,
-		}, fmt.Errorf("agent returned empty output (0 tokens) — the LLM backend did not process the prompt%s", authHint)
+		}, fmt.Errorf("%w — the LLM backend did not process the prompt%s", errEmptyAgentOutput, authHint)
 	}
 
 	return acpResult{

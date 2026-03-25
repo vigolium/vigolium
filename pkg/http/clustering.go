@@ -50,13 +50,6 @@ func (sb *sharedBytes) acquire() []byte {
 	return sb.data
 }
 
-// release decrements the reference count. When it reaches zero the underlying
-// slice is cleared so it can be collected.
-func (sb *sharedBytes) release() {
-	if sb.refs.Add(-1) <= 0 {
-		sb.data = nil
-	}
-}
 
 // CachedResponse holds a snapshot of response data that can be used to
 // reconstruct independent ResponseChain instances.

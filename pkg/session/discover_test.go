@@ -91,7 +91,7 @@ func TestDiscoverLogin_JSONToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"token": "eyJhbGciOiJIUzI1NiJ9.test-jwt-token",
 		})
 	}))
@@ -139,7 +139,7 @@ func TestDiscoverLogin_NestedJSONToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]string{
 				"access_token": "nested-token-value",
 			},
@@ -171,7 +171,7 @@ func TestDiscoverLogin_CookieToken(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "session_id", Value: "abc123"})
 		http.SetCookie(w, &http.Cookie{Name: "csrf", Value: "xyz789"})
 		w.WriteHeader(200)
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer ts.Close()
 
@@ -205,7 +205,7 @@ func TestDiscoverLogin_AuthHeader(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Auth-Token", "header-token-123")
 		w.WriteHeader(200)
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer ts.Close()
 
@@ -231,7 +231,7 @@ func TestDiscoverLogin_AuthHeader(t *testing.T) {
 func TestDiscoverLogin_FailStatus(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
-		fmt.Fprintln(w, "Unauthorized")
+		_, _ = fmt.Fprintln(w, "Unauthorized")
 	}))
 	defer ts.Close()
 
@@ -258,7 +258,7 @@ func TestDiscoverLogin_NoTokensFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"message": "login successful",
 			"user_id": "42",
 		})
@@ -283,7 +283,7 @@ func TestDiscoverLogin_CombinedJSONAndCookie(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "sid", Value: "session123"})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"token": "jwt-token-value",
 		})
 	}))

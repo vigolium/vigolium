@@ -195,13 +195,28 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 
 	// Fuzzy search (broad, across metadata + full request/response content)
 	if qb.filters.FuzzyTerm != "" {
-		p := "%" + qb.filters.FuzzyTerm + "%"
-		query.Where(`(r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ? OR r.method LIKE ?
-			OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?
-			OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
-			OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-			OR r.request_headers LIKE ? OR r.response_headers LIKE ?)`,
-			p, p, p, p, p, p, p, p, p, p, p, p, p)
+		if qb.db.HasFTS() && qb.db.Driver() != "postgres" {
+			// FTS5 MATCH is orders of magnitude faster than CAST LIKE.
+			// Also check metadata columns that aren't in the FTS index.
+			p := "%" + qb.filters.FuzzyTerm + "%"
+			query.Where(`(r.rowid IN (SELECT rowid FROM http_records_fts WHERE http_records_fts MATCH ?)
+				OR r.method LIKE ? OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?)`,
+				qb.filters.FuzzyTerm+"*", p, p, p, p)
+		} else if qb.db.HasFTS() && qb.db.Driver() == "postgres" {
+			p := "%" + qb.filters.FuzzyTerm + "%"
+			query.Where(`(r.search_vector @@ plainto_tsquery('english', ?)
+				OR r.method LIKE ? OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?)`,
+				qb.filters.FuzzyTerm, p, p, p, p)
+		} else {
+			// Fallback: original CAST approach for databases without FTS
+			p := "%" + qb.filters.FuzzyTerm + "%"
+			query.Where(`(r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ? OR r.method LIKE ?
+				OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?
+				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+				OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+				OR r.request_headers LIKE ? OR r.response_headers LIKE ?)`,
+				p, p, p, p, p, p, p, p, p, p, p, p, p)
+		}
 	}
 
 	// Full-text search
@@ -218,10 +233,17 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 
 	// Body search (request + response body and raw content)
 	if qb.filters.BodySearch != "" {
-		searchPattern := "%" + qb.filters.BodySearch + "%"
-		query.Where(`(CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-			OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
-			searchPattern, searchPattern, searchPattern, searchPattern)
+		if qb.db.HasFTS() && qb.db.Driver() != "postgres" {
+			// FTS5 covers request_body and response_body
+			query.Where(`r.rowid IN (SELECT rowid FROM http_records_fts WHERE http_records_fts MATCH ?)`,
+				qb.filters.BodySearch+"*")
+		} else {
+			// Fallback: original CAST approach
+			searchPattern := "%" + qb.filters.BodySearch + "%"
+			query.Where(`(CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
+				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
+				searchPattern, searchPattern, searchPattern, searchPattern)
+		}
 	}
 }
 

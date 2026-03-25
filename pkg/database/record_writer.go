@@ -45,7 +45,7 @@ func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
 		out.FlushInterval = 50 * time.Millisecond
 	}
 	if out.Shards <= 0 {
-		out.Shards = 1
+		out.Shards = 4
 	}
 	return out
 }

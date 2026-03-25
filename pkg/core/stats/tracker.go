@@ -16,6 +16,7 @@ const printInterval = 5 * time.Second
 type Tracker struct {
 	processed atomic.Int64
 	findings  atomic.Int64
+	blocked   atomic.Int64
 	total     int64 // 0 = unknown
 	startTime time.Time
 	cancel    context.CancelFunc
@@ -56,6 +57,16 @@ func (t *Tracker) IncrementFindings() {
 // Findings returns the current findings count (thread-safe).
 func (t *Tracker) Findings() int64 {
 	return t.findings.Load()
+}
+
+// IncrementBlocked adds 1 to the blocked count (thread-safe).
+func (t *Tracker) IncrementBlocked() {
+	t.blocked.Add(1)
+}
+
+// Blocked returns the current blocked count (thread-safe).
+func (t *Tracker) Blocked() int64 {
+	return t.blocked.Load()
 }
 
 // Start begins printing statistics every 5 seconds.

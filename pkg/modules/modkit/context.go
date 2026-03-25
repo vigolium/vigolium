@@ -46,6 +46,12 @@ type MutationGenerator interface {
 	Generate(value string, vtype mutation.ValueType, opts *mutation.GenerateOptions) mutation.MutationSet
 }
 
+// InsertionPointProvider retrieves cached insertion points for a request,
+// avoiding redundant parsing across modules.
+type InsertionPointProvider interface {
+	GetInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error)
+}
+
 const baselineCacheSize = 4096
 
 // ScanContext provides shared resources to modules during scanning.
@@ -57,6 +63,7 @@ type ScanContext struct {
 	OASTProvider        OASTProvider
 	MutationGen         MutationGenerator
 	RequestFeeder       RequestFeeder
+	InsertionPoints     InsertionPointProvider
 
 	baselineOnce   sync.Once
 	baselineCache  *lru.Cache[string, *BaselineEntry]
@@ -94,6 +101,23 @@ func (sc *ScanContext) Feeder() RequestFeeder {
 		return nil
 	}
 	return sc.RequestFeeder
+}
+
+// IPProvider returns the InsertionPointProvider or nil safely.
+func (sc *ScanContext) IPProvider() InsertionPointProvider {
+	if sc == nil {
+		return nil
+	}
+	return sc.InsertionPoints
+}
+
+// GetInsertionPoints returns insertion points for a request, using the cached
+// provider if available and falling back to direct parsing otherwise.
+func (sc *ScanContext) GetInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	if p := sc.IPProvider(); p != nil {
+		return p.GetInsertionPoints(raw, requestID, includeNested)
+	}
+	return httpmsg.CreateAllInsertionPoints(raw, includeNested)
 }
 
 // MutGen returns the MutationGenerator or a default implementation if nil.

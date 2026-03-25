@@ -271,9 +271,22 @@ func isValidJSONPrimitive(payload []byte) bool {
 	return isJSONNumber(trimmed)
 }
 
+// jsonEscapeBufPool recycles bytes.Buffer instances for JSON string escaping,
+// avoiding a heap allocation per call in escapeJSONStringContent.
+var jsonEscapeBufPool = sync.Pool{
+	New: func() any {
+		b := new(bytes.Buffer)
+		b.Grow(256)
+		return b
+	},
+}
+
 // escapeJSONStringContent escapes special characters for JSON string content.
+// Uses a pooled buffer to avoid per-call allocation.
 func escapeJSONStringContent(payload []byte) []byte {
-	var buf bytes.Buffer
+	buf := jsonEscapeBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+
 	for _, b := range payload {
 		switch b {
 		case '"':
@@ -292,13 +305,17 @@ func escapeJSONStringContent(payload []byte) []byte {
 			buf.WriteString(`\f`)
 		default:
 			if b < 32 {
-				fmt.Fprintf(&buf, `\u%04x`, b)
+				fmt.Fprintf(buf, `\u%04x`, b)
 			} else {
 				buf.WriteByte(b)
 			}
 		}
 	}
-	return buf.Bytes()
+
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	jsonEscapeBufPool.Put(buf)
+	return result
 }
 
 // wrapAsJSONString escapes content and wraps with quotes.

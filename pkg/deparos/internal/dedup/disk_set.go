@@ -17,7 +17,7 @@ import (
 // Thread-safe for concurrent access.
 type DiskSet struct {
 	db      *leveldb.DB
-	mu      sync.Mutex // Required for atomic check-then-put in IsSeen
+	mu      sync.RWMutex // RWMutex: read-path for already-seen keys, write-path for new keys
 	hits    atomic.Uint64
 	size    atomic.Int64
 	path    string
@@ -74,26 +74,50 @@ func NewDiskSet(cfg *Config) (*DiskSet, error) {
 
 // IsSeen returns true if key was seen before.
 // If not seen, marks it as seen atomically.
-// Thread-safe: mutex ensures atomic check-then-put.
+//
+// Uses a two-phase locking strategy:
+//  1. Read lock: fast path for already-seen keys (common case after warm-up)
+//  2. Write lock: slow path for new keys, with re-check to handle races
+//
+// This is safe because Put is idempotent — if two goroutines both determine
+// a key is unseen and both write it, the second write is a harmless no-op.
 func (s *DiskSet) IsSeen(key string) bool {
+	keyBytes := []byte(key)
+
+	// Fast path: read lock only — serves the majority of checks
+	// after the discovery phase has warmed up.
+	s.mu.RLock()
+	if s.db == nil {
+		s.mu.RUnlock()
+		return true
+	}
+	has, err := s.db.Has(keyBytes, nil)
+	s.mu.RUnlock()
+
+	if err == nil && has {
+		s.hits.Add(1)
+		return true
+	}
+
+	// Slow path: acquire write lock for insertion.
+	// Re-check under write lock to handle the race where another goroutine
+	// inserted the same key between our read and write lock acquisition.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if DB is already closed (graceful shutdown)
 	if s.db == nil {
-		return true // Treat as already seen to stop processing
+		return true
 	}
 
-	keyBytes := []byte(key)
-	has, err := s.db.Has(keyBytes, nil)
-	if err != nil || !has {
-		_ = s.db.Put(keyBytes, nil, nil)
-		s.size.Add(1)
-		return false
+	has, err = s.db.Has(keyBytes, nil)
+	if err == nil && has {
+		s.hits.Add(1)
+		return true
 	}
 
-	s.hits.Add(1)
-	return true
+	_ = s.db.Put(keyBytes, nil, nil)
+	s.size.Add(1)
+	return false
 }
 
 // Contains returns true if key exists (read-only check).

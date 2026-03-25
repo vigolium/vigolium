@@ -10,8 +10,32 @@ import (
 	"go.uber.org/zap"
 )
 
-// errEmptyAgentOutput is a sentinel error returned when an agent produces zero output.
-var errEmptyAgentOutput = errors.New("agent returned empty output (0 tokens)")
+// Sentinel errors for agent backend failures. These enable reliable retry
+// classification via errors.Is() instead of fragile string matching.
+var (
+	errEmptyAgentOutput = errors.New("agent returned empty output (0 tokens)")
+
+	// ACP backend errors
+	errACPPromptTimeout  = errors.New("acp prompt timed out")
+	errACPInitTimeout    = errors.New("acp initialize timed out")
+	errACPSessionTimeout = errors.New("acp session creation timed out")
+	errACPPromptFailed   = errors.New("acp prompt failed")
+
+	// SDK backend errors
+	errSDKQueryFailed  = errors.New("sdk query failed")
+	errSDKStreamError  = errors.New("sdk stream error")
+	errSDKOutputFailed = errors.New("sdk output collection failed")
+
+	// Codex backend errors
+	errCodexStartFailed = errors.New("codex SDK start failed")
+	errCodexInitFailed  = errors.New("codex SDK initialize failed")
+	errCodexTurnFailed  = errors.New("codex SDK turn failed")
+
+	// OpenCode backend errors
+	errOpenCodeStartFailed   = errors.New("opencode SDK start failed")
+	errOpenCodeSessionFailed = errors.New("opencode SDK session creation failed")
+	errOpenCodePromptFailed  = errors.New("opencode SDK prompt failed")
+)
 
 // RetryConfig controls retry behavior for agent calls.
 type RetryConfig struct {
@@ -108,6 +132,25 @@ func retryAgentCall[T any](ctx context.Context, cfg RetryConfig, fn func(ctx con
 	return lastResult, lastErr
 }
 
+// retryableSentinels lists all sentinel errors that should trigger a retry.
+var retryableSentinels = []error{
+	context.DeadlineExceeded,
+	errEmptyAgentOutput,
+	errACPPromptTimeout,
+	errACPInitTimeout,
+	errACPSessionTimeout,
+	errACPPromptFailed,
+	errSDKQueryFailed,
+	errSDKStreamError,
+	errSDKOutputFailed,
+	errCodexStartFailed,
+	errCodexInitFailed,
+	errCodexTurnFailed,
+	errOpenCodeStartFailed,
+	errOpenCodeSessionFailed,
+	errOpenCodePromptFailed,
+}
+
 // isRetryableAgentError returns true if the error is a transient agent error
 // that can be retried (e.g., deadline exceeded, prompt timeout, empty output).
 // It does NOT retry when the parent context itself is cancelled.
@@ -116,25 +159,13 @@ func isRetryableAgentError(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
+	for _, sentinel := range retryableSentinels {
+		if errors.Is(err, sentinel) {
+			return true
+		}
 	}
-	if errors.Is(err, errEmptyAgentOutput) {
-		return true
-	}
+	// Fallback: string matching for backward compatibility with errors
+	// that may not yet use sentinel wrapping (e.g., from external libraries).
 	msg := err.Error()
-	return strings.Contains(msg, "ACP prompt timed out") ||
-		strings.Contains(msg, "ACP initialize timed out") ||
-		strings.Contains(msg, "ACP session creation timed out") ||
-		strings.Contains(msg, "ACP prompt failed") ||
-		strings.Contains(msg, "SDK query failed") ||
-		strings.Contains(msg, "SDK stream error") ||
-		strings.Contains(msg, "SDK output collection failed") ||
-		strings.Contains(msg, "Codex SDK start failed") ||
-		strings.Contains(msg, "Codex SDK initialize failed") ||
-		strings.Contains(msg, "Codex SDK turn failed") ||
-		strings.Contains(msg, "OpenCode SDK start failed") ||
-		strings.Contains(msg, "OpenCode SDK session creation failed") ||
-		strings.Contains(msg, "OpenCode SDK prompt failed") ||
-		strings.Contains(msg, "empty output")
+	return strings.Contains(msg, "empty output")
 }

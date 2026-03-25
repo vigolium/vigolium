@@ -91,7 +91,7 @@ func TestHandleToolUnknownTool(t *testing.T) {
 	}
 	result, _ := bc.HandleTool(context.Background(), "nonexistent_tool", nil)
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	if tr.Success {
 		t.Error("unknown tool should return success=false")
 	}
@@ -118,7 +118,7 @@ func TestClickBlacklistEnforcement(t *testing.T) {
 		"xpath": "/html/body/nav/a[5]",
 	})
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 
 	if tr.Success {
 		t.Error("clicking blacklisted element should fail")
@@ -151,7 +151,7 @@ func TestCheckpointToolLifecycle(t *testing.T) {
 		"test_plan":   "Test login with valid/invalid creds",
 	})
 	var tr1 ToolResult
-	json.Unmarshal([]byte(result), &tr1)
+	_ = json.Unmarshal([]byte(result), &tr1)
 	if !tr1.Success {
 		t.Fatal("create_checkpoint should succeed")
 	}
@@ -167,20 +167,20 @@ func TestCheckpointToolLifecycle(t *testing.T) {
 	// Step 2: get_next_checkpoint
 	result2, _ := bc.HandleTool(ctx, "get_next_checkpoint", nil)
 	var tr2 ToolResult
-	json.Unmarshal([]byte(result2), &tr2)
+	_ = json.Unmarshal([]byte(result2), &tr2)
 	data2 := tr2.Data.(map[string]any)
 	if data2["name"].(string) != "login" {
 		t.Error("should return login as next checkpoint")
 	}
 
 	// Step 3: activate then complete checkpoint
-	bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID})
+	_, _ = bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID})
 	result3, _ := bc.HandleTool(ctx, "complete_checkpoint", map[string]string{
 		"checkpoint_id": cpID,
 		"notes":         "tested login with valid/invalid creds",
 	})
 	var tr3 ToolResult
-	json.Unmarshal([]byte(result3), &tr3)
+	_ = json.Unmarshal([]byte(result3), &tr3)
 	if !tr3.Success {
 		t.Fatal("complete_checkpoint should succeed")
 	}
@@ -209,7 +209,7 @@ func TestGetNextCheckpointEmpty(t *testing.T) {
 
 	result, _ := bc.HandleTool(context.Background(), "get_next_checkpoint", nil)
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	data := tr.Data.(map[string]any)
 	if _, hasMsg := data["message"]; !hasMsg {
 		t.Error("should return message when no pending checkpoints")
@@ -233,7 +233,7 @@ func TestEntityToolLifecycle(t *testing.T) {
 		"type": "user", "identifier": "test@example.com",
 	})
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	if !tr.Success {
 		t.Fatal("register_entity should succeed")
 	}
@@ -241,7 +241,7 @@ func TestEntityToolLifecycle(t *testing.T) {
 
 	result2, _ := bc.HandleTool(ctx, "get_created_entities", nil)
 	var tr2 ToolResult
-	json.Unmarshal([]byte(result2), &tr2)
+	_ = json.Unmarshal([]byte(result2), &tr2)
 	entities := tr2.Data.([]any)
 	if len(entities) != 1 {
 		t.Errorf("expected 1 entity, got %d", len(entities))
@@ -249,7 +249,7 @@ func TestEntityToolLifecycle(t *testing.T) {
 
 	result3, _ := bc.HandleTool(ctx, "mark_entity_deleted", map[string]string{"entity_id": entityID})
 	var tr3 ToolResult
-	json.Unmarshal([]byte(result3), &tr3)
+	_ = json.Unmarshal([]byte(result3), &tr3)
 	if !tr3.Success {
 		t.Error("mark_entity_deleted should succeed")
 	}
@@ -267,16 +267,16 @@ func TestCredentialsTools(t *testing.T) {
 	// No creds initially
 	result, _ := bc.HandleTool(ctx, "get_credentials", nil)
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	if tr.Success {
 		t.Error("get_credentials should fail when no creds stored")
 	}
 
-	bc.HandleTool(ctx, "store_credentials", map[string]string{"username": "admin", "password": "secret123"})
+	_, _ = bc.HandleTool(ctx, "store_credentials", map[string]string{"username": "admin", "password": "secret123"})
 
 	result3, _ := bc.HandleTool(ctx, "get_credentials", nil)
 	var tr3 ToolResult
-	json.Unmarshal([]byte(result3), &tr3)
+	_ = json.Unmarshal([]byte(result3), &tr3)
 	if !tr3.Success {
 		t.Error("get_credentials should succeed after store")
 	}
@@ -300,13 +300,13 @@ func TestTraceOnlyRecordsActionTools(t *testing.T) {
 	ctx := context.Background()
 
 	// Read-only tools — should NOT be recorded as action entries
-	bc.HandleTool(ctx, "get_checkpoint_list", nil)
-	bc.HandleTool(ctx, "get_blacklist", nil)
-	bc.HandleTool(ctx, "get_credentials", nil)
-	bc.HandleTool(ctx, "get_created_entities", nil)
-	bc.HandleTool(ctx, "get_next_checkpoint", nil)
-	bc.HandleTool(ctx, "get_page_text", nil)
-	bc.HandleTool(ctx, "screenshot", nil)
+	_, _ = bc.HandleTool(ctx, "get_checkpoint_list", nil)
+	_, _ = bc.HandleTool(ctx, "get_blacklist", nil)
+	_, _ = bc.HandleTool(ctx, "get_credentials", nil)
+	_, _ = bc.HandleTool(ctx, "get_created_entities", nil)
+	_, _ = bc.HandleTool(ctx, "get_next_checkpoint", nil)
+	_, _ = bc.HandleTool(ctx, "get_page_text", nil)
+	_, _ = bc.HandleTool(ctx, "screenshot", nil)
 
 	if bc.trace.Len() != 0 {
 		t.Errorf("read-only tools should NOT be recorded as action entries, got %d", bc.trace.Len())
@@ -322,8 +322,8 @@ func TestTraceRecordsActionTools(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	bc.HandleTool(ctx, "click", map[string]string{"xpath": "/a[1]"})
-	bc.HandleTool(ctx, "navigate", map[string]string{"url": "http://test.com"})
+	_, _ = bc.HandleTool(ctx, "click", map[string]string{"xpath": "/a[1]"})
+	_, _ = bc.HandleTool(ctx, "navigate", map[string]string{"url": "http://test.com"})
 
 	if bc.trace.Len() != 2 {
 		t.Errorf("action tools should be recorded, expected 2, got %d", bc.trace.Len())
@@ -332,7 +332,7 @@ func TestTraceRecordsActionTools(t *testing.T) {
 
 func TestTraceRecordActionFields(t *testing.T) {
 	tr, _ := NewSessionTrace("")
-	defer tr.Close()
+	defer func() { _ = tr.Close() }()
 
 	before := StateSnapshot{StateID: "s1", URL: "http://a.com"}
 	after := StateSnapshot{StateID: "s2", URL: "http://a.com/b", IsNew: true}
@@ -387,7 +387,7 @@ func TestTraceMarkdownFile(t *testing.T) {
 
 	tr.WriteSessionEnd("completed", nil)
 	tr.WriteSummary(&Result{StatesDiscovered: 5, CheckpointsCompleted: 3, CheckpointsPending: 1})
-	tr.Close()
+	_ = tr.Close()
 
 	data, err := os.ReadFile(tracePath)
 	if err != nil {
@@ -598,7 +598,7 @@ func TestToolRequiredParameters(t *testing.T) {
 	for _, tt := range tests {
 		result, _ := bc.HandleTool(ctx, tt.tool, tt.args)
 		var tr ToolResult
-		json.Unmarshal([]byte(result), &tr)
+		_ = json.Unmarshal([]byte(result), &tr)
 		if tr.Success {
 			t.Errorf("%s with empty required args should fail", tt.tool)
 		}
@@ -625,7 +625,7 @@ func TestTerminateCrawlTool(t *testing.T) {
 		"reason": "all checkpoints completed",
 	})
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	if !tr.Success {
 		t.Error("terminate_crawl should succeed")
 	}
@@ -648,7 +648,7 @@ func TestLogFindingTool(t *testing.T) {
 		"severity":    "high",
 	})
 	var tr ToolResult
-	json.Unmarshal([]byte(result), &tr)
+	_ = json.Unmarshal([]byte(result), &tr)
 	if !tr.Success {
 		t.Error("log_finding should succeed")
 	}
@@ -698,6 +698,6 @@ func mustNewTrace(t *testing.T) *SessionTrace {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { tr.Close() })
+	t.Cleanup(func() { _ = tr.Close() })
 	return tr
 }

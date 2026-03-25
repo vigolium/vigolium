@@ -107,7 +107,7 @@ func (s *mcpHTTPServer) handleStreamableHTTP(w http.ResponseWriter, r *http.Requ
 	// interrupted, keeping the browser in a consistent state.
 	resp := s.processJSONRPC(s.toolCtx, body)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 // handleSSE handles the legacy SSE transport endpoint.
@@ -137,7 +137,7 @@ func (s *mcpHTTPServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	// Send the message endpoint URL as the first SSE event
-	fmt.Fprintf(w, "event: endpoint\ndata: %s/message?sessionId=%s\n\n", s.url, sessionID)
+	_, _ = fmt.Fprintf(w, "event: endpoint\ndata: %s/message?sessionId=%s\n\n", s.url, sessionID)
 	flusher.Flush()
 
 	// Stream responses back
@@ -150,7 +150,7 @@ func (s *mcpHTTPServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
 			flusher.Flush()
 		}
 	}
@@ -189,7 +189,7 @@ func (s *mcpHTTPServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Fallback: direct response (Streamable HTTP mode)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 // processJSONRPC handles a single JSON-RPC request and returns the response.

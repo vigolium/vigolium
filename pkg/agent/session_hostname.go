@@ -60,7 +60,7 @@ func AgentSessionConfigToSessionHostnames(cfg *AgentSessionConfig, projectUUID, 
 }
 
 // AgentSessionConfigToSessions converts an AgentSessionConfig to native session.Session
-// objects. This is used by `vigolium auth load` to import agent-discovered session files.
+// objects. This is used by `vigolium session load` to import agent-discovered session files.
 func AgentSessionConfigToSessions(cfg *AgentSessionConfig) []*session.Session {
 	if cfg == nil || len(cfg.Sessions) == 0 {
 		return nil

@@ -56,6 +56,7 @@ func TestRecordWriter_10000ConcurrentWrites(t *testing.T) {
 		BufferSize:    8192,
 		BatchSize:     200,
 		FlushInterval: 25 * time.Millisecond,
+		Shards:        1, // Single shard for in-memory SQLite test
 	})
 	defer writer.Close()
 
@@ -183,6 +184,7 @@ func TestRecordWriter_DirectRepoComparison(t *testing.T) {
 		BufferSize:    4096,
 		BatchSize:     100,
 		FlushInterval: 25 * time.Millisecond,
+		Shards:        1, // Single shard for in-memory SQLite test
 	})
 
 	var writerErrors atomic.Int64
@@ -228,6 +230,7 @@ func TestRecordWriter_GracefulShutdown(t *testing.T) {
 		BufferSize:    4096,
 		BatchSize:     500, // large batch — most records will be pending at shutdown
 		FlushInterval: 10 * time.Second, // long interval — only shutdown flush matters
+		Shards:        1,                // Single shard for in-memory SQLite test
 	})
 
 	const total = 1000
@@ -280,6 +283,7 @@ func TestRecordWriter_SmallBatchConfig(t *testing.T) {
 		BufferSize:    64,
 		BatchSize:     5,
 		FlushInterval: 5 * time.Millisecond,
+		Shards:        1, // Single shard for in-memory SQLite test
 	})
 	defer writer.Close()
 
@@ -399,6 +403,7 @@ func TestRecordWriter_WithFileDB(t *testing.T) {
 		BufferSize:    8192,
 		BatchSize:     200,
 		FlushInterval: 25 * time.Millisecond,
+		Shards:        1, // Single shard for in-memory SQLite test
 	})
 	defer writer.Close()
 

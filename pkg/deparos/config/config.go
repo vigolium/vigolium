@@ -100,6 +100,7 @@ type EngineConfig struct {
 	DisableKingfisher       bool                `json:"disable_kingfisher"`                 // Disable kingfisher secret scanning
 	EnableCookieJar         bool                `json:"enable_cookie_jar"`                  // Enable cookie jar for session persistence
 	ProxyURL                string              `json:"proxy_url"`                          // HTTP proxy URL for discovery requests
+	JSScanConcurrency       int                 `yaml:"jsscan_concurrency" json:"jsscan_concurrency"` // Max concurrent jsscan analyses (0 = runtime.NumCPU())
 }
 
 // Enums.

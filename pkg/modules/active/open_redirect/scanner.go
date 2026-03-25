@@ -78,8 +78,8 @@ func (m *Module) ScanPerRequest(
 	/* -------------------------------------------------------------------------- */
 	/*                          Try with default queries                          */
 	/* -------------------------------------------------------------------------- */
-	// Create insertion points for URL parameters
-	points, err := httpmsg.CreateAllInsertionPoints(ctx.Request().Raw(), false)
+	// Create insertion points for URL parameters (uses cached provider when available)
+	points, err := scanCtx.GetInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), false)
 	if err != nil {
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}

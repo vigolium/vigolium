@@ -58,7 +58,7 @@ func NewScanner(config *Config) (*Scanner, error) {
 // acquireTmpFile returns a reusable temp file path, creating one if the pool is empty.
 func (s *Scanner) acquireTmpFile() (string, error) {
 	if v := s.tmpFilePool.Get(); v != nil {
-		return v.(string), nil
+		return *v.(*string), nil
 	}
 	f, err := os.CreateTemp("", "jsscan-*.js")
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *Scanner) acquireTmpFile() (string, error) {
 
 // releaseTmpFile returns a temp file path to the pool for reuse.
 func (s *Scanner) releaseTmpFile(path string) {
-	s.tmpFilePool.Put(path)
+	s.tmpFilePool.Put(&path)
 }
 
 // Scan analyzes the provided JavaScript content.

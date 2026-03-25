@@ -130,10 +130,18 @@ func TestDiscoverAPISpecs(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create subdirectories
-	os.MkdirAll(filepath.Join(tmpDir, "docs"), 0o755)
-	os.MkdirAll(filepath.Join(tmpDir, "api"), 0o755)
-	os.MkdirAll(filepath.Join(tmpDir, "node_modules", "pkg"), 0o755)
-	os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755)
+	if err := os.MkdirAll(filepath.Join(tmpDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write an OpenAPI 3.0 spec
 	openapiJSON := `{
@@ -145,7 +153,9 @@ func TestDiscoverAPISpecs(t *testing.T) {
 			}
 		}
 	}`
-	os.WriteFile(filepath.Join(tmpDir, "docs", "openapi.json"), []byte(openapiJSON), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "docs", "openapi.json"), []byte(openapiJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a Swagger 2.0 spec (YAML)
 	swaggerYAML := `swagger: "2.0"
@@ -161,7 +171,9 @@ paths:
         200:
           description: OK
 `
-	os.WriteFile(filepath.Join(tmpDir, "api", "swagger.yaml"), []byte(swaggerYAML), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "api", "swagger.yaml"), []byte(swaggerYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a Postman collection
 	postmanJSON := `{
@@ -179,24 +191,36 @@ paths:
 			}
 		]
 	}`
-	os.WriteFile(filepath.Join(tmpDir, "docs", "api.postman_collection.json"), []byte(postmanJSON), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "docs", "api.postman_collection.json"), []byte(postmanJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a markdown file with curl commands in code blocks
 	curlMD := "# API Documentation\n\n## Get Users\n\n```bash\ncurl -X GET https://api.example.com/users \\\n  -H 'Authorization: Bearer token123'\n```\n\n## Create User\n\n```bash\ncurl -X POST https://api.example.com/users \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"name\": \"test\"}'\n```\n"
-	os.WriteFile(filepath.Join(tmpDir, "docs", "API.md"), []byte(curlMD), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "docs", "API.md"), []byte(curlMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a markdown file WITHOUT curl commands (should be ignored)
 	plainMD := "# README\n\nThis project is great.\n\n```python\nprint('hello world')\n```\n"
-	os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte(plainMD), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte(plainMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a spec inside node_modules (should be skipped)
-	os.WriteFile(filepath.Join(tmpDir, "node_modules", "pkg", "openapi.json"), []byte(openapiJSON), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "node_modules", "pkg", "openapi.json"), []byte(openapiJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a non-spec JSON file (should be ignored)
-	os.WriteFile(filepath.Join(tmpDir, "src", "config.json"), []byte(`{"port": 8080, "debug": true}`), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "src", "config.json"), []byte(`{"port": 8080, "debug": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a tiny file (should be ignored)
-	os.WriteFile(filepath.Join(tmpDir, "api", "tiny.json"), []byte(`{}`), 0o644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "api", "tiny.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Run discovery
 	specs := discoverAPISpecs(tmpDir)

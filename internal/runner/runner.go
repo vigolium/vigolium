@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	"io"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -23,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
@@ -1554,11 +1552,18 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 
 	zap.L().Info("Discovery: ingesting input into database")
 
+	// Create batched record writer for throughput (same pattern as audit phase)
+	var discoveryRecordWriter *database.RecordWriter
+	if r.repository != nil {
+		discoveryRecordWriter = database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
+	}
+
 	executorCfg := core.ExecutorConfig{
 		Workers:       r.options.Concurrency,
 		Services:      infra.svc,
 		HTTPRequester: infra.httpRequester,
 		Repository:    r.repository,
+		RecordWriter:  discoveryRecordWriter,
 		ScanUUID:      infra.scanUUID,
 		ScopeMatcher:  infra.scopeMatcher,
 		PauseCtrl:     r.pauseCtrl,
@@ -1573,6 +1578,12 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 
 	executor := core.NewExecutor(executorCfg, compositeSource, nil, nil)
 	_, err := executor.Execute(ctx)
+
+	// Flush remaining batched records
+	if discoveryRecordWriter != nil {
+		discoveryRecordWriter.Close()
+	}
+
 	if err != nil {
 		return err
 	}
@@ -3201,102 +3212,6 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	return nil
 }
 
-// runAgentSAST runs AI agent-powered SAST analysis against source repos.
-// Returns the total number of findings across all templates and repos.
-func (r *Runner) runAgentSAST(ctx context.Context, infra *phaseInfra, repos []sourceRepoInfo) int {
-	cfg := r.settings.SourceAware.AgentSAST
-	templates := cfg.EffectiveTemplates()
-
-	totalRuns := len(templates) + len(cfg.CustomPrompts)
-	r.printPhaseDetail(fmt.Sprintf("Agent SAST: running %d prompt(s) (%d template, %d custom)",
-		totalRuns, len(templates), len(cfg.CustomPrompts)))
-
-	engine := agent.NewEngine(r.settings, r.repository)
-	defer engine.Close()
-
-	var totalFindings int
-	timeout := cfg.TimeoutDuration()
-
-	// Run prompt templates
-	for _, tmplID := range templates {
-		for _, repo := range repos {
-			opts := r.agentSASTOpts(cfg, infra, repo)
-			opts.PromptTemplate = tmplID
-			totalFindings += r.runSingleAgentSAST(ctx, engine, opts, tmplID, repo.path, timeout)
-		}
-	}
-
-	// Run custom inline prompts
-	for i, prompt := range cfg.CustomPrompts {
-		label := fmt.Sprintf("custom-prompt-%d", i+1)
-		for _, repo := range repos {
-			opts := r.agentSASTOpts(cfg, infra, repo)
-			opts.PromptInline = prompt
-			opts.Source = label
-			totalFindings += r.runSingleAgentSAST(ctx, engine, opts, label, repo.path, timeout)
-		}
-	}
-
-	return totalFindings
-}
-
-// agentSASTOpts builds the common agent.Options for an agent SAST run.
-func (r *Runner) agentSASTOpts(cfg config.AgentSASTConfig, infra *phaseInfra, repo sourceRepoInfo) agent.Options {
-	hostname := repo.hostname
-	if hostname == "" {
-		hostname = r.firstTargetHostname()
-	}
-
-	var streamWriter io.Writer
-	if r.settings.Agent.StreamEnabled() && !r.options.Silent {
-		streamWriter = os.Stderr
-	}
-
-	opts := agent.Options{
-		AgentName:    cfg.Agent,
-		SourcePath:   repo.path,
-		Hostname:     hostname,
-		ScanUUID:     infra.scanUUID,
-		ProjectUUID:  r.options.ProjectUUID,
-		StreamWriter: streamWriter,
-	}
-	if len(r.options.Targets) > 0 {
-		opts.TargetURL = r.options.Targets[0]
-	}
-	return opts
-}
-
-// runSingleAgentSAST executes one agent run and returns the number of saved findings.
-func (r *Runner) runSingleAgentSAST(ctx context.Context, engine *agent.Engine, opts agent.Options, label, repoPath string, timeout time.Duration) int {
-	agentCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	result, err := engine.Run(agentCtx, opts)
-	if err != nil {
-		zap.L().Warn("sast: agent run failed",
-			zap.String("prompt", label),
-			zap.String("repo", repoPath),
-			zap.Error(err))
-		return 0
-	}
-
-	findings := result.SavedCount
-	if !r.options.Silent && findings > 0 {
-		fmt.Fprintf(os.Stderr, "  %s %s agent findings from %s (%s)\n",
-			terminal.Green(terminal.SymbolSuccess),
-			terminal.Orange(fmt.Sprintf("%d", findings)),
-			terminal.HiTeal(label),
-			terminal.Cyan(repoPath))
-	}
-
-	zap.L().Info("sast: agent SAST completed",
-		zap.String("prompt", label),
-		zap.String("repo", repoPath),
-		zap.Int("findings", findings),
-		zap.Int("skipped", result.SkippedCount))
-
-	return findings
-}
 
 // sourceRepoInfo holds source repo metadata for the SAST phase.
 type sourceRepoInfo struct {
@@ -4101,21 +4016,6 @@ func severityFromString(s string) severity.Severity {
 	}
 }
 
-// buildMinimalRequest creates a minimal HttpRequestResponse for a given method and URL.
-func (r *Runner) buildMinimalRequest(method, rawURL string) *httpmsg.HttpRequestResponse {
-	u, err := neturl.Parse(rawURL)
-	if err != nil {
-		return nil
-	}
-
-	rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n\r\n", method, u.RequestURI(), u.Host)
-	rr, err := httpmsg.ParseRawRequest(rawReq)
-	if err != nil {
-		return nil
-	}
-
-	return rr
-}
 
 // buildRouteRequest creates an HttpRequestResponse enriched with query/body parameters
 // from an ast-grep Route. For GET/HEAD/DELETE, params become query string values.
@@ -4165,11 +4065,11 @@ func (r *Runner) buildRouteRequest(method, rawURL string, route astgrep.Route) *
 
 	// Build raw request
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %s HTTP/1.1\r\n", method, u.RequestURI()))
-	sb.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
+	fmt.Fprintf(&sb, "%s %s HTTP/1.1\r\n", method, u.RequestURI())
+	fmt.Fprintf(&sb, "Host: %s\r\n", u.Host)
 	if contentType != "" {
-		sb.WriteString(fmt.Sprintf("Content-Type: %s\r\n", contentType))
-		sb.WriteString(fmt.Sprintf("Content-Length: %d\r\n", len(body)))
+		fmt.Fprintf(&sb, "Content-Type: %s\r\n", contentType)
+		fmt.Fprintf(&sb, "Content-Length: %d\r\n", len(body))
 	}
 	sb.WriteString("\r\n")
 	if body != "" {

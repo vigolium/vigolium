@@ -15,10 +15,8 @@ import (
 // It reads user messages from stdin and writes pre-configured responses to stdout.
 type mockProcess struct {
 	mu        sync.Mutex
-	responses []string // JSON-lines to write in sequence
-	respIdx   int
+	responses []string        // JSON-lines to write in sequence
 	stdinBuf  strings.Builder // captures what was written to stdin
-	closed    bool
 }
 
 // setupMockClient creates a Client wired to a mock process that returns
@@ -33,7 +31,7 @@ func setupMockClient(t *testing.T, responses []string) (*Client, *mockProcess) {
 
 	// Feed responses through stdout pipe
 	go func() {
-		defer stdoutW.Close()
+		defer func() { _ = stdoutW.Close() }()
 		for _, resp := range responses {
 			_, _ = stdoutW.Write([]byte(resp + "\n"))
 		}
@@ -75,7 +73,7 @@ func TestClient_ReceiveResponse_AssistantAndResult(t *testing.T) {
 	}
 
 	client, _ := setupMockClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -126,7 +124,7 @@ func TestClient_ReceiveMessages_Streaming(t *testing.T) {
 	}
 
 	client, _ := setupMockClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -179,7 +177,7 @@ func TestClient_ReceiveResponse_SkipsUnknownTypes(t *testing.T) {
 	}
 
 	client, _ := setupMockClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -201,7 +199,7 @@ func TestClient_Query_SendsUserMessage(t *testing.T) {
 	}
 
 	client, mock := setupMockClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	err := client.sendUserMessage("What is 2+2?")
 	if err != nil {
@@ -264,7 +262,7 @@ func TestClient_ReceiveResponse_StopsAtResult(t *testing.T) {
 	}
 
 	client, _ := setupMockClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

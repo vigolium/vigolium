@@ -44,10 +44,10 @@ func setupMockCodexClient(t *testing.T, responses []mockResponse) (*Client, *moc
 		t.Fatalf("os.Pipe (stdout) failed: %v", err)
 	}
 	t.Cleanup(func() {
-		stdinR.Close()
-		stdinW.Close()
-		stdoutR.Close()
-		stdoutW.Close()
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 	})
 
 	mock := &mockCodexServer{responses: responses}
@@ -135,7 +135,7 @@ func TestClient_Initialize(t *testing.T) {
 	}
 
 	client, _ := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -162,7 +162,7 @@ func TestClient_Initialize_SendsClientInfo(t *testing.T) {
 	}
 
 	client, mock := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -199,7 +199,7 @@ func TestClient_ThreadStart(t *testing.T) {
 	}
 
 	client, _ := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -230,7 +230,7 @@ func TestClient_TurnStart(t *testing.T) {
 	}
 
 	client, mock := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -278,7 +278,7 @@ func TestClient_NextNotification(t *testing.T) {
 	}
 
 	client, _ := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -325,7 +325,7 @@ func TestClient_ApprovalHandling(t *testing.T) {
 
 func TestClient_CustomApprovalHandler(t *testing.T) {
 	client := NewClient(&Options{})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	denyCalled := false
 	client.SetApprovalHandler(func(method string, _ json.RawMessage) map[string]any {
@@ -359,7 +359,7 @@ func TestClient_CollectText(t *testing.T) {
 	}
 
 	client, _ := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -401,7 +401,7 @@ func TestClient_StreamText(t *testing.T) {
 	}
 
 	client, _ := setupMockCodexClient(t, responses)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -435,10 +435,10 @@ func TestClient_RPCError(t *testing.T) {
 		t.Fatalf("os.Pipe failed: %v", err)
 	}
 	t.Cleanup(func() {
-		stdinR.Close()
-		stdinW.Close()
-		stdoutR.Close()
-		stdoutW.Close()
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 	})
 
 	go func() {
@@ -463,7 +463,7 @@ func TestClient_RPCError(t *testing.T) {
 		reader: bufio.NewReaderSize(stdoutR, 1024*1024),
 		done:   make(chan struct{}),
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

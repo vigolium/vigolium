@@ -14,6 +14,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/vmihailenco/msgpack/v5"
 	"go.uber.org/zap"
 )
 
@@ -25,6 +26,20 @@ const (
 
 // Segment represents a single LevelDB database file containing tasks.
 // Each segment has a maximum capacity and is sealed when full.
+// marshalTask serializes a ScanTask using MessagePack for compact binary encoding.
+func marshalTask(task *ScanTask) ([]byte, error) {
+	return msgpack.Marshal(task)
+}
+
+// unmarshalTask deserializes a ScanTask. Supports both MessagePack (new format)
+// and JSON (legacy format) for backward compatibility.
+func unmarshalTask(data []byte, task *ScanTask) error {
+	if len(data) > 0 && data[0] == '{' {
+		return json.Unmarshal(data, task)
+	}
+	return msgpack.Unmarshal(data, task)
+}
+
 type Segment struct {
 	id   uint64
 	db   *leveldb.DB
@@ -33,6 +48,7 @@ type Segment struct {
 	totalTasks     atomic.Int64 // Total tasks written to this segment
 	completedTasks atomic.Int64 // Tasks that have been acked
 	sealed         atomic.Bool  // No more writes allowed
+	cachedDiskSize atomic.Int64 // Approximate disk usage, updated on writes
 
 	mu sync.RWMutex
 }
@@ -121,7 +137,7 @@ func (s *Segment) recoverState() error {
 		total++
 
 		var task ScanTask
-		if err := json.Unmarshal(iter.Value(), &task); err != nil {
+		if err := unmarshalTask(iter.Value(), &task); err != nil {
 			zap.L().Warn("Failed to unmarshal task during recovery",
 				zap.String("key", string(iter.Key())),
 				zap.Error(err))
@@ -171,14 +187,14 @@ func (s *Segment) resetToPending(taskID string) error {
 	}
 
 	var task ScanTask
-	if err := json.Unmarshal(data, &task); err != nil {
+	if err := unmarshalTask(data, &task); err != nil {
 		return err
 	}
 
 	task.Status = TaskStatusPending
 	task.UpdatedAt = time.Now()
 
-	newData, err := json.Marshal(&task)
+	newData, err := marshalTask(&task)
 	if err != nil {
 		return err
 	}
@@ -243,7 +259,7 @@ func (s *Segment) WriteTask(task *ScanTask) error {
 	taskKey := []byte(prefixTask + task.ID)
 	pendingKey := s.makePendingKey(task.CreatedAt, task.ID)
 
-	taskData, err := json.Marshal(task)
+	taskData, err := marshalTask(task)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task: %w", err)
 	}
@@ -257,6 +273,47 @@ func (s *Segment) WriteTask(task *ScanTask) error {
 	}
 
 	s.totalTasks.Add(1)
+	s.cachedDiskSize.Add(int64(len(taskData) + len(taskKey) + len(pendingKey) + 64))
+	return nil
+}
+
+// WriteTasks writes multiple tasks in a single LevelDB batch, amortizing the
+// WAL flush across all tasks. This is significantly faster than individual
+// WriteTask calls for bulk enqueue operations.
+func (s *Segment) WriteTasks(tasks []*ScanTask) error {
+	if s.sealed.Load() {
+		return ErrSegmentSealed
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	batch := new(leveldb.Batch)
+	var batchSize int64
+
+	for _, task := range tasks {
+		taskKey := []byte(prefixTask + task.ID)
+		pendingKey := s.makePendingKey(task.CreatedAt, task.ID)
+
+		taskData, err := marshalTask(task)
+		if err != nil {
+			return fmt.Errorf("failed to marshal task %s: %w", task.ID, err)
+		}
+
+		batch.Put(taskKey, taskData)
+		batch.Put(pendingKey, nil)
+		batchSize += int64(len(taskData) + len(taskKey) + len(pendingKey) + 64)
+	}
+
+	if err := s.db.Write(batch, nil); err != nil {
+		return fmt.Errorf("failed to write task batch (%d tasks): %w", len(tasks), err)
+	}
+
+	s.totalTasks.Add(int64(len(tasks)))
+	s.cachedDiskSize.Add(batchSize)
 	return nil
 }
 
@@ -287,7 +344,7 @@ func (s *Segment) GetNextPending() (*ScanTask, error) {
 		}
 
 		var task ScanTask
-		if err := json.Unmarshal(taskData, &task); err != nil {
+		if err := unmarshalTask(taskData, &task); err != nil {
 			zap.L().Warn("Failed to unmarshal task",
 				zap.String("task_id", taskID),
 				zap.Error(err))
@@ -305,7 +362,7 @@ func (s *Segment) GetNextPending() (*ScanTask, error) {
 		task.Status = TaskStatusProcessing
 		task.UpdatedAt = time.Now()
 
-		newData, err := json.Marshal(&task)
+		newData, err := marshalTask(&task)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +400,7 @@ func (s *Segment) AckTask(taskID string) error {
 	}
 
 	var task ScanTask
-	if err := json.Unmarshal(taskData, &task); err != nil {
+	if err := unmarshalTask(taskData, &task); err != nil {
 		return err
 	}
 
@@ -354,7 +411,7 @@ func (s *Segment) AckTask(taskID string) error {
 	task.Status = TaskStatusCompleted
 	task.UpdatedAt = time.Now()
 
-	newData, err := json.Marshal(&task)
+	newData, err := marshalTask(&task)
 	if err != nil {
 		return err
 	}
@@ -436,6 +493,11 @@ func (s *Segment) DiskSize() int64 {
 		total += info.Size()
 	}
 	return total
+}
+
+// CachedDiskSize returns the approximate disk usage without filesystem access.
+func (s *Segment) CachedDiskSize() int64 {
+	return s.cachedDiskSize.Load()
 }
 
 // Iterator returns a LevelDB iterator for task keys.

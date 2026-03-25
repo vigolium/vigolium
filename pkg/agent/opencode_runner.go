@@ -33,7 +33,7 @@ func RunOpenCodeSDK(ctx context.Context, agentDef config.AgentDef, prompt string
 	client := opencodesdk.NewClient(opts)
 
 	if err := client.Start(ctx); err != nil {
-		return acpResult{}, fmt.Errorf("OpenCode SDK start failed: %w", err)
+		return acpResult{}, fmt.Errorf("%w: %w", errOpenCodeStartFailed, err)
 	}
 	defer func() {
 		if closeErr := client.Close(); closeErr != nil {
@@ -44,14 +44,14 @@ func RunOpenCodeSDK(ctx context.Context, agentDef config.AgentDef, prompt string
 	// Create session
 	sessionID, err := client.CreateSession(ctx)
 	if err != nil {
-		return acpResult{}, fmt.Errorf("OpenCode SDK session creation failed: %w", err)
+		return acpResult{}, fmt.Errorf("%w: %w", errOpenCodeSessionFailed, err)
 	}
 	zap.L().Debug("opencode session created", zap.String("sessionId", sessionID))
 
 	// Execute prompt and collect output
 	output, err := client.Prompt(ctx, sessionID, prompt, cfg.StreamWriter)
 	if err != nil {
-		return acpResult{Stdout: output, SessionID: sessionID}, fmt.Errorf("OpenCode SDK prompt failed: %w", err)
+		return acpResult{Stdout: output, SessionID: sessionID}, fmt.Errorf("%w: %w", errOpenCodePromptFailed, err)
 	}
 
 	zap.L().Debug("OpenCode SDK agent completed",

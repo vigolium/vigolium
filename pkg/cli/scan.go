@@ -33,7 +33,9 @@ var scanOpts = types.DefaultOptions()
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Run a native scan — deterministic multi-phase vulnerability scanning",
-	RunE:  runScanCmd,
+	Example: `  # Full scan with verbose output, JSONL + HTML report, skipping spidering phase
+  vigolium scan -t http://localhost:3000 --verbose --stateless --format jsonl,html --skip spidering -o sample`,
+	RunE: runScanCmd,
 }
 
 func init() {

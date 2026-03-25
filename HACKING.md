@@ -101,7 +101,7 @@ pkg/
     passive/            Passive analyzers (DOM XSS, secrets, headers, cookies, ...)
     shared/diffscan/    Differential response analysis engine
     infra/              WAF/block detection, request filtering
-  agent/                AI agent engine — ACP client, terminal sandbox, pipeline runner, prompt templates
+  agent/                AI agent engine — SDK/ACP/Codex/OpenCode runners, terminal sandbox, swarm runner, warm session pooling, prompt templates
   deparos/              Content discovery engine (Deparos)
   spitolas/             Browser spider (Spitolas) — Chromium, state machine, forms
   spa/                  Nuclei + Kingfisher integration
@@ -252,17 +252,26 @@ Extensions let users add scan logic without recompiling. They run on the embedde
 - TypeScript definitions: `pkg/jsext/vigolium.d.ts`
 - Example extensions: `public/presets/extensions/`
 
-See [docs/development/writing-extensions.md](docs/development/writing-extensions.md) for the full guide.
+See [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) for the full guide.
 
 ### Agent Mode Architecture
 
-The agent system (`pkg/agent/`) has three operational modes:
+The agent system (`pkg/agent/`) integrates with coding agent CLIs via protocol-specific backends:
 
-- **Run mode** (`agent.go`, `engine.go`): Single-shot prompt execution. Renders a template, pipes it to an agent subprocess via stdin, parses structured JSON output.
-- **Autopilot mode** (`acp_client.go`, `acp_runner.go`, `acp_terminal.go`): Bidirectional ACP (Agent Communication Protocol) sessions. The agent can execute scanner commands via a sandboxed terminal that enforces command allowlisting (only `vigolium` subcommands) and prevents shell injection.
-- **Pipeline mode** (`pipeline.go`, `pipeline_types.go`): Fixed 6-phase scanning pipeline (discover → plan → scan → triage → rescan → report). Native Go code runs discovery and scanning; AI agents intervene only at plan (phase 2) and triage (phase 4) checkpoints. Uses callback functions (`DiscoverFunc`, `ScanFunc`) to decouple from `internal/runner/`.
+- **SDK protocol** (`claudesdk/`, `sdk_runner.go`): Claude Agent SDK — JSON-lines communication with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write). Default and recommended.
+- **ACP protocol** (`acp_runner.go`, `acp_terminal.go`): Agent Communication Protocol — bidirectional structured communication. Supports sandboxed terminal execution (autopilot mode) with command allowlisting.
+- **Codex-SDK** (`codex_runner.go`): OpenAI Codex native JSON-RPC v2 protocol.
+- **OpenCode-SDK** (`opencode_runner.go`): OpenCode native REST + SSE streaming protocol.
+- **Pipe** (`runner.go`): Legacy stdin/stdout fallback for any CLI tool.
 
-Prompt templates are Markdown with YAML frontmatter in `public/presets/prompts/`. Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`. See [docs/agent-mode.md](docs/agent-mode.md) for the full guide.
+Operational modes:
+- **Query mode** (`engine.go`): Single-shot prompt execution via any protocol. Renders a template, sends to agent, parses structured JSON output.
+- **Autopilot mode** (`sdk_runner.go`, `acp_runner.go`): Autonomous scanning. SDK mode gives full coding agent tools; ACP mode uses a sandboxed terminal (`acp_terminal.go`) restricted to `vigolium` commands.
+- **Swarm mode** (`swarm.go`): Multi-phase pipeline (normalize → source analysis → code audit → SAST → discover → plan → extension → scan → triage → rescan). Native Go handles scanning; AI agents intervene at strategic checkpoints. `agent pipeline` is a backward-compatible alias for `swarm --discover`.
+
+Warm session pooling (`session_pool.go`, `sdk_pool.go`, `acp_pool.go`, `codex_pool.go`, `opencode_pool.go`) reuses agent subprocesses across multiple AI calls within a single run.
+
+Prompt templates are Markdown with YAML frontmatter in `public/presets/prompts/`. Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`. See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
 
 ### Adding an Input Format
 
@@ -326,14 +335,16 @@ Notification backends live in `pkg/notify/`. Implement the backend interface and
 | Full project structure | [docs/development/project-structure.md](docs/development/project-structure.md) |
 | Building from source | [docs/development/building.md](docs/development/building.md) |
 | Writing scanner modules (Go) | [docs/development/developing-modules.md](docs/development/developing-modules.md) |
-| Writing JS extensions | [docs/development/writing-extensions.md](docs/development/writing-extensions.md) |
-| XSS benchmark reference | [docs/development/benchmark-reference.md](docs/development/benchmark-reference.md) |
-| Scanning guide (phases, strategies, profiles, pace) | [docs/scanning-guide.md](docs/scanning-guide.md) |
+| Writing JS extensions | [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) |
+| Scanning overview | [docs/overview.md](docs/overview.md) |
+| Getting started | [docs/getting-started.md](docs/getting-started.md) |
+| Native scan strategies | [docs/native-scan/strategies.md](docs/native-scan/strategies.md) |
 | Server mode and ingestion | [docs/server-and-ingestion.md](docs/server-and-ingestion.md) |
 | REST API reference | [docs/api-overview.md](docs/api-overview.md) |
-| Content discovery (Deparos) | [docs/scan-layers/deparos.md](docs/scan-layers/deparos.md) |
-| Deparos configuration | [docs/scan-layers/deparos-configs-guide.md](docs/scan-layers/deparos-configs-guide.md) |
-| Browser spider (Spitolas) | [docs/scan-layers/spitolas.md](docs/scan-layers/spitolas.md) |
-| SPA scanning | [docs/scan-layers/spa.md](docs/scan-layers/spa.md) |
-| Audit | [docs/scan-layers/audit.md](docs/scan-layers/audit.md) |
+| Content discovery (Deparos) | [docs/native-scan/phases/discovery.md](docs/native-scan/phases/discovery.md) |
+| Browser spider (Spitolas) | [docs/native-scan/phases/spidering.md](docs/native-scan/phases/spidering.md) |
+| SPA scanning | [docs/native-scan/phases/spa.md](docs/native-scan/phases/spa.md) |
+| Audit | [docs/native-scan/phases/audit.md](docs/native-scan/phases/audit.md) |
+| Agent mode | [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) |
+| Configuration | [docs/configuration.md](docs/configuration.md) |
 | Example config | [public/vigolium-configs.example.yaml](public/vigolium-configs.example.yaml) |

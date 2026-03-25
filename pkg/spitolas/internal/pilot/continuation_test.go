@@ -326,7 +326,7 @@ func TestCheckpointFlow_FullLifecycleNoBrowser(t *testing.T) {
 	}
 
 	// Step 3: Activate then complete first checkpoint
-	bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID1})
+	_, _ = bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID1})
 	r4, _ := bc.HandleTool(ctx, "complete_checkpoint", map[string]string{
 		"checkpoint_id": cpID1, "notes": "login form tested",
 	})
@@ -342,13 +342,13 @@ func TestCheckpointFlow_FullLifecycleNoBrowser(t *testing.T) {
 		t.Errorf("expected second checkpoint, got %s", nextID2)
 	}
 
-	bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID2})
-	bc.HandleTool(ctx, "complete_checkpoint", map[string]string{
+	_, _ = bc.HandleTool(ctx, "activate_checkpoint", map[string]string{"checkpoint_id": cpID2})
+	_, _ = bc.HandleTool(ctx, "complete_checkpoint", map[string]string{
 		"checkpoint_id": cpID2, "notes": "product search works",
 	})
 
 	// Step 5: No more pending — first call transitions breadth→depth, second returns no pending
-	bc.HandleTool(ctx, "get_next_checkpoint", nil) // flush breadth→depth transition
+	_, _ = bc.HandleTool(ctx, "get_next_checkpoint", nil) // flush breadth→depth transition
 	r6, _ := bc.HandleTool(ctx, "get_next_checkpoint", nil)
 	msg := mustParseToolData(t, r6, "message")
 	if msg != "no pending checkpoints" {
@@ -599,7 +599,7 @@ func assertToolSuccess(t *testing.T, rawResult string) {
 func mustParseToolData(t *testing.T, rawResult, key string) string {
 	t.Helper()
 	var tr ToolResult
-	json.Unmarshal([]byte(rawResult), &tr)
+	_ = json.Unmarshal([]byte(rawResult), &tr)
 	data, ok := tr.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map data, got %T", tr.Data)
@@ -618,7 +618,7 @@ func mustParseToolData(t *testing.T, rawResult, key string) string {
 func mustParseToolDataFloat(t *testing.T, rawResult, key string) float64 {
 	t.Helper()
 	var tr ToolResult
-	json.Unmarshal([]byte(rawResult), &tr)
+	_ = json.Unmarshal([]byte(rawResult), &tr)
 	data := tr.Data.(map[string]any)
 	return data[key].(float64)
 }

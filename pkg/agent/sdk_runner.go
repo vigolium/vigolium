@@ -14,16 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// writeStderrToSessionDir writes stderr output to a log file in the session directory.
-func writeStderrToSessionDir(sessionDir, stderr string) {
-	if sessionDir == "" || stderr == "" {
-		return
-	}
-	path := filepath.Join(sessionDir, "agent-stderr.log")
-	if err := os.WriteFile(path, []byte(stderr), 0o644); err != nil {
-		zap.L().Debug("failed to write stderr to session dir", zap.Error(err))
-	}
-}
 
 // sdkRunConfig holds configuration for SDK-based agent runs.
 type sdkRunConfig struct {
@@ -71,13 +61,13 @@ func RunAgenticSDK(ctx context.Context, agentDef config.AgentDef, prompt string,
 
 	// Send the prompt
 	if err := client.Query(ctx, prompt); err != nil {
-		return acpResult{}, fmt.Errorf("SDK query failed: %w", err)
+		return acpResult{}, fmt.Errorf("%w: %w", errSDKQueryFailed, err)
 	}
 
 	// Collect output
 	output, sessionID, err := collectSDKOutput(ctx, client, cfg.StreamWriter)
 	if err != nil {
-		return acpResult{Stdout: output, SessionID: sessionID}, fmt.Errorf("SDK output collection failed: %w", err)
+		return acpResult{Stdout: output, SessionID: sessionID}, fmt.Errorf("%w: %w", errSDKOutputFailed, err)
 	}
 
 	if ce := zap.L().Check(logLevel, "SDK agent completed"); ce != nil {
@@ -341,7 +331,7 @@ func collectSDKOutputStreaming(ctx context.Context, client *claudesdk.Client, st
 
 		case err := <-errChan:
 			if err != nil {
-				return outputBuf.String(), sessionID, fmt.Errorf("SDK stream error: %w", err)
+				return outputBuf.String(), sessionID, fmt.Errorf("%w: %w", errSDKStreamError, err)
 			}
 			return outputBuf.String(), sessionID, nil
 

@@ -137,9 +137,14 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		maxRedir = 10
 	}
 
+	// Single shared transport — connection pooling is a transport-level concern.
+	// Redirect policy is a client-level concern configured via CheckRedirect.
+	// Sharing the transport means connections are reused across both client variants.
+	sharedTransport := makeTransport()
+
 	// Client with redirects
 	client := retryablehttp.NewWithHTTPClient(&http.Client{
-		Transport:     makeTransport(),
+		Transport:     sharedTransport,
 		Timeout:       timeout,
 		Jar:           jar,
 		CheckRedirect: makeRedirectFunc(options.FollowHostRedirects, maxRedir),
@@ -147,7 +152,7 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 
 	// Client without redirects
 	clientNoRedir := retryablehttp.NewWithHTTPClient(&http.Client{
-		Transport:     makeTransport(),
+		Transport:     sharedTransport,
 		Timeout:       timeout,
 		Jar:           jar,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -233,7 +238,7 @@ func (r *Requester) executeDirectly(input *httpmsg.HttpRequestResponse, opts Opt
 			host = input.Service().Host()
 		}
 		if host != "" {
-			if err := r.services.HostLimiter.Acquire(context.Background(), host); err != nil {
+			if err := r.services.HostLimiter.AcquireWithTimeout(host); err != nil {
 				return nil, 0, err
 			}
 			defer r.services.HostLimiter.Release(host)

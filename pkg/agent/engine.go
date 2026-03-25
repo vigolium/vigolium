@@ -42,6 +42,16 @@ type Engine struct {
 	sdkPool      *SDKPool      // nil when warm sessions disabled
 	codexPool    *CodexPool    // nil when warm sessions disabled
 	opencodePool *OpenCodePool // nil when warm sessions disabled
+
+	// Caches for context gathering (populated lazily, thread-safe)
+	dirTreeCacheMu   sync.RWMutex
+	dirTreeCache     map[string]string // sourcePath → tree listing
+	skipGuidanceOnce sync.Once
+	skipGuidanceText string
+
+	// contextCache caches DB enrichment results within a swarm run.
+	// Set via SetContextCache before swarm execution; nil for non-swarm modes.
+	contextCache *ContextCache
 }
 
 // NewEngine creates a new agent engine.
@@ -994,9 +1004,23 @@ func (e *Engine) enrichContext(ctx context.Context, data *TemplateData, template
 	if e.settings != nil {
 		limits = e.settings.Agent.ContextLimits
 	}
-	enrichContextFromDB(ctx, data, e.repo, data.Hostname, templateVars, limits)
+	enrichContextFromDB(ctx, data, e.repo, data.Hostname, templateVars, limits, e.contextCache)
 	enrichContextModules(data, templateVars)
 	enrichContextCommands(data, templateVars)
+}
+
+// SetContextCache sets a context cache for DB enrichment results.
+// Used by swarm runs to avoid redundant queries across phases.
+func (e *Engine) SetContextCache(cache *ContextCache) {
+	e.contextCache = cache
+}
+
+// InvalidateContextCache clears the context cache. Call after phases
+// that modify scan data (native scan, rescan).
+func (e *Engine) InvalidateContextCache() {
+	if e.contextCache != nil {
+		e.contextCache.Invalidate()
+	}
 }
 
 // buildPrompt resolves the prompt source and renders it.
@@ -1114,18 +1138,21 @@ func (e *Engine) gatherContext(ctx context.Context, opts Options, templateVars [
 
 	data.Language = detectLanguage(files)
 
-	// Generate skip guidance if requested (tells the agent what to avoid, no tree dump)
+	// Generate skip guidance if requested (tells the agent what to avoid, no tree dump).
+	// Cached since it returns a static string.
 	if hasVar(templateVars, "SkipGuidance") {
-		data.SkipGuidance = generateSkipGuidance()
+		e.skipGuidanceOnce.Do(func() {
+			e.skipGuidanceText = generateSkipGuidance()
+		})
+		data.SkipGuidance = e.skipGuidanceText
 	}
 
 	// Generate directory tree listing if requested and SkipGuidance is not used
-	// (SkipGuidance replaces the tree — the agent explores on its own)
+	// (SkipGuidance replaces the tree — the agent explores on its own).
+	// Cached per sourcePath since the tree doesn't change within a run.
 	if wantsDirectoryTree && !hasVar(templateVars, "SkipGuidance") {
-		tree, err := generateDirectoryTree(opts.SourcePath)
-		if err != nil {
-			zap.L().Warn("Failed to generate directory tree", zap.Error(err))
-		} else {
+		tree := e.cachedDirectoryTree(opts.SourcePath)
+		if tree != "" {
 			data.DirectoryTree = tree
 		}
 	}
@@ -1201,6 +1228,35 @@ func (e *Engine) collectSourceCode(sourcePath string, files []string) string {
 	}
 
 	return sourceCode.String()
+}
+
+// cachedDirectoryTree returns the directory tree for the given source path,
+// caching the result so repeated calls with the same path avoid filesystem walks.
+func (e *Engine) cachedDirectoryTree(sourcePath string) string {
+	if sourcePath == "" {
+		return ""
+	}
+
+	e.dirTreeCacheMu.RLock()
+	if cached, ok := e.dirTreeCache[sourcePath]; ok {
+		e.dirTreeCacheMu.RUnlock()
+		return cached
+	}
+	e.dirTreeCacheMu.RUnlock()
+
+	tree, err := generateDirectoryTree(sourcePath)
+	if err != nil {
+		zap.L().Warn("Failed to generate directory tree", zap.Error(err))
+		return ""
+	}
+
+	e.dirTreeCacheMu.Lock()
+	if e.dirTreeCache == nil {
+		e.dirTreeCache = make(map[string]string)
+	}
+	e.dirTreeCache[sourcePath] = tree
+	e.dirTreeCacheMu.Unlock()
+	return tree
 }
 
 // generateDirectoryTree produces a compact tree listing of a source directory,

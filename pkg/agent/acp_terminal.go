@@ -264,8 +264,7 @@ func (tm *terminalManager) killSession(id string) {
 	}
 
 	if sess.cmd != nil && sess.cmd.Process != nil {
-		// Kill the process group to include any children
-		_ = syscall.Kill(-sess.cmd.Process.Pid, syscall.SIGKILL)
+		killProcessGroup(sess.cmd.Process.Pid, "terminal-session")
 	}
 }
 
@@ -283,7 +282,7 @@ func (tm *terminalManager) killAll() {
 	defer tm.mu.Unlock()
 	for id, sess := range tm.sessions {
 		if sess.cmd != nil && sess.cmd.Process != nil {
-			_ = syscall.Kill(-sess.cmd.Process.Pid, syscall.SIGKILL)
+			killProcessGroup(sess.cmd.Process.Pid, "terminal-killall-"+id)
 		}
 		delete(tm.sessions, id)
 	}

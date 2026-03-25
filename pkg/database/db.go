@@ -22,6 +22,7 @@ import (
 type DB struct {
 	*bun.DB
 	driver string
+	hasFTS bool // true if FTS5 (SQLite) or tsvector (Postgres) is available
 }
 
 // NewDB creates database connection based on config
@@ -174,6 +175,11 @@ func (db *DB) Close() error {
 // Driver returns the database driver name
 func (db *DB) Driver() string {
 	return db.driver
+}
+
+// HasFTS returns true if full-text search is available (FTS5 for SQLite, tsvector for PostgreSQL).
+func (db *DB) HasFTS() bool {
+	return db.hasFTS
 }
 
 // adaptDDL rewrites SQLite-specific DDL for PostgreSQL when needed.
@@ -705,6 +711,75 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 			"INSERT OR IGNORE INTO projects (uuid, name, description, owner_uuid, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
 			DefaultProjectUUID, "Default Project", "Auto-created default project", DefaultUserUUID)
 	}
+
+	// Create FTS5 index for full-text search on HTTP records (SQLite only).
+	// This replaces the CAST(blob AS TEXT) LIKE pattern which forces full table scans.
+	if db.driver != "postgres" {
+		_, ftsErr := db.ExecContext(ctx, `
+			CREATE VIRTUAL TABLE IF NOT EXISTS http_records_fts USING fts5(
+				url,
+				path,
+				hostname,
+				request_headers,
+				response_headers,
+				request_body,
+				response_body,
+				content=http_records,
+				content_rowid=rowid,
+				tokenize='porter unicode61'
+			)`)
+		if ftsErr != nil {
+			zap.L().Debug("FTS5 not available, falling back to CAST/LIKE searches", zap.Error(ftsErr))
+		} else {
+			db.hasFTS = true
+			// Triggers to keep FTS index in sync
+			ftsTrigs := []string{
+				`CREATE TRIGGER IF NOT EXISTS http_records_fts_ai AFTER INSERT ON http_records BEGIN
+					INSERT INTO http_records_fts(rowid, url, path, hostname,
+						request_headers, response_headers,
+						request_body, response_body)
+					VALUES (new.rowid, new.url, new.path, new.hostname,
+						new.request_headers, new.response_headers,
+						CAST(new.request_body AS TEXT), CAST(new.response_body AS TEXT));
+				END`,
+				`CREATE TRIGGER IF NOT EXISTS http_records_fts_ad AFTER DELETE ON http_records BEGIN
+					INSERT INTO http_records_fts(http_records_fts, rowid, url, path, hostname,
+						request_headers, response_headers,
+						request_body, response_body)
+					VALUES ('delete', old.rowid, old.url, old.path, old.hostname,
+						old.request_headers, old.response_headers,
+						CAST(old.request_body AS TEXT), CAST(old.response_body AS TEXT));
+				END`,
+			}
+			for _, trig := range ftsTrigs {
+				if _, err := db.ExecContext(ctx, trig); err != nil {
+					zap.L().Debug("Failed to create FTS trigger", zap.Error(err))
+				}
+			}
+		}
+	} else {
+		// PostgreSQL: use tsvector with GIN index for full-text search
+		_, pgErr := db.ExecContext(ctx, `
+			ALTER TABLE http_records
+			ADD COLUMN IF NOT EXISTS search_vector tsvector
+			GENERATED ALWAYS AS (
+				to_tsvector('english',
+					coalesce(url, '') || ' ' ||
+					coalesce(path, '') || ' ' ||
+					coalesce(hostname, '') || ' ' ||
+					coalesce(request_headers, '') || ' ' ||
+					coalesce(response_headers, '')
+				)
+			) STORED`)
+		if pgErr != nil {
+			zap.L().Debug("PostgreSQL tsvector not available", zap.Error(pgErr))
+		} else {
+			_, _ = db.ExecContext(ctx,
+				"CREATE INDEX IF NOT EXISTS idx_http_records_search ON http_records USING GIN (search_vector)")
+			db.hasFTS = true
+		}
+	}
+
 	return nil
 }
 

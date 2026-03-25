@@ -71,10 +71,11 @@ type hostShard struct {
 // It uses per-host semaphores sharded across 32 buckets to reduce lock contention,
 // and supports auto-eviction of idle hosts.
 type HostRateLimiter struct {
-	shards     [numShards]hostShard
-	maxPerHost int           // Max concurrent requests per host
-	maxEntries int           // Max tracked hosts before forced eviction
-	evictAfter time.Duration // Evict hosts idle for this duration
+	shards         [numShards]hostShard
+	maxPerHost     int           // Max concurrent requests per host
+	maxEntries     int           // Max tracked hosts before forced eviction
+	evictAfter     time.Duration // Evict hosts idle for this duration
+	acquireTimeout time.Duration // Max time to wait for a slot
 
 	stopEvict chan struct{}
 	evictWg   conc.WaitGroup
@@ -82,19 +83,21 @@ type HostRateLimiter struct {
 
 // HostRateLimiterConfig configures the HostRateLimiter.
 type HostRateLimiterConfig struct {
-	MaxPerHost    int           // Max concurrent requests per host (default: 10)
-	MaxEntries    int           // Max tracked hosts (default: 1000)
-	EvictAfter    time.Duration // Evict idle hosts after (default: 30s)
-	EvictInterval time.Duration // How often to run eviction (default: 10s)
+	MaxPerHost     int           // Max concurrent requests per host (default: 10)
+	MaxEntries     int           // Max tracked hosts (default: 1000)
+	EvictAfter     time.Duration // Evict idle hosts after (default: 30s)
+	EvictInterval  time.Duration // How often to run eviction (default: 10s)
+	AcquireTimeout time.Duration // Max time to wait for a slot (default: 30s)
 }
 
 // DefaultHostRateLimiterConfig returns sensible defaults.
 func DefaultHostRateLimiterConfig() HostRateLimiterConfig {
 	return HostRateLimiterConfig{
-		MaxPerHost:    10,
-		MaxEntries:    1000,
-		EvictAfter:    30 * time.Second,
-		EvictInterval: 10 * time.Second,
+		MaxPerHost:     10,
+		MaxEntries:     1000,
+		EvictAfter:     30 * time.Second,
+		EvictInterval:  10 * time.Second,
+		AcquireTimeout: 30 * time.Second,
 	}
 }
 
@@ -113,11 +116,16 @@ func NewHostRateLimiter(cfg HostRateLimiterConfig) *HostRateLimiter {
 		cfg.EvictInterval = 10 * time.Second
 	}
 
+	if cfg.AcquireTimeout <= 0 {
+		cfg.AcquireTimeout = 30 * time.Second
+	}
+
 	h := &HostRateLimiter{
-		maxPerHost: cfg.MaxPerHost,
-		maxEntries: cfg.MaxEntries,
-		evictAfter: cfg.EvictAfter,
-		stopEvict:  make(chan struct{}),
+		maxPerHost:     cfg.MaxPerHost,
+		maxEntries:     cfg.MaxEntries,
+		evictAfter:     cfg.EvictAfter,
+		acquireTimeout: cfg.AcquireTimeout,
+		stopEvict:      make(chan struct{}),
 	}
 
 	for i := range h.shards {
@@ -171,6 +179,14 @@ func (h *HostRateLimiter) Acquire(ctx context.Context, host string) error {
 
 		return nil
 	}
+}
+
+// AcquireWithTimeout blocks until a slot is available or the configured timeout expires.
+// Returns context.DeadlineExceeded if the timeout is reached before a slot is available.
+func (h *HostRateLimiter) AcquireWithTimeout(host string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), h.acquireTimeout)
+	defer cancel()
+	return h.Acquire(ctx, host)
 }
 
 // Release releases a slot for the given host.

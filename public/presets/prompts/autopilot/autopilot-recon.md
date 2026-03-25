@@ -55,7 +55,7 @@ vigolium db stats --json
 ### Auth & Extensions
 ```
 # Load auth session for authenticated discovery
-cat session-config.json | vigolium auth load
+cat session-config.json | vigolium session load
 
 # Execute ad-hoc JS for custom probing
 echo 'vigolium.http.get(target + "/robots.txt")' | vigolium ext eval --stdin

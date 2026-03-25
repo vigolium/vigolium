@@ -149,7 +149,7 @@ func runPilotSpider(ctx context.Context, crawlerCfg *config.Config, cfg SpiderCo
 	if err != nil {
 		return nil, fmt.Errorf("pilot: create browser pool: %w", err)
 	}
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 
 	graph := state.NewGraph()
 	formHandler := form.NewHandler(crawlerCfg)
@@ -179,7 +179,7 @@ func runPilotSpider(ctx context.Context, crawlerCfg *config.Config, cfg SpiderCo
 	if err != nil {
 		return nil, fmt.Errorf("pilot: create session trace: %w", err)
 	}
-	defer trace.Close()
+	defer func() { _ = trace.Close() }()
 
 	pilotCfg := &ipilot.PilotConfig{
 		Enabled:       true,

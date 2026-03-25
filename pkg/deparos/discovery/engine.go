@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	nethttp "net/http"
+	"runtime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -447,7 +448,11 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		logger.Warn("Failed to initialize jsscan scanner", zap.Error(err))
 	} else {
 		engine.jsscanScanner = jsScanScanner
-		engine.jsscanSem = make(chan struct{}, 5) // Limit to 5 concurrent scans
+		jsscanConc := cfg.Engine.JSScanConcurrency
+		if jsscanConc <= 0 {
+			jsscanConc = runtime.NumCPU()
+		}
+		engine.jsscanSem = make(chan struct{}, jsscanConc)
 		if err := jsScanScanner.EnsureBinary(); err != nil {
 			logger.Error("jsscan EnsureBinary error", zap.Error(err))
 		}

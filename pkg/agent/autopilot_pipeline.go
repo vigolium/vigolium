@@ -206,21 +206,21 @@ func buildAutonomousPrompt(cfg AutopilotPipelineConfig) string {
 
 	b.WriteString("# Autonomous Security Assessment\n\n")
 	b.WriteString("## Mission\n\n")
-	b.WriteString(fmt.Sprintf("Perform a comprehensive security assessment of **%s**.\n\n", cfg.TargetURL))
+	fmt.Fprintf(&b, "Perform a comprehensive security assessment of **%s**.\n\n", cfg.TargetURL)
 	b.WriteString("You have full autonomy to decide your approach. Use any combination of vigolium CLI commands, ")
 	b.WriteString("curl, jq, and standard Unix tools. There are no fixed phases — you decide what to do, ")
 	b.WriteString("in what order, and when you're done.\n\n")
 
 	b.WriteString("## Target\n\n")
-	b.WriteString(fmt.Sprintf("- **URL:** %s\n", cfg.TargetURL))
+	fmt.Fprintf(&b, "- **URL:** %s\n", cfg.TargetURL)
 
 	if cfg.SourcePath != "" {
-		b.WriteString(fmt.Sprintf("- **Source code:** %s\n", cfg.SourcePath))
+		fmt.Fprintf(&b, "- **Source code:** %s\n", cfg.SourcePath)
 		b.WriteString("  - Read the source code to understand routes, auth flows, and vulnerability sinks\n")
 		b.WriteString("  - Use this knowledge to guide your scanning strategy\n")
 	}
 	if len(cfg.Files) > 0 {
-		b.WriteString(fmt.Sprintf("- **Focus files:** %s\n", strings.Join(cfg.Files, ", ")))
+		fmt.Fprintf(&b, "- **Focus files:** %s\n", strings.Join(cfg.Files, ", "))
 	}
 	b.WriteString("\n")
 

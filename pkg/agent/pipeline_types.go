@@ -73,6 +73,7 @@ type FollowUpScan struct {
 	ModuleTags []string `json:"module_tags,omitempty"`
 	ModuleIDs  []string `json:"module_ids,omitempty"`
 	Rationale  string   `json:"rationale,omitempty"`
+	TargetURLs []string `json:"target_urls,omitempty"` // specific URLs to rescan (preserves URL-to-module mapping)
 }
 
 // SourceAnalysisResult is the structured output from the source analysis phase (phase 0).
@@ -302,7 +303,17 @@ func writeCheckpoint(sessionDir string, cp *SwarmCheckpoint) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal checkpoint: %w", err)
 	}
-	return os.WriteFile(filepath.Join(sessionDir, "checkpoint.json"), data, 0644)
+	// Atomic write: write to temp file then rename, so a crash mid-write
+	// never leaves a corrupt checkpoint that breaks resume.
+	target := filepath.Join(sessionDir, "checkpoint.json")
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("failed to write checkpoint temp file: %w", err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return fmt.Errorf("failed to rename checkpoint temp file: %w", err)
+	}
+	return nil
 }
 
 // loadCheckpoint reads a SwarmCheckpoint from the session directory.
@@ -1119,6 +1130,7 @@ type ScanRequest struct {
 	ModuleIDs    []string // explicit module IDs from the agent's plan
 	ExtensionDir string   // path to generated JS extensions (empty if none)
 	IsRescan     bool     // true for triage-driven targeted rescans
+	TargetURLs   []string // optional: restrict rescan to these URLs only
 }
 
 // ScanFunc is the unified callback signature for running scans.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/deparos/fingerprint"
@@ -65,6 +67,11 @@ func (e *Engine) initSession() error {
 		if err := e.learnBaselineFingerprints(targetURL); err != nil {
 			logger.Warn("Fingerprint learning failed, continuing without baseline", zap.Error(err))
 		}
+		// Pre-warm cache for common paths/extensions beyond root to reduce
+		// inline learning pauses during the main discovery phase.
+		if e.fpCache != nil {
+			e.fpCache.PreWarm(e.ctx, targetURL)
+		}
 	} else {
 		logger.Debug("Skipping fingerprint learning (SkipFingerprintLearning=true)")
 	}
@@ -108,40 +115,80 @@ func (e *Engine) learnBaselineFingerprintsForDirectory(dirURL *url.URL) error {
 		zap.String("path", dirPath),
 		zap.Int("extension_count", len(extensions)))
 
-	learnedCount := 0
-	for _, ext := range extensions {
+	var learnedCount atomic.Int32
+
+	// Learn "" (no extension) synchronously first — it MUST complete before others
+	if len(extensions) > 0 {
+		ext := extensions[0] // always ""
 		key := fingerprint.CacheKey{
 			Host:      dirURL.Host,
 			Path:      dirPath,
 			Extension: ext,
 		}
+		if _, ok := e.fpCache.Get(key); !ok {
+			learnURL := *dirURL
+			learnURL.Path = dirPath
+			_, err := e.fpCache.LearnAndCache(e.ctx, key, &learnURL)
+			if err != nil {
+				logger.Debug("Failed to learn fingerprint for extension",
+					zap.String("path", dirPath),
+					zap.String("extension", ext),
+					zap.Error(err))
+			} else {
+				learnedCount.Add(1)
+			}
+		}
+	}
 
-		// Skip if already learned
-		if _, ok := e.fpCache.Get(key); ok {
-			continue
+	// Learn remaining extensions in parallel with bounded concurrency
+	if len(extensions) > 1 {
+		sem := make(chan struct{}, 3)
+		var wg sync.WaitGroup
+
+		for _, ext := range extensions[1:] {
+			ext := ext // capture loop variable
+
+			key := fingerprint.CacheKey{
+				Host:      dirURL.Host,
+				Path:      dirPath,
+				Extension: ext,
+			}
+
+			// Skip if already learned
+			if _, ok := e.fpCache.Get(key); ok {
+				continue
+			}
+
+			wg.Add(1)
+			sem <- struct{}{} // acquire semaphore slot
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }() // release semaphore slot
+
+				learnURL := *dirURL
+				learnURL.Path = dirPath
+
+				_, err := e.fpCache.LearnAndCache(e.ctx, key, &learnURL)
+				if err != nil {
+					logger.Debug("Failed to learn fingerprint for extension",
+						zap.String("path", dirPath),
+						zap.String("extension", ext),
+						zap.Error(err))
+					return
+				}
+				learnedCount.Add(1)
+
+				// Brief delay between requests to avoid overwhelming the server
+				time.Sleep(200 * time.Millisecond)
+			}()
 		}
 
-		// Create URL for learning (with directory path)
-		learnURL := *dirURL
-		learnURL.Path = dirPath
-
-		_, err := e.fpCache.LearnAndCache(e.ctx, key, &learnURL)
-		if err != nil {
-			logger.Debug("Failed to learn fingerprint for extension",
-				zap.String("path", dirPath),
-				zap.String("extension", ext),
-				zap.Error(err))
-			continue
-		}
-		learnedCount++
-
-		// Burp uses 1 second between extension learning (ds9.java:70)
-		time.Sleep(1 * time.Second)
+		wg.Wait()
 	}
 
 	logger.Info("Fingerprint learning complete for directory",
 		zap.String("path", dirPath),
-		zap.Int("learned", learnedCount),
+		zap.Int32("learned", learnedCount.Load()),
 		zap.Int("total", len(extensions)))
 
 	return nil

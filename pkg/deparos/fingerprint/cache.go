@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -491,4 +492,79 @@ func (c *Cache) HasSignaturesForHost(host string) bool {
 	_, ok := c.pathIndex[host]
 	c.mu.RUnlock()
 	return ok
+}
+
+// PreWarm probes common (path, extension) combinations to seed the fingerprint cache
+// before discovery workers start. This front-loads baseline learning and reduces
+// inline learning pauses during the main discovery phase.
+func (c *Cache) PreWarm(ctx context.Context, baseURL *url.URL) int {
+	commonPaths := []string{"/", "/api/", "/admin/", "/static/", "/assets/"}
+	commonExts := []string{"", ".html", ".php", ".js", ".json", ".xml", ".asp", ".jsp"}
+
+	type probeTarget struct {
+		path string
+		ext  string
+	}
+
+	var targets []probeTarget
+	host := baseURL.Host
+	for _, p := range commonPaths {
+		for _, ext := range commonExts {
+			if c.HasSignaturesForHostPath(host, p) {
+				// Already has some signatures for this path — check specific ext
+				key := CacheKey{Host: host, Path: p, Extension: ext}
+				if _, ok := c.Get(key); ok {
+					continue
+				}
+			}
+			targets = append(targets, probeTarget{path: p, ext: ext})
+		}
+	}
+
+	if len(targets) == 0 {
+		return 0
+	}
+
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	var learned atomic.Int32
+
+	for _, t := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p, ext string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			dirURL := *baseURL
+			dirURL.Path = p
+			key := CacheKey{Host: host, Path: p, Extension: ext}
+
+			if _, err := c.LearnAndCache(ctx, key, &dirURL); err != nil {
+				zap.L().Debug("Pre-warm failed",
+					zap.String("host", host),
+					zap.String("path", p),
+					zap.String("ext", ext),
+					zap.Error(err))
+				return
+			}
+			learned.Add(1)
+		}(t.path, t.ext)
+	}
+
+	wg.Wait()
+	zap.L().Info("Fingerprint cache pre-warmed",
+		zap.String("host", host),
+		zap.Int32("learned", learned.Load()),
+		zap.Int("total_probes", len(targets)))
+
+	return int(learned.Load())
 }

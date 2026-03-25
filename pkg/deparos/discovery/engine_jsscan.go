@@ -124,6 +124,13 @@ func (e *Engine) processScriptTagsWithJSScan(ctx context.Context, sourceURL *url
 			allRequests = append(allRequests, scanResult.Requests...)
 		}
 
+		// Skip linkfinder when jsscan extracted enough requests (AST analysis is more reliable)
+		if len(scanResult.Requests) >= 3 {
+			zap.L().Debug("Skipping linkfinder, jsscan extracted sufficient requests",
+				zap.Int("extracted", len(scanResult.Requests)))
+			continue
+		}
+
 		// Run linkfinder on script content
 		// Use transformed code from jsscan if available, otherwise use raw script
 		contentForLinkfinder := scriptContent

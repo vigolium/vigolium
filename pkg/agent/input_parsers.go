@@ -8,6 +8,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats/curl"
+	"go.uber.org/zap"
 )
 
 // parseCurlCommand parses a curl command string into an HttpRequestResponse.
@@ -54,6 +55,7 @@ func parseBurpXML(input string) ([]*httpmsg.HttpRequestResponse, error) {
 
 		var item burpItem
 		if err := decoder.DecodeElement(&item, &se); err != nil {
+			zap.L().Warn("Skipping malformed Burp XML item", zap.Error(err))
 			continue
 		}
 
@@ -61,6 +63,7 @@ func parseBurpXML(input string) ([]*httpmsg.HttpRequestResponse, error) {
 		if item.Request.Base64 == "true" {
 			decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(reqData))
 			if err != nil {
+				zap.L().Warn("Skipping Burp XML item: failed to decode base64 request", zap.Error(err))
 				continue
 			}
 			reqData = string(decoded)
@@ -77,6 +80,8 @@ func parseBurpXML(input string) ([]*httpmsg.HttpRequestResponse, error) {
 
 		rr, err := httpmsg.ParseRawRequestWithURL(reqData, targetURL)
 		if err != nil {
+			zap.L().Warn("Skipping Burp XML item: failed to parse raw request",
+				zap.String("url", targetURL), zap.Error(err))
 			continue
 		}
 

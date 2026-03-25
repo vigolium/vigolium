@@ -68,17 +68,17 @@ Configure authenticated scanning by writing a session config JSON file and loadi
 
 ```
 # Load session config from file
-cat session-config.json | vigolium auth load
+cat session-config.json | vigolium session load
 
 # Validate session config syntax before loading
-vigolium auth lint session-config.json
-cat session-config.json | vigolium auth lint --stdin
+vigolium session lint session-config.json
+cat session-config.json | vigolium session lint --stdin
 
 # List loaded auth sessions
-vigolium auth ls --json
+vigolium session ls --json
 
 # Generate TOTP code for 2FA
-vigolium auth totp --secret <base32-secret>
+vigolium session totp --secret <base32-secret>
 ```
 
 **Session config example** (bearer token login — use `"type": "cookie"` for cookie-based apps):
@@ -112,7 +112,7 @@ vigolium auth totp --secret <base32-secret>
 }
 ```
 
-Create one session entry per role/credential. `"primary"` is used for scanning; `"compare"` for authorization/IDOR testing. Supports `"type": "bearer"`, `"cookie"`, and multi-step flows with `"steps"` array. Always lint before loading: `vigolium auth lint session-config.json`.
+Create one session entry per role/credential. `"primary"` is used for scanning; `"compare"` for authorization/IDOR testing. Supports `"type": "bearer"`, `"cookie"`, and multi-step flows with `"steps"` array. Always lint before loading: `vigolium session lint session-config.json`.
 
 **7. JavaScript Extensions — Custom scanning logic**
 
@@ -213,8 +213,8 @@ You decide your own workflow. Here's how to think about it:
 - Focus scanning on endpoints with user input (query params, POST bodies, headers)
 
 **Set up authentication early:**
-- If the app has login, create a session config and load it with `vigolium auth load`
-- Use `vigolium auth lint` to validate before loading
+- If the app has login, create a session config and load it with `vigolium session load`
+- Use `vigolium session lint` to validate before loading
 - Primary role for scanning, compare role for IDOR/authorization testing
 
 **Be targeted, not exhaustive:**
@@ -244,7 +244,7 @@ You decide your own workflow. Here's how to think about it:
 ### Output Guidelines
 
 - Always use `--json` flag for vigolium commands to get structured output
-- Always lint extensions and session configs before loading (`vigolium ext lint`, `vigolium auth lint`)
+- Always lint extensions and session configs before loading (`vigolium ext lint`, `vigolium session lint`)
 - Chain commands freely: pipes, redirects, and standard Unix tools
 - **Every finding MUST include proof-of-concept evidence:**
   - Dynamic: full HTTP request and response (method, URL, headers, body)

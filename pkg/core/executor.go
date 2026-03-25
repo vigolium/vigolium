@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -139,6 +140,7 @@ type ExecutorConfig struct {
 	IPCacheSize           int                  // LRU cache size for parsed insertion points (default: 4096)
 	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint] // Optional: shared IP cache (if nil, a new one is created)
 	ParallelPassive       bool                 // When true, run passive per-request modules concurrently
+	PassiveModuleTimeout  time.Duration        // Timeout per passive module call (default: 5s). 0 uses default.
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -200,6 +202,7 @@ type Executor struct {
 
 	// Feedback channel: modules can inject discovered requests back into the pipeline
 	feedbackCh chan *work.WorkItem
+	feeder     *executorFeeder // tracks feedback drop metrics
 }
 
 // NewExecutor creates a new Executor with the given configuration.
@@ -246,7 +249,7 @@ func NewExecutor(
 		projectUUID:    cfg.ProjectUUID,
 		requestUUIDs:   newShardedMap(cfg.Workers),
 		ipCache:        ipCache,
-		feedbackCh:     make(chan *work.WorkItem, cfg.Workers*4),
+		feedbackCh:     make(chan *work.WorkItem, cfg.Workers*16),
 	}
 
 	// Wire risk score updater, remarks annotator, and request UUID resolver into ScanContext
@@ -268,7 +271,11 @@ func NewExecutor(
 	if e.scanCtx == nil {
 		e.scanCtx = &modules.ScanContext{}
 	}
-	e.scanCtx.RequestFeeder = &executorFeeder{ch: e.feedbackCh}
+	e.feeder = &executorFeeder{ch: e.feedbackCh}
+	e.scanCtx.RequestFeeder = e.feeder
+
+	// Wire insertion point provider for module reuse of cached IPs
+	e.scanCtx.InsertionPoints = &executorIPProvider{cache: e.ipCache}
 
 	// Pre-group modules by scan type
 	e.perHostActive = filterActiveModulesByScanScope(activeModules, modules.ScanScopeHost)
@@ -289,6 +296,14 @@ func NewExecutor(
 func (e *Executor) Processed() int64 {
 	if e.statsTracker != nil {
 		return e.statsTracker.Processed()
+	}
+	return 0
+}
+
+// FeedbackDropped returns the number of feedback items dropped due to channel capacity.
+func (e *Executor) FeedbackDropped() int64 {
+	if e.feeder != nil {
+		return e.feeder.Dropped()
 	}
 	return 0
 }
@@ -607,6 +622,18 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 			return // Skip item - httpClient already tracked host error
 		}
 
+		// Block/WAF detection — check before copying response to avoid wasted work
+		if blockErr := infra.GetBlockDetectionValidator().Validate(respChain); blockErr != nil {
+			respChain.Close()
+			zap.L().Debug("Block detected, skipping item",
+				zap.String("url", req.Target()),
+				zap.Error(blockErr))
+			if e.statsTracker != nil {
+				e.statsTracker.IncrementBlocked()
+			}
+			return
+		}
+
 		// Extract full response (headers + body) and close immediately
 		// CRITICAL: Copy bytes before Close() - buffer is returned to pool
 		fullResp := respChain.FullResponse().Bytes()
@@ -685,9 +712,12 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 	}
 
 	// Phase 1: Passive modules (no network I/O — run on ALL records
-	// regardless of scope/body-size gates since they are read-only)
-	e.runPassivePerHost(req, &filter)
-	e.runPassivePerRequest(req, &filter)
+	// regardless of scope/body-size gates since they are read-only).
+	// Pre-filter eligible modules once to avoid redundant CanProcess calls.
+	eligiblePerHost := e.filterEligiblePassive(e.perHostPassive, req, &filter)
+	eligiblePerRequest := e.filterEligiblePassive(e.perRequestPassive, req, &filter)
+	e.runPassivePerHostFiltered(req, eligiblePerHost)
+	e.runPassivePerRequestFiltered(req, eligiblePerRequest)
 
 	// Body size gate — drop/skip only affects active modules
 	if bodySizeAction == config.BodySizeDrop {
@@ -767,55 +797,102 @@ func (e *Executor) saveToDatabase(item *work.WorkItem, req *httpmsg.HttpRequestR
 	e.requestUUIDs.Store(req.Request().ID(), recordUUID)
 }
 
-func (e *Executor) runPassivePerHost(item *httpmsg.HttpRequestResponse, filter *moduleFilter) {
-	if len(e.perHostPassive) == 0 {
-		return
+// filterEligiblePassive pre-filters passive modules by CanProcess and module filter,
+// computing eligibility once per request instead of per-module in each run method.
+func (e *Executor) filterEligiblePassive(mods []modules.PassiveModule, item *httpmsg.HttpRequestResponse, filter *moduleFilter) []modules.PassiveModule {
+	if len(mods) == 0 {
+		return nil
+	}
+	eligible := make([]modules.PassiveModule, 0, len(mods))
+	for _, m := range mods {
+		if filter.allows(m.ID()) && m.CanProcess(item) {
+			eligible = append(eligible, m)
+		}
+	}
+	return eligible
+}
+
+// defaultPassiveModuleTimeout limits how long a single passive module can take per request.
+const defaultPassiveModuleTimeout = 5 * time.Second
+
+// passiveModuleTimeout returns the effective passive module timeout.
+func (e *Executor) passiveModuleTimeout() time.Duration {
+	if e.cfg.PassiveModuleTimeout > 0 {
+		return e.cfg.PassiveModuleTimeout
+	}
+	return defaultPassiveModuleTimeout
+}
+
+// runPassiveWithTimeout executes a passive module scan function with a timeout guard.
+func (e *Executor) runPassiveWithTimeout(
+	scanFn func() ([]*output.ResultEvent, error),
+	module modules.PassiveModule,
+	item *httpmsg.HttpRequestResponse,
+) []*output.ResultEvent {
+	timeout := e.passiveModuleTimeout()
+
+	type result struct {
+		events []*output.ResultEvent
+		err    error
 	}
 
-	for _, module := range e.perHostPassive {
-		if !filter.allows(module.ID()) {
-			continue
-		}
-		if !module.CanProcess(item) {
-			continue
-		}
+	ch := make(chan result, 1)
+	go func() {
+		events, err := scanFn()
+		ch <- result{events, err}
+	}()
 
-		results, err := module.ScanPerHost(item, e.scanCtx)
-		if err != nil {
-			zap.L().Warn("Passive module error",
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			zap.L().Debug("Passive module error",
 				zap.String("module", module.ID()),
-				zap.Error(err))
-			continue
+				zap.Error(r.err))
+			return nil
 		}
+		return r.events
+	case <-timer.C:
+		zap.L().Warn("Passive module timed out — skipping",
+			zap.String("module", module.ID()),
+			zap.String("url", item.Target()),
+			zap.Duration("timeout", timeout))
+		return nil
+	}
+}
 
+// runPassivePerHostFiltered runs pre-filtered passive modules (CanProcess already checked).
+func (e *Executor) runPassivePerHostFiltered(item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
+	for _, module := range eligible {
+		results := e.runPassiveWithTimeout(
+			func() ([]*output.ResultEvent, error) {
+				return module.ScanPerHost(item, e.scanCtx)
+			},
+			module, item,
+		)
 		e.processResults(results, module, item)
 	}
 }
 
-func (e *Executor) runPassivePerRequest(item *httpmsg.HttpRequestResponse, filter *moduleFilter) {
-	if len(e.perRequestPassive) == 0 {
+// runPassivePerRequestFiltered runs pre-filtered passive modules (CanProcess already checked).
+func (e *Executor) runPassivePerRequestFiltered(item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
+	if len(eligible) == 0 {
 		return
 	}
 
 	if e.cfg.ParallelPassive {
 		var g conc.WaitGroup
-		for _, module := range e.perRequestPassive {
-			if !filter.allows(module.ID()) {
-				continue
-			}
-			if !module.CanProcess(item) {
-				continue
-			}
-
-			mod := module // capture loop variable
+		for _, module := range eligible {
+			mod := module
 			g.Go(func() {
-				results, err := mod.ScanPerRequest(item, e.scanCtx)
-				if err != nil {
-					zap.L().Warn("Passive module error",
-						zap.String("module", mod.ID()),
-						zap.Error(err))
-					return
-				}
+				results := e.runPassiveWithTimeout(
+					func() ([]*output.ResultEvent, error) {
+						return mod.ScanPerRequest(item, e.scanCtx)
+					},
+					mod, item,
+				)
 				e.processResults(results, mod, item)
 			})
 		}
@@ -823,22 +900,13 @@ func (e *Executor) runPassivePerRequest(item *httpmsg.HttpRequestResponse, filte
 		return
 	}
 
-	for _, module := range e.perRequestPassive {
-		if !filter.allows(module.ID()) {
-			continue
-		}
-		if !module.CanProcess(item) {
-			continue
-		}
-
-		results, err := module.ScanPerRequest(item, e.scanCtx)
-		if err != nil {
-			zap.L().Warn("Passive module error",
-				zap.String("module", module.ID()),
-				zap.Error(err))
-			continue
-		}
-
+	for _, module := range eligible {
+		results := e.runPassiveWithTimeout(
+			func() ([]*output.ResultEvent, error) {
+				return module.ScanPerRequest(item, e.scanCtx)
+			},
+			module, item,
+		)
 		e.processResults(results, module, item)
 	}
 }
@@ -1263,7 +1331,9 @@ func (u *repoRiskScoreUpdater) UpdateRiskScores(ctx context.Context, scores map[
 
 // executorFeeder implements modkit.RequestFeeder via a non-blocking channel send.
 type executorFeeder struct {
-	ch chan *work.WorkItem
+	ch       chan *work.WorkItem
+	dropped  atomic.Int64
+	lastWarn atomic.Int64
 }
 
 func (f *executorFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
@@ -1272,8 +1342,51 @@ func (f *executorFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
 	case f.ch <- item:
 		return true
 	default:
-		return false // channel full, drop
+		f.dropped.Add(1)
+		// Rate-limited warning: log at most once every 5 seconds
+		now := time.Now().Unix()
+		if last := f.lastWarn.Load(); now-last >= 5 {
+			if f.lastWarn.CompareAndSwap(last, now) {
+				zap.L().Warn("Feedback channel full, discovered URLs dropped",
+					zap.Int64("total_dropped", f.dropped.Load()))
+			}
+		}
+		return false
 	}
+}
+
+// Dropped returns the total number of feedback items dropped due to channel capacity.
+func (f *executorFeeder) Dropped() int64 {
+	return f.dropped.Load()
+}
+
+// executorIPProvider wraps the executor's LRU insertion point cache
+// as a modkit.InsertionPointProvider so modules can reuse cached IPs.
+type executorIPProvider struct {
+	cache *lru.Cache[string, []httpmsg.InsertionPoint]
+}
+
+func (p *executorIPProvider) GetInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	if p.cache == nil {
+		return httpmsg.CreateAllInsertionPoints(raw, includeNested)
+	}
+
+	// Cache key includes includeNested flag to separate variants
+	key := requestID
+	if !includeNested {
+		key = requestID + ":shallow"
+	}
+
+	if points, ok := p.cache.Get(key); ok {
+		return points, nil
+	}
+
+	points, err := httpmsg.CreateAllInsertionPoints(raw, includeNested)
+	if err != nil {
+		return nil, err
+	}
+	p.cache.Add(key, points)
+	return points, nil
 }
 
 // repoRemarksAnnotator adapts *database.Repository to modkit.RemarksAnnotator.

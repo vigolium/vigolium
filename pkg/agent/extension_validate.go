@@ -437,10 +437,11 @@ func countUnquotedColons(s string) int {
 				inQuote = false
 			}
 		} else {
-			if ch == '"' || ch == '\'' {
+			switch ch {
+			case '"', '\'':
 				inQuote = true
 				quoteChar = ch
-			} else if ch == ':' {
+			case ':':
 				count++
 			}
 		}
@@ -451,7 +452,7 @@ func countUnquotedColons(s string) int {
 // isSimpleJSIdentifier returns true if s looks like a valid JS identifier (letters, digits, _, $, -).
 func isSimpleJSIdentifier(s string) bool {
 	for _, r := range s {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '$' || r == '-') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '$' && r != '-' {
 			return false
 		}
 	}
