@@ -3,6 +3,8 @@
 
 package codexsdk
 
+import "encoding/json"
+
 // AbsolutePathBuf: A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be
 type AbsolutePathBuf = string
 
@@ -162,9 +164,10 @@ type AgentMessageDeltaNotification struct {
 	TurnId string `json:"turnId"`
 }
 
-type AskForApproval struct {
-	Granular map[string]any `json:"granular,omitempty"`
-}
+// AskForApproval can be either a string (e.g. "on-failure") or a struct with
+// a Granular field, depending on the codex version. We use json.RawMessage
+// to accept both forms.
+type AskForApproval = json.RawMessage
 
 type ByteRange struct {
 	End int64 `json:"end"`
@@ -345,10 +348,10 @@ type SandboxPolicy struct {
 	WritableRoots []string `json:"writableRoots,omitempty"`
 }
 
-type SessionSource struct {
-	Custom *string `json:"custom,omitempty"`
-	SubAgent *SubAgentSource `json:"subAgent,omitempty"`
-}
+// SessionSource can be either a string (e.g. "app-server") or a struct with
+// Custom/SubAgent fields, depending on the codex version. We use json.RawMessage
+// to accept both forms.
+type SessionSource = json.RawMessage
 
 type SubAgentSource struct {
 	Thread_spawn map[string]any `json:"thread_spawn,omitempty"`

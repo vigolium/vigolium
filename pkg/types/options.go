@@ -1,6 +1,8 @@
 package types
 
 import (
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -53,8 +55,8 @@ type Options struct {
 	DumpTraffic bool
 	// JSONOutput enables JSON output to stdout
 	JSONOutput bool
-	// OutputFormat selects the output format: console, jsonl, html
-	OutputFormat string
+	// OutputFormats selects the output formats: console, jsonl, html (comma-separated for multiple)
+	OutputFormats []string
 	// CIOutput enables CI-friendly output: JSONL findings only, no color, no banners
 	CIOutput bool
 
@@ -212,4 +214,56 @@ func (options *Options) ShouldUseHostError() bool {
 // ShouldFollowHTTPRedirects determines if http redirects should be followed
 func (options *Options) ShouldFollowHTTPRedirects() bool {
 	return options.FollowRedirects || options.FollowHostRedirects
+}
+
+// HasFormat returns true if the given format is in the OutputFormats list.
+func (options *Options) HasFormat(format string) bool {
+	for _, f := range options.OutputFormats {
+		if f == format {
+			return true
+		}
+	}
+	return false
+}
+
+// OutputBasePath returns the base path for output files by stripping any
+// known format extension (.jsonl, .html, .json) from the Output path.
+func (options *Options) OutputBasePath() string {
+	return StripFormatExtension(options.Output)
+}
+
+// OutputPathForFormat returns the output file path for a specific format,
+// using the base path with the appropriate extension appended.
+func (options *Options) OutputPathForFormat(format string) string {
+	return FormatOutputPath(options.OutputBasePath(), format)
+}
+
+// StripFormatExtension removes known format extensions (.jsonl, .html, .json)
+// from a path, returning the base suitable for appending a new extension.
+func StripFormatExtension(path string) string {
+	if path == "" {
+		return ""
+	}
+	ext := filepath.Ext(path)
+	switch strings.ToLower(ext) {
+	case ".jsonl", ".html", ".json":
+		return strings.TrimSuffix(path, ext)
+	default:
+		return path
+	}
+}
+
+// FormatOutputPath appends the appropriate file extension for the given format.
+func FormatOutputPath(basePath, format string) string {
+	if basePath == "" {
+		return ""
+	}
+	switch format {
+	case "jsonl":
+		return basePath + ".jsonl"
+	case "html":
+		return basePath + ".html"
+	default:
+		return basePath
+	}
 }

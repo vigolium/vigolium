@@ -116,7 +116,10 @@ type StandardWriter struct {
 
 func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 	var outputFile io.WriteCloser
-	if options.Output != "" && options.OutputFormat != "html" {
+	// Create file output for JSONL streaming during scan. Skip when the only format is html
+	// (HTML reports are generated post-scan from the database).
+	needsFileOutput := options.Output != "" && (options.HasFormat("jsonl") || options.HasFormat("console"))
+	if needsFileOutput {
 		output, err := newFileOutputWriter(options.Output, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not create output file")

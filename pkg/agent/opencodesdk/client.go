@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,25 +110,48 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string, streamWrite
 	}
 
 	// Consume SSE events until the session becomes idle or errors.
+	//
+	// Different daemon versions send text in different ways:
+	// - opencode sends "message.part.delta" with incremental text fragments
+	// - some versions send "message.part.updated" with accumulated Part.Text
+	//
+	// We handle both: for "message.part.updated" we track per-part text length
+	// and compute the delta. For "message.part.delta" we parse the raw JSON.
 	var output strings.Builder
+	partTextLen := make(map[string]int) // tracks seen text length per part ID
 	for stream.Next() {
 		event := stream.Current()
+
+		zap.L().Debug("opencode SSE event received",
+			zap.String("type", string(event.Type)),
+			zap.String("sessionID", sessionID))
 
 		switch event.Type {
 		case opencode.EventListResponseTypeMessagePartUpdated:
 			ev, ok := event.AsUnion().(opencode.EventListResponseEventMessagePartUpdated)
-			if !ok {
+			if !ok || ev.Properties.Part.SessionID != sessionID {
 				continue
 			}
-			// Filter to our session
-			if ev.Properties.Part.SessionID != sessionID {
-				continue
-			}
-			delta := ev.Properties.Delta
-			if delta != "" {
-				output.WriteString(delta)
+			// First try the Delta field (used by some daemon versions)
+			if ev.Properties.Delta != "" {
+				output.WriteString(ev.Properties.Delta)
 				if streamWriter != nil {
-					_, _ = io.WriteString(streamWriter, delta)
+					_, _ = io.WriteString(streamWriter, ev.Properties.Delta)
+				}
+				continue
+			}
+			// Fall back to computing delta from Part.Text:
+			// Part.Text contains the full accumulated text; we emit only the new portion.
+			part := ev.Properties.Part
+			if part.Text != "" && part.Type == "text" {
+				prev := partTextLen[part.ID]
+				if len(part.Text) > prev {
+					delta := part.Text[prev:]
+					partTextLen[part.ID] = len(part.Text)
+					output.WriteString(delta)
+					if streamWriter != nil {
+						_, _ = io.WriteString(streamWriter, delta)
+					}
 				}
 			}
 
@@ -172,6 +196,22 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string, streamWrite
 			if ev.Properties.SessionID == sessionID {
 				return output.String(), fmt.Errorf("opencode session error: %s", ev.Properties.Error.Name)
 			}
+
+		default:
+			// Handle "message.part.delta" — not yet in SDK types but sent by
+			// newer daemon versions. Contains streaming text fragments.
+			if event.Type == "message.part.delta" {
+				delta := extractDelta(event)
+				zap.L().Debug("message.part.delta extracted",
+					zap.String("delta", delta),
+					zap.Int("rawLen", len(event.JSON.RawJSON())))
+				if delta != "" {
+					output.WriteString(delta)
+					if streamWriter != nil {
+						_, _ = io.WriteString(streamWriter, delta)
+					}
+				}
+			}
 		}
 	}
 
@@ -179,8 +219,25 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string, streamWrite
 		return output.String(), fmt.Errorf("SSE stream error: %w", err)
 	}
 
-	// Stream ended without session.idle — return what we have
+	if output.Len() == 0 {
+		return "", fmt.Errorf("opencode session ended without producing output")
+	}
+
 	return output.String(), nil
+}
+
+// extractDelta parses raw JSON from an SSE event to get the "properties.delta" field.
+// Used for event types not yet defined in the SDK (e.g., "message.part.delta").
+func extractDelta(event opencode.EventListResponse) string {
+	var raw struct {
+		Properties struct {
+			Delta string `json:"delta"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(event.JSON.RawJSON()), &raw); err != nil {
+		return ""
+	}
+	return raw.Properties.Delta
 }
 
 // Abort cancels a running session.
@@ -228,7 +285,10 @@ func (c *Client) waitReady(ctx context.Context) error {
 		case <-deadline:
 			return fmt.Errorf("timeout waiting for OpenCode daemon on port %d", c.daemon.port)
 		case <-c.daemon.done:
-			return fmt.Errorf("daemon exited before becoming ready: %s", c.daemon.stderr.String())
+			c.daemon.stderrMu.Lock()
+			stderrStr := c.daemon.stderr.String()
+			c.daemon.stderrMu.Unlock()
+			return fmt.Errorf("daemon exited before becoming ready: %s", stderrStr)
 		case <-ticker.C:
 			// Try a lightweight API call to check readiness
 			listCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
@@ -248,6 +308,7 @@ func (c *Client) waitReady(ctx context.Context) error {
 // daemon manages an OpenCode server subprocess.
 type daemon struct {
 	cmd       *exec.Cmd
+	stderrMu  sync.Mutex
 	stderr    bytes.Buffer
 	done      chan struct{}
 	closeOnce sync.Once
@@ -283,7 +344,7 @@ func startDaemon(ctx context.Context, opts *Options) (*daemon, error) {
 		}
 	}
 
-	args := []string{"serve", "--cwd", opts.Cwd}
+	args := []string{"serve", "--port", fmt.Sprintf("%d", port), "--print-logs"}
 
 	// Log a readable command line for debugging
 	var cmdLine strings.Builder
@@ -308,11 +369,12 @@ func startDaemon(ctx context.Context, opts *Options) (*daemon, error) {
 		cmd.Dir = opts.Cwd
 	}
 
-	// Build environment with port override and any custom env vars
-	cmd.Env = cmd.Environ()
-	cmd.Env = append(cmd.Env, fmt.Sprintf("OPENCODE_BASE_URL=http://localhost:%d", port))
-	for k, v := range opts.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
+	// Pass through custom env vars if configured
+	if len(opts.Env) > 0 {
+		cmd.Env = cmd.Environ()
+		for k, v := range opts.Env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
@@ -335,8 +397,10 @@ func startDaemon(ctx context.Context, opts *Options) (*daemon, error) {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
+			d.stderrMu.Lock()
 			d.stderr.WriteString(line)
 			d.stderr.WriteByte('\n')
+			d.stderrMu.Unlock()
 			zap.L().Debug("opencode stderr", zap.String("line", line))
 		}
 	}()

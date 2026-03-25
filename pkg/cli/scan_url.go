@@ -428,23 +428,10 @@ func buildPhaseOptions(target string) *types.Options {
 	opts.ProxyURL = globalProxy
 	opts.ConfigPath = globalConfig
 	opts.ScopeOriginMode = globalScopeOrigin
-	opts.OutputFormat = globalFormat
-
-	// Reconcile --json and --format
-	if globalJSON && globalFormat == "console" {
-		opts.OutputFormat = "jsonl"
-	}
-	if opts.OutputFormat == "jsonl" {
-		opts.JSONOutput = true
-	}
-
-	// --ci-output-format: JSONL findings only, no color, no banners
-	if globalCIOutput {
-		opts.CIOutput = true
-		opts.OutputFormat = "jsonl"
-		opts.JSONOutput = true
-		opts.Silent = true
-	}
+	opts.OutputFormats = parseFormats(globalFormat)
+	// reconcileOutputFormats errors are ignored here because buildPhaseOptions
+	// is called with already-validated global flags.
+	_ = reconcileOutputFormats(opts)
 
 	// Phase flags
 	opts.DiscoverEnabled = scanPhaseDiscover

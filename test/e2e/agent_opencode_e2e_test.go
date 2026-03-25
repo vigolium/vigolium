@@ -230,9 +230,9 @@ func TestOpenCodeSDK_WithSourcePath(t *testing.T) {
 
 func TestOpenCodeSDK_ConfigValidation(t *testing.T) {
 	cfg := config.AgentConfig{
-		DefaultAgent: "opencode-native",
+		DefaultAgent: "opencode",
 		Backends: map[string]config.AgentDef{
-			"opencode-native": {
+			"opencode": {
 				Command:  "opencode",
 				Protocol: "opencode-sdk",
 			},

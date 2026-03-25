@@ -5,15 +5,15 @@ import "testing"
 func TestDefaultAgentConfig(t *testing.T) {
 	cfg := DefaultAgentConfig()
 
-	if cfg.DefaultAgent != "claude-sdk" {
-		t.Errorf("expected default_agent=claude-sdk, got %s", cfg.DefaultAgent)
+	if cfg.DefaultAgent != "claude" {
+		t.Errorf("expected default_agent=claude, got %s", cfg.DefaultAgent)
 	}
 	if len(cfg.Backends) != 11 {
 		t.Errorf("expected 11 agents, got %d", len(cfg.Backends))
 	}
 
 	// Check all expected agents exist
-	for _, name := range []string{"claude-sdk", "claude", "claude-cli", "codex", "codex-acp", "opencode", "opencode-native", "opencode-cli", "gemini", "gemini-cli", "cursor"} {
+	for _, name := range []string{"claude", "claude-acp", "claude-cli", "codex", "codex-acp", "opencode", "opencode-acp", "opencode-cli", "gemini", "gemini-cli", "cursor"} {
 		def, ok := cfg.Backends[name]
 		if !ok {
 			t.Errorf("expected agent %q to exist", name)
@@ -46,7 +46,7 @@ func TestAgentDef_EffectiveProtocol(t *testing.T) {
 func TestDefaultAgentConfig_Protocols(t *testing.T) {
 	cfg := DefaultAgentConfig()
 
-	acpAgents := []string{"claude", "codex-acp", "opencode", "gemini", "cursor"}
+	acpAgents := []string{"claude-acp", "codex-acp", "opencode-acp", "gemini", "cursor"}
 	for _, name := range acpAgents {
 		def := cfg.Backends[name]
 		if def.EffectiveProtocol() != "acp" {
@@ -61,9 +61,9 @@ func TestDefaultAgentConfig_Protocols(t *testing.T) {
 	}
 
 	// OpenCode native SDK protocol
-	opencodeDef := cfg.Backends["opencode-native"]
+	opencodeDef := cfg.Backends["opencode"]
 	if opencodeDef.EffectiveProtocol() != "opencode-sdk" {
-		t.Errorf("opencode-native protocol = %q, want %q", opencodeDef.EffectiveProtocol(), "opencode-sdk")
+		t.Errorf("opencode protocol = %q, want %q", opencodeDef.EffectiveProtocol(), "opencode-sdk")
 	}
 
 	pipeAgents := []string{"claude-cli", "opencode-cli", "gemini-cli"}

@@ -1081,7 +1081,7 @@ agent:
   # Default agent backend to use when none is specified.
   # Must match a key in the backends map below.
   # Default: claude
-  default_agent: claude-sdk
+  default_agent: claude
 
   # Stream agent output to stdout in real-time.
   # When true (default), agent message text appears incrementally as it is produced.
@@ -1222,12 +1222,12 @@ agent:
   # OpenCode uses "provider_config" for thinking, permissions, custom API.
   backends:
 
-    # ── Claude Code (SDK — recommended) ──────────────────────────────
+    # ── Claude Code (SDK — recommended, default) ────────────────────
     # Uses the Claude Agent SDK (JSON-lines protocol) for full CLI tool access.
     # Provides Read, Grep, Glob, Bash, Edit, Write — all standard Claude Code
     # tools. Much higher output quality than ACP (which only gets ReadTextFile).
     # Requires "claude" CLI in PATH.
-    claude-sdk:
+    claude:
       command: claude
       description: "Anthropic Claude Code (SDK protocol)"
       protocol: sdk
@@ -1241,7 +1241,7 @@ agent:
     # ── Claude Code (ACP) ──────────────────────────────────────────
     # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
     # NOTE: ACP only provides ReadTextFile — limited tool access compared to SDK.
-    claude:
+    claude-acp:
       command: npx
       args: ["-y", "@zed-industries/claude-agent-acp@latest"]
       description: "Anthropic Claude Code (ACP)"
@@ -1278,13 +1278,13 @@ agent:
       args: ["--dangerously-skip-permissions", "-p"]
       description: "Anthropic Claude Code (pipe mode)"
 
-    # ── OpenCode (ACP) ─────────────────────────────────────────────
-    # Model + options injected via OPENCODE_CONFIG_CONTENT env var.
+    # ── OpenCode (native SDK — recommended) ─────────────────────────
+    # Uses the OpenCode native REST API + SSE streaming protocol.
+    # Full tool access. Requires "opencode" CLI in PATH.
     opencode:
       command: opencode
-      args: ["acp"]
-      description: "OpenCode agent (ACP)"
-      protocol: acp
+      description: "OpenCode agent (native SDK)"
+      protocol: opencode-sdk
       # model: "anthropic/claude-sonnet-4-5"
       provider_config:
         thinking:
@@ -1297,6 +1297,24 @@ agent:
           bash: allow
         # api_url: ""                  # custom OpenAI-compatible base URL
         # api_key: "${OPENCODE_API_KEY}"  # API key for custom providers
+
+    # ── OpenCode (ACP) ─────────────────────────────────────────────
+    # Model + options injected via OPENCODE_CONFIG_CONTENT env var.
+    opencode-acp:
+      command: opencode
+      args: ["acp"]
+      description: "OpenCode agent (ACP)"
+      protocol: acp
+      # model: "anthropic/claude-sonnet-4-5"
+      provider_config:
+        thinking:
+          enabled: false
+          budget_tokens: 16000
+        permission:
+          read: allow
+          edit: allow
+          write: allow
+          bash: allow
 
     # ── OpenCode (pipe mode) ───────────────────────────────────────
     opencode-cli:
@@ -1319,12 +1337,20 @@ agent:
       args: ["-p"]
       description: "Google Gemini CLI (pipe mode)"
 
-    # ── Codex (ACP) ────────────────────────────────────────────────
-    # Model injected as: codex --model <model> app-server
+    # ── Codex (native SDK — recommended) ────────────────────────────
+    # Uses Codex native JSON-RPC v2 protocol. Requires "codex" CLI in PATH.
     codex:
       command: codex
+      description: "OpenAI Codex CLI (native JSON-RPC v2)"
+      protocol: codex-sdk
+      # model: "o3"
+
+    # ── Codex (ACP, legacy) ──────────────────────────────────────
+    # Model injected as: codex --model <model> app-server
+    codex-acp:
+      command: codex
       args: ["app-server"]
-      description: "OpenAI Codex CLI (ACP)"
+      description: "OpenAI Codex CLI (ACP, legacy)"
       protocol: acp
       # model: "o3"
 

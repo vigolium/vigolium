@@ -349,14 +349,14 @@ func DefaultClaudeSessionMeta() *ACPSessionMeta {
 // DefaultAgentConfig returns sensible defaults for all supported agent backends.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
-		DefaultAgent: "claude-sdk",
+		DefaultAgent: "claude",
 		Backends: map[string]AgentDef{
-			"claude-sdk": {
+			"claude": {
 				Command:     "claude",
 				Description: "Anthropic Claude Code (SDK protocol)",
 				Protocol:    "sdk",
 			},
-			"claude": {
+			"claude-acp": {
 				Command:     "npx",
 				Args:        []string{"-y", "@zed-industries/claude-agent-acp@latest"},
 				Description: "Anthropic Claude Code (ACP)",
@@ -379,14 +379,14 @@ func DefaultAgentConfig() *AgentConfig {
 				Description: "OpenAI Codex CLI (ACP, legacy)",
 				Protocol:    "acp",
 			},
-			"opencode": {
+			"opencode-acp": {
 				Command:        "opencode",
 				Args:           []string{"acp"},
 				Description:    "OpenCode agent (ACP)",
 				Protocol:       "acp",
 				ProviderConfig: DefaultProviderConfig(),
 			},
-			"opencode-native": {
+			"opencode": {
 				Command:        "opencode",
 				Description:    "OpenCode agent (native SDK)",
 				Protocol:       "opencode-sdk",

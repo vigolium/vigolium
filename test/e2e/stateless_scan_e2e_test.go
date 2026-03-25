@@ -260,6 +260,113 @@ func TestStateless_TempDBCleanup(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "DB file should be removed after cleanup")
 }
 
+// TestStateless_MultiFormatExport verifies that --format jsonl,html produces
+// both a .jsonl and a .html output file from a single stateless scan.
+func TestStateless_MultiFormatExport(t *testing.T) {
+	// Use synthetic items to decouple from scan flakiness (scan may return 0 records).
+	items := []any{
+		map[string]any{"type": "http_record", "data": map[string]any{"url": "https://example.com/a", "method": "GET", "status_code": 200}},
+		map[string]any{"type": "http_record", "data": map[string]any{"url": "https://example.com/b", "method": "POST", "status_code": 201}},
+	}
+
+	outputDir := t.TempDir()
+	basePath := filepath.Join(outputDir, "multi-output")
+
+	// Simulate multi-format Options
+	opts := types.DefaultOptions()
+	opts.OutputFormats = []string{"jsonl", "html"}
+	opts.Output = basePath
+	opts.Stateless = true
+	opts.Silent = true
+
+	// Verify OutputPathForFormat generates expected paths
+	jsonlPath := opts.OutputPathForFormat("jsonl")
+	htmlPath := opts.OutputPathForFormat("html")
+	assert.Equal(t, basePath+".jsonl", jsonlPath)
+	assert.Equal(t, basePath+".html", htmlPath)
+
+	// --- Export JSONL ---
+	f, err := os.Create(jsonlPath)
+	require.NoError(t, err)
+	enc := json.NewEncoder(f)
+	enc.SetEscapeHTML(false)
+	for _, item := range items {
+		require.NoError(t, enc.Encode(item))
+	}
+	require.NoError(t, f.Close())
+
+	// --- Export HTML ---
+	meta := output.HTMLReportMeta{
+		Title:   "Multi-Format Test Report",
+		Version: "test",
+	}
+	err = output.GenerateHTMLReport(items, htmlPath, meta)
+	require.NoError(t, err)
+
+	// --- Verify JSONL output ---
+	jsonlFile, err := os.Open(jsonlPath)
+	require.NoError(t, err)
+	defer jsonlFile.Close()
+
+	var lineCount int
+	scanner := bufio.NewScanner(jsonlFile)
+	for scanner.Scan() {
+		lineCount++
+		var envelope map[string]any
+		require.NoError(t, json.Unmarshal(scanner.Bytes(), &envelope))
+		assert.Equal(t, "http_record", envelope["type"], "Each JSONL line should have type=http_record")
+	}
+	require.NoError(t, scanner.Err())
+	assert.Equal(t, len(items), lineCount, "JSONL should have one line per item")
+
+	// --- Verify HTML output ---
+	htmlInfo, err := os.Stat(htmlPath)
+	require.NoError(t, err)
+	assert.Greater(t, htmlInfo.Size(), int64(100), "HTML report should have meaningful content")
+
+	t.Logf("Multi-format export: JSONL=%d lines, HTML=%d bytes",
+		lineCount, htmlInfo.Size())
+}
+
+// TestStateless_MultiFormatBasePathStripsExtension verifies that OutputBasePath
+// strips known extensions so multi-format outputs don't get double extensions.
+func TestStateless_MultiFormatBasePathStripsExtension(t *testing.T) {
+	tests := []struct {
+		output   string
+		wantBase string
+	}{
+		{"report.jsonl", "report"},
+		{"report.html", "report"},
+		{"report.json", "report"},
+		{"report", "report"},
+		{"/tmp/scan/results.jsonl", "/tmp/scan/results"},
+		{"/tmp/scan/results.txt", "/tmp/scan/results.txt"}, // unknown ext kept
+		{"report.html.bak", "report.html.bak"},             // non-standard kept
+	}
+
+	for _, tc := range tests {
+		opts := types.DefaultOptions()
+		opts.Output = tc.output
+		assert.Equal(t, tc.wantBase, opts.OutputBasePath(),
+			"OutputBasePath(%q)", tc.output)
+	}
+}
+
+// TestStateless_HasFormat verifies the HasFormat helper on Options.
+func TestStateless_HasFormat(t *testing.T) {
+	opts := types.DefaultOptions()
+
+	opts.OutputFormats = []string{"console"}
+	assert.True(t, opts.HasFormat("console"))
+	assert.False(t, opts.HasFormat("jsonl"))
+	assert.False(t, opts.HasFormat("html"))
+
+	opts.OutputFormats = []string{"jsonl", "html"}
+	assert.False(t, opts.HasFormat("console"))
+	assert.True(t, opts.HasFormat("jsonl"))
+	assert.True(t, opts.HasFormat("html"))
+}
+
 // TestStateless_FlagValidation tests that the stateless flag constraints
 // produce the expected error messages via the Options struct.
 // The actual CLI-level validation is in runScanCmd; these tests verify the

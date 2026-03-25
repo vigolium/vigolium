@@ -1749,7 +1749,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				}
 			}
 			if cfg.PilotAgent.Command == "" {
-				// Fallback: try "claude" backend
+				// Fallback: try "claude" backend (SDK protocol)
 				if agentDef, ok := r.settings.Agent.Backends["claude"]; ok {
 					cfg.PilotAgent = agentDef
 				}

@@ -150,12 +150,23 @@ func buildCodexThreadParams(opts *codexsdk.Options, cfg codexRunConfig) *codexsd
 // executeCodexTurn sends a prompt and collects the full text response.
 func executeCodexTurn(ctx context.Context, client *codexsdk.Client, threadID, prompt string, streamWriter io.Writer) (string, error) {
 	if streamWriter != nil {
-		completed, err := client.StreamText(ctx, threadID, prompt, streamWriter)
-		if err != nil {
-			return "", err
+		// Capture streamed deltas into a buffer as fallback, since turn/completed
+		// items may not include the text (depends on codex version).
+		var captured strings.Builder
+		var w io.Writer = &captured
+		if streamWriter != nil {
+			w = io.MultiWriter(streamWriter, &captured)
 		}
-		// Extract final text from completed turn items
-		return extractTurnText(completed), nil
+
+		completed, err := client.StreamText(ctx, threadID, prompt, w)
+		if err != nil {
+			return captured.String(), err
+		}
+		// Prefer structured turn items; fall back to captured stream deltas.
+		if text := extractTurnText(completed); text != "" {
+			return text, nil
+		}
+		return captured.String(), nil
 	}
 
 	output, _, err := client.CollectText(ctx, threadID, prompt)

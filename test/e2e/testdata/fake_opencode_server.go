@@ -3,8 +3,8 @@
 // fake_opencode_server.go is a standalone HTTP server that mimics the OpenCode
 // REST API + SSE event stream. It's used by e2e tests.
 //
-// It is spawned by the opencodesdk.Client as: <binary> serve --cwd <dir>
-// Port is read from the OPENCODE_BASE_URL environment variable.
+// It is spawned by the opencodesdk.Client as: <binary> serve --port <port> --print-logs
+// Port is read from the --port CLI flag.
 // Response text is read from the FAKE_OPENCODE_RESPONSE environment variable.
 //
 // It implements:
@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -42,13 +41,12 @@ var (
 )
 
 func main() {
-	// Parse port from OPENCODE_BASE_URL (e.g., "http://localhost:54321")
+	// Parse port from --port CLI flag (e.g., "serve --port 54321 --print-logs")
 	listenPort := "54321"
-	if baseURL := os.Getenv("OPENCODE_BASE_URL"); baseURL != "" {
-		if u, err := url.Parse(baseURL); err == nil {
-			if p := u.Port(); p != "" {
-				listenPort = p
-			}
+	for i, arg := range os.Args {
+		if arg == "--port" && i+1 < len(os.Args) {
+			listenPort = os.Args[i+1]
+			break
 		}
 	}
 
