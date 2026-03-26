@@ -12,16 +12,13 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: PassBasicHttpAuthTest.java
 // Integration tests for HTTP Basic Authentication with exact state assertions.
 // =============================================================================
 
 // TestProvidedCredentialsAreUsedInBasicAuth tests basic auth credentials.
-// Crawljax parity: PassBasicHttpAuthTest.testProvidedCredentialsAreUsedInBasicAuth()
 // Expected: NUMBER_OF_STATES = 3 with valid credentials
 func TestProvidedCredentialsAreUsedInBasicAuth(t *testing.T) {
 	const (
-		// Crawljax exact values from PassBasicHttpAuthTest.java
 		USERNAME        = "test"
 		PASSWORD        = "test#&"
 		MAX_STATES      = 3
@@ -54,9 +51,8 @@ func TestProvidedCredentialsAreUsedInBasicAuth(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(3))
 	if result.StateCount() != EXPECTED_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), EXPECTED_STATES)
 	}
 }

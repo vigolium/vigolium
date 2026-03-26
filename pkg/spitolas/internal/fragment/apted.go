@@ -9,7 +9,7 @@ import (
 
 // APTED implements the All Path Tree Edit Distance algorithm.
 // This is a state-of-the-art algorithm for computing tree edit distance
-// between DOM tree structures, matching Java Crawljax's structural comparison.
+// between DOM tree structures, comparison.
 //
 // References:
 // - Pawlik, M., & Augsten, N. (2015). Efficient computation of the tree edit distance.

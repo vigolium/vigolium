@@ -1,6 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file implements UnfiredFragmentCandidates matching Java Crawljax's
-// com.crawljax.core.UnfiredFragmentCandidates exactly.
 package action
 
 import (
@@ -13,8 +11,6 @@ import (
 )
 
 // stateQueue is an unbounded blocking queue for state IDs.
-// CRAWLJAX PARITY: Matches Java LinkedBlockingQueue<Integer> statesWithCandidates.
-// Java uses an unbounded LinkedBlockingQueue that never drops states.
 type stateQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
@@ -77,7 +73,6 @@ func (q *stateQueue) Take(ctx context.Context) (string, error) {
 }
 
 // RemoveAll removes all occurrences of stateID from the queue.
-// CRAWLJAX PARITY: Matches Java while(statesWithCandidates.remove(id))
 // Returns the number of items removed.
 func (q *stateQueue) RemoveAll(stateID string) int {
 	q.mu.Lock()
@@ -128,7 +123,6 @@ func (q *stateQueue) Close() {
 }
 
 // DefaultMaxRepeat is the default maximum times an explored action can be repeated.
-// Matches Java MAX_REPEAT = 2.
 const DefaultMaxRepeat = 2
 
 // FragmentPrioritizer interface for fragment-based prioritization.
@@ -161,7 +155,6 @@ type StateProvider interface {
 	GetOutgoingStates(stateID string) []string
 
 	// HasNearDuplicate returns true if a state has a near-duplicate.
-	// CRAWLJAX PARITY: Used by getNextNonDuplicate().
 	HasNearDuplicate(stateID string) bool
 }
 
@@ -185,53 +178,39 @@ type MABPolicy interface {
 }
 
 // UnfiredFragmentCandidates contains all CandidateCrawlActions that still have to be fired.
-// Matches Java com.crawljax.core.UnfiredFragmentCandidates exactly.
 type UnfiredFragmentCandidates struct {
 	mu sync.RWMutex
 
 	// Main cache: stateID -> list of unfired actions.
-	// Matches Java Map<Integer, List<CandidateCrawlAction>> cache
 	cache map[string][]*CandidateCrawlAction
 
 	// Unbounded blocking queue for state IDs with pending actions.
-	// CRAWLJAX PARITY: Matches Java LinkedBlockingQueue<Integer> statesWithCandidates.
-	// Java uses unbounded LinkedBlockingQueue — never drops states.
 	statesWithCandidates *stateQueue
 
 	// Unreachable cache: actions that were purged but can be restored.
-	// Matches Java Map<Integer, List<CandidateCrawlAction>> unreachableCache
 	unreachableCache map[string][]*CandidateCrawlAction
 
 	// Form input caching.
-	// Matches Java Map<Long, List<FormInput>> inputMap
 	inputMap map[int64][]*FormInput
 
 	// Actions to skip inputs for (by action).
-	// Matches Java List<CandidateCrawlAction> skipInputs
 	skipInputs map[*CandidateCrawlAction]bool
 
 	// Eventables to skip inputs for (by eventable ID).
-	// Matches Java List<Eventable> skipInputsForPath
 	skipInputsForPath map[int64]bool
 
 	// Configuration.
-	// Matches Java boolean skipExploredActions
 	skipExploredActions bool
 
-	// Matches Java int MAX_REPEAT
 	maxRepeat int
 
-	// Matches Java boolean applyNonSelAdvantage
 	applyNonSelAdvantage bool
 
-	// Matches Java boolean restoreConnectedEdges
 	restoreConnectedEdges bool
 
-	// Matches Java boolean unexploredStates
 	unexploredStates bool
 
 	// Consumer state tracking.
-	// Matches Java int runningConsumers, int pendingStates
 	runningConsumers int32
 	pendingStates    int32
 
@@ -239,12 +218,10 @@ type UnfiredFragmentCandidates struct {
 	stateProvider StateProvider
 
 	// Metrics counters.
-	// Matches Java Counter crawlerLostCount, Counter unfiredActionsCount
 	crawlerLostCount    int64
 	unfiredActionsCount int64
 
 	// Lock for consumer state.
-	// Matches Java ReadWriteLock consumersStateLock
 	consumersLock sync.RWMutex
 
 	// Closed flag.
@@ -273,7 +250,6 @@ func DefaultUnfiredFragmentCandidatesConfig() *UnfiredFragmentCandidatesConfig {
 }
 
 // NewUnfiredFragmentCandidates creates a new UnfiredFragmentCandidates.
-// Matches Java constructor.
 func NewUnfiredFragmentCandidates(config *UnfiredFragmentCandidatesConfig, stateProvider StateProvider) *UnfiredFragmentCandidates {
 	if config == nil {
 		config = DefaultUnfiredFragmentCandidatesConfig()
@@ -296,7 +272,6 @@ func NewUnfiredFragmentCandidates(config *UnfiredFragmentCandidatesConfig, state
 }
 
 // getBestAction returns the best action using fragment-based prioritization.
-// Matches Java getBestAction() EXACTLY.
 func (u *UnfiredFragmentCandidates) getBestAction(
 	availableActions []*CandidateCrawlAction,
 	stateID string,
@@ -364,7 +339,6 @@ func (u *UnfiredFragmentCandidates) getBestAction(
 }
 
 // PollActionOrNull polls the best action for a state.
-// Matches Java pollActionOrNull(StateMachine, FragmentManager, boolean) EXACTLY.
 // Returns (action, switchToStateID) where switchToStateID is non-empty if crawler should switch states.
 func (u *UnfiredFragmentCandidates) PollActionOrNull(
 	stateID string,
@@ -464,7 +438,6 @@ func (u *UnfiredFragmentCandidates) PollActionOrNull(
 }
 
 // PollActionOrNullSimple polls action without prioritization (FIFO).
-// Matches Java pollActionOrNull(StateVertex) for non-hybrid states.
 func (u *UnfiredFragmentCandidates) PollActionOrNullSimple(stateID string) *CandidateCrawlAction {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -491,8 +464,6 @@ func (u *UnfiredFragmentCandidates) PollActionOrNullSimple(stateID string) *Cand
 }
 
 // GetNextNonDuplicate finds the next state in the queue that is not a near-duplicate.
-// CRAWLJAX PARITY: Matches Java getNextNonDuplicate() EXACTLY.
-// Java iterates statesWithCandidates, finds first non-near-duplicate state,
 // then consumes tasks from queue until reaching that state.
 func (u *UnfiredFragmentCandidates) GetNextNonDuplicate(ctx context.Context) (string, error) {
 	if u.stateProvider == nil {
@@ -557,7 +528,6 @@ func (u *UnfiredFragmentCandidates) removeActionFromQueueLocked(stateID string, 
 
 // removeStateFromQueueLocked removes ALL occurrences of a state from the queue.
 // Must be called with lock held.
-// CRAWLJAX PARITY: Matches Java removeStateFromQueue() which does:
 //
 //	while(statesWithCandidates.remove(id)) { pendingStates--; }
 func (u *UnfiredFragmentCandidates) removeStateFromQueueLocked(stateID string) {
@@ -572,7 +542,6 @@ func (u *UnfiredFragmentCandidates) removeStateFromQueueLocked(stateID string) {
 }
 
 // RediscoveredState handles a rediscovered state (public API).
-// CRAWLJAX PARITY: Matches Java UnfiredFragmentCandidates.rediscoveredState()
 // Called from Crawler.inspectNewState() when a clone state is detected.
 func (u *UnfiredFragmentCandidates) RediscoveredState(stateID string) {
 	u.mu.Lock()
@@ -582,7 +551,6 @@ func (u *UnfiredFragmentCandidates) RediscoveredState(stateID string) {
 
 // rediscoveredStateLocked handles a rediscovered state.
 // Must be called with lock held.
-// Matches Java rediscoveredState().
 func (u *UnfiredFragmentCandidates) rediscoveredStateLocked(stateID string) {
 	u.restoreStateLocked(stateID)
 
@@ -599,7 +567,6 @@ func (u *UnfiredFragmentCandidates) rediscoveredStateLocked(stateID string) {
 
 // restoreStateLocked restores a state from unreachable cache.
 // Must be called with lock held.
-// Matches Java restoreState().
 func (u *UnfiredFragmentCandidates) restoreStateLocked(stateID string) {
 	removed, ok := u.unreachableCache[stateID]
 	if !ok || len(removed) == 0 {
@@ -635,8 +602,6 @@ func (u *UnfiredFragmentCandidates) restoreStateLocked(stateID string) {
 
 // addPendingStateLocked adds a state to the pending queue.
 // Must be called with lock held.
-// CRAWLJAX PARITY: Matches Java addPendingState().
-// Java: pendingStates++; statesWithCandidates.add(state.getId());
 // Uses unbounded queue — never drops states.
 func (u *UnfiredFragmentCandidates) addPendingStateLocked(stateID string) {
 	atomic.AddInt32(&u.pendingStates, 1)
@@ -647,7 +612,6 @@ func (u *UnfiredFragmentCandidates) addPendingStateLocked(stateID string) {
 }
 
 // AddActions adds candidate elements for a state.
-// Matches Java addActions(ImmutableList<CandidateElement>, StateVertex).
 func (u *UnfiredFragmentCandidates) AddActions(candidates []*CandidateElement, stateID string) {
 	if len(candidates) == 0 {
 		zap.L().Debug("Received empty candidates list, ignoring")
@@ -663,7 +627,6 @@ func (u *UnfiredFragmentCandidates) AddActions(candidates []*CandidateElement, s
 }
 
 // AddCrawlActions adds crawl actions for a state.
-// Matches Java addActions(List<CandidateCrawlAction>, StateVertex).
 func (u *UnfiredFragmentCandidates) AddCrawlActions(actions []*CandidateCrawlAction, stateID string) {
 	if len(actions) == 0 {
 		zap.L().Debug("Received empty actions list, ignoring")
@@ -687,8 +650,6 @@ func (u *UnfiredFragmentCandidates) AddCrawlActions(actions []*CandidateCrawlAct
 }
 
 // ReAddAction re-adds a single action back to the queue for retry.
-// CRAWLJAX PARITY: Used when fireEvent fails and disableInputsForAction returns true.
-// Java (Crawler.java:1311-1316):
 //
 //	boolean added = candidateActionCache.disableInputsForAction(action);
 //	if (added) {
@@ -707,8 +668,6 @@ func (u *UnfiredFragmentCandidates) ReAddAction(action *CandidateCrawlAction, st
 }
 
 // IsEmpty returns true if there are no pending actions.
-// CRAWLJAX PARITY: Matches Java isEmpty() EXACTLY.
-// Java: empty = runningConsumers == 0 && pendingStates == 0
 func (u *UnfiredFragmentCandidates) IsEmpty() bool {
 	u.consumersLock.RLock()
 	running := atomic.LoadInt32(&u.runningConsumers)
@@ -726,8 +685,6 @@ func (u *UnfiredFragmentCandidates) IsEmpty() bool {
 }
 
 // AwaitNewTask blocks until a state with pending actions is available.
-// CRAWLJAX PARITY: Matches Java awaitNewTask() + consumeTask().
-// Java: int id = statesWithCandidates.take(); runningConsumers++; pendingStates--;
 func (u *UnfiredFragmentCandidates) AwaitNewTask(ctx context.Context) (string, error) {
 	stateID, err := u.statesWithCandidates.Take(ctx)
 	if err != nil {
@@ -746,7 +703,6 @@ func (u *UnfiredFragmentCandidates) AwaitNewTask(ctx context.Context) (string, e
 }
 
 // TaskDone indicates that a task is done.
-// Matches Java taskDone().
 func (u *UnfiredFragmentCandidates) TaskDone(stateID string) {
 	u.consumersLock.Lock()
 	defer u.consumersLock.Unlock()
@@ -771,7 +727,6 @@ func (u *UnfiredFragmentCandidates) TaskDone(stateID string) {
 }
 
 // PurgeActionsForState removes all actions for a state and moves to unreachable cache.
-// Matches Java purgeActionsForState().
 func (u *UnfiredFragmentCandidates) PurgeActionsForState(stateID string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -794,25 +749,20 @@ func (u *UnfiredFragmentCandidates) PurgeActionsForState(stateID string) {
 }
 
 // StateUpdated handles a state being updated.
-// Matches Java stateUpdated().
 func (u *UnfiredFragmentCandidates) StateUpdated(stateID string) {
 	zap.L().Debug("Purging actions for updated state", zap.String("state_id", stateID))
 	u.PurgeActionsForState(stateID)
 }
 
 // RemoveAction removes a specific candidate element from a state's queue.
-// CRAWLJAX PARITY: Matches Java removeAction() EXACTLY.
-// Java first checks if state is in statesWithCandidates, then finds by CandidateElement.equals().
 func (u *UnfiredFragmentCandidates) RemoveAction(candidate *CandidateElement, stateID string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	// CRAWLJAX PARITY: Check unreachable cache first
 	if _, ok := u.unreachableCache[stateID]; ok {
 		u.rediscoveredStateLocked(stateID)
 	}
 
-	// CRAWLJAX PARITY: Java checks statesWithCandidates.contains(state.getId()) first
 	if !u.statesWithCandidates.Contains(stateID) {
 		return
 	}
@@ -822,7 +772,6 @@ func (u *UnfiredFragmentCandidates) RemoveAction(candidate *CandidateElement, st
 		return
 	}
 
-	// Java CandidateElement does not override equals() — uses Object reference equality.
 	// Go pointer comparison is the equivalent.
 	var toRemove *CandidateCrawlAction
 	for _, action := range queue {
@@ -846,7 +795,6 @@ func (u *UnfiredFragmentCandidates) RemoveAction(candidate *CandidateElement, st
 // Form input caching methods
 
 // MapInput stores worked form inputs for an eventable.
-// Matches Java mapInput().
 func (u *UnfiredFragmentCandidates) MapInput(event *Eventable, worked []*FormInput) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -860,7 +808,6 @@ func (u *UnfiredFragmentCandidates) MapInput(event *Eventable, worked []*FormInp
 }
 
 // GetInput returns cached form inputs for an eventable.
-// Matches Java getInput().
 func (u *UnfiredFragmentCandidates) GetInput(event *Eventable) []*FormInput {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
@@ -869,7 +816,6 @@ func (u *UnfiredFragmentCandidates) GetInput(event *Eventable) []*FormInput {
 }
 
 // DisableInputsForAction marks an action to skip form inputs.
-// Matches Java disableInputsForAction().
 func (u *UnfiredFragmentCandidates) DisableInputsForAction(action *CandidateCrawlAction) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -882,7 +828,6 @@ func (u *UnfiredFragmentCandidates) DisableInputsForAction(action *CandidateCraw
 }
 
 // ShouldDisableInputForAction checks if form inputs should be skipped for an action.
-// Matches Java shouldDisableInput(CandidateCrawlAction).
 func (u *UnfiredFragmentCandidates) ShouldDisableInputForAction(action *CandidateCrawlAction) bool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
@@ -891,7 +836,6 @@ func (u *UnfiredFragmentCandidates) ShouldDisableInputForAction(action *Candidat
 }
 
 // DisableInputsForPath marks an eventable to skip form inputs.
-// Matches Java disableInputsForPath().
 func (u *UnfiredFragmentCandidates) DisableInputsForPath(event *Eventable) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -904,8 +848,6 @@ func (u *UnfiredFragmentCandidates) DisableInputsForPath(event *Eventable) {
 		zap.Int64("event_id", event.ID),
 		zap.Int("inputs_before", len(event.RelatedFormInputs)))
 
-	// CRAWLJAX PARITY: Java sets empty ArrayList, not null
-	// Java: event.setRelatedFormInputs(new ArrayList<>())
 	event.SetRelatedFormInputs(make([]*FormInput, 0))
 	u.skipInputsForPath[event.ID] = true
 
@@ -915,7 +857,6 @@ func (u *UnfiredFragmentCandidates) DisableInputsForPath(event *Eventable) {
 }
 
 // ShouldDisableInputForPath checks if form inputs should be skipped for an eventable.
-// Matches Java shouldDisableInput(Eventable).
 func (u *UnfiredFragmentCandidates) ShouldDisableInputForPath(event *Eventable) bool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
@@ -1073,7 +1014,6 @@ func (u *UnfiredFragmentCandidates) PurgeState(stateID string) {
 const CrawlStrategyAdaptive = "adaptive"
 
 // PollByMode polls an action using the specified mode.
-// CRAWLJAX PARITY: afterBacktrack parameter controls prioritization.
 // - afterBacktrack=true: Use fragment-based prioritization (just after backtrack)
 // - afterBacktrack=false: Use simple FIFO (during normal DFS)
 // Note: strategy is any to avoid import cycle with config package.

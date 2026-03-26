@@ -269,7 +269,6 @@ func (m *Module) detectNumericContext(
 }
 
 // testConcatenation tests for concatenation vulnerabilities.
-// Tries two approaches sequentially (matching Java implementation):
 // 1. First approach: concat+d+d (break) vs d+concat+d (escape)
 // 2. Second approach (fallback): d+concat+d (break) vs concat+d+d (escape)
 func (m *Module) testConcatenation(

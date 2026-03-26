@@ -12,12 +12,10 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CrawlerStopTest.java
 // Integration tests for crawler termination conditions with exact assertions.
 // =============================================================================
 
 // ExitStatus represents why the crawler stopped.
-// Crawljax parity: ExitNotifier.ExitStatus
 type ExitStatus string
 
 const (
@@ -28,11 +26,9 @@ const (
 )
 
 // TestMaximumDepthIsObliged tests that max depth limit is respected.
-// Crawljax parity: CrawlerStopTest.maximumDepthIsObliged()
 // Expected: depth=3 → 4 states (depth+1), ExitStatus=EXHAUSTED
 func TestMaximumDepthIsObliged(t *testing.T) {
 	const (
-		// Crawljax exact values from CrawlerStopTest.java
 		DEPTH           = 3
 		EXPECTED_STATES = 4 // depth + 1
 	)
@@ -62,22 +58,18 @@ func TestMaximumDepthIsObliged(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(depth + 1))
 	if result.StateCount() != EXPECTED_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates(depth + 1))",
+		t.Errorf("StateCount() = %d, want %d)",
 			result.StateCount(), EXPECTED_STATES)
 	}
 
-	// Crawljax parity: assertThat(runner.getReason(), is(ExitStatus.EXHAUSTED))
 	// In Go, we check that the crawler exhausted all actions within depth limit
 }
 
 // TestMaximumStatesIsObliged tests that max states limit is respected.
-// Crawljax parity: CrawlerStopTest.maximumStatesIsObliged()
 // Expected: maxStates=3 → 3 states, ExitStatus=MAX_STATES
 func TestMaximumStatesIsObliged(t *testing.T) {
 	const (
-		// Crawljax exact values from CrawlerStopTest.java
 		MAX_STATES      = 3
 		EXPECTED_STATES = 3
 	)
@@ -107,21 +99,17 @@ func TestMaximumStatesIsObliged(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(3))
 	if result.StateCount() != EXPECTED_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), EXPECTED_STATES)
 	}
 
-	// Crawljax parity: assertThat(runner.getReason(), is(ExitStatus.MAX_STATES))
 }
 
 // TestMaximumTimeIsObliged tests that max runtime limit is respected.
-// Crawljax parity: CrawlerStopTest.maximumTimeIsObliged()
 // Expected: ExitStatus=MAX_TIME
 func TestMaximumTimeIsObliged(t *testing.T) {
 	const (
-		// Crawljax: setMaximumRunTime(25, TimeUnit.SECONDS)
 		MAX_RUNTIME = 10 * time.Second // Shortened for faster test
 	)
 
@@ -153,7 +141,6 @@ func TestMaximumTimeIsObliged(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(runner.getReason(), is(ExitStatus.MAX_TIME))
 	// Verify that crawl stopped around the max runtime
 	if elapsed < MAX_RUNTIME {
 		t.Errorf("Crawl finished too quickly: %v, expected around %v",
@@ -167,7 +154,6 @@ func TestMaximumTimeIsObliged(t *testing.T) {
 }
 
 // TestStopIsCalledTheCrawlerStopsGracefully tests manual stop.
-// Crawljax parity: CrawlerStopTest.whenStopIsCalledTheCrawlerStopsGracefully()
 // Expected: ExitStatus=STOPPED
 func TestStopIsCalledTheCrawlerStopsGracefully(t *testing.T) {
 	server := testutil.InfiniteSiteServer()
@@ -203,19 +189,16 @@ func TestStopIsCalledTheCrawlerStopsGracefully(t *testing.T) {
 	// Wait for crawler to stop with timeout
 	select {
 	case <-done:
-		// Crawljax parity: assertThat(runner.getReason(), is(ExitStatus.STOPPED))
 		// Crawler stopped gracefully
 	case <-time.After(10 * time.Second):
 		t.Fatal("Crawler did not stop gracefully within timeout")
 	}
 }
 
-// TestCrawljaxShutDownByPlugin tests stopping via callback.
-// Crawljax parity: CrawlerStopTest.whenCrawljaxIsShutDownByAPluginItShutsDown()
+// TestShutDownByPlugin tests stopping via callback.
 // Expected: 3 states, ExitStatus=STOPPED
-func TestCrawljaxShutDownByPlugin(t *testing.T) {
+func TestShutDownByPlugin(t *testing.T) {
 	const (
-		// Crawljax: if (count == 2) { context.stop(); }
 		// This results in 3 states (index + 2 more before stop)
 		EXPECTED_STATES = 3
 	)
@@ -245,9 +228,8 @@ func TestCrawljaxShutDownByPlugin(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(3))
 	if result.StateCount() != EXPECTED_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), EXPECTED_STATES)
 	}
 }

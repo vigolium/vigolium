@@ -228,7 +228,6 @@ func findHeaderEndPosition(message []byte, startOffset int) int {
 	if length >= 3 {
 		for i := length - 3; i < length-1; i++ {
 			if message[i] == LF && message[i+1] == LF {
-				// var3=false means return position after first LF
 				return i + 1
 			}
 		}

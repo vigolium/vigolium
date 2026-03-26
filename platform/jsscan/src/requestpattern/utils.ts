@@ -44,23 +44,23 @@ export function isURLLike(value: string): boolean {
     const countOccurrences = (str: string, char: string) =>
         (str.match(new RegExp(char, 'g')) || []).length;
 
-    // Phải có ít nhất 1 chữ cái
+    // Must have at least 1 letter
     if (!/[a-zA-Z]/.test(value)) return false;
 
-    // Loại trừ HTML tags và patterns không phải URL
+    // Exclude HTML tags and non-URL patterns
     if (value.startsWith('<') || value.endsWith('>')) return false;
     if (value.endsWith('svg')) return false;
     if (value.startsWith('.') || value.startsWith('#')) return false;
     if (value === '/') return false;
 
-    // Loại trừ các scheme đặc biệt
+    // Exclude special schemes
     if (value.startsWith('path://')) return false;
     if (value.startsWith('image://')) return false;
     if (value.startsWith('relative://')) return false;
     if (value === 'http://' || value === 'https://') return false;
     if (value === 'http:' || value === 'https:') return false;
 
-    // Loại trừ các patterns khác
+    // Exclude other patterns
     if (value.includes('w3.org')) return false;
     if (/\s/.test(value)) return false;
     if (countOccurrences(value, '.') >= 2 && countOccurrences(value, '/') === 0) return false;
@@ -94,7 +94,7 @@ export function collectAPIUrls(path: NodePath): string[] {
             }
         },
         TemplateLiteral(path: NodePath<t.TemplateLiteral>) {
-            // Xử lý template literal chỉ khi nó không có expressions (quasis.length === 1)
+            // Handle template literal only when it has no expressions (quasis.length === 1)
             if (path.node.quasis.length === 1) {
                 const value = path.node.quasis[0].value.raw;
                 if (isURLLike(value)) {

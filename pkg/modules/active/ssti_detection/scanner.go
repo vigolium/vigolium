@@ -14,7 +14,6 @@ import (
 )
 
 // Module implements SSTI Detection via Boolean Error-Based Blind technique.
-// Based on "Successful Errors" research by vladko312 (SSTImap).
 type Module struct {
 	modkit.BaseActiveModule
 	rhm     dedup.Lazy[dedup.RequestHashManager]

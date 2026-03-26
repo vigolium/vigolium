@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://www.osmedeus.org"><img alt="Osmedeus" src="static/vigolium-logo.png" height="140" /></a>
+  <img alt="Vigolium" src="static/vigolium-logo.png" height="140" />
   <br />
   <strong>Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</strong>
 </p>

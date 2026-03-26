@@ -1,5 +1,4 @@
 // Package linkfinder extracts and filters paths/URLs from web content.
-// Inspired by the LinkFinder approach but optimized for Deparos's validation pipeline.
 //
 // This package catches patterns that other extractors miss:
 //   - Bare paths without scheme: /api/users

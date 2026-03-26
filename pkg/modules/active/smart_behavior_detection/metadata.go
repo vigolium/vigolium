@@ -16,7 +16,6 @@ of semantically equivalent and different payloads and compares response behavior
 ## Notes
 - Uses behavioral diffing: true/false payload pairs that should produce identical vs different responses
 - Low confidence; serves as a triage signal for deeper investigation
-- Based on ActiveScan++ differential analysis
 
 ## References
 - https://portswigger.net/bappstore/3123d5b5f25c4128894d97ea1571571c`

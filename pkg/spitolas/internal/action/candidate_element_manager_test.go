@@ -1,5 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file ports CandidateElementManagerTest.java from Crawljax exactly.
 package action
 
 import (
@@ -9,20 +8,14 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CandidateElementManagerTest.java
 // Test for the CandidateElementManager.
 // Author: Stefan Lenselink <S.R.Lenselink@student.tudelft.nl>
 // =============================================================================
 
 // TestContainsElement tests basic element checking and marking.
-// Crawljax parity: CandidateElementManagerTest.testContainsElement()
 func TestContainsElement(t *testing.T) {
-	// Java: CandidateElementManager manager = new CandidateElementManager(null, null);
 	manager := NewCandidateElementManager(nil, nil)
 
-	// Java: Element e = document.createElement("test");
-	// Java: e.setAttribute("id", "abc");
-	// Java: CandidateElement c = new CandidateElement(e, "", noFormInput);
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc"})
 
 	// Assert.assertFalse("CandidateElement.GeneralString not yet checked in CandidateElementManager",
@@ -55,8 +48,6 @@ func TestContainsElement(t *testing.T) {
 	}
 
 	// Second element with different id
-	// Java: e.setAttribute("id", "def");
-	// Java: CandidateElement c2 = new CandidateElement(e, "", noFormInput);
 	c2 := newTestCandidateElement("TEST", map[string]string{"id": "def"})
 
 	// Assert.assertFalse("CandidateElement.GeneralString not yet checked in CandidateElementManager",
@@ -108,15 +99,9 @@ func TestContainsElement(t *testing.T) {
 }
 
 // TestContainsElementAtusa tests element checking with atusa attribute.
-// Crawljax parity: CandidateElementManagerTest.testContainsElementAtusa()
 func TestContainsElementAtusa(t *testing.T) {
-	// Java: CandidateElementManager manager = new CandidateElementManager(null, null);
 	manager := NewCandidateElementManager(nil, nil)
 
-	// Java: Element e = document.createElement("test");
-	// Java: e.setAttribute("id", "abc");
-	// Java: e.setAttribute("atusa", "def");
-	// Java: CandidateElement c = new CandidateElement(e, "", noFormInput);
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc", "atusa": "def"})
 
 	// Assert.assertFalse("CandidateElement.GeneralString not yet checked in CandidateElementManager",
@@ -149,8 +134,6 @@ func TestContainsElementAtusa(t *testing.T) {
 	}
 
 	// Change only atusa attribute - generalString stays the same, uniqueString changes
-	// Java: e.setAttribute("atusa", "ghi");
-	// Java: CandidateElement c2 = new CandidateElement(e, "", noFormInput);
 	c2 := newTestCandidateElement("TEST", map[string]string{"id": "abc", "atusa": "ghi"})
 
 	// Assert.assertTrue("CandidateElement.GeneralString checked in CandidateElementManager",
@@ -186,19 +169,10 @@ func TestContainsElementAtusa(t *testing.T) {
 }
 
 // TestConcurrentIncrement tests thread-safe counter increment.
-// Crawljax parity: CandidateElementManagerTest.testConcurrentIncrement()
 // Note: This does not 100% guarantee that thread-interleaving happens but its better than not testing at all.
 func TestConcurrentIncrement(t *testing.T) {
 	const (
-		// Crawljax exact values:
-		// for (int i = 0; i < 10; i++) {
-		//     new Thread(() -> {
-		//         for (int j = 0; j < 10; j++) {
-		//             manager.increaseElementsCounter();
-		//         }
-		//     }).start();
-		// }
-		// Assert.assertEquals("100 Elements should be checked", 100, manager.numberOfExaminedElements());
+		// 10 goroutines each incrementing 10 times = 100 total
 		NUM_THREADS       = 10
 		INCREMENTS_EACH   = 10
 		EXPECTED_ELEMENTS = 100 // NUM_THREADS * INCREMENTS_EACH
@@ -213,7 +187,6 @@ func TestConcurrentIncrement(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < INCREMENTS_EACH; j++ {
 				manager.IncreaseElementsCounter()
-				// Java: Thread.sleep(10);
 				time.Sleep(10 * time.Millisecond)
 			}
 		}()

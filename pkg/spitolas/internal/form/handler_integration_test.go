@@ -46,7 +46,7 @@ func NewFormInput(inputType action.InputType, selector string) *DetectedInput {
 		// ID selector: #name -> HowID
 		identification = action.NewIdentification(action.HowID, selector[1:])
 	} else if strings.HasPrefix(selector, ".") {
-		// Class selector not supported in Crawljax, use XPath
+		// Class selector not directly supported, use XPath
 		identification = action.NewIdentification(action.HowXPath, "//*[contains(@class,'"+selector[1:]+"')]")
 	} else if strings.HasPrefix(selector, "[name=") {
 		// Attribute selector: [name="x"] -> HowName
@@ -121,7 +121,6 @@ func setupBrowser(t *testing.T, serverURL string) *browser.Browser {
 }
 
 // TestHandlerSetValueIntoTextField tests setting a value into a text field.
-// Crawljax parity: shouldSetValueIntoTextField()
 func TestHandlerSetValueIntoTextField(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -196,7 +195,6 @@ func TestHandlerSetValueIntoTextField(t *testing.T) {
 }
 
 // TestHandlerSetFirstValueEvenIfManyValuesSpecified tests that first value is used.
-// Crawljax parity: shouldSetFirstValueIntoTextFieldEvenIfManyValuesSpecified()
 func TestHandlerSetFirstValueEvenIfManyValuesSpecified(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -253,7 +251,6 @@ func TestHandlerSetFirstValueEvenIfManyValuesSpecified(t *testing.T) {
 }
 
 // TestHandlerClearTextFieldBeforeSettingValue tests clearing before fill.
-// Crawljax parity: shouldClearTextFieldBeforeSettingValue()
 func TestHandlerClearTextFieldBeforeSettingValue(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -315,7 +312,6 @@ func TestHandlerClearTextFieldBeforeSettingValue(t *testing.T) {
 }
 
 // TestHandlerNotSetValueIfNotFoundAndRandomDisabled tests no fill when field not found.
-// Crawljax parity: shouldNotSetValueToTextFieldIfNotFoundAndRandomIsDisabled()
 func TestHandlerNotSetValueIfNotFoundAndRandomDisabled(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -380,7 +376,6 @@ func TestHandlerNotSetValueIfNotFoundAndRandomDisabled(t *testing.T) {
 }
 
 // TestHandlerSetRandomValueWhenNotFoundAndRandomEnabled tests random fill.
-// Crawljax parity: shouldSetRandomValueToTextFieldIfNotFoundAndRandomIsEnabled()
 func TestHandlerSetRandomValueWhenNotFoundAndRandomEnabled(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -628,7 +623,6 @@ func TestHandlerGetDefaultValue(t *testing.T) {
 }
 
 // TestHandlerGenerateRandomValue tests random value generation.
-// Crawljax parity: RandomInputValueGenerator
 func TestHandlerGenerateRandomValue(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	cfg.FormFillMode = config.FormFillRandom
@@ -641,7 +635,7 @@ func TestHandlerGenerateRandomValue(t *testing.T) {
 		containsStr string
 		description string
 	}{
-		{InputText, RandomStringLength, "", "random text"}, // Crawljax parity: 8 chars
+		{InputText, RandomStringLength, "", "random text"},
 		{InputPassword, 12, "A1!", "password with special chars"},
 		{InputEmail, 1, "@example.com", "email format"},
 	}
@@ -663,7 +657,6 @@ func TestHandlerGenerateRandomValue(t *testing.T) {
 }
 
 // TestHandlerRandomValuesAreUnique tests uniqueness of random values.
-// Crawljax parity: randomValuesAreUnique()
 func TestHandlerRandomValuesAreUnique(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	handler := NewHandler(cfg)
@@ -681,7 +674,6 @@ func TestHandlerRandomValuesAreUnique(t *testing.T) {
 }
 
 // TestHandlerRandomStringLength tests random string length.
-// Crawljax parity: testLengthSpecification()
 func TestHandlerRandomStringLength(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	handler := NewHandler(cfg)
@@ -712,7 +704,6 @@ func findSubstring(s, substr string) bool {
 }
 
 // =============================================================================
-// NEW TESTS: Smart Value Detection, SELECT Random, Crawljax Parity
 // =============================================================================
 
 // setupSmartFormServer creates a test server serving smart form testdata.
@@ -994,7 +985,6 @@ func TestSmartValueCreditCard(t *testing.T) {
 }
 
 // TestSelectRandomOption tests random option selection for SELECT elements.
-// Crawljax parity: random option from dropdown when no value specified.
 func TestSelectRandomOption(t *testing.T) {
 	server := setupSmartFormServer(t)
 	defer server.Close()
@@ -1186,8 +1176,8 @@ func TestSelectWithDisabledOptions(t *testing.T) {
 	}
 }
 
-// TestCheckboxCrawljaxValues tests checkbox with Crawljax "1"/"0" values.
-func TestCheckboxCrawljaxValues(t *testing.T) {
+// TestCheckboxBinaryValues tests checkbox with "1"/"0" values.
+func TestCheckboxBinaryValues(t *testing.T) {
 	server := setupSmartFormServer(t)
 	defer server.Close()
 
@@ -1216,8 +1206,8 @@ func TestCheckboxCrawljaxValues(t *testing.T) {
 	}
 }
 
-// TestRadioCrawljaxValues tests radio with Crawljax "1"/"0" values.
-func TestRadioCrawljaxValues(t *testing.T) {
+// TestRadioBinaryValues tests radio with "1"/"0" values.
+func TestRadioBinaryValues(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	cfg.FormFillMode = config.FormFillRandom
 
@@ -1232,8 +1222,8 @@ func TestRadioCrawljaxValues(t *testing.T) {
 	}
 }
 
-// TestCrawljaxRandomStringLength tests random string length matches Crawljax constant.
-func TestCrawljaxRandomStringLength(t *testing.T) {
+// TestRandomStringLength tests random string length matches the constant.
+func TestRandomStringLength(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	cfg.FormFillMode = config.FormFillRandom
 
@@ -1248,8 +1238,8 @@ func TestCrawljaxRandomStringLength(t *testing.T) {
 	}
 }
 
-// TestCrawljaxRandomStringCharset tests random string uses only letters (Crawljax parity).
-func TestCrawljaxRandomStringCharset(t *testing.T) {
+// TestRandomStringCharset tests random string uses only letters.
+func TestRandomStringCharset(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	handler := NewHandler(cfg)
 
@@ -1266,8 +1256,8 @@ func TestCrawljaxRandomStringCharset(t *testing.T) {
 	}
 }
 
-// TestCrawljaxRandomNumber tests random number range matches Crawljax MaxRandomInt.
-func TestCrawljaxRandomNumber(t *testing.T) {
+// TestRandomNumber tests random number range matches MaxRandomInt.
+func TestRandomNumber(t *testing.T) {
 	cfg, _ := config.New("http://example.com")
 	cfg.FormFillMode = config.FormFillRandom
 

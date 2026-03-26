@@ -12,12 +12,10 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: IFrameTest.java
 // Integration tests for iframe crawling with exact state/edge count assertions.
 // =============================================================================
 
 // TestIFrameCrawlable tests crawling iframes.
-// Crawljax parity: IFrameTest.testIFrameCrawlable()
 // Expected: 13 states, 23 edges
 //
 // Test site has 11 clickable elements:
@@ -31,10 +29,9 @@ import (
 // - Click button001: value changes from "Click Me (c4)!" → "Click Me !"
 // - With ClickOnce+Attributes, button001 is seen as NEW element in new state
 // - Click button001 again: value toggles to "I'm clicked", creating another state
-// - This matches Crawljax's CandidateElement.getUniqueString() which includes all attributes
+// - CandidateElement.getUniqueString() includes all attributes, making re-clicks generate new states
 func TestIFrameCrawlable(t *testing.T) {
 	const (
-		// Crawljax exact values from IFrameTest.java
 		NUMBER_OF_STATES = 13
 		NUMBER_OF_EDGES  = 23
 	)
@@ -52,7 +49,6 @@ func TestIFrameCrawlable(t *testing.T) {
 	cfg.MaxDuration = 120 * time.Second
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
-	// Crawljax: builder.crawlRules().click("a"); builder.crawlRules().click("input");
 	cfg.ClickSelectors = []string{"a", "input"}
 	crawler, err := New(cfg)
 	if err != nil {
@@ -67,25 +63,21 @@ func TestIFrameCrawlable(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(13))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasEdges(23))
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: hasEdges)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }
 
 // TestIFrameExclusions tests excluding specific iframes from crawling.
-// Crawljax parity: IFrameTest.testIframeExclusions()
 // Expected: NUMBER_OF_STATES = 4, NUMBER_OF_EDGES = 5
 func TestIFrameExclusions(t *testing.T) {
 	const (
-		// Crawljax exact values from IFrameTest.java
 		NUMBER_OF_STATES = 4
 		NUMBER_OF_EDGES  = 5
 	)
@@ -104,7 +96,6 @@ func TestIFrameExclusions(t *testing.T) {
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
 
-	// Crawljax: builder.crawlRules().dontCrawlFrame("frame1", "sub", "frame0")
 	cfg.ExcludeFrames = []string{"frame1", "sub", "frame0"}
 
 	crawler, err := New(cfg)
@@ -120,25 +111,21 @@ func TestIFrameExclusions(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(4))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasEdges(5))
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: hasEdges)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }
 
 // TestIFramesNotCrawled tests disabling iframe crawling entirely.
-// Crawljax parity: IFrameTest.testIFramesNotCrawled()
 // Expected: NUMBER_OF_STATES = 4, NUMBER_OF_EDGES = 5
 func TestIFramesNotCrawled(t *testing.T) {
 	const (
-		// Crawljax exact values from IFrameTest.java
 		NUMBER_OF_STATES = 4
 		NUMBER_OF_EDGES  = 5
 	)
@@ -152,7 +139,7 @@ func TestIFramesNotCrawled(t *testing.T) {
 	}
 	cfg.Headless = true
 	cfg.MaxDepth = 3
-	cfg.CrawlFrames = false // Crawljax: builder.crawlRules().crawlFrames(false)
+	cfg.CrawlFrames = false
 	cfg.MaxDuration = 120 * time.Second
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
@@ -170,25 +157,21 @@ func TestIFramesNotCrawled(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(4))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasEdges(5))
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: hasEdges)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }
 
 // TestIFramesWildcardsNotCrawled tests wildcard exclusion of iframes.
-// Crawljax parity: IFrameTest.testIFramesWildcardsNotCrawled()
 // Expected: NUMBER_OF_STATES = 4, NUMBER_OF_EDGES = 5
 func TestIFramesWildcardsNotCrawled(t *testing.T) {
 	const (
-		// Crawljax exact values from IFrameTest.java
 		NUMBER_OF_STATES = 4
 		NUMBER_OF_EDGES  = 5
 	)
@@ -207,7 +190,6 @@ func TestIFramesWildcardsNotCrawled(t *testing.T) {
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
 
-	// Crawljax: builder.crawlRules().dontCrawlFrame("frame%", "sub")
 	// Using glob pattern - frame% matches frame0, frame1, etc.
 	cfg.ExcludeFrames = []string{"frame*", "sub"}
 
@@ -224,25 +206,21 @@ func TestIFramesWildcardsNotCrawled(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(4))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasEdges(5))
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: hasEdges)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }
 
 // TestCrawlingOnlySubFrames tests excluding nested frame paths.
-// Crawljax parity: IFrameTest.testCrawlingOnlySubFrames()
 // Expected: NUMBER_OF_STATES = 12, NUMBER_OF_EDGES = 21
 func TestCrawlingOnlySubFrames(t *testing.T) {
 	const (
-		// Crawljax exact values from IFrameTest.java
 		NUMBER_OF_STATES = 12
 		NUMBER_OF_EDGES  = 21
 	)
@@ -261,7 +239,6 @@ func TestCrawlingOnlySubFrames(t *testing.T) {
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
 
-	// Crawljax: builder.crawlRules().dontCrawlFrame("frame1.frame10")
 	cfg.ExcludeFrames = []string{"frame1.frame10"}
 
 	crawler, err := New(cfg)
@@ -277,15 +254,13 @@ func TestCrawlingOnlySubFrames(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertEquals("States", 12, session.getStateFlowGraph().getAllStates().size())
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: assertEquals States)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertEquals("Clickables", 21, session.getStateFlowGraph().getAllEdges().size())
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: assertEquals Clickables)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }

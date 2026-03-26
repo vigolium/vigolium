@@ -13,7 +13,7 @@ func makeAttackWithQuant(fp map[string]any, quantKeys []string) *Attack {
 		Fingerprint:     fp,
 		LastFingerprint: fp,
 		quantKeys:       make(map[string]struct{}),
-		quantBoxes:      make(map[string]*QuantitativeMeasurements),
+		quantMetrics:      make(map[string]*QuantitativeMeasurements),
 	}
 	for _, k := range quantKeys {
 		attack.quantKeys[k] = struct{}{}
@@ -26,15 +26,15 @@ func TestNewAttack(t *testing.T) {
 		attack := NewAttack([]string{"length", "words"}, 5, "")
 
 		require.NotNil(t, attack.quantKeys)
-		require.NotNil(t, attack.quantBoxes)
+		require.NotNil(t, attack.quantMetrics)
 		assert.Contains(t, attack.quantKeys, "length")
 		assert.Contains(t, attack.quantKeys, "words")
-		assert.Len(t, attack.quantBoxes, 2)
+		assert.Len(t, attack.quantMetrics, 2)
 	})
 
 	t.Run("ResponseReflections initialized to UNINITIALISED", func(t *testing.T) {
 		attack := NewAttack(nil, 5, "")
-		assert.Equal(t, ReflectType_UNINITIALISED, attack.ResponseReflections)
+		assert.Equal(t, ReflectionCountUninitialized, attack.ResponseReflections)
 	})
 
 	t.Run("webfinger components initialized", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestAttackAddAttack_MergeFingerprints(t *testing.T) {
 			Fingerprint:     map[string]any{"length": qm1},
 			LastFingerprint: map[string]any{"length": qm1},
 			quantKeys:       map[string]struct{}{"length": {}},
-			quantBoxes:      map[string]*QuantitativeMeasurements{"length": qm1},
+			quantMetrics:      map[string]*QuantitativeMeasurements{"length": qm1},
 		}
 
 		attack2 := &Attack{
@@ -125,7 +125,7 @@ func TestAttackAddAttack_MergeFingerprints(t *testing.T) {
 		target.FirstSnapshot = attack1.FirstSnapshot
 		target.Fingerprint = attack1.Fingerprint
 		target.quantKeys = attack1.quantKeys
-		target.quantBoxes["length"] = qm1
+		target.quantMetrics["length"] = qm1
 
 		target.AddAttack(attack2)
 
@@ -205,27 +205,27 @@ func TestAttackAllKeysAreQuantitative(t *testing.T) {
 }
 
 func TestAttackSize(t *testing.T) {
-	t.Run("returns 0 if no quantBoxes", func(t *testing.T) {
+	t.Run("returns 0 if no quantMetrics", func(t *testing.T) {
 		attack := NewAttack(nil, 5, "")
 		assert.Equal(t, 0, attack.Size())
 	})
 
 	t.Run("returns measurement count from first quantBox", func(t *testing.T) {
 		attack := NewAttack([]string{"length"}, 5, "")
-		attack.quantBoxes["length"].UpdateWith(100)
-		attack.quantBoxes["length"].UpdateWith(200)
-		attack.quantBoxes["length"].UpdateWith(300)
+		attack.quantMetrics["length"].UpdateWith(100)
+		attack.quantMetrics["length"].UpdateWith(200)
+		attack.quantMetrics["length"].UpdateWith(300)
 
 		assert.Equal(t, 3, attack.Size())
 	})
 }
 
-func TestGetNonMatchingPrints(t *testing.T) {
+func TestGetNonMatchingFingerprints(t *testing.T) {
 	t.Run("identifies keys with different values", func(t *testing.T) {
 		attack1 := makeAttack(map[string]any{"a": 1, "b": 2})
 		attack2 := makeAttack(map[string]any{"a": 1, "b": 999})
 
-		nonMatching := GetNonMatchingPrints(attack1, attack2)
+		nonMatching := GetNonMatchingFingerprints(attack1, attack2)
 
 		assert.Contains(t, nonMatching, "b")
 		assert.NotContains(t, nonMatching, "a")
@@ -235,7 +235,7 @@ func TestGetNonMatchingPrints(t *testing.T) {
 		attack1 := makeAttack(map[string]any{"a": 1, "b": 2})
 		attack2 := makeAttack(map[string]any{"a": 1, "c": 3})
 
-		nonMatching := GetNonMatchingPrints(attack1, attack2)
+		nonMatching := GetNonMatchingFingerprints(attack1, attack2)
 
 		assert.Contains(t, nonMatching, "b") // only in attack1
 		assert.Contains(t, nonMatching, "c") // only in attack2
@@ -252,7 +252,7 @@ func TestGetNonMatchingPrints(t *testing.T) {
 		attack1 := makeAttack(map[string]any{"length": qm1})
 		attack2 := makeAttack(map[string]any{"length": qm2})
 
-		nonMatching := GetNonMatchingPrints(attack1, attack2)
+		nonMatching := GetNonMatchingFingerprints(attack1, attack2)
 
 		// Should be empty since qm1.Equals(qm2) is true
 		assert.Empty(t, nonMatching)
@@ -268,7 +268,7 @@ func TestGetNonMatchingPrints(t *testing.T) {
 		attack1 := makeAttack(map[string]any{"length": qm1})
 		attack2 := makeAttack(map[string]any{"length": qm2})
 
-		nonMatching := GetNonMatchingPrints(attack1, attack2)
+		nonMatching := GetNonMatchingFingerprints(attack1, attack2)
 
 		assert.Contains(t, nonMatching, "length")
 	})
@@ -277,7 +277,7 @@ func TestGetNonMatchingPrints(t *testing.T) {
 		attack1 := makeAttack(map[string]any{})
 		attack2 := makeAttack(map[string]any{})
 
-		nonMatching := GetNonMatchingPrints(attack1, attack2)
+		nonMatching := GetNonMatchingFingerprints(attack1, attack2)
 
 		assert.Empty(t, nonMatching)
 	})

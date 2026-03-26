@@ -7,7 +7,6 @@ import (
 )
 
 // TestServer wraps httptest.Server for serving test HTML files.
-// This is the Go equivalent of Crawljax's RunWithWebServer and WebServer classes.
 type TestServer struct {
 	server  *httptest.Server
 	baseDir string
@@ -86,7 +85,6 @@ func (ts *TestServer) Client() *http.Client {
 }
 
 // SimpleSiteServer creates a test server serving the simple-site test files.
-// This matches Crawljax's SimpleSiteCrawl test setup.
 func SimpleSiteServer() *TestServer {
 	return NewTestServerWithDir(filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "simple-site"))
 }
@@ -102,8 +100,6 @@ func ClickableTestServer() *TestServer {
 }
 
 // SimpleInputSiteServer creates a test server serving the simple-input-site test files.
-// This matches Crawljax's SimpleInputSiteCrawl test setup.
-// Crawljax parity: SimpleInputSiteCrawlTest.java - 2 states, 2 edges
 func SimpleInputSiteServer() *TestServer {
 	// Serve both the site directory and the lib directory for jQuery
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html")
@@ -124,8 +120,6 @@ func SimpleInputSiteServer() *TestServer {
 }
 
 // SimpleJsSiteServer creates a test server serving the simple-js-site test files.
-// This matches Crawljax's SimpleJsSiteCrawl test setup.
-// Crawljax parity: SimpleJsSiteCrawlTest.java - 11 states, 13 edges
 func SimpleJsSiteServer() *TestServer {
 	// Serve both the site directory and the lib directory for jQuery
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html")
@@ -146,8 +140,6 @@ func SimpleJsSiteServer() *TestServer {
 }
 
 // SiteServer creates a test server serving the site test files.
-// This matches Crawljax's RunWithWebServer("/site") setup.
-// Crawljax parity: Used by IFrameTest, PopUpTest, CrawlerStopTest
 func SiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -167,7 +159,6 @@ func SiteServer() *TestServer {
 }
 
 // IFrameSiteServer creates a test server serving the iframe test files.
-// Crawljax parity: IFrameTest.java - testIFrameCrawlable: 13 states, 23 edges
 func IFrameSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -187,7 +178,6 @@ func IFrameSiteServer() *TestServer {
 }
 
 // PopupSiteServer creates a test server serving the popup test files.
-// Crawljax parity: PopUpTest.java - 3 states, 3 edges
 func PopupSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -207,14 +197,12 @@ func PopupSiteServer() *TestServer {
 }
 
 // InfiniteSiteServer creates a test server serving the infinite state test file.
-// Crawljax parity: CrawlerStopTest.java - used for max depth/states/time tests
 func InfiniteSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	return NewTestServerWithDir(baseDir)
 }
 
 // BasicAuthServer creates a test server with HTTP Basic Authentication.
-// Crawljax parity: PassBasicHttpAuthTest.java - 3 states with auth
 func BasicAuthServer(username, password string) *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -236,7 +224,6 @@ func BasicAuthServer(username, password string) *TestServer {
 }
 
 // UnderXPathSiteServer creates a test server serving underxpath.html test.
-// Crawljax parity: UnderXPathTest.java - testDontClickUnderXPath: 2 states
 func UnderXPathSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -259,7 +246,6 @@ func UnderXPathSiteServer() *TestServer {
 }
 
 // LargeSiteServer creates a test server serving the main large test site.
-// Crawljax parity: LargeTestBase.java - comprehensive crawl tests
 func LargeSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -285,7 +271,6 @@ func LargeSiteServer() *TestServer {
 }
 
 // ClickableSiteServer creates a test server serving clickable test site.
-// Crawljax parity: CandidateElementExtractorTest.java - element extraction tests
 func ClickableSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -305,7 +290,6 @@ func ClickableSiteServer() *TestServer {
 }
 
 // DownloadSiteServer creates a test server serving download test site.
-// Crawljax parity: CandidateElementExtractorTest.java - testExtractShouldIgnoreDownloadFiles
 func DownloadSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -325,7 +309,6 @@ func DownloadSiteServer() *TestServer {
 }
 
 // ClickablesSiteServer creates a test server for clickable element tests.
-// Crawljax parity: CrawlClickablesTest.java - testCrawlWithClickableDetection: 2 states
 // Note: This is distinct from ClickableSiteServer which serves the same files but
 // is used for element extraction tests (CandidateElementExtractorTest).
 func ClickablesSiteServer() *TestServer {
@@ -347,7 +330,6 @@ func ClickablesSiteServer() *TestServer {
 }
 
 // HiddenElementsSiteServer creates a test server for hidden elements tests.
-// Crawljax parity: CrawlHiddenElementsTest.java - 2 or 1 states depending on config
 func HiddenElementsSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{
@@ -367,7 +349,6 @@ func HiddenElementsSiteServer() *TestServer {
 }
 
 // CrawlScopeSiteServer creates a test server for custom scope tests.
-// Crawljax parity: CrawlWithCustomScopeTest.java - 3 states (only in_scope pages)
 func CrawlScopeSiteServer() *TestServer {
 	baseDir := filepath.Join(getProjectRoot(), "test", "spitolas", "testdata", "html", "site")
 	ts := &TestServer{

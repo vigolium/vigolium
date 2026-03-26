@@ -170,7 +170,6 @@ func TestStripDOMEmptyInput(t *testing.T) {
 }
 
 func TestStripDOMWithDomtest(t *testing.T) {
-	// Load the actual Crawljax test HTML
 	html := testutil.LoadTestHTML(t, "domtest.html")
 
 	result := StripDOMDefault(html)
@@ -385,7 +384,6 @@ func TestGetTitleFromDomtest(t *testing.T) {
 }
 
 func TestNormalizeWhitespace(t *testing.T) {
-	// CRAWLJAX PARITY: Java SimpleComparator preserves interior text spacing.
 	// Only control whitespace (\t\n\f\r) is removed. Spaces in text content are preserved.
 	// Spaces around tags ("> " and " <") are removed.
 	tests := []struct {
@@ -396,17 +394,17 @@ func TestNormalizeWhitespace(t *testing.T) {
 		{
 			name:  "multiple spaces preserved",
 			input: "hello    world",
-			want:  "hello    world", // CRAWLJAX PARITY: interior spaces preserved
+			want:  "hello    world",
 		},
 		{
 			name:  "newlines removed",
 			input: "hello\n\n\nworld",
-			want:  "helloworld", // CRAWLJAX PARITY: \n removed, no space replacement
+			want:  "helloworld",
 		},
 		{
 			name:  "tabs removed",
 			input: "hello\t\t\tworld",
-			want:  "helloworld", // CRAWLJAX PARITY: \t removed, no space replacement
+			want:  "helloworld",
 		},
 		{
 			name:  "mixed whitespace",
@@ -537,12 +535,9 @@ func TestDefaultStripAttrs(t *testing.T) {
 }
 
 // ============================================================================
-// CRAWLJAX PARITY: DomComparerTest
-// Based on: core/src/test/java/com/crawljax/util/DOMComparerTest.java
 // ============================================================================
 
 func TestNoDifference(t *testing.T) {
-	// CRAWLJAX PARITY: testNoDifference
 	html1 := "<HTML><HEAD><TITLE>Test Page</TITLE></HEAD><BODY><DIV id=\"test\">Content</DIV></BODY></HTML>"
 	html2 := "<HTML><HEAD><TITLE>Test Page</TITLE></HEAD><BODY><DIV id=\"test\">Content</DIV></BODY></HTML>"
 
@@ -557,7 +552,6 @@ func TestNoDifference(t *testing.T) {
 }
 
 func TestDifferentTitle(t *testing.T) {
-	// CRAWLJAX PARITY: testDifferentTitle
 	html1 := "<HTML><HEAD><TITLE>Page 1</TITLE></HEAD><BODY><DIV>Content</DIV></BODY></HTML>"
 	html2 := "<HTML><HEAD><TITLE>Page 2</TITLE></HEAD><BODY><DIV>Content</DIV></BODY></HTML>"
 
@@ -571,7 +565,6 @@ func TestDifferentTitle(t *testing.T) {
 }
 
 func TestDifferentContent(t *testing.T) {
-	// CRAWLJAX PARITY: testDifferentContent
 	html1 := "<HTML><BODY><DIV>First Content</DIV></BODY></HTML>"
 	html2 := "<HTML><BODY><DIV>Second Content</DIV></BODY></HTML>"
 
@@ -584,7 +577,6 @@ func TestDifferentContent(t *testing.T) {
 }
 
 func TestIgnoredAttributeDifference(t *testing.T) {
-	// CRAWLJAX PARITY: Test that ignored attributes don't affect comparison
 	html1 := "<HTML><BODY><DIV id=\"div1\" class=\"c1\" style=\"color:red\">Content</DIV></BODY></HTML>"
 	html2 := "<HTML><BODY><DIV id=\"div2\" class=\"c2\" style=\"color:blue\">Content</DIV></BODY></HTML>"
 
@@ -598,7 +590,6 @@ func TestIgnoredAttributeDifference(t *testing.T) {
 }
 
 func TestStructuralDifference(t *testing.T) {
-	// CRAWLJAX PARITY: Test structural differences
 	html1 := "<HTML><BODY><DIV><SPAN>Content</SPAN></DIV></BODY></HTML>"
 	html2 := "<HTML><BODY><DIV><P>Content</P></DIV></BODY></HTML>"
 
@@ -612,7 +603,6 @@ func TestStructuralDifference(t *testing.T) {
 }
 
 func TestCountDifferences(t *testing.T) {
-	// CRAWLJAX PARITY: Count actual differences between DOMs
 	html1 := "<HTML><BODY><DIV>A</DIV><DIV>B</DIV><DIV>C</DIV></BODY></HTML>"
 	html2 := "<HTML><BODY><DIV>A</DIV><DIV>X</DIV><DIV>C</DIV></BODY></HTML>"
 
@@ -649,12 +639,9 @@ func TestCountDifferences(t *testing.T) {
 }
 
 // ============================================================================
-// CRAWLJAX PARITY: DomUtilsTest
-// Based on: core/src/test/java/com/crawljax/util/DomUtilsTest.java
 // ============================================================================
 
 func TestGetElementStringDiv(t *testing.T) {
-	// CRAWLJAX PARITY: testGetElementStringDiv
 	html := "<body><div id=\"foo\">test</div></body>"
 
 	// Extract body content
@@ -670,7 +657,6 @@ func TestGetElementStringDiv(t *testing.T) {
 }
 
 func TestRemoveNewLines(t *testing.T) {
-	// CRAWLJAX PARITY: testRemoveNewLines
 	html := "<HTML>\n\r<HEAD><TITLE>Test</TITLE></HEAD>\r\n<BODY>\n</BODY></HTML>"
 
 	result := normalizeWhitespace(html)
@@ -682,7 +668,6 @@ func TestRemoveNewLines(t *testing.T) {
 }
 
 func TestReplaceString(t *testing.T) {
-	// CRAWLJAX PARITY: testReplaceString
 	// Testing that attribute stripping works correctly
 	html := "<div id=\"oldId\" class=\"oldClass\">content</div>"
 
@@ -701,7 +686,6 @@ func TestReplaceString(t *testing.T) {
 }
 
 func TestGetAllTextContent(t *testing.T) {
-	// CRAWLJAX PARITY: Test extracting all text content
 	html := "<html><body><div>First</div><span>Second</span><p>Third</p></body></html>"
 
 	text := ExtractTextContent(html)
@@ -719,7 +703,6 @@ func TestGetAllTextContent(t *testing.T) {
 }
 
 func TestStripDOMWithRealWorld(t *testing.T) {
-	// CRAWLJAX PARITY: Test with realistic HTML from domtest.html
 	html := testutil.LoadTestHTML(t, "domtest.html")
 
 	stripped := StripDOMDefault(html)
@@ -741,7 +724,6 @@ func TestStripDOMWithRealWorld(t *testing.T) {
 }
 
 func TestNestedElementStripping(t *testing.T) {
-	// CRAWLJAX PARITY: Test deeply nested elements
 	html := `<html><body>
 		<div id="outer" class="container">
 			<div id="middle" class="wrapper">
@@ -771,7 +753,6 @@ func TestNestedElementStripping(t *testing.T) {
 }
 
 func TestDataAttributeWildcard(t *testing.T) {
-	// CRAWLJAX PARITY: Test data-* wildcard stripping
 	html := `<div data-id="123" data-value="abc" data-custom-attr="xyz">Content</div>`
 
 	stripped := StripDOM(html, nil, []string{"data-*"})
@@ -791,7 +772,6 @@ func TestDataAttributeWildcard(t *testing.T) {
 }
 
 func TestMultipleScriptRemoval(t *testing.T) {
-	// CRAWLJAX PARITY: Test multiple script tag removal
 	html := `<html><head>
 		<script src="jquery.js"></script>
 		<script>var x = 1;</script>

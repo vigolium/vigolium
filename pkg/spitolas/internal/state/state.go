@@ -20,7 +20,6 @@ type CandidateElementIface interface {
 }
 
 // State represents a crawl state (DOM snapshot).
-// CRAWLJAX PARITY: Matches Java StateVertex structure.
 type State struct {
 	ID          string    // SHA256(strippedDOM)[:16]
 	Name        string    // "state_001", etc
@@ -35,27 +34,17 @@ type State struct {
 	DistToNearest   float64 // Distance to nearest state
 	IsNearDuplicate bool    // True if differs only in dynamic content
 
-	// CRAWLJAX PARITY: Cluster ID for grouping near-duplicates
-	// In Java: int cluster (initially set to state id)
 	ClusterID int
 
-	// CRAWLJAX PARITY: Unexplored actions flag
-	// In Java: boolean unexploredActions = true
 	unexploredActions bool
 
-	// CRAWLJAX PARITY: URL navigation flag
-	// In Java: boolean onURL
 	OnURL bool
 
-	// CRAWLJAX PARITY: Root fragment hash for fragment-based comparison
 	RootFragmentHash string
 
-	// CRAWLJAX PARITY: Candidate element storage
-	// In Java: transient ImmutableList<CandidateElement> candidateElements
-	// In Java: transient HashMap<Node, List<CandidateElement>> nodeCandidateMapping
 	mu                   sync.RWMutex
 	candidateElements    []CandidateElementIface
-	xpathCandidateMap    map[string][]CandidateElementIface // XPath -> candidates (replaces Java's Node-keyed map)
+	xpathCandidateMap    map[string][]CandidateElementIface
 }
 
 // New creates a new state from URL, raw HTML, and stripped DOM.
@@ -68,8 +57,6 @@ func New(url, rawHTML, strippedDOM string, depth int) *State {
 	num := atomic.AddUint64(&stateCounter, 1)
 	name := fmt.Sprintf("state_%03d", num)
 
-	// CRAWLJAX PARITY: ClusterID initially set to sequential number
-	// In Java: cluster = id (but id is int in Java)
 	clusterID := int(num)
 
 	return &State{
@@ -84,7 +71,7 @@ func New(url, rawHTML, strippedDOM string, depth int) *State {
 		DistToNearest:     0,
 		IsNearDuplicate:   false,
 		ClusterID:         clusterID,
-		unexploredActions: true, // CRAWLJAX PARITY: Default true
+		unexploredActions: true,
 		OnURL:             false,
 		RootFragmentHash:  "",
 	}
@@ -133,8 +120,6 @@ func (s *State) Clone() *State {
 	}
 }
 
-// CRAWLJAX PARITY: Additional methods for state management
-
 // SetCluster sets the cluster ID for this state.
 func (s *State) SetCluster(clusterID int) {
 	s.ClusterID = clusterID
@@ -158,8 +143,6 @@ func (s *State) SetUnexploredActions(hasUnexplored bool) {
 }
 
 // HasUnexploredActions returns whether this state has unexplored candidate actions.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.hasUnexploredActions() exactly.
-// Java: short-circuits on cached flag, iterates candidateElements, permanently caches false.
 func (s *State) HasUnexploredActions() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,7 +168,6 @@ func (s *State) HasUnexploredActions() bool {
 }
 
 // SetElementsFound stores candidate elements for this state and builds the XPath index.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.setElementsFound(LinkedList<CandidateElement>).
 func (s *State) SetElementsFound(elements []CandidateElementIface) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -193,7 +175,6 @@ func (s *State) SetElementsFound(elements []CandidateElementIface) {
 	s.candidateElements = make([]CandidateElementIface, len(elements))
 	copy(s.candidateElements, elements)
 
-	// Build XPath -> candidate mapping (replaces Java's Node-keyed nodeCandidateMapping)
 	s.xpathCandidateMap = make(map[string][]CandidateElementIface)
 	for _, candidate := range s.candidateElements {
 		_, value := candidate.GetIdentificationPair()
@@ -204,7 +185,6 @@ func (s *State) SetElementsFound(elements []CandidateElementIface) {
 }
 
 // GetCandidateElements returns all candidate elements for this state.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElements().
 func (s *State) GetCandidateElements() []CandidateElementIface {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -212,8 +192,6 @@ func (s *State) GetCandidateElements() []CandidateElementIface {
 }
 
 // GetCandidateElementByXPath returns the first candidate element matching the given XPath.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElement(Eventable).
-// Java resolves eventable's XPath against DOM, then looks up in nodeCandidateMapping.
 // Go uses the pre-built xpathCandidateMap since we don't have live DOM.
 func (s *State) GetCandidateElementByXPath(xpath string) CandidateElementIface {
 	s.mu.RLock()
@@ -231,7 +209,6 @@ func (s *State) GetCandidateElementByXPath(xpath string) CandidateElementIface {
 }
 
 // GetCandidateElementsByXPath returns all candidate elements matching the given XPath.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.getCandidateElement(Node).
 func (s *State) GetCandidateElementsByXPath(xpath string) []CandidateElementIface {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -243,8 +220,6 @@ func (s *State) GetCandidateElementsByXPath(xpath string) []CandidateElementIfac
 }
 
 // SetDirectAccessByXPath marks all candidates with matching XPath as directly accessed.
-// CRAWLJAX PARITY: Matches Java StateVertexImpl.setDirectAccess(CandidateElement).
-// Java: iterates nodeCandidateMapping.get(element.getElement()) and calls setDirectAccess(true).
 func (s *State) SetDirectAccessByXPath(xpath string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

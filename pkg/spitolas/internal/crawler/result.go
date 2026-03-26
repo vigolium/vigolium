@@ -16,7 +16,6 @@ type Result struct {
 	Graph     *state.Graph
 	Stats     Stats
 	Fragments fragment.FragmentStats
-	// CRAWLJAX PARITY: Session contains backtrack history
 	Session *CrawlSession
 }
 

@@ -1,6 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file implements Eventable matching Java Crawljax's
-// com.crawljax.core.state.Eventable exactly.
 package action
 
 import (
@@ -23,7 +21,6 @@ func ResetEventableIDCounter() {
 }
 
 // Element represents a DOM element with stripped info for serialization.
-// Matches Java com.crawljax.core.state.Element exactly.
 type Element struct {
 	Tag        string            `json:"tag"`
 	Text       string            `json:"text"`
@@ -64,31 +61,26 @@ func NewElementFromCandidate(candidate *CandidateElement) *Element {
 }
 
 // GetTag returns the tag name.
-// Matches Java getTag()
 func (e *Element) GetTag() string {
 	return e.Tag
 }
 
 // GetText returns the text content.
-// Matches Java getText()
 func (e *Element) GetText() string {
 	return e.Text
 }
 
 // GetAttributes returns the attributes map.
-// Matches Java getAttributes()
 func (e *Element) GetAttributes() map[string]string {
 	return e.Attributes
 }
 
 // GetAttributeOrNull returns an attribute by name or empty string if not found.
-// Matches Java getAttributeOrNull(String)
 func (e *Element) GetAttributeOrNull(attribute string) string {
 	return e.Attributes[strings.ToLower(attribute)]
 }
 
 // GetElementID returns the id attribute or empty string.
-// Matches Java getElementId()
 func (e *Element) GetElementID() string {
 	for key, value := range e.Attributes {
 		if strings.EqualFold(key, "id") {
@@ -99,7 +91,6 @@ func (e *Element) GetElementID() string {
 }
 
 // EqualAttributes checks if attributes are the same.
-// Matches Java equalAttributes(Element)
 func (e *Element) EqualAttributes(other *Element) bool {
 	if other == nil {
 		return false
@@ -116,7 +107,6 @@ func (e *Element) EqualAttributes(other *Element) bool {
 }
 
 // EqualID checks if both IDs are the same.
-// Matches Java equalId(Element)
 func (e *Element) EqualID(other *Element) bool {
 	if other == nil {
 		return false
@@ -130,7 +120,6 @@ func (e *Element) EqualID(other *Element) bool {
 }
 
 // EqualText checks if both texts are the same.
-// Matches Java equalText(Element)
 func (e *Element) EqualText(other *Element) bool {
 	if other == nil {
 		return false
@@ -139,7 +128,6 @@ func (e *Element) EqualText(other *Element) bool {
 }
 
 // Equals checks equality with another Element.
-// Matches Java equals(Object)
 func (e *Element) Equals(other *Element) bool {
 	if other == nil {
 		return false
@@ -153,7 +141,6 @@ func (e *Element) Equals(other *Element) bool {
 }
 
 // String returns a string representation.
-// Matches Java toString()
 func (e *Element) String() string {
 	return fmt.Sprintf("Element{tag=%s, text=%s, attributes=%v}", e.Tag, e.Text, e.Attributes)
 }
@@ -161,7 +148,6 @@ func (e *Element) String() string {
 // Eventable represents an element having an event attached to it
 // (onclick, onmouseover, ...) so that it can change the DOM state.
 // This is AFTER the event is fired (becomes an edge in StateFlowGraph).
-// Matches Java com.crawljax.core.state.Eventable exactly.
 type Eventable struct {
 	ID                int64           `json:"id"`
 	EventType         EventType       `json:"eventType"`
@@ -174,7 +160,6 @@ type Eventable struct {
 }
 
 // NewEventable creates a new Eventable.
-// Matches Java constructor: Eventable(Identification, EventType)
 func NewEventable(identification *Identification, eventType EventType) *Eventable {
 	return &Eventable{
 		Identification:    identification,
@@ -185,7 +170,6 @@ func NewEventable(identification *Identification, eventType EventType) *Eventabl
 }
 
 // NewEventableWithFrame creates a new Eventable with related frame.
-// Matches Java constructor: Eventable(Identification, EventType, String)
 func NewEventableWithFrame(identification *Identification, eventType EventType, relatedFrame string) *Eventable {
 	e := NewEventable(identification, eventType)
 	e.RelatedFrame = relatedFrame
@@ -193,7 +177,6 @@ func NewEventableWithFrame(identification *Identification, eventType EventType, 
 }
 
 // NewEventableFromCandidate creates an Eventable from CandidateElement.
-// Matches Java constructor: Eventable(CandidateElement, EventType, long)
 func NewEventableFromCandidate(candidate *CandidateElement, eventType EventType, id int64) *Eventable {
 	e := &Eventable{
 		ID:             id,
@@ -219,61 +202,51 @@ func NewEventableFromCandidate(candidate *CandidateElement, eventType EventType,
 }
 
 // GetID returns the ID.
-// Matches Java getId()
 func (e *Eventable) GetID() int64 {
 	return e.ID
 }
 
 // SetID sets the ID.
-// Matches Java setId(long)
 func (e *Eventable) SetID(id int64) {
 	e.ID = id
 }
 
 // GetEventType returns the event type.
-// Matches Java getEventType()
 func (e *Eventable) GetEventType() EventType {
 	return e.EventType
 }
 
 // SetEventType sets the event type.
-// Matches Java setEventType(EventType)
 func (e *Eventable) SetEventType(eventType EventType) {
 	e.EventType = eventType
 }
 
 // GetIdentification returns the identification.
-// Matches Java getIdentification()
 func (e *Eventable) GetIdentification() *Identification {
 	return e.Identification
 }
 
 // SetIdentification sets the identification.
-// Matches Java setIdentification(Identification)
 func (e *Eventable) SetIdentification(identification *Identification) {
 	e.Identification = identification
 }
 
 // GetElement returns the element.
-// Matches Java getElement()
 func (e *Eventable) GetElement() *Element {
 	return e.Element
 }
 
 // SetElement sets the element.
-// Matches Java setElement(Element)
 func (e *Eventable) SetElement(element *Element) {
 	e.Element = element
 }
 
 // GetRelatedFormInputs returns the related form inputs.
-// Matches Java getRelatedFormInputs()
 func (e *Eventable) GetRelatedFormInputs() []*FormInput {
 	return e.RelatedFormInputs
 }
 
 // SetRelatedFormInputs sets the related form inputs.
-// Matches Java setRelatedFormInputs(List<FormInput>)
 func (e *Eventable) SetRelatedFormInputs(inputs []*FormInput) {
 	if inputs == nil {
 		e.RelatedFormInputs = make([]*FormInput, 0)
@@ -284,37 +257,31 @@ func (e *Eventable) SetRelatedFormInputs(inputs []*FormInput) {
 }
 
 // GetRelatedFrame returns the related frame.
-// Matches Java getRelatedFrame()
 func (e *Eventable) GetRelatedFrame() string {
 	return e.RelatedFrame
 }
 
 // GetSourceStateID returns the source state ID.
-// Matches Java getSourceStateVertex().getName()
 func (e *Eventable) GetSourceStateID() string {
 	return e.SourceStateID
 }
 
 // SetSourceStateID sets the source state ID.
-// Matches Java setSource(StateVertex)
 func (e *Eventable) SetSourceStateID(stateID string) {
 	e.SourceStateID = stateID
 }
 
 // GetTargetStateID returns the target state ID.
-// Matches Java getTargetStateVertex().getName()
 func (e *Eventable) GetTargetStateID() string {
 	return e.TargetStateID
 }
 
 // SetTargetStateID sets the target state ID.
-// Matches Java setTarget(StateVertex)
 func (e *Eventable) SetTargetStateID(stateID string) {
 	e.TargetStateID = stateID
 }
 
 // Equals checks equality with another Eventable.
-// Matches Java equals(Object)
 func (e *Eventable) Equals(other *Eventable) bool {
 	if other == nil {
 		return false
@@ -356,14 +323,12 @@ func (e *Eventable) Equals(other *Eventable) bool {
 }
 
 // String returns a string representation.
-// Matches Java toString()
 func (e *Eventable) String() string {
 	return fmt.Sprintf("Eventable{eventType=%s, identification=%v, element=%v, source=%s, target=%s}",
 		e.EventType, e.Identification, e.Element, e.SourceStateID, e.TargetStateID)
 }
 
 // HashCode returns a hash code for this Eventable.
-// Matches Java hashCode(): Objects.hashCode(eventType, identification, element, this.getSource(), this.getTarget())
 func (e *Eventable) HashCode() int64 {
 	var h int64 = 17
 
@@ -390,8 +355,6 @@ func (e *Eventable) HashCode() int64 {
 		for _, c := range e.Element.Text {
 			h = 31*h + int64(c)
 		}
-		// Note: Element attributes are NOT included in Java hashCode for Eventable
-		// because Java Element's hashCode uses node.toString() which is transient
 	}
 
 	// Hash source and target
@@ -429,8 +392,6 @@ func NewEventableFromCandidateCrawlAction(action *CandidateCrawlAction) *Eventab
 }
 
 // NewEventableFromCandidateCrawlActionWithID creates an Eventable with a specific ID.
-// CRAWLJAX PARITY: Used when wasExplored() is true to encode equivalentAccess in the ID.
-// Java: eventableId = (long) (element.getEquivalentAccess()) * DUPLICATE_EVENT_SEED + eventableId
 func NewEventableFromCandidateCrawlActionWithID(action *CandidateCrawlAction, id int64) *Eventable {
 	if action == nil {
 		return nil
@@ -439,7 +400,6 @@ func NewEventableFromCandidateCrawlActionWithID(action *CandidateCrawlAction, id
 }
 
 // NewReloadEventable creates a reload Eventable for backtracking.
-// Matches Java new Eventable(EventType.reload)
 func NewReloadEventable(url string) *Eventable {
 	return &Eventable{
 		ID:                NextEventableID(),

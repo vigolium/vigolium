@@ -6,8 +6,6 @@ import (
 )
 
 // Detector provides form and input detection utilities.
-// GO EXTENSION: This is a Go-specific utility, not in Crawljax.
-// All element identification uses XPath for Crawljax parity.
 type Detector struct{}
 
 // NewDetector creates a new form detector.
@@ -65,11 +63,10 @@ func (d *Detector) CountInputs(page *browser.Page) int {
 
 // GetLoginForm tries to detect a login form on the page.
 // Returns nil if no login form is found.
-// CRAWLJAX PARITY: Uses XPath for element identification.
 func (d *Detector) GetLoginForm(page *browser.Page) *Form {
-	// JavaScript returns XPath for all elements (Crawljax parity)
+	// JavaScript returns XPath for all elements
 	script := `(() => {
-		// Helper to get XPath for element (matches Crawljax XPathHelper.getXPathExpression)
+		// Helper to get XPath for element
 		function getXPath(el) {
 			if (!el || el.nodeType !== Node.ELEMENT_NODE) return '';
 
@@ -150,7 +147,6 @@ func (d *Detector) GetLoginForm(page *browser.Page) *Form {
 }
 
 // GetSearchForm tries to detect a search form on the page.
-// CRAWLJAX PARITY: Uses XPath for element identification.
 func (d *Detector) GetSearchForm(page *browser.Page) *Form {
 	script := `(() => {
 		// Helper to get XPath for element
@@ -222,7 +218,7 @@ func (d *Detector) GetSearchForm(page *browser.Page) *Form {
 }
 
 // GetSelectOptions returns the available options for a select element.
-// Parameter xpath must be an XPath expression (Crawljax parity).
+// Parameter xpath must be an XPath expression.
 func (d *Detector) GetSelectOptions(page *browser.Page, xpath string) ([]string, error) {
 	script := `(xpath) => {
 		const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);

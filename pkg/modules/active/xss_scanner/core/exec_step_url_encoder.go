@@ -9,16 +9,14 @@ import (
 )
 
 // URLEncodingAwareAttackStepExecutor implements the XSSAttackStepExecutor interface.
-// Original Java class: ihj
 type URLEncodingAwareAttackStepExecutor struct {
-	delegateExecutor AttackStepRunner // Corresponds to private final XSSAttackStepExecutor c;
+	delegateExecutor AttackStepRunner
 	// doNotEncodeChars map[rune]struct{} // Moved from package level static var
 	// encoder *ConfigurableURLEncoder
 	specialChars map[rune]struct{}
 }
 
-// NewURLEncodingAwareAttackStepExecutor creates a new instance of Ihj.
-// Original Java constructor: public ihj(XSSAttackStepExecutor var1)
+// NewURLEncodingAwareAttackStepExecutor creates a new instance.
 func NewURLEncodingAwareAttackStepExecutor(
 	delegateExecutor AttackStepRunner,
 ) *URLEncodingAwareAttackStepExecutor {
@@ -55,52 +53,19 @@ func (executor *URLEncodingAwareAttackStepExecutor) isContainsSpecialChars(paylo
 	return false
 }
 
-// RunAttackStep is the Go equivalent of the 'a' method from the XSSAttackStepExecutor interface for class Ihj.
-// Original Java method: public PreliminaryXSSFinding a(*mutate.FuzzHTTPRequestParam var1, int var2, String var3, ll var4, byte var5, cgv var6, boolean var7, hnx var8)
 func (executor *URLEncodingAwareAttackStepExecutor) RunAttackStep(
-	injectionPoint httpmsg.InsertionPoint, // var1
-	scanFlags int, // var2
-	payload string, // var3
-	tactic ReflectionTacticType, // var4
-	contextCode byte, // var5
-	techniqueClassifier AttackTechniqueClassifier, // var6
-	useSecondaryCanary bool, // var7
-	profile *ScanExecutionProfile, // var8
+	injectionPoint httpmsg.InsertionPoint,
+	scanFlags int,
+	payload string,
+	tactic ReflectionTacticType,
+	contextCode byte,
+	techniqueClassifier AttackTechniqueClassifier,
+	useSecondaryCanary bool,
+	profile *ScanExecutionProfile,
 ) PotentialXSSFinding {
 	if !executor.isContainsSpecialChars(payload) {
 		return nil
 	}
-
-	// egpInstance := bnoVal.E_Egp() // httpmsg.InsertionPoint.e() returns egp
-	// b2Instance, ok := egpInstance.(B2ModifiableSet)
-	// if !ok || b2Instance == nil {
-	// 	return nil
-	// }
-
-	// for charToRegister := range i.charSetA { // Use instance field
-	// 	b2Instance.AddCharToInternalSet(charToRegister) // Corresponds
-	// }
-
-	// var resultBgf PreliminaryXSSFinding
-	// defer func() {
-	// 	for charToUnregister := range i.charSetA { // Use instance field
-	// 		b2Instance.RemoveCharFromInternalSet(charToUnregister)
-	// 	}
-	// }()
-
-	// if i.valCI2j == nil { // Defensive check for nil delegate
-	// 	return nil
-	// }
-	// //TODO: check if this is correct
-	// encodedPayload, err := executor.encoder.ProcessBytesWithOffsets(
-	// 	[]byte(payload),
-	// 	[]int{0, len(payload)},
-	// )
-	// if err != nil {
-	// 	return nil
-	// }
-
-	// encodedPayload:= url.QueryEscape()
 
 	resultBgf := executor.delegateExecutor.RunAttackStep(
 		injectionPoint,
@@ -116,18 +81,15 @@ func (executor *URLEncodingAwareAttackStepExecutor) RunAttackStep(
 	return resultBgf
 }
 
-// --- B2Processor Implementation (Equivalent of Java's b_2) ---
-
-// ConfigurableURLEncoder implements Egp and B2ModifiableSet.
-// It handles URL encoding and decoding, with a configurable set of characters
-// that should not be encoded.
+// ConfigurableURLEncoder handles URL encoding and decoding, with a configurable
+// set of characters that should not be encoded.
 type ConfigurableURLEncoder struct {
 	// doNotEncodeSet stores characters that should not be URL-encoded
 	// by ProcessBytesWithOffsets.
 	doNotEncodeSet map[rune]struct{}
 }
 
-// NewConfigurableURLEncoder creates a new B2Processor.
+// NewConfigurableURLEncoder creates a new ConfigurableURLEncoder.
 func NewConfigurableURLEncoder() *ConfigurableURLEncoder {
 	return &ConfigurableURLEncoder{
 		doNotEncodeSet: make(map[rune]struct{}),
@@ -144,7 +106,6 @@ func NewConfigurableURLEncoderIgnoreSpecialChars(
 }
 
 // AddSkipEncodeChar adds a character to the set of characters that will not be URL-encoded.
-// Implements B2ModifiableSet.
 func (encoder *ConfigurableURLEncoder) AddSkipEncodeChar(char rune) {
 	if encoder.doNotEncodeSet == nil {
 		encoder.doNotEncodeSet = make(map[rune]struct{})
@@ -153,7 +114,6 @@ func (encoder *ConfigurableURLEncoder) AddSkipEncodeChar(char rune) {
 }
 
 // RemoveSkipEncodeChar removes a character from the set.
-// Implements B2ModifiableSet.
 func (encoder *ConfigurableURLEncoder) RemoveSkipEncodeChar(char rune) {
 	if encoder.doNotEncodeSet != nil {
 		delete(encoder.doNotEncodeSet, char)
@@ -162,7 +122,6 @@ func (encoder *ConfigurableURLEncoder) RemoveSkipEncodeChar(char rune) {
 
 // isSpecialChar checks if a byte is a special character that needs encoding
 // (unless it's in doNotEncodeSet).
-// This logic is derived from the switch statement in Java's b_2.a(byte[], int[]).
 func (encoder *ConfigurableURLEncoder) shouldEncodeByte(b byte) bool {
 	if _, isSkipped := encoder.doNotEncodeSet[rune(b)]; isSkipped {
 		return false // Do not encode if in the set
@@ -197,7 +156,6 @@ func (encoder *ConfigurableURLEncoder) shouldEncodeByte(b byte) bool {
 
 // ProcessBytesWithOffsets URL-encodes data. Characters in doNotEncodeSet are skipped.
 // Updates offsets based on encoding changes.
-// Implements Egp. Corresponds to Java's b_2.a(byte[] var1, int[] var2).
 func (encoder *ConfigurableURLEncoder) ProcessBytesWithOffsets(
 	data []byte,
 	offsets []int,
@@ -224,7 +182,7 @@ func (encoder *ConfigurableURLEncoder) ProcessBytesWithOffsets(
 		// fmt.Sprintf("%%%02x", byte('#')) = %23
 		// https://go.dev/play/p/c6KQ7HQLBeH
 		if encoder.shouldEncodeByte(b) {
-			fmt.Fprintf(&out, "%%%02x", b) // Lowercase hex, like Java's nc.c
+			fmt.Fprintf(&out, "%%%02x", b)
 		} else {
 			out.WriteByte(b)
 		}
@@ -258,10 +216,8 @@ func (encoder *ConfigurableURLEncoder) ProcessBytesWithOffsets(
 }
 
 // ProcessBytes URL-decodes data.
-// Implements Egp. Corresponds to Java's b_2.a(byte[] var1) which uses nc.c.
 func (encoder *ConfigurableURLEncoder) ProcessBytes(data []byte) ([]byte, error) {
 	// net/url.QueryUnescape handles '+' as space and %XX.
-	// Java's nc.c also handles %uXXXX, which QueryUnescape does not.
 	// If %uXXXX is critical, a custom unescape or a more specific library might be needed.
 	// For now, QueryUnescape is a close approximation for common URL decoding.
 	s, err := url.QueryUnescape(string(data))

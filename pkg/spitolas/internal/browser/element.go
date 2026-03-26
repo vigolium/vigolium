@@ -209,7 +209,6 @@ func (e *Element) GetSelector() (string, error) {
 
 // GetXPath returns the absolute XPath of the element.
 // CRITICAL FIX: Returns absolute XPath starting from /html for reliable identification.
-// Matches Crawljax's XPathHelper.getXPathExpression() behavior.
 // M1 PERFORMANCE: XPath is cached after first generation.
 func (e *Element) GetXPath() (string, error) {
 	// Return cached XPath if available
@@ -366,7 +365,6 @@ func (e *Element) GetClasses() ([]string, error) {
 }
 
 // GetAllAttributes returns all attributes as a sorted string.
-// CRAWLJAX PARITY: Matches Java Crawljax DomUtils.getAllElementAttributes()
 // which is used in CandidateElement.getUniqueString() for ClickOnce detection.
 // Returns empty string if element has no attributes or on error.
 func (e *Element) GetAllAttributes() string {

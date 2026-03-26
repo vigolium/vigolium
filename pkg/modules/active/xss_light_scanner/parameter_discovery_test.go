@@ -107,7 +107,7 @@ func TestBuildQueryParts_SpecialCharacters(t *testing.T) {
 
 func TestBuildQueryParts_AllDefaultParams(t *testing.T) {
 	// Test with all default params to ensure no duplicates or empty values
-	params := defaultMoreParams
+	params := defaultDiscoveryParams
 
 	queryParts := make([]string, 0, len(params))
 	canaries := make(map[string]string)
@@ -149,9 +149,9 @@ func TestNewParameterDiscovery(t *testing.T) {
 	if len(pd.params) == 0 {
 		t.Error("NewParameterDiscovery has no default params")
 	}
-	if len(pd.params) != len(defaultMoreParams) {
+	if len(pd.params) != len(defaultDiscoveryParams) {
 		t.Errorf("NewParameterDiscovery params count = %d, want %d",
-			len(pd.params), len(defaultMoreParams))
+			len(pd.params), len(defaultDiscoveryParams))
 	}
 }
 
@@ -178,7 +178,7 @@ func TestNewParameterDiscoveryWithParams(t *testing.T) {
 
 func TestCanaryMapping(t *testing.T) {
 	// Test that canaries can be mapped back to params
-	params := defaultMoreParams
+	params := defaultDiscoveryParams
 	canaryToParam := make(map[string]string)
 
 	for i, param := range params {

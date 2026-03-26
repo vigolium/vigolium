@@ -11,12 +11,10 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: NestedFramesTest.java
 // Integration tests for nested frame navigation.
 // =============================================================================
 
 // TestNestedFramesIndex tests nested frame navigation and element clicking.
-// Crawljax parity: NestedFramesTest.testNestedFramesIndex()
 // Navigate to iframe site, switch to frame(0)->frame(0), click button002
 func TestNestedFramesIndex(t *testing.T) {
 	server := testutil.IFrameSiteServer()
@@ -48,7 +46,6 @@ func TestNestedFramesIndex(t *testing.T) {
 		t.Fatalf("Failed to navigate: %v", err)
 	}
 
-	// Crawljax: driver.switchTo().frame(0)
 	// Switch to first frame (frame0 - iframe.html)
 	frames, err := page.Frames()
 	if err != nil {
@@ -60,7 +57,6 @@ func TestNestedFramesIndex(t *testing.T) {
 
 	frame0 := frames[0]
 
-	// Crawljax: driver.switchTo().frame(0) - switch to nested frame
 	// frame0 (iframe.html) contains another iframe pointing to page0-0-0.html
 	nestedFrames, err := frame0.Frames()
 	if err != nil {
@@ -72,7 +68,6 @@ func TestNestedFramesIndex(t *testing.T) {
 
 	nestedFrame := nestedFrames[0]
 
-	// Crawljax: WebElement button002 = driver.findElement(By.id("button002"))
 	button002, err := nestedFrame.Element("#button002")
 	if err != nil {
 		t.Fatalf("Failed to find button002: %v", err)
@@ -81,9 +76,7 @@ func TestNestedFramesIndex(t *testing.T) {
 		t.Fatal("button002 not found in nested frame")
 	}
 
-	// Crawljax: button002.click()
 	// The test simply verifies we can navigate to nested frames and click elements.
-	// In Crawljax, the test passes if button002.click() doesn't throw an exception.
 	if err := button002.Click(); err != nil {
 		t.Fatalf("Failed to click button002: %v", err)
 	}

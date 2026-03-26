@@ -320,7 +320,7 @@ func TestDetectorGetSelectOptions(t *testing.T) {
 
 	detector := NewDetector()
 
-	// Get options from country select (use XPath - Crawljax parity)
+	// Get options from country select (use XPath)
 	options, err := detector.GetSelectOptions(page, "//*[@id='country']")
 	if err != nil {
 		t.Fatalf("GetSelectOptions() failed: %v", err)
@@ -372,7 +372,6 @@ func TestDetectorGetRadioOptions(t *testing.T) {
 }
 
 // TestHandlerDetectForms tests Handler's form detection.
-// Crawljax parity: getFormInputs()
 func TestHandlerDetectForms(t *testing.T) {
 	server := setupDetectTestServer(t)
 	defer server.Close()
@@ -427,7 +426,6 @@ func TestHandlerDetectForms(t *testing.T) {
 }
 
 // TestHandlerDetectInputs tests Handler's input detection.
-// Crawljax parity: getFormInputs() - gets all inputs including standalone
 func TestHandlerDetectInputs(t *testing.T) {
 	server := setupDetectTestServer(t)
 	defer server.Close()

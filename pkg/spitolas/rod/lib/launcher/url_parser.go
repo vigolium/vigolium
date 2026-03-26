@@ -53,7 +53,7 @@ func (r *URLParser) Write(p []byte) (n int, err error) {
 
 		str := regWS.FindString(r.Buffer)
 		if str != "" {
-			// Trả về toàn bộ WebSocket URL thay vì chỉ host
+			// Return the full WebSocket URL instead of just the host
 			wsURL := strings.TrimSpace(str)
 
 			select {

@@ -8,7 +8,6 @@ import (
 )
 
 // VipsParser implements the VIPS visual block detection algorithm.
-// This mirrors Java Crawljax's VipsSeleniumParser class.
 type VipsParser struct {
 	page *browser.Page
 

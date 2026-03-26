@@ -40,7 +40,6 @@ func setupFormBrowser(t *testing.T, serverURL string) *browser.Browser {
 }
 
 // TestFillText tests filling text inputs.
-// Crawljax parity: handleText()
 func TestFillText(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -153,7 +152,6 @@ func TestFillTextPassword(t *testing.T) {
 }
 
 // TestFillTextClearsExisting tests that FillText clears existing content.
-// Crawljax parity: shouldClearTextFieldBeforeSettingValue()
 func TestFillTextClearsExisting(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -205,7 +203,6 @@ func TestFillTextClearsExisting(t *testing.T) {
 }
 
 // TestFillHidden tests filling hidden inputs.
-// Crawljax parity: handleHidden()
 func TestFillHidden(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -243,7 +240,6 @@ func TestFillHidden(t *testing.T) {
 }
 
 // TestFillCheckboxCheck tests checking a checkbox.
-// Crawljax parity: handleCheckBoxes()
 func TestFillCheckboxCheck(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -337,7 +333,6 @@ func TestFillCheckboxUncheck(t *testing.T) {
 }
 
 // TestFillRadio tests selecting a radio button.
-// CRAWLJAX PARITY: handleRadioSwitches() - clicks radio if value="1"
 func TestFillRadio(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -357,7 +352,6 @@ func TestFillRadio(t *testing.T) {
 		t.Fatalf("Element() failed: %v", err)
 	}
 
-	// Crawljax: value "1" means checked
 	if err := FillRadio(elem, "1"); err != nil {
 		t.Fatalf("FillRadio() failed: %v", err)
 	}
@@ -379,7 +373,6 @@ func TestFillRadio(t *testing.T) {
 }
 
 // TestFillRadioSwitchValue tests switching radio values between elements.
-// CRAWLJAX PARITY: Each radio is identified individually and clicked separately.
 func TestFillRadioSwitchValue(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -436,7 +429,6 @@ func TestFillRadioSwitchValue(t *testing.T) {
 }
 
 // TestFillRadioWithoutName tests radio buttons without name attribute.
-// CRAWLJAX PARITY: Radio is identified by id/xpath, name not required.
 func TestFillRadioWithoutName(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -472,7 +464,6 @@ func TestFillRadioWithoutName(t *testing.T) {
 }
 
 // TestFillRadioAlreadyChecked tests that already-checked radio doesn't get double-clicked.
-// CRAWLJAX PARITY: Only clicks if not already selected.
 func TestFillRadioAlreadyChecked(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -512,7 +503,6 @@ func TestFillRadioAlreadyChecked(t *testing.T) {
 }
 
 // TestFillRadioValueZero tests that value "0" does nothing.
-// CRAWLJAX PARITY: Value "0" means unchecked - do nothing.
 func TestFillRadioValueZero(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()
@@ -546,7 +536,6 @@ func TestFillRadioValueZero(t *testing.T) {
 }
 
 // TestFillSelect tests selecting a dropdown option.
-// Crawljax parity: handleSelectBoxes()
 func TestFillSelect(t *testing.T) {
 	server := setupFormTestServer(t)
 	defer server.Close()

@@ -8,7 +8,6 @@ import (
 )
 
 // TestCDPGetEventListeners tests getting event listeners for an element.
-// Crawljax parity: Tests that getEventListeners returns click handlers
 func TestCDPGetEventListeners(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -232,7 +231,6 @@ func TestCDPGetLayoutMetrics(t *testing.T) {
 }
 
 // TestCDPGetEventListenersOnClickableElement tests event listeners on iframe page elements.
-// Crawljax parity: iframe/index.html has onclick handlers on links top-click-1, top-click-2, top-click-3
 func TestCDPGetEventListenersOnClickableElement(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -275,8 +273,6 @@ func TestCDPGetEventListenersOnClickableElement(t *testing.T) {
 }
 
 // TestCDPDOMSnapshotWithIframes tests DOM snapshot with iframes.
-// Crawljax parity: iframe/index.html has 2 iframes, so total documents = main + 2 iframes + nested iframes
-// Based on Crawljax WebDriverBackedEmbeddedBrowserTest.testGetDocument(): assertEquals(2, frameNodes.getLength())
 func TestCDPDOMSnapshotWithIframes(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()

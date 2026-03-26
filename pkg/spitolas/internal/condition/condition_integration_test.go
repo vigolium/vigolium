@@ -296,7 +296,6 @@ func TestIntegrationNegation(t *testing.T) {
 }
 
 // TestIntegrationUnderpathXPath tests XPath scoping with real browser.
-// Uses underxpath.html from Crawljax test fixtures.
 func TestIntegrationUnderpathXPath(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()

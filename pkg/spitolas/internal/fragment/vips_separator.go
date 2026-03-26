@@ -1,7 +1,6 @@
 package fragment
 
 // Separator represents a visual separator between blocks.
-// This mirrors Java Crawljax's VipsSeparatorGraphicsDetector.
 type Separator struct {
 	// Position
 	StartX float64

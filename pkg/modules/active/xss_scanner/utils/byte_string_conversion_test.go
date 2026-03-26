@@ -115,12 +115,12 @@ func TestStringToBytes(t *testing.T) {
 		{
 			name:  "Euro symbol € (U+20AC) - Truncation check",
 			input: "€",
-			want:  []byte{0xAC}, // Java (byte)'€' is 0xAC
+			want:  []byte{0xAC},
 		},
 		{
 			name:  "Vietnamese đ (U+0111) - Truncation check",
 			input: "đ",
-			want:  []byte{0x11}, // Java (byte)'đ' (0x0111) is 0x11
+			want:  []byte{0x11},
 		},
 		{
 			name:  "Full-width F Ｆ (U+FF46) - Truncation check",
@@ -143,7 +143,7 @@ func TestStringToBytes(t *testing.T) {
 				t.Logf("Got bytes (hex): %x", got)
 				t.Logf("Want bytes (decimal): %v", tt.want)
 				t.Logf("Want bytes (hex): %x", tt.want)
-				// So sánh từng byte một
+				// Compare each byte individually
 				for i := 0; i < len(tt.want); i++ {
 					if i >= len(got) {
 						t.Errorf(

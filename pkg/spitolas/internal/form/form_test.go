@@ -9,7 +9,6 @@ import (
 )
 
 // TestGetTypeFromStr tests input type parsing.
-// CRAWLJAX PARITY: Tests action.GetTypeFromStr which matches Java FormInput.getTypeFromStr()
 func TestGetTypeFromStr(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -41,7 +40,6 @@ func TestGetTypeFromStr(t *testing.T) {
 }
 
 // TestFormInputIsTextLike tests IsTextLike method.
-// CRAWLJAX PARITY: Tests action.FormInput.IsTextLike()
 func TestFormInputIsTextLike(t *testing.T) {
 	textLikeTypes := []action.InputType{
 		action.InputTypeText, action.InputTypeTextarea, action.InputTypePassword,
@@ -111,7 +109,6 @@ func TestDetectedInputWithMetadata(t *testing.T) {
 }
 
 // TestDetectedInputNextValue tests value rotation.
-// Crawljax parity: FormInput uses first value when multiple values specified.
 func TestDetectedInputNextValue(t *testing.T) {
 	formInput := action.NewFormInput(action.InputTypeText, nil)
 	formInput.SetInputValues("first", "second", "third")

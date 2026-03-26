@@ -9,7 +9,6 @@ import (
 )
 
 // TrainingMode defines how form inputs are filled during crawling.
-// This matches Java Crawljax's training capabilities.
 type TrainingMode int
 
 const (

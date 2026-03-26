@@ -1,6 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file implements CandidateElement matching Java Crawljax's
-// com.crawljax.core.CandidateElement exactly.
 package action
 
 import (
@@ -10,7 +8,6 @@ import (
 )
 
 // EventType defines event types for crawl actions.
-// Matches Java Eventable.EventType enum exactly.
 type EventType string
 
 const (
@@ -25,12 +22,11 @@ const (
 )
 
 // InputType defines form input types.
-// CRAWLJAX PARITY: Matches Java FormInput.InputType enum.
 // GO EXTENSION: Added HTML5 input types (Tel, URL, Search, Date, Time, Color, Range).
 type InputType string
 
 const (
-	// Crawljax InputTypes
+	// Standard input types
 	InputTypeText     InputType = "TEXT"
 	InputTypeRadio    InputType = "RADIO"
 	InputTypeCheckbox InputType = "CHECKBOX"
@@ -42,7 +38,6 @@ const (
 	InputTypeInput    InputType = "INPUT"
 	InputTypeNumber   InputType = "NUMBER"
 
-	// GO EXTENSION: HTML5 input types not in Crawljax
 	InputTypeTel    InputType = "TEL"
 	InputTypeURL    InputType = "URL"
 	InputTypeSearch InputType = "SEARCH"
@@ -54,7 +49,6 @@ const (
 )
 
 // FormInput represents form input data.
-// Matches Java com.crawljax.forms.FormInput.
 type FormInput struct {
 	Type           InputType       `json:"type"`
 	Identification *Identification `json:"identification"`
@@ -62,14 +56,12 @@ type FormInput struct {
 }
 
 // InputValue represents a single input value.
-// Matches Java com.crawljax.forms.InputValue.
 type InputValue struct {
 	Value   string `json:"value"`
 	Checked bool   `json:"checked"`
 }
 
 // Equals checks equality of InputValue.
-// CRAWLJAX PARITY: Matches Java InputValue.equals() — compares value and checked.
 func (iv InputValue) Equals(other InputValue) bool {
 	return iv.Value == other.Value && iv.Checked == other.Checked
 }
@@ -84,8 +76,6 @@ func NewFormInput(inputType InputType, identification *Identification) *FormInpu
 }
 
 // NewFormInputWithValue creates a new FormInput with a value.
-// CRAWLJAX PARITY: Java InputValue(String value, boolean checked) constructor.
-// Java: new InputValue(value, value.equals("1")) — only checked when value is "1"
 func NewFormInputWithValue(inputType InputType, identification *Identification, value string) *FormInput {
 	return &FormInput{
 		Type:           inputType,
@@ -95,7 +85,6 @@ func NewFormInputWithValue(inputType InputType, identification *Identification, 
 }
 
 // GetTypeFromStr converts string to InputType.
-// CRAWLJAX PARITY: Matches Java FormInput.getTypeFromStr() with GO EXTENSION for HTML5 types.
 func GetTypeFromStr(typeStr string) InputType {
 	switch strings.ToUpper(typeStr) {
 	case "TEXT", "":
@@ -139,16 +128,12 @@ func GetTypeFromStr(typeStr string) InputType {
 }
 
 // AddInputValue adds a value to the input values list.
-// CRAWLJAX PARITY: Java uses HashSet<InputValue> but InputValue has NO equals()/hashCode()
-// override, so Java uses identity-based equality (effectively no content dedup).
 // Go matches this by simply appending without checking for duplicates.
 func (f *FormInput) AddInputValue(iv InputValue) {
 	f.InputValues = append(f.InputValues, iv)
 }
 
 // SetInputValues sets values from string slice.
-// CRAWLJAX PARITY: Matches Java FormInput.inputValues(String... values)
-// Java: new InputValue(value, value.equals("1")) — only checked when value is "1"
 func (f *FormInput) SetInputValues(values ...string) {
 	for _, value := range values {
 		f.AddInputValue(InputValue{Value: value, Checked: value == "1"})
@@ -156,7 +141,6 @@ func (f *FormInput) SetInputValues(values ...string) {
 }
 
 // SetInputValuesChecked sets values for checkboxes/radio buttons.
-// CRAWLJAX PARITY: Matches Java FormInput.inputValues(boolean... values)
 func (f *FormInput) SetInputValuesChecked(checks ...bool) {
 	for _, checked := range checks {
 		f.AddInputValue(InputValue{Checked: checked})
@@ -164,19 +148,16 @@ func (f *FormInput) SetInputValuesChecked(checks ...bool) {
 }
 
 // GetType returns the input type.
-// CRAWLJAX PARITY: Matches Java FormInput.getType()
 func (f *FormInput) GetType() InputType {
 	return f.Type
 }
 
 // GetIdentification returns the identification.
-// CRAWLJAX PARITY: Matches Java FormInput.getIdentification()
 func (f *FormInput) GetIdentification() *Identification {
 	return f.Identification
 }
 
 // GetInputValues returns the input values.
-// CRAWLJAX PARITY: Matches Java FormInput.getInputValues()
 func (f *FormInput) GetInputValues() []InputValue {
 	return f.InputValues
 }
@@ -205,7 +186,6 @@ func (f *FormInput) IsTextLike() bool {
 }
 
 // Equals checks equality based on identification + type.
-// CRAWLJAX PARITY: Matches Java FormInput.equals() exactly.
 func (f *FormInput) Equals(other *FormInput) bool {
 	if other == nil {
 		return false
@@ -224,7 +204,6 @@ func (f *FormInput) Equals(other *FormInput) bool {
 }
 
 // ContainsInput checks if slice contains FormInput with same Identification.
-// CRAWLJAX PARITY: Matches Java FormInput.containsInput() static method.
 func ContainsInput(inputs []*FormInput, id *Identification) bool {
 	for _, input := range inputs {
 		if input.Identification != nil && input.Identification.Equals(id) {
@@ -235,7 +214,6 @@ func ContainsInput(inputs []*FormInput, id *Identification) bool {
 }
 
 // GetInput returns FormInput with matching Identification from slice.
-// CRAWLJAX PARITY: Matches Java FormInput.getInput() static method.
 func GetInput(inputs []*FormInput, id *Identification) *FormInput {
 	for _, input := range inputs {
 		if input.Identification != nil && input.Identification.Equals(id) {
@@ -247,11 +225,9 @@ func GetInput(inputs []*FormInput, id *Identification) *FormInput {
 
 // CandidateElement represents an element that can be crawled (clicked, hovered, etc).
 // This is BEFORE the event is fired. Once fired, it becomes an Eventable.
-// Matches Java com.crawljax.core.CandidateElement exactly.
 type CandidateElement struct {
 	mu sync.RWMutex
 
-	// Core identification (matches Java final fields)
 	Identification *Identification `json:"identification"`
 	RelatedFrame   string          `json:"relatedFrame"`
 	FormInputs     []*FormInput    `json:"formInputs"`
@@ -262,26 +238,21 @@ type CandidateElement struct {
 	Text       string `json:"text"`
 	Href       string `json:"href"`
 
-	// Fragment tracking (matches Java transient fields)
 	// Using interface{} to avoid import cycle - will be *fragment.Fragment
 	ClosestFragment    interface{} `json:"-"`
 	ClosestDomFragment interface{} `json:"-"`
 
-	// Access tracking (matches Java exactly - CRITICAL for prioritization)
 	duplicateAccess  int  // Times this element led to a known state
 	equivalentAccess int  // Times this element was equivalent to another
 	directAccess     bool // Was this element directly accessed
 
-	// Event configuration (matches Java)
 	EventType EventType `json:"eventType"`
 
-	// EventableCondition (matches Java)
 	// Using interface{} to avoid import cycle - will be *condition.EventableCondition
 	EventableCondition interface{} `json:"-"`
 }
 
 // NewCandidateElement creates a new CandidateElement.
-// Matches Java constructor: CandidateElement(Element, Identification, String, List<FormInput>)
 func NewCandidateElement(identification *Identification, relatedFrame string, formInputs []*FormInput) *CandidateElement {
 	if formInputs == nil {
 		formInputs = make([]*FormInput, 0)
@@ -290,12 +261,11 @@ func NewCandidateElement(identification *Identification, relatedFrame string, fo
 		Identification: identification,
 		RelatedFrame:   relatedFrame,
 		FormInputs:     formInputs,
-		EventType:      EventTypeClick, // Default matches Java: EventType.click
+		EventType:      EventTypeClick,
 	}
 }
 
 // NewCandidateElementWithXPath creates a CandidateElement with XPath identification.
-// Matches Java constructor: CandidateElement(Element, String xpath, List<FormInput>)
 func NewCandidateElementWithXPath(xpath string, formInputs []*FormInput) *CandidateElement {
 	return NewCandidateElement(
 		NewIdentification(HowXPath, xpath),
@@ -305,7 +275,6 @@ func NewCandidateElementWithXPath(xpath string, formInputs []*FormInput) *Candid
 }
 
 // GetIdentification returns the identification.
-// Matches Java getIdentification()
 func (c *CandidateElement) GetIdentification() *Identification {
 	return c.Identification
 }
@@ -319,19 +288,16 @@ func (c *CandidateElement) GetIdentificationPair() (string, string) {
 }
 
 // GetRelatedFrame returns the related frame.
-// Matches Java getRelatedFrame()
 func (c *CandidateElement) GetRelatedFrame() string {
 	return c.RelatedFrame
 }
 
 // GetFormInputs returns the form inputs.
-// Matches Java getFormInputs()
 func (c *CandidateElement) GetFormInputs() []*FormInput {
 	return c.FormInputs
 }
 
 // GetEventType returns the event type.
-// Matches Java getEventType()
 func (c *CandidateElement) GetEventType() EventType {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -339,7 +305,6 @@ func (c *CandidateElement) GetEventType() EventType {
 }
 
 // SetEventType sets the event type.
-// Matches Java setEventType(EventType)
 func (c *CandidateElement) SetEventType(eventType EventType) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -347,7 +312,6 @@ func (c *CandidateElement) SetEventType(eventType EventType) {
 }
 
 // GetClosestFragment returns the closest fragment.
-// Matches Java getClosestFragment()
 func (c *CandidateElement) GetClosestFragment() interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -355,7 +319,6 @@ func (c *CandidateElement) GetClosestFragment() interface{} {
 }
 
 // SetClosestFragment sets the closest fragment.
-// Matches Java setClosestFragment(Fragment)
 func (c *CandidateElement) SetClosestFragment(fragment interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -363,7 +326,6 @@ func (c *CandidateElement) SetClosestFragment(fragment interface{}) {
 }
 
 // GetClosestDomFragment returns the closest DOM fragment.
-// Matches Java getClosestDomFragment()
 func (c *CandidateElement) GetClosestDomFragment() interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -371,7 +333,6 @@ func (c *CandidateElement) GetClosestDomFragment() interface{} {
 }
 
 // SetClosestDomFragment sets the closest DOM fragment.
-// Matches Java setClosestDomFragment(Fragment)
 func (c *CandidateElement) SetClosestDomFragment(fragment interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -379,7 +340,6 @@ func (c *CandidateElement) SetClosestDomFragment(fragment interface{}) {
 }
 
 // GetDuplicateAccess returns the duplicate access count.
-// Matches Java getDuplicateAccess()
 func (c *CandidateElement) GetDuplicateAccess() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -387,7 +347,6 @@ func (c *CandidateElement) GetDuplicateAccess() int {
 }
 
 // SetDuplicateAccess sets the duplicate access count.
-// Matches Java setDuplicateAccess(int)
 func (c *CandidateElement) SetDuplicateAccess(count int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -395,7 +354,6 @@ func (c *CandidateElement) SetDuplicateAccess(count int) {
 }
 
 // GetEquivalentAccess returns the equivalent access count.
-// Matches Java getEquivalentAccess()
 func (c *CandidateElement) GetEquivalentAccess() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -403,7 +361,6 @@ func (c *CandidateElement) GetEquivalentAccess() int {
 }
 
 // SetEquivalentAccess sets the equivalent access count.
-// Matches Java setEquivalentAccess(int)
 func (c *CandidateElement) SetEquivalentAccess(count int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -411,7 +368,6 @@ func (c *CandidateElement) SetEquivalentAccess(count int) {
 }
 
 // IsDirectAccess returns whether direct access occurred.
-// Matches Java isDirectAccess()
 func (c *CandidateElement) IsDirectAccess() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -419,19 +375,14 @@ func (c *CandidateElement) IsDirectAccess() bool {
 }
 
 // SetDirectAccess sets direct access and increments duplicate access.
-// CRITICAL: Matches Java setDirectAccess(boolean) exactly!
-// Java calls incrementDuplicateAccess() inside this method.
 func (c *CandidateElement) SetDirectAccess(direct bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.directAccess = direct
-	// CRITICAL: Java calls incrementDuplicateAccess() here!
 	c.incrementDuplicateAccessUnlocked()
 }
 
 // IncrementDuplicateAccess increments both duplicate and equivalent access.
-// CRITICAL: Matches Java incrementDuplicateAccess() exactly!
-// Java increments BOTH counters in this method.
 func (c *CandidateElement) IncrementDuplicateAccess() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -441,11 +392,10 @@ func (c *CandidateElement) IncrementDuplicateAccess() {
 // incrementDuplicateAccessUnlocked is the internal unlocked version.
 func (c *CandidateElement) incrementDuplicateAccessUnlocked() {
 	c.duplicateAccess++
-	c.equivalentAccess++ // CRITICAL: Java increments BOTH!
+	c.equivalentAccess++
 }
 
 // IncrementEquivalentAccess increments only equivalent access.
-// Matches Java incrementEquivalentAccess()
 func (c *CandidateElement) IncrementEquivalentAccess() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -453,8 +403,6 @@ func (c *CandidateElement) IncrementEquivalentAccess() {
 }
 
 // WasExplored returns whether this element was explored.
-// CRITICAL: Matches Java wasExplored() exactly!
-// Java: return (isDirectAccess()) || (duplicateAccess > 0) || equivalentAccess > 0;
 func (c *CandidateElement) WasExplored() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -463,14 +411,11 @@ func (c *CandidateElement) WasExplored() bool {
 
 // ConditionChecker interface for checking eventable conditions.
 // This avoids import cycle with condition package.
-// CRAWLJAX PARITY: Matches Java EventableCondition.checkAllConditionsSatisfied(browser).
 type ConditionChecker interface {
 	CheckAllConditionsSatisfied(page interface{}) bool
 }
 
 // AllConditionsSatisfied checks if all eventable conditions are satisfied.
-// CRAWLJAX PARITY: Matches Java CandidateElement.allConditionsSatisfied(browser).
-// Java: return eventableCondition == null || eventableCondition.checkAllConditionsSatisfied(browser)
 func (c *CandidateElement) AllConditionsSatisfied(page interface{}) bool {
 	c.mu.RLock()
 	ec := c.EventableCondition
@@ -497,7 +442,6 @@ func (c *CandidateElement) GetEventableCondition() interface{} {
 }
 
 // SetEventableCondition sets the eventable condition.
-// Matches Java setEventableCondition(EventableCondition)
 func (c *CandidateElement) SetEventableCondition(condition interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -505,7 +449,6 @@ func (c *CandidateElement) SetEventableCondition(condition interface{}) {
 }
 
 // GetGeneralString returns unique string WITHOUT atusa attribute.
-// Matches Java getGeneralString() exactly.
 // Format: "TAGNAME: attr1=val1 attr2=val2 identification relatedFrame"
 func (c *CandidateElement) GetGeneralString() string {
 	c.mu.RLock()
@@ -533,7 +476,6 @@ func (c *CandidateElement) GetGeneralString() string {
 }
 
 // GetUniqueString returns unique string WITH all attributes.
-// Matches Java getUniqueString() exactly.
 // Format: "TAGNAME: attr1=val1 attr2=val2 identification relatedFrame"
 func (c *CandidateElement) GetUniqueString() string {
 	c.mu.RLock()
@@ -576,7 +518,6 @@ func (c *CandidateElement) getAttributesExcluding(exclude string) string {
 }
 
 // String returns a string representation.
-// Matches Java toString()
 func (c *CandidateElement) String() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

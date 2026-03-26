@@ -722,7 +722,6 @@ func BenchmarkGraphShortestPath(b *testing.B) {
 }
 
 // ============================================================================
-// CRAWLJAX PARITY: StateFlowGraphTest
 // ============================================================================
 
 func TestDuplicationAdding(t *testing.T) {

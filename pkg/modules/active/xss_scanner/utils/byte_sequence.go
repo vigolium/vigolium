@@ -6,66 +6,58 @@ import (
 	"io"
 )
 
-// Ac0 represents a byte array container with indexed access and subsequence operations.
-type Ac0 struct {
+// ByteSequence represents a byte array container with indexed access and subsequence operations.
+type ByteSequence struct {
 	data []byte
 }
 
-// NewAc0ByteDataWithCapacity creates a new Ac0ByteData with a given capacity
-// Equivalent to ac0(int var1) constructor in Java
-func NewAc0ByteDataWithCapacity(capacity int) *Ac0 {
-	return &Ac0{
+// NewByteSequenceWithCapacity creates a new ByteSequence with a given capacity
+func NewByteSequenceWithCapacity(capacity int) *ByteSequence {
+	return &ByteSequence{
 		data: make([]byte, capacity),
 	}
 }
 
-// NewAc0ByteData creates a new Ac0ByteData with the given data
-// Equivalent to private ac0(byte[] var1) constructor in Java
-func NewAc0ByteData(data []byte) *Ac0 {
-	return &Ac0{
+// NewByteSequence creates a new ByteSequence with the given data
+func NewByteSequence(data []byte) *ByteSequence {
+	return &ByteSequence{
 		data: data,
 	}
 }
 
-// Ac0FromBytes creates an Ac0ByteData from a byte array
-// Equivalent to static ac0 a(byte[] var0) in Java
-func Ac0FromBytes(data []byte) *Ac0 {
+// ByteSequenceFromBytes creates an ByteSequenceByteData from a byte array
+func ByteSequenceFromBytes(data []byte) *ByteSequence {
 	if data == nil {
 		return nil
 	}
-	return NewAc0ByteData(data)
+	return NewByteSequence(data)
 }
 
-// Ac0FromString creates an Ac0ByteData from a string
-// Equivalent to static ac0 a(String var0) in Java
-func Ac0FromString(s string) *Ac0 {
+// ByteSequenceFromString creates an ByteSequenceByteData from a string
+func ByteSequenceFromString(s string) *ByteSequence {
 	if s == "" {
 		return nil
 	}
-	return NewAc0ByteData(StringToBytes(s))
+	return NewByteSequence(StringToBytes(s))
 }
 
-// Ac0Empty creates an empty Ac0ByteData
-// Equivalent to static ac0 aJ() in Java
-func Ac0Empty() *Ac0 {
-	return NewAc0ByteData(make([]byte, 0))
+// EmptyByteSequence creates an empty ByteSequence
+func EmptyByteSequence() *ByteSequence {
+	return NewByteSequence(make([]byte, 0))
 }
 
 // GetData returns the byte array data
-// Equivalent to byte[] z() in Java
-func (a *Ac0) GetData() []byte {
+func (a *ByteSequence) GetData() []byte {
 	return a.data
 }
 
 // GetString returns a string representation of the data
-// Equivalent to String x() in Java
-func (a *Ac0) GetString() string {
+func (a *ByteSequence) GetString() string {
 	return BytesToString(a.data)
 }
 
 // SetData sets the byte array data
-// Equivalent to bi9 a(byte[] var1) in Java
-func (a *Ac0) SetData(data []byte) (*Ac0, error) {
+func (a *ByteSequence) SetData(data []byte) (*ByteSequence, error) {
 	if len(data) != len(a.data) {
 		return nil, fmt.Errorf("illegal argument: data length must match")
 	}
@@ -74,20 +66,17 @@ func (a *Ac0) SetData(data []byte) (*Ac0, error) {
 }
 
 // GetByte returns the byte at the given index
-// Equivalent to byte a(int var1) in Java
-func (a *Ac0) GetByte(index int) byte {
+func (a *ByteSequence) GetByte(index int) byte {
 	return a.data[index]
 }
 
 // SetByte sets the byte at the given index
-// Equivalent to void a(int var1, byte var2) in Java
-func (a *Ac0) SetByte(index int, value byte) {
+func (a *ByteSequence) SetByte(index int, value byte) {
 	a.data[index] = value
 }
 
 // SubSequence returns a subsequence of the byte data
-// Equivalent to bi9 a(int var1, int var2) in Java
-func (a *Ac0) SubSequence(startIndex, endIndex int) (*Ac0, error) {
+func (a *ByteSequence) SubSequence(startIndex, endIndex int) (*ByteSequence, error) {
 	if startIndex < 0 || endIndex < startIndex || endIndex > len(a.data) {
 		return nil, fmt.Errorf("array index out of bounds")
 	}
@@ -100,12 +89,11 @@ func (a *Ac0) SubSequence(startIndex, endIndex int) (*Ac0, error) {
 			len(a.data),
 		)
 	}
-	return Ac0FromBytes(subArray), nil
+	return ByteSequenceFromBytes(subArray), nil
 }
 
 // WriteTo writes data to the given writer
-// Equivalent to void a(OutputStream var1, int var2, int var3) in Java
-func (a *Ac0) WriteTo(writer io.Writer, offset, length int) error {
+func (a *ByteSequence) WriteTo(writer io.Writer, offset, length int) error {
 	if offset < 0 || length < 0 || offset+length > a.Length() {
 		return fmt.Errorf("array index out of bounds")
 	}
@@ -114,20 +102,16 @@ func (a *Ac0) WriteTo(writer io.Writer, offset, length int) error {
 }
 
 // Length returns the length of the byte data
-// Equivalent to int aF() in Java
-func (a *Ac0) Length() int {
+func (a *ByteSequence) Length() int {
 	return len(a.data)
 }
 
-// NewReader returns a new reader for the byte data
-// Equivalent to InputStream y() in Java
-func (a *Ac0) NewReader() io.Reader {
+func (a *ByteSequence) NewReader() io.Reader {
 	return bytes.NewReader(a.data)
 }
 
 // ReadFromWithLength reads data from the given reader into the byte sequence
-// Equivalent to bi9 a(InputStream var1, int var2) in Java
-func (a *Ac0) ReadFromWithLength(reader io.Reader, length int) (*Ac0, error) {
+func (a *ByteSequence) ReadFromWithLength(reader io.Reader, length int) (*ByteSequence, error) {
 	if length != len(a.data) {
 		return nil, fmt.Errorf("illegal argument: length must match data length")
 	}
@@ -150,24 +134,21 @@ func (a *Ac0) ReadFromWithLength(reader io.Reader, length int) (*Ac0, error) {
 	return a, nil
 }
 
-// Equals checks if this Ac0ByteData equals the given object
-// Equivalent to boolean equals(Object var1) in Java
-func (a *Ac0) Equals(other interface{}) bool {
+// Equals checks if this ByteSequenceByteData equals the given object
+func (a *ByteSequence) Equals(other interface{}) bool {
 	if a == other {
 		return true
 	}
 
-	if otherData, ok := other.(*Ac0); ok {
+	if otherData, ok := other.(*ByteSequence); ok {
 		return bytes.Equal(a.data, otherData.data)
 	}
 
 	return false
 }
 
-// HashCode returns a hash code for this Ac0ByteData
-// Equivalent to int hashCode() in Java
-func (a *Ac0) HashCode() int {
-	// Simple hash code implementation equivalent to Java's Arrays.hashCode(byte[])
+// HashCode returns a hash code for this ByteSequenceByteData
+func (a *ByteSequence) HashCode() int {
 	result := 1
 	for _, b := range a.data {
 		result = 31*result + int(b)

@@ -18,16 +18,16 @@ type Attack struct {
 	ResponseFingerprint         *anomaly.Fingerprint
 	ResponseKeywordsFingerprint *anomaly.FastResponseKeywords
 
-	ResponseReflections ReflectType
+	ResponseReflections ReflectionCount
 
 	Probe      *Probe
-	quantBoxes map[string]*QuantitativeMeasurements
+	quantMetrics map[string]*QuantitativeMeasurements
 	quantKeys  map[string]struct{}
 }
 
 func NewAttack(quantDiffKeys []string, quantileFactor int, customCanary string) *Attack {
 	attack := &Attack{
-		ResponseReflections:         ReflectType_UNINITIALISED,
+		ResponseReflections:         ReflectionCountUninitialized,
 		ResponseFingerprint:         anomaly.NewFingerprint(diffScanFingerprintTypes),
 		ResponseKeywordsFingerprint: anomaly.NewFastResponseKeywords(GetCanaryKeys(customCanary)),
 	}
@@ -50,12 +50,12 @@ func NewAttackFromSnapshot(
 		Probe:                       probe,
 		Payload:                     payload,
 		Anchor:                      anchor,
-		ResponseReflections:         ReflectType_UNINITIALISED,
+		ResponseReflections:         ReflectionCountUninitialized,
 		ResponseKeywordsFingerprint: anomaly.NewFastResponseKeywords(GetCanaryKeys(customCanary)),
 		ResponseFingerprint:         anomaly.NewFingerprint(diffScanFingerprintTypes),
 	}
 	attack.initialiseQuantitativeMeasurements(quantDiffKeys, quantileFactor)
-	attack.addFromSnapshot(snap, anchor)
+	attack.mergeSnapshot(snap, anchor)
 	attack.LastFingerprint = attack.Fingerprint
 	return attack
 }
@@ -64,25 +64,25 @@ func NewAttackFromSnapshotSimple(snap *ResponseSnapshot, anchor string, quantDif
 	attack := &Attack{
 		FirstSnapshot:               snap,
 		LastSnapshot:                snap,
-		ResponseReflections:         ReflectType_UNINITIALISED,
+		ResponseReflections:         ReflectionCountUninitialized,
 		ResponseKeywordsFingerprint: anomaly.NewFastResponseKeywords(GetCanaryKeys(customCanary)),
 		ResponseFingerprint:         anomaly.NewFingerprint(diffScanFingerprintTypes),
 	}
 	attack.initialiseQuantitativeMeasurements(quantDiffKeys, quantileFactor)
-	attack.addFromSnapshot(snap, anchor)
+	attack.mergeSnapshot(snap, anchor)
 	attack.LastFingerprint = attack.Fingerprint
 	return attack
 }
 
 func (s *Attack) initialiseQuantitativeMeasurements(keys []string, factor int) {
 	s.quantKeys = make(map[string]struct{}, len(keys))
-	s.quantBoxes = make(map[string]*QuantitativeMeasurements, len(keys))
+	s.quantMetrics = make(map[string]*QuantitativeMeasurements, len(keys))
 	for _, key := range keys {
 		if key == "" {
 			continue
 		}
 		s.quantKeys[key] = struct{}{}
-		s.quantBoxes[key] = NewQuantitativeMeasurements(key, factor)
+		s.quantMetrics[key] = NewQuantitativeMeasurements(key, factor)
 	}
 }
 
@@ -92,7 +92,7 @@ func (s *Attack) AddAttack(attack *Attack) {
 		s.Anchor = attack.Anchor
 		s.Probe = attack.Probe
 		s.Payload = attack.Payload
-		s.addFromSnapshot(attack.FirstSnapshot, s.Anchor)
+		s.mergeSnapshot(attack.FirstSnapshot, s.Anchor)
 		s.LastFingerprint = s.Fingerprint
 		return
 	}
@@ -123,10 +123,10 @@ func (s *Attack) AddAttack(attack *Attack) {
 }
 
 func (s *Attack) Size() int {
-	if len(s.quantBoxes) == 0 {
+	if len(s.quantMetrics) == 0 {
 		return 0
 	}
-	for _, measurements := range s.quantBoxes {
+	for _, measurements := range s.quantMetrics {
 		return len(measurements.Measurements)
 	}
 	return 0
@@ -141,7 +141,7 @@ func (s *Attack) AllKeysAreQuantitative(keys []string) bool {
 	return true
 }
 
-func (s *Attack) addFromSnapshot(snap *ResponseSnapshot, anchor string) {
+func (s *Attack) mergeSnapshot(snap *ResponseSnapshot, anchor string) {
 	if s.FirstSnapshot == nil || snap == nil {
 		return
 	}
@@ -151,12 +151,11 @@ func (s *Attack) addFromSnapshot(snap *ResponseSnapshot, anchor string) {
 		s.ResponseFingerprint.UpdateWithFingerprint(snap.Fingerprint)
 	}
 
-	// Keywords: use FilteredResponse (matches Java)
 	s.ResponseKeywordsFingerprint.UpdateWith(snap.FilteredResponse)
 
 	// Quantitative: read from the full fingerprint
-	if len(s.quantBoxes) > 0 && snap.Fingerprint != nil {
-		for key, quant := range s.quantBoxes {
+	if len(s.quantMetrics) > 0 && snap.Fingerprint != nil {
+		for key, quant := range s.quantMetrics {
 			val, exists := snap.Fingerprint.GetAttributeValue(anomaly.FromString(key))
 			if exists {
 				quant.UpdateWith(int64(val))
@@ -164,22 +163,21 @@ func (s *Attack) addFromSnapshot(snap *ResponseSnapshot, anchor string) {
 		}
 	}
 
-	// Reflections: use FilteredResponse (matches Java)
 	if anchor == "" {
-		s.ResponseReflections = ReflectType_INCALCULABLE
+		s.ResponseReflections = ReflectionCountIncalculable
 	} else {
-		reflections := ReflectType(CountMatches(snap.FilteredResponse, []byte(anchor)))
-		if s.ResponseReflections == ReflectType_UNINITIALISED {
+		reflections := ReflectionCount(CountMatches(snap.FilteredResponse, []byte(anchor)))
+		if s.ResponseReflections == ReflectionCountUninitialized {
 			s.ResponseReflections = reflections
-		} else if s.ResponseReflections != reflections && s.ResponseReflections != ReflectType_INCALCULABLE {
-			s.ResponseReflections = ReflectType_DYNAMIC
+		} else if s.ResponseReflections != reflections && s.ResponseReflections != ReflectionCountIncalculable {
+			s.ResponseReflections = ReflectionCountDynamic
 		}
 	}
 
-	s.regeneratePrint()
+	s.rebuildFingerprint()
 }
 
-func (s *Attack) regeneratePrint() {
+func (s *Attack) rebuildFingerprint() {
 	generatedPrint := make(map[string]any)
 
 	// 1. Keywords (unchanged)
@@ -200,12 +198,12 @@ func (s *Attack) regeneratePrint() {
 	}
 
 	// 3. Reflections (unchanged)
-	if s.ResponseReflections != ReflectType_DYNAMIC {
+	if s.ResponseReflections != ReflectionCountDynamic {
 		generatedPrint["input_reflections"] = int(s.ResponseReflections)
 	}
 
 	// 4. Quantitative (unchanged)
-	for key, quant := range s.quantBoxes {
+	for key, quant := range s.quantMetrics {
 		generatedPrint[key] = quant
 	}
 	s.Fingerprint = generatedPrint
@@ -220,9 +218,9 @@ func (s *Attack) Close() {
 	s.Fingerprint = nil
 	s.ResponseFingerprint = nil
 	s.ResponseKeywordsFingerprint = nil
-	s.ResponseReflections = ReflectType_UNINITIALISED
+	s.ResponseReflections = ReflectionCountUninitialized
 	s.Probe = nil
-	s.quantBoxes = nil
+	s.quantMetrics = nil
 }
 
 // fingerprintValuesEqual compares two fingerprint values, using
@@ -237,7 +235,7 @@ func fingerprintValuesEqual(a, b any) bool {
 	return a == b
 }
 
-func GetNonMatchingPrints(attack1, attack2 *Attack) map[string]bool {
+func GetNonMatchingFingerprints(attack1, attack2 *Attack) map[string]bool {
 	allKeys := make(map[string]bool)
 	nonMatching := make(map[string]bool)
 

@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// htmlEventHandlers corresponds to private static final String[] a in bca.java
 var htmlEventHandlers = []string{
 	"onabort", "oncancel", "oncanplay", "oncanplaythrough", "onchange",
 	"onclick", "onclose", "oncontextmenu", "oncuechange", "ondblclick",
@@ -48,29 +47,20 @@ var htmlEventHandlers = []string{
 	"onpropertychange", "onredo", "onundo",
 }
 
-// HTMLScriptReflectionAnalyzer corresponds to class bca in Java.
-// Fields are named to match existing Go stub and mapped to Java fields:
-// offsetD (Java: d) -> reflectionInsertionPointInFullInput
-// offsetG (Java: c) -> dataToAnalyzeOffsetInFullInput
-// canary (Java: e)  -> canaryTokenBytes
-// activeTags (Java: b) -> currently open HTML tags relevant for context (script, xmp, etc.)
 type HTMLScriptReflectionAnalyzer struct {
-	reflectionInsertionPoint int    // Java: d
-	sourceBodyOffset         int    // Java: c
-	searchCanaryBytes        []byte // Java: e
+	reflectionInsertionPoint int
+	sourceBodyOffset         int
+	searchCanaryBytes        []byte
 	currentOpenTags          map[string]struct{}
 }
 
-// NewHTMLScriptReflectionAnalyzer is the constructor for BcaScriptAnalyzer.
-// var1 (d in Java) -> reflectionInsertionPointInFullInput
-// var2 (g in Java, c in Java's bca constructor) -> dataToAnalyzeOffsetInFullInput
-// var3 (c in Go func signature, e in Java's bca constructor) -> canaryTokenBytes
+// NewHTMLScriptReflectionAnalyzer creates a new HTMLScriptReflectionAnalyzer.
 func NewHTMLScriptReflectionAnalyzer(
 	reflectionInsertionPoint int,
 	sourceBodyOffset int,
 	searchCanaryBytes []byte,
 ) *HTMLScriptReflectionAnalyzer {
-	zap.L().Debug("NewBcaScriptAnalyzer",
+	zap.L().Debug("NewHTMLScriptReflectionAnalyzer",
 		zap.Int("startIdx", reflectionInsertionPoint),
 		zap.Int("endIdx", sourceBodyOffset),
 		zap.String("canaryTokenBytes", string(searchCanaryBytes)))
@@ -82,11 +72,7 @@ func NewHTMLScriptReflectionAnalyzer(
 	}
 }
 
-// AnalyzeHTMLContext corresponds to bca.a(byte var1, byte[] var2, byte[] var3) in Java.
 // It analyzes HTML-like content for reflections.
-// contextIndicator (var1): Indicates the broader context of this analysis.
-// dataToAnalyze (var2): The byte slice representing the content to be analyzed (e.g., an HTML document or fragment).
-// canaryToken (var3): The byte slice representing the canary token we are searching for.
 func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 	location ReflectionLocation,
 	contentToAnalyze []byte,
@@ -95,17 +81,13 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 	zap.L().Debug("Entering AnalyzeGeneralContext",
 		zap.Int("matchBytesRangeLen", len(contentToAnalyze)),
 		zap.String("canaryToken", string(canaryToFind)))
-	zap.L().Debug("BCA fields",
+	zap.L().Debug("HTMLScriptReflectionAnalyzer fields",
 		zap.Int("startReflectionIdx", analyzer.reflectionInsertionPoint),
 		zap.Int("startBodyOffsetInFullResponse", analyzer.sourceBodyOffset),
 		zap.String("canaryTokenBytes", string(analyzer.searchCanaryBytes)))
 
-	canaryStringTofind := utils.BytesToString(canaryToFind) // var5 in Java
+	canaryStringTofind := utils.BytesToString(canaryToFind)
 
-	// bql.a(var2, 0, var2.length, (byte)0)
-	// Assuming ParseHTMLElementsSimple provides similar functionality to bql.a for general parsing.
-	// The last argument (byte)0 for bql.a might indicate a parsing mode or flags.
-	// Using ParseModeFull as a general default.
 	parsedElements, err := htmlparser.ParseHTMLElements(
 		contentToAnalyze,
 		0,
@@ -118,27 +100,12 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 		return nil, err
 	}
 
-	for _, currentElement := range parsedElements { // Corresponds to for (ahe var8 : var6)
-		// boolean var9 = this.d >= var8.cR() + this.c && this.d < var8.cV() + this.c;
-		// Trong Java: this.d là startIdx, this.c là endIdx (dựa trên constructor)
-		// var8.cR() là htmlElement.StartOffset, var8.cV() là htmlElement.EndOffset
+	for _, currentElement := range parsedElements {
 
-		// Thực tế, có thể Java đang sử dụng một cách tính offset khác.
-		// Hãy giữ nguyên logic Java và xem kết quả:
 		isInsertionPointInElement := analyzer.reflectionInsertionPoint >= (currentElement.StartOffset+analyzer.sourceBodyOffset) &&
 			analyzer.reflectionInsertionPoint < (currentElement.EndOffset+analyzer.sourceBodyOffset)
 
-		// QUAN TRỌNG: Sau khi phân tích kỹ, tôi hiểu rằng:
-		// - bca.endIdx KHÔNG PHẢI là end offset của reflection
-		// - bca.endIdx là bodyOffset (offset của body trong full response)
-		// - Logic Java đang chuyển đổi offset từ patchedData sang full response
-		//
-		// Trong Go, chúng ta không có full response offset, chỉ có body offset.
-		// Vì vậy, cần điều chỉnh logic:
-		// - Nếu canary được tìm thấy trong element, thì reflection nằm trong element đó
-		// - Đây là cách đơn giản và chính xác nhất cho Go
-
-		// Override logic nếu tìm thấy canary trong element
+		// Check if the element contains the canary token to determine reflection membership
 		doesElementContainCanary := false
 		if currentElement.Type == htmlparser.TextNode &&
 			currentElement.EndOffset <= len(contentToAnalyze) &&
@@ -188,27 +155,23 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 			htmlparser.SelfClosingTagOrPI: // Cases 0, 1, 4
 			if isInsertionPointInElement {
 				if currentElement.TagInfo != nil {
-					// if (var8.cS().a4().contains(var5))
 					if strings.Contains(currentElement.TagInfo.Name, canaryStringTofind) {
-						// return new hpo(var1, (byte)2, this.d, var8.cR() + this.c, this.e);
 						return NewReflectionPointCoreInfo(
 							location,
 							ReflectionContextHTMLTagCloseAndInject,
 							analyzer.reflectionInsertionPoint,
-							currentElement.StartOffset+analyzer.sourceBodyOffset, // var8.cR() + this.c
+							currentElement.StartOffset+analyzer.sourceBodyOffset,
 							analyzer.searchCanaryBytes,
 						), nil
 					}
 
 					for _, currentAttribute := range currentElement.TagInfo.Attributes {
-						// if (var11.cV().contains(var5))
 						if strings.Contains(currentAttribute.Name, canaryStringTofind) {
-							// return new fcp(new reflectionInfo(var1, (byte)3, this.d, var11.cW() + this.c, this.e), var8.cS().a4(), "", "", var8.cS());
 							reflectionInfo := NewReflectionPointCoreInfo(
 								location,
 								ReflectionContextHTMLAttributeName,
 								analyzer.reflectionInsertionPoint,
-								currentAttribute.NameStart+analyzer.sourceBodyOffset, // var11.cW() + this.c
+								currentAttribute.NameStart+analyzer.sourceBodyOffset,
 								analyzer.searchCanaryBytes,
 							)
 							// Ensure TagInfo is passed correctly. If htmlElement.TagInfo is nil, this would panic. Handled by outer nil check.
@@ -218,12 +181,10 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 								"",
 								"",
 								currentElement.TagInfo,
-							), nil // dr2 is TagInfo
+							), nil
 						}
 
-						// if (var11.cY().contains(var5))
 						if strings.Contains(currentAttribute.Value, canaryStringTofind) {
-							// eqx var12 = this.a(var1, var8, var11, var5);
 							detectedReflection := analyzer.analyzeReflectionInHTMLAttribute(
 								location,
 								currentElement,
@@ -241,19 +202,17 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 
 		case htmlparser.CommentOrDirective: // Case 2
 			if isInsertionPointInElement {
-				// return new hpo(var1, (byte)23, this.d, var8.cR() + this.c, this.e);
 				return NewReflectionPointCoreInfo(
 					location,
 					ReflectionContextHTMLCommentBreakout,
 					analyzer.reflectionInsertionPoint,
-					currentElement.StartOffset+analyzer.sourceBodyOffset, // var8.cR() + this.c
+					currentElement.StartOffset+analyzer.sourceBodyOffset,
 					analyzer.searchCanaryBytes,
 				), nil
 			}
 
 		case htmlparser.TextNode: // Case 3
 			if isInsertionPointInElement {
-				// return this.b(var1, var2, var3, var8.cR(), var8.cV());
 				return analyzer.analyzeTextNodeInSpecialTag(
 					location,
 					contentToAnalyze,
@@ -265,21 +224,20 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 		}
 	}
 
-	// Debug active tags trước khi return
+	// Debug active tags before returning
 	zap.L().Debug("Active tags at end of AnalyzeGeneralContext", zap.Any("activeTags", analyzer.currentOpenTags))
 
 	return nil, nil
 }
 
-// analyzeReflectionInHTMLAttribute corresponds to private eqx a(byte var1, ahe var2, ffv var3, String var4)
 func (analyzer *HTMLScriptReflectionAnalyzer) analyzeReflectionInHTMLAttribute(
 	location ReflectionLocation,
-	element *htmlparser.HTMLElement, // var2 (ahe)
-	attr *htmlparser.HTMLAttribute, // var3 (ffv)
-	canary string, // var4
+	element *htmlparser.HTMLElement,
+	attr *htmlparser.HTMLAttribute,
+	canary string,
 ) ReflectionOccurrenceDetail {
-	isURLAttributeType := analyzer.isAttributeURLType(element, attr) // var6
-	isEventHandlerAttributeType := false                             // var7
+	isURLAttributeType := analyzer.isAttributeURLType(element, attr)
+	isEventHandlerAttributeType := false
 
 	if !isURLAttributeType {
 		for _, knownEventHandlerName := range htmlEventHandlers { // String var11 : a
@@ -293,21 +251,20 @@ func (analyzer *HTMLScriptReflectionAnalyzer) analyzeReflectionInHTMLAttribute(
 		}
 	}
 
-	// String var12 = this.a(var4, var3);
 	attributeValueWithReplacedCanary := analyzer.replaceCanaryInAttributeValue(canary, attr)
 
 	var determinedContextType ReflectionContext
-	attrQuoteType := attr.QuoteType // ffv.cZ() -> HTMLAttribute.QuoteType
+	attrQuoteType := attr.QuoteType
 
 	if isURLAttributeType {
 		switch attrQuoteType {
-		case htmlparser.QuoteTypeDouble: // 0 in Java
+		case htmlparser.QuoteTypeDouble:
 			determinedContextType = ReflectionContextJSInURLAttributeDQ
-		case htmlparser.QuoteTypeSingle: // 1 in Java
+		case htmlparser.QuoteTypeSingle:
 			determinedContextType = ReflectionContextJSInURLAttributeSQ
-		case htmlparser.QuoteTypeBacktick: // 2 in Java
+		case htmlparser.QuoteTypeBacktick:
 			determinedContextType = ReflectionContextJSInURLAttributeBT
-		case htmlparser.QuoteTypeNone: // 3 in Java
+		case htmlparser.QuoteTypeNone:
 			determinedContextType = ReflectionContextJSInUnquotedURLAttribute
 		default:
 			return nil
@@ -340,8 +297,6 @@ func (analyzer *HTMLScriptReflectionAnalyzer) analyzeReflectionInHTMLAttribute(
 		}
 	}
 
-	// reflectionInfo := new reflectionInfo(var1, (byte)(...), this.d, var3.c0() + this.c, this.e)
-	// var3.c0() is attribute.ValueStart
 	reflectionInfo := NewReflectionPointCoreInfo(
 		location,
 		determinedContextType,
@@ -350,13 +305,8 @@ func (analyzer *HTMLScriptReflectionAnalyzer) analyzeReflectionInHTMLAttribute(
 		analyzer.searchCanaryBytes,
 	)
 
-	// return new fcp(hpo, var2.cS().a4(), var3.cV(), var12, var2.cS());
-	// var2.cS() is containingElement.TagInfo
-	// var2.cS().a4() is containingElement.TagInfo.Name
-	// var3.cV() is attribute.Name
 	if element.TagInfo == nil {
 		// This case should ideally not happen if attribute exists, but good for safety.
-		// Java might throw NPE here if var2.cS() is null.
 		return nil
 	}
 	return NewHTMLAttributeReflection(
@@ -368,7 +318,6 @@ func (analyzer *HTMLScriptReflectionAnalyzer) analyzeReflectionInHTMLAttribute(
 	)
 }
 
-// isAttributeURLType corresponds to private boolean a(ahe var1, ffv var2)
 func (analyzer *HTMLScriptReflectionAnalyzer) isAttributeURLType(
 	element *htmlparser.HTMLElement,
 	attr *htmlparser.HTMLAttribute,
@@ -376,16 +325,13 @@ func (analyzer *HTMLScriptReflectionAnalyzer) isAttributeURLType(
 	if element.TagInfo == nil {
 		return false // Cannot determine if TagInfo is missing
 	}
-	currentTagName := element.TagInfo.Name // var3 = var1.cS().a4()
-	currentAttributeName := attr.Name      // var4 = var2.cV()
+	currentTagName := element.TagInfo.Name
+	currentAttributeName := attr.Name
 
-	// if (!"src".equalsIgnoreCase(var4) && !"data".equalsIgnoreCase(var4) || !"iframe".equalsIgnoreCase(var3) && !"object".equalsIgnoreCase(var3) && !"embed".equalsIgnoreCase(var3) && !"frame".equalsIgnoreCase(var3))
 	if (!strings.EqualFold("src", currentAttributeName) && !strings.EqualFold("data", currentAttributeName)) ||
 		(!strings.EqualFold("iframe", currentTagName) && !strings.EqualFold("object", currentTagName) && !strings.EqualFold("embed", currentTagName) && !strings.EqualFold("frame", currentTagName)) {
-		// if (!"href".equalsIgnoreCase(var4) || !"a".equalsIgnoreCase(var3) && !"math".equalsIgnoreCase(var3))
 		if !strings.EqualFold("href", currentAttributeName) ||
 			(!strings.EqualFold("a", currentTagName) && !strings.EqualFold("math", currentTagName)) {
-			// return !"formaction".equalsIgnoreCase(var4) || !"button".equalsIgnoreCase(var3) && !"input".equalsIgnoreCase(var3) ? "action".equalsIgnoreCase(var4) && "form".equalsIgnoreCase(var3) : true;
 			if !strings.EqualFold("formaction", currentAttributeName) ||
 				(!strings.EqualFold("button", currentTagName) && !strings.EqualFold("input", currentTagName)) {
 				return strings.EqualFold("action", currentAttributeName) &&
@@ -398,42 +344,32 @@ func (analyzer *HTMLScriptReflectionAnalyzer) isAttributeURLType(
 	return true
 }
 
-// updateCurrentOpenTags corresponds to private void a(ahe var1)
 func (analyzer *HTMLScriptReflectionAnalyzer) updateCurrentOpenTags(
 	element *htmlparser.HTMLElement,
 ) {
-	// int var2 = hpo.c(); // hpoLoopControl, always 82. Not directly used in this method's core logic flow for breaks.
 
 	if element.TagInfo == nil {
 		return
 	}
 	lowerCaseTagName := strings.ToLower(element.TagInfo.Name)
 
-	// if (var1.cU() == 1) // CloseTag
 	if element.Type == htmlparser.CloseTag {
 		delete(analyzer.currentOpenTags, lowerCaseTagName)
-		// if (var2 != 0) { return; } // var2 is 82. 82 != 0 is true. This return is LIVE.
 		// This means if it's a close tag, it removes and then returns.
-		return // Mirrored Java logic
+		return
 	}
 
 	// This part is for OpenTag or SelfClosingTagOrPI (implicitly, as it's not CloseTag and didn't return)
 	analyzer.currentOpenTags[lowerCaseTagName] = struct{}{}
-	// Original Java does not have an 'else' or further conditions based on var2 here,
-	// so the `if (var2 != 0)` check in the Java if-block seems to only affect the CloseTag case.
 }
 
-// analyzeTextNodeInSpecialTag corresponds to private eqx b(byte var1, byte[] var2, byte[] var3, int var4, int var5)
 func (analyzer *HTMLScriptReflectionAnalyzer) analyzeTextNodeInSpecialTag(
-	location ReflectionLocation, // var1
-	fullContent []byte, // var2
-	canary []byte, // var3
-	nodeStartIndex int, // var4 - relative to dataToAnalyze
-	nodeEndIndex int, // var5 - relative to dataToAnalyze
+	location ReflectionLocation,
+	fullContent []byte,
+	canary []byte,
+	nodeStartIndex int,
+	nodeEndIndex int,
 ) ReflectionOccurrenceDetail {
-	// this.d is reflectionInsertionPointInFullInput
-	// this.c is dataToAnalyzeOffsetInFullInput
-	// this.e is canaryTokenBytes
 	reflectionPointStartIndex := nodeStartIndex + analyzer.sourceBodyOffset
 
 	if _, ok := analyzer.currentOpenTags["script"]; ok {
@@ -482,51 +418,40 @@ func (analyzer *HTMLScriptReflectionAnalyzer) analyzeTextNodeInSpecialTag(
 	)
 }
 
-// AnalyzeJavaScriptContent corresponds to bca.a(byte var1, byte[] var2, byte[] var3, int var4, int var5)
 // This is the public method for JS context analysis.
 func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
-	location ReflectionLocation, // var1
-	jsContent []byte, // var2
-	canaryToFind []byte, // var3
-	contentStartIndex int, // var4
-	contentEndIndex int, // var5
+	location ReflectionLocation,
+	jsContent []byte,
+	canaryToFind []byte,
+	contentStartIndex int,
+	contentEndIndex int,
 ) ReflectionOccurrenceDetail {
 
 	zap.L().Debug("Entering AnalyzeInJavaScriptContext")
-	scanIndex := contentStartIndex // var7 in Java
+	scanIndex := contentStartIndex
 
-	for scanIndex < contentEndIndex { // while (var7 < var5)
-		tokenStartIndex := scanIndex // var8 in Java (stores current var7 before inner loop)
+	for scanIndex < contentEndIndex {
+		tokenStartIndex := scanIndex
 
-		// var9 in Java (2: default/code, 0: double-quoted string, 1: single-quoted string, 3: line comment, 4: block comment)
 		currentSegmentType := byte(2)
 		// Inner loop to determine token type based on character at current_scan_idx
-		// In Java, var7 is advanced by this inner loop.
-		// Since hpoBControl (var6) is always 0, any "if (var6 == 0) { break; }" is a LIVE break.
-		// Any "if (var6 != 0) { break; }" is a DEAD break.
 		// current_scan_idx := currentIndex  // This was part of a more complex logic, simplified now
 		// found_token_starter := false // This variable is not needed with the simplified logic below
 
-		// The Java inner while loop advances var7 until a token starter or end of script.
-		// Given var6 == 0 makes breaks live, the inner Java loop effectively does this:
-		// 1. Check char at var7 (our currentIndex).
-		// 2. If it's a token starter (', ", //, /*), set var9, advance var7 past starter, then BREAK inner loop.
-		// 3. If not a starter, var7++, then if var6!=0 (false) break (DEAD), so continue inner loop.
-		// This means var7 (current_scan_idx here) will point to the char *after* the recognized token starter,
 		// or it will be incremented by 1 if the char at segmentStart was not a starter.
 		// For simplicity and 1:1 mapping:
 
 		for scanIndex < contentEndIndex {
-			if jsContent[scanIndex] == 39 { // 39
+			if jsContent[scanIndex] == charSingleQuote {
 				currentSegmentType = 1
 				break
-			} else if jsContent[scanIndex] == 34 { // 34
+			} else if jsContent[scanIndex] == charDoubleQuote {
 				currentSegmentType = 0
 				break
-			} else if scanIndex+1 < contentEndIndex && jsContent[scanIndex] == 47 && jsContent[scanIndex+1] == 47 { // 47, 47
+			} else if scanIndex+1 < contentEndIndex && jsContent[scanIndex] == charForwardSlash && jsContent[scanIndex+1] == charForwardSlash {
 				currentSegmentType = 3
 				break
-			} else if scanIndex+1 < contentEndIndex && jsContent[scanIndex] == 47 && jsContent[scanIndex+1] == 42 { // 47, 42
+			} else if scanIndex+1 < contentEndIndex && jsContent[scanIndex] == charForwardSlash && jsContent[scanIndex+1] == charAsterisk {
 				currentSegmentType = 4
 				scanIndex++
 				break
@@ -534,18 +459,15 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 			scanIndex++
 		}
 
-		// byte[] var10000 = var2; byte[] var10001 = var3; int var10002 = var8; int var10003 = var7 (updated);
 		// Check if canary is in the segment that just got classified
 		// ls.b is indexOf. So, check if canary is in the segment that just got classified (e.g. the '//' itself, or the quote char)
 		// OR if tokenType is 2 (code), it checks in that code segment.
-		// The Java code performs a single check here on the segment [segmentStart, idx_after_token_marker_detection).
 		if utils.IndexOfRangeCS(
 			jsContent,
 			canaryToFind,
 			tokenStartIndex,
 			scanIndex,
 		) != -1 {
-			// return new hpo(var1, (byte)18, this.d, var8 + this.c, this.e);
 			// Reflection is in the JS code itself or within the token marker (or single code char)
 			return NewReflectionPointCoreInfo(
 				location,
@@ -557,10 +479,8 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 		}
 
 		// If canary not in the segment/marker itself, proceed to find content
-		// var8 = ++var7; (Java) -> tokenContentStartIndex = idx_after_token_marker_detection (if we take var7 as idx_after_token_marker_detection before this line)
 		tokenContentStartIndex := scanIndex + 1
 
-		// var7 = var17.a(var2, segmentStartForContent, scriptContentEndOffset, tokenType);
 		// tokenContentEndIndex is the index of the closing quote/comment end, or scriptContentEndOffset if not found or not applicable.
 		tokenContentEndIndex := analyzer.findJavaScriptTokenEnd(
 			jsContent,
@@ -569,7 +489,6 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 			currentSegmentType,
 		)
 
-		// eqx var10 = this.a(var1, var2, var3, segmentStartForContent, endOfTokenContent, tokenType);
 		foundReflection := analyzer.findCanaryInJSSegment(
 			location,
 			jsContent,
@@ -583,20 +502,14 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 			return foundReflection
 		}
 
-		// Advance current_idx (Java's var7) for the next iteration of the outer loop
-		// label52: { if (var9 == 4) { var7 += 2; if (var6 == 0) { break label52;} } var7++; }
-		// Since var6 (hpoBControl) is 0, the "if (var6 == 0) { break label52;}" means it will take the var7+=2 or var7++ path.
 		if currentSegmentType == 4 { // Block comment '/*'
 			scanIndex = tokenContentEndIndex + 2 // Skip '*/'
 		} else {
 			scanIndex = tokenContentEndIndex + 1 // Skip closing quote or newline for line comment
 		}
-		// if (var6 == 0) { continue; } -> This is true (0==0), so continue outer loop.
-		// break; -> This is for a hypothetical outer "if (var6 != 0)" which is false. So this break is DEAD.
 	}
 
 	// Loop finished without finding reflection
-	// return new hpo(var1, (byte)18, this.d, var4 + this.c, this.e); // Fallback, reflection at start of script
 	return NewReflectionPointCoreInfo(
 		location,
 		ReflectionContextJSCodeStatement,
@@ -606,15 +519,13 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 	)
 }
 
-// findCanaryInJSSegment corresponds to private eqx a(byte var1, byte[] var2, byte[] var3, int var4, int var5, byte var6)
-// var4: contentStartOffset, var5: contentEndOffset, var6: tokenType
 func (analyzer *HTMLScriptReflectionAnalyzer) findCanaryInJSSegment(
-	location ReflectionLocation, // var1
-	jsSegment []byte, // var2
-	canaryToFind []byte, // var3
-	segmentStartIndex int, // var4
-	segmentEndIndex int, // var5
-	segmentType byte, // var6
+	location ReflectionLocation,
+	jsSegment []byte,
+	canaryToFind []byte,
+	segmentStartIndex int,
+	segmentEndIndex int,
+	segmentType byte,
 ) ReflectionOccurrenceDetail {
 	if segmentType == 2 {
 		return nil
@@ -640,16 +551,14 @@ func (analyzer *HTMLScriptReflectionAnalyzer) findCanaryInJSSegment(
 		)
 
 		// log.Debugf("originalContentString: %s", originalContentString)
-		// var7 = this.a(var3, var7); // Replace canary in that string
 		jsSegmentWithReplacedCanary := analyzer.replaceCanaryInJSStringValue(
 			canaryToFind,
 			jsSegmentString,
 		)
 		// log.Debugf("replacedContentString: %s", replacedContentString)
 
-		// Calculate HPO insertion point (this.d) and the specific location within JS (var4 + this.c)
 		reflectionPointStartIndex := segmentStartIndex + analyzer.sourceBodyOffset
-		zap.L().Debug("hpoReflectionLocation", zap.Int("location", reflectionPointStartIndex))
+		zap.L().Debug("reflectionPointLocation", zap.Int("location", reflectionPointStartIndex))
 
 		var determinedContextType ReflectionContext
 		switch segmentType {
@@ -678,7 +587,6 @@ func (analyzer *HTMLScriptReflectionAnalyzer) findCanaryInJSSegment(
 	return nil
 }
 
-// replaceCanaryInAttributeValue corresponds to private String a(String var1, ffv var2)
 func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInAttributeValue(
 	canary string,
 	attr *htmlparser.HTMLAttribute,
@@ -688,7 +596,6 @@ func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInAttributeValue(
 	return strings.ReplaceAll(attr.Value, canary, analyzerCanaryString)
 }
 
-// replaceCanaryInJSStringValue corresponds to private String a(byte[] var1, String var2)
 func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInJSStringValue(
 	canaryToReplace []byte,
 	jsStringValue string,
@@ -699,21 +606,18 @@ func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInJSStringValue(
 	return strings.ReplaceAll(jsStringValue, stringToReplace, analyzerCanaryString)
 }
 
-// findJavaScriptTokenEnd corresponds to private int a(byte[] var1, int var2, int var3, byte var4)
-// var1: dataToAnalyze, var2: searchStartOffset, var3: searchEndOffset (exclusive), var4: tokenType
 func (analyzer *HTMLScriptReflectionAnalyzer) findJavaScriptTokenEnd(
 	jsData []byte,
 	startIndex int,
 	endIndex int,
 	segmentType byte,
 ) int {
-	scanIndex := startIndex // var2 in Java
+	scanIndex := startIndex
 
-	for scanIndex < endIndex { // while (var2 < var3)
+	for scanIndex < endIndex {
 		// log.Debugf("currentChar: %s", string(dataToAnalyze[currentIndex]))
-		if jsData[scanIndex] == 92 { // 92
+		if jsData[scanIndex] == charBackslash {
 			scanIndex += 2 // Skip backslash and the escaped character
-			// if (var5 == 0) { continue; } // var5 is 0. 0 == 0 is true. So, continue.
 			continue
 		}
 
@@ -721,21 +625,21 @@ func (analyzer *HTMLScriptReflectionAnalyzer) findJavaScriptTokenEnd(
 		isSegmentEndFound := false
 		switch segmentType {
 		case 1: // Single-quoted string
-			if jsData[scanIndex] == 39 { // '
+			if jsData[scanIndex] == charSingleQuote {
 				isSegmentEndFound = true
 			}
 		case 0: // Double-quoted string
-			if jsData[scanIndex] == 34 { // "
+			if jsData[scanIndex] == charDoubleQuote {
 				isSegmentEndFound = true
 			}
 		case 3: // Line comment //
-			if jsData[scanIndex] == 10 ||
-				jsData[scanIndex] == 13 { // \n or \r
+			if jsData[scanIndex] == charLineFeed ||
+				jsData[scanIndex] == charCR {
 				isSegmentEndFound = true
 			}
 		case 4: // Block comment /* */
-			if scanIndex+1 < endIndex && jsData[scanIndex] == 42 &&
-				jsData[scanIndex+1] == 47 { // /* or */
+			if scanIndex+1 < endIndex && jsData[scanIndex] == charAsterisk &&
+				jsData[scanIndex+1] == charForwardSlash {
 				isSegmentEndFound = true
 			}
 		}
@@ -760,14 +664,14 @@ func NewHTMLTagInfoAdapter(tagInfo *htmlparser.HTMLTagInfo) *HTMLTagInfoAdapter 
 
 func (w *HTMLTagInfoAdapter) IsHTMLTagInfoAccessor() {} // Marker method for interface
 
-func (w *HTMLTagInfoAdapter) TagName() string { // Corresponds to dr2.a4() -> tag name
+func (w *HTMLTagInfoAdapter) TagName() string {
 	if w.adapteeTagInfo == nil {
 		return ""
 	}
 	return w.adapteeTagInfo.Name
 }
 
-func (w *HTMLTagInfoAdapter) Attributes() []*htmlparser.HTMLAttribute { // Corresponds to dr2.a5() -> list of attributes
+func (w *HTMLTagInfoAdapter) Attributes() []*htmlparser.HTMLAttribute {
 	if w.adapteeTagInfo == nil {
 		return nil
 	}
@@ -776,7 +680,7 @@ func (w *HTMLTagInfoAdapter) Attributes() []*htmlparser.HTMLAttribute { // Corre
 
 func (w *HTMLTagInfoAdapter) GetAttributeValue(
 	attributeName string,
-) string { // Corresponds to dr2.e(String) -> get attribute value by name
+) string {
 	if w.adapteeTagInfo == nil {
 		return ""
 	}
@@ -785,5 +689,5 @@ func (w *HTMLTagInfoAdapter) GetAttributeValue(
 			return attr.Value
 		}
 	}
-	return "" // Or based on Java's behavior for missing attribute
+	return ""
 }

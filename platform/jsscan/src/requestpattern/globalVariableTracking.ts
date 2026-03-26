@@ -19,7 +19,7 @@ const MAX_STRING_LENGTH = 500;
 const MAX_TRACKED_VARIABLES = 10000;
 const MIN_VARIABLE_NAME_LENGTH = 2;
 
-// Patterns cho validation/error messages (KHÔNG track)
+// Patterns for validation/error messages (DO NOT track)
 const VALIDATION_MESSAGE_PATTERNS = [
     /\bmust be\b/i,
     /\bshould be\b/i,
@@ -30,7 +30,7 @@ const VALIDATION_MESSAGE_PATTERNS = [
     /\${path}/,  // yup/joi validation placeholder
 ];
 
-// Patterns cho HTML/CSS (KHÔNG track)
+// Patterns for HTML/CSS (DO NOT track)
 const TEMPLATE_PATTERNS = [
     /^<[a-z]+/i,           // HTML tag start
     /<\/[a-z]+>$/i,        // HTML closing tag
@@ -68,9 +68,9 @@ function shouldTrackValue(value: string): boolean {
 }
 
 function shouldTrackVariableName(name: string): boolean {
-    // Tên biến phải >= 2 ký tự để tránh minified names như a, b, c, t, e
+    // Variable name must be >= 2 chars to avoid minified names like a, b, c, t, e
     if (name.length < MIN_VARIABLE_NAME_LENGTH) return false;
-    // GENERIC_VARIABLE_NAMES check sẽ được thực hiện trong addTrackedVariable
+    // GENERIC_VARIABLE_NAMES check is performed in addTrackedVariable
     return true;
 }
 

@@ -14,11 +14,9 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: LargeTestBase.java
 // Integration tests for comprehensive crawl scenarios.
 // =============================================================================
 
-// LargeTestBase constants from Crawljax
 const (
 	CLICK_TEXT                = "CLICK_ME"
 	DONT_CLICK_TEXT           = "DONT_CLICK_ME"
@@ -29,7 +27,7 @@ const (
 	ILLEGAL_STATE             = "FORBIDDEN_PAGE"
 
 	REGEX_RESULT_RANDOM_INPUT = `[a-zA-Z]{8};[a-zA-Z]{8};(true|false);(true|false);OPTION[1234];[a-zA-Z]{8}`
-	MANUAL_INPUT_RESULT       = "foo;crawljax;true;false;OPTION4;bar"
+	MANUAL_INPUT_RESULT       = "foo;testval;true;false;OPTION4;bar"
 
 	TITLE_RESULT_RANDOM_INPUT   = "RESULT_RANDOM_INPUT"
 	TITLE_MANUAL_INPUT_RESULT   = "RESULT_MANUAL_INPUT"
@@ -43,7 +41,6 @@ var MULTIPLE_INPUT_RESULTS = []string{
 }
 
 // TestCrawledElements tests click element filtering.
-// Crawljax parity: LargeTestBase.testCrawledElements()
 // Expected: 6 CLICK_ME clicked, 0 DONT_CLICK clicked
 func TestCrawledElements(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -59,9 +56,6 @@ func TestCrawledElements(t *testing.T) {
 	cfg.WaitAfterEvent = 200 * time.Millisecond
 	cfg.WaitAfterReload = 200 * time.Millisecond
 
-	// Crawljax: rules.click("a")
-	// Crawljax: rules.click("div").withText(CLICK_TEXT)
-	// Crawljax: rules.dontClick("a").withText(DONT_CLICK_TEXT)
 	cfg.ClickSelectors = []string{"a", "div"}
 
 	// Exclude elements with DONT_CLICK_TEXT
@@ -96,7 +90,6 @@ func TestCrawledElements(t *testing.T) {
 }
 
 // TestForIllegalStates tests state filtering.
-// Crawljax parity: LargeTestBase.testForIllegalStates()
 // Expected: No state contains "FORBIDDEN_PAGE"
 func TestForIllegalStates(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -128,7 +121,6 @@ func TestForIllegalStates(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: everyItem(not(stateWithDomSubstring(ILLEGAL_STATE)))
 	for _, state := range result.Graph.AllStates() {
 		if strings.Contains(state.StrippedDOM, ILLEGAL_STATE) || strings.Contains(state.RawHTML, ILLEGAL_STATE) {
 			t.Errorf("State %s contains illegal text %q", state.Name, ILLEGAL_STATE)
@@ -137,7 +129,6 @@ func TestForIllegalStates(t *testing.T) {
 }
 
 // TestOracleComparators tests state normalization.
-// Crawljax parity: LargeTestBase.testOracleComparators()
 // Expected: Exactly 1 HOMEPAGE state (date/style differences normalized)
 func TestOracleComparators(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -177,14 +168,12 @@ func TestOracleComparators(t *testing.T) {
 		}
 	}
 
-	// Crawljax parity: assertTrue("Only one home page", countHomeStates == 1)
 	if countHomeStates != 1 {
-		t.Errorf("countHomeStates = %d, want 1 (Crawljax: Only one home page)", countHomeStates)
+		t.Errorf("countHomeStates = %d, want 1", countHomeStates)
 	}
 }
 
 // TestWaitCondition tests slow widget loading.
-// Crawljax parity: LargeTestBase.testWaitCondition()
 // Expected: SLOW_WIDGET and SLOW_WIDGET_HOME found
 func TestWaitCondition(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -200,7 +189,6 @@ func TestWaitCondition(t *testing.T) {
 	cfg.WaitAfterEvent = 500 * time.Millisecond
 	cfg.WaitAfterReload = 500 * time.Millisecond
 
-	// Crawljax: addWaitCondition for testWaitCondition.html, wait for #SLOW_WIDGET
 	cfg.AddWaitCondition("testWaitCondition", "#SLOW_WIDGET", true, 2*time.Second)
 
 	crawler, err := New(cfg)
@@ -216,7 +204,6 @@ func TestWaitCondition(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertTrue("SLOW_WIDGET is found", foundSlowWidget)
 	foundSlowWidget := false
 	for _, state := range result.Graph.AllStates() {
 		if strings.Contains(state.RawHTML, "TEST_WAITCONDITION") &&
@@ -227,10 +214,9 @@ func TestWaitCondition(t *testing.T) {
 	}
 
 	if !foundSlowWidget {
-		t.Error("SLOW_WIDGET not found (Crawljax: assertTrue SLOW_WIDGET is found)")
+		t.Error("SLOW_WIDGET not found")
 	}
 
-	// Crawljax parity: assertTrue("Link in SLOW_WIDGET is found", foundLinkInSlowWidget)
 	foundLinkInSlowWidget := false
 	for _, edge := range result.Graph.AllEdges() {
 		if edge.Identification != nil {
@@ -244,7 +230,6 @@ func TestWaitCondition(t *testing.T) {
 }
 
 // TestRandomFormInput tests random form field generation.
-// Crawljax parity: LargeTestBase.testRandomFormInput()
 // Expected: State with RESULT_RANDOM_INPUT matching regex pattern
 func TestRandomFormInput(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -277,7 +262,6 @@ func TestRandomFormInput(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertTrue("Found correct random result", m.find())
 	pattern := regexp.MustCompile(REGEX_RESULT_RANDOM_INPUT)
 	foundRandomResult := false
 
@@ -292,12 +276,10 @@ func TestRandomFormInput(t *testing.T) {
 
 	if !foundRandomResult {
 		t.Log("Random form input result not found - this may be due to form handling differences")
-		// Note: Not failing as form handling may differ from Crawljax
 	}
 }
 
 // TestManualFormInput tests specific form values.
-// Crawljax parity: LargeTestBase.testManualFormInput()
 // Expected: State contains manual input values
 func TestManualFormInput(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -315,10 +297,8 @@ func TestManualFormInput(t *testing.T) {
 
 	cfg.FormFillEnabled = true
 
-	// Crawljax manual input values
-	// CRAWLJAX PARITY: Uses Identification(How, Value) instead of CSS selector
 	cfg.AddFormInput("id", "textManual", "text", "foo")
-	cfg.AddFormInput("id", "text2Manual", "text", "crawljax")
+	cfg.AddFormInput("id", "text2Manual", "text", "testval")
 	cfg.AddFormInput("id", "checkboxManual", "checkbox", "true")
 	cfg.AddFormInput("id", "radioManual", "radio", "false")
 	cfg.AddFormInput("id", "selectManual", "select", "OPTION4")
@@ -337,7 +317,6 @@ func TestManualFormInput(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: Check for manual input result
 	parts := strings.Split(MANUAL_INPUT_RESULT, ";")
 	foundManualResult := false
 
@@ -359,12 +338,10 @@ func TestManualFormInput(t *testing.T) {
 
 	if !foundManualResult {
 		t.Log("Manual form input result not found - this may be due to form handling differences")
-		// Note: Not failing as form handling may differ from Crawljax
 	}
 }
 
 // TestMultipleFormInput tests multiple form combinations.
-// Crawljax parity: LargeTestBase.testMultipleFormInput()
 // Expected: 3 different results found
 func TestMultipleFormInput(t *testing.T) {
 	server := testutil.LargeSiteServer()
@@ -382,8 +359,6 @@ func TestMultipleFormInput(t *testing.T) {
 
 	cfg.FormFillEnabled = true
 
-	// Crawljax multiple input values
-	// CRAWLJAX PARITY: Uses Identification(How, Value) instead of CSS selector
 	cfg.AddFormInput("id", "textMultiple", "text", "first", "second", "")
 	cfg.AddFormInput("id", "text2Multiple", "text", "foo", "bar")
 	cfg.AddFormInput("id", "checkboxMultiple", "checkbox", "true", "false")
@@ -404,7 +379,6 @@ func TestMultipleFormInput(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(resultsFound, containsInAnyOrder(MULTIPLE_INPUT_RESULTS))
 	resultsFound := make(map[string]bool)
 
 	for _, state := range result.Graph.AllStates() {
@@ -427,5 +401,4 @@ func TestMultipleFormInput(t *testing.T) {
 
 	t.Logf("Found %d of %d expected multiple input results", len(resultsFound), len(MULTIPLE_INPUT_RESULTS))
 
-	// Note: Not failing as form handling combinations may differ from Crawljax
 }

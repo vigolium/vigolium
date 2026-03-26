@@ -4,8 +4,8 @@ import (
 	"fmt" // For Math.min equivalent
 )
 
-// cecStaticM1 is the package-level SearcherFactory instance.
-var cecStaticM1 = NewM1()
+// defaultSearcherFactory is the package-level SearcherFactory instance.
+var defaultSearcherFactory = NewSearcherFactory()
 
 func DecodeUTF16PseudoBE(data []byte) string {
 	if len(data) == 0 {
@@ -16,61 +16,51 @@ func DecodeUTF16PseudoBE(data []byte) string {
 		// Consider returning an error or handling as per specific requirements.
 		// For now, try to process as much as possible.
 		// Or, more strictly, return error or empty string.
-		// Given the Java code, it always creates data with even length (length * 2).
-		// So this case ideally shouldn't happen if called from CecToStringRegion.
+		// So this case ideally shouldn't happen if called from ByteSequenceToStringRegion.
 		return "" // Or potentially an error
 	}
 
 	runes := make([]rune, len(data)/2)
 	for i := 0; i < len(data)/2; i++ {
-		// byteOrderMark := uint16(data[2*i])<<8 | uint16(data[2*i+1])
-		// Based on `var4[2 * var5 + 1] = var0.a(var1 + var5);`, it means:
-		// utf16Bytes[0] = 0 (implicitly)
-		// utf16Bytes[1] = actual byte from obj
-		// utf16Bytes[2] = 0 (implicitly)
-		// utf16Bytes[3] = actual byte from obj
-		// So, the character code is just the byte at the odd index, with high byte 0.
-		charCode := uint16(data[2*i+1]) // High byte is data[2*i] which should be 0
+		// The character code is just the byte at the odd index, with high byte 0.
+		charCode := uint16(data[2*i+1])
 		runes[i] = rune(charCode)
 	}
 	return string(runes)
 }
 
-// --- Implement Pc interface for Ac0 to be used with m1 ---
-// This wrapper is equivalent to b_8 in Java.
+// --- Implement SearchableData interface for ByteSequence to be used with SearcherFactory ---
 
-type B8WrapperForPc struct {
-	ac0Data *Ac0
+type ByteSequenceSearchAdapter struct {
+	ac0Data *ByteSequence
 }
 
-func NewB8WrapperForPc(data *Ac0) *B8WrapperForPc {
-	return &B8WrapperForPc{ac0Data: data}
+func NewByteSequenceSearchAdapter(data *ByteSequence) *ByteSequenceSearchAdapter {
+	return &ByteSequenceSearchAdapter{ac0Data: data}
 }
 
-func (b *B8WrapperForPc) IsPc() {} // Marker for Pc interface
+func (b *ByteSequenceSearchAdapter) IsSearchableData() {} // Marker for SearchableData interface
 
-func (b *B8WrapperForPc) B() bool { // Corresponds to Pc.b() - is data null/empty
+func (b *ByteSequenceSearchAdapter) IsEmpty() bool {
 	return b.ac0Data == nil || b.ac0Data.Length() == 0
 }
 
-func (b *B8WrapperForPc) A() int { // Corresponds to Pc.a() - length of data
+func (b *ByteSequenceSearchAdapter) Length() int {
 	if b.ac0Data == nil {
 		return 0
 	}
 	return b.ac0Data.Length()
 }
 
-func (b *B8WrapperForPc) AAt(index int) int { // Corresponds to Pc.a(int) - get byte at index
+func (b *ByteSequenceSearchAdapter) ByteAt(index int) int {
 	if b.ac0Data == nil {
-		// Or handle error, Java might NPE
 		return 0
 	}
-	// Pc.a(int) in Java seems to return (byte & 0xFF) which is just the byte value for positive bytes.
 	return int(b.ac0Data.GetByte(index))
 }
 
-// Ensure B8WrapperForPc implements Pc
-var _ Pc = (*B8WrapperForPc)(nil)
+// Ensure ByteSequenceSearchAdapter implements SearchableData
+var _ SearchableData = (*ByteSequenceSearchAdapter)(nil)
 
 // Helper for Math.min equivalent if not wanting to import "math" for just one function
 // However, it's cleaner to use math.Min. For int, we need a small helper.
@@ -81,8 +71,7 @@ func minInt(a, b int) int {
 	return b
 }
 
-// CecEqualsBi9 corresponds to public static boolean a(bi9 var0, bi9 var1)
-func CecEqualsBi9(obj1 *Ac0, obj2 *Ac0) bool {
+func ByteSequenceEquals(obj1 *ByteSequence, obj2 *ByteSequence) bool {
 	if obj1 != nil && obj2 != nil {
 		len1 := obj1.Length()
 		if len1 != obj2.Length() {
@@ -103,14 +92,13 @@ func CecEqualsBi9(obj1 *Ac0, obj2 *Ac0) bool {
 	}
 }
 
-// CecEqualsBi9Region corresponds to public static boolean a(bi9 var0, int var1, int var2, bi9 var3, int var4, int var5)
-func CecEqualsBi9Region(obj1 *Ac0, start1 int, end1 int, obj2 *Ac0, start2 int, end2 int) bool {
+func ByteSequenceRegionEquals(obj1 *ByteSequence, start1 int, end1 int, obj2 *ByteSequence, start2 int, end2 int) bool {
 	if end1-start1 != end2-start2 {
 		return false
 	} else {
 		current1 := start1
 		current2 := start2
-		for current1 < end1 { // In Java, original var1 (start1) is incremented, so loop is while (var1 < var2)
+		for current1 < end1 {
 			// Bounds checks should ideally be done by GetByte or are assumed valid by caller
 			if obj1.GetByte(current1) != obj2.GetByte(current2) {
 				return false
@@ -123,12 +111,11 @@ func CecEqualsBi9Region(obj1 *Ac0, start1 int, end1 int, obj2 *Ac0, start2 int, 
 	}
 }
 
-// CecFirstDifferenceOffset corresponds to public static int[] b(bi9 var0, int var1, int var2, bi9 var3, int var4, int var5)
-func CecFirstDifferenceOffset(
-	obj1 *Ac0,
+func ByteSequenceFirstDifference(
+	obj1 *ByteSequence,
 	start1 int,
 	end1 int,
-	obj2 *Ac0,
+	obj2 *ByteSequence,
 	start2 int,
 	end2 int,
 ) []int {
@@ -136,7 +123,7 @@ func CecFirstDifferenceOffset(
 	current2 := start2
 
 	for current1 < end1 && current2 < end2 {
-		// Bounds checks for GetByte are implicitly handled by Ac0.GetByte or should lead to panic if out of bounds
+		// Bounds checks for GetByte are implicitly handled by ByteSequence.GetByte or should lead to panic if out of bounds
 		if obj1.GetByte(current1) != obj2.GetByte(current2) {
 			return []int{current1, current2}
 		}
@@ -144,8 +131,6 @@ func CecFirstDifferenceOffset(
 		current2++
 
 	}
-	// return var1 == var2 && var4 == var5 ? null : new int[] { var1, var4 };
-	// Java var1, var2, var4, var5 are the loop-modified indices (current1, end1, current2, end2)
 	if current1 == end1 && current2 == end2 {
 		return nil // Both regions exhausted simultaneously, means they were equal
 	}
@@ -157,71 +142,62 @@ func CecFirstDifferenceOffset(
 
 // --- IndexOf methods for byte array (needle) ---
 
-// CecIndexOfBytes corresponds to public static int a(bi9 var0, byte[] var1)
-func CecIndexOfBytes(obj *Ac0, needle []byte) int {
+func ByteSequenceIndexOf(obj *ByteSequence, needle []byte) int {
 	if obj == nil {
 		return -1
 	}
-	return CecIndexOfBytesCSFromOffsetRange(obj, needle, true, 0, obj.Length())
+	return ByteSequenceIndexOfFull(obj, needle, true, 0, obj.Length())
 }
 
-// CecIndexOfBytesCS corresponds to public static int a(bi9 var0, byte[] var1, boolean var2)
-func CecIndexOfBytesCS(obj *Ac0, needle []byte, caseSensitive bool) int {
+func ByteSequenceIndexOfCS(obj *ByteSequence, needle []byte, caseSensitive bool) int {
 	if obj == nil {
 		return -1
 	}
-	return CecIndexOfBytesCSFromOffsetRange(obj, needle, caseSensitive, 0, obj.Length())
+	return ByteSequenceIndexOfFull(obj, needle, caseSensitive, 0, obj.Length())
 }
 
-// CecIndexOfBytesCSFromOffset corresponds to public static int a(bi9 var0, byte[] var1, boolean var2, int var3)
-func CecIndexOfBytesCSFromOffset(obj *Ac0, needle []byte, caseSensitive bool, fromIndex int) int {
+func ByteSequenceIndexOfFrom(obj *ByteSequence, needle []byte, caseSensitive bool, fromIndex int) int {
 	if obj == nil {
 		return -1
 	}
-	return CecIndexOfBytesCSFromOffsetRange(obj, needle, caseSensitive, fromIndex, obj.Length())
+	return ByteSequenceIndexOfFull(obj, needle, caseSensitive, fromIndex, obj.Length())
 }
 
-// CecIndexOfBytesRange corresponds to public static int b(bi9 var0, byte[] var1, int var2, int var3)
-// This Java method calls `a` with caseSensitive = true.
-func CecIndexOfBytesRange(obj *Ac0, needle []byte, fromIndex int, toIndex int) int {
-	return CecIndexOfBytesCSFromOffsetRange(obj, needle, true, fromIndex, toIndex)
+func ByteSequenceIndexOfRange(obj *ByteSequence, needle []byte, fromIndex int, toIndex int) int {
+	return ByteSequenceIndexOfFull(obj, needle, true, fromIndex, toIndex)
 }
 
-// CecIndexOfBytesCSFromOffsetRange is the main implementation for finding a byte slice within Ac0.
-// Corresponds to public static int a(bi9 var0, byte[] var1, boolean var2, int var3, int var4)
-func CecIndexOfBytesCSFromOffsetRange(
-	obj *Ac0,
+// ByteSequenceIndexOfFull is the main implementation for finding a byte slice within ByteSequence.
+func ByteSequenceIndexOfFull(
+	obj *ByteSequence,
 	needle []byte,
 	caseSensitive bool,
 	fromIndex int,
 	toIndex int,
 ) int {
-	// return a.a(var1, var2).a(new b_8(var0), var3, var4);
-	// cecStaticM1 is the package-level SearcherFactory instance
-	if cecStaticM1 == nil {
+	// defaultSearcherFactory is the package-level SearcherFactory instance
+	if defaultSearcherFactory == nil {
 		// This should not happen if init() worked correctly
 		return -1
 	}
-	// CreateSearcher returns an E0 interface instance
-	searcher := cecStaticM1.CreateSearcher(needle, caseSensitive)
+	// CreateSearcher returns a PatternSearcher interface instance
+	searcher := defaultSearcherFactory.CreateSearcher(needle, caseSensitive)
 	if searcher == nil {
-		// CreateSearcher might return nil if pattern is nil, though m1 handles this internally by returning specific E0 impl.
+		// CreateSearcher might return nil if pattern is nil, though SearcherFactory handles this internally.
 		// If it can truly be nil, this is an error path.
 		return -1
 	}
 
-	// new b_8(var0) -> NewB8WrapperForPc(obj)
-	pcWrapper := NewB8WrapperForPc(obj)
+	pcWrapper := NewByteSequenceSearchAdapter(obj)
 
-	return searcher.A(pcWrapper, fromIndex, toIndex)
+	return searcher.Search(pcWrapper, fromIndex, toIndex)
 }
 
 // --- IndexOf methods for single byte (needle) ---
 
-// CecIndexOfByteCSFromOffsetRange finds the first occurrence of a byte within a range, with case sensitivity.
-// Corresponds to public static int a(bi9 var0, byte var1, boolean var2, int var3, int var4)
-func CecIndexOfByteCSFromOffsetRange(
-	obj *Ac0,
+// ByteSequenceIndexOfByteRange finds the first occurrence of a byte within a range, with case sensitivity.
+func ByteSequenceIndexOfByteRange(
+	obj *ByteSequence,
 	needle byte,
 	caseSensitive bool,
 	fromIndex int,
@@ -233,17 +209,16 @@ func CecIndexOfByteCSFromOffsetRange(
 
 	searchByte := needle
 	if !caseSensitive {
-		searchByte = SingleByteToLower(needle) // nk.a(byte)
+		searchByte = SingleByteToLower(needle)
 	}
 
-	// Math.min(var4, var0.aF());
 	actualToIndex := minInt(toIndex, obj.Length()) // Use local minInt or math.Min if types match
 	currentIndex := fromIndex
 
 	for currentIndex < actualToIndex {
 		haystackByte := obj.GetByte(currentIndex)
 		if !caseSensitive {
-			haystackByte = ToLowerByte(haystackByte) // ls.a(byte)
+			haystackByte = ToLowerByte(haystackByte)
 		}
 		if haystackByte == searchByte {
 			return currentIndex
@@ -254,19 +229,15 @@ func CecIndexOfByteCSFromOffsetRange(
 	return -1
 }
 
-// CecIndexOfByteRange finds the first occurrence of a byte within a range (case-sensitive).
-// Corresponds to public static int b(bi9 var0, byte var1, int var2, int var3)
-func CecIndexOfByteRange(obj *Ac0, needle byte, fromIndex int, toIndex int) int {
+// ByteSequenceIndexOfByte finds the first occurrence of a byte within a range (case-sensitive).
+func ByteSequenceIndexOfByte(obj *ByteSequence, needle byte, fromIndex int, toIndex int) int {
 	if obj == nil {
 		return -1
 	}
-	// Math.min(var3, var0.aF());
 	actualToIndex := minInt(toIndex, obj.Length())
 	currentIndex := fromIndex
 
 	for currentIndex < actualToIndex {
-		// if (var1 == var0.a(var2++)) { return var2 - 1; }
-		// This loop structure with var2++ inside access and then var2-1 return is tricky.
 		// It means if current char matches, return its index, then advance.
 		if needle == obj.GetByte(currentIndex) {
 			return currentIndex
@@ -276,19 +247,16 @@ func CecIndexOfByteRange(obj *Ac0, needle byte, fromIndex int, toIndex int) int 
 	return -1
 }
 
-// CecLastIndexOfByteRange finds the last occurrence of a byte within a range (case-sensitive).
-// Corresponds to public static int a(bi9 var0, byte var1, int var2, int var3) - the lastIndexOf version
-func CecLastIndexOfByteRange(obj *Ac0, needle byte, fromIndex int, toIndex int) int {
+// ByteSequenceLastIndexOfByte finds the last occurrence of a byte within a range (case-sensitive).
+func ByteSequenceLastIndexOfByte(obj *ByteSequence, needle byte, fromIndex int, toIndex int) int {
 	if obj == nil {
 		return -1
 	}
-	// var3 = Math.min(var3, var0.aF());
 	actualToIndex := minInt(
 		toIndex,
 		obj.Length(),
 	) // Loop will go up to, but not include, actualToIndex initially for --var3
 
-	// while (--var3 >= var2)
 	// The loop should start checking from actualToIndex-1 down to fromIndex.
 	currentIndex := actualToIndex - 1
 	for currentIndex >= fromIndex {
@@ -302,35 +270,27 @@ func CecLastIndexOfByteRange(obj *Ac0, needle byte, fromIndex int, toIndex int) 
 
 // --- Other search/matching methods ---
 
-// CecLastIndexOfBytesRange finds the last occurrence of a byte slice within a specified range of Ac0.
-// Corresponds to public static int a(bi9 var0, byte[] var1, int var2, int var3)
-func CecLastIndexOfBytesRange(obj *Ac0, needle []byte, fromIndex int, toIndex int) int {
+// ByteSequenceLastIndexOf finds the last occurrence of a byte slice within a specified range of ByteSequence.
+func ByteSequenceLastIndexOf(obj *ByteSequence, needle []byte, fromIndex int, toIndex int) int {
 	if obj == nil || needle == nil {
 		return -1
 	}
 
 	needleLen := len(needle)
 	if needleLen == 0 {
-		// Java logic: return var3 (toIndex). In Go, ensure toIndex is within bounds.
 		return minInt(toIndex, obj.Length())
 	}
 
-	// int var6 = Math.min(var3, var0.aF()); // toIndex, obj.Length()
 	actualToIndex := minInt(toIndex, obj.Length())
-	// int var7 = var6 - var5; // var5 is needleLen. This is the last possible start index for needle.
 	lastPossibleStart := actualToIndex - needleLen
 	firstNeedleByte := needle[0]
 	currentIndex := lastPossibleStart // Start searching from the rightmost possible position
 
-	// Java: do { ... } while (var4 != null); which is effectively an infinite loop if var4 is non-null.
-	// The break condition is `if (var7 < var2)`, or if a match is found.
-	// `var4` is `loopControl`.
 	for {
 		if currentIndex < fromIndex {
 			return -1
 		}
 
-		// while (var7 > var2 && var0.a(var7) != var8)
 		// Search backwards for the first byte of the needle
 		for currentIndex > fromIndex && obj.GetByte(currentIndex) != firstNeedleByte {
 			currentIndex--
@@ -352,10 +312,9 @@ func CecLastIndexOfBytesRange(obj *Ac0, needle []byte, fromIndex int, toIndex in
 
 		// At this point, either obj.GetByte(currentIndex) == firstNeedleByte, or currentIndex <= fromIndex
 		if obj.GetByte(currentIndex) == firstNeedleByte {
-			matchOffsetInObj := currentIndex // var9 = var7;
-			matchOffsetInNeedle := 0         // var10 = 0;
+			matchOffsetInObj := currentIndex
+			matchOffsetInNeedle := 0
 			match := true
-			// do { if (var10 >= var5) return var7; } while (var0.a(var9++) == var1[var10++]);
 			for {
 				if matchOffsetInNeedle >= needleLen {
 					return currentIndex // Found full match
@@ -378,17 +337,15 @@ func CecLastIndexOfBytesRange(obj *Ac0, needle []byte, fromIndex int, toIndex in
 
 	}
 }
-func CecStartsWithSimple(obj *Ac0, prefix []byte, offset int) bool {
-	return CecStartsWith(obj, prefix, true, offset)
+func ByteSequenceStartsWith(obj *ByteSequence, prefix []byte, offset int) bool {
+	return ByteSequenceStartsWithCS(obj, prefix, true, offset)
 }
 
-// CecStartsWith checks if Ac0 data starts with a given prefix, with case sensitivity.
-// Corresponds to public static boolean b(bi9 var0, byte[] var1, boolean var2, int var3)
-func CecStartsWith(obj *Ac0, prefix []byte, caseSensitive bool, offset int) bool {
+// ByteSequenceStartsWithCS checks if ByteSequence data starts with a given prefix, with case sensitivity.
+func ByteSequenceStartsWithCS(obj *ByteSequence, prefix []byte, caseSensitive bool, offset int) bool {
 	if obj == nil || prefix == nil {
-		return false // Java might NPE or have specific behavior for nulls.
+		return false
 	}
-	// Java: var1.length <= var0.aF() - var3
 	if len(prefix) > obj.Length()-offset {
 		return false
 	}
@@ -404,9 +361,7 @@ func CecStartsWith(obj *Ac0, prefix []byte, caseSensitive bool, offset int) bool
 		if caseSensitive {
 			currentObjByte = objByte
 		} else {
-			currentObjByte = ToLowerByte(objByte) // ls.a(byte)
-			// Note: Java code applies toLower to objByte, but compares with original prefixByte.
-			// If prefixByte should also be case-normalized for case-insensitive, it's missing in Java logic.
+			currentObjByte = ToLowerByte(objByte)
 			// Porting strictly, so prefixByte is not changed here.
 		}
 
@@ -417,9 +372,8 @@ func CecStartsWith(obj *Ac0, prefix []byte, caseSensitive bool, offset int) bool
 	return true
 }
 
-// CecMatchesAt checks if a needle matches Ac0 data at a specific offset (case-sensitive).
-// Corresponds to public static boolean a(bi9 var0, byte[] var1, int var2)
-func CecMatchesAt(obj *Ac0, needle []byte, offset int) bool {
+// ByteSequenceMatchesAt checks if a needle matches ByteSequence data at a specific offset (case-sensitive).
+func ByteSequenceMatchesAt(obj *ByteSequence, needle []byte, offset int) bool {
 	if obj == nil || needle == nil || offset < 0 || offset+len(needle) > obj.Length() {
 		return false
 	}
@@ -427,10 +381,7 @@ func CecMatchesAt(obj *Ac0, needle []byte, offset int) bool {
 	currentObjOffset := offset
 	currentNeedleOffset := 0
 
-	// while (var4 < var3)
 	for currentNeedleOffset < needleLen {
-		// if (var0.a(var2++) != var1[var4++]) { return false; }
-		// Java increments after comparison. Go needs explicit increment.
 		if obj.GetByte(currentObjOffset) != needle[currentNeedleOffset] {
 			return false
 		}
@@ -440,9 +391,8 @@ func CecMatchesAt(obj *Ac0, needle []byte, offset int) bool {
 	return true
 }
 
-// CecSkipWhitespace finds the index of the first non-whitespace character.
-// Corresponds to public static int b(bi9 var0, int var1, int var2)
-func CecSkipWhitespace(obj *Ac0, fromIndex int, toIndex int) int {
+// ByteSequenceSkipWhitespace finds the index of the first non-whitespace character.
+func ByteSequenceSkipWhitespace(obj *ByteSequence, fromIndex int, toIndex int) int {
 	if obj == nil {
 		return toIndex // Or some other indicator of error/nothing found
 	}
@@ -461,26 +411,23 @@ func CecSkipWhitespace(obj *Ac0, fromIndex int, toIndex int) int {
 	return actualToIndex // If all are whitespace, return the original toIndex (or adjusted actualToIndex)
 }
 
-// CecToString converts an Ac0 object to a string.
-// Corresponds to public static String a(bi9 var0)
-func CecToString(obj *Ac0) string {
+// ByteSequenceToString converts an ByteSequence object to a string.
+func ByteSequenceToString(obj *ByteSequence) string {
 	if obj == nil {
-		return "" // Java: return null; Go: return empty string for nil *Ac0 input
+		return ""
 	}
-	return CecToStringRegion(obj, 0, obj.Length())
+	return ByteSequenceToStringRegion(obj, 0, obj.Length())
 }
 
-// CecToStringRegion converts a region of an Ac0 object to a string.
-// Corresponds to public static String a(bi9 var0, int var1, int var2)
-func CecToStringRegion(obj *Ac0, fromIndex int, length int) string {
+// ByteSequenceToStringRegion converts a region of an ByteSequence object to a string.
+func ByteSequenceToStringRegion(obj *ByteSequence, fromIndex int, length int) string {
 	if obj == nil {
-		return "" // Java: return null;
+		return ""
 	}
-	// Basic bounds checks. Java version directly creates byte[length*2] which could lead to NegativeArraySize if length is negative.
 	// And obj.a(fromIndex + i) could lead to ArrayIndexOutOfBounds.
 	// Go needs more careful bounds handling here.
 	if fromIndex < 0 || length < 0 || fromIndex+length > obj.Length() {
-		// Handle invalid range, Java might throw. Return empty string for simplicity.
+		// Handle invalid range. Return empty string for simplicity.
 		// Or panic for stricter error handling.
 
 		return ""
@@ -489,12 +436,9 @@ func CecToStringRegion(obj *Ac0, fromIndex int, length int) string {
 		return ""
 	}
 
-	// byte[] var4 = new byte[var2 * 2]; // var2 is length
 	utf16Bytes := make([]byte, length*2)
 	i := 0
-	// while (var5 < var2)
 	for i < length {
-		// var4[2 * var5 + 1] = var0.a(var1 + var5);
 		// (fromIndex + i) must be a valid index in obj.data
 		utf16Bytes[2*i+1] = obj.GetByte(fromIndex + i)
 		i++
@@ -502,46 +446,37 @@ func CecToStringRegion(obj *Ac0, fromIndex int, length int) string {
 	}
 	// If loop did break early due to loopControl == nil, we need to use the actual number of bytes processed.
 	actualUtf16Len := i * 2
-	// return new String(var4, StandardCharsets.UTF_16);
-	// niocharset.NiocharsetUTF16Decode is a placeholder for UTF-16BE decoding.
-	// The Java code creates a byte array where high bytes are implicitly zero, then decodes as UTF-16.
-	// This is effectively UTF-16BE where low byte is from source, high byte is 0.
+	// Decode pseudo UTF-16BE where low byte is from source, high byte is 0.
 	return DecodeUTF16PseudoBE(utf16Bytes[0:actualUtf16Len])
 }
 
-// CecAc0FromString creates an Ac0 object from a string.
-// Corresponds to public static bi9 a(String var0)
-func CecAc0FromString(s string) *Ac0 {
-	if s == "" { // Java: var0 == null. Go: empty string as proxy for this specific method's null check.
+// ByteSequenceFromStringEncoded creates an ByteSequence object from a string.
+func ByteSequenceFromStringEncoded(s string) *ByteSequence {
+	if s == "" {
 		return nil
 	}
-	// return a(var0, ac0.a(new byte[var0.length()]), 0);
-	// ac0.a(new byte[var0.length()]) -> NewAc0ByteDataWithCapacity(len(s))
-	targetAc0 := NewAc0ByteDataWithCapacity(len(s))
-	resultAc0, _ := CecWriteStringToAc0(
+	targetByteSequence := NewByteSequenceWithCapacity(len(s))
+	resultByteSequence, _ := WriteStringToByteSequence(
 		s,
-		targetAc0,
+		targetByteSequence,
 		0,
-	) // Error from CecWriteStringToAc0 ignored as per Java return type
-	return resultAc0
+	)
+	return resultByteSequence
 }
 
-// CecWriteStringToAc0 writes a string into an Ac0 object at a given offset.
-// Corresponds to public static bi9 a(String var0, bi9 var1, int var2)
-func CecWriteStringToAc0(s string, targetObj *Ac0, offset int) (*Ac0, error) {
-	if targetObj == nil { // Java: if (var0 == null) return null; - this is for string, targetObj is var1
-		return nil, fmt.Errorf("target Ac0 object cannot be nil")
+// WriteStringToByteSequence writes a string into an ByteSequence object at a given offset.
+func WriteStringToByteSequence(s string, targetObj *ByteSequence, offset int) (*ByteSequence, error) {
+	if targetObj == nil {
+		return nil, fmt.Errorf("target ByteSequence object cannot be nil")
 	}
-	// Java: if (var0 == null) return null;
 	// In Go, string s cannot be nil. If empty string means null result:
-	// if s == "" { return nil, nil } // This would match Java `var0 == null`
 	// For now, assuming non-empty `s` or that empty `s` writes nothing.
 
 	strLen := len(s)
 	// Check if targetObj has enough space from offset
 	if offset < 0 || offset+strLen > targetObj.Length() {
 		return targetObj, fmt.Errorf(
-			"offset/length out of bounds for target Ac0: offset %d, strLen %d, targetLen %d",
+			"offset/length out of bounds for target ByteSequence: offset %d, strLen %d, targetLen %d",
 			offset,
 			strLen,
 			targetObj.Length(),
@@ -549,13 +484,11 @@ func CecWriteStringToAc0(s string, targetObj *Ac0, offset int) (*Ac0, error) {
 	}
 
 	for i := 0; i < strLen; i++ {
-		// var1.a(var2 + var4, (byte) var0.charAt(var4));
 		// targetObj.SetByte(offset+i, byte(s[i])) // s[i] is byte in Go for string iteration
-		// Java charAt(i) can be > 255. (byte) conversion truncates.
 		targetObj.SetByte(
 			offset+i,
 			byte(rune(s[i])),
-		) // Get rune then cast to byte for closer Java char->byte truncation
+		)
 	}
 	return targetObj, nil
 }

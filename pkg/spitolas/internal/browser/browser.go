@@ -187,9 +187,7 @@ func (b *Browser) NewPage() (*Page, error) {
 		browser: b,
 	}
 
-	// CRAWLJAX PARITY: Setup auto-accept dialog handler for alert/confirm/prompt
 	// This runs in background and automatically accepts all JS dialogs.
-	// Matches Java Crawljax handlePopups() behavior.
 	page.setupAutoDialogHandler()
 
 	b.mu.Lock()
@@ -280,13 +278,11 @@ func closePageWithTimeout(rodPage *rod.Page, timeout time.Duration, maxRetries i
 }
 
 // CloseOtherWindows closes all pages except the current one with timeout protection.
-// This matches Java Crawljax's closeOtherWindows() which uses WebDriver.getWindowHandles()
 // to get ALL actual browser windows (including those opened by target="_blank" or window.open()).
 //
 // CRITICAL: Uses timeout + retry to prevent deadlocks when pages are slow to close.
 // This is essential for target="_blank" links which may open pages faster than we can track them.
 //
-// CRAWLJAX PARITY: WebDriverBackedEmbeddedBrowser.java:587-603
 func (b *Browser) CloseOtherWindows() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -298,8 +294,7 @@ func (b *Browser) CloseOtherWindows() error {
 
 	currentTargetID := b.currentPage.rodPage.TargetID
 
-	// Query actual browser pages (matches Crawljax WebDriver.getWindowHandles())
-	// This gets ALL pages including those opened by target="_blank" or window.open()
+	// Query all browser pages including those opened by target="_blank" or window.open()
 	allPages, err := b.rodBrowser.Pages()
 	if err != nil {
 		zap.L().Error("Failed to query browser pages", zap.Error(err))

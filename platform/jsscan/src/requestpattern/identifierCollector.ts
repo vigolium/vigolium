@@ -6,38 +6,38 @@ import { traverse } from '../ast-utils/babel';
 const log = debug('jsscan:identifierCollector');
 
 /**
- * Thu thập tất cả các identifier được sử dụng làm tham số/biến trong code.
- * Hàm này sẽ phân tích code và trích xuất các identifier trong ngữ cảnh sử dụng, không phải khai báo.
- * 
+ * Collect all identifiers used as parameters/variables in code.
+ * This function analyzes code and extracts identifiers in usage context, not declarations.
+ *
  * @example
  * ```typescript
  * // Input code
  * const code = `
- *   // Những identifier này sẽ KHÔNG được thu thập vì là nơi khai báo
+ *   // These identifiers will NOT be collected because they are declaration sites
  *   const config = {
  *     auth: {
  *       API_KEY: 'xxx'
  *     }
  *   };
- * 
- *   // Những identifier này SẼ được thu thập vì đang được sử dụng
+ *
+ *   // These identifiers WILL be collected because they are being used
  *   fetch(API_URL);
  *   headers['Authorization'] = config.auth.API_KEY;
  *   client.request(token);
  * `;
- * 
+ *
  * const identifiers = collectIdentifiers(code);
  * console.log([...identifiers]);
  * // Output: ['API_URL', 'API_KEY', 'token']
  * ```
- * 
- * @param code - Đoạn code JavaScript/TypeScript cần phân tích
- * @returns Set<string> - Tập hợp các identifier duy nhất được tìm thấy
- * 
+ *
+ * @param code - JavaScript/TypeScript code snippet to analyze
+ * @returns Set<string> - Set of unique identifiers found
+ *
  * @remarks
- * - Chỉ thu thập identifier trong ngữ cảnh sử dụng (ví dụ: tham số hàm, biến trong biểu thức)
- * - Bỏ qua các identifier trong ngữ cảnh khai báo (ví dụ: khai báo object, khai báo biến)
- * - Nếu code không thể parse được, hàm sẽ trả về Set rỗng và log lỗi
+ * - Only collects identifiers in usage context (e.g., function arguments, variables in expressions)
+ * - Skips identifiers in declaration context (e.g., object declarations, variable declarations)
+ * - If the code cannot be parsed, the function returns an empty Set and logs the error
  */
 export function collectIdentifiers(code: string): Set<string> {
     const identifiers = new Set<string>();
@@ -46,7 +46,7 @@ export function collectIdentifiers(code: string): Set<string> {
     }
 
     try {
-        // Tiền xử lý code để handle các trường hợp function declarations
+        // Preprocess code to handle function declaration cases
         let codeToProcess = code.trim();
 
         // Case 1: Anonymous functions
@@ -95,7 +95,7 @@ export function collectIdentifiers(code: string): Set<string> {
         }
         traverse(ast, {
             MemberExpression(path) {
-                // Kiểm tra đệ quy xem member expression có phải là một phần của call expression
+                // Recursively check if member expression is part of a call expression
                 const isPartOfCallExpression = (currentPath: any): boolean => {
                     if (!currentPath) return false;
                     if (currentPath.isCallExpression()) return true;
@@ -105,26 +105,26 @@ export function collectIdentifiers(code: string): Set<string> {
                     return false;
                 };
 
-                // Bỏ qua nếu member expression là một phần của call expression
+                // Skip if member expression is part of a call expression
                 if (isPartOfCallExpression(path.parentPath)) {
                     return;
                 }
 
-                // Chỉ lấy property cuối cùng của member expression chain
+                // Only get the last property of the member expression chain
                 if (t.isIdentifier(path.node.property) && !path.node.computed) {
                     identifiers.add(path.node.property.name);
                 }
             },
 
             Identifier(path) {
-                // Kiểm tra đệ quy xem identifier có phải là một phần của call expression
+                // Recursively check if identifier is part of a call expression
                 const isPartOfCallExpression = (currentPath: any): boolean => {
                     if (!currentPath) return false;
 
-                    // Nếu gặp CallExpression, return true
+                    // If we encounter a CallExpression, return true
                     if (currentPath.isCallExpression()) return true;
 
-                    // Nếu vẫn trong MemberExpression chain, tiếp tục kiểm tra parent
+                    // If still in a MemberExpression chain, continue checking parent
                     if (currentPath.isMemberExpression()) {
                         return isPartOfCallExpression(currentPath.parentPath);
                     }
@@ -132,12 +132,12 @@ export function collectIdentifiers(code: string): Set<string> {
                     return false;
                 };
 
-                // Bỏ qua nếu identifier là một phần của call expression
+                // Skip if identifier is part of a call expression
                 if (isPartOfCallExpression(path.parentPath)) {
                     return;
                 }
 
-                // Thu thập identifier khi nó được sử dụng làm tham số hoặc trong biểu thức
+                // Collect identifier when it is used as an argument or in an expression
                 const parentPath = path.parentPath;
                 if (
                     t.isCallExpression(parentPath.node) ||
@@ -156,19 +156,19 @@ export function collectIdentifiers(code: string): Set<string> {
                     identifiers.add(path.node.name);
                 }
 
-                // Xử lý object shorthand { API_KEY }
+                // Handle object shorthand { API_KEY }
                 if (t.isObjectProperty(parentPath.node) && parentPath.node.shorthand) {
                     identifiers.add(path.node.name);
                 }
 
-                // Xử lý object property key { globalId: value }
+                // Handle object property key { globalId: value }
                 if (t.isObjectProperty(parentPath.node) && parentPath.node.key === path.node && !parentPath.node.computed) {
                     identifiers.add(path.node.name);
                 }
 
-                // Thêm điều kiện cho destructuring assignment
+                // Add condition for destructuring assignment
                 if (t.isObjectPattern(parentPath?.node)) {
-                    // Chỉ thu thập nếu nằm bên phải phép gán
+                    // Only collect if on the right side of the assignment
                     if (parentPath.parentPath?.isVariableDeclarator() &&
                         parentPath.parentPath.node.id !== parentPath.node) {
                         identifiers.add(path.node.name);

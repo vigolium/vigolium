@@ -1,7 +1,6 @@
 package fragment
 
 // VisualBlock represents a visual block in the VIPS algorithm.
-// This mirrors Java Crawljax's visual block concept from VipsSeleniumParser.
 type VisualBlock struct {
 	// Identification
 	ID       int
@@ -104,7 +103,6 @@ func (vb *VisualBlock) ToFragment() *Fragment {
 }
 
 // VipsRectangle represents a VIPS visual rectangle output.
-// This mirrors Java Crawljax's VipsRectangle class.
 type VipsRectangle struct {
 	ID       int
 	ParentID int

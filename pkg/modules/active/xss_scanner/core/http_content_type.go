@@ -7,7 +7,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/mimetype_detector"
 )
 
-// ContentType codes matching Java short values
 const (
 	DefTypeNone                int16 = 0
 	DefTypeUnrecognizedContent int16 = 1
@@ -34,7 +33,6 @@ const (
 	DefTypeEmptyType1280       int16 = 1280
 )
 
-// ContentTypeProfile corresponds to the Java class def.
 type ContentTypeProfile struct {
 	statedTypeCode                 int16 // This will store the effective stated type
 	inferredTypeCode               int16
@@ -85,8 +83,7 @@ func newContentTypeProfile(
 	}
 }
 
-// NewContentTypeProfile creates a new Def instance by analyzing HTTP headers and body.
-// It's refactored to take standard Go HTTP types where possible.
+// NewContentTypeProfile creates a new ContentTypeProfile by analyzing HTTP headers and body.
 func NewContentTypeProfile(
 	responseHeaders http.Header, // All response headers (resp.Header)
 	responseBody []byte,
@@ -319,7 +316,6 @@ func ContentTypeCodeToShortString(contentTypeCode int16) string {
 	}
 }
 
-// GetContentTypeHeaderValue (renamed from GetMainContentTypeFromHeader) corresponds to Java: public String b()
 func (d *ContentTypeProfile) GetContentTypeHeaderValue() string {
 	return d.rawContentTypeHeaderValue
 }
@@ -341,13 +337,13 @@ func (d *ContentTypeProfile) GetAllHeaderInfo() []string {
 	combinedMap := make(map[string]struct{})
 	orderedResult := make([]string, 0)
 
-	// Thêm Content-Type header nếu có
+	// Add Content-Type header if present
 	if d.rawContentTypeHeaderValue != "" {
 		combinedMap[d.rawContentTypeHeaderValue] = struct{}{}
 		orderedResult = append(orderedResult, d.rawContentTypeHeaderValue)
 	}
 
-	// Thêm charset nếu có
+	// Add charset if present
 	if d.detectedCharset != "" {
 		charset := "charset=" + d.detectedCharset
 		if _, exists := combinedMap[charset]; !exists {
@@ -356,7 +352,7 @@ func (d *ContentTypeProfile) GetAllHeaderInfo() []string {
 		}
 	}
 
-	// Thêm X-Content-Type-Options nếu có
+	// Add X-Content-Type-Options if present
 	if d.xContentTypeOptionsHeaderValue != "" {
 		if _, exists := combinedMap[d.xContentTypeOptionsHeaderValue]; !exists {
 			combinedMap[d.xContentTypeOptionsHeaderValue] = struct{}{}
@@ -441,11 +437,7 @@ func ContentTypeToDefCode(ct mimetype_detector.ContentType) int16 {
 	}
 }
 
-// This is a placeholder for fhs type from the package-private constructor.
-// If fhs is just a marker and has no methods/fields used by def, this can be an empty struct or interface.
-// type fhs struct {} // Example, if needed for newDefWithFhsMarker
 
-// newDefWithFhsMarker corresponds to package-private constructor def(..., fhs var8)
 // func newDefWithFhsMarker(
 // 	statedType int16,
 // 	inferredType int16,
@@ -454,7 +446,6 @@ func ContentTypeToDefCode(ct mimetype_detector.ContentType) int16 {
 // 	isAttachment bool,
 // 	xContentTypeOptionsHeadersSet []string,
 // 	charsetsSet []string,
-// 	_ fhs, // fhs var8, ignored
 // ) *Def {
 // 	return newDefInternal(statedType, inferredType, contentTypeHeadersSet, isNoSniff, isAttachment, xContentTypeOptionsHeadersSet, charsetsSet)
 // }

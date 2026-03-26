@@ -7,8 +7,6 @@ import (
 )
 
 // CDP script to detect event listeners on elements.
-// Based on Crawljax's ClickableDetectorPlugin.java
-// CRAWLJAX PARITY: Uses getEventListeners() CDP API which requires includeCommandLineAPI=true
 const cdpScript = `
 function getEventHandlers(xpath) {
 	try {
@@ -159,7 +157,6 @@ func detectJQueryClickHandlers(page *browser.Page) ([]ClickableResult, error) {
 
 // getAllXPaths returns XPaths for all elements in the body.
 // CRITICAL FIX: Uses absolute XPath (starting with /html) instead of relative (//)
-// This matches Crawljax's XPathHelper.getXPathExpression() behavior.
 func getAllXPaths(page *browser.Page) ([]string, error) {
 	// CRITICAL: Must be an IIFE (Immediately Invoked Function Expression)
 	script := `(function() {

@@ -9,31 +9,23 @@ import (
 )
 
 // CrawlPath represents the path a Crawler has taken, or is about to backtrack on.
-// CRAWLJAX PARITY: Matches Java CrawlPath extends ForwardingList<Eventable> exactly.
 type CrawlPath struct {
 	mu sync.RWMutex
 
 	// Sequence of Eventables executed in this path
-	// CRAWLJAX PARITY: Matches Java List<Eventable> eventablePath
 	eventablePath []*action.Eventable
 
-	// CRAWLJAX PARITY: Backtrack target state ID (index in Java)
 	BacktrackTarget string
 
-	// CRAWLJAX PARITY: Backtrack result
 	BacktrackSuccess bool
 
-	// CRAWLJAX PARITY: If backtrack reached a near-duplicate instead of exact target
-	// Empty string if exact match or no near-duplicate reached (-1 in Java)
 	ReachedNearDup string
 
-	// Timing (Go-specific, not in Java)
 	StartTime time.Time
 	EndTime   time.Time
 }
 
 // NewCrawlPath creates a new crawl path for a backtrack target.
-// CRAWLJAX PARITY: Matches Java new CrawlPath(int backtrackTarget)
 func NewCrawlPath(backtrackTarget string) *CrawlPath {
 	return &CrawlPath{
 		eventablePath:    make([]*action.Eventable, 0),
@@ -45,7 +37,6 @@ func NewCrawlPath(backtrackTarget string) *CrawlPath {
 }
 
 // NewCrawlPathFromList creates a CrawlPath from an existing list of Eventables.
-// CRAWLJAX PARITY: Matches Java new CrawlPath(List<Eventable> delegate, int backtrackTarget)
 func NewCrawlPathFromList(eventables []*action.Eventable, backtrackTarget string) *CrawlPath {
 	path := make([]*action.Eventable, len(eventables))
 	copy(path, eventables)
@@ -59,13 +50,11 @@ func NewCrawlPathFromList(eventables []*action.Eventable, backtrackTarget string
 }
 
 // CopyOf creates a new CrawlPath as a copy of the given eventables.
-// CRAWLJAX PARITY: Matches Java CrawlPath.copyOf(List<Eventable>, int)
 func CopyOf(eventables []*action.Eventable, backtrackTarget string) *CrawlPath {
 	return NewCrawlPathFromList(eventables, backtrackTarget)
 }
 
 // Add appends an Eventable to the path.
-// CRAWLJAX PARITY: Matches Java List.add(Eventable)
 func (cp *CrawlPath) Add(eventable *action.Eventable) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -73,7 +62,6 @@ func (cp *CrawlPath) Add(eventable *action.Eventable) {
 }
 
 // Get returns the Eventable at the given index.
-// CRAWLJAX PARITY: Matches Java List.get(int)
 func (cp *CrawlPath) Get(index int) *action.Eventable {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -85,7 +73,6 @@ func (cp *CrawlPath) Get(index int) *action.Eventable {
 }
 
 // Last returns the last Eventable in the path.
-// CRAWLJAX PARITY: Matches Java CrawlPath.last()
 func (cp *CrawlPath) Last() *action.Eventable {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -97,7 +84,6 @@ func (cp *CrawlPath) Last() *action.Eventable {
 }
 
 // Size returns the number of Eventables.
-// CRAWLJAX PARITY: Matches Java List.size()
 func (cp *CrawlPath) Size() int {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -110,13 +96,11 @@ func (cp *CrawlPath) Len() int {
 }
 
 // IsEmpty returns true if the path has no Eventables.
-// CRAWLJAX PARITY: Matches Java List.isEmpty()
 func (cp *CrawlPath) IsEmpty() bool {
 	return cp.Size() == 0
 }
 
 // Remove removes the Eventable at the given index.
-// CRAWLJAX PARITY: Matches Java List.remove(int)
 func (cp *CrawlPath) Remove(index int) *action.Eventable {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -131,7 +115,6 @@ func (cp *CrawlPath) Remove(index int) *action.Eventable {
 }
 
 // RemoveLast removes and returns the last Eventable.
-// CRAWLJAX PARITY: Convenience method for remove(size()-1)
 func (cp *CrawlPath) RemoveLast() *action.Eventable {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -146,7 +129,6 @@ func (cp *CrawlPath) RemoveLast() *action.Eventable {
 }
 
 // GetBacktrackTarget returns the backtrack target.
-// CRAWLJAX PARITY: Matches Java getBacktrackTarget()
 func (cp *CrawlPath) GetBacktrackTarget() string {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -154,7 +136,6 @@ func (cp *CrawlPath) GetBacktrackTarget() string {
 }
 
 // SetBacktrackTarget sets the backtrack target.
-// CRAWLJAX PARITY: Matches Java setBacktrackTarget(int)
 func (cp *CrawlPath) SetBacktrackTarget(target string) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -162,7 +143,6 @@ func (cp *CrawlPath) SetBacktrackTarget(target string) {
 }
 
 // IsBacktrackSuccess returns the backtrack success status.
-// CRAWLJAX PARITY: Matches Java isBacktrackSuccess()
 func (cp *CrawlPath) IsBacktrackSuccess() bool {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -170,7 +150,6 @@ func (cp *CrawlPath) IsBacktrackSuccess() bool {
 }
 
 // SetBacktrackSuccess sets the backtrack success status.
-// CRAWLJAX PARITY: Matches Java setBacktrackSuccess(boolean)
 func (cp *CrawlPath) SetBacktrackSuccess(success bool) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -178,7 +157,6 @@ func (cp *CrawlPath) SetBacktrackSuccess(success bool) {
 }
 
 // IsReachedNearDup returns the near-duplicate state ID reached (empty if none).
-// CRAWLJAX PARITY: Matches Java isReachedNearDup() - returns -1 in Java for none
 func (cp *CrawlPath) IsReachedNearDup() string {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -186,7 +164,6 @@ func (cp *CrawlPath) IsReachedNearDup() string {
 }
 
 // SetReachedNearDup sets the near-duplicate state ID reached.
-// CRAWLJAX PARITY: Matches Java setReachedNearDup(int)
 func (cp *CrawlPath) SetReachedNearDup(nearDupStateID string) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -219,13 +196,11 @@ func (cp *CrawlPath) MarkNearDuplicate(nearDupStateID string) {
 }
 
 // ImmutableCopy creates an immutable copy of the current CrawlPath.
-// CRAWLJAX PARITY: Matches Java immutableCopy()
 func (cp *CrawlPath) ImmutableCopy() *CrawlPath {
 	return cp.immutableCopyInternal(false)
 }
 
 // ImmutableCopyWithoutLast creates an immutable copy without the last Eventable.
-// CRAWLJAX PARITY: Matches Java immutableCopyWithoutLast()
 func (cp *CrawlPath) ImmutableCopyWithoutLast() *CrawlPath {
 	return cp.immutableCopyInternal(true)
 }
@@ -263,7 +238,6 @@ func (cp *CrawlPath) immutableCopyInternal(removeLast bool) *CrawlPath {
 }
 
 // GetEventables returns a copy of the eventables slice.
-// CRAWLJAX PARITY: Provides access to internal list
 func (cp *CrawlPath) GetEventables() []*action.Eventable {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -274,7 +248,6 @@ func (cp *CrawlPath) GetEventables() []*action.Eventable {
 }
 
 // AsStackTrace builds a stack trace for this path.
-// CRAWLJAX PARITY: Matches Java asStackTrace()
 func (cp *CrawlPath) AsStackTrace() []string {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -292,7 +265,6 @@ func (cp *CrawlPath) AsStackTrace() []string {
 			identStr = e.Identification.String()
 		}
 
-		// Java format: StackTraceElement(eventType, identification, element, lineNumber)
 		trace[size-1-i] = fmt.Sprintf("%s.%s(%s:%d)",
 			e.EventType,
 			identStr,

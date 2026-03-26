@@ -19,7 +19,21 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        @keyframes vg-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+        @keyframes vg-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+        .vg-loader{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f6edda;font-family:"IBM Plex Mono",monospace;color:#005661}
+        .vg-loader-ring{width:36px;height:36px;border:3px solid #bbc3c4;border-top-color:#e34e1c;border-radius:50%;animation:vg-spin .8s linear infinite}
+        .vg-loader-text{margin-top:16px;font-size:13px;letter-spacing:.04em;animation:vg-pulse 1.8s ease-in-out infinite}
+        [data-theme="dark"] .vg-loader{background:#1c1b19;color:#fce8c3}
+        [data-theme="dark"] .vg-loader-ring{border-color:#383530;border-top-color:#7fd962}
+      </style>
+      <div class="vg-loader">
+        <div class="vg-loader-ring"></div>
+        <div class="vg-loader-text">Loading Vigolium Static Report&#8230;</div>
+      </div>
+    </div>
     <script type="importmap">
     {
       "imports": {

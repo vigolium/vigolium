@@ -7,17 +7,15 @@ import (
 )
 
 // AttributeEventHandlerCompositeStrategy implements the ContextualXSSTechnique interface.
-// Original Java class: fi0
 type AttributeEventHandlerCompositeStrategy struct {
-	prefix                   string // Corresponds to 'd' (constructor var1)
-	primaryRandomComponent   string // Corresponds to 'a' (constructor var2)
-	attributeSpacing         string // Corresponds to 'e' (constructor var3)
-	secondaryRandomComponent string // Corresponds to 'c' (constructor var4)
-	isReflectionPresent      bool   // Corresponds to 'b' (constructor var5)
+	prefix                   string
+	primaryRandomComponent   string
+	attributeSpacing         string
+	secondaryRandomComponent string
+	isReflectionPresent      bool
 }
 
-// NewAttributeEventHandlerCompositeStrategy creates a new instance of Fi0.
-// Original Java constructor: fi0(String var1, String var2, String var3, String var4, boolean var5)
+// NewAttributeEventHandlerCompositeStrategy creates a new instance.
 func NewAttributeEventHandlerCompositeStrategy(
 	prefix, primaryRnd, attrSpacing, secondaryRnd string,
 	reflectionIsPresent bool,
@@ -31,25 +29,24 @@ func NewAttributeEventHandlerCompositeStrategy(
 	}
 }
 
-// --- Private helper methods for Fi0 ---
+// --- Private helper methods ---
 
-// isTargetingHiddenInput corresponds to Java: private boolean b(eqx var1, byte[] var2)
 func (receiver *AttributeEventHandlerCompositeStrategy) isTargetingHiddenInput(
 	reflection ReflectionOccurrenceDetail,
 	responseBody []byte,
 ) bool {
 
-	attributeReflection, isCorrectType := reflection.(*HTMLAttributeReflection) // type cast
+	attributeReflection, isCorrectType := reflection.(*HTMLAttributeReflection)
 	if !isCorrectType {
 		return false
 	}
 
-	tagDetails := attributeReflection.htmlTagDetails     // fcp.a -> Dr2
-	if tagDetails != nil && tagDetails.Name == "input" { // dr2.a4()
-		attributes := tagDetails.Attributes // dr2.a5()
+	tagDetails := attributeReflection.htmlTagDetails
+	if tagDetails != nil && tagDetails.Name == "input" {
+		attributes := tagDetails.Attributes
 		for _, currentAttribute := range attributes {
 			if currentAttribute.Name == "type" && currentAttribute.Value == "hidden" {
-				bodyStartIndex := 0 // body start index
+				bodyStartIndex := 0
 				attributeNameAbsoluteStart := bodyStartIndex + currentAttribute.NameStart
 				if attributeNameAbsoluteStart > reflection.CoreInfo().endIndexInInput {
 					return true
@@ -62,29 +59,25 @@ func (receiver *AttributeEventHandlerCompositeStrategy) isTargetingHiddenInput(
 	return false
 }
 
-// getReflectionTagNameSet corresponds to Java: private Set<String> a(eqx var1)
 func (receiver *AttributeEventHandlerCompositeStrategy) getReflectionTagNameSet(
 	reflection ReflectionOccurrenceDetail,
 ) map[string]struct{} {
 	tagNameSet := make(map[string]struct{})
 	attributeReflection, ok := reflection.(*HTMLAttributeReflection)
 	if !ok {
-		return tagNameSet // Return empty set if not Fcp
+		return tagNameSet
 	}
-	// String var4 = var3.d; // fcp.d (String)
 	tagName := attributeReflection.tagName
-	if tagName != "" { // Java String can be null, Go string is empty or not. Check for non-empty.
+	if tagName != "" {
 		tagNameSet[strings.ToLower(tagName)] = struct{}{}
 	}
 	return tagNameSet
 }
 
-// selectSubStrategyBasedOnHiddenInput corresponds to Java: private d3b a(eqx var1, byte[] var2)
 func (receiver *AttributeEventHandlerCompositeStrategy) selectSubStrategyBasedOnHiddenInput(
 	reflection ReflectionOccurrenceDetail,
 	transaction *utils.HTTPTransaction,
 ) ContextualAttackPayloadGenerator {
-	// return (d3b)(this.b(var1, var2) ? new cb4(...) : new aic(...));
 	if receiver.isTargetingHiddenInput(reflection, transaction.GetResponseBody()) {
 		inputAutofocusStrategy := NewInputTextAutofocusOnfocusStrategy(
 			receiver.prefix,
@@ -104,10 +97,8 @@ func (receiver *AttributeEventHandlerCompositeStrategy) selectSubStrategyBasedOn
 	)
 }
 
-// --- D3b Interface Method A ---
+// --- ContextualAttackPayloadGenerator interface ---
 
-// GeneratePayload is the Go equivalent of the 'a' method from the ContextualXSSTechnique interface for class Fi0.
-// Original Java method: public PreliminaryXSSFinding a(hgm var1, hnx var2, byte var3, byte var4, DetectedReflection var5, byte[] var6)
 func (receiver *AttributeEventHandlerCompositeStrategy) GeneratePayload(
 	probeBuilder *ScanProbeBuilder,
 	profile *ScanExecutionProfile,
@@ -116,14 +107,10 @@ func (receiver *AttributeEventHandlerCompositeStrategy) GeneratePayload(
 	reflection ReflectionOccurrenceDetail,
 	transaction *utils.HTTPTransaction,
 ) PotentialXSSFinding {
-	// Set var7 = this.a(var5); // Calls private method a(eqx)
 	reflectedTagNames := receiver.getReflectionTagNameSet(reflection)
 
-	// g1r var8 = new g1r();
-	eventHandlerValidator := NewEventHandlerEligibilityLogic() // Uses stubbed NewG1r
+	eventHandlerValidator := NewEventHandlerEligibilityLogic()
 
-	// component d3b instances for gfw
-	// NewB8, NewX2, NewF00 are constructors for ported/stubbed D3b types
 	onloadStrategy := NewOnloadEventHandlerStrategy(
 		eventHandlerValidator,
 		reflectedTagNames,
@@ -152,13 +139,12 @@ func (receiver *AttributeEventHandlerCompositeStrategy) GeneratePayload(
 	)
 	selectedSubStrategy := receiver.selectSubStrategyBasedOnHiddenInput(reflection, transaction)
 
-	// return new gfw(...).a(var1, var2, var3, var4, var5, var6);
 	iteratorStrategy := NewFirstSuccessMetaStrategy(
 		onloadStrategy,
 		inputOnfocusStrategy,
 		onmouseoverStrategy,
 		selectedSubStrategy,
-	) // NewGfw is a stub from stubs.go
+	)
 
 	return iteratorStrategy.GeneratePayload(
 		probeBuilder,

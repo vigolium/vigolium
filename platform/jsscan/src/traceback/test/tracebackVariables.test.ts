@@ -7,7 +7,7 @@ import { generate } from '../../ast-utils';
 import { tracebackVariables } from '../tracebackVariables';
 
 describe('tracebackVariables - Line-Based Context Extractor', () => {
-  // Helper để parse code với source code được inject vào hub
+  // Helper to parse code with source code injected into hub
   const parseWithSource = (code: string) => {
     const ast = parse(code, {
       sourceType: 'module',
@@ -17,7 +17,7 @@ describe('tracebackVariables - Line-Based Context Extractor', () => {
     return ast;
   };
 
-  // Helper function để parse code và lấy NodePath của CallExpression đầu tiên
+  // Helper function to parse code and get the NodePath of the first CallExpression
   const getFirstCallExpressionPath = (code: string): { path: NodePath<t.CallExpression>; sourceCode: string } => {
     const ast = parseWithSource(code);
 
@@ -40,7 +40,7 @@ describe('tracebackVariables - Line-Based Context Extractor', () => {
     return { path: callExprPath, sourceCode: code };
   };
 
-  // Helper để lấy CallExpression cụ thể
+  // Helper to get a specific CallExpression
   const getSpecificCallExpressionPath = (
     code: string,
     matcher: (path: NodePath<t.CallExpression>) => boolean

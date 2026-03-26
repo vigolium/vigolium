@@ -43,7 +43,6 @@ type Comparator struct {
 	nearDuplicateThreshold float64 // Threshold for near-duplicate detection (default 0.9)
 	fragManager            *fragment.Manager
 
-	// CRAWLJAX PARITY: Configurable thresholds matching Java Crawljax defaults
 	nd1Threshold float64 // ND1 threshold (default 0.95 = 95% similarity)
 	nd2Threshold float64 // ND2 threshold (default 0.80 = 80% similarity)
 }
@@ -55,8 +54,8 @@ func NewComparator(cfg *config.Config) *Comparator {
 		stripAttrs:             cfg.DOMStripAttrs,
 		mode:                   CompareModeExact,
 		nearDuplicateThreshold: 0.9,
-		nd1Threshold:           0.95, // CRAWLJAX PARITY: 95% for ND1
-		nd2Threshold:           0.80, // CRAWLJAX PARITY: 80% for ND2
+		nd1Threshold:           0.95,
+		nd2Threshold:           0.80,
 	}
 }
 
@@ -67,8 +66,8 @@ func NewComparatorDefault() *Comparator {
 		stripAttrs:             DefaultStripAttrs,
 		mode:                   CompareModeExact,
 		nearDuplicateThreshold: 0.9,
-		nd1Threshold:           0.95, // CRAWLJAX PARITY: 95% for ND1
-		nd2Threshold:           0.80, // CRAWLJAX PARITY: 80% for ND2
+		nd1Threshold:           0.95,
+		nd2Threshold:           0.80,
 	}
 }
 
@@ -89,8 +88,6 @@ func (c *Comparator) SetFragmentManager(fm *fragment.Manager) *Comparator {
 	c.fragManager = fm
 	return c
 }
-
-// CRAWLJAX PARITY: Threshold setter methods
 
 // SetND1Threshold sets the ND1 (near-duplicate level 1) threshold.
 // Default is 0.95 (95% similarity).
@@ -216,7 +213,6 @@ func (c *Comparator) compareWithFragments(s1, s2 *State) CompareResult {
 }
 
 // compareWithDistance uses Levenshtein distance comparison.
-// CRAWLJAX PARITY: Uses Java EditDistanceComparator.isClone() formula:
 //
 //	threshold = 2 * max(len1, len2) * (1 - p)
 //	isClone = distance <= threshold
@@ -250,7 +246,6 @@ func (c *Comparator) compareWithDistance(s1, s2 *State) CompareResult {
 		return ResultDuplicate
 	}
 
-	// CRAWLJAX PARITY: Java EditDistanceComparator formula:
 	//   threshold = 2 * max(len1, len2) * (1 - p)
 	//   isClone = distance <= threshold
 	nd1Threshold := 2.0 * float64(maxLen) * (1.0 - c.nd1Threshold)

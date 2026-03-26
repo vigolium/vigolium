@@ -9,7 +9,6 @@ import (
 )
 
 // CrawlSession holds all crawl paths from a crawl session.
-// CRAWLJAX PARITY: Matches Java Crawljax CrawlSession which stores all CrawlPaths.
 type CrawlSession struct {
 	mu sync.RWMutex
 
@@ -21,7 +20,6 @@ type CrawlSession struct {
 	EndTime   time.Time
 	Config    *config.Config
 
-	// CRAWLJAX PARITY: Initial state (index)
 	InitialState *state.State
 
 	// Statistics (computed on demand)
@@ -52,7 +50,6 @@ func NewCrawlSession(cfg *config.Config, initialState *state.State) *CrawlSessio
 }
 
 // AddCrawlPath adds a completed crawl path to the session.
-// CRAWLJAX PARITY: Called by Crawler.reset() before creating new StateMachine.
 func (cs *CrawlSession) AddCrawlPath(path *state.CrawlPath) {
 	if path == nil {
 		return

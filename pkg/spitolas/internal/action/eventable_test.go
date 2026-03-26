@@ -1,5 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file ports EventableTest.java from Crawljax exactly.
 package action
 
 import (
@@ -7,23 +6,17 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: EventableTest.java
 // Test class for the Eventable class.
 // =============================================================================
 
 // TestEventableHashCode tests hash code generation.
-// Crawljax parity: EventableTest.testHashCode()
 func TestEventableHashCode(t *testing.T) {
-	// Java: String xpath = "/body/div[3]";
 	xpath := "/body/div[3]"
 
-	// Java: Identification id = new Identification(Identification.How.xpath, xpath);
 	id := NewIdentification(HowXPath, xpath)
 
-	// Java: Eventable c = new Eventable(id, EventType.click);
 	c := NewEventable(id, EventTypeClick)
 
-	// Java: Eventable temp = new Eventable(id, EventType.click);
 	temp := NewEventable(id, EventTypeClick)
 
 	// assertEquals(temp.hashCode(), c.hashCode());
@@ -50,15 +43,11 @@ func TestEventableHashCode(t *testing.T) {
 }
 
 // TestEventablesWithDifferentStatesAreNotEqual tests that eventables with different target states are not equal.
-// Crawljax parity: EventableTest.EventablesWithDifferentStatesAreNotEqual()
 func TestEventablesWithDifferentStatesAreNotEqual(t *testing.T) {
-	// Java: Identification id = new Identification(Identification.How.xpath, "/DIV");
 	id := NewIdentification(HowXPath, "/DIV")
 
-	// Java: Eventable event1 = new Eventable(id, EventType.click);
 	event1 := NewEventable(id, EventTypeClick)
 
-	// Java: Eventable event2 = new Eventable(id, EventType.click);
 	event2 := NewEventable(id, EventTypeClick)
 
 	// assertThat(event1, is(event2));
@@ -67,9 +56,6 @@ func TestEventablesWithDifferentStatesAreNotEqual(t *testing.T) {
 	}
 
 	// Set source for both
-	// Java: StateVertex source = Mockito.mock(StateVertex.class);
-	// Java: event1.setSource(source);
-	// Java: event2.setSource(source);
 	event1.SetSourceStateID("source")
 	event2.SetSourceStateID("source")
 
@@ -79,10 +65,6 @@ func TestEventablesWithDifferentStatesAreNotEqual(t *testing.T) {
 	}
 
 	// Set different targets
-	// Java: StateVertex target1 = Mockito.mock(StateVertex.class);
-	// Java: StateVertex target2 = Mockito.mock(StateVertex.class);
-	// Java: event1.setTarget(target1);
-	// Java: event2.setTarget(target2);
 	event1.SetTargetStateID("target1")
 	event2.SetTargetStateID("target2")
 
@@ -93,9 +75,7 @@ func TestEventablesWithDifferentStatesAreNotEqual(t *testing.T) {
 }
 
 // TestEventableToString tests that toString returns something.
-// Crawljax parity: EventableTest.testToString()
 func TestEventableToString(t *testing.T) {
-	// Java: Eventable c = new Eventable(new Identification(Identification.How.xpath, "/body/div[3]"), EventType.click);
 	c := NewEventable(NewIdentification(HowXPath, "/body/div[3]"), EventTypeClick)
 
 	// assertNotNull(c.toString());
@@ -105,18 +85,13 @@ func TestEventableToString(t *testing.T) {
 }
 
 // TestEventableEqualsObject tests equals comparison.
-// Crawljax parity: EventableTest.testEqualsObject()
 func TestEventableEqualsObject(t *testing.T) {
-	// Java: Eventable c = new Eventable(new Identification(Identification.How.xpath, "/body/div[3]"), EventType.click);
 	c := NewEventable(NewIdentification(HowXPath, "/body/div[3]"), EventTypeClick)
 
-	// Java: Eventable b = new Eventable(new Identification(Identification.How.xpath, "/body/div[3]"), EventType.click);
 	b := NewEventable(NewIdentification(HowXPath, "/body/div[3]"), EventTypeClick)
 
-	// Java: Eventable d = new Eventable(new Identification(Identification.How.id, "23"), EventType.click);
 	d := NewEventable(NewIdentification(HowID, "23"), EventTypeClick)
 
-	// Java: Eventable e = new Eventable(new Identification(Identification.How.id, "23"), EventType.hover);
 	e := NewEventable(NewIdentification(HowID, "23"), EventTypeHover)
 
 	// assertTrue(c.equals(b));
@@ -136,23 +111,17 @@ func TestEventableEqualsObject(t *testing.T) {
 }
 
 // TestEventableClickableElement tests creating Eventable from a DOM element.
-// Crawljax parity: EventableTest.testClickableElement()
 func TestEventableClickableElement(t *testing.T) {
-	// Java creates a DOM document and gets element by id "firstdiv"
 	// String html = "<body><div id='firstdiv'></div><div><span id='thespan'>" + "<a id='thea'>test</a></span></div></body>";
 	// Document dom = DomUtils.asDocument(html);
 	// Element element = dom.getElementById("firstdiv");
 	// Eventable clickable = new Eventable(element, EventType.click);
 
 	// In Go, we simulate this by creating Eventable directly with expected identification
-	// Java: assertThat(clickable.getIdentification().getHow(), is(xpath));
-	// Java: assertThat(clickable.getIdentification().getValue(), is("/HTML[1]/BODY[1]/DIV[1]"));
-	// Java: assertThat(clickable.getElement().getAttributeOrNull("id"), is("firstdiv"));
 
 	// Create element with id="firstdiv"
 	elem := NewElement("DIV", "", map[string]string{"id": "firstdiv"})
 
-	// Create eventable with xpath identification (matching Java behavior)
 	clickable := NewEventable(NewIdentification(HowXPath, "/HTML[1]/BODY[1]/DIV[1]"), EventTypeClick)
 	clickable.SetElement(elem)
 
@@ -174,18 +143,15 @@ func TestEventableClickableElement(t *testing.T) {
 }
 
 // TestEventableSets tests Eventables in sets (HashSet behavior).
-// Crawljax parity: EventableTest.testSets()
 func TestEventableSets(t *testing.T) {
-	// Java:
 	// Eventable c = new Eventable(new Identification(Identification.How.xpath, "/body/div[3]"), EventType.click);
 	// c.setId(1);
 	c := NewEventable(NewIdentification(HowXPath, "/body/div[3]"), EventTypeClick)
 	c.SetID(1)
 
 	// Eventable b = new Eventable(new Identification(Identification.How.xpath, "/body/div[3]"), EventType.click);
-	// c.setId(2); // Note: Java sets c.setId(2) again, which is a typo in original test
 	b := NewEventable(NewIdentification(HowXPath, "/body/div[3]"), EventTypeClick)
-	c.SetID(2) // Match Java behavior (sets c, not b)
+	c.SetID(2)
 
 	// Eventable d = new Eventable(new Identification(Identification.How.id, "23"), EventType.click);
 	// c.setId(3);
@@ -257,7 +223,6 @@ func TestEventableSets(t *testing.T) {
 // Helper functions for set operations
 
 // addToEventableSet adds an eventable to a set (map by hashCode).
-// Uses hashCode for key to simulate Java HashSet behavior.
 func addToEventableSet(set map[int64]*Eventable, e *Eventable) {
 	key := e.HashCode()
 	// Only add if no equal element exists
@@ -315,11 +280,9 @@ func TestIdentificationEquals(t *testing.T) {
 }
 
 // TestIdentificationString tests Identification string representation.
-// Matches Java toString()
 func TestIdentificationString(t *testing.T) {
 	id := NewIdentification(HowXPath, "/body/div")
 
-	// Java: return this.how + " " + this.value;
 	expected := "xpath /body/div"
 	if id.String() != expected {
 		t.Errorf("Identification.String() = %q, want %q", id.String(), expected)

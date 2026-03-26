@@ -2,7 +2,7 @@
 
 <p>Websites can have widgets that load relatively slow, which can cause flakyness in the crawling
     or while testing. With WaitConditions the user can specify that in wich url (or part of the
-    url) Crawljax should wait for certain elements or widgets to become visible.<p/>
+    url) Spitolas should wait for certain elements or widgets to become visible.<p/>
 
 <h2>Methods in CrawlSpecification</h2>
 <p>
@@ -16,7 +16,7 @@ waitFor(String url, int timeout, ExpectedCondition...expectedConditions)
 <h2>Example</h2>
 <p>Wait for a list to be loaded on the #contact page.</p>
 <pre>
-CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+SpitolasConfigurationBuilder builder = SpitolasConfiguration.builderFor(URL);
 ...
 builder.waitFor("#contact", new ExpectedVisibleCondition(By.id("contactList")));
 </pre>

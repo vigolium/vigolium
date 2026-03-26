@@ -13,15 +13,9 @@ import (
 
 // =============================================================================
 // VIPS Integration Tests with Real HTML
-// Mirrors Crawljax's FragGenTests and TreeDiffParamTest
 //
-// Test values are taken directly from Crawljax Java tests:
-// - TreeDiffParamTest.java: exact tree edit distances
-// - FragGenTests.java: exact candidate counts, state comparisons
 // =============================================================================
 
-// VipsNodeFromHTML represents a node parsed from Crawljax-annotated HTML.
-// Crawljax saves VIPS metadata as HTML attributes (rectangle, doc, isvisualblock, etc.)
 type VipsNodeFromHTML struct {
 	TagName       string
 	XPath         string
@@ -34,7 +28,6 @@ type VipsNodeFromHTML struct {
 	Children      []*VipsNodeFromHTML
 }
 
-// parseVipsHTML parses Crawljax-annotated HTML into VipsNodeFromHTML tree.
 func parseVipsHTML(htmlContent string) (*VipsNodeFromHTML, error) {
 	doc, err := htmlpkg.Parse(strings.NewReader(htmlContent))
 	if err != nil {
@@ -197,7 +190,6 @@ func collectVisualBlocksFromHTML(node *VipsNodeFromHTML) []*VipsNodeFromHTML {
 
 // =============================================================================
 // Visual Block Count Tests with Exact Values
-// Values from Crawljax annotated HTML files (isvisualblock="true" count)
 // =============================================================================
 
 func TestVipsHTMLParsing_State408_ExactCounts(t *testing.T) {
@@ -220,7 +212,6 @@ func TestVipsHTMLParsing_State408_ExactCounts(t *testing.T) {
 		t.Errorf("root.TagName = %q, want \"body\"", root.TagName)
 	}
 
-	// Root rectangle from Crawljax HTML: {"x":0,"y":5,"width":1200,"height":715}
 	if root.Rectangle.Width != 1200 {
 		t.Errorf("root.Rectangle.Width = %f, want 1200", root.Rectangle.Width)
 	}
@@ -340,16 +331,13 @@ func TestVipsHTMLParsing_State297_ExactCounts(t *testing.T) {
 }
 
 // =============================================================================
-// Tree Diff Tests with Exact Values from Crawljax TreeDiffParamTest.java
 //
-// From TreeDiffParamTest.java:
 //   {"frag_state487.html", "frag_state408.html", 5, "#text", null}
 //   {"frag_state487.html", "frag_state503.html", 2, "#text", null}
 //   {"frag_state408.html", "frag_state503.html", 3, null, "input"}
 // =============================================================================
 
 func TestTreeDiff_State487_vs_State408_ExactDistance(t *testing.T) {
-	// From Crawljax TreeDiffParamTest.java: distance = 5
 	html1, err := os.ReadFile("testdata/frag_state487.html")
 	if err != nil {
 		t.Skipf("Test file not found: %v", err)
@@ -369,15 +357,13 @@ func TestTreeDiff_State487_vs_State408_ExactDistance(t *testing.T) {
 	apted := NewAPTED()
 	distance := int(apted.Distance(tree1, tree2))
 
-	// Crawljax TreeDiffParamTest.java: assertEquals(5, distance)
 	expectedDistance := 5
 	if distance != expectedDistance {
-		t.Errorf("distance = %d, want %d (from Crawljax TreeDiffParamTest)", distance, expectedDistance)
+		t.Errorf("distance = %d, want %d", distance, expectedDistance)
 	}
 }
 
 func TestTreeDiff_State487_vs_State503_ExactDistance(t *testing.T) {
-	// From Crawljax TreeDiffParamTest.java: distance = 2
 	html1, err := os.ReadFile("testdata/frag_state487.html")
 	if err != nil {
 		t.Skipf("Test file not found: %v", err)
@@ -397,15 +383,13 @@ func TestTreeDiff_State487_vs_State503_ExactDistance(t *testing.T) {
 	apted := NewAPTED()
 	distance := int(apted.Distance(tree1, tree2))
 
-	// Crawljax TreeDiffParamTest.java: assertEquals(2, distance)
 	expectedDistance := 2
 	if distance != expectedDistance {
-		t.Errorf("distance = %d, want %d (from Crawljax TreeDiffParamTest)", distance, expectedDistance)
+		t.Errorf("distance = %d, want %d", distance, expectedDistance)
 	}
 }
 
 func TestTreeDiff_State408_vs_State503_ExactDistance(t *testing.T) {
-	// From Crawljax TreeDiffParamTest.java: distance = 3
 	html1, err := os.ReadFile("testdata/frag_state408.html")
 	if err != nil {
 		t.Skipf("Test file not found: %v", err)
@@ -425,10 +409,9 @@ func TestTreeDiff_State408_vs_State503_ExactDistance(t *testing.T) {
 	apted := NewAPTED()
 	distance := int(apted.Distance(tree1, tree2))
 
-	// Crawljax TreeDiffParamTest.java: assertEquals(3, distance)
 	expectedDistance := 3
 	if distance != expectedDistance {
-		t.Errorf("distance = %d, want %d (from Crawljax TreeDiffParamTest)", distance, expectedDistance)
+		t.Errorf("distance = %d, want %d", distance, expectedDistance)
 	}
 }
 
@@ -453,7 +436,6 @@ func vipsNodeToAPTED(node *VipsNodeFromHTML) *APTEDNode {
 }
 
 // =============================================================================
-// Simple DOM Tree Diff Test - Exact value from Crawljax FragGenTests.java
 //
 // From FragGenTests.testTreeDiffSimpleDOM():
 //   assertEquals(distance, 1.0, 0.0);
@@ -462,7 +444,6 @@ func vipsNodeToAPTED(node *VipsNodeFromHTML) *APTEDNode {
 // =============================================================================
 
 func TestTreeDiffSimpleDOM_ExactDistance(t *testing.T) {
-	// Exact strings from Crawljax FragGenTests.testTreeDiffSimpleDOM()
 	docString1 := `<HTML><HEAD><META http-equiv="Content-Type" content="text/html; charset=UTF-8"></HEAD><BODY><SPAN id="testdiv"><a></a></SPAN><DIV style="colour:#FF0000"><H>Header</H></DIV></BODY></HTML>`
 	docString2 := `<HTML><HEAD><META http-equiv="Content-Type" content="text/html; charset=UTF-8"></HEAD><BODY><DIV id="testdiv"><a></a></DIV><DIV style="colour:#FF0000"><H>Header</H></DIV></BODY></HTML>`
 
@@ -476,11 +457,10 @@ func TestTreeDiffSimpleDOM_ExactDistance(t *testing.T) {
 	apted := NewAPTED()
 	distance := int(apted.Distance(tree1, tree2))
 
-	// Crawljax FragGenTests.java: assertEquals(distance, 1.0, 0.0)
 	// The change is SPAN -> DIV (rename operation = 1)
 	expectedDistance := 1
 	if distance != expectedDistance {
-		t.Errorf("distance = %d, want %d (from Crawljax FragGenTests.testTreeDiffSimpleDOM)", distance, expectedDistance)
+		t.Errorf("distance = %d, want %d", distance, expectedDistance)
 	}
 }
 
@@ -526,9 +506,7 @@ func parseHTMLToAPTED(htmlStr string) *APTEDNode {
 }
 
 // =============================================================================
-// Near-Duplicate Detection Test - From Crawljax FragGenTests.testFragGenComparisonND2()
 //
-// From FragGenTests.java:
 //   Assert.assertFalse("The two states are near-duplicates, not equal", state1.equals(state2));
 //   Assert.assertEquals("The two states are NEAR_DUPLICATE2", StateComparision.NEARDUPLICATE2, comp);
 // =============================================================================
@@ -587,19 +565,16 @@ func TestNearDuplicateDetection_State296_vs_State297(t *testing.T) {
 	// Compare states
 	similarity := CompareFragments(fragments1, fragments2)
 
-	// From Crawljax: states are NEARDUPLICATE2, meaning high similarity but not equal
-	// NEARDUPLICATE2 threshold in Crawljax is typically > 0.9
 	minSimilarity := 0.9
 	if similarity < minSimilarity {
-		t.Errorf("similarity = %f, want >= %f (NEARDUPLICATE2 from Crawljax)", similarity, minSimilarity)
+		t.Errorf("similarity = %f, want >= %f", similarity, minSimilarity)
 	}
 	if similarity == 1.0 {
-		t.Errorf("similarity = %f, states should NOT be identical (from Crawljax: assertFalse equals)", similarity)
+		t.Errorf("similarity = %f, states should NOT be identical", similarity)
 	}
 }
 
 // =============================================================================
-// DoC Distribution Test - Values from Crawljax annotated HTML
 // =============================================================================
 
 func TestVisualBlockDoC_State408_ExactDistribution(t *testing.T) {
@@ -637,7 +612,6 @@ func TestVisualBlockDoC_State408_ExactDistribution(t *testing.T) {
 }
 
 // =============================================================================
-// Rectangle Validation Tests - Exact values from Crawljax HTML
 // =============================================================================
 
 func TestVisualBlockRectangles_State408_AllValid(t *testing.T) {

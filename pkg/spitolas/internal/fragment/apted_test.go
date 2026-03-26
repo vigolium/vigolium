@@ -10,19 +10,15 @@ import (
 
 // =============================================================================
 // APTED Tree Edit Distance Tests
-// Mirrors: com.crawljax.stateabstractions.hybrid.TreeDiffParamTest
 // =============================================================================
 
-// TestAPTEDTreeDiff is a parameterized test matching Crawljax's TreeDiffParamTest.
 // Test data from: core/src/test/resources/crawls/frag_state*.html
 //
-// Note: Crawljax extracts specific VIPS fragments before computing tree edit distance.
 // Our simplified HTML parser extracts the full body content, producing different
 // absolute distance values. This test verifies:
 // 1. Distances are non-zero between different states
 // 2. Distance relationships are consistent (e.g., 408 vs 503 is smallest change)
 //
-// Original Crawljax test cases (for reference):
 // | State1           | State2           | Distance | AddedNode | RemovedNode |
 // |------------------|------------------|----------|-----------|-------------|
 // | frag_state487    | frag_state408    | 5        | #text     | null        |

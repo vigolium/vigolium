@@ -126,9 +126,9 @@ func TruncateBytes(data []byte, maxBytes int) []byte {
 const (
 	// InitialContentBytes = 1024  // First 1KB for InitialContent
 	// LimitedContentBytes = 10240 // First 10KB for LimitedBodyContent
-	// Ta nên để ngắn thế này để cho trường hợp là ngắn có thể match được. Ta có trường hợp json ngắn chỉ có 2 static attributes là content-type: json và status-code: 200.
-	// Cái này ta đặt thấp thì sẽ thêm được 1 phần thế này: `{"endpoints":{"health":"/health","liveness":"/live","readiness":"/ready"},"message":"Webhook receive`
-	// Default 1024 quá dài
+	// Keep this short so that short responses can still match. For example, a short JSON with only 2 static attributes: content-type: json and status-code: 200.
+	// Setting this low captures a portion like: `{"endpoints":{"health":"/health","liveness":"/live","readiness":"/ready"},"message":"Webhook receive`
+	// Default 1024 is too long
 	InitialContentBytes = 100  // First 100 bytes for InitialContent
 	LimitedContentBytes = 1024 // First 10KB for LimitedBodyContent
 	LastContentBytes    = 100  // Last 100 bytes for LastContent

@@ -6,7 +6,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 )
 
-// standardHtmlTagBlocklist corresponds to private static final List<String> a in d8v.java
 var standardHtmlTagBlocklist = []string{
 	"a", "abbr", "acronym", "address", "applet", "area", "article", "aside", "audio",
 	"b", "base", "basefont", "bdi", "bdo", "bgsound", "big", "blink", "blockquote",
@@ -26,34 +25,25 @@ var standardHtmlTagBlocklist = []string{
 	"tr", "track", "tt", "u", "ul", "var", "video", "wbr", "xml", "xmp",
 }
 
-// RandomHTMLTagGenerator implements the Fen interface.
-// Original Java class: d8v
+// RandomHTMLTagGenerator implements the RandomTextProvider interface.
 type RandomHTMLTagGenerator struct {
-	randomProvider *utils.RandomGenerator // Corresponds to private final ou b;
+	randomProvider *utils.RandomGenerator
 }
 
-// NewRandomHTMLTagGenerator creates a new instance of D8v.
-// Original Java constructor: d8v(ou var1)
+// NewRandomHTMLTagGenerator creates a new RandomHTMLTagGenerator instance.
 func NewRandomHTMLTagGenerator(randomProvider *utils.RandomGenerator) *RandomHTMLTagGenerator {
 	return &RandomHTMLTagGenerator{randomProvider: randomProvider}
 }
 
-// IsRandomTextProvider marker method for Fen interface.
+// IsRandomTextProvider marker method for the RandomTextProvider interface.
 func (d *RandomHTMLTagGenerator) IsRandomTextProvider() {}
 
-// GenerateText is the Go equivalent of public String a(int var1) in d8v.java
 func (d *RandomHTMLTagGenerator) GenerateText(length int) string {
 	var generatedTagName string
 	for {
-		// var2 = this.b.b().c().a(var1);
-		// this.b -> d.valBNetOu
-		// .b() -> B_n7()
-		// .c() -> C_useAlpha()
-		// .a(var1) -> A_build(length)
 		if d.randomProvider == nil || d.randomProvider.GetStringBuilder() == nil ||
 			d.randomProvider.GetStringBuilder().WithAlphaChars() == nil {
 			// Handle nil chain, perhaps return a default or panic based on desired strictness
-			// For now, returning an empty string or a fixed default might be suitable for a stub
 			generatedTagName = "defaulttag" // Fallback if ou chain is broken
 		} else {
 			generatedTagName = d.randomProvider.GetStringBuilder().WithAlphaChars().Build(length)
@@ -66,7 +56,6 @@ func (d *RandomHTMLTagGenerator) GenerateText(length int) string {
 	return generatedTagName
 }
 
-// isStandardTag is the Go equivalent of private boolean a(String var1) in d8v.java
 func (d *RandomHTMLTagGenerator) isStandardTag(tagName string) bool {
 	lowercaseTagName := strings.ToLower(tagName)
 	for _, blockedTag := range standardHtmlTagBlocklist {

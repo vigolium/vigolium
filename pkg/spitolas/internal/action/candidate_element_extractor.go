@@ -1,6 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file implements CandidateElementExtractor matching Java Crawljax's
-// com.crawljax.core.CandidateElementExtractor.
 package action
 
 import (
@@ -20,30 +18,24 @@ import (
 )
 
 // File download patterns - skip these hrefs.
-// Matches Java isFileForDownloading() pattern.
 var fileDownloadPattern = regexp.MustCompile(`(?i)\.(?:pdf|ps|zip|gz|tar|rar|7z|mp3|mp4|avi|mov|wmv|doc|docx|xls|xlsx|ppt|pptx)(?:$|\?|#)`)
 
 // FormHandler interface for form input handling.
-// Matches Java com.crawljax.forms.FormHandler exactly.
 type FormHandler interface {
 	// GetCandidateElementsForInputs generates candidate element variants
 	// with different form input values for the given element and condition.
 	// Returns the original candidate if no combinations are needed.
-	// Matches Java FormHandler.getCandidateElementsForInputs(Element, EventableCondition)
 	GetCandidateElementsForInputs(elementXPath string, baseCandidate *CandidateElement) []*CandidateElement
 
 	// GetFormInputs returns all form inputs from the current page.
-	// Matches Java FormHandler.getFormInputs()
 	GetFormInputs() []*FormInput
 
 	// HandleFormElements fills in form/input elements.
 	// Returns the list of form inputs that were handled.
-	// Matches Java FormHandler.handleFormElements(List<FormInput>)
 	HandleFormElements(formInputs []*FormInput) []*FormInput
 }
 
 // CandidateElementExtractor extracts candidate elements from the DOM tree.
-// Matches Java com.crawljax.core.CandidateElementExtractor exactly.
 type CandidateElementExtractor struct {
 	// Configuration for element extraction
 	clickSelectors      []string
@@ -52,16 +44,12 @@ type CandidateElementExtractor struct {
 	followExternalLinks bool
 	siteHost            string // Host of target site for external link detection
 	crawlConditions     []config.ConditionConfig
-	randomizeElements   bool     // Randomize order of extracted elements (like Java Crawljax)
-	crawlFrames         bool     // Enable recursive frame extraction (like Java Crawljax)
+	randomizeElements   bool     // Randomize order of extracted elements
+	crawlFrames         bool     // Enable recursive frame extraction
 	frameIgnorePatterns []string // Patterns to ignore frames by name/id
 
-	// CRAWLJAX PARITY: Form handler for form-to-element linking
-	// Matches Java FormHandler formHandler
 	formHandler FormHandler
 
-	// CRAWLJAX PARITY: Checked elements manager (like CandidateElementManager)
-	// Matches Java ExtractorManager checkedElements
 	checkedElements ExtractorManager
 
 	// Internal clickOnce tracking (when no ExtractorManager is provided)
@@ -71,17 +59,13 @@ type CandidateElementExtractor struct {
 }
 
 // NewCandidateElementExtractor creates a new CandidateElementExtractor.
-// Matches Java constructor CandidateElementExtractor(ExtractorManager, EmbeddedBrowser, FormHandler, CrawljaxConfiguration)
 func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor {
 	host := ""
 	if cfg.URL != nil {
 		host = strings.ToLower(cfg.URL.Host)
 	}
 
-	// CRAWLJAX PARITY: Merge all exclusion selectors
 	// - ExcludeSelectors: direct CSS selectors to exclude
-	// - DontClickSelectors: Crawljax dontClick() selectors
-	// - DontClickChildrenOfSelectors: Crawljax dontClickChildrenOf() - children of these parents are excluded
 	excludeSelectors := make([]string, 0, len(cfg.ExcludeSelectors)+len(cfg.DontClickSelectors)+len(cfg.DontClickChildrenOfSelectors))
 	excludeSelectors = append(excludeSelectors, cfg.ExcludeSelectors...)
 	excludeSelectors = append(excludeSelectors, cfg.DontClickSelectors...)
@@ -100,8 +84,8 @@ func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor
 		crawlConditions:     cfg.CrawlConditions,
 		randomizeElements:   cfg.RandomizeElements,
 		crawlFrames:         cfg.CrawlFrames,
-		frameIgnorePatterns: cfg.ExcludeFrames, // CRAWLJAX PARITY: Use config frame exclusion patterns
-		clickOnce:           cfg.ClickOnce,     // CRAWLJAX PARITY: Global element deduplication
+		frameIgnorePatterns: cfg.ExcludeFrames,
+		clickOnce:           cfg.ClickOnce,
 		clickOnceSeen:       make(map[string]bool),
 	}
 }
@@ -129,7 +113,6 @@ func (e *CandidateElementExtractor) SetFollowExternalLinks(follow bool) {
 }
 
 // SetClickOnce enables or disables global element deduplication.
-// CRAWLJAX PARITY: When enabled, each unique element is only extracted once
 // across all states during the entire crawl.
 func (e *CandidateElementExtractor) SetClickOnce(enabled bool) {
 	e.clickOnceMutex.Lock()
@@ -138,7 +121,6 @@ func (e *CandidateElementExtractor) SetClickOnce(enabled bool) {
 }
 
 // markChecked checks if an element was already extracted and marks it as checked.
-// CRAWLJAX PARITY: Matches Java Crawljax's CandidateElementManager.markChecked()
 // Returns true if the element is NEW (should be extracted), false if already seen.
 func (e *CandidateElementExtractor) markChecked(candidate *CandidateElement) bool {
 	if !e.clickOnce {
@@ -149,7 +131,6 @@ func (e *CandidateElementExtractor) markChecked(candidate *CandidateElement) boo
 	defer e.clickOnceMutex.Unlock()
 
 	// Use GetUniqueString for state-independent element identification
-	// Matches Java CandidateElementManager.markChecked(CandidateElement)
 	uniqueString := candidate.GetUniqueString()
 	if e.clickOnceSeen[uniqueString] {
 		return false // Already extracted
@@ -164,15 +145,13 @@ func (e *CandidateElementExtractor) SetSiteHost(host string) {
 }
 
 // SetFormHandler sets the form handler for form-to-element linking.
-// Matches Java CandidateElementExtractor's FormHandler dependency.
 func (e *CandidateElementExtractor) SetFormHandler(handler FormHandler) {
 	e.formHandler = handler
 }
 
 // Extract extracts candidate elements from the page.
 // Uses a shared seen map across all extraction methods for proper deduplication.
-// If CrawlFrames is enabled, recursively extracts from iframes (like Java Crawljax).
-// CRAWLJAX PARITY: Returns []*CandidateElement matching Java CandidateElementExtractor.extract()
+// If CrawlFrames is enabled, recursively extracts from iframes.
 func (e *CandidateElementExtractor) Extract(ctx context.Context, page *browser.Page) ([]*CandidateElement, error) {
 	zap.L().Debug("Starting candidate element extraction",
 		zap.Bool("crawl_frames", e.crawlFrames),
@@ -180,8 +159,6 @@ func (e *CandidateElementExtractor) Extract(ctx context.Context, page *browser.P
 		zap.Bool("randomize", e.randomizeElements),
 		zap.Bool("click_once", e.clickOnce))
 
-	// CRAWLJAX PARITY: Check crawl condition before extraction.
-	// Java: if (!checkedElements.checkCrawlCondition(browser)) return empty
 	if e.checkedElements != nil && !e.checkedElements.CheckCrawlCondition(page) {
 		zap.L().Debug("Crawl condition not met, skipping extraction")
 		return nil, nil
@@ -196,7 +173,7 @@ func (e *CandidateElementExtractor) Extract(ctx context.Context, page *browser.P
 	zap.L().Debug("Candidate element extraction completed",
 		zap.Int("selectors_count", len(e.clickSelectors)))
 
-	// Randomize element order if enabled (like Java Crawljax Collections.shuffle())
+	// Randomize element order if enabled)
 	if e.randomizeElements && len(candidates) > 1 {
 		shuffleCandidates(candidates)
 		zap.L().Debug("Candidates randomized")
@@ -236,7 +213,6 @@ func (e *CandidateElementExtractor) extractFromPage(page *browser.Page, seen map
 	}
 
 	// Method 2: CDP Event Listener Detection
-	// CRAWLJAX PARITY: Only runs when clickElementsWithClickEventHandler() is enabled
 	if e.useCDP {
 		cdpCandidates, err := e.extractByCDP(page, seen, framePath)
 		if err == nil {
@@ -244,26 +220,22 @@ func (e *CandidateElementExtractor) extractFromPage(page *browser.Page, seen map
 		}
 	}
 
-	// NOTE: No "Method 3: Simple JavaScript detection" - this was NOT in Crawljax
 	// and caused duplicate elements with different CSS selectors.
-	// Crawljax only uses CSS selectors + CDP detection.
 
 	return candidates
 }
 
 // extractFromFrames extracts candidate elements from all iframes in the page.
-// CRAWLJAX PARITY: Uses FramesWithInfo for proper frame identification (id before name).
 func (e *CandidateElementExtractor) extractFromFrames(ctx context.Context, page *browser.Page, seen map[string]bool, parentFramePath string) []*CandidateElement {
 	candidates := make([]*CandidateElement, 0)
 
-	// CRAWLJAX PARITY: Use FramesWithInfo to get proper frame identification
 	frameInfos, err := page.FramesWithInfo()
 	if err != nil {
 		return candidates
 	}
 
 	for _, fi := range frameInfos {
-		// Generate frame identifier (like Java Crawljax DomUtils.getFrameIdentification())
+		// Generate frame identifier)
 		// FramesWithInfo already uses id before name order
 		frameID := fi.ID
 		if frameID == "" {
@@ -276,8 +248,6 @@ func (e *CandidateElementExtractor) extractFromFrames(ctx context.Context, page 
 			framePath = parentFramePath + "." + frameID
 		}
 
-		// CRAWLJAX PARITY: Check if frame should be ignored using FULL frame path
-		// This matches Java Crawljax which checks the complete frame identification string
 		if e.shouldIgnoreFrame(framePath) {
 			continue
 		}
@@ -291,7 +261,6 @@ func (e *CandidateElementExtractor) extractFromFrames(ctx context.Context, page 
 }
 
 // shouldIgnoreFrame checks if a frame should be ignored based on patterns.
-// CRAWLJAX PARITY: Matches Java Crawljax CandidateElementExtractor.isFrameIgnored()
 // Checks both exact match and wildcard patterns.
 func (e *CandidateElementExtractor) shouldIgnoreFrame(frameIdentification string) bool {
 	for _, pattern := range e.frameIgnorePatterns {
@@ -303,9 +272,8 @@ func (e *CandidateElementExtractor) shouldIgnoreFrame(frameIdentification string
 }
 
 // matchesFrameIgnorePattern checks if frameIdentification matches the ignore pattern.
-// CRAWLJAX PARITY: Supports "%" (Crawljax style) and "*" (Go style) wildcards.
 func matchesFrameIgnorePattern(pattern, frameIdentification string) bool {
-	// Handle both "%" (Crawljax style) and "*" (Go style) wildcards
+	// Handle both "%" and "*" (Go style) wildcards
 	if strings.Contains(pattern, "%") || strings.Contains(pattern, "*") {
 		// Convert to regex pattern
 		regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
@@ -320,7 +288,6 @@ func matchesFrameIgnorePattern(pattern, frameIdentification string) bool {
 
 // shuffleCandidates randomly shuffles the candidate elements slice using crypto/rand.
 // Uses Fisher-Yates shuffle algorithm for unbiased randomization.
-// CRAWLJAX PARITY: Matches Java Collections.shuffle() call in CandidateElementExtractor.
 func shuffleCandidates(candidates []*CandidateElement) {
 	n := len(candidates)
 	for i := n - 1; i > 0; i-- {
@@ -336,7 +303,6 @@ func shuffleCandidates(candidates []*CandidateElement) {
 }
 
 // extractBySelectors extracts candidate elements using CSS selectors.
-// CRAWLJAX PARITY: Matches Java CandidateElementExtractor.evaluateElements()
 func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen map[string]bool, framePath string) ([]*CandidateElement, error) {
 	candidates := make([]*CandidateElement, 0)
 
@@ -352,8 +318,7 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 				continue
 			}
 
-			// CRAWLJAX PARITY: Do NOT check IsInteractable for CSS selector extraction!
-			// Crawljax's CandidateElementExtractor.evaluateElements() does NOT check visibility/interactability.
+			// evaluateElements() does NOT check visibility/interactability.
 			// It extracts ALL elements matching the tag, letting the Crawler handle click failures later.
 
 			// Get XPath for identification (primary key)
@@ -379,13 +344,10 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 				href = h
 			}
 
-			// Create CandidateElement (matches Java CandidateElement constructor)
 			candidate := e.createCandidateElement(elem, xpath, framePath, href)
 
-			// CRAWLJAX PARITY: Apply global ClickOnce filtering
 			if e.markChecked(candidate) {
 				candidates = append(candidates, candidate)
-				// CRAWLJAX PARITY: Java calls checkedElements.increaseElementsCounter()
 				// for each candidate added during extraction.
 				if e.checkedElements != nil {
 					e.checkedElements.IncreaseElementsCounter()
@@ -398,7 +360,6 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 }
 
 // extractByCDP extracts candidate elements using Chrome DevTools Protocol.
-// CRAWLJAX PARITY: Matches Java clickElementsWithClickEventHandler() behavior.
 func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[string]bool, framePath string) ([]*CandidateElement, error) {
 	results, err := DetectClickablesCDP(page)
 	if err != nil {
@@ -460,10 +421,8 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 		// Create CandidateElement
 		candidate := e.createCandidateElement(elem, xpath, framePath, href)
 
-		// CRAWLJAX PARITY: Apply global ClickOnce filtering
 		if e.markChecked(candidate) {
 			candidates = append(candidates, candidate)
-			// CRAWLJAX PARITY: Java calls checkedElements.increaseElementsCounter()
 			if e.checkedElements != nil {
 				e.checkedElements.IncreaseElementsCounter()
 			}
@@ -474,7 +433,6 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 }
 
 // createCandidateElement creates a CandidateElement from a browser element.
-// CRAWLJAX PARITY: Matches Java CandidateElement constructor with element info extraction.
 func (e *CandidateElementExtractor) createCandidateElement(elem *browser.Element, xpath string, framePath string, href string) *CandidateElement {
 	candidate := &CandidateElement{
 		Identification: NewIdentification(HowXPath, xpath),
@@ -500,8 +458,6 @@ func (e *CandidateElementExtractor) createCandidateElement(elem *browser.Element
 	// Set href
 	candidate.Href = href
 
-	// CRAWLJAX PARITY: Get all attributes for uniqueness detection
-	// Matches Java DomUtils.getAllElementAttributes()
 	candidate.Attributes = elem.GetAllAttributes()
 
 	return candidate
@@ -533,10 +489,9 @@ func (e *CandidateElementExtractor) isExcluded(elem *browser.Element) bool {
 }
 
 // shouldSkipHref checks if an href should be skipped based on filtering rules.
-// CRAWLJAX PARITY: Only skip downloads, mailto, and external links (if disabled).
 // Do NOT skip javascript: or # links - they may have onclick handlers!
 func (e *CandidateElementExtractor) shouldSkipHref(href string) bool {
-	// Skip mailto: links (Crawljax: hrefShouldBeIgnored)
+	// Skip mailto: links
 	if strings.HasPrefix(href, "mailto:") {
 		return true
 	}
@@ -546,19 +501,18 @@ func (e *CandidateElementExtractor) shouldSkipHref(href string) bool {
 		return true
 	}
 
-	// Skip file downloads (Crawljax: isFileForDownloading)
+	// Skip file downloads
 	if fileDownloadPattern.MatchString(href) {
 		return true
 	}
 
-	// Skip external links if not allowed (Crawljax: isExternal when !followExternalLinks)
+	// Skip external links if not allowed
 	if !e.followExternalLinks && e.siteHost != "" {
 		if e.isExternalLink(href) {
 			return true
 		}
 	}
 
-	// CRAWLJAX PARITY: Do NOT skip javascript:, #, or empty hrefs
 	// Elements with these hrefs often have onclick handlers that cause state changes
 	return false
 }
@@ -618,7 +572,6 @@ func (e *CandidateElementExtractor) EnableCDP(enabled bool) {
 }
 
 // SetCheckedElements sets the ExtractorManager for global element deduplication.
-// Matches Java CandidateElementExtractor's checkedElements field.
 func (e *CandidateElementExtractor) SetCheckedElements(manager ExtractorManager) {
 	e.checkedElements = manager
 }

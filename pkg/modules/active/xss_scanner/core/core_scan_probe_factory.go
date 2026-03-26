@@ -11,26 +11,24 @@ import (
 
 // --- HgmImpl struct and Interface Implementation ---
 
-// ScanProbeBuilder is the Go equivalent of the Java class hgm.
 // It implements the ScanProbeBuilder interface.
 type ScanProbeBuilder struct {
-	scanFlags                   int                       // Corresponds to 'private final int c;'
-	attackStepRunner            AttackStepRunner          // Corresponds to 'private final i2j e;'
-	randomProvider              *utils.RandomGenerator    // Corresponds to 'private final ou a;'
-	randomStringGenerator       RandomTextProvider        // Corresponds to 'private final fen f;'
-	injectionPoint              httpmsg.InsertionPoint     // Corresponds to 'private final bno d;'
-	tacticType                  ReflectionTacticType      // Corresponds to 'private final ll i;' (enum type)
-	techniqueClassifier         AttackTechniqueClassifier // Corresponds to 'private final cgv g;'
-	useSecondaryCanaryComponent bool                      // Corresponds to 'private final boolean h;'
+	scanFlags                   int
+	attackStepRunner            AttackStepRunner
+	randomProvider              *utils.RandomGenerator
+	randomStringGenerator       RandomTextProvider
+	injectionPoint              httpmsg.InsertionPoint
+	tacticType                  ReflectionTacticType
+	techniqueClassifier         AttackTechniqueClassifier
+	useSecondaryCanaryComponent bool
 }
 
-// IsScanProbeBuilder marker method for Hgm interface.
+// IsScanProbeBuilder marker method for the ScanProbeBuilder interface.
 func (h *ScanProbeBuilder) IsScanProbeBuilder() {}
 
 // --- Constructors ---
 
 // NewScanProbeBuilder is the primary public constructor.
-// Corresponds to 'public hgm(ou var1, fen var2, i2j var3, bno var4, cgv var5, ll var6, boolean var7)'
 func NewScanProbeBuilder(
 	randomProvider *utils.RandomGenerator,
 	randomStringGenerator RandomTextProvider,
@@ -40,7 +38,6 @@ func NewScanProbeBuilder(
 	tactic ReflectionTacticType,
 	useSecondaryCanary bool,
 ) *ScanProbeBuilder {
-	// this(var1, var2, var3, var4, var5, 0, var6, var7);
 	return newScanProbeBuilderInternal(
 		randomProvider,
 		randomStringGenerator,
@@ -54,7 +51,6 @@ func NewScanProbeBuilder(
 }
 
 // newScanProbeBuilderInternal is the private constructor equivalent.
-// Corresponds to 'private hgm(ou var1, fen var2, i2j var3, bno var4, cgv var5, int var6, ll var7, boolean var8)'
 func newScanProbeBuilderInternal(
 	randomProvider *utils.RandomGenerator,
 	randomStringGenerator RandomTextProvider,
@@ -77,18 +73,15 @@ func newScanProbeBuilderInternal(
 	}
 }
 
-// --- Hgm Interface Methods ---
+// --- ScanProbeBuilder Interface Methods ---
 
-// BuildFinding corresponds to 'public bgf a(byte var1, String var2, hnx var3)'
 func (builder *ScanProbeBuilder) BuildFinding(
 	contextCode byte,
 	payloadTemplate string,
 	profile *ScanExecutionProfile,
 ) PotentialXSSFinding {
-	// glw var4 = this.a(var2); // Calls private instance method aInternalGlw
 	templateData := builder.preparePayloadTemplateData(payloadTemplate)
 
-	// String var5 = a(var2, var4); // Calls static method HgmStaticAFormat
 	finalPayload := FormatPayloadFromTemplate(payloadTemplate, templateData)
 	zap.L().Debug("BuildFinding.finalPayload", zap.String("payload", finalPayload))
 
@@ -107,9 +100,7 @@ func (builder *ScanProbeBuilder) BuildFinding(
 	)
 }
 
-// WithAdditionalScanFlags corresponds to 'public hgm a(int var1)'
 func (builder *ScanProbeBuilder) WithAdditionalScanFlags(flags int) *ScanProbeBuilder {
-	// return new hgm(this.a, this.f, this.e, this.d, this.g, this.c | var1, this.i, this.h);
 	return newScanProbeBuilderInternal(
 		builder.randomProvider,
 		builder.randomStringGenerator,
@@ -122,9 +113,7 @@ func (builder *ScanProbeBuilder) WithAdditionalScanFlags(flags int) *ScanProbeBu
 	)
 }
 
-// WithoutSecondaryCanary corresponds to 'public hgm c()'
 func (builder *ScanProbeBuilder) WithoutSecondaryCanary() *ScanProbeBuilder {
-	// return new hgm(this.a, this.f, this.e, this.d, this.g, this.c, this.i, false);
 	return newScanProbeBuilderInternal(
 		builder.randomProvider,
 		builder.randomStringGenerator,
@@ -139,7 +128,6 @@ func (builder *ScanProbeBuilder) WithoutSecondaryCanary() *ScanProbeBuilder {
 
 // --- Private Instance Methods ---
 
-// preparePayloadTemplateData corresponds to 'private glw a(String var1)'
 func (builder *ScanProbeBuilder) preparePayloadTemplateData(
 	baseFormatString string,
 ) *PayloadGenerationTemplate {
@@ -154,8 +142,8 @@ func (builder *ScanProbeBuilder) preparePayloadTemplateData(
 	}
 
 	return NewPayloadGenerationTemplate(
-		builder,                     // this
-		builder.techniqueClassifier, // this.g
+		builder,
+		builder.techniqueClassifier,
 		builder.randomProvider.GeneratePrefixedAlphanumeric(5),
 		builder.randomProvider.GeneratePrefixedAlphanumeric(5),
 		builder.randomProvider.GeneratePrefixedAlphanumeric(8),
@@ -168,26 +156,17 @@ func (builder *ScanProbeBuilder) preparePayloadTemplateData(
 	)
 }
 
-// --- Static Helper Methods (exported for use by other packages like glw.go) ---
+// --- Static Helper Methods for building scan probes ---
 
-// FormatPayloadFromTemplate corresponds to 'static String a(String var0, glw var1)'
 func FormatPayloadFromTemplate(template string, templateData *PayloadGenerationTemplate) string {
-	// Nếu bạn dùng package log chuẩn, hãy dùng Printf.
-	// Nếu dùng thư viện như logrus, Infof là đúng.
-	// Ví dụ với package log chuẩn:
-	// log.Printf("formatStr: %s", formatStr)
-
 	if templateData == nil {
 		return template
 	}
-	// log.Printf("glwVal: %+v", glwVal)
 
-	// 1. Escape tất cả các ký tự '%' trong chuỗi format gốc để fmt.Sprintf không hiểu nhầm.
-	// Ví dụ: "Rate: 100%" sẽ trở thành "Rate: 100%%"
+	// 1. Escape all '%' characters in the original format string to prevent fmt.Sprintf misinterpretation.
 	tempFormatStr := strings.ReplaceAll(template, "%", "%%")
 
-	// 2. Định nghĩa các placeholder và định dạng fmt tương ứng của chúng.
-	// Sử dụng cú pháp %[index]verb cho Go, ví dụ: %[1]s, %[2]s.
+	// 2. Define placeholders and their corresponding fmt format verbs using indexed syntax.
 	replacements := map[string]string{
 		"#{poc}":                       "%[1]s",
 		"#{random_string_5}":           "%[2]s",
@@ -200,35 +179,33 @@ func FormatPayloadFromTemplate(template string, templateData *PayloadGenerationT
 		"#{random_invalid_tag_name_5}": "%[9]s",
 	}
 
-	// 3. Thực hiện thay thế các placeholder bằng các định dạng fmt.
+	// 3. Replace placeholders with fmt format verbs.
 	for placeholder, fmtVerb := range replacements {
 		tempFormatStr = strings.ReplaceAll(tempFormatStr, placeholder, fmtVerb)
 	}
 
-	// 4. Chuẩn bị các giá trị cho việc định dạng.
+	// 4. Prepare the values for formatting.
 	var techniqueClassifier string
 	if templateData.techniqueClassifier != nil {
-		techniqueClassifier = templateData.techniqueClassifier.String() // Giả sử glwVal.J có phương thức ToString()
+		techniqueClassifier = templateData.techniqueClassifier.String()
 	}
 
-	// 5. Gọi fmt.Sprintf với chuỗi định dạng đã được xử lý và các đối số.
-	// Thứ tự các đối số ở đây phải khớp với chỉ mục trong %[index]s.
+	// 5. Call fmt.Sprintf with the processed format string and arguments (order must match indexed verbs).
 	formatted := fmt.Sprintf(tempFormatStr,
-		techniqueClassifier,                // Đối số 1 cho %[1]s
-		templateData.randomString5a,        // Đối số 2 cho %[2]s
-		templateData.randomString5b,        // Đối số 3 cho %[3]s
-		templateData.randomString8,         // Đối số 4 cho %[4]s
-		templateData.randomString10,        // Đối số 5 cho %[5]s
-		templateData.randomNumericSuffix1,  // Đối số 6 cho %[6]s
-		templateData.randomNumericSuffix2,  // Đối số 7 cho %[7]s
-		templateData.randomNumericSuffix3,  // Đối số 8 cho %[8]s
-		templateData.randomInvalidTagName5, // Đối số 9 cho %[9]s
+		techniqueClassifier,                // arg 1 -> %[1]s
+		templateData.randomString5a,        // arg 2 -> %[2]s
+		templateData.randomString5b,        // arg 3 -> %[3]s
+		templateData.randomString8,         // arg 4 -> %[4]s
+		templateData.randomString10,        // arg 5 -> %[5]s
+		templateData.randomNumericSuffix1,  // arg 6 -> %[6]s
+		templateData.randomNumericSuffix2,  // arg 7 -> %[7]s
+		templateData.randomNumericSuffix3,  // arg 8 -> %[8]s
+		templateData.randomInvalidTagName5, // arg 9 -> %[9]s
 	)
 
 	return formatted
 }
 
-// PreparePayloadTemplateDataForBuilder corresponds to 'static glw a(hgm var0, String var1)'
 func PreparePayloadTemplateDataForBuilder(
 	builder *ScanProbeBuilder,
 	baseFormatString string,

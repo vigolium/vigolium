@@ -66,7 +66,7 @@ func SendAndReceive(
 	return NewHTTPTransaction(stdRequest, resp), nil
 }
 
-// HTTPTransaction gói gọn Request, Response và Response Body
+// HTTPTransaction wraps a Request, Response, and Response Body.
 type HTTPTransaction struct {
 	request  *http.Request
 	response *pdHttpUtils.ResponseChain

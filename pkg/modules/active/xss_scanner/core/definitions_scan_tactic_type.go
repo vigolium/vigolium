@@ -4,56 +4,42 @@ import (
 	"fmt"
 )
 
-// Enum constants for Ll, mirroring ll.java
 const (
-	LlReplace ReflectionTacticType = 0
-	LlAppend  ReflectionTacticType = 1
+	TacticReplace ReflectionTacticType = 0
+	TacticAppend  ReflectionTacticType = 1
 )
 
-// ReflectionTacticType is the Go equivalent of the Java enum burp.ll
-type ReflectionTacticType byte // Changed from int to byte
+type ReflectionTacticType byte
 
-// ByteValue returns the byte value of the Ll enum, mirroring ll.a() in Java.
 func (l ReflectionTacticType) ByteValue() byte {
-	return byte(l) // Explicit cast back to byte
+	return byte(l)
 }
 
-// String returns a string representation of the Ll value.
+// String returns a string representation of the ReflectionTacticType.
 func (l ReflectionTacticType) String() string {
 	switch l {
-
-	case LlReplace: // Covers all Ll*Replace types that are 0
-		return "Replace (or equivalent type with value 0)"
-
-	case LlAppend: // Covers all Ll*Append types that are 1
-		return "Append (or equivalent type with value 1)"
-
+	case TacticReplace:
+		return "Replace"
+	case TacticAppend:
+		return "Append"
 	default:
-		return "UnknownLlValue_" + fmt.Sprintf("%d", byte(l))
+		return "UnknownTacticValue_" + fmt.Sprintf("%d", byte(l))
 	}
 }
 
-// Static lists from ll.java
 var (
-	LlPlainReflectionTypes = []ReflectionTacticType{LlAppend, LlReplace}
+	PlainReflectionTactics = []ReflectionTacticType{TacticAppend, TacticReplace}
 )
 
-// GetReflectionTacticFromCollection corresponds to public static ll a(Collection<ll> var0, byte var1)
-// Returns the Ll value and a boolean indicating if it was found.
+// GetReflectionTacticFromCollection returns the matching tactic and true if found.
 func GetReflectionTacticFromCollection(
 	collection []ReflectionTacticType,
 	value byte,
 ) (ReflectionTacticType, bool) {
-	// boolean var2 = gji.b(); // In stubs.go, GjiB() is a placeholder, assuming it returns true for now to mimic potential early break.
-	// However, if gji.b() always returns false (as per current stub), this loop always iterates fully.
-	// Let's assume standard iteration for Go unless gji.b() true logic is critical and defined.
-	// Java: static { b(false); } for gji.b, public static boolean b() { return b; }, so gji.b() is false.
-	// Thus, the loop in Java iterates through all elements unless a match is found.
-
-	for _, llInstance := range collection {
-		if llInstance.ByteValue() == value { // Ll.A() returns the byte value
-			return llInstance, true
+	for _, tactic := range collection {
+		if tactic.ByteValue() == value {
+			return tactic, true
 		}
 	}
-	return ReflectionTacticType(0), false // Return a default Ll (like LlReplace) and false
+	return ReflectionTacticType(0), false
 }

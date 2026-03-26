@@ -7,15 +7,12 @@ import (
 )
 
 // Manager tracks fragments across states and manages their lifecycle.
-// CRAWLJAX PARITY: Matches Java FragmentManager structure.
 type Manager struct {
 	mu sync.RWMutex
 
 	// All known fragments by their DOM hash
 	fragments map[string]*Fragment
 
-	// CRAWLJAX PARITY: Global list of unique fragments (ordered)
-	// In Java: ArrayList<Fragment> fragments
 	// Only contains global (unique) fragments, not duplicates
 	globalFragments []*Fragment
 
@@ -33,23 +30,18 @@ type Manager struct {
 	// it's marked as dynamic
 	dynamicThreshold int
 
-	// CRAWLJAX PARITY: State comparison cache
 	// Maps "stateID1|stateID2" -> StatePairResult
 	stateComparisonCache map[string]*StatePairResult
 
-	// CRAWLJAX PARITY: Near-duplicate clusters
 	// Each entry is a set of state IDs that are near-duplicates of each other
 	nearDuplicates []map[string]bool
 
-	// CRAWLJAX PARITY: Hop distance cache for influence calculation
 	hops map[int]float64
 
-	// CRAWLJAX PARITY: Non-selection counter for state selection
 	numNonSelections map[int]float64
 }
 
 // StatePairResult holds the result of comparing two states.
-// CRAWLJAX PARITY: Matches Java StatePair.
 type StatePairResult struct {
 	State1ID   string
 	State2ID   string
@@ -57,7 +49,6 @@ type StatePairResult struct {
 }
 
 // StateComparison defines the result of comparing two states.
-// CRAWLJAX PARITY: Matches Java StatePair.StateComparision enum.
 type StateComparison int
 
 const (
@@ -113,7 +104,6 @@ func (m *Manager) SetDynamicThreshold(threshold int) {
 }
 
 // AddFragment adds a fragment to the global fragment list.
-// CRAWLJAX PARITY: Matches Java FragmentManager.addFragment() exactly.
 // This method compares the new fragment with all existing fragments
 // and classifies it as EQUAL (duplicate), EQUIVALENT, ND2, or DIFFERENT (global).
 func (m *Manager) AddFragment(fragment *Fragment, fast bool) {
@@ -134,7 +124,6 @@ func (m *Manager) AddFragment(fragment *Fragment, fast bool) {
 
 		switch comp {
 		case FragmentEqual:
-			// CRAWLJAX PARITY: Fragment is a duplicate of existing global fragment
 			// Add bidirectional duplicate links
 			existing.AddDuplicateFragment(fragment)
 			fragment.AddDuplicateFragment(existing)
@@ -167,7 +156,6 @@ func (m *Manager) AddFragment(fragment *Fragment, fast bool) {
 		}
 	}
 
-	// CRAWLJAX PARITY: Fragment is unique - add to global list
 	fragment.SetIsGlobal(true)
 	m.globalFragments = append(m.globalFragments, fragment)
 
@@ -177,20 +165,16 @@ func (m *Manager) AddFragment(fragment *Fragment, fast bool) {
 		m.fragmentIDToHash[fragment.ID] = fragment.DOMHash
 	}
 
-	// CRAWLJAX PARITY: Link equivalent fragments (bidirectional)
 	for _, existing := range equivalentFragments {
 		existing.AddEquivalentFragment(fragment)
 		fragment.AddEquivalentFragment(existing)
 	}
 
-	// CRAWLJAX PARITY: Link ND2 fragments (bidirectional)
 	for _, existing := range nd2Fragments {
 		existing.AddND2FragmentRef(fragment)
 		fragment.AddND2FragmentRef(existing)
 	}
 
-	// CRAWLJAX PARITY: If fragment is useful AND candidate elements exist, transfer access info.
-	// Java: if (usefulFragment(fragment) && fragment.getReferenceState().getCandidateElements() != null)
 	if fragment.IsUseful() && len(fragment.CandidateElements) > 0 {
 		m.setAccessLocked(fragment)
 		m.setCoverageLocked(fragment)
@@ -199,7 +183,6 @@ func (m *Manager) AddFragment(fragment *Fragment, fast bool) {
 }
 
 // setAccessLocked transfers access info from related fragments.
-// CRAWLJAX PARITY: Matches Java FragmentManager.setAccess().
 // Must be called with lock held.
 func (m *Manager) setAccessLocked(fragment *Fragment) {
 	if fragment.IsGlobal {
@@ -233,7 +216,6 @@ func (m *Manager) setAccessLocked(fragment *Fragment) {
 }
 
 // setCoverageLocked transfers coverage info from related fragments.
-// CRAWLJAX PARITY: Matches Java FragmentManager.setCoverage().
 // Must be called with lock held.
 func (m *Manager) setCoverageLocked(fragment *Fragment) {
 	if fragment.AccessTransferred {
@@ -280,7 +262,6 @@ func (f *Fragment) transferCoverage(other *Fragment) {
 }
 
 // getDuplicateFragmentsLocked returns all duplicate fragments for the given fragment.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getDuplicateFragments().
 // Must be called with lock held.
 func (m *Manager) getDuplicateFragmentsLocked(fragment *Fragment) []*Fragment {
 	if fragment == nil {
@@ -308,7 +289,6 @@ func (m *Manager) getDuplicateFragmentsLocked(fragment *Fragment) []*Fragment {
 }
 
 // getEquivalentFragmentsLocked returns all equivalent fragments for the given fragment.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getEquivalentFragments().
 // Must be called with lock held.
 func (m *Manager) getEquivalentFragmentsLocked(fragment *Fragment) []*Fragment {
 	if fragment == nil {
@@ -361,7 +341,6 @@ func (m *Manager) GetEquivalentFragments(fragment *Fragment) []*Fragment {
 }
 
 // GetRelatedFragmentsForFragment returns all related fragments (duplicates + equivalents).
-// CRAWLJAX PARITY: Matches Java FragmentManager.getRelatedFragments().
 func (m *Manager) GetRelatedFragmentsForFragment(fragment *Fragment) []*Fragment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -504,8 +483,6 @@ func (m *Manager) MarkDynamic(domHash string) {
 }
 
 // setDynamicLocked marks a fragment and all its related fragments as dynamic.
-// CRAWLJAX PARITY: Matches Java FragmentManager.setDynamic() exactly.
-// Java: List<Fragment> related = getRelatedFragments(dyn); for (Fragment rel : related) { rel.setDynamic(true); }
 // Must be called with lock held.
 func (m *Manager) setDynamicLocked(fragment *Fragment) {
 	related := m.getRelatedFragmentsForFragmentLocked(fragment)
@@ -590,7 +567,6 @@ func (m *Manager) GetStateCount() int {
 }
 
 // ========================================================================
-// CRAWLJAX PARITY: State comparison cache and near-duplicate tracking
 // ========================================================================
 
 // statePairKey generates a canonical key for two state IDs.
@@ -602,7 +578,6 @@ func statePairKey(stateID1, stateID2 string) string {
 }
 
 // GetCachedComparison returns a cached comparison result, or nil if not cached.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getCachedComparision().
 func (m *Manager) GetCachedComparison(stateID1, stateID2 string) *StatePairResult {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -610,7 +585,6 @@ func (m *Manager) GetCachedComparison(stateID1, stateID2 string) *StatePairResul
 }
 
 // CacheStateComparison caches a state comparison result and handles dynamic fragment assignment.
-// CRAWLJAX PARITY: Matches Java FragmentManager.cacheStateComparision(StatePair, boolean).
 // When assignDynamic=true and ND detected, marks changed fragments as dynamic using
 // the fragments from state1 that differ from state2.
 func (m *Manager) CacheStateComparison(result *StatePairResult, assignDynamic bool, dynamicFragments ...*Fragment) {
@@ -624,9 +598,7 @@ func (m *Manager) CacheStateComparison(result *StatePairResult, assignDynamic bo
 
 	m.stateComparisonCache[key] = result
 
-	// CRAWLJAX PARITY: When near-duplicate detected and assignDynamic=true,
 	// mark changed fragments as dynamic.
-	// Java: if (assignDynamic && (comp == ND1 || comp == ND2)) { setDynamic(each) }
 	if assignDynamic &&
 		(result.Comparison == StateComparisonNearDuplicate1 || result.Comparison == StateComparisonNearDuplicate2) {
 		for _, dyn := range dynamicFragments {
@@ -636,7 +608,6 @@ func (m *Manager) CacheStateComparison(result *StatePairResult, assignDynamic bo
 }
 
 // AddToNearDuplicates adds states to near-duplicate tracking.
-// CRAWLJAX PARITY: Matches Java FragmentManager.addToNearDuplicates(StateVertex, StateVertex).
 // Also links ND2 fragments between root fragments when applicable.
 // The caller is responsible for calling state.SetHasNearDuplicate(true) and
 // merging cluster IDs on both states (lowest cluster wins).
@@ -662,7 +633,6 @@ func (m *Manager) AddToNearDuplicates(stateID1, stateID2 string) {
 }
 
 // linkND2RootFragmentsLocked links root fragments of two ND states as ND2.
-// CRAWLJAX PARITY: Java addToNearDuplicates lines 1238-1243:
 // if both states have root fragments and newState's root is not accessTransferred,
 // add ND2 link between root fragments.
 func (m *Manager) linkND2RootFragmentsLocked(stateID1, stateID2 string) {
@@ -692,7 +662,6 @@ func (m *Manager) getRootFragmentForStateLocked(stateID string) *Fragment {
 }
 
 // AddToNearDuplicatesSingle adds a state to near-duplicate tracking (solo).
-// CRAWLJAX PARITY: Matches Java FragmentManager.addToNearDuplicates(StateVertex).
 func (m *Manager) AddToNearDuplicatesSingle(stateID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -708,7 +677,6 @@ func (m *Manager) AddToNearDuplicatesSingle(stateID string) {
 }
 
 // GetNearDuplicateStates returns all states that are near-duplicates of the given state.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getNearDuplicates(StateVertex).
 func (m *Manager) GetNearDuplicateStates(stateID string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -725,7 +693,6 @@ func (m *Manager) GetNearDuplicateStates(stateID string) []string {
 }
 
 // HasExploredNearDuplicate checks if a state has a near-duplicate that has been fully explored.
-// CRAWLJAX PARITY: Matches Java FragmentManager.hasExploredNearDuplicate().
 // hasUnexploredFunc: returns true if the state still has unexplored actions.
 func (m *Manager) HasExploredNearDuplicate(stateID string, hasUnexploredFunc func(string) bool) bool {
 	m.mu.RLock()
@@ -754,7 +721,6 @@ func (m *Manager) HasExploredNearDuplicate(stateID string, hasUnexploredFunc fun
 }
 
 // SeenState updates non-selection counters for state selection.
-// CRAWLJAX PARITY: Matches Java FragmentManager.seenState().
 func (m *Manager) SeenState(stateID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -775,7 +741,6 @@ func (m *Manager) SeenState(stateID string) {
 }
 
 // StopCrawling clears all manager state to free memory.
-// CRAWLJAX PARITY: Matches Java FragmentManager.stopCrawling().
 func (m *Manager) StopCrawling() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -829,25 +794,20 @@ func (m *Manager) GetStats() FragmentStats {
 // FragmentStats holds fragment statistics.
 type FragmentStats struct {
 	TotalFragments   int
-	GlobalFragments  int // CRAWLJAX PARITY: Count of unique global fragments
+	GlobalFragments  int
 	TotalStates      int
 	DynamicFragments int
 	StaticFragments  int
 }
 
-// CRAWLJAX PARITY: Influence calculation methods
-
 // updateInfluenceLocked updates the influence of a fragment and recursively propagates
 // UP the entire parent chain.
-// CRAWLJAX PARITY: Matches Java FragmentManager.updateInfluence() exactly.
-// Java: if (fragment.getParent() != null) { updateInfluence(fragment.getParent(), access); }
 // Must be called with lock held.
 func (m *Manager) updateInfluenceLocked(fragment *Fragment, accessType AccessType) {
 	if fragment == nil {
 		return
 	}
 
-	// CRAWLJAX PARITY: Propagate UP parent chain FIRST (Java recurses before applying)
 	parent := fragment.Parent
 	if parent == nil && fragment.ParentID >= 0 {
 		// Fallback: resolve via ParentID + hash lookup (for cloned fragments without pointers)
@@ -958,8 +918,6 @@ func (m *Manager) GetParentFragment(domHash string) *Fragment {
 	}
 	return nil
 }
-
-// CRAWLJAX PARITY: Fragment relationship methods for backtracking
 
 // AreRelated checks if two fragments are related (same ND cluster or ND2 relationship).
 // This is used during backtracking to verify fragment equivalence.
@@ -1081,12 +1039,9 @@ func (m *Manager) GetFragmentByXPath(xpath string) *Fragment {
 }
 
 // ========================================================================
-// CRAWLJAX PARITY: recordAccess() chain implementation
-// Matches Java FragmentManager.recordAccess() and related methods
 // ========================================================================
 
 // RecordAccess records access to a candidate element and propagates to related fragments.
-// CRAWLJAX PARITY: Matches Java FragmentManager.recordAccess()
 // Returns true if access was successfully recorded.
 func (m *Manager) RecordAccess(element *CandidateElement, stateFragments []*Fragment, rootFragment *Fragment) bool {
 	m.mu.Lock()
@@ -1107,7 +1062,6 @@ func (m *Manager) RecordAccess(element *CandidateElement, stateFragments []*Frag
 		return false
 	}
 
-	// CRAWLJAX PARITY: Java calls updateInfluence(closestFragment, ACCESS.DIRECT)
 	m.updateInfluenceLocked(closestFragment, AccessTypeDirect)
 
 	// Record duplicate access
@@ -1116,11 +1070,9 @@ func (m *Manager) RecordAccess(element *CandidateElement, stateFragments []*Frag
 	// Record equivalent access
 	m.recordEquivalentAccessLocked(element, &coveredCandidates, closestFragment)
 
-	// CRAWLJAX PARITY: domAccessNeed check — Java:
 	// domAccessNeed = closestFragment.getFragmentParentNode() == null
 	//     || state.getClosestDomFragment(element).getId() != state.getClosestFragment(element).getId()
 	closestDomFragment := m.getClosestDomFragmentLocked(element, stateFragments)
-	// CRAWLJAX PARITY: Java checks fragment.getFragmentParentNode() == null
 	// In Go, we check if Parent is nil (fragment has no single parent DOM node)
 	domAccessNeed := closestFragment.Parent == nil ||
 		(closestDomFragment != nil && closestDomFragment.ID != closestFragment.ID)
@@ -1131,13 +1083,11 @@ func (m *Manager) RecordAccess(element *CandidateElement, stateFragments []*Frag
 		m.recordEquivalentAccessLocked(element, &coveredCandidates, closestDomFragment)
 	}
 
-	// CRAWLJAX PARITY: recordNearDuplicateAccess is called from RecordElementAccess
 	// which has access to stateID for near-duplicate lookup.
 	return true
 }
 
 // recordNearDuplicateAccessLocked records equivalent access on near-duplicate partner states.
-// CRAWLJAX PARITY: Matches Java FragmentManager.recordNearDuplicateAccess().
 // Must be called with lock held.
 func (m *Manager) recordNearDuplicateAccessLocked(element *CandidateElement, stateID string, rootFragment *Fragment) {
 	if rootFragment == nil {
@@ -1170,8 +1120,6 @@ func (m *Manager) recordNearDuplicateAccessLocked(element *CandidateElement, sta
 			continue
 		}
 
-		// CRAWLJAX PARITY: Record equivalent candidate access on the ND partner's root fragment.
-		// Java Fragment.recordEquivalentCandidateAccess() finds equivalent candidates
 		// via DOM node matching. In Go, we match by XPath/selector since we lack live DOM nodes.
 		found := false
 		for _, candidate := range ndRootFragment.CandidateElements {
@@ -1234,7 +1182,6 @@ func (m *Manager) getFragmentsForStateLocked(stateID string) []*Fragment {
 }
 
 // RecordElementAccess records access to an action.CandidateElement for a state.
-// CRAWLJAX PARITY: Matches Java FragmentManager.recordAccess(CandidateElement, StateVertex)
 // This is the primary API called from Crawler after firing an action.
 func (m *Manager) RecordElementAccess(element *action.CandidateElement, stateID string) bool {
 	if element == nil {
@@ -1284,8 +1231,6 @@ func (m *Manager) RecordElementAccess(element *action.CandidateElement, stateID 
 	// Call the internal RecordAccess with converted element
 	result := m.RecordAccess(fragElement, stateFragments, rootFragment)
 
-	// CRAWLJAX PARITY: recordNearDuplicateAccess called after main RecordAccess.
-	// Java FragmentManager.recordAccess() calls this at the end (line 453).
 	m.mu.Lock()
 	m.recordNearDuplicateAccessLocked(fragElement, stateID, rootFragment)
 	m.mu.Unlock()
@@ -1294,7 +1239,6 @@ func (m *Manager) RecordElementAccess(element *action.CandidateElement, stateID 
 }
 
 // setAccessForStateLocked transfers access info for all fragments in a state.
-// CRAWLJAX PARITY: Matches Java FragmentManager.setAccess(StateVertex).
 // Must be called with lock held.
 func (m *Manager) setAccessForStateLocked(stateFragments []*Fragment) {
 	for _, fragment := range stateFragments {
@@ -1308,7 +1252,6 @@ func (m *Manager) setAccessForStateLocked(stateFragments []*Fragment) {
 }
 
 // getClosestFragmentLocked finds the closest fragment containing the element.
-// CRAWLJAX PARITY: Matches Java StateVertex.getClosestFragment()
 // Must be called with lock held.
 func (m *Manager) getClosestFragmentLocked(element *CandidateElement, stateFragments []*Fragment) *Fragment {
 	if element.ClosestFragment != nil {
@@ -1337,7 +1280,6 @@ func (m *Manager) getClosestFragmentLocked(element *CandidateElement, stateFragm
 }
 
 // getClosestDomFragmentLocked finds the closest DOM-tree fragment containing the element.
-// CRAWLJAX PARITY: Matches Java CandidateElement.getClosestDomFragment().
 // DOM fragments use XPath-based containment (DOM tree hierarchy) rather than visual bounds.
 // Must be called with lock held.
 func (m *Manager) getClosestDomFragmentLocked(element *CandidateElement, stateFragments []*Fragment) *Fragment {
@@ -1389,7 +1331,6 @@ func (m *Manager) fragmentContainsElementLocked(frag *Fragment, element *Candida
 }
 
 // recordDuplicateAccessLocked records duplicate access for related fragments.
-// CRAWLJAX PARITY: Matches Java FragmentManager.recordDuplicateAccess()
 // Must be called with lock held.
 func (m *Manager) recordDuplicateAccessLocked(element *CandidateElement, coveredCandidates *[]*CandidateElement, closestFragment *Fragment) {
 	duplicateFragments := m.getDuplicateFragmentsLocked(closestFragment)
@@ -1412,7 +1353,6 @@ func (m *Manager) recordDuplicateAccessLocked(element *CandidateElement, covered
 }
 
 // recordEquivalentAccessLocked records equivalent access for related fragments.
-// CRAWLJAX PARITY: Matches Java FragmentManager.recordEquivalentAccess()
 // Must be called with lock held.
 func (m *Manager) recordEquivalentAccessLocked(element *CandidateElement, coveredCandidates *[]*CandidateElement, closestFragment *Fragment) {
 	equivalentFragments := m.getEquivalentFragmentsLocked(closestFragment)
@@ -1435,7 +1375,6 @@ func (m *Manager) recordEquivalentAccessLocked(element *CandidateElement, covere
 }
 
 // recordDuplicateCandidateAccessLocked finds and records equivalent candidates in duplicate fragment.
-// CRAWLJAX PARITY: Matches Java Fragment.recordDuplicateCandidateAccess()
 // Must be called with lock held.
 func (m *Manager) recordDuplicateCandidateAccessLocked(element *CandidateElement, sourceFragment, targetFragment *Fragment, coveredCandidates []*CandidateElement) []*CandidateElement {
 	result := make([]*CandidateElement, 0)
@@ -1457,7 +1396,6 @@ func (m *Manager) recordDuplicateCandidateAccessLocked(element *CandidateElement
 }
 
 // recordEquivalentCandidateAccessLocked finds and records equivalent candidates in equivalent fragment.
-// CRAWLJAX PARITY: Matches Java Fragment.recordEquivalentCandidateAccess()
 // Must be called with lock held.
 func (m *Manager) recordEquivalentCandidateAccessLocked(element *CandidateElement, sourceFragment, targetFragment *Fragment, coveredCandidates []*CandidateElement) []*CandidateElement {
 	result := make([]*CandidateElement, 0)
@@ -1535,8 +1473,6 @@ func containsCandidate(list []*CandidateElement, candidate *CandidateElement) bo
 }
 
 // ========================================================================
-// CRAWLJAX PARITY: State selection methods
-// Matches Java FragmentManager.getClosestUnexploredState() and related methods
 // ========================================================================
 
 // StateInfo holds information about a state for selection purposes.
@@ -1547,7 +1483,6 @@ type StateInfo struct {
 }
 
 // GetClosestUnexploredState selects the best state to explore next.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getClosestUnexploredState()
 // Parameters:
 //   - currentStateID: The current state we're in
 //   - onURLStates: List of states reachable via URL navigation
@@ -1631,7 +1566,6 @@ func (m *Manager) GetClosestUnexploredState(
 }
 
 // calculateFragmentCandidateInfluenceLocked calculates the candidate influence for a fragment.
-// CRAWLJAX PARITY: Matches Java FragmentManager.calculateFragmentCandidateInfluence()
 // Must be called with lock held.
 func (m *Manager) calculateFragmentCandidateInfluenceLocked(fragment *Fragment) float64 {
 	if fragment == nil {
@@ -1639,7 +1573,6 @@ func (m *Manager) calculateFragmentCandidateInfluenceLocked(fragment *Fragment) 
 	}
 
 	// Check if cached
-	// CRAWLJAX PARITY: Java checks `candidateInfluence != null` (boxed Double).
 	// null means "not yet computed". InfluencePtr != nil means it has been computed
 	// (including the case where the computed value is 0.0).
 	if fragment.InfluencePtr != nil {
@@ -1667,7 +1600,6 @@ func (m *Manager) calculateFragmentCandidateInfluenceLocked(fragment *Fragment) 
 }
 
 // calculateCandidateInfluenceLocked calculates influence for a single candidate.
-// CRAWLJAX PARITY: Matches Java FragmentManager.calculateCandidateInfluence()
 // Must be called with lock held.
 func (m *Manager) calculateCandidateInfluenceLocked(candidate *CandidateElement) float64 {
 	candidateInfluence := 1.0
@@ -1676,7 +1608,6 @@ func (m *Manager) calculateCandidateInfluenceLocked(candidate *CandidateElement)
 		candidateInfluence = 0.0
 	}
 
-	// CRAWLJAX PARITY: Formula from Java
 	// candidateInfluence = candidateInfluence - (0.5 * duplicateAccess + 0.25 * equivalentAccess)
 	candidateInfluence -= (0.5*float64(candidate.DuplicateAccess) + 0.25*float64(candidate.EquivalentAccess))
 
@@ -1684,7 +1615,6 @@ func (m *Manager) calculateCandidateInfluenceLocked(candidate *CandidateElement)
 }
 
 // calculateHopsLocked calculates the average hops needed to reach a state.
-// CRAWLJAX PARITY: Matches Java FragmentManager.calculateHops()
 // Must be called with lock held.
 func (m *Manager) calculateHopsLocked(
 	fragment *Fragment,
@@ -1735,7 +1665,6 @@ func (m *Manager) calculateHopsLocked(
 
 // CalculateCandidateInfluenceForElement calculates influence for a candidate element.
 // Thread-safe public version.
-// CRAWLJAX PARITY: Matches Java FragmentManager.calculateCandidateInfluence()
 func (m *Manager) CalculateCandidateInfluenceForElement(candidate *CandidateElement) float64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1743,7 +1672,6 @@ func (m *Manager) CalculateCandidateInfluenceForElement(candidate *CandidateElem
 }
 
 // CalculateDuplicationFactor calculates the duplication factor for a candidate.
-// CRAWLJAX PARITY: Matches Java FragmentManager.calculateDuplicationFactor()
 // Higher factor = more duplicate/equivalent fragments = less valuable to explore.
 func (m *Manager) CalculateDuplicationFactor(element *CandidateElement, stateFragments []*Fragment) float64 {
 	m.mu.RLock()
@@ -1763,7 +1691,6 @@ func (m *Manager) CalculateDuplicationFactor(element *CandidateElement, stateFra
 
 // IncrementNonSelection increments the non-selection counter for a state.
 // This is called when a state is NOT selected for exploration.
-// CRAWLJAX PARITY: Matches Java numNonSelections tracking.
 func (m *Manager) IncrementNonSelection(stateID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

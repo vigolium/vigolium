@@ -16,35 +16,31 @@ import (
 	"github.com/lucasjones/reggen"
 )
 
-// Crawljax parity constants
 const (
-	// RandomStringLength matches Crawljax FormHandler.RANDOM_STRING_LENGTH
+	// RandomStringLength is the default length for random text values.
 	RandomStringLength = 8
-	// ProbabilityCheck matches Crawljax RandomInputValueGenerator.PROBABILITY_CHECK
+	// ProbabilityCheck is the probability threshold for boolean random values.
 	ProbabilityCheck = 0.5
-	// MaxRandomInt matches Crawljax RandomInputValueGenerator.MAX_INT
+	// MaxRandomInt is the upper bound for random integer values.
 	MaxRandomInt = 12345
-	// randomChars matches Crawljax - letters only (a-zA-Z), NO numbers
+	// randomChars contains the character set for random strings - letters only (a-zA-Z), no numbers.
 	randomChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 // Handler handles form detection and filling.
-// CRAWLJAX PARITY: Uses action.FormInput for Crawljax parity,
 // DetectedInput for Go extension (detection metadata).
 type Handler struct {
 	config       *config.Config
-	inputConfigs map[string]*action.FormInput // CRAWLJAX PARITY: key = "id:value" or "name:value" or "xpath:value"
+	inputConfigs map[string]*action.FormInput
 	rng          *rand.Rand
 }
 
 // identificationKey creates a map key from identification how and value.
-// CRAWLJAX PARITY: Matches Java FormInputValueHelper.formInputs map keying
 func identificationKey(how, value string) string {
 	return how + ":" + value
 }
 
 // parseHow converts a string to action.How.
-// CRAWLJAX PARITY: Matches Java Identification.How enum
 func parseHow(how string) action.How {
 	switch how {
 	case "id":
@@ -66,8 +62,6 @@ func NewHandler(cfg *config.Config) *Handler {
 		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
-	// CRAWLJAX PARITY: Load input configurations using Identification key
-	// Matches Java FormInputValueHelper constructor which stores by Identification
 	for _, inputCfg := range cfg.FormInputs {
 		identification := action.NewIdentification(parseHow(inputCfg.How), inputCfg.Value)
 		input := action.NewFormInput(action.GetTypeFromStr(inputCfg.Type), identification)
@@ -88,7 +82,6 @@ func NewHandler(cfg *config.Config) *Handler {
 }
 
 // DetectForms finds all forms on the page.
-// CRAWLJAX PARITY: Uses XPath (skeleton) instead of CSS selectors.
 // Returns Form with DetectedInput (Go extension for detection metadata).
 func (h *Handler) DetectForms(page *browser.Page) ([]*Form, error) {
 	script := `(() => {
@@ -145,7 +138,6 @@ func (h *Handler) DetectForms(page *browser.Page) ([]*Form, error) {
 			return '';
 		}
 
-		// CRAWLJAX PARITY: getSkeletonXpath() from XPathHelper.java
 		// Generates position-based XPath like /HTML[1]/BODY[1]/DIV[3]/INPUT[2]
 		function getSkeletonXPath(el) {
 			const parts = [];
@@ -186,7 +178,6 @@ func (h *Handler) DetectForms(page *browser.Page) ([]*Form, error) {
 }
 
 // parseFormData parses form data from JavaScript detection.
-// CRAWLJAX PARITY: Uses XPath instead of CSS selector.
 func (h *Handler) parseFormData(data map[string]interface{}) *Form {
 	// Use XPath for form identification
 	xpath := getString(data, "xpath")
@@ -207,8 +198,6 @@ func (h *Handler) parseFormData(data map[string]interface{}) *Form {
 }
 
 // parseInputData parses input data from JavaScript detection.
-// CRAWLJAX PARITY: Creates Identification with priority ID → Name → XPath.
-// Java: FormInputValueHelper.getIdentification() lines 255-272
 // Returns DetectedInput which wraps action.FormInput with detection metadata.
 func (h *Handler) parseInputData(data map[string]interface{}) *DetectedInput {
 	typeStr := getString(data, "type")
@@ -217,8 +206,6 @@ func (h *Handler) parseInputData(data map[string]interface{}) *DetectedInput {
 	name := getString(data, "name")
 	id := getString(data, "id")
 
-	// CRAWLJAX PARITY: Create Identification with priority ID → Name → XPath
-	// Java: FormInputValueHelper.getIdentification() lines 255-272
 	var identification *action.Identification
 	var configuredInput *action.FormInput
 
@@ -236,7 +223,7 @@ func (h *Handler) parseInputData(data map[string]interface{}) *DetectedInput {
 		configuredInput = h.inputConfigs[key]
 	}
 
-	// Create FormInput (Crawljax parity)
+	// Create FormInput
 	formInput := action.NewFormInput(inputType, identification)
 
 	// Copy configured values if found
@@ -273,7 +260,6 @@ func (h *Handler) parseInputData(data map[string]interface{}) *DetectedInput {
 }
 
 // DetectInputs finds all form inputs on the page (not limited to forms).
-// CRAWLJAX PARITY: Uses XPath (skeleton) instead of CSS selectors.
 // Returns DetectedInput slice (Go extension for detection metadata).
 func (h *Handler) DetectInputs(page *browser.Page) ([]*DetectedInput, error) {
 	script := `(() => {
@@ -365,7 +351,6 @@ func (h *Handler) DetectInputs(page *browser.Page) ([]*DetectedInput, error) {
 			return '';
 		}
 
-		// CRAWLJAX PARITY: getSkeletonXpath() from XPathHelper.java
 		// Generates position-based XPath like /HTML[1]/BODY[1]/DIV[3]/INPUT[2]
 		function getSkeletonXPath(el) {
 			const parts = [];
@@ -597,7 +582,6 @@ func (r *FillInputsResult) Errors() []error {
 
 // FillInputs fills the given inputs with configured or random values.
 // Returns detailed results including any errors that occurred.
-// CRAWLJAX PARITY: Uses Identification for element lookup.
 func (h *Handler) FillInputs(page *browser.Page, inputs []*DetectedInput) *FillInputsResult {
 	zap.L().Debug("Filling form inputs",
 		zap.Int("input_count", len(inputs)),
@@ -648,7 +632,6 @@ func (h *Handler) FillInputs(page *browser.Page, inputs []*DetectedInput) *FillI
 }
 
 // getElementByIdentification finds element using XPath based on Identification.
-// CRAWLJAX PARITY: Matches Java FormInputValueHelper.getBelongingNode() exactly (line 218-249).
 // - HowXPath: Use xpath value directly
 // - HowID/HowName: Build XPath "//TAG[@name='X' or @id='X']" where TAG is INPUT/SELECT/TEXTAREA
 func (h *Handler) getElementByIdentification(page *browser.Page, input *DetectedInput) (*browser.Element, error) {
@@ -664,12 +647,9 @@ func (h *Handler) getElementByIdentification(page *browser.Page, input *Detected
 
 	switch id.How {
 	case action.HowXPath:
-		// CRAWLJAX PARITY: Use XPath directly
 		return page.ElementX(id.Value)
 
 	case action.HowID, action.HowName:
-		// CRAWLJAX PARITY: Build XPath with tag name (line 233-240)
-		// Java: "//" + element + "[@name='" + value + "' or @id='" + value + "']"
 		// GO FIX: Escape single quotes in XPath to handle values like "father's day"
 		tagName := h.getTagNameForType(input.Type)
 		escapedValue := escapeXPathString(id.Value)
@@ -682,7 +662,6 @@ func (h *Handler) getElementByIdentification(page *browser.Page, input *Detected
 }
 
 // getTagNameForType returns HTML tag name for form input type.
-// CRAWLJAX PARITY: Matches Java FormInputValueHelper.getBelongingNode() (line 233-237)
 func (h *Handler) getTagNameForType(inputType action.InputType) string {
 	switch inputType {
 	case action.InputTypeSelect:
@@ -695,8 +674,6 @@ func (h *Handler) getTagNameForType(inputType action.InputType) string {
 }
 
 // HandleFormElements fills form inputs and returns the handled inputs list.
-// CRAWLJAX PARITY: Matches Java FormHandler.handleFormElements() exactly.
-// Java behavior (line 316-343):
 //   - Returns List<FormInput> of handled inputs
 //   - For each input, creates NEW FormInput with XPath identification from actual DOM node
 //   - If error occurs, adds the failing input at end of list
@@ -723,7 +700,6 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 			continue
 		}
 
-		// CRAWLJAX PARITY: Get element using XPath lookup via Identification
 		elem, err := h.getElementByIdentification(page, input)
 		if err != nil {
 			zap.L().Debug("Could not find element for form input",
@@ -746,8 +722,6 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 			continue
 		}
 
-		// CRAWLJAX PARITY: Create NEW FormInput with skeleton XPath identification
-		// Java line 327-331: Creates new FormInput with actual XPath from DOM
 		actualXPath := h.getElementXPath(page, elem)
 		if actualXPath != "" {
 			xpathId := action.NewIdentification(action.HowXPath, actualXPath)
@@ -761,8 +735,6 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 		failing = nil
 	}
 
-	// CRAWLJAX PARITY: Always append a final element (Java line 341)
-	// Java: handled.add(Objects.requireNonNullElseGet(failing, () -> new FormInput(null, null)));
 	// On error: appends the failing input. On success: appends empty sentinel FormInput.
 	if failing != nil {
 		handled = append(handled, failing)
@@ -774,8 +746,6 @@ func (h *Handler) HandleFormElements(page *browser.Page, formInputs []*DetectedI
 }
 
 // GetFormInputs returns all form inputs detected on current DOM.
-// CRAWLJAX PARITY: Matches Java FormHandler.getFormInputs() exactly.
-// Java behavior (line 224-240):
 //   - Gets DOM from browser
 //   - Finds all INPUT, TEXTAREA, SELECT elements
 //   - For each, calls formInputValueHelper.getFormInputWithIndexValue()
@@ -792,7 +762,6 @@ func (h *Handler) GetFormInputs(page *browser.Page) []*action.FormInput {
 }
 
 // getElementXPath gets the XPath of an element.
-// CRAWLJAX PARITY: Matches Java XPathHelper.getSkeletonXpath()
 func (h *Handler) getElementXPath(_ *browser.Page, elem *browser.Element) string {
 	// CRITICAL: Must use regular function (not arrow function) so that `this` is bound correctly
 	// when rod wraps the script with .apply(this, arguments).
@@ -853,7 +822,6 @@ func (h *Handler) fillElement(elem *browser.Element, input *DetectedInput) error
 		if input.Multiple && len(input.GetValues()) > 1 {
 			return FillSelectMultiple(elem, input.GetValues())
 		}
-		// Crawljax parity: if no value specified, select random option from dropdown
 		if value == "" {
 			options, err := GetSelectAllOptions(elem)
 			if err == nil && len(options) > 0 {
@@ -883,7 +851,6 @@ func (h *Handler) fillElement(elem *browser.Element, input *DetectedInput) error
 }
 
 // FillInput fills a single input based on its type.
-// CRAWLJAX PARITY: Uses XPath-based element lookup via Identification.
 func (h *Handler) FillInput(page *browser.Page, input *DetectedInput) error {
 	if !input.CanInteract() {
 		idValue := ""
@@ -897,7 +864,6 @@ func (h *Handler) FillInput(page *browser.Page, input *DetectedInput) error {
 		return nil
 	}
 
-	// CRAWLJAX PARITY: Get element using XPath lookup via Identification
 	elem, err := h.getElementByIdentification(page, input)
 	if err != nil {
 		idValue := ""
@@ -941,7 +907,6 @@ func (h *Handler) FillInput(page *browser.Page, input *DetectedInput) error {
 		if input.Multiple && len(input.GetValues()) > 1 {
 			return FillSelectMultiple(elem, input.GetValues())
 		}
-		// Crawljax parity: if no value specified, select random option from dropdown
 		if value == "" {
 			options, err := GetSelectAllOptions(elem)
 			if err == nil && len(options) > 0 {
@@ -996,7 +961,6 @@ func (h *Handler) getValueForInput(input *DetectedInput) string {
 		return val
 	}
 
-	// 3. Try intelligent name-based detection (BEYOND Crawljax)
 	// Skip for SELECT - smart values are text, but SELECT needs option values
 	// Skip for FILE - file handling uses default file path, not smart values
 	// Random option selection is handled in FillInput instead
@@ -1016,7 +980,6 @@ func (h *Handler) getValueForInput(input *DetectedInput) string {
 }
 
 // generateRandomValue generates a random value for the input type.
-// Matches Crawljax RandomInputValueGenerator behavior where applicable.
 func (h *Handler) generateRandomValue(input *DetectedInput) string {
 	if input.FormInput == nil {
 		return h.randomString(RandomStringLength)
@@ -1024,7 +987,6 @@ func (h *Handler) generateRandomValue(input *DetectedInput) string {
 
 	switch input.Type {
 	case action.InputTypeText, action.InputTypeTextarea:
-		// Crawljax: 8-char random string
 		return h.randomString(RandomStringLength)
 
 	case action.InputTypePassword:
@@ -1036,25 +998,21 @@ func (h *Handler) generateRandomValue(input *DetectedInput) string {
 		return h.randomString(RandomStringLength) + "@example.com"
 
 	case action.InputTypeNumber:
-		// Crawljax: random int 0 to MaxRandomInt-1
 		return fmt.Sprintf("%d", h.rng.Intn(MaxRandomInt))
 
 	case action.InputTypeCheckbox:
-		// Crawljax: 50% probability, values "1"/"0"
 		if h.rng.Float64() > ProbabilityCheck {
 			return "1"
 		}
 		return "0"
 
 	case action.InputTypeRadio:
-		// Crawljax: 50% probability, values "1"/"0"
 		if h.rng.Float64() > ProbabilityCheck {
 			return "1"
 		}
 		return "0"
 
 	case action.InputTypeSelect:
-		// Crawljax: random option selected in FillInput, return empty here
 		return ""
 
 	case action.InputTypeFile:
@@ -1062,7 +1020,6 @@ func (h *Handler) generateRandomValue(input *DetectedInput) string {
 		return ""
 
 	default:
-		// Crawljax: 8-char random string for unknown types
 		return h.randomString(RandomStringLength)
 	}
 }
@@ -1153,7 +1110,6 @@ func (h *Handler) generateStringWithLength(minLen, maxLen int) string {
 // Helper functions for constraint-aware generation
 
 // escapeXPathString escapes quotes in XPath string values.
-// GO IMPROVEMENT over Crawljax: Uses double quotes when possible for cleaner XPath.
 // - No quotes: 'value'
 // - Single quotes only: "value" (simpler than concat)
 // - Double quotes only: 'value'
@@ -1223,7 +1179,6 @@ const (
 )
 
 // getSmartValue generates intelligent values based on input name/id/placeholder/label.
-// This goes BEYOND Crawljax by detecting field purpose from naming conventions.
 // Note: email, username, password use FIXED values for consistent register/login during crawl.
 func (h *Handler) getSmartValue(input *DetectedInput) string {
 	name := strings.ToLower(input.Name)
@@ -1370,7 +1325,6 @@ func (h *Handler) getDefaultValue(input *DetectedInput) string {
 }
 
 // ResetInputs clears all inputs.
-// CRAWLJAX PARITY: Uses XPath-based element lookup via Identification.
 func (h *Handler) ResetInputs(page *browser.Page, inputs []*DetectedInput) error {
 	for _, input := range inputs {
 		elem, err := h.getElementByIdentification(page, input)
@@ -1454,8 +1408,6 @@ func getInt(m map[string]interface{}, key string) int {
 	return 0
 }
 
-// CRAWLJAX PARITY: Pairwise form handling
-
 // getIdentificationKey returns a unique key for the input based on Identification.
 func getIdentificationKey(input *DetectedInput) string {
 	if input.FormInput != nil && input.Identification != nil {
@@ -1468,11 +1420,9 @@ func getIdentificationKey(input *DetectedInput) string {
 }
 
 // FillInputsPairwise tries filling inputs in pairs when full fill fails.
-// This matches Java Crawljax's handleInputs_pairwise() fallback mechanism.
 // IMPORTANT: Caller should already have attempted FillInputs and it failed.
 // This function assumes inputs need pairwise testing, not a full retry.
 // Returns (success, workedInputs) - the inputs that were successfully filled.
-// CRAWLJAX PARITY: Uses Identification-based keys instead of CSS selectors.
 func (h *Handler) FillInputsPairwise(page *browser.Page, inputs []*DetectedInput) (bool, []*DetectedInput) {
 	// Reset all inputs before pairwise testing
 	// (caller already tried FillInputs which failed)

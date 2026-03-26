@@ -2,9 +2,9 @@
  * Angular API Service
  *
  * Tests Angular-specific patterns:
- * - A1: HttpClient trong service
+ * - A1: HttpClient in service
  * - A2: Generic CRUD methods
- * - A3: POST với body
+ * - A3: POST with body
  * - A4: Parameterized URL
  *
  * Note: This simulates Angular patterns for bundling tests.
@@ -99,7 +99,7 @@ export class ApiService {
     return this.http.get<User[]>(`${this.baseUrl}/users`);
   }
 
-  // Pattern A3: POST với body
+  // Pattern A3: POST with body
   createUser(user: Omit<User, 'id'>): Promise<User> {
     return this.http.post<User>(`${this.baseUrl}/users`, user);
   }

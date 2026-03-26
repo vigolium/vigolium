@@ -27,7 +27,7 @@ import (
 type Crawler struct {
 	config      *config.Config
 	graph       *state.Graph
-	candidates  *action.UnfiredFragmentCandidates // CRAWLJAX PARITY: UnfiredFragmentCandidates
+	candidates  *action.UnfiredFragmentCandidates
 	browserPool *browser.Pool
 	extractor   *action.CandidateElementExtractor
 	comparator  *state.Comparator
@@ -54,23 +54,18 @@ type Crawler struct {
 	// ND Cluster manager (optional) - for near-duplicate state clustering
 	clusterMgr *state.NDClusterManager
 
-	// CRAWLJAX PARITY: StateMachine (LOCAL per crawler, RESET on backtrack)
 	// Contains currentState, initialState, onURLSet
 	// Reference to graph is shared (GLOBAL)
 	stateMachine *state.StateMachine
 
-	// CRAWLJAX PARITY: CrawlPath - tracks current backtrack attempt
 	// NEW instance created on each reset()
 	crawlPath *state.CrawlPath
 
-	// CRAWLJAX PARITY: CrawlSession - stores all crawl paths
 	session *CrawlSession
 
-	// CRAWLJAX PARITY: EventableConditionChecker for form-to-element linking
 	// Used to generate action combinations with different form input values.
 	eventableConditions *condition.EventableConditionChecker
 
-	// CRAWLJAX PARITY: Tracks if reset() was ever called during this crawl.
 	// Used to determine if we need to add final reload edge when crawl finishes.
 	resetCalled bool
 
@@ -109,7 +104,6 @@ func New(cfg *config.Config) (*Crawler, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// CRAWLJAX PARITY: Create UnfiredFragmentCandidates with config
 	candidatesConfig := &action.UnfiredFragmentCandidatesConfig{
 		MaxRepeat:             action.DefaultMaxRepeat,
 		SkipExploredActions:   true,
@@ -261,7 +255,6 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 	}
 	zap.L().Debug("Traffic capture enabled")
 
-	// CRAWLJAX PARITY: Wire eventable conditions to extractor for form input combinations
 	if c.eventableConditions != nil && c.eventableConditions.Count() > 0 {
 		c.extractor.SetFormHandler(&formHandlerAdapter{checker: c.eventableConditions})
 	}
@@ -373,7 +366,7 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 
 	// Add to graph
 	c.graph.AddState(indexState)
-	c.candidates.RecordStateCreation(indexState.ID) // CRAWLJAX PARITY: Track state order for OLDEST_FIRST mode
+	c.candidates.RecordStateCreation(indexState.ID)
 	c.stats.StatesDiscovered++
 
 	// RLCRAWLER PARITY: Register index state with MAB policy
@@ -381,13 +374,10 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 		c.mabPolicy.AddState(indexState.ID)
 	}
 
-	// CRAWLJAX PARITY: Initialize StateMachine with index state
 	c.stateMachine = state.NewStateMachine(c.graph, indexState)
 
-	// CRAWLJAX PARITY: Initialize session
 	c.session = NewCrawlSession(c.config, indexState)
 
-	// CRAWLJAX PARITY: Initialize first crawl path (for initial exploration)
 	c.crawlPath = state.NewCrawlPath(indexState.ID)
 
 	zap.L().Debug("Index state captured", zap.String("state", indexState.Name))
@@ -414,7 +404,6 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 }
 
 // crawlLoop is the main crawl loop.
-// CRAWLJAX PARITY: This now matches Crawljax's CrawlTaskConsumer architecture:
 //  1. Poll a STATE (not action) from the queue
 //  2. Call execute(state) which:
 //     a. If not at state, reset() to index (adds reload edge) then reachFromHome()
@@ -463,12 +452,10 @@ func (c *Crawler) crawlLoop(ctx context.Context) error {
 			continue
 		}
 
-		// CRAWLJAX PARITY: Execute the crawl task for this state
 		c.execute(ctx, crawlTask)
 
 		zap.L().Debug("Execute completed for state", zap.String("state_id", stateID))
 
-		// CRAWLJAX PARITY: Check if state still has actions (for re-adding to queue)
 		c.candidates.TaskDone(stateID)
 
 		// Log MAB summary every 5 iterations for debugging
@@ -499,8 +486,6 @@ func (c *Crawler) logMABSummary() {
 }
 
 // execute crawls all actions from a target state.
-// CRAWLJAX PARITY: This matches Java Crawljax Crawler.execute(StateVertex crawlTask) exactly.
-// Java Flow (Crawler.java:378-422):
 //  1. If at crawlTask state -> setBTStatus(true, -1) + crawlThroughActions() (NO EARLY RETURN!)
 //  2. ALWAYS: reset() + reachFromHome() + crawlThroughActions()
 func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
@@ -510,13 +495,9 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 
 	currentState := c.stateMachine.GetCurrentState()
 
-	// CRAWLJAX PARITY: BLOCK 1 - If at crawlTask, crawl first (NO EARLY RETURN!)
-	// Java: if (crawlTask.getId() == stateMachine.getCurrentState().getId())
-	// Java wraps this in try-catch: if crawlThroughActions throws, it catches and continues
 	if currentState != nil && currentState.ID == crawlTask.ID {
 		zap.L().Debug("Already at target state, crawling through actions first")
 		c.crawlPath.MarkSuccess()
-		// CRAWLJAX PARITY: Java try-catch around first crawlThroughActions (lines 394-401)
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -527,11 +508,8 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 			c.crawlThroughActions(ctx)
 		}()
 		zap.L().Debug("crawlThroughActions completed (same state)")
-		// CRITICAL: Java does NOT return here! It continues to reset+reachFromHome+crawlThroughActions
 	}
 
-	// CRAWLJAX PARITY: BLOCK 2 - ALWAYS execute (Java lines 403-421)
-	// Java: LOG.info("Resetting the crawler and Going to state {}", crawlTask.getName());
 	//       reset(crawlTask.getId());
 	//       reachFromHome(crawlTask);
 	//       crawlThroughActions();
@@ -559,7 +537,6 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 		return
 	}
 
-	// CRAWLJAX PARITY: reachFromHome() - if fails -> purge and return
 	zap.L().Debug("Reaching target state from home", zap.String("target", crawlTask.Name))
 	if err := c.reachFromHome(ctx, crawlTask); err != nil {
 		zap.L().Debug("State unreachable, removing from candidate actions",
@@ -572,14 +549,11 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 		return
 	}
 
-	// CRAWLJAX PARITY: crawlThroughActions() after reachFromHome
 	c.crawlThroughActions(ctx)
 	zap.L().Debug("crawlThroughActions completed")
 }
 
 // reset navigates to the index URL and creates a NEW StateMachine.
-// CRAWLJAX PARITY: This matches Java Crawljax Crawler.reset(int nextTarget) exactly.
-// CRITICAL: Order matches Java exactly (Crawler.java:266-319):
 // 1. browser.handlePopups() - FIRST THING!
 // 2. Save crawlPath to session
 // 3. Get onURLSet + previousState from OLD StateMachine
@@ -589,20 +563,17 @@ func (c *Crawler) execute(ctx context.Context, crawlTask *state.State) {
 // 7. checkOnURLState() using NEW StateMachine
 // 8. crawlDepth.set(0) - LAST THING!
 func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
-	// CRAWLJAX PARITY: Step 1 - handlePopups() FIRST (Java line 268)
 	br := c.browserPool.Get()
 	page := br.CurrentPage()
 	if page != nil {
 		_ = page.HandlePopups()
 	}
 
-	// CRAWLJAX PARITY: Step 2 - Save current crawlPath to session
 	if c.crawlPath != nil {
 		c.crawlPath.Close()
 		c.session.AddCrawlPath(c.crawlPath.ImmutableCopy())
 	}
 
-	// CRAWLJAX PARITY: Step 2 - Get onURLSet + previousState from OLD StateMachine
 	var onURLSet []*state.State
 	var previousState *state.State
 	if c.stateMachine != nil {
@@ -612,18 +583,14 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 		onURLSet = make([]*state.State, 0)
 	}
 
-	// CRAWLJAX PARITY: Step 3 - Create NEW StateMachine BEFORE navigate
-	// Java: stateMachine = new StateMachine(graphProvider.get(), ..., onURLSetTemp)
 	indexState := c.graph.GetIndexState()
 	c.stateMachine = state.NewStateMachineWithOnURLSet(c.graph, indexState, onURLSet)
 	zap.L().Debug("Reset: created NEW StateMachine BEFORE navigate",
 		zap.String("initial_state", indexState.Name),
 		zap.Int("onURLSet_size", c.stateMachine.OnURLSetSize()))
 
-	// CRAWLJAX PARITY: Step 4 - Create NEW CrawlPath
 	c.crawlPath = state.NewCrawlPath(nextTarget)
 
-	// CRAWLJAX PARITY: Step 5 - Navigate to URL (AFTER creating StateMachine)
 	resetURL := c.config.URL.String()
 	if c.config.BasicAuthUser != "" {
 		resetURL = c.config.GetBasicAuthURL()
@@ -658,11 +625,8 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 	}
 	c.checkWaitConditions(page)
 
-	// CRAWLJAX PARITY: Step 7 - checkOnURLState() using NEW StateMachine
-	// Java: checkOnURLState(previousState) - uses stateMachine.newStateFor(browser)
 	c.checkOnURLState(ctx, page, previousState, resetURL)
 
-	// CRAWLJAX PARITY: Step 8 - Java resets crawlDepth.set(0).
 	// Go uses newState.Depth for maxDepth check instead of a per-crawler counter.
 
 	c.resetCalled = true
@@ -671,8 +635,6 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 }
 
 // reachFromHome navigates from current state to target state.
-// CRAWLJAX PARITY: Matches Java Crawljax Crawler.reachFromHome() exactly.
-// Java flow:
 // 1. Try shortest path from CURRENT state to target
 // 2. If fails, try from each onURLSet state
 // 3. Navigate to onURL state, then follow path
@@ -687,11 +649,8 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 	br := c.browserPool.Get()
 	page := br.CurrentPage()
 
-	// CRAWLJAX PARITY: Track already tried starting points
 	alreadyTried := make(map[string]bool)
 
-	// CRAWLJAX PARITY: First try from CURRENT state (after reset, this is index)
-	// Java: path = shortestPathTo(crawlTask);
 	currentState := c.stateMachine.GetCurrentState()
 	if currentState != nil {
 		alreadyTried[currentState.ID] = true
@@ -702,8 +661,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 				zap.Int("path_length", len(path)))
 			err := c.followPath(ctx, path, target)
 			if err == nil {
-				// CRAWLJAX PARITY: Check if reached near-duplicate instead of target
-				// Java lines 447-459: if (!crawlTask.equals(stateMachine.getCurrentState()))
 				reachedState := c.stateMachine.GetCurrentState()
 				if reachedState.ID != target.ID {
 					zap.L().Debug("Tried reaching target but reached near-duplicate",
@@ -711,15 +668,13 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 						zap.String("reached", reachedState.Name))
 					c.crawlPath.SetBacktrackSuccess(false)
 					c.crawlPath.SetReachedNearDup(reachedState.ID)
-					c.candidates.StateUpdated(target.ID) // CRAWLJAX PARITY: Java line 455
+					c.candidates.StateUpdated(target.ID)
 				} else {
 					zap.L().Debug("Reached the correct target", zap.String("target", target.Name))
 					c.crawlPath.SetBacktrackSuccess(true)
 				}
 				return nil
 			}
-			// CRAWLJAX PARITY: Path failed - reset before trying onURLSet states
-			// Java lines 467-470: setBTStatus(false, -1); reset(crawlTask.getId());
 			zap.L().Debug("Path from current state failed, resetting before trying onURLSet",
 				zap.String("from", currentState.Name),
 				zap.Error(err))
@@ -728,8 +683,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 		}
 	}
 
-	// CRAWLJAX PARITY: Try from each onURLSet state (Java lines 479-539)
-	// Java: for (int i = 0; i < size; i++) { StateVertex onURL = stateMachine.getOnURLSet().get(i); ... }
 	onURLStates := c.stateMachine.GetOnURLSetSlice()
 	for _, onURLState := range onURLStates {
 		if c.shouldTerminate(ctx) {
@@ -755,7 +708,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 			zap.String("to", target.Name),
 			zap.Int("path_length", len(path)))
 
-		// CRAWLJAX PARITY: Navigate to onURL state first (browser.goToUrl(onURL.getUrl()))
 		if err := page.NavigateCtx(ctx, onURLState.URL); err != nil {
 			zap.L().Debug("Failed to navigate to onURL state",
 				zap.String("state", onURLState.Name),
@@ -776,8 +728,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 		// Follow path from onURL to target
 		err := c.followPath(ctx, path, target)
 		if err == nil {
-			// CRAWLJAX PARITY: Check if reached near-duplicate instead of target
-			// Java lines 512-524: same check as first attempt
 			reachedState := c.stateMachine.GetCurrentState()
 			if reachedState.ID != target.ID {
 				zap.L().Debug("Tried reaching target but reached near-duplicate",
@@ -796,7 +746,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 			return nil
 		}
 
-		// CRAWLJAX PARITY: Path failed - reset and try next (Java line 534)
 		zap.L().Debug("Path from onURL state failed, resetting",
 			zap.String("from", onURLState.Name),
 			zap.Error(err))
@@ -808,7 +757,6 @@ func (c *Crawler) reachFromHome(ctx context.Context, target *state.State) error 
 }
 
 // followPath executes actions along a path to reach the target state.
-// CRAWLJAX PARITY: This matches Java Crawljax Crawler.follow()
 func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, target *state.State) error {
 	br := c.browserPool.Get()
 	page := br.CurrentPage()
@@ -829,8 +777,6 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 			return fmt.Errorf("edge has no identification")
 		}
 
-		// CRAWLJAX PARITY: Form input handling from candidates
-		// Java lines 591-601: shouldDisableInput + getInput check
 		if c.config.FormFillEnabled {
 			if !c.candidates.ShouldDisableInputForPath(edge) {
 				// Try to get cached input from candidates
@@ -840,7 +786,6 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 					zap.L().Debug("Used cached form input for backtracking", zap.Int64("eventable_id", edge.ID))
 					c.fillFormsWithInputs(page, cachedInputs)
 				} else {
-					// CRAWLJAX PARITY: No cached input, use getInputElements to merge
 					// eventable.RelatedFormInputs with DOM-detected inputs
 					zap.L().Debug("No cached input, using getInputElements", zap.Int64("eventable_id", edge.ID))
 					handled := c.handleInputElements(page, edge)
@@ -900,8 +845,6 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 			}
 		}
 
-		// CRAWLJAX PARITY: Use ChangeState (with bidirectional canGoTo check) instead of SetCurrentState.
-		// Java followOld (Crawler.java:587): stateMachine.changeState(clickable.getTargetStateVertex())
 		// If ChangeState returns false, the path is invalid (edge no longer exists).
 		targetState, ok := c.graph.GetState(edge.TargetStateID)
 		if !ok {
@@ -911,7 +854,6 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 			return fmt.Errorf("could not switch states during path follow: %s -> %s", edge.SourceStateID, edge.TargetStateID)
 		}
 
-		// CRAWLJAX PARITY: Java changeState() helper (Crawler.java:885) adds edge to crawlPath.
 		// crawlpath.add(clickable);
 		if c.crawlPath != nil {
 			c.crawlPath.Add(edge)
@@ -932,12 +874,9 @@ func (c *Crawler) followPath(ctx context.Context, path []*action.Eventable, targ
 }
 
 // DUPLICATE_EVENT_SEED is used to encode equivalentAccess in eventable IDs.
-// CRAWLJAX PARITY: Java Crawler.java line 65: private static final int DUPLICATE_EVENT_SEED = 100000;
 const DUPLICATE_EVENT_SEED = 100000
 
 // crawlThroughActions crawls through all actions for current state using DFS.
-// CRAWLJAX PARITY: Matches Java Crawljax Crawler.crawlThroughActionsNew() 100% exactly.
-// Java Flow (Crawler.java:1275-1344):
 //  1. afterBacktrack=true for first poll
 //  2. Poll action with afterBacktrack parameter
 //  3. Check allConditionsSatisfied(browser) BEFORE firing
@@ -947,10 +886,9 @@ const DUPLICATE_EVENT_SEED = 100000
 //  7. afterBacktrack=false for subsequent polls
 //  8. Check crawlerNotInScope() after each action
 func (c *Crawler) crawlThroughActions(ctx context.Context) {
-	afterBacktrack := true // CRAWLJAX PARITY: First poll is "after backtrack" (Java line 1276)
+	afterBacktrack := true
 
 	for {
-		// Check termination conditions (Go-specific, Java uses Thread.interrupted())
 		if c.shouldTerminate(ctx) {
 			return
 		}
@@ -961,7 +899,6 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 			return
 		}
 
-		// CRAWLJAX PARITY: Poll with afterBacktrack parameter (Java line 1278-1279, 1324)
 		act := c.candidates.PollByMode(currentState.ID, c.config.CrawlStrategy, afterBacktrack)
 		if act == nil {
 			// No more actions for current state, exit DFS
@@ -971,20 +908,15 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 
 		element := act.GetCandidateElement()
 
-		// CRAWLJAX PARITY: Check allConditionsSatisfied BEFORE firing (Java lines 1284, 1319-1321)
-		// Java: if (element.allConditionsSatisfied(browser)) { ... } else { LOG.info("Element not clicked...") }
 		br := c.browserPool.Get()
 		page := br.CurrentPage()
 		if !c.checkAllConditionsSatisfied(page, element) {
 			zap.L().Debug("Element not clicked because not all crawl conditions were satisfied",
 				zap.String("xpath", element.GetIdentification().Value))
-			// CRAWLJAX PARITY: Java still updates afterBacktrack even when conditions not satisfied
 			afterBacktrack = false
 			continue
 		}
 
-		// CRAWLJAX PARITY: Generate eventable ID with DUPLICATE_EVENT_SEED logic (Java lines 1286-1293)
-		// Java:
 		//   long eventableId = getEventableId();
 		//   if (element.wasExplored()) {
 		//       eventableId = (long) (element.getEquivalentAccess()) * DUPLICATE_EVENT_SEED + eventableId;
@@ -997,11 +929,8 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 				zap.Int64("seed_id", eventableID))
 		}
 
-		// CRAWLJAX PARITY: Record source state before action execution
 		sourceStateID := currentState.ID
 
-		// CRAWLJAX PARITY: Create Eventable BEFORE execution (Java line 1294)
-		// Java: Eventable event = new Eventable(element, action.getEventType(), eventableId);
 		// This allows us to use eventable.getRelatedFormInputs() in fireEventWithInputs
 		eventable := action.NewEventableFromCandidateCrawlActionWithID(act, eventableID)
 		eventable.SourceStateID = sourceStateID
@@ -1009,7 +938,6 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 		// Execute the action with eventable (for proper form input handling)
 		newActionsCount, filledFormInputs, err := c.executeActionWithEventable(ctx, act, eventable)
 
-		// CRAWLJAX PARITY: Record target state after execution
 		targetStateID := sourceStateID
 		if newState := c.stateMachine.GetCurrentState(); newState != nil {
 			targetStateID = newState.ID
@@ -1027,8 +955,6 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 				continue
 			}
 
-			// CRAWLJAX PARITY: On failure - setDirectAccess + disableInputsForAction + re-add
-			// Java lines 1305-1318:
 			//   LOG.info("Could not fire event. Putting back the actions on the todo list and disabling input next time");
 			//   LOG.info("Recording direct access to the action to avoid picking in the same state again");
 			//   element.setDirectAccess(true);
@@ -1043,10 +969,9 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 			zap.L().Debug("Could not fire event. Putting back on todo list and disabling input next time",
 				zap.Error(err))
 			zap.L().Debug("Recording direct access to avoid picking in the same state again")
-			element.SetDirectAccess(true) // Java line 1309
+			element.SetDirectAccess(true)
 			added := c.candidates.DisableInputsForAction(act)
 			if added {
-				// CRAWLJAX PARITY: Re-add action for retry without form inputs (Java lines 1312-1316)
 				c.candidates.ReAddAction(act, currentState.ID)
 			}
 			c.stats.ActionsFailed++
@@ -1069,28 +994,21 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 					zap.String("action", actionID),
 					zap.Float64("reward", reward))
 			}
-			// CRAWLJAX PARITY: Java does NOT update afterBacktrack on failure
 			// It's set to false AFTER the if-else block (line 1323)
 			// But since we continue here, we need to set it too
 			afterBacktrack = false
 			continue
 		}
 
-		// CRAWLJAX PARITY: On success - cache form inputs for backtracking (Java fireEventWithInputs line 1098)
-		// Java: candidateActionCache.mapInput(event, handled);
 		if len(filledFormInputs) > 0 {
 			c.candidates.MapInput(eventable, filledFormInputs)
 		}
 
-		// CRAWLJAX PARITY: On success - recordAccess() (Java lines 1297-1301)
-		// Java: fragmentManager.recordAccess(action.getCandidateElement(), stateMachine.getCurrentState());
 		if c.fragManager != nil {
 			c.fragManager.RecordElementAccess(element, currentState.ID)
 		}
 
-		// CRAWLJAX PARITY: crawlPath.Add is done INSIDE inspectNewState (inspectNewDom in Java),
 		// ONLY when DOM actually changed. NOT here unconditionally.
-		// Java Crawler.java:1408: crawlpath.add(event) is inside inspectNewDom()
 
 		c.candidates.MarkExecuted(act)
 		c.stats.ActionsExecuted++
@@ -1123,11 +1041,8 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 			}
 		}
 
-		// CRAWLJAX PARITY: afterBacktrack = false for subsequent polls (Java line 1323)
 		afterBacktrack = false
 
-		// CRAWLJAX PARITY: Check if crawler left scope after action (Java lines 1327-1333)
-		// Java:
 		//   if (!interrupted && crawlerNotInScope()) {
 		//       throw new CrawlerLeftDomainException(browser.getCurrentUrl());
 		//   }
@@ -1143,16 +1058,12 @@ func (c *Crawler) crawlThroughActions(ctx context.Context) {
 }
 
 // checkAllConditionsSatisfied checks if all conditions are satisfied for an element.
-// CRAWLJAX PARITY: Matches Java CandidateElement.allConditionsSatisfied(EmbeddedBrowser).
-// Java: Returns true if eventableCondition is null OR condition.checkCondition(browser) returns true.
 func (c *Crawler) checkAllConditionsSatisfied(page *browser.Page, element *action.CandidateElement) bool {
 	// Check page-level crawl conditions first
 	if !c.shouldCrawl(page) {
 		return false
 	}
 
-	// CRAWLJAX PARITY: Check element-specific eventable condition
-	// Java CandidateElement.java:
 	//   public boolean allConditionsSatisfied(EmbeddedBrowser browser) {
 	//       return eventableCondition == null || eventableCondition.checkCondition(browser);
 	//   }
@@ -1177,7 +1088,6 @@ func (c *Crawler) checkAllConditionsSatisfied(page *browser.Page, element *actio
 }
 
 // executeActionWithEventable executes an action with proper Eventable-based form handling.
-// CRAWLJAX PARITY: This matches Java Crawler.fireEventWithInputs() flow exactly.
 // Returns (newActionsCount, filledFormInputs, error) where:
 // - newActionsCount is the number of new actions discovered
 // - filledFormInputs are the form inputs that were filled (for caching in candidates)
@@ -1242,14 +1152,11 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 		return 0, nil, ErrCrawlConditionNotMet
 	}
 
-	// CRAWLJAX PARITY: Fill forms before action using handleInputElements
-	// Java fireEventWithInputs() flow (line 1087-1111):
 	//   1. List<FormInput> available = getInputElements(event);  // merge related + DOM
 	//   2. List<FormInput> handled = formHandler.handleFormElements(available);  // fill
 	//   3. candidateActionCache.mapInput(event, handled);  // cache (done in caller)
 	shouldDisableInputs := c.candidates.ShouldDisableInputForAction(crawlAction)
 	if c.config.FormFillEnabled && !shouldDisableInputs {
-		// CRAWLJAX PARITY: Use handleInputElements which merges:
 		// 1. eventable.getRelatedFormInputs() (inputs linked from CandidateElement)
 		// 2. formHandler.getFormInputs() (all inputs on current DOM)
 		filledInputs = c.handleInputElements(targetPage, eventable)
@@ -1258,7 +1165,6 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 	}
 
 	// Execute the action using identification selector
-	// CRAWLJAX PARITY: Use XPath or CSS selector based on identification.How
 	selector := ""
 	useXPath := false
 	if identification != nil {
@@ -1292,7 +1198,6 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 				zap.String("selector", selector),
 				zap.Bool("useXPath", useXPath),
 				zap.Error(err))
-			// CRAWLJAX PARITY: If click fails and crawlHiddenAnchors is enabled,
 			// try to navigate directly to href for anchor elements (visitAnchorHrefIfPossible)
 			if c.config.CrawlHiddenAnchors && strings.EqualFold(candidate.TagName, "a") && candidate.Href != "" {
 				zap.L().Debug("Click failed on hidden anchor, navigating to href", zap.String("href", candidate.Href))
@@ -1337,18 +1242,15 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 		return 0, nil, fmt.Errorf("unknown event type: %s", eventType)
 	}
 
-	// Wait after action (matches Java Crawljax crawlWaitEvent)
+	// Wait after action
 	zap.L().Debug("Waiting after action", zap.Duration("wait_time", c.config.WaitAfterEvent))
 	if err := sleepWithContext(ctx, c.config.WaitAfterEvent); err != nil {
 		return 0, nil, err
 	}
 
-	// CRAWLJAX PARITY: Handle popups before proceeding (matches Java Crawljax handlePopups())
 	_ = page.HandlePopups()
 
-	// CRAWLJAX PARITY: Close other windows to prevent memory issues
 	// This is CRITICAL for target="_blank" and window.open() links
-	// Matches Java Crawljax Crawler.java:1170 - browser.closeOtherWindows()
 	if err := br.CloseOtherWindows(); err != nil {
 		// Log but don't fail the crawl - this is a cleanup operation
 		zap.L().Warn("Failed to close other windows, continuing crawl", zap.Error(err))
@@ -1362,7 +1264,6 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 		}
 	}
 
-	// CRAWLJAX PARITY: Inspect new state (inspectNewState in Java)
 	zap.L().Debug("Inspecting new state after action")
 	newActionsCount = c.inspectNewState(ctx, page, eventable)
 
@@ -1370,17 +1271,13 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, crawlAction *a
 }
 
 // inspectNewState checks if the DOM changed after an action and handles new/clone states.
-// CRAWLJAX PARITY: This matches Java Crawljax Crawler.inspectNewState() + inspectNewDom()
 // Returns the number of new actions discovered (for MAB reward and metrics).
 // The eventable parameter is the FIRED eventable with correct ID (including DUPLICATE_EVENT_SEED).
 func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, eventable *action.Eventable) int {
-	// CRAWLJAX PARITY: handlePopups() as FIRST operation
-	// Java line 1372: browser.handlePopups()
 	_ = page.HandlePopups()
 
 	currentState := c.stateMachine.GetCurrentState()
 
-	// CRAWLJAX PARITY: Check if browser left scope FIRST (like Java inspectNewState)
 	// This MUST be checked before capturing state to prevent out-of-scope states
 	if !c.isInScope(page) {
 		zap.L().Warn("Browser left crawl scope, going back")
@@ -1425,16 +1322,12 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 		return 0
 	}
 
-	// CRAWLJAX PARITY: DOM changed! Add event to crawl path.
-	// Java inspectNewDom (line 1408): crawlpath.add(event) — ONLY when DOM changed.
 	if eventable.ID <= 0 {
 		zap.L().Warn("Adding Eventable to Crawlpath has id less than zero", zap.Int64("id", eventable.ID))
 	}
 	c.crawlPath.Add(eventable)
 
-	// CRAWLJAX PARITY: Use StateMachine.SwitchToStateAndCheckIfClone
 	// This handles: AddState (putIfAbsent), AddEdge, and ChangeState all in one call.
-	// Matches Java StateMachine.switchToStateAndCheckIfClone(event, newState, context).
 	existingState, isClone := c.stateMachine.SwitchToStateAndCheckIfClone(newState, eventable)
 	if isClone {
 		// Clone state detected
@@ -1442,7 +1335,6 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 			zap.String("state", existingState.Name),
 			zap.String("state_id", existingState.ID))
 
-		// CRAWLJAX PARITY: Clone-edge ID=-1 fix-up (Java lines 1420-1438)
 		// When addEdge detects a duplicate, it sets eventable.ID = -1.
 		// We must fix the crawlPath by replacing the clone edge with the real graph edge.
 		if eventable.ID == -1 {
@@ -1464,9 +1356,6 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 			}
 		}
 
-		// CRAWLJAX PARITY: Rediscover and restore logic
-		// Java line 1442: candidateActionCache.rediscoveredState(stateMachine.getCurrentState())
-		// Java line 1443: graphProvider.get().restoreState(stateMachine.getCurrentState())
 		c.candidates.RediscoveredState(existingState.ID)
 		if c.graph.RestoreState(existingState.ID) {
 			zap.L().Debug("Restored expired state and its incoming edges", zap.String("state_id", existingState.ID))
@@ -1478,7 +1367,7 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 
 	// New state discovered!
 	zap.L().Debug("New state discovered", zap.String("state", newState.Name), zap.Int("depth", newState.Depth))
-	c.candidates.RecordStateCreation(newState.ID) // CRAWLJAX PARITY: Track state order for OLDEST_FIRST mode
+	c.candidates.RecordStateCreation(newState.ID)
 
 	// RLCRAWLER PARITY: Register new state with MAB policy
 	if c.mabPolicy != nil {
@@ -1522,15 +1411,12 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 }
 
 // checkOnURLState checks DOM after URL reload and handles state changes.
-// CRAWLJAX PARITY: Matches Java Crawljax Crawler.checkOnURLState() exactly.
-// Java flow:
 // 1. newState = stateMachine.newStateFor(browser)
 // 2. clone = stateFlowGraph.putIfAbsent(newState)
 // 3. if (clone == null): setCurrentState(newState), add to onURLSet
 // 4. else: setCurrentState(clone), add clone to onURLSet if not index
 // 5. Always try to add reload edge (graph handles duplicate)
 func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previousState *state.State, resetURL string) {
-	// CRAWLJAX PARITY: Get DOM (like Java stateMachine.newStateFor(browser))
 	var combinedDOM string
 	var err error
 	if c.config.CrawlFrames {
@@ -1547,10 +1433,8 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 	strippedDOM := state.StripDOMDefault(combinedDOM)
 	currentURL, _ := page.URL()
 
-	// Create new state object (like Java stateFlowGraph.newStateFor())
 	newState := state.New(currentURL, combinedDOM, strippedDOM, 1)
 
-	// CRAWLJAX PARITY: Check if clone via graph.AddState (putIfAbsent).
 	// checkOnURLState does NOT use switchToStateAndCheckIfClone — it's a direct putIfAbsent.
 	isNew := c.graph.AddState(newState)
 
@@ -1563,18 +1447,14 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 			c.mabPolicy.AddState(newState.ID)
 		}
 
-		// CRAWLJAX PARITY: Java - stateMachine.setCurrentState(newState)
 		c.stateMachine.SetCurrentState(newState)
 
-		// CRAWLJAX PARITY: Java - stateMachine.getOnURLSet().add(newState)
 		c.stateMachine.AddToOnURLSet(newState)
 
-		// CRAWLJAX PARITY: Java line 340 - newState.setOnURL(true)
 		newState.SetOnURL(true)
 
 		zap.L().Debug("checkOnURLState: NEW state discovered after reload", zap.String("state", newState.Name))
 
-		// Extract actions from this new state (like Java parseCurrentPageForCandidateElements)
 		actions, err := c.extractor.Extract(ctx, page)
 		if err == nil && len(actions) > 0 {
 			c.candidates.AddActions(actions, newState.ID)
@@ -1591,10 +1471,8 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 			existingState = newState
 		}
 
-		// CRAWLJAX PARITY: Java - stateMachine.setCurrentState(clone)
 		c.stateMachine.SetCurrentState(existingState)
 
-		// CRAWLJAX PARITY: Java - if (!clone.getName().equalsIgnoreCase("index"))
 		//                         if (!onURLSet.contains(clone)) onURLSet.add(clone)
 		if existingState.Name != "index" {
 			c.stateMachine.AddToOnURLSet(existingState)
@@ -1602,8 +1480,6 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 		}
 	}
 
-	// CRAWLJAX PARITY: Always try to add reload edge (let graph handle duplicate)
-	// Java Crawler.java:352-372 - addEdge called regardless of state equality
 	// Graph.AddEdge() handles duplicate detection via Eventable.Equals()
 	if previousState != nil {
 		currentState := c.stateMachine.GetCurrentState()
@@ -1617,11 +1493,9 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 }
 
 // addFinalReloadEdge adds a reload edge from current state to index when crawl finishes.
-// CRAWLJAX PARITY: This is only needed when reset() was never called during the crawl.
 // If reset() was called at least once, all intermediate states already have reload edges.
 // The final leaf state does NOT get a reload edge because the crawl just terminates.
 func (c *Crawler) addFinalReloadEdge() {
-	// CRAWLJAX PARITY: Only add final reload edge if reset was never called during the crawl.
 	// This handles simple DFS crawls (like SimpleInputSite: index → state, end).
 	// For complex crawls where reset() was called, reload edges are already added during processing.
 	if c.resetCalled {
@@ -1637,15 +1511,12 @@ func (c *Crawler) addFinalReloadEdge() {
 	if currentState.ID == indexState.ID {
 		return
 	}
-	// CRAWLJAX PARITY: Always try to add, let graph handle duplicate
 	resetURL := c.config.URL.String()
 	c.graph.AddEdge(currentState.ID, indexState.ID, action.NewReloadEventable(resetURL))
 	zap.L().Debug("Added final reload edge", zap.String("from", currentState.Name), zap.String("to", indexState.Name))
 }
 
 // captureState captures the current page state.
-// CRAWLJAX PARITY: Uses HTMLWithFramesFiltered to include iframe content in state comparison.
-// This matches Java Crawljax getDomTreeWithFrames() behavior which embeds frame content
 // into the DOM so that state changes within iframes are detected.
 func (c *Crawler) captureState(ctx context.Context, page *browser.Page, depth int) (*state.State, error) {
 	url, err := page.URL()
@@ -1653,7 +1524,6 @@ func (c *Crawler) captureState(ctx context.Context, page *browser.Page, depth in
 		return nil, err
 	}
 
-	// CRAWLJAX PARITY: Get DOM with iframe content for proper state comparison
 	// Respects CrawlFrames and ExcludeFrames configuration
 	zap.L().Debug("Retrieving HTML",
 		zap.Bool("crawl_frames", c.config.CrawlFrames),
@@ -1731,7 +1601,6 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 }
 
 // isInScope checks if the current page URL is within the crawl scope.
-// This matches Java Crawljax's crawlerNotInScope() behavior.
 // Returns true if in scope, false if out of scope.
 func (c *Crawler) isInScope(page *browser.Page) bool {
 	currentURL, err := page.URL()
@@ -1739,7 +1608,6 @@ func (c *Crawler) isInScope(page *browser.Page) bool {
 		return false // Can't determine, assume out of scope
 	}
 
-	// CRAWLJAX PARITY: Check custom CrawlScope first (like setCrawlScope())
 	if c.config.CrawlScope != nil {
 		return c.config.CrawlScope(currentURL)
 	}
@@ -1764,7 +1632,6 @@ func (c *Crawler) isInScope(page *browser.Page) bool {
 }
 
 // visitAnchorHref navigates directly to an anchor's href URL.
-// CRAWLJAX PARITY: This matches Java Crawljax's visitAnchorHrefIfPossible() method.
 // Used when crawlHiddenAnchors is enabled and clicking a hidden anchor fails.
 func (c *Crawler) visitAnchorHref(page *browser.Page, href string) error {
 	// Resolve relative URL against current page URL
@@ -1817,8 +1684,6 @@ func (c *Crawler) checkWaitConditions(page *browser.Page) {
 }
 
 // getInputElements merges related form inputs with DOM-detected inputs.
-// CRAWLJAX PARITY: Matches Java Crawler.getInputElements(Eventable) exactly.
-// Java flow (line 917-942):
 //  1. Start with eventable.getRelatedFormInputs() (inputs linked to this action)
 //  2. Add formHandler.getFormInputs() (inputs detected on current DOM)
 //  3. Remove duplicates (based on Identification)
@@ -1868,7 +1733,6 @@ func (c *Crawler) getInputElements(page *browser.Page, eventable *action.Eventab
 }
 
 // detectedInputEquals checks if two detected inputs are equal based on Identification.
-// CRAWLJAX PARITY: Matches Java FormInput.equals() - based on Identification
 func (c *Crawler) detectedInputEquals(a, b *form.DetectedInput) bool {
 	if a == nil || b == nil || a.FormInput == nil || b.FormInput == nil {
 		return false
@@ -1892,12 +1756,10 @@ func (c *Crawler) detectedInputEquals(a, b *form.DetectedInput) bool {
 }
 
 // handleInputElements fills form inputs and returns the handled list.
-// CRAWLJAX PARITY: Matches Java Crawler.handleInputElements(Eventable) exactly.
-// Java flow (line 912-914):
 //  1. List<FormInput> formInputs = getInputElements(eventable);
 //  2. return formHandler.handleFormElements(formInputs);
 //
-// Returns action.FormInput for Crawljax parity (used in candidates cache).
+// Returns action.FormInput (used in candidates cache).
 func (c *Crawler) handleInputElements(page *browser.Page, eventable *action.Eventable) []*action.FormInput {
 	formInputs := c.getInputElements(page, eventable)
 	return c.formHandler.HandleFormElements(page, formInputs)
@@ -1905,7 +1767,6 @@ func (c *Crawler) handleInputElements(page *browser.Page, eventable *action.Even
 
 // fillFormsIfPresent detects and fills forms on the page.
 // If actionID is provided, caches the form inputs for reuse.
-// CRAWLJAX PARITY: Returns the form inputs that were filled for caching in UnfiredFragmentCandidates.
 func (c *Crawler) fillFormsIfPresent(page *browser.Page, actionID string) []*action.FormInput {
 	// Check if we have cached inputs for this action
 	if actionID != "" {
@@ -1915,7 +1776,7 @@ func (c *Crawler) fillFormsIfPresent(page *browser.Page, actionID string) []*act
 			if result.HasErrors() {
 				zap.L().Debug("Form fill had failures", zap.Int("failed", result.Failed), zap.Int("total", len(cached)))
 			}
-			// Return as action.FormInput for Crawljax parity
+			// Return as action.FormInput
 			return form.ToFormInputs(cached)
 		}
 	}
@@ -1942,11 +1803,9 @@ func (c *Crawler) fillFormsIfPresent(page *browser.Page, actionID string) []*act
 
 		zap.L().Debug("Found form inputs, filling...", zap.Int("count", len(inputs)))
 
-		// CRAWLJAX PARITY: Use HandleFormElements instead of FillInputs
 		// This returns list with XPath-based identification for backtracking
 		handled := c.formHandler.HandleFormElements(page, inputs)
 
-		// CRAWLJAX PARITY: Auto-pairwise fallback when normal fill fails
 		// Check if we have failures by comparing handled vs inputs
 		if len(handled) < len(inputs) {
 			zap.L().Debug("Normal form fill had failures, trying pairwise",
@@ -1998,7 +1857,6 @@ func (c *Crawler) fillFormsIfPresent(page *browser.Page, actionID string) []*act
 }
 
 // fillFormsWithInputs fills forms using cached action.FormInput data.
-// CRAWLJAX PARITY: Used during path following to replay form inputs from candidates cache.
 func (c *Crawler) fillFormsWithInputs(page *browser.Page, inputs []*action.FormInput) {
 	for _, formInput := range inputs {
 		if formInput.Identification == nil {
@@ -2050,7 +1908,6 @@ func (c *Crawler) fillFormsWithInputs(page *browser.Page, inputs []*action.FormI
 
 // navigateToFrame navigates to a specific frame by its path (e.g., "frame1.frame2").
 // Returns the Page object for the target frame.
-// CRAWLJAX PARITY: Uses FramesWithInfo for proper frame identification (id before name).
 func (c *Crawler) navigateToFrame(page *browser.Page, framePath string) (*browser.Page, error) {
 	if framePath == "" {
 		return page, nil
@@ -2061,7 +1918,6 @@ func (c *Crawler) navigateToFrame(page *browser.Page, framePath string) (*browse
 	currentPage := page
 
 	for _, segment := range segments {
-		// CRAWLJAX PARITY: Use FramesWithInfo for proper frame identification
 		frameInfos, err := currentPage.FramesWithInfo()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get frames: %w", err)
@@ -2090,7 +1946,7 @@ func (c *Crawler) navigateToFrame(page *browser.Page, framePath string) (*browse
 }
 
 // extractFragments extracts fragments from the page.
-// Uses the configured fragmentation mode: landmark (default, fast) or vips (Crawljax-style).
+// Uses the configured fragmentation mode: landmark (default, fast) or vips.
 func (c *Crawler) extractFragments(page *browser.Page, s *state.State) {
 	var frags []*fragment.Fragment
 	var err error
@@ -2117,7 +1973,6 @@ func (c *Crawler) extractFragments(page *browser.Page, s *state.State) {
 
 // buildResult builds the crawl result.
 func (c *Crawler) buildResult() *Result {
-	// CRAWLJAX PARITY: Save final crawl path to session before building resulss
 	if c.crawlPath != nil {
 		c.crawlPath.Close()
 		c.session.AddCrawlPath(c.crawlPath.ImmutableCopy())
@@ -2155,14 +2010,11 @@ func (c *Crawler) Graph() *state.Graph {
 }
 
 // formHandlerAdapter adapts EventableConditionChecker to action.FormHandler interface.
-// CRAWLJAX PARITY: This breaks the import cycle between action and condition packages.
-// Matches Java FormHandler behavior for generating CandidateElement variants with form inputs.
 type formHandlerAdapter struct {
 	checker *condition.EventableConditionChecker
 }
 
 // GetCandidateElementsForInputs implements action.FormHandler.
-// CRAWLJAX PARITY: Generates candidate element variants with different form input values.
 func (a *formHandlerAdapter) GetCandidateElementsForInputs(elementXPath string, baseCandidate *action.CandidateElement) []*action.CandidateElement {
 	if a.checker == nil || a.checker.Count() == 0 {
 		return []*action.CandidateElement{baseCandidate}

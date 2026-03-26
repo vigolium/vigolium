@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	// confirmCount - require 2 confirmations like original Java implementation
 	confirmCount = 2
 )
 

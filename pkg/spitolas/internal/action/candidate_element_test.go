@@ -1,5 +1,4 @@
 // Package action provides web crawling action types and handling.
-// This file ports CandidateElementTest.java from Crawljax exactly.
 package action
 
 import (
@@ -9,23 +8,15 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CandidateElementTest.java
 // Test class for the CandidateElement class.
 // Author: Stefan Lenselink <S.R.Lenselink@student.tudelft.nl>
 // =============================================================================
 
-// Helper to create a CandidateElement matching Java test setup.
-// Java: document = DomUtils.asDocument("");
-// Java: e = document.createElement("test");
-// Java: c = new CandidateElement(e, "", noFormInput);
 func newTestCandidateElement(tagName string, attributes map[string]string) *CandidateElement {
-	// Build attributes string in alphabetical order (matching Java's NamedNodeMap iteration)
-	// Java DomUtils.getAllElementAttributes iterates attributes in order
 	var attrParts []string
 	for key, value := range attributes {
 		attrParts = append(attrParts, key+"="+value)
 	}
-	// Sort alphabetically to match Java behavior
 	sort.Strings(attrParts)
 	attrsStr := strings.Join(attrParts, " ")
 
@@ -40,10 +31,7 @@ func newTestCandidateElement(tagName string, attributes map[string]string) *Cand
 }
 
 // TestEmptyElement tests element with no attributes.
-// Crawljax parity: CandidateElementTest.testEmptyElement()
 func TestEmptyElement(t *testing.T) {
-	// Java: e = document.createElement("test");
-	// Java: c = new CandidateElement(e, "", noFormInput);
 	c := newTestCandidateElement("TEST", map[string]string{})
 
 	// Assert.assertEquals("General String and Unique String are the same",
@@ -63,9 +51,7 @@ func TestEmptyElement(t *testing.T) {
 }
 
 // TestOneAttributeElement tests element with one attribute.
-// Crawljax parity: CandidateElementTest.testOneAttributeElement()
 func TestOneAttributeElement(t *testing.T) {
-	// Java: e.setAttribute("id", "abc");
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc"})
 
 	// Assert.assertEquals("General String and Unique String are the same",
@@ -85,10 +71,7 @@ func TestOneAttributeElement(t *testing.T) {
 }
 
 // TestTwoAttributeElement tests element with two attributes.
-// Crawljax parity: CandidateElementTest.testTwoAttributeElement()
 func TestTwoAttributeElement(t *testing.T) {
-	// Java: e.setAttribute("id", "abc");
-	// Java: e.setAttribute("class", "def");
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc", "class": "def"})
 
 	// Assert.assertEquals("General String and Unique String are the same",
@@ -109,10 +92,7 @@ func TestTwoAttributeElement(t *testing.T) {
 }
 
 // TestOneAttributeElementWithAtusa tests element with atusa attribute.
-// Crawljax parity: CandidateElementTest.testOneAttributeElementWithAtusa()
 func TestOneAttributeElementWithAtusa(t *testing.T) {
-	// Java: e.setAttribute("id", "abc");
-	// Java: e.setAttribute("atusa", "ignore");
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc", "atusa": "ignore"})
 
 	// Assert.assertNotSame("General String and Unique String are not the same",
@@ -139,11 +119,7 @@ func TestOneAttributeElementWithAtusa(t *testing.T) {
 }
 
 // TestTwoAttributeElementWithAtusa tests element with two attributes and atusa.
-// Crawljax parity: CandidateElementTest.testTwoAttributeElementWithAtusa()
 func TestTwoAttributeElementWithAtusa(t *testing.T) {
-	// Java: e.setAttribute("id", "abc");
-	// Java: e.setAttribute("atusa", "ignore");
-	// Java: e.setAttribute("class", "def");
 	c := newTestCandidateElement("TEST", map[string]string{"id": "abc", "atusa": "ignore", "class": "def"})
 
 	// Assert.assertNotSame("General String and Unique String are not the same",
@@ -168,7 +144,6 @@ func TestTwoAttributeElementWithAtusa(t *testing.T) {
 }
 
 // TestGetTypeFromStrFile tests InputTypeFile detection.
-// GO EXTENSION: Not in Crawljax
 func TestGetTypeFromStrFile(t *testing.T) {
 	tests := []struct {
 		input string
@@ -188,14 +163,7 @@ func TestGetTypeFromStrFile(t *testing.T) {
 }
 
 // TestMultipleAttributeElementWithAtusaOrderedAlphabetical tests attributes are sorted alphabetically.
-// Crawljax parity: CandidateElementTest.testMultipleAttributeElementWithAtusaOrderedAlphabetical()
 func TestMultipleAttributeElementWithAtusaOrderedAlphabetical(t *testing.T) {
-	// Java: e.setAttribute("id", "abc");
-	// Java: e.setAttribute("atusa", "ignore");
-	// Java: e.setAttribute("class", "def");
-	// Java: e.setAttribute("z", "z");
-	// Java: e.setAttribute("a", "a");
-	// Java: e.setAttribute("x", "a");
 	c := newTestCandidateElement("TEST", map[string]string{
 		"id":    "abc",
 		"atusa": "ignore",

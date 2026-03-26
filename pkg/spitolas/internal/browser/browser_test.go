@@ -38,7 +38,6 @@ func setupBrowser(t *testing.T, serverURL string) *Browser {
 }
 
 // TestBrowserNew tests browser creation with config.
-// Crawljax parity: BrowserProvider.newBrowser()
 func TestBrowserNew(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -91,7 +90,6 @@ func TestBrowserNewWithProxy(t *testing.T) {
 }
 
 // TestBrowserNewPage tests creating a new page/tab.
-// Crawljax parity: browser operations that create new windows
 func TestBrowserNewPage(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -185,7 +183,6 @@ func TestBrowserPages(t *testing.T) {
 }
 
 // TestBrowserCurrentPage tests current page persistence.
-// Crawljax parity: Session state preservation across actions
 func TestBrowserCurrentPage(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -258,7 +255,6 @@ func TestBrowserSetCurrentPage(t *testing.T) {
 }
 
 // TestBrowserCloseOtherWindows tests closing all pages except current.
-// Crawljax parity: closeOtherWindows() - prevents memory issues from popup windows
 func TestBrowserCloseOtherWindows(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -326,7 +322,6 @@ func TestBrowserCloseOtherWindowsNoCurrentPage(t *testing.T) {
 }
 
 // TestBrowserClose tests browser cleanup.
-// Crawljax parity: browser.close()
 func TestBrowserClose(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -490,7 +485,6 @@ func TestBrowserPoolClose(t *testing.T) {
 }
 
 // TestBrowserCloseOtherWindowsTargetBlank tests closing new tabs opened by target="_blank".
-// CRAWLJAX PARITY: WebDriverBackedEmbeddedBrowser.closeOtherWindows() uses getWindowHandles()
 // to find ALL windows including those opened by target="_blank" or window.open().
 func TestBrowserCloseOtherWindowsTargetBlank(t *testing.T) {
 	server := setupTestServer(t)
@@ -569,7 +563,6 @@ func TestBrowserCloseOtherWindowsTargetBlank(t *testing.T) {
 }
 
 // TestBrowserCloseOtherWindowsWindowOpen tests closing popups opened by window.open().
-// CRAWLJAX PARITY: Same behavior as target="_blank" - all non-current windows are closed.
 func TestBrowserCloseOtherWindowsWindowOpen(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()

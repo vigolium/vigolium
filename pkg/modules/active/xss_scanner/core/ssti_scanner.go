@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// SSTIScanner is the Go equivalent of cf3.java, responsible for SSTI checks.
 type SSTIScanner struct {
 	strategyCoordinator *XSSPayloadStrategyCoordinator
 	injectionPoint      httpmsg.InsertionPoint
@@ -67,13 +66,12 @@ func NewSSTIScanner(
 	}
 }
 
-// PerformSSTIChecks corresponds to cf3.c(), initiating the SSTI scan.
+// PerformSSTIChecks performs SSTI checks, initiating the SSTI scan.
 func (s *SSTIScanner) PerformSSTIChecks() {
-	// Corresponds to the cf3.a() path, which is the simpler check.
 	s.performSimpleCheck()
 }
 
-// performSimpleCheck corresponds to cf3.a()
+// performSimpleCheck performs SSTI checks
 func (s *SSTIScanner) performSimpleCheck() {
 	detector, err := s.getReflectionDetector()
 	if err != nil {
@@ -107,9 +105,8 @@ func (s *SSTIScanner) performSimpleCheck() {
 	}
 }
 
-// getReflectionDetector corresponds to cf3.a(byte[], byte[])
+// getReflectionDetector creates a reflection detector
 func (s *SSTIScanner) getReflectionDetector() (*HTTPReflectionPointDetector, error) {
-	// In cf3, it does `new ger(...)`. This seems to create a detector from scratch.
 	// This function mimics that by sending a request with the SSTI payload to find reflections.
 
 	payloadBytes := s.sstiPayload.GetPrefixedPrimaryData()
@@ -120,7 +117,6 @@ func (s *SSTIScanner) getReflectionDetector() (*HTTPReflectionPointDetector, err
 		return nil, err
 	}
 
-	// In cf3, it uses e8u.a(var2), which is NewSimpleBytePatternMatcher(d2.e).
 	// So the matcher is only for the main payload, not prefix.
 	matcher := NewSimpleBytePatternMatcher(s.sstiPayload.primaryData)
 
@@ -145,7 +141,7 @@ func (s *SSTIScanner) getReflectionDetector() (*HTTPReflectionPointDetector, err
 	return detector, nil
 }
 
-// runStrategyForReflection corresponds to the lambda in cf3.a(eqx, def, big, crp)
+// runStrategyForReflection runs strategy for a given reflection
 func (s *SSTIScanner) runStrategyForReflection(
 	reflection ReflectionOccurrenceDetail,
 	contentType *ContentTypeProfile,
@@ -155,7 +151,7 @@ func (s *SSTIScanner) runStrategyForReflection(
 
 	finding, err := s.strategyCoordinator.SelectAndExecuteStrategy(
 		contextType,
-		LlAppend, // cf3 always uses ll.APPEND
+		TacticAppend,
 		contentType,
 		s.injectionPoint,
 		reflection,

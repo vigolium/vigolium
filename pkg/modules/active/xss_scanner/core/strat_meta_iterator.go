@@ -3,13 +3,11 @@ package core
 import "github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 
 // FirstSuccessMetaStrategy implements the ContextualXSSTechnique interface.
-// Original Java class: gfw
 type FirstSuccessMetaStrategy struct {
-	childStrategies []ContextualAttackPayloadGenerator // Corresponds to 'private final ContextualXSSTechnique[] c;'
+	childStrategies []ContextualAttackPayloadGenerator
 }
 
-// NewFirstSuccessMetaStrategy creates a new instance of Gfw.
-// Original Java constructor: public gfw(ContextualXSSTechnique... var1)
+// NewFirstSuccessMetaStrategy creates a new instance.
 func NewFirstSuccessMetaStrategy(
 	childStrategies ...ContextualAttackPayloadGenerator,
 ) *FirstSuccessMetaStrategy {
@@ -18,8 +16,6 @@ func NewFirstSuccessMetaStrategy(
 	}
 }
 
-// GeneratePayload is the Go equivalent of the 'a' method from the ContextualXSSTechnique interface for class Gfw.
-// Original Java method: public PreliminaryXSSFinding a(hgm var1, hnx var2, byte var3, byte var4, DetectedReflection var5, byte[] var6)
 //
 // MODIFIED: Now tracks which alternatives were tried for better debugging and chain reporting.
 // Returns first successful finding, but can optionally wrap in chain to show attempted strategies.

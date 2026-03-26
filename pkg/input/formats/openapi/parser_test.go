@@ -510,7 +510,7 @@ paths:
 }
 
 func TestParseOpenAPI_MethodPrioritySorting(t *testing.T) {
-	// Spec với nhiều methods và paths để verify sorting order
+	// Spec with multiple methods and paths to verify sorting order
 	spec := []byte(`
 openapi: "3.0.0"
 info:

@@ -5,7 +5,6 @@ import (
 )
 
 // VisualStructure represents the final visual structure of a page.
-// This mirrors Java Crawljax's VisualStructureConstructor output.
 type VisualStructure struct {
 	// Root visual block
 	Root *VisualBlock
@@ -25,7 +24,6 @@ type VisualStructure struct {
 }
 
 // VisualStructureConstructor constructs the final visual structure.
-// This mirrors Java Crawljax's VisualStructureConstructor class.
 type VisualStructureConstructor struct {
 	pDoC       int // Permitted Degree of Coherence
 	pageWidth  int

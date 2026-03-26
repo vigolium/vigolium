@@ -12,13 +12,11 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: BrowserClosesDownloadPopUp.java
 // Integration tests for download popup handling.
 // The crawler should handle download popups gracefully and continue crawling.
 // =============================================================================
 
 // TestDownloadPopupHandling tests that the crawler handles download popups correctly.
-// Crawljax parity: BrowserClosesDownloadPopUp.webBrowserWindowOpensItIsIgnored()
 // Expected: NUMBER_OF_STATES = 2 (download.html and simple.html)
 //
 // Test scenario:
@@ -30,7 +28,6 @@ import (
 // - Crawler should reach 2 states without getting stuck on download
 func TestDownloadPopupHandling(t *testing.T) {
 	const (
-		// Crawljax exact value from BrowserClosesDownloadPopUp.java line 20
 		NUMBER_OF_STATES = 2
 	)
 
@@ -46,14 +43,13 @@ func TestDownloadPopupHandling(t *testing.T) {
 		t.Fatalf("Failed to create config: %v", err)
 	}
 
-	// Crawljax configuration parity:
 	// BaseCrawler uses default config:
 	// - clickDefaultElements()
 	// - CHROME_HEADLESS
 	// - unlimitedRuntime
 	// - unlimitedCrawlDepth
 	cfg.Headless = true
-	cfg.MaxDepth = 0  // Unlimited (Crawljax: setUnlimitedCrawlDepth())
+	cfg.MaxDepth = 0
 	cfg.MaxStates = 0 // Unlimited
 	cfg.MaxDuration = 60 * time.Second
 	cfg.WaitAfterEvent = 200 * time.Millisecond
@@ -72,12 +68,11 @@ func TestDownloadPopupHandling(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(crawl.getStateFlowGraph(), hasStates(2))
 	// States expected:
 	// 1. download/download.html - initial state
 	// 2. simple.html - after clicking the HTML link
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 

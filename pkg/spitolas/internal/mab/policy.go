@@ -1,5 +1,4 @@
 // Package mab implements Multi-Armed Bandit algorithms for crawl action prioritization.
-// This package provides 100% parity with RLcrawler MAB_Exp3_31_policy.py
 package mab
 
 import (
@@ -24,7 +23,6 @@ type ActionStats struct {
 }
 
 // MABExp3Policy implements Exp3.1 Multi-Armed Bandit policy.
-// 100% parity with RLcrawler MAB_Exp3_31_policy.py
 //
 // Key insight: K is GLOBAL, not per-state.
 // This is critical for correct Exp3.1 algorithm behavior.

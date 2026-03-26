@@ -6,7 +6,6 @@ type Option struct {
 	QuantileFactor            int
 	QuantitativeDiffKeys      []string
 	// CustomCanary is prepended to canaryKeys for response fingerprinting.
-	// Matches Java's globalSettings.getString("canary") behavior.
 	CustomCanary string
 }
 

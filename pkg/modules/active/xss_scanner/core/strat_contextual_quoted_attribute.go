@@ -7,36 +7,29 @@ import (
 )
 
 // QuotedAttributeContextStrategy implements the ContextualXSSTechnique interface.
-// Original Java class: gu9
 type QuotedAttributeContextStrategy struct {
-	combinedStrategy ContextualAttackPayloadGenerator // Corresponds to 'private final ContextualXSSTechnique a;'
+	combinedStrategy ContextualAttackPayloadGenerator
 }
 
-// NewQuotedAttributeContextStrategy creates a new instance of Gu9.
-// Original Java constructor: public gu9(byte var1)
+// NewQuotedAttributeContextStrategy creates a new instance.
 func NewQuotedAttributeContextStrategy(quoteByte byte) *QuotedAttributeContextStrategy {
 	receiver := &QuotedAttributeContextStrategy{}
 
-	// this.a = new c0b(this.a((char)var1), new d1v(var1));
-	// this.a((char)var1)
 	quotedPayloadStrategy := receiver.createPayloadStrategyForQuote(
 		rune(quoteByte),
 	) // Convert byte to rune for char type
 
-	// new d1v(var1)
-	charInjectionStrategy := NewSingleCharacterInjectionStrategy(quoteByte) // NewD1v is ported
+	charInjectionStrategy := NewSingleCharacterInjectionStrategy(quoteByte)
 
 	finalCombinedStrategy := NewSequentialMetaStrategy(
 		quotedPayloadStrategy,
 		charInjectionStrategy,
-	) // NewC0b is ported
+	)
 	receiver.combinedStrategy = finalCombinedStrategy
 
 	return receiver
 }
 
-// GeneratePayload is the Go equivalent of the 'a' method from the ContextualXSSTechnique interface for class Gu9.
-// Original Java method: public PreliminaryXSSFinding a(hgm var1, hnx var2, byte var3, byte var4, DetectedReflection var5, byte[] var6)
 func (strategy *QuotedAttributeContextStrategy) GeneratePayload(
 	probeBuilder *ScanProbeBuilder,
 	profile *ScanExecutionProfile,
@@ -55,16 +48,12 @@ func (strategy *QuotedAttributeContextStrategy) GeneratePayload(
 	)
 }
 
-// createPayloadStrategyForQuote is the Go equivalent of private ContextualXSSTechnique a(char var1)
 func (strategy *QuotedAttributeContextStrategy) createPayloadStrategyForQuote(
 	quoteChar rune,
 ) ContextualAttackPayloadGenerator {
-	// return gu9::lambda$createInjection$0;
 	return &quotedAttributeLambdaWrapper{capturedQuoteChar: quoteChar}
 }
 
-// createQuotedAttributePayload is the Go equivalent of the static Java lambda lambda$createInjection$0
-// private static PreliminaryXSSFinding lambda$createInjection$0(char var0_char_captured, hgm var1, hnx var2, ...)
 func createQuotedAttributePayload(
 	quoteChar rune,
 	probeBuilder *ScanProbeBuilder,
@@ -74,7 +63,6 @@ func createQuotedAttributePayload(
 	reflection ReflectionOccurrenceDetail,
 	transaction *utils.HTTPTransaction,
 ) PotentialXSSFinding {
-	// String var7 = var0_char_captured + "#{random_string_5}" + var0_char_captured + "a=b#{random_string_5b}";
 	quoteCharStr := string(quoteChar)
 	formattedPayload := fmt.Sprintf(
 		"%s#{random_string_5}%sa=b#{random_string_5b}",
@@ -82,7 +70,6 @@ func createQuotedAttributePayload(
 		quoteCharStr,
 	)
 
-	// return var1.c().a((byte)2, var7, var2);
 	return probeBuilder.WithoutSecondaryCanary().BuildFinding(byte(2), formattedPayload, profile)
 }
 

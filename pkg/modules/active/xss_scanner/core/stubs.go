@@ -8,21 +8,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 )
 
-// ReflectionOccurrenceDetail is eqx
+// ReflectionOccurrenceDetail represents a detected reflection point in a response.
 type ReflectionOccurrenceDetail interface {
-	// IsEqx()  // Marker method
-	CoreInfo() *ReflectionPointCoreInfo // Returns Hpo, e.g., for var5.a().f
+	CoreInfo() *ReflectionPointCoreInfo
 	GetRedirectionTarget(detector *HTTPReflectionPointDetector) *RedirectionTargetInfo
 	Accept(visitor ReflectionDetailVisitor) interface{}
 }
 
-// RedirectionTargetInfo is a stub for class dw9
+// RedirectionTargetInfo holds redirection target information for a reflection point.
 type RedirectionTargetInfo struct {
 	RedirectType       RedirectType
 	Value              string
-	OriginalMatchStart int    // d in dw9
-	OriginalMatchEnd   int    // e in dw9
-	RawContent         []byte // b in dw9
+	OriginalMatchStart int
+	OriginalMatchEnd   int
+	RawContent         []byte
 }
 
 func NewRedirectDetails(
@@ -40,7 +39,6 @@ func NewRedirectDetails(
 	}
 }
 
-// ReflectionMatchCriterion is e7s in Java
 type ReflectionMatchCriterion interface {
 	IsReflectionMatchCriterion() // Marker method
 	Matches(reflection ReflectionOccurrenceDetail) bool
@@ -66,13 +64,11 @@ func (matcher *AttributeValueEventMatcher) Matches(reflection ReflectionOccurren
 func (matcher *AttributeValueEventMatcher) IsReflectionMatchCriterion() {}
 
 /* -------------------------------------------------------------------------- */
-// cgv.java
 type AttackTechniqueClassifier interface {
 	String() string
 	ClassificationCode() int
 }
 
-// i2j.java
 type AttackStepRunner interface {
 	RunAttackStep(
 		injectionPoint httpmsg.InsertionPoint,
@@ -86,19 +82,16 @@ type AttackStepRunner interface {
 	) PotentialXSSFinding
 }
 
-// fen.java
 type RandomTextProvider interface {
 	GenerateText(length int) string
 }
 
-// bgf.java
 type PotentialXSSFinding interface {
 	IsPotentialXSSFinding() // Marker method
 	ScanFlags() int
 	VariantCode() byte
 }
 
-// d3b.java
 type ContextualAttackPayloadGenerator interface {
 	GeneratePayload(
 		probeBuilder *ScanProbeBuilder,
@@ -184,12 +177,9 @@ type StrategyGeneratorFromOperator interface {
 
 /* -------------------------------------------------------------------------- */
 
-// bgf a(bno var1, int var2, byte[] var3, ll var4, byte var5, cgv var6, boolean var7, hnx var8);
-
 type ScanExecutionManager interface {
 	Scan(
-		// initialHttpRequest *http.Request,
-		injectionPoint httpmsg.InsertionPoint, // Changed from bnoInsertionPoint
+		injectionPoint httpmsg.InsertionPoint,
 		currentScanFlags int,
 		basePayload []byte,
 		tactic ReflectionTacticType,

@@ -5,16 +5,15 @@ import (
 	"strings"
 )
 
-// ParseMode định nghĩa các chế độ phân tích HTML.
-// Tương đương với enum _9 trong Java.
+// ParseMode defines the HTML parsing modes.
 type ParseMode int
 
 const (
-	// ParseModeNone không thực hiện phân tích đặc biệt.
+	// ParseModeNone performs no special parsing.
 	ParseModeNone ParseMode = iota
-	// ParseModeHead chỉ phân tích đến hết thẻ </head>.
+	// ParseModeHead parses only up to the closing </head> tag.
 	ParseModeHead
-	// ParseModeFull phân tích toàn bộ tài liệu.
+	// ParseModeFull parses the entire document.
 	ParseModeFull
 )
 
@@ -42,24 +41,22 @@ func (q QuoteType) String() string {
 	}
 }
 
-// HTMLAttribute đại diện cho một thuộc tính của thẻ HTML.
-// Tương đương với lớp apy / interface ffv trong Java.
+// HTMLAttribute represents an attribute of an HTML tag.
 type HTMLAttribute struct {
-	Name       string    // cV()
-	Value      string    // cY()
-	NameStart  int       // cW()
-	NameEnd    int       // cX()
-	ValueStart int       // c0()
-	ValueEnd   int       // cZ()
+	Name       string
+	Value      string
+	NameStart  int
+	NameEnd    int
+	ValueStart int
+	ValueEnd   int
 	QuoteType  QuoteType // 0: double ("), 1: single ('), 2: backtick (`), 3: none
 }
 
-// HTMLTagInfo chứa thông tin về một thẻ HTML.
-// Tương đương với lớp apv / interface dr2 trong Java.
+// HTMLTagInfo contains information about an HTML tag.
 type HTMLTagInfo struct {
-	Name       string // Tên thẻ, đã được chuyển thành chữ thường
-	NameStart  int    // Vị trí bắt đầu của tên thẻ (sau '<' hoặc '</')
-	NameEnd    int    // Vị trí kết thúc của tên thẻ
+	Name       string // Tag name, lowercased
+	NameStart  int    // Start position of the tag name (after '<' or '</')
+	NameEnd    int    // End position of the tag name
 	Attributes []*HTMLAttribute
 }
 
@@ -69,7 +66,7 @@ func (t *HTMLTagInfo) GetAttribute(name string) string {
 			return attr.Value
 		}
 	}
-	return "" // Trả về chuỗi rỗng nếu không tìm thấy thuộc tính
+	return ""
 }
 
 func (t *HTMLTagInfo) String() string {
@@ -82,21 +79,20 @@ func (t *HTMLTagInfo) String() string {
 	)
 }
 
-// HTMLElementType định nghĩa loại của một phần tử HTML.
-// Dựa trên trường 'e' của lớp apb trong Java.
+// HTMLElementType defines the type of an HTML element.
 type HTMLElementType byte
 
 const (
-	// OpenTag là một thẻ mở (ví dụ: <div>). Ánh xạ từ apb.e = 0.
+	// OpenTag is an opening tag (e.g., <div>).
 	OpenTag HTMLElementType = 0
-	// CloseTag là một thẻ đóng (ví dụ: </div>). Ánh xạ từ apb.e = 1.
+	// CloseTag is a closing tag (e.g., </div>).
 	CloseTag HTMLElementType = 1
-	// CommentOrDirective là một comment (<!-- ... -->) hoặc directive (<!...>). Ánh xạ từ apb.e = 2.
+	// CommentOrDirective is a comment (<!-- ... -->) or directive (<!...>).
 	CommentOrDirective HTMLElementType = 2
-	// TextNode là một nút văn bản. Ánh xạ từ apb.e = 3.
+	// TextNode is a text node.
 	TextNode HTMLElementType = 3
-	// SelfClosingTagOrPI là một thẻ tự đóng (ví dụ: <br/>, <img/>)
-	// hoặc một processing instruction (ví dụ: <?xml ... ?>). Ánh xạ từ apb.e = 4.
+	// SelfClosingTagOrPI is a self-closing tag (e.g., <br/>, <img/>)
+	// or a processing instruction (e.g., <?xml ... ?>).
 	SelfClosingTagOrPI HTMLElementType = 4
 )
 
@@ -117,18 +113,17 @@ func (h HTMLElementType) String() string {
 	}
 }
 
-// HTMLElement đại diện cho một phần tử trong cây HTML.
-// Tương đương với lớp apb / interface ahe trong Java.
+// HTMLElement represents an element in the HTML tree.
 type HTMLElement struct {
-	Type HTMLElementType // cU()
-	// TagInfo chỉ có giá trị nếu Type là OpenTag, CloseTag, hoặc SelfClosingTagOrPI.
+	Type HTMLElementType
+	// TagInfo is set when Type is OpenTag, CloseTag, or SelfClosingTagOrPI.
 	TagInfo *HTMLTagInfo
-	// Content chỉ có giá trị nếu Type là TextNode hoặc CommentOrDirective.
-	// Đối với CommentOrDirective, Content chứa toàn bộ nội dung bao gồm cả <!-- và --> hoặc <! và >.
-	// Đối với TextNode, Content là nội dung text đã được giải mã HTML entities (nếu cần).
+	// Content is set when Type is TextNode or CommentOrDirective.
+	// For CommentOrDirective, Content includes the full markup (e.g., <!-- and -->).
+	// For TextNode, Content is the text with HTML entities decoded.
 	Content     string
-	StartOffset int // cR()
-	EndOffset   int // cV()
+	StartOffset int
+	EndOffset   int
 }
 
 func NewHTMLElement(
@@ -146,9 +141,6 @@ func NewHTMLElement(
 		Content:     var5,
 	}
 }
-
-// IsAhe makes HTMLElement satisfy the Ahe interface (from hkk.go).
-// func (h *HTMLElement) IsAhe() {} // No longer needed as Ahe interface is removed
 
 func (h *HTMLElement) String() string {
 	tagInfoString := "nil"

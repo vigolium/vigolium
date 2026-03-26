@@ -151,7 +151,7 @@ func (s *PayloadInjector) Fuzz(
 }
 
 func (s *PayloadInjector) verify(
-	doNotBreakAttackSeed *Attack,
+	baselineAttackSeed *Attack,
 	breakAttackSeed *Attack,
 	probe *Probe,
 	chosenEscape int,
@@ -161,10 +161,10 @@ func (s *PayloadInjector) verify(
 	mergedBreakAttack := NewAttack(s.Options.QuantitativeDiffKeys, s.Options.QuantileFactor, s.Options.CustomCanary)
 	mergedBreakAttack.AddAttack(breakAttackSeed)
 
-	mergedDoNotBreakAttack := NewAttack(s.Options.QuantitativeDiffKeys, s.Options.QuantileFactor, s.Options.CustomCanary)
-	mergedDoNotBreakAttack.AddAttack(doNotBreakAttackSeed)
+	mergedBaselineAttack := NewAttack(s.Options.QuantitativeDiffKeys, s.Options.QuantileFactor, s.Options.CustomCanary)
+	mergedBaselineAttack.AddAttack(baselineAttackSeed)
 
-	tempDoNotBreakAttack := doNotBreakAttackSeed
+	tempBaselineAttack := baselineAttackSeed
 
 	confirmations := s.Options.Confirmations
 	boostedConfirmations := false
@@ -175,64 +175,64 @@ func (s *PayloadInjector) verify(
 		}
 		mergedBreakAttack.AddAttack(tempBreakAttack)
 
-		similarCheck1 := Similar(mergedDoNotBreakAttack, tempBreakAttack)
-		similarIshCheck1 := probe.RequireConsistentEvidence &&
-			SimilarIsh(
-				mergedDoNotBreakAttack,
+		similarCheck1 := Similar(mergedBaselineAttack, tempBreakAttack)
+		toleranceCheck1 := probe.RequireConsistentEvidence &&
+			SimilarWithTolerance(
+				mergedBaselineAttack,
 				mergedBreakAttack,
-				tempDoNotBreakAttack,
+				tempBaselineAttack,
 				tempBreakAttack,
 			)
-		if similarCheck1 || similarIshCheck1 {
+		if similarCheck1 || toleranceCheck1 {
 			zap.L().Debug(
 				"verify rejected (loop)",
 				zap.Bool("similarCheck1", similarCheck1),
-				zap.Bool("similarIshCheck1", similarIshCheck1),
-				zap.String("mergedDoNotBreakAttack_payload", mergedDoNotBreakAttack.Payload),
+				zap.Bool("toleranceCheck1", toleranceCheck1),
+				zap.String("mergedBaselineAttack_payload", mergedBaselineAttack.Payload),
 				zap.String("tempBreakAttack_payload", tempBreakAttack.Payload),
 				zap.String("mergedBreakAttack_payload", mergedBreakAttack.Payload),
-				zap.String("doNotBreakAttackSeed_payload", doNotBreakAttackSeed.Payload),
+				zap.String("baselineAttackSeed_payload", baselineAttackSeed.Payload),
 			)
 
 			return []*Attack{}, nil
 		}
 
-		if boostedConfirmations && mergedDoNotBreakAttack.Size() > mergedBreakAttack.Size()+5 {
+		if boostedConfirmations && mergedBaselineAttack.Size() > mergedBreakAttack.Size()+5 {
 			continue
 		}
 
-		tempDoNotBreakAttack, err = s.buildAttackFromProbe(
+		tempBaselineAttack, err = s.buildAttackFromProbe(
 			probe,
 			probe.GetNextEscapePayloadSet()[chosenEscape],
 		)
 		if err != nil {
 			return nil, err
 		}
-		mergedDoNotBreakAttack.AddAttack(tempDoNotBreakAttack)
+		mergedBaselineAttack.AddAttack(tempBaselineAttack)
 
-		similarCheck2 := Similar(mergedBreakAttack, tempDoNotBreakAttack)
-		similarIshCheck2 := probe.RequireConsistentEvidence &&
-			SimilarIsh(
-				mergedDoNotBreakAttack,
+		similarCheck2 := Similar(mergedBreakAttack, tempBaselineAttack)
+		toleranceCheck2 := probe.RequireConsistentEvidence &&
+			SimilarWithTolerance(
+				mergedBaselineAttack,
 				mergedBreakAttack,
-				tempDoNotBreakAttack,
+				tempBaselineAttack,
 				tempBreakAttack,
 			)
-		if similarCheck2 || similarIshCheck2 {
+		if similarCheck2 || toleranceCheck2 {
 			zap.L().Debug(
-				"verify rejected (loop) after adding tempDoNotBreakAttack",
+				"verify rejected (loop) after adding tempBaselineAttack",
 				zap.Bool("similarCheck2", similarCheck2),
-				zap.Bool("similarIshCheck2", similarIshCheck2),
+				zap.Bool("toleranceCheck2", toleranceCheck2),
 				zap.String("mergedBreakAttack_payload", mergedBreakAttack.Payload),
-				zap.String("tempDoNotBreakAttack_payload", tempDoNotBreakAttack.Payload),
-				zap.String("mergedDoNotBreakAttack_payload", mergedDoNotBreakAttack.Payload),
+				zap.String("tempBaselineAttack_payload", tempBaselineAttack.Payload),
+				zap.String("mergedBaselineAttack_payload", mergedBaselineAttack.Payload),
 				zap.String("tempBreakAttack_payload", tempBreakAttack.Payload),
 			)
 			return []*Attack{}, nil
 		}
 
 		if i == confirmations-1 && !boostedConfirmations {
-			keys := GetNonMatchingPrints(mergedDoNotBreakAttack, mergedBreakAttack)
+			keys := GetNonMatchingFingerprints(mergedBaselineAttack, mergedBreakAttack)
 			if tempBreakAttack.AllKeysAreQuantitative(lo.Keys(keys)) {
 				confirmations = s.Options.QuantitativeConfirmations
 				boostedConfirmations = true
@@ -241,14 +241,14 @@ func (s *PayloadInjector) verify(
 	}
 
 	// Final probe pair sent out of order
-	tempDoNotBreakAttack, err := s.buildAttackFromProbe(
+	tempBaselineAttack, err := s.buildAttackFromProbe(
 		probe,
 		probe.GetNextEscapePayloadSet()[chosenEscape],
 	)
 	if err != nil {
 		return nil, err
 	}
-	mergedDoNotBreakAttack.AddAttack(tempDoNotBreakAttack)
+	mergedBaselineAttack.AddAttack(tempBaselineAttack)
 
 	tempBreakAttack, err := s.buildAttackFromProbe(probe, probe.GetNextBreakPayload())
 	if err != nil {
@@ -256,43 +256,43 @@ func (s *PayloadInjector) verify(
 	}
 	mergedBreakAttack.AddAttack(tempBreakAttack)
 
-	similarIshCheck3 := SimilarIsh(
-		mergedDoNotBreakAttack,
+	toleranceCheck3 := SimilarWithTolerance(
+		mergedBaselineAttack,
 		mergedBreakAttack,
-		tempDoNotBreakAttack,
+		tempBaselineAttack,
 		tempBreakAttack,
 	)
 	similarCheck3 := probe.RequireConsistentEvidence &&
-		Similar(mergedBreakAttack, tempDoNotBreakAttack)
-	if similarIshCheck3 || similarCheck3 {
+		Similar(mergedBreakAttack, tempBaselineAttack)
+	if toleranceCheck3 || similarCheck3 {
 		zap.L().Debug(
 			"verify rejected (final) after final probes",
-			zap.Bool("similarIshCheck3", similarIshCheck3),
+			zap.Bool("toleranceCheck3", toleranceCheck3),
 			zap.Bool("similarCheck3", similarCheck3),
-			zap.String("mergedDoNotBreakAttack_payload", mergedDoNotBreakAttack.Payload),
+			zap.String("mergedBaselineAttack_payload", mergedBaselineAttack.Payload),
 			zap.String("mergedBreakAttack_payload", mergedBreakAttack.Payload),
-			zap.String("tempDoNotBreakAttack_payload", tempDoNotBreakAttack.Payload),
+			zap.String("tempBaselineAttack_payload", tempBaselineAttack.Payload),
 			zap.String("tempBreakAttack_payload", tempBreakAttack.Payload),
 		)
 		return []*Attack{}, nil
 	}
 
 	if !boostedConfirmations {
-		keys := GetNonMatchingPrints(mergedDoNotBreakAttack, mergedBreakAttack)
+		keys := GetNonMatchingFingerprints(mergedBaselineAttack, mergedBreakAttack)
 		quantitativeCheck := tempBreakAttack.AllKeysAreQuantitative(lo.Keys(keys))
 		if quantitativeCheck {
 			zap.L().Debug(
 				"verify rejected (final): All keys are quantitative and confirmations not boosted",
 				zap.Bool("quantitativeCheck", quantitativeCheck),
 				zap.String("tempBreakAttack_payload", tempBreakAttack.Payload),
-				zap.String("mergedDoNotBreakAttack_payload", mergedDoNotBreakAttack.Payload),
+				zap.String("mergedBaselineAttack_payload", mergedBaselineAttack.Payload),
 				zap.String("mergedBreakAttack_payload", mergedBreakAttack.Payload),
 			)
 			return []*Attack{}, nil
 		}
 	}
 
-	attacks = append(attacks, mergedBreakAttack, mergedDoNotBreakAttack)
+	attacks = append(attacks, mergedBreakAttack, mergedBaselineAttack)
 
 	return attacks, nil
 }
@@ -313,10 +313,8 @@ func (s *PayloadInjector) buildAttackFromProbe(
 	basePayload := payload
 	switch prefix {
 	case InjectType_Prepend:
-		// Java: payload += insertionPoint.getBaseValue() → payload + baseValue
 		payload = payload + baseValue
 	case InjectType_Append:
-		// Java: payload = insertionPoint.getBaseValue() + anchor + payload
 		payload = baseValue + anchor + payload
 	case InjectType_Replace:
 		// payload remains unchanged

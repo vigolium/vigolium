@@ -75,7 +75,6 @@ func TestConfigDefaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Check default values match Crawljax defaults
 	if cfg.MaxDepth != 0 {
 		t.Errorf("MaxDepth = %d, want 0 (unlimited)", cfg.MaxDepth)
 	}
@@ -94,7 +93,7 @@ func TestConfigDefaults(t *testing.T) {
 		t.Errorf("BrowserCount = %d, want 1", cfg.BrowserCount)
 	}
 
-	// Wait times (Crawljax defaults: 200ms)
+	// Wait times
 	if cfg.WaitAfterReload != 200*time.Millisecond {
 		t.Errorf("WaitAfterReload = %v, want 200ms", cfg.WaitAfterReload)
 	}
@@ -106,16 +105,15 @@ func TestConfigDefaults(t *testing.T) {
 	}
 
 	// Clickable detection
-	// CRAWLJAX PARITY: CDP detection is OFF by default
 	// Must be explicitly enabled via clickElementsWithClickEventHandler()
 	if cfg.UseCDPDetection {
-		t.Error("UseCDPDetection should be false by default (Crawljax parity)")
+		t.Error("UseCDPDetection should be false by default")
 	}
 	if !cfg.ClickOnce {
 		t.Error("ClickOnce should be true by default")
 	}
 	if !cfg.CrawlFrames {
-		t.Error("CrawlFrames should be true by default (Crawljax default)")
+		t.Error("CrawlFrames should be true by default")
 	}
 
 	// Form handling
@@ -126,7 +124,6 @@ func TestConfigDefaults(t *testing.T) {
 		t.Errorf("FormFillMode = %q, want %q", cfg.FormFillMode, FormFillNormal)
 	}
 
-	// Crawljax parity options (disabled by default)
 	if cfg.AvoidUnrelatedBacktracking {
 		t.Error("AvoidUnrelatedBacktracking should be false by default")
 	}
@@ -487,7 +484,6 @@ func TestWaitConditionConfig(t *testing.T) {
 func TestFormInputConfig(t *testing.T) {
 	cfg, _ := New("https://example.com")
 
-	// CRAWLJAX PARITY: Uses Identification(How, Value) instead of CSS selector
 	cfg.AddFormInput("id", "user", "text", "john", "jane")
 	cfg.AddFormInput("id", "country", "select", "us", "uk", "vn")
 	cfg.AddFormInput("id", "agree", "checkbox", "yes")

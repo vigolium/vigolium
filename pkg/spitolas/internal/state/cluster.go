@@ -6,7 +6,6 @@ import (
 )
 
 // StateComparison defines the relationship between two states.
-// This matches Java Crawljax's near-duplicate detection system.
 type StateComparison int
 
 const (
@@ -93,7 +92,6 @@ func (c *NDCluster) ContainsState(stateID string) bool {
 }
 
 // NDClusterManager manages near-duplicate state clustering.
-// CRAWLJAX PARITY: Matches Java FragmentManager's near-duplicate handling.
 type NDClusterManager struct {
 	mu sync.RWMutex
 
@@ -103,9 +101,7 @@ type NDClusterManager struct {
 	// stateToCluster maps state ID to cluster
 	stateToCluster map[string]*NDCluster
 
-	// CRAWLJAX PARITY: List of near-duplicate state sets
 	// Each set contains states that are near-duplicates of each other
-	// In Java: List<Set<StateVertex>> nearDuplicates
 	nearDuplicateSets []map[string]*State
 
 	// nextClusterID for generating cluster IDs
@@ -115,7 +111,6 @@ type NDClusterManager struct {
 	nd1Threshold float64 // Similarity threshold for ND1 (default 0.95)
 	nd2Threshold float64 // Similarity threshold for ND2 (default 0.80)
 
-	// CRAWLJAX PARITY: State comparison cache
 	// Maps "stateID1:stateID2" -> comparison result
 	comparisonCache map[string]StateComparison
 }
@@ -614,10 +609,7 @@ func (d *DOMDiff) Size() int {
 	return len(d.Added) + len(d.Removed) + len(d.Changed)
 }
 
-// CRAWLJAX PARITY: Near-duplicate management methods
-
 // AddToNearDuplicates adds two states as near-duplicates.
-// CRAWLJAX PARITY: Matches Java FragmentManager.addToNearDuplicates().
 func (m *NDClusterManager) AddToNearDuplicates(newState, expectedState *State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -630,12 +622,9 @@ func (m *NDClusterManager) addToNearDuplicatesLocked(newState, expectedState *St
 		return
 	}
 
-	// CRAWLJAX PARITY: Mark both states as having near-duplicates
 	newState.IsNearDuplicate = true
 	expectedState.IsNearDuplicate = true
 
-	// CRAWLJAX PARITY: Use the smallest cluster ID
-	// In Java: if (newState.getCluster() < expectedState.getCluster())
 	if newState.ClusterID > 0 && expectedState.ClusterID > 0 {
 		if newState.ClusterID < expectedState.ClusterID {
 			expectedState.ClusterID = newState.ClusterID
@@ -648,7 +637,6 @@ func (m *NDClusterManager) addToNearDuplicatesLocked(newState, expectedState *St
 		newState.ClusterID = expectedState.ClusterID
 	}
 
-	// CRAWLJAX PARITY: Find existing set containing either state
 	for _, set := range m.nearDuplicateSets {
 		if _, ok := set[newState.ID]; ok {
 			set[expectedState.ID] = expectedState
@@ -660,7 +648,6 @@ func (m *NDClusterManager) addToNearDuplicatesLocked(newState, expectedState *St
 		}
 	}
 
-	// CRAWLJAX PARITY: Create new set
 	newSet := make(map[string]*State)
 	newSet[newState.ID] = newState
 	newSet[expectedState.ID] = expectedState
@@ -668,7 +655,6 @@ func (m *NDClusterManager) addToNearDuplicatesLocked(newState, expectedState *St
 }
 
 // AddSingleToNearDuplicates adds a single state to near-duplicates (creates its own set).
-// CRAWLJAX PARITY: Matches Java FragmentManager.addToNearDuplicates(StateVertex).
 func (m *NDClusterManager) AddSingleToNearDuplicates(state *State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -691,7 +677,6 @@ func (m *NDClusterManager) AddSingleToNearDuplicates(state *State) {
 }
 
 // GetNearDuplicatesOf returns all states that are near-duplicates of the given state.
-// CRAWLJAX PARITY: Matches Java FragmentManager.getNearDuplicates(StateVertex).
 func (m *NDClusterManager) GetNearDuplicatesOf(state *State) []*State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -730,7 +715,6 @@ func (m *NDClusterManager) GetNearDuplicateSets() []map[string]*State {
 }
 
 // CacheStateComparison caches the comparison result between two states.
-// CRAWLJAX PARITY: Matches Java FragmentManager.cacheStateComparision().
 func (m *NDClusterManager) CacheStateComparison(state1, state2 *State, result StateComparison) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -759,7 +743,6 @@ func (m *NDClusterManager) getComparisonKey(id1, id2 string) string {
 }
 
 // CompareStatesWithFragments compares two states using fragment-based analysis.
-// CRAWLJAX PARITY: Matches Java FragmentManager.cacheStateComparision() logic.
 // This is the main comparison method that should be used.
 func (m *NDClusterManager) CompareStatesWithFragments(
 	newState, expectedState *State,
@@ -777,7 +760,6 @@ func (m *NDClusterManager) CompareStatesWithFragments(
 
 	var comp StateComparison
 
-	// CRAWLJAX PARITY: Step 1 - Check if strippedDOM equals
 	if newState.StrippedDOM == expectedState.StrippedDOM {
 		// Same stripped DOM = DUPLICATE or NEARDUPLICATE1
 		// Since we skip visual comparison, treat as DUPLICATE
@@ -787,7 +769,6 @@ func (m *NDClusterManager) CompareStatesWithFragments(
 		return comp
 	}
 
-	// CRAWLJAX PARITY: Step 2 - Check if root fragments are related
 	if getRelatedFragments != nil && getRootFragmentHash != nil {
 		newRootHash := getRootFragmentHash(newState.ID)
 		expectedRootHash := getRootFragmentHash(expectedState.ID)
@@ -806,7 +787,6 @@ func (m *NDClusterManager) CompareStatesWithFragments(
 		}
 	}
 
-	// CRAWLJAX PARITY: Step 3 - Fall back to DOM similarity
 	domSimilarity := calculateDOMSimilarity(newState.StrippedDOM, expectedState.StrippedDOM)
 
 	if domSimilarity >= m.nd1Threshold {
@@ -846,7 +826,6 @@ func (m *NDClusterManager) addSingleToNearDuplicatesLocked(state *State) {
 }
 
 // HasExploredNearDuplicate checks if a state has an explored near-duplicate.
-// CRAWLJAX PARITY: Matches Java FragmentManager.hasExploredNearDuplicate().
 func (m *NDClusterManager) HasExploredNearDuplicate(state *State, hasUnexploredActions func(*State) bool) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

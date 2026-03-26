@@ -8,8 +8,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// defaultMoreParams contains common parameter names to test for reflection.
-var defaultMoreParams = []string{
+// defaultDiscoveryParams contains common parameter names to test for reflection.
+var defaultDiscoveryParams = []string{
 	// Common debug/test params
 	"debug", "test", "q", "s", "search", "query", "keyword",
 	// URL/redirect params
@@ -41,7 +41,7 @@ type ParameterDiscovery struct {
 // NewParameterDiscovery creates a new ParameterDiscovery with default params.
 func NewParameterDiscovery() *ParameterDiscovery {
 	return &ParameterDiscovery{
-		params: defaultMoreParams,
+		params: defaultDiscoveryParams,
 	}
 }
 

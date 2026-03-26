@@ -355,12 +355,9 @@ func TestStateIDFromStrippedDOM(t *testing.T) {
 }
 
 // ============================================================================
-// CRAWLJAX PARITY: StateVertexTest
-// Based on: core/src/test/java/com/crawljax/core/state/StateVertexTest.java
 // ============================================================================
 
 func TestStateHashCode(t *testing.T) {
-	// CRAWLJAX PARITY: testHashCode
 	// States with same stripped DOM should have same hash (ID)
 	ResetCounter()
 	dom := "<body></body>"
@@ -375,7 +372,6 @@ func TestStateHashCode(t *testing.T) {
 }
 
 func TestStateVertexConstructor(t *testing.T) {
-	// CRAWLJAX PARITY: testStateVertexString, testStateVertexStringString
 	ResetCounter()
 
 	// Test with empty DOM
@@ -392,7 +388,6 @@ func TestStateVertexConstructor(t *testing.T) {
 }
 
 func TestGetName(t *testing.T) {
-	// CRAWLJAX PARITY: testGetName
 	ResetCounter()
 
 	index := NewIndex("http://test.com", "", "<body></body>")
@@ -408,7 +403,6 @@ func TestGetName(t *testing.T) {
 }
 
 func TestGetDom(t *testing.T) {
-	// CRAWLJAX PARITY: testGetDom
 	ResetCounter()
 
 	dom := "<body><div>content</div></body>"
@@ -420,7 +414,6 @@ func TestGetDom(t *testing.T) {
 }
 
 func TestEqualsObject(t *testing.T) {
-	// CRAWLJAX PARITY: testEqualsObject
 	ResetCounter()
 
 	dom := "<body></body>"
@@ -447,7 +440,6 @@ func TestEqualsObject(t *testing.T) {
 }
 
 func TestToString(t *testing.T) {
-	// CRAWLJAX PARITY: testToString
 	ResetCounter()
 
 	s := New("http://test.com", "", "<body></body>", 0)
@@ -461,7 +453,6 @@ func TestToString(t *testing.T) {
 }
 
 func TestGetDomSize(t *testing.T) {
-	// CRAWLJAX PARITY: testGetDomSize
 	HTML := "<SCRIPT src='js/jquery-1.2.1.js' type='text/javascript'></SCRIPT> " +
 		"<SCRIPT src='js/jquery-1.2.3.js' type='text/javascript'></SCRIPT>" +
 		"<body><div id='firstdiv' class='orange'></div><div><span id='thespan'>" +
@@ -470,7 +461,6 @@ func TestGetDomSize(t *testing.T) {
 	ResetCounter()
 	sv := New("http://test.com", HTML, HTML, 1)
 
-	// Crawljax test expects 242 bytes
 	count := sv.DOMSize()
 	expectedCount := len(HTML)
 
@@ -480,8 +470,6 @@ func TestGetDomSize(t *testing.T) {
 }
 
 func TestSerializability(t *testing.T) {
-	// CRAWLJAX PARITY: testSerializability
-	// In Go, we test Clone() instead of Java serialization
 	HTML := "<SCRIPT src='js/jquery-1.2.1.js' type='text/javascript'></SCRIPT> " +
 		"<SCRIPT src='js/jquery-1.2.3.js' type='text/javascript'></SCRIPT>" +
 		"<body><div id='firstdiv' class='orange'></div><div><span id='thespan'>" +

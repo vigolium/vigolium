@@ -8,13 +8,11 @@ import (
 )
 
 // FillText fills a text-like input element.
-// CRAWLJAX PARITY: Java handleText() skips empty/null values.
 func FillText(elem *browser.Element, value string) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
 	}
 
-	// CRAWLJAX PARITY: Java (FormHandler.java:161-168):
 	// if (null == text || text.length() == 0) return;
 	if value == "" {
 		return nil
@@ -41,15 +39,11 @@ func FillText(elem *browser.Element, value string) error {
 }
 
 // FillHidden fills a hidden input element via JavaScript.
-// CRAWLJAX PARITY: Java uses element.setAttribute("value", value) which sets the HTML attribute.
-// Go sets BOTH the HTML attribute and DOM property to match Java and ensure form submission works.
 func FillHidden(elem *browser.Element, value string) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
 	}
 
-	// CRAWLJAX PARITY: Set both setAttribute (HTML attribute) and .value (DOM property)
-	// Java: element.setAttribute("value", value)
 	script := fmt.Sprintf(`() => {
 		this.setAttribute('value', %q);
 		this.value = %q;
@@ -64,14 +58,13 @@ func FillHidden(elem *browser.Element, value string) error {
 }
 
 // FillCheckbox sets a checkbox to checked or unchecked state.
-// Crawljax parity: checks isSelected() before clicking, verifies after.
 // If verification fails, logs warning but continues (doesn't block form submission).
 func FillCheckbox(elem *browser.Element, checked bool) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
 	}
 
-	// Get current checked state (Crawljax: webElement.isSelected())
+	// Get current checked state)
 	currentChecked, err := elem.Property("checked")
 	if err != nil {
 		return fmt.Errorf("failed to get checkbox state: %w", err)
@@ -82,7 +75,7 @@ func FillCheckbox(elem *browser.Element, checked bool) error {
 		isChecked = b
 	}
 
-	// Click to toggle if needed (Crawljax: only clicks when state differs)
+	// Click to toggle if needed
 	if isChecked != checked {
 		if err := elem.Click(); err != nil {
 			return fmt.Errorf("failed to click checkbox: %w", err)
@@ -113,22 +106,19 @@ func FillCheckbox(elem *browser.Element, checked bool) error {
 }
 
 // FillRadio clicks a radio button if value indicates it should be checked.
-// CRAWLJAX PARITY: handleRadioSwitches() - identifies radio individually, clicks if checked.
 // Value: "1"/"true"/"checked" = click to select, "0"/"false" = do nothing
 func FillRadio(elem *browser.Element, value string) error {
 	if elem == nil {
 		return fmt.Errorf("element is nil")
 	}
 
-	// Crawljax: value "1" means checked, "0" means unchecked
 	shouldCheck := value == "1" || value == "true" || value == "checked"
 
 	if !shouldCheck {
-		// Crawljax: does nothing if not checked - radio stays as-is
 		return nil
 	}
 
-	// Get current state (Crawljax: webElement.isSelected())
+	// Get current state)
 	currentChecked, _ := elem.Property("checked")
 	isChecked := false
 	if b, ok := currentChecked.(bool); ok {
@@ -526,7 +516,6 @@ func GetSelectedOptions(elem *browser.Element) ([]string, error) {
 }
 
 // GetSelectAllOptions returns all non-disabled option values from a select element.
-// Matches Crawljax behavior: used for random option selection when no value is specified.
 func GetSelectAllOptions(elem *browser.Element) ([]string, error) {
 	if elem == nil {
 		return nil, fmt.Errorf("element is nil")

@@ -3,15 +3,11 @@ package core
 import "github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 
 // SequentialMetaStrategy implements the ContextualXSSTechnique interface.
-// Original Java class: c0b
 type SequentialMetaStrategy struct {
-	// Corresponds to 'private final ContextualXSSTechnique[] a;' in Java
-	// Renamed from ValA (used in other structs for single delegate) to childStrategies for clarity.
 	childStrategies []ContextualAttackPayloadGenerator
 }
 
-// NewSequentialMetaStrategy creates a new instance of C0b.
-// Original Java constructor: public c0b(ContextualXSSTechnique... var1)
+// NewSequentialMetaStrategy creates a new SequentialMetaStrategy instance.
 func NewSequentialMetaStrategy(
 	childStrategies ...ContextualAttackPayloadGenerator,
 ) *SequentialMetaStrategy {
@@ -20,8 +16,6 @@ func NewSequentialMetaStrategy(
 	}
 }
 
-// GeneratePayload is the Go equivalent of the 'a' method from the ContextualXSSTechnique interface for class C0b.
-// Original Java method: public PreliminaryXSSFinding a(hgm var1, hnx var2, byte var3, byte var4, DetectedReflection var5, byte[] var6)
 //
 // MODIFIED: Now builds a ChainedXSSFinding to track all successful steps,
 // even when later steps fail. This prevents losing valuable intermediate findings.

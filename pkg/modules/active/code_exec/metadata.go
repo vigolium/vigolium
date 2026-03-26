@@ -5,7 +5,7 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 const (
 	ModuleID    = "code-exec"
 	ModuleName  = "Code Execution (RCE)"
-	ModuleShort = "Detects OS command injection via time-based blind. Source: ActiveScanPlusPlus"
+	ModuleShort = "Detects OS command injection via time-based blind"
 )
 
 var (
@@ -16,7 +16,6 @@ sleep/delay commands and measures response time differences to confirm execution
 ## Notes
 - Uses time-based blind technique to avoid false positives
 - Tests multiple shell syntaxes (bash, cmd, PowerShell)
-- Based on ActiveScan++ methodology
 
 ## References
 - https://owasp.org/www-community/attacks/Command_Injection

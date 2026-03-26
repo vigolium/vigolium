@@ -7,7 +7,7 @@ const (
 	TransformPassed          TransformType = "passed"           // Input appears unchanged
 	TransformRemoved         TransformType = "removed"          // Input character is gone
 	TransformBackslashEsc    TransformType = "backslash_esc"    // ' → \'
-	TransformDoubleBackslash TransformType = "double_backslash" // \' → \\' (exploitable!)
+	TransformDoubleBackslash TransformType = "double_backslash" // \' → \\' (exploitable)
 	TransformTripleBackslash TransformType = "triple_backslash" // \' → \\\'
 	TransformHTMLEncoded     TransformType = "html_encoded"     // ' → &#39; or &apos;
 	TransformURLEncoded      TransformType = "url_encoded"      // ' → %27

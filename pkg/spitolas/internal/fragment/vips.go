@@ -7,12 +7,10 @@ import (
 )
 
 // VIPS implements the Vision-based Page Segmentation algorithm.
-// This is a complete port of Java Crawljax's VipsSelenium implementation.
 //
 // References:
 //   - Cai, D., Yu, S., Wen, J. R., & Ma, W. Y. (2003). VIPS: a Vision-based Page
 //     Segmentation Algorithm. Microsoft Technical Report.
-//   - Crawljax VipsSelenium: vips_selenium/src/main/java/com/crawljax/vips_selenium/VipsSelenium.java
 type VIPS struct {
 	// Configuration
 	pDoC          int     // Permitted Degree of Coherence (1-11)
@@ -34,11 +32,10 @@ type VIPS struct {
 }
 
 // NewVIPS creates a new VIPS extractor with default parameters.
-// Defaults match Crawljax's VipsSelenium configuration.
 func NewVIPS() *VIPS {
 	return &VIPS{
 		pDoC:          11, // Maximum coherence by default
-		numIterations: 10, // Crawljax default
+		numIterations: 10,
 		minWidth:      10, // Minimum block width
 		minHeight:     10, // Minimum block height
 	}
@@ -99,7 +96,6 @@ func (v *VIPS) Extract(page *browser.Page) ([]*Fragment, error) {
 }
 
 // ExtractRectangles performs VIPS extraction and returns VipsRectangles.
-// This matches Crawljax's VipsSelenium.startSegmentation() output format.
 func (v *VIPS) ExtractRectangles(page *browser.Page) ([]*VipsRectangle, error) {
 	// Get page dimensions
 	pageSize, err := v.getPageSize(page)

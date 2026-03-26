@@ -134,13 +134,10 @@ func filterAttributes(attrs []html.Attribute, patterns []*regexp.Regexp) []html.
 	return filtered
 }
 
-// normalizeWhitespace normalizes whitespace to match Java SimpleComparator behavior.
-// CRAWLJAX PARITY: Java SimpleComparator.normalize():
 //  1. Removes [\t\n\x0B\f\r] (tab, newline, vertical-tab, form-feed, carriage-return)
 //  2. ">[ ]*" → ">" (removes spaces after closing angle bracket)
 //  3. "[ ]*<" → "<" (removes spaces before opening angle bracket)
 //  4. Interior text spacing is PRESERVED ("hello   world" stays)
-// Go previously collapsed ALL \s+ to single space, which differs from Java.
 func normalizeWhitespace(s string) string {
 	// Step 1: Remove control whitespace (tab, newline, form-feed, carriage-return, vertical-tab)
 	// but preserve regular spaces within text content

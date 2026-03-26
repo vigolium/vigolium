@@ -89,7 +89,6 @@ func ExtractBetweenAnchors(body []byte, leftAnchor, rightAnchor string) []string
 }
 
 // ClassifyTransformation determines if a transformation is interesting.
-// Logic based on TransformationScan.java classifyHandling:
 //   - If probe starts with backslash:
 //   - boring: received == probe OR URLDecode(received) == probe
 //   - backslashConsumed: received == probe[1:] (backslash stripped)

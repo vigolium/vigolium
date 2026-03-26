@@ -9,13 +9,10 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CrawlControllerTest.java
 // Tests for ParallelCrawler task consumption and termination with exact action
-// counts matching Crawljax.
 // =============================================================================
 
 // mockActionQueue simulates action polling with exact count tracking.
-// Crawljax parity: CrawlControllerTest uses mockActions and polledActions counter.
 type mockActionQueue struct {
 	actionsPerState map[string]int
 	polledActions   *int32
@@ -34,7 +31,6 @@ func (q *mockActionQueue) pollAction(stateID string) *action.CandidateCrawlActio
 		q.actionsPerState[stateID]--
 		atomic.AddInt32(q.polledActions, 1)
 		// Create mock CandidateCrawlAction with CandidateElement
-		// CRAWLJAX PARITY: Use XPath instead of CSS (Crawljax doesn't have HowCSS)
 		candidate := action.NewCandidateElement(
 			action.NewIdentification(action.HowXPath, "//*[contains(@class,'mock-selector')]"),
 			"",  // relatedFrame
@@ -58,8 +54,6 @@ func (q *mockActionQueue) isEmpty() bool {
 	return true
 }
 
-// buildTestStates creates test states matching Crawljax CrawlControllerTest setup.
-// Crawljax states: index (ID=1), state2 (ID=2), state3 (ID=3)
 func buildTestStates() (*state.State, *state.State, *state.State) {
 	state.ResetCounter()
 
@@ -76,10 +70,9 @@ func buildTestStates() (*state.State, *state.State, *state.State) {
 }
 
 // TestWithASingleTaskTheCrawlerTerminates tests that a single task terminates correctly.
-// Crawljax parity: CrawlControllerTest.withASingleTaskTheCrawlerTerminates()
 // Expected: polledActions.get() == 1
 func TestWithASingleTaskTheCrawlerTerminates(t *testing.T) {
-	const EXPECTED_POLLED_ACTIONS = 1 // Crawljax: assertThat(polledActions.get(), is(1))
+	const EXPECTED_POLLED_ACTIONS = 1
 
 	index, _, _ := buildTestStates()
 
@@ -98,31 +91,25 @@ func TestWithASingleTaskTheCrawlerTerminates(t *testing.T) {
 		}
 	}
 
-	// Crawljax parity: assertThat(polledActions.get(), is(1))
 	if queue.getPolledActions() != EXPECTED_POLLED_ACTIONS {
-		t.Errorf("polledActions = %d, want %d (Crawljax: polledActions.get())",
+		t.Errorf("polledActions = %d, want %d)",
 			queue.getPolledActions(), EXPECTED_POLLED_ACTIONS)
 	}
 
-	// Crawljax parity: assertThat(candidateActions.isEmpty(), is(true))
 	if !queue.isEmpty() {
 		t.Error("candidateActions.isEmpty() = false, want true")
 	}
 }
 
 // TestWithSixTasksTheCrawlerTerminates tests termination with 6 tasks distributed across states.
-// Crawljax parity: CrawlControllerTest.withSixTasksTheCrawlerTerminates()
 // Setup: 2 actions each on index, state2, state3 (total 6)
 // Expected: polledActions.get() == 6
 func TestWithSixTasksTheCrawlerTerminates(t *testing.T) {
-	const EXPECTED_POLLED_ACTIONS = 6 // Crawljax: assertThat(polledActions.get(), is(6))
+	const EXPECTED_POLLED_ACTIONS = 6
 
 	index, state2, state3 := buildTestStates()
 
 	// Setup: 1 consumer, 2 actions per state
-	// Crawljax: candidateActions.addActions(mockActions(2), index)
-	// Crawljax: candidateActions.addActions(mockActions(2), state2)
-	// Crawljax: candidateActions.addActions(mockActions(2), state3)
 	actionsPerState := map[string]int{
 		index.ID:  2, // mockActions(2) on index
 		state2.ID: 2, // mockActions(2) on state2
@@ -139,31 +126,25 @@ func TestWithSixTasksTheCrawlerTerminates(t *testing.T) {
 		}
 	}
 
-	// Crawljax parity: assertThat(polledActions.get(), is(6))
 	if queue.getPolledActions() != EXPECTED_POLLED_ACTIONS {
-		t.Errorf("polledActions = %d, want %d (Crawljax: polledActions.get())",
+		t.Errorf("polledActions = %d, want %d)",
 			queue.getPolledActions(), EXPECTED_POLLED_ACTIONS)
 	}
 
-	// Crawljax parity: assertThat(candidateActions.isEmpty(), is(true))
 	if !queue.isEmpty() {
 		t.Error("candidateActions.isEmpty() = false, want true")
 	}
 }
 
 // TestWithManyActionsMultipleConsumersTheCrawlerTerminates tests high-volume task processing.
-// Crawljax parity: CrawlControllerTest.withManyActionsMultipleConsumersTheCrawlerTerminates()
 // Setup: 200 actions each on index, state2, state3 (total 600)
 // Expected: polledActions.get() == 600
 func TestWithManyActionsMultipleConsumersTheCrawlerTerminates(t *testing.T) {
-	const EXPECTED_POLLED_ACTIONS = 600 // Crawljax: assertThat(polledActions.get(), is(600))
+	const EXPECTED_POLLED_ACTIONS = 600
 
 	index, state2, state3 := buildTestStates()
 
 	// Setup: 4 consumers, 200 actions per state
-	// Crawljax: candidateActions.addActions(mockActions(200), index)
-	// Crawljax: candidateActions.addActions(mockActions(200), state2)
-	// Crawljax: candidateActions.addActions(mockActions(200), state3)
 	actionsPerState := map[string]int{
 		index.ID:  200, // mockActions(200) on index
 		state2.ID: 200, // mockActions(200) on state2
@@ -180,26 +161,23 @@ func TestWithManyActionsMultipleConsumersTheCrawlerTerminates(t *testing.T) {
 		}
 	}
 
-	// Crawljax parity: assertThat(polledActions.get(), is(600))
 	if queue.getPolledActions() != EXPECTED_POLLED_ACTIONS {
-		t.Errorf("polledActions = %d, want %d (Crawljax: polledActions.get())",
+		t.Errorf("polledActions = %d, want %d)",
 			queue.getPolledActions(), EXPECTED_POLLED_ACTIONS)
 	}
 
-	// Crawljax parity: assertThat(candidateActions.isEmpty(), is(true))
 	if !queue.isEmpty() {
 		t.Error("candidateActions.isEmpty() = false, want true")
 	}
 }
 
 // TestWithASingleTaskMultipleConsumersTheCrawlerTerminates tests multiple consumers with single task.
-// Crawljax parity: CrawlControllerTest.withASingleTaskMultipleConsumersTheCrawlerTerminates()
 // Setup: 4 consumers, 1 action on index
 // Expected: polledActions.get() == 1
 func TestWithASingleTaskMultipleConsumersTheCrawlerTerminates(t *testing.T) {
 	const (
-		EXPECTED_POLLED_ACTIONS = 1 // Crawljax: 1 consumer polls, 1 action
-		NUM_CONSUMERS           = 4 // Crawljax: setupForConsumers(4)
+		EXPECTED_POLLED_ACTIONS = 1
+		NUM_CONSUMERS           = 4
 	)
 
 	index, _, _ := buildTestStates()
@@ -217,20 +195,17 @@ func TestWithASingleTaskMultipleConsumersTheCrawlerTerminates(t *testing.T) {
 		}
 	}
 
-	// Crawljax parity: assertThat(polledActions.get(), is(1))
 	if queue.getPolledActions() != EXPECTED_POLLED_ACTIONS {
-		t.Errorf("polledActions = %d, want %d (Crawljax: polledActions.get())",
+		t.Errorf("polledActions = %d, want %d)",
 			queue.getPolledActions(), EXPECTED_POLLED_ACTIONS)
 	}
 
-	// Crawljax parity: assertThat(candidateActions.isEmpty(), is(true))
 	if !queue.isEmpty() {
 		t.Error("candidateActions.isEmpty() = false, want true")
 	}
 }
 
 // TestWithErrorFromConsumerFactoryShutsDownExecutor tests error handling.
-// Crawljax parity: CrawlControllerTest.withErrorFromConsumerFactoryShutsDownExecutor()
 // Expected: RuntimeException thrown -> executor.shutdownNow() called
 func TestWithErrorFromConsumerFactoryShutsDownExecutor(t *testing.T) {
 	// This test verifies that errors during consumer creation cause shutdown.
@@ -259,7 +234,6 @@ func TestWithErrorFromConsumerFactoryShutsDownExecutor(t *testing.T) {
 		shutdown()
 	}
 
-	// Crawljax parity: verify(executor).shutdownNow()
 	if !shutdownCalled {
 		t.Error("executor.shutdownNow() was not called after consumer error")
 	}

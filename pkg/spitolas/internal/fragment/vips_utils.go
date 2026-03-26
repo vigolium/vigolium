@@ -5,7 +5,6 @@ import (
 )
 
 // InlineElements are HTML elements that are typically inline.
-// This mirrors Java Crawljax's VipsSeleniumParser.isInlineNode().
 var InlineElements = map[string]bool{
 	"#text":    true,
 	"text":     true,
@@ -215,7 +214,6 @@ type SizeThreshold struct {
 }
 
 // IterationThresholds returns the size thresholds for each VIPS iteration.
-// This mirrors Crawljax's threshold reduction strategy.
 func IterationThresholds(numIterations int) []SizeThreshold {
 	thresholds := make([]SizeThreshold, numIterations)
 

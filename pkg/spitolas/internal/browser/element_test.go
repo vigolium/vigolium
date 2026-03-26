@@ -9,7 +9,6 @@ import (
 )
 
 // TestElementClick tests clicking an element.
-// Crawljax parity: fireEventAndWait()
 func TestElementClick(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -160,7 +159,6 @@ func TestElementFocus(t *testing.T) {
 }
 
 // TestElementInput tests typing text into an element.
-// Crawljax parity: input()
 func TestElementInput(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -199,7 +197,6 @@ func TestElementInput(t *testing.T) {
 }
 
 // TestElementInputWithClear tests clearing and inputting text.
-// Crawljax parity: Form handler clear before input
 func TestElementInputWithClear(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -493,7 +490,6 @@ func TestElementTagName(t *testing.T) {
 }
 
 // TestElementIsVisible tests visibility check.
-// Crawljax parity: isVisible()
 func TestElementIsVisible(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -708,7 +704,6 @@ func TestElementGetSelector(t *testing.T) {
 }
 
 // TestElementGetXPath tests absolute XPath generation.
-// Crawljax parity: XPathHelper.getXPathExpression()
 func TestElementGetXPath(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()

@@ -9,7 +9,7 @@ function setEventHandlers(){
 	$('#info').click(function(){ openPage("info.html") } );
 	$('#papers').click(function(){ openPage("papers.html") } );
 	$('#home').click(function(){ openPage("home.html") } );
-	$('#ignore').click(function(){ addError("Crawljax should ignore me") } );
+	$('#ignore').click(function(){ addError("Spitolas should ignore me") } );
 }
 
 function openPage(page){

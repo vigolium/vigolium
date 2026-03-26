@@ -14,8 +14,6 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CandidateElementExtractorTest.java
-// Integration tests with exact count assertions matching Crawljax
 // =============================================================================
 
 // getProjectRoot returns project root for test data access.
@@ -61,11 +59,9 @@ func setupTestBrowser(t *testing.T, serverURL string) *browser.Browser {
 }
 
 // TestExtractDemoSite tests extraction from demo-site index.
-// Crawljax parity: CandidateElementExtractorTest.testExtract()
 // Expected: NUMBER_OF_CANDIDATES = 15
 func TestExtractDemoSite(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertEquals(15, candidates.size())
 		NUMBER_OF_CANDIDATES = 15
 	)
@@ -85,10 +81,8 @@ func TestExtractDemoSite(t *testing.T) {
 
 	cfg, _ := config.New(server.URL)
 	extractor := NewCandidateElementExtractor(cfg)
-	// Crawljax: builder.crawlRules().click("a")
 	extractor.SetClickSelectors([]string{"a"})
-	// CRAWLJAX PARITY: testExtract() does NOT use clickElementsWithClickEventHandler()
-	// so CDP detection is disabled by default in Crawljax
+	// CDP detection is disabled by default
 	extractor.EnableCDP(false)
 
 	ctx := context.Background()
@@ -97,19 +91,16 @@ func TestExtractDemoSite(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertEquals(15, candidates.size())
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: assertEquals)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractDemoSiteExcludeMenubar tests extraction with exclusions.
-// Crawljax parity: CandidateElementExtractorTest.testExtractExclude()
 // Expected: NUMBER_OF_CANDIDATES = 11
 func TestExtractDemoSiteExcludeMenubar(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertThat(candidates, hasSize(11))
 		NUMBER_OF_CANDIDATES = 11
 	)
@@ -129,12 +120,9 @@ func TestExtractDemoSiteExcludeMenubar(t *testing.T) {
 
 	cfg, _ := config.New(server.URL)
 	extractor := NewCandidateElementExtractor(cfg)
-	// Crawljax: builder.crawlRules().click("a")
 	extractor.SetClickSelectors([]string{"a"})
-	// Crawljax: builder.crawlRules().dontClick("div").withAttribute("id", "menubar")
 	extractor.AddExcludeSelector("#menubar")
 	extractor.AddExcludeSelector("#menubar a")
-	// CRAWLJAX PARITY: testExtractExclude() does NOT use clickElementsWithClickEventHandler()
 	extractor.EnableCDP(false)
 
 	ctx := context.Background()
@@ -143,19 +131,16 @@ func TestExtractDemoSiteExcludeMenubar(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(candidates, hasSize(11))
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: hasSize)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractIframeContents tests extraction from iframes.
-// Crawljax parity: CandidateElementExtractorTest.testExtractIframeContents()
 // Expected: NUMBER_OF_CANDIDATES = 9
 func TestExtractIframeContents(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertThat(candidates, hasSize(9))
 		NUMBER_OF_CANDIDATES = 9
 	)
@@ -176,9 +161,7 @@ func TestExtractIframeContents(t *testing.T) {
 	cfg, _ := config.New(server.URL)
 	cfg.CrawlFrames = true
 	extractor := NewCandidateElementExtractor(cfg)
-	// Crawljax: builder.crawlRules().click("a")
 	extractor.SetClickSelectors([]string{"a"})
-	// CRAWLJAX PARITY: testExtractIframeContents() does NOT use clickElementsWithClickEventHandler()
 	extractor.EnableCDP(false)
 
 	ctx := context.Background()
@@ -187,19 +170,16 @@ func TestExtractIframeContents(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(candidates, hasSize(9))
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: hasSize)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractClickablesWithCDP tests CDP-based clickable detection.
-// Crawljax parity: CandidateElementExtractorTest.testExtractClickables()
 // Expected: NUMBER_OF_CANDIDATES = 1
 func TestExtractClickablesWithCDP(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertEquals(1, candidates.size())
 		NUMBER_OF_CANDIDATES = 1
 	)
@@ -225,7 +205,6 @@ func TestExtractClickablesWithCDP(t *testing.T) {
 
 	cfg, _ := config.New(server.URL)
 	extractor := NewCandidateElementExtractor(cfg)
-	// Crawljax: builder.crawlRules().clickElementsWithClickEventHandler()
 	extractor.EnableCDP(true)
 	// Only look for elements with click handlers
 	extractor.SetClickSelectors(nil) // No CSS selectors, only CDP detection
@@ -236,19 +215,16 @@ func TestExtractClickablesWithCDP(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertEquals(1, candidates.size())
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: assertEquals)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractNoFollowExternal tests that external links are excluded.
-// Crawljax parity: CandidateElementExtractorTest.whenNoFollowExternalUrlDoNotFollow()
 // Expected: NUMBER_OF_CANDIDATES = 2 (internal links only)
 func TestExtractNoFollowExternal(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertThat(extract, hasSize(2))
 		NUMBER_OF_CANDIDATES = 2
 	)
@@ -282,7 +258,6 @@ func TestExtractNoFollowExternal(t *testing.T) {
 	cfg, _ := config.New(server.URL)
 	extractor := NewCandidateElementExtractor(cfg)
 	extractor.SetClickSelectors([]string{"a"})
-	// Crawljax: default followExternalLinks() is false
 	extractor.SetFollowExternalLinks(false)
 
 	ctx := context.Background()
@@ -291,19 +266,16 @@ func TestExtractNoFollowExternal(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(extract, hasSize(2))
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: hasSize)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractFollowExternal tests that external links are included when enabled.
-// Crawljax parity: CandidateElementExtractorTest.whenFollowExternalUrlDoFollow()
 // Expected: NUMBER_OF_CANDIDATES = 3 (all links)
 func TestExtractFollowExternal(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertThat(extract, hasSize(3))
 		NUMBER_OF_CANDIDATES = 3
 	)
@@ -337,7 +309,6 @@ func TestExtractFollowExternal(t *testing.T) {
 	cfg, _ := config.New(server.URL)
 	extractor := NewCandidateElementExtractor(cfg)
 	extractor.SetClickSelectors([]string{"a"})
-	// Crawljax: builder.crawlRules().followExternalLinks(true)
 	extractor.SetFollowExternalLinks(true)
 
 	ctx := context.Background()
@@ -346,19 +317,16 @@ func TestExtractFollowExternal(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(extract, hasSize(3))
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: hasSize)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractIgnoreDownloadFiles tests that download links are excluded.
-// Crawljax parity: CandidateElementExtractorTest.testExtractShouldIgnoreDownloadFiles()
 // Expected: NUMBER_OF_CANDIDATES = 12
 func TestExtractIgnoreDownloadFiles(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// assertEquals(12, candidates.size())
 		NUMBER_OF_CANDIDATES = 12
 	)
@@ -414,19 +382,16 @@ func TestExtractIgnoreDownloadFiles(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: assertEquals(12, candidates.size())
 	if len(actions) != NUMBER_OF_CANDIDATES {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: assertEquals)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_CANDIDATES)
 	}
 }
 
 // TestExtractElementAddition tests single element addition.
-// Crawljax parity: CandidateElementExtractorTest.testElementAddition()
 // Expected: NUMBER_OF_RESULTS = 1
 func TestExtractElementAddition(t *testing.T) {
 	const (
-		// Crawljax exact value from CandidateElementExtractorTest.java
 		// Assert.assertEquals(1, results.size())
 		NUMBER_OF_RESULTS = 1
 	)
@@ -465,9 +430,8 @@ func TestExtractElementAddition(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// Crawljax parity: Assert.assertEquals(1, results.size())
 	if len(actions) != NUMBER_OF_RESULTS {
-		t.Errorf("len(actions) = %d, want %d (Crawljax: assertEquals)",
+		t.Errorf("len(actions) = %d, want %d",
 			len(actions), NUMBER_OF_RESULTS)
 	}
 }

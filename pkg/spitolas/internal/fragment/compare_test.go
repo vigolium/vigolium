@@ -6,7 +6,6 @@ import (
 
 // =============================================================================
 // CompareFragments Tests
-// Mirrors: Crawljax StateFlowGraph comparison and near-duplicate detection
 // =============================================================================
 
 func TestCompareFragmentsIdentical(t *testing.T) {
@@ -189,7 +188,6 @@ func TestCompareFragmentsStrictJaccard(t *testing.T) {
 
 // =============================================================================
 // AreNearDuplicates Tests
-// Mirrors: Crawljax near-duplicate state detection
 // =============================================================================
 
 func TestAreNearDuplicatesIdentical(t *testing.T) {
@@ -592,11 +590,9 @@ func createTestFragment(id int, domHash string, isDynamic bool) *Fragment {
 
 // =============================================================================
 // EditDistance Tests
-// Mirrors: com.crawljax.oraclecomparator.comparators.EditDistanceTest
 // =============================================================================
 
 func TestGetThreshold(t *testing.T) {
-	// Mirrors Crawljax EditDistanceTest.testGetThreshold
 	// threshold = 2 × max(length) × (1 - p)
 	x := "<form>bl</form>"     // 15 chars
 	y := "<form>blabla</form>" // 19 chars
@@ -613,7 +609,6 @@ func TestGetThreshold(t *testing.T) {
 }
 
 func TestIsCloneByEditDistance(t *testing.T) {
-	// Mirrors Crawljax EditDistanceTest.testIsClone
 	x := "<form>BL</form>"
 	y := "<form>blabla</form>"
 
@@ -656,7 +651,6 @@ func TestIsCloneByEditDistanceInvalidThreshold(t *testing.T) {
 }
 
 // getEditDistanceThreshold calculates the threshold for edit distance comparison.
-// Matches Java Crawljax: threshold = 2 × max(length) × (1 - p)
 func getEditDistanceThreshold(s1, s2 string, p float64) float64 {
 	maxLen := len(s1)
 	if len(s2) > maxLen {
@@ -666,7 +660,6 @@ func getEditDistanceThreshold(s1, s2 string, p float64) float64 {
 }
 
 // isCloneByEditDistance checks if two strings are clones based on edit distance.
-// Matches Java Crawljax's EditDistanceComparator.isClone
 func isCloneByEditDistance(s1, s2 string, p float64) bool {
 	if p < 0 || p > 1 {
 		return false
@@ -739,7 +732,6 @@ func minOfThree(a, b, c int) int {
 
 // =============================================================================
 // DOM Comparison Tests
-// Mirrors: com.crawljax.util.DOMComparerTest, XmlUnitDifferenceTest
 // =============================================================================
 
 func TestDOMCompareNoDifference(t *testing.T) {
@@ -754,10 +746,9 @@ func TestDOMCompareNoDifference(t *testing.T) {
 
 func TestDOMComparePartialDifference(t *testing.T) {
 	// Mirrors DOMComparerTest.comparePartialDifference
-	controlHTML := "<html><body><header>Crawljax</header><p>There are differences</p></body></html>"
-	testHTML := "<html><head><title>Crawljax</title></head><body><p>There are differences.</body></html>"
+	controlHTML := "<html><body><header>TestApp</header><p>There are differences</p></body></html>"
+	testHTML := "<html><head><title>TestApp</title></head><body><p>There are differences.</body></html>"
 
-	// Crawljax expects 7 differences
 	diff := getDOMDifferenceCount(controlHTML, testHTML)
 
 	// Note: Our simple implementation may give different count

@@ -9,7 +9,6 @@ import (
 )
 
 // StateMachine manages state transitions for a single crawler.
-// CRAWLJAX PARITY: Each Crawler has its own StateMachine that gets RESET on backtrack.
 // The StateMachine holds a reference to the GLOBAL StateFlowGraph (Graph).
 // When reset() is called, a NEW StateMachine instance is created, but the Graph is preserved.
 type StateMachine struct {
@@ -20,7 +19,6 @@ type StateMachine struct {
 	initialState *State // State after reset() - may differ from index due to session changes
 
 	// onURLSet - states reachable by direct URL navigation
-	// CRAWLJAX PARITY: Java uses List<StateVertex> — ordered, allows multiple states for same URL,
 	// dedup by equals() (strippedDom comparison). Inherited from previous StateMachine on reset().
 	onURLSet []*State
 
@@ -30,8 +28,6 @@ type StateMachine struct {
 }
 
 // NewStateMachine creates a new state machine with initial state.
-// CRAWLJAX PARITY: This is called during crawler initialization.
-// Java: if (onURLSet.isEmpty()) { onURLSet.add(initialState); }
 func NewStateMachine(graph *Graph, initialState *State) *StateMachine {
 	sm := &StateMachine{
 		graph:        graph,
@@ -40,7 +36,6 @@ func NewStateMachine(graph *Graph, initialState *State) *StateMachine {
 		onURLSet:     make([]*State, 0),
 	}
 
-	// CRAWLJAX PARITY: Add initial state to onURLSet
 	if initialState != nil {
 		sm.onURLSet = append(sm.onURLSet, initialState)
 	}
@@ -52,8 +47,6 @@ func NewStateMachine(graph *Graph, initialState *State) *StateMachine {
 }
 
 // NewStateMachineWithOnURLSet creates a new state machine inheriting onURLSet from previous.
-// CRAWLJAX PARITY: Used during reset() to preserve URL-reachable states.
-// Java: stateMachine = new StateMachine(graphProvider.get(), ..., onURLSetTemp)
 func NewStateMachineWithOnURLSet(graph *Graph, initialState *State, onURLSet []*State) *StateMachine {
 	sm := &StateMachine{
 		graph:        graph,
@@ -65,8 +58,6 @@ func NewStateMachineWithOnURLSet(graph *Graph, initialState *State, onURLSet []*
 	// Copy onURLSet from previous StateMachine
 	sm.onURLSet = append(sm.onURLSet, onURLSet...)
 
-	// CRAWLJAX PARITY: Ensure initial state is in onURLSet if empty
-	// Java: if (onURLSet.isEmpty()) { onURLSet.add(initialState); }
 	if len(sm.onURLSet) == 0 && initialState != nil {
 		sm.onURLSet = append(sm.onURLSet, initialState)
 	}
@@ -112,7 +103,6 @@ func (sm *StateMachine) GetGraph() *Graph {
 }
 
 // GetOnURLSet returns a copy of the onURLSet slice.
-// CRAWLJAX PARITY: Returns copy to prevent external modification.
 func (sm *StateMachine) GetOnURLSet() []*State {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -123,13 +113,11 @@ func (sm *StateMachine) GetOnURLSet() []*State {
 }
 
 // GetOnURLSetSlice returns onURLSet as a slice of states (same as GetOnURLSet).
-// CRAWLJAX PARITY: Java returns the list directly; Go returns a copy.
 func (sm *StateMachine) GetOnURLSetSlice() []*State {
 	return sm.GetOnURLSet()
 }
 
 // AddToOnURLSet adds a state to the URL-reachable set.
-// CRAWLJAX PARITY: Java uses List.contains() which calls equals() — dedup by strippedDom (state ID).
 func (sm *StateMachine) AddToOnURLSet(s *State) {
 	if s == nil {
 		return
@@ -138,7 +126,6 @@ func (sm *StateMachine) AddToOnURLSet(s *State) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// CRAWLJAX PARITY: Java List.contains() uses equals() which compares strippedDom
 	// Our state ID is SHA-256(strippedDom), so dedup by ID
 	for _, existing := range sm.onURLSet {
 		if existing.ID == s.ID {
@@ -153,7 +140,6 @@ func (sm *StateMachine) AddToOnURLSet(s *State) {
 }
 
 // IsInOnURLSet checks if a state is in the onURLSet.
-// CRAWLJAX PARITY: Java uses List.contains() which calls equals() (strippedDom comparison).
 func (sm *StateMachine) IsInOnURLSet(s *State) bool {
 	if s == nil {
 		return false
@@ -171,7 +157,6 @@ func (sm *StateMachine) IsInOnURLSet(s *State) bool {
 }
 
 // ChangeState attempts to change to a new state.
-// CRAWLJAX PARITY: Returns true if state change was successful.
 // The target state must exist in the graph and be reachable from current state.
 func (sm *StateMachine) ChangeState(target *State) bool {
 	if target == nil {
@@ -213,7 +198,6 @@ func (sm *StateMachine) ChangeState(target *State) bool {
 }
 
 // canGoTo checks if there's a direct edge between source and target in EITHER direction.
-// CRAWLJAX PARITY: Java InMemoryStateFlowGraph.canGoTo() checks BIDIRECTIONAL:
 //
 //	sfg.containsEdge(source, target) || sfg.containsEdge(target, source)
 func (sm *StateMachine) canGoTo(sourceID, targetID string) bool {
@@ -223,7 +207,6 @@ func (sm *StateMachine) canGoTo(sourceID, targetID string) bool {
 			return true
 		}
 	}
-	// CRAWLJAX PARITY: Also check target -> source (bidirectional)
 	for _, edge := range sm.graph.OutgoingEdges(targetID) {
 		if edge.TargetStateID == sourceID {
 			return true
@@ -233,7 +216,6 @@ func (sm *StateMachine) canGoTo(sourceID, targetID string) bool {
 }
 
 // addStateToCurrentState adds a new state and edge to the graph.
-// CRAWLJAX PARITY: Matches Java StateMachine.addStateToCurrentState() (private).
 // Returns the existing clone state if the state already existed, nil if new.
 func (sm *StateMachine) addStateToCurrentState(newState *State, eventable *action.Eventable) *State {
 	// putIfAbsent — add state to graph if not already present
@@ -257,7 +239,6 @@ func (sm *StateMachine) addStateToCurrentState(newState *State, eventable *actio
 }
 
 // SwitchToStateAndCheckIfClone adds newState to graph, adds edge, and switches.
-// CRAWLJAX PARITY: Matches Java StateMachine.switchToStateAndCheckIfClone().
 // Returns (existingState, isClone):
 //   - If newState is a clone, switches to existing state and returns (existing, true)
 //   - If newState is new, switches to new state and returns (nil, false)
@@ -290,7 +271,6 @@ func (sm *StateMachine) SwitchToStateAndCheckIfClone(newState *State, eventable 
 }
 
 // Rewind resets the state machine to initial state (internal state only).
-// CRAWLJAX PARITY: Does NOT create new instance - use NewStateMachineWithOnURLSet for full reset.
 func (sm *StateMachine) Rewind() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -304,7 +284,6 @@ func (sm *StateMachine) Rewind() {
 }
 
 // FindClosestOnURLState finds the closest URL-reachable state to the target.
-// CRAWLJAX PARITY: Used for optimized backtracking.
 // Returns nil if no URL-reachable state can reach the target.
 func (sm *StateMachine) FindClosestOnURLState(target *State) *State {
 	if target == nil {

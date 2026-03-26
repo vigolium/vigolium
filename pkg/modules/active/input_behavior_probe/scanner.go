@@ -14,7 +14,6 @@ import (
 )
 
 // fuzzPayload contains special characters to trigger various parser behaviors.
-// From ActiveScan++ SimpleFuzz.java
 const fuzzPayload = `a'a\'b"c>?>%}}%%>c<[[?${{%}}cake\`
 
 type Module struct {

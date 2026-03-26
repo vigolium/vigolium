@@ -181,7 +181,7 @@ func (ta *TransformAnalyzer) detectSequenceTransform(
 		}
 	}
 
-	// Pattern 2: Double backslash (exploitable!)
+	// Pattern 2: Double backslash (exploitable)
 	// Input: \' → Output: \\' (backslash was escaped, quote is now unescaped)
 	if len(seq) >= 2 && seq[0] == '\\' {
 		doubleBackslashPattern := segBefore + "\\\\" + seq[1:] + segAfter

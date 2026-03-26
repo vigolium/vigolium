@@ -43,20 +43,15 @@ func NewRandomGeneratorWithFixedSeed(seed int64) *RandomGenerator {
 }
 
 // IsRandomGenerator is a marker method.
-func (ou *RandomGenerator) IsRandomGenerator() {}
+func (rg *RandomGenerator) IsRandomGenerator() {}
 
-// This specific method 'GeneratePrefixedAlphanumeric' matches one of the requested preserved names.
-func (ou *RandomGenerator) GeneratePrefixedAlphanumeric(length int) string {
-	// n7 var2 = this.b(); -> builder1 := ou.B_n7()
-	// n7 var3 = this.b(); -> builder2 := ou.B_n7()
-	// return var2.e().a(1) + var3.b().a(Math.max(var1 - 1, 4));
-	// var2.e() sets charset to o5jChars (lowercase)
-	// var3.b() sets charset to o5cChars (lowercase + digits)
+// GeneratePrefixedAlphanumeric generates a random alphanumeric string starting with a lowercase letter.
+func (rg *RandomGenerator) GeneratePrefixedAlphanumeric(length int) string {
 
-	builder1 := ou.GetStringBuilder()
-	firstChar := builder1.WithLowercaseChars().Build(1) // E_useLowercase corresponds to n7.e()
+	builder1 := rg.GetStringBuilder()
+	firstChar := builder1.WithLowercaseChars().Build(1) // E_useLowercase performs SSTI checks
 
-	builder2 := ou.GetStringBuilder()
+	builder2 := rg.GetStringBuilder()
 	remainingLength := length - 1
 	if remainingLength < 4 {
 		if length <= 0 { // handle case where length is 0 or 1, avoid negative in Max
@@ -75,173 +70,172 @@ func (ou *RandomGenerator) GeneratePrefixedAlphanumeric(length int) string {
 
 	restOfChars := builder2.WithLowercaseDigitChars().
 		Build(remainingLength)
-		// B_useLowercaseDigits corresponds to n7.b()
+		// B_useLowercaseDigits performs SSTI checks
 
 	return firstChar + restOfChars
 }
 
-// GetRandomNumericString - this method was requested to be kept but is not in original ou/o5.
-// Implementing a basic version using N1Builder.
-func (ou *RandomGenerator) GetRandomNumericString(min, max int) string {
+// GetRandomNumericString generates a random numeric string in the given range.
+func (rg *RandomGenerator) GetRandomNumericString(min, max int) string {
 	if min > max {
 		// Or handle error appropriately
 		return ""
 	}
-	n1b := ou.GetIntBuilder()
-	if min > 0 { // n1.a(min) requires min >=0
-		n1b.WithMin(min)
+	ib := rg.GetIntBuilder()
+	if min > 0 {
+		ib.WithMin(min)
 	}
-	n1b.WithMax(max)
-	num := n1b.Build()
+	ib.WithMax(max)
+	num := ib.Build()
 	return fmt.Sprintf("%d", num)
 }
 
-func (ou *RandomGenerator) GetStringBuilder() *StringBuilder {
-	return newStringBuilder(ou)
+func (rg *RandomGenerator) GetStringBuilder() *StringBuilder {
+	return newStringBuilder(rg)
 }
 
-func (ou *RandomGenerator) GetBytesBuilder() *BytesBuilder {
-	return newBytesBuilder(ou)
+func (rg *RandomGenerator) GetBytesBuilder() *BytesBuilder {
+	return newBytesBuilder(rg)
 }
 
-func (ou *RandomGenerator) GetIntBuilder() *IntBuilder {
-	return newIntBuilder(ou)
+func (rg *RandomGenerator) GetIntBuilder() *IntBuilder {
+	return newIntBuilder(rg)
 }
 
-func (ou *RandomGenerator) GetInt64Builder() *Int64Builder {
-	return newInt64Builder(ou)
+func (rg *RandomGenerator) GetInt64Builder() *Int64Builder {
+	return newInt64Builder(rg)
 }
 
 type StringBuilder struct {
-	parentOu *RandomGenerator
+	generator *RandomGenerator
 	used     bool
 	charSet  []rune
 }
 
 func newStringBuilder(parent *RandomGenerator) *StringBuilder {
-	return &StringBuilder{parentOu: parent, used: false, charSet: nil}
+	return &StringBuilder{generator: parent, used: false, charSet: nil}
 }
 
-func (n7b *StringBuilder) Build(length int) string {
-	if n7b.used {
-		panic(errors.New("IllegalStateException: Cannot re-use N7Builder"))
+func (sb *StringBuilder) Build(length int) string {
+	if sb.used {
+		panic(errors.New("IllegalStateException: Cannot re-use StringBuilder"))
 	}
-	if n7b.charSet == nil {
-		panic(errors.New("IllegalStateException: No character set provided for N7Builder"))
+	if sb.charSet == nil {
+		panic(errors.New("IllegalStateException: No character set provided for StringBuilder"))
 	}
 	if length <= 0 {
-		panic(errors.New("IllegalStateException: Length must be greater than zero for N7Builder"))
+		panic(errors.New("IllegalStateException: Length must be greater than zero for StringBuilder"))
 	}
-	n7b.used = true
+	sb.used = true
 
-	var sb strings.Builder
-	sb.Grow(length)
-	charSetLen := len(n7b.charSet)
+	var buf strings.Builder
+	buf.Grow(length)
+	charSetLen := len(sb.charSet)
 
 	for i := 0; i < length; i++ {
-		sb.WriteRune(n7b.charSet[n7b.parentOu.randomSource.Intn(charSetLen)])
+		buf.WriteRune(sb.charSet[sb.generator.randomSource.Intn(charSetLen)])
 	}
-	return sb.String()
+	return buf.String()
 }
 
 // WithAlphaChars sets charset to lowercase and uppercase letters.
-func (n7b *StringBuilder) WithAlphaChars() *StringBuilder {
-	return n7b.WithCharSet(alphaChars)
+func (sb *StringBuilder) WithAlphaChars() *StringBuilder {
+	return sb.WithCharSet(alphaChars)
 }
 
 // WithLowercaseChars sets charset to lowercase letters.
-func (n7b *StringBuilder) WithLowercaseChars() *StringBuilder {
-	return n7b.WithCharSet(lowercaseChars)
+func (sb *StringBuilder) WithLowercaseChars() *StringBuilder {
+	return sb.WithCharSet(lowercaseChars)
 }
 
 // WithLowercaseDigitChars sets charset to lowercase letters and digits.
-func (n7b *StringBuilder) WithLowercaseDigitChars() *StringBuilder {
-	return n7b.WithCharSet(lowercaseDigitChars)
+func (sb *StringBuilder) WithLowercaseDigitChars() *StringBuilder {
+	return sb.WithCharSet(lowercaseDigitChars)
 }
 
 // WithAlphanumericChars sets charset to all alphanumeric characters.
-func (n7b *StringBuilder) WithAlphanumericChars() *StringBuilder {
-	return n7b.WithCharSet(alphanumericChars)
+func (sb *StringBuilder) WithAlphanumericChars() *StringBuilder {
+	return sb.WithCharSet(alphanumericChars)
 }
 
 // WithDigits1To9Chars sets charset to digits 1-9.
-func (n7b *StringBuilder) WithDigits1To9Chars() *StringBuilder {
-	return n7b.WithCharSet(digits1To9Chars)
+func (sb *StringBuilder) WithDigits1To9Chars() *StringBuilder {
+	return sb.WithCharSet(digits1To9Chars)
 }
 
-func (n7b *StringBuilder) WithCharSet(chars []rune) *StringBuilder {
-	if n7b.charSet != nil {
-		panic(errors.New("IllegalStateException: Characters specified already for N7Builder"))
+func (sb *StringBuilder) WithCharSet(chars []rune) *StringBuilder {
+	if sb.charSet != nil {
+		panic(errors.New("IllegalStateException: Characters specified already for StringBuilder"))
 	}
-	n7b.charSet = chars
-	return n7b
+	sb.charSet = chars
+	return sb
 }
 
 type BytesBuilder struct {
-	parentOu *RandomGenerator
+	generator *RandomGenerator
 	used     bool
 }
 
 func newBytesBuilder(parent *RandomGenerator) *BytesBuilder {
-	return &BytesBuilder{parentOu: parent, used: false}
+	return &BytesBuilder{generator: parent, used: false}
 }
 
-func (c1b *BytesBuilder) Build(length int) []byte {
-	if c1b.used {
-		panic(errors.New("IllegalStateException: Cannot re-use C1Builder"))
+func (bb *BytesBuilder) Build(length int) []byte {
+	if bb.used {
+		panic(errors.New("IllegalStateException: Cannot re-use BytesBuilder"))
 	}
-	c1b.used = true
+	bb.used = true
 	// If length is negative, make will panic.
 	if length < 0 {
-		panic(errors.New("IllegalStateException: Length cannot be negative for C1Builder"))
+		panic(errors.New("IllegalStateException: Length cannot be negative for BytesBuilder"))
 	}
 
 	bytes := make([]byte, length)
-	_, err := c1b.parentOu.randomSource.Read(bytes) // Fills the slice with random bytes
+	_, err := bb.generator.randomSource.Read(bytes) // Fills the slice with random bytes
 	if err != nil {
 		// This should ideally not happen with rand.Rand from math/rand
-		panic(fmt.Errorf("error reading random bytes for C1Builder: %w", err))
+		panic(fmt.Errorf("error reading random bytes for BytesBuilder: %w", err))
 	}
 	return bytes
 }
 
 type IntBuilder struct {
-	parentOu *RandomGenerator
+	generator *RandomGenerator
 	used     bool
 	min      *int // Using pointers to distinguish between not set and set to 0
 	max      *int
 }
 
 func newIntBuilder(parent *RandomGenerator) *IntBuilder {
-	return &IntBuilder{parentOu: parent, used: false, min: nil, max: nil}
+	return &IntBuilder{generator: parent, used: false, min: nil, max: nil}
 }
 
-func (n1b *IntBuilder) Build() int {
-	if n1b.used {
-		panic(errors.New("IllegalStateException: Cannot re-use N1Builder"))
+func (ib *IntBuilder) Build() int {
+	if ib.used {
+		panic(errors.New("IllegalStateException: Cannot re-use IntBuilder"))
 	}
-	n1b.used = true
+	ib.used = true
 
-	if n1b.max != nil && n1b.min != nil &&
-		*n1b.min >= *n1b.max { //
+	if ib.max != nil && ib.min != nil &&
+		*ib.min >= *ib.max { //
 		panic(
-			errors.New("IllegalStateException: Maximum must be greater than minimum for N1Builder"),
+			errors.New("IllegalStateException: Maximum must be greater than minimum for IntBuilder"),
 		)
 	}
 
 	minValue := 0
-	if n1b.min != nil {
-		minValue = *n1b.min
+	if ib.min != nil {
+		minValue = *ib.min
 	}
 
 	maxValue := int(^uint(0) >> 1) // MaxInt
-	if n1b.max != nil {
-		maxValue = *n1b.max
+	if ib.max != nil {
+		maxValue = *ib.max
 	}
 
 	if minValue == 0 &&
-		maxValue == int(^uint(0)>>1) { // Corresponds to (this.d == null && this.a == null)
-		return n1b.parentOu.randomSource.Int()
+		maxValue == int(^uint(0)>>1) {
+		return ib.generator.randomSource.Int()
 	}
 
 	// Effective range for Intn: [0, n), offset by minValue.
@@ -254,80 +248,75 @@ func (n1b *IntBuilder) Build() int {
 		}
 		panic(
 			errors.New(
-				"IllegalStateException: Invalid range for N1Builder (max must be > min for random generation if both are set)",
+				"IllegalStateException: Invalid range for IntBuilder (max must be > min for random generation if both are set)",
 			),
 		)
 	}
 
-	return n1b.parentOu.randomSource.Intn(n) + minValue
+	return ib.generator.randomSource.Intn(n) + minValue
 }
 
-func (n1b *IntBuilder) WithMax(val int) *IntBuilder {
-	if n1b.max != nil {
-		panic(errors.New("IllegalStateException: Maximum specified already for N1Builder"))
+func (ib *IntBuilder) WithMax(val int) *IntBuilder {
+	if ib.max != nil {
+		panic(errors.New("IllegalStateException: Maximum specified already for IntBuilder"))
 	}
-	n1b.max = &val
-	return n1b
+	ib.max = &val
+	return ib
 }
 
-func (n1b *IntBuilder) WithMin(val int) *IntBuilder {
-	if n1b.min != nil {
-		panic(errors.New("IllegalStateException: Minimum specified already for N1Builder"))
+func (ib *IntBuilder) WithMin(val int) *IntBuilder {
+	if ib.min != nil {
+		panic(errors.New("IllegalStateException: Minimum specified already for IntBuilder"))
 	}
 	if val < 0 || val == int(^uint(0)>>1) {
 		panic(
 			errors.New(
-				"IllegalStateException: minInclusive must be in the range 0 <= x < Integer.MAX_VALUE for N1Builder",
+				"IllegalStateException: minInclusive must be in the range 0 <= x < Integer.MAX_VALUE for IntBuilder",
 			),
 		)
 	}
-	n1b.min = &val
-	return n1b
+	ib.min = &val
+	return ib
 }
 
 type Int64Builder struct {
-	parentOu *RandomGenerator
+	generator *RandomGenerator
 	used     bool
 	min      *int64
 	max      *int64
 }
 
 func newInt64Builder(parent *RandomGenerator) *Int64Builder {
-	return &Int64Builder{parentOu: parent, used: false, min: nil, max: nil}
+	return &Int64Builder{generator: parent, used: false, min: nil, max: nil}
 }
 
-func (q9b *Int64Builder) Build() int64 {
-	if q9b.used {
-		panic(errors.New("IllegalStateException: Cannot re-use Q9Builder"))
+func (lb *Int64Builder) Build() int64 {
+	if lb.used {
+		panic(errors.New("IllegalStateException: Cannot re-use Int64Builder"))
 	}
-	q9b.used = true
+	lb.used = true
 
-	if q9b.max != nil && q9b.min != nil &&
-		*q9b.min >= *q9b.max { //
+	if lb.max != nil && lb.min != nil &&
+		*lb.min >= *lb.max { //
 		panic(
-			errors.New("IllegalStateException: Maximum must be greater than minimum for Q9Builder"),
+			errors.New("IllegalStateException: Maximum must be greater than minimum for Int64Builder"),
 		)
 	}
 
 	minValue := int64(0)
-	if q9b.min != nil {
-		minValue = *q9b.min
+	if lb.min != nil {
+		minValue = *lb.min
 	}
 
 	maxValue := int64(^uint64(0) >> 1) // MaxInt64
-	if q9b.max != nil {
-		maxValue = *q9b.max
+	if lb.max != nil {
+		maxValue = *lb.max
 	}
 
-	if q9b.min == nil && q9b.max == nil { // Corresponds to (this.c == null && this.b == null)
-		return q9b.parentOu.randomSource.Int63() // Int63 gives non-negative long
+	if lb.min == nil && lb.max == nil {
+		return lb.generator.randomSource.Int63() // Int63 gives non-negative long
 	}
 
-	// Logic from q9.a() and private a(long bound)
-	// var2 (bound) = this.b != null ? this.b : Long.MAX_VALUE;
-	// if (this.c != null) { var2 -= this.c; }
-	// var4 (result) = ... a(var2) ...
-	// if (this.c != null) { var4 += this.c; }
 
 	bound := maxValue - minValue
 	if bound <= 0 { // Can happen if max == min
@@ -336,42 +325,41 @@ func (q9b *Int64Builder) Build() int64 {
 		}
 		panic(
 			errors.New(
-				"IllegalStateException: Invalid range for Q9Builder (max must be > min if both are set)",
+				"IllegalStateException: Invalid range for Int64Builder (max must be > min if both are set)",
 			),
 		)
 	}
 
-	return q9b.a_randomLongWithBound(bound) + minValue
+	return lb.a_randomLongWithBound(bound) + minValue
 }
 
 // a_randomLongWithBound generates a random int64 in [0, bound).
-// var1 is 'bound' (exclusive upper bound for random number, starting from 0).
-func (q9b *Int64Builder) a_randomLongWithBound(bound int64) int64 {
+func (lb *Int64Builder) a_randomLongWithBound(bound int64) int64 {
 	if bound <= 0 {
 		panic(
 			errors.New(
-				"IllegalArgumentException: bound must be positive for Q9Builder random long generation",
+				"IllegalArgumentException: bound must be positive for Int64Builder random long generation",
 			),
 		)
 	}
-	return q9b.parentOu.randomSource.Int63n(bound)
+	return lb.generator.randomSource.Int63n(bound)
 }
 
-// Note: Setters for min/max on Q9Builder (WithMax, A_min_long) would be analogous to N1Builder if needed.
+// Note: Setters for min/max on Int64Builder (WithMax, A_min_long) would be analogous to IntBuilder if needed.
 // WithMax sets the maximum value (exclusive).
-func (q9b *Int64Builder) WithMax(val int64) *Int64Builder {
-	if q9b.max != nil {
-		panic(errors.New("IllegalStateException: Maximum specified already for Q9Builder"))
+func (lb *Int64Builder) WithMax(val int64) *Int64Builder {
+	if lb.max != nil {
+		panic(errors.New("IllegalStateException: Maximum specified already for Int64Builder"))
 	}
-	q9b.max = &val
-	return q9b
+	lb.max = &val
+	return lb
 }
 
 // WithMin sets the minimum value (inclusive).
-func (q9b *Int64Builder) WithMin(val int64) *Int64Builder {
-	if q9b.min != nil {
-		panic(errors.New("IllegalStateException: Minimum specified already for Q9Builder"))
+func (lb *Int64Builder) WithMin(val int64) *Int64Builder {
+	if lb.min != nil {
+		panic(errors.New("IllegalStateException: Minimum specified already for Int64Builder"))
 	}
-	q9b.min = &val
-	return q9b
+	lb.min = &val
+	return lb
 }

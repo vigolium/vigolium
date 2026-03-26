@@ -1,7 +1,6 @@
 package httpmsg
 
 // string_utils.go - String utility functions
-// Ported from: Utilities.java (string operations)
 //
 // This file contains:
 // - Exported: BytesToHexString, FilterString, EncodeBytesAbove7F
@@ -15,7 +14,6 @@ import (
 // ==================== EXPORTED FUNCTIONS ====================
 
 // BytesToHexString converts bytes to hex string (space-separated).
-// Ported from: Utilities.java bytesToHexString() (lines 497-503)
 //
 // Algorithm:
 //  1. Loop through bytes
@@ -62,7 +60,6 @@ func BytesToHexString(data []byte) string {
 }
 
 // FilterString keeps only characters in safeChars.
-// Ported from: Utilities.java filter() (lines 239-249)
 //
 // Algorithm:
 //  1. Loop through input characters
@@ -105,7 +102,6 @@ func FilterString(input, safeChars string) string {
 }
 
 // EncodeBytesAbove7F URL-encodes bytes with value > 0x7F.
-// Ported from: Utilities.java encodeBytesAbove7F() (lines 1146-1164)
 //
 // Algorithm:
 //  1. Loop through input bytes
@@ -184,7 +180,6 @@ func nextRandom() int64 {
 }
 
 // randomString generates a random alphanumeric string (internal helper).
-// Ported from: Utilities.java randomString() (lines 251-262)
 //
 // Algorithm:
 //  1. Define charset (alphanumeric)
@@ -222,7 +217,6 @@ func randomString(length int) string {
 }
 
 // generateCanary generates a canary string for testing (internal).
-// Ported from: Utilities.java generateCanary()
 //
 // Canary strings are used to detect reflection in responses.
 // Format: "zxcv" + random(4) + "bnm" - easy to search, unlikely to appear naturally.
@@ -238,7 +232,6 @@ func generateCanary() string {
 }
 
 // mangle generates a deterministic random-looking string from seed (internal).
-// Ported from: Utilities.java mangle() concept
 //
 // Creates a reproducible "random" string based on input seed.
 // Useful for generating unique but predictable markers.

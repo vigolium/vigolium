@@ -15,7 +15,6 @@ and DTD (Document Type Definition) injection vulnerabilities.
 
 ## Notes
 - Tests XML parameters for entity expansion and external entity loading
-- Based on ActiveScan++ XMLScan.java methodology
 - Targets SAML-specific XML processing endpoints
 
 ## References

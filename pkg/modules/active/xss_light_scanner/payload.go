@@ -13,7 +13,7 @@ var BreakoutChars = []byte{'\'', '"', '`', '<', '>', ' ', '=', '/', '$', '{', '}
 type CanaryPayload struct {
 	FullPayload string       // The complete payload string
 	Canary      string       // 4-char random suffix for identification
-	Segments    []string     // Random R4 segments used in payload
+	Segments    []string     // Random segments used in payload
 	CharMap     map[byte]int // Maps breakout char to its preceding segment index
 	CharOffsets map[byte]int // Maps breakout char to its offset in the payload
 }
@@ -33,7 +33,7 @@ func generateRandomSegment() string {
 }
 
 // GeneratePrimary creates a primary payload that tests 12 breakout characters
-// Template: {R4}'{R4}"{R4}`{R4}<{R4}>{R4} {R4}={R4}/{R4}${R4}{R4}{R4}}{R4}-{R4}
+// Template: {RAND}'{RAND}"{RAND}`{RAND}<{RAND}>{RAND} {RAND}={RAND}/{RAND}${RAND}{RAND}{RAND}}{RAND}-{RAND}
 func GeneratePrimary() *CanaryPayload {
 	segments := make([]string, len(BreakoutChars)+1)
 	for i := range segments {
@@ -42,7 +42,7 @@ func GeneratePrimary() *CanaryPayload {
 
 	canary := segments[0]
 
-	// Build the payload: {R4}'{R4}"{R4}`{R4}<{R4}>{R4} {R4}={R4}/{R4}
+	// Build the payload: {RAND}'{RAND}"{RAND}`{RAND}<{RAND}>{RAND} {RAND}={RAND}/{RAND}
 	var sb strings.Builder
 	charOffsets := make(map[byte]int)
 	charMap := make(map[byte]int)
@@ -110,7 +110,7 @@ func (p *CanaryPayload) GetSequenceSegmentAfter(seq string) string {
 }
 
 // GeneratePrimaryWithPrefix creates a primary payload with bypass prefix
-// Payload format: {prefix}{R4}'{R4}"{R4}`{R4}<{R4}>{R4} {R4}={R4}/{R4}${R4}{R4}{R4}}{R4}-{R4}
+// Payload format: {prefix}{RAND}'{RAND}"{RAND}`{RAND}<{RAND}>{RAND} {RAND}={RAND}/{RAND}${RAND}{RAND}{RAND}}{RAND}-{RAND}
 func GeneratePrimaryWithPrefix(prefix BypassPrefix) *CanaryPayload {
 	base := GeneratePrimary()
 
@@ -128,7 +128,7 @@ func GeneratePrimaryWithPrefix(prefix BypassPrefix) *CanaryPayload {
 
 // BuildBatchedSecondaryPayload builds a single payload to test multiple sequences
 // Input: sequences like ["\\'", "\\\"", "\\`"]
-// Output: {R4}\'{R4}\"{R4}\`{R4}
+// Output: {RAND}\'{RAND}\"{RAND}\`{RAND}
 func BuildBatchedSecondaryPayload(sequences []string) *CanaryPayload {
 	if len(sequences) == 0 {
 		return nil

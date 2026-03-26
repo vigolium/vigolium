@@ -34,7 +34,6 @@ func createTestBrowser(t *testing.T, serverURL string) *browser.Browser {
 
 // TestIntegrationWaitConditionSlowWidget tests waiting for slow-loading element.
 // Uses testWaitCondition.html which loads a widget after 1 second delay.
-// Matches Crawljax WaitConditionTest behavior.
 func TestIntegrationWaitConditionSlowWidget(t *testing.T) {
 	server := httptest.NewServer(http.FileServer(http.Dir("testdata")))
 	defer server.Close()
@@ -238,7 +237,6 @@ func TestIntegrationWaitAny(t *testing.T) {
 }
 
 // TestIntegrationWaitConditionVerifyContent verifies the actual content of loaded widget.
-// Uses extract-based verification as per Crawljax testing approach.
 func TestIntegrationWaitConditionVerifyContent(t *testing.T) {
 	server := httptest.NewServer(http.FileServer(http.Dir("testdata")))
 	defer server.Close()

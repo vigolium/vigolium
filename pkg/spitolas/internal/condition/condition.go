@@ -44,7 +44,7 @@ type Condition struct {
 	countTracker map[string]int // Shared count tracker (for external management)
 	countMu      sync.Mutex     // Mutex for countTracker access
 
-	// For nested condition in CountCondition (Java Crawljax parity)
+	// For nested condition in CountCondition
 	// Count only increments when NestedCondition is nil or returns true
 	NestedCondition *Condition
 
@@ -180,13 +180,12 @@ func (c *Condition) evaluateComposite(page *browser.Page) bool {
 }
 
 // checkURLContains checks if the URL contains the given substring.
-// CRITICAL FIX: Made case-insensitive to match Java Crawljax's UrlCondition behavior.
+// CRITICAL FIX: Made case-insensitive.
 func (c *Condition) checkURLContains(page *browser.Page) bool {
 	url, err := page.URL()
 	if err != nil {
 		return false
 	}
-	// Case-insensitive comparison (matches Java's toLowerCase() approach)
 	return strings.Contains(strings.ToLower(url), strings.ToLower(c.Value))
 }
 
@@ -226,13 +225,12 @@ func (c *Condition) checkJavaScript(page *browser.Page) bool {
 }
 
 // checkXPathExists checks if any element matches the XPath expression.
-// MEDIUM PRIORITY: XPath condition support from Crawljax's XPathCondition.
+// MEDIUM PRIORITY: XPath condition support
 func (c *Condition) checkXPathExists(page *browser.Page) bool {
 	return page.HasElementX(c.Value)
 }
 
 // checkDOMRegex checks if the DOM content matches a regex pattern.
-// CRAWLJAX PARITY: Matches Java RegexCondition which uses
 // Pattern.compile(regex, Pattern.CASE_INSENSITIVE).
 // Go equivalent: prepend (?i) for case-insensitive matching.
 func (c *Condition) checkDOMRegex(page *browser.Page) bool {
@@ -240,7 +238,6 @@ func (c *Condition) checkDOMRegex(page *browser.Page) bool {
 	if err != nil {
 		return false
 	}
-	// CRAWLJAX PARITY: Java uses Pattern.CASE_INSENSITIVE flag
 	pattern := "(?i)" + c.Value
 	re := getCachedRegex(pattern)
 	if re == nil {
@@ -250,13 +247,11 @@ func (c *Condition) checkDOMRegex(page *browser.Page) bool {
 }
 
 // checkCountLimit checks if the occurrence count is within limit.
-// CRITICAL FIX: Matches Java Crawljax's CountCondition semantics:
+// CRITICAL FIX: :
 // 1. Only increment count when NestedCondition is nil or evaluates to true
 // 2. Use atomic operations for thread safety
 // 3. Return true if count <= maxCount (allow crawl), false otherwise
 func (c *Condition) checkCountLimit(page *browser.Page) bool {
-	// CRITICAL FIX (Java parity): Only increment count when nested condition passes
-	// Java: if (condition.check(browser)) { count.getAndIncrement(); }
 	if c.NestedCondition != nil && !c.NestedCondition.Check(page) {
 		// Nested condition not met, don't count, allow crawl
 		return true

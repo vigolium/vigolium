@@ -9,14 +9,12 @@ import (
 )
 
 // DetectedInput contains detection metadata for a form input.
-// GO EXTENSION: Separate from FormInput to keep Crawljax parity.
-// The core FormInput (action.FormInput) matches Crawljax exactly.
 // This struct adds detection metadata for smart value generation.
 type DetectedInput struct {
-	// Core FormInput (Crawljax parity)
+	// Core FormInput
 	*action.FormInput
 
-	// Detection metadata (Go extension, not in Crawljax)
+	// Detection metadata
 	Name        string // name attribute (for smart detection)
 	ID          string // id attribute (for smart detection)
 	XPath       string // skeleton XPath (cached for lookup)
@@ -65,7 +63,7 @@ func (d *DetectedInput) CanInteract() bool {
 	return !d.Disabled && !d.ReadOnly
 }
 
-// ToFormInput returns the underlying Crawljax-parity FormInput.
+// ToFormInput returns the underlying FormInput.
 func (d *DetectedInput) ToFormInput() *action.FormInput {
 	return d.FormInput
 }
@@ -146,7 +144,6 @@ func ToFormInputs(inputs []*DetectedInput) []*action.FormInput {
 }
 
 // FromFormInput creates a DetectedInput from an action.FormInput.
-// GO EXTENSION: Wraps Crawljax-parity FormInput with detection metadata.
 func FromFormInput(formInput *action.FormInput) *DetectedInput {
 	if formInput == nil {
 		return nil
@@ -183,7 +180,7 @@ func FromFormInputs(inputs []*action.FormInput) []*DetectedInput {
 // Form represents an HTML form.
 // GO EXTENSION: Contains detected inputs with metadata.
 type Form struct {
-	XPath  string           // XPath for the form (Crawljax uses XPath, not CSS)
+	XPath  string           // XPath for the form
 	Action string           // form action URL
 	Method string           // form method (GET/POST)
 	Inputs []*DetectedInput // Detected form inputs with metadata
@@ -204,7 +201,7 @@ func (f *Form) AddInput(input *DetectedInput) *Form {
 	return f
 }
 
-// GetFormInputs returns the underlying FormInputs (Crawljax parity).
+// GetFormInputs returns the underlying FormInputs.
 func (f *Form) GetFormInputs() []*action.FormInput {
 	return ToFormInputs(f.Inputs)
 }

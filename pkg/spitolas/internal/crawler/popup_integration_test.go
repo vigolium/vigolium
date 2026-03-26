@@ -12,16 +12,13 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: PopUpTest.java
 // Integration tests for popup handling with exact state/edge count assertions.
 // =============================================================================
 
 // TestPopups tests crawling pages with JavaScript popups (alert, confirm, prompt).
-// Crawljax parity: PopUpTest.testPopups()
 // Expected: NUMBER_OF_STATES = 3, NUMBER_OF_EDGES = 3
 func TestPopups(t *testing.T) {
 	const (
-		// Crawljax exact values from PopUpTest.java
 		NUMBER_OF_STATES = 3
 		NUMBER_OF_EDGES  = 3
 	)
@@ -52,15 +49,13 @@ func TestPopups(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(3))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasEdges(3))
 	if result.EdgeCount() != NUMBER_OF_EDGES {
-		t.Errorf("EdgeCount() = %d, want %d (Crawljax: hasEdges)",
+		t.Errorf("EdgeCount() = %d, want %d",
 			result.EdgeCount(), NUMBER_OF_EDGES)
 	}
 }

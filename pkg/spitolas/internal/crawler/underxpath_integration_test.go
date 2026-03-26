@@ -12,12 +12,10 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: UnderXPathTest.java
 // Integration tests for XPath-based click exclusion rules.
 // =============================================================================
 
 // TestDontClickUnderXPath tests XPath-based click exclusion rules.
-// Crawljax parity: UnderXPathTest.testDontClickUnderXPath()
 // Expected: 2 states
 //
 // The underxpath.html page has:
@@ -31,7 +29,6 @@ import (
 // Result: Only the correct anchor is clicked, creating 2 states (index + 1)
 func TestDontClickUnderXPath(t *testing.T) {
 	const (
-		// Crawljax exact values from UnderXPathTest.java
 		EXPECTED_STATES = 2
 	)
 
@@ -49,18 +46,13 @@ func TestDontClickUnderXPath(t *testing.T) {
 	cfg.WaitAfterEvent = 100 * time.Millisecond
 	cfg.WaitAfterReload = 100 * time.Millisecond
 
-	// Crawljax: builder.crawlRules().click("a")
 	cfg.ClickSelectors = []string{"a"}
 
-	// Crawljax: builder.crawlRules().dontClick("a").underXPath("//A[@class=\"noClickClass\"]")
-	// Crawljax: rules.dontClick("a").withAttribute("id", "noClickId")
 	cfg.DontClickSelectors = []string{
 		"a.noClickClass", // underXPath with class
 		"a#noClickId",    // withAttribute id
 	}
 
-	// Crawljax: rules.dontClickChildrenOf("div").withClass("noChildrenOfClass")
-	// Crawljax: rules.dontClickChildrenOf("div").withId("noChildrenOfId")
 	cfg.DontClickChildrenOfSelectors = []string{
 		"div.noChildrenOfClass",
 		"div#noChildrenOfId",
@@ -79,9 +71,8 @@ func TestDontClickUnderXPath(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(session.getStateFlowGraph(), hasStates(2))
 	if result.StateCount() != EXPECTED_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: hasStates)",
+		t.Errorf("StateCount() = %d, want %d",
 			result.StateCount(), EXPECTED_STATES)
 	}
 }

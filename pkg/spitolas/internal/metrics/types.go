@@ -1,11 +1,9 @@
 // Package metrics provides per-step metrics tracking for benchmark experiments.
-// Output format is compatible with Python analysis scripts from the reference implementation.
 package metrics
 
 import "time"
 
 // StepMetrics holds per-step metrics for CSV output.
-// Format is compatible with Python scripts (generate_coverage_over_time_report.py).
 type StepMetrics struct {
 	// Core fields (all strategies)
 	Time      time.Time // ISO timestamp of action execution

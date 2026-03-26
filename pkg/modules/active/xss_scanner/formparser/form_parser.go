@@ -8,26 +8,25 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/htmlparser"
 )
 
-// InputType mirrors the Java enum ad7 for form input types.
 // Using byte for direct mapping if persistedForm values are important.
 // Otherwise, string constants might be more Go-idiomatic if direct mapping isn't critical.
 type InputType byte
 
 const (
-	InputTypeNone           InputType = 0xFF // ad7.NONE(-1)
-	InputTypeText           InputType = 0    // ad7.TEXT(0)
-	InputTypePassword       InputType = 1    // ad7.PASSWORD(1)
-	InputTypeCheckbox       InputType = 2    // ad7.CHECKBOX(2)
-	InputTypeRadio          InputType = 3    // ad7.RADIO(3)
-	InputTypeSubmit         InputType = 4    // ad7.SUBMIT(4)
-	InputTypeFile           InputType = 5    // ad7.FILE(5)
-	InputTypeHidden         InputType = 6    // ad7.HIDDEN(6)
-	InputTypeImage          InputType = 7    // ad7.IMAGE(7)
-	InputTypeButton         InputType = 8    // ad7.BUTTON(8)
-	InputTypeNumber         InputType = 9    // ad7.NUMBER(9)
-	InputTypeSelect         InputType = 10   // ad7.SELECT(10)
-	InputTypeTextarea       InputType = 11   // ad7.TEXTAREA(11)
-	InputTypeSelectMultiple InputType = 12   // ad7.SELECT_MULTIPLE(12)
+	InputTypeNone           InputType = 0xFF
+	InputTypeText           InputType = 0
+	InputTypePassword       InputType = 1
+	InputTypeCheckbox       InputType = 2
+	InputTypeRadio          InputType = 3
+	InputTypeSubmit         InputType = 4
+	InputTypeFile           InputType = 5
+	InputTypeHidden         InputType = 6
+	InputTypeImage          InputType = 7
+	InputTypeButton         InputType = 8
+	InputTypeNumber         InputType = 9
+	InputTypeSelect         InputType = 10
+	InputTypeTextarea       InputType = 11
+	InputTypeSelectMultiple InputType = 12
 )
 
 // FormInputInfo represents a single input field within an HTML form.
@@ -45,14 +44,9 @@ type FormInfo struct {
 	Enctype     string                  // e.g., application/x-www-form-urlencoded, multipart/form-data
 	FormElement *htmlparser.HTMLElement // Pointer to the original <form> HTMLElement
 	Inputs      []*FormInputInfo
-	// Original H6p fields that might be mapped if still relevant:
-	// OriginalRequestInfo Hik // Not directly stored, info comes from http.Request
-	// RawMethodByte byte // From h6p.p()
-	// RawEnctypeByte byte // From h6p.N()
 }
 
 // mapHtmlInputTypeToInputType maps HTML input type string to our InputType enum,
-// similar to cu1.java ad7 logic.
 // It considers both the 'type' attribute and the tag name (for buttons).
 func mapHtmlInputTypeToInputType(htmlTypeAttribute, tagName string) InputType {
 	lowerTagName := strings.ToLower(tagName)
@@ -85,7 +79,6 @@ func mapHtmlInputTypeToInputType(htmlTypeAttribute, tagName string) InputType {
 			return InputTypeNone // Explicitly None for reset inputs
 		default:
 			// Fallback for <input> with unrecognized or missing type attribute.
-			// cu1.java defaults to TEXT if not "reset" and not "button".
 			// Since "button" is handled above and "reset" is None, others default to TEXT.
 			return InputTypeText
 		}
@@ -103,10 +96,7 @@ func mapHtmlInputTypeToInputType(htmlTypeAttribute, tagName string) InputType {
 		default:
 			// According to HTML spec, if type attribute for <button> is missing or invalid, it defaults to "submit".
 			// We handle known types; others could be considered submit or a generic button.
-			// cu1.java logic for button: if ("submit".equalsIgnoreCase(var12.e("type")) || var12.e("type") == null) -> SUBMIT
-			// This implies other types for <button> (like an invalid one) are not treated as form submission inputs by cu1.
-			// For strictness, if it's not explicitly submit, reset, or button, treat as non-submitting (None).
-			// However, the Java code only adds an apu if type is "submit" or null. So other button types are ignored.
+			// This implies other types for <button> (like an invalid one) are not treated as form submission inputs.			// For strictness, if it's not explicitly submit, reset, or button, treat as non-submitting (None).
 			return InputTypeNone
 		}
 	case "select":
@@ -152,17 +142,14 @@ func resolveBaseURL(req *http.Request, htmlElements []*htmlparser.HTMLElement) *
 }
 
 // ExtractFormsInfo parses HTML elements to find forms and their input fields,
-// attempting to closely follow the logic and iteration style of cu1.java.
 func ExtractFormsInfo(
-	req *http.Request, // Corresponds to hik var0 in cu1.a, after gia processing
-	htmlElements []*htmlparser.HTMLElement, // Corresponds to List<ahe> var1
+	req *http.Request,
+	htmlElements []*htmlparser.HTMLElement,
 	originalBody []byte, // Added to get raw HTML for tags inside textarea
-	// c5e var2 is not directly used here, assuming URL resolution is handled by req.URL.Parse
-	stopSupplier func() bool, // Corresponds to Supplier<Boolean> var3
+	stopSupplier func() bool,
 ) []*FormInfo {
 	var forms []*FormInfo
 
-	// Equivalent to: gia var10000 = new gia; var10001.<init>(var10002, var10003, var10004); var0 = var10000.a();
 	// This resolves the base URL considering <base href> tag.
 	// The original req.URL is the initial base.
 	var effectiveBaseURL *url.URL
@@ -177,13 +164,11 @@ func ExtractFormsInfo(
 		effectiveBaseURL = resolveBaseURL(&http.Request{URL: &url.URL{}}, htmlElements)
 	}
 
-	// Corresponds to ListIterator var5 = var1.listIterator();
 	numElements := len(htmlElements)
 	mainLoopIndex := 0
 
-Label225: // Corresponds to label225 in Java
+Label225:
 	for mainLoopIndex < numElements {
-		// Corresponds to try-catch block around var3.get() and var5.hasNext()
 		if stopSupplier != nil && stopSupplier() {
 			return nil // Return null if stopSupplier signals to stop
 		}
@@ -200,7 +185,7 @@ Label225: // Corresponds to label225 in Java
 			elementToTest := htmlElements[formElementSearchIndex]
 			if elementToTest.TagInfo != nil && strings.EqualFold(elementToTest.TagInfo.Name, "form") {
 				currentFormElement = elementToTest
-				if elementToTest.Type == htmlparser.SelfClosingTagOrPI { // Corresponds to var6.cU() == 4
+				if elementToTest.Type == htmlparser.SelfClosingTagOrPI {
 					isFormSelfClosing = true
 				}
 				break // Found a form tag
@@ -273,7 +258,7 @@ Label225: // Corresponds to label225 in Java
 		forms = append(forms, formInfo)                  // Add the form early, its inputs will be populated
 		currentFormInputs := &forms[len(forms)-1].Inputs // Get a pointer to the current form's inputs slice
 
-		if isFormSelfClosing { // Corresponds to if (var7) { continue label225; }
+		if isFormSelfClosing {
 			mainLoopIndex++
 			continue Label225
 		}
@@ -294,7 +279,6 @@ Label225: // Corresponds to label225 in Java
 			}
 
 			// Process input, button, select, textarea tags
-			// Corresponds to if (var6.cU() == 0 || var6.cU() == 4)
 			if currentElement.Type == htmlparser.OpenTag || currentElement.Type == htmlparser.SelfClosingTagOrPI {
 				if currentElement.TagInfo != nil {
 					tagNameLower := strings.ToLower(currentElement.TagInfo.Name)
@@ -316,7 +300,6 @@ Label225: // Corresponds to label225 in Java
 
 					if tagNameLower == "input" {
 						inputType := mapHtmlInputTypeToInputType(inputTypeAttr, tagNameLower)
-						// cu1.java logic: <input type="button"> is not added.
 						if inputType != InputTypeNone && inputType != InputTypeButton {
 							*currentFormInputs = append(*currentFormInputs, &FormInputInfo{
 								Type:         inputType,
@@ -327,7 +310,6 @@ Label225: // Corresponds to label225 in Java
 						}
 					} else if tagNameLower == "button" {
 						inputType := mapHtmlInputTypeToInputType(inputTypeAttr, tagNameLower)
-						// Java logic: only add if it's a submit button.
 						if inputType == InputTypeSubmit {
 							*currentFormInputs = append(*currentFormInputs, &FormInputInfo{
 								Type:         InputTypeSubmit,
@@ -374,7 +356,6 @@ Label225: // Corresponds to label225 in Java
 								if !valueAttrFound {
 									if optionLoopIndex+1 < numElements && htmlElements[optionLoopIndex+1].Type == htmlparser.TextNode {
 										optionValue = strings.TrimSpace(htmlElements[optionLoopIndex+1].Content) // Trimmed here
-										// Java code also advances iterator here: ahe var18 = (ahe)var5.next();
 										// We will advance optionLoopIndex by one more at the end of this iteration for the text node
 									}
 								}
@@ -415,13 +396,10 @@ Label225: // Corresponds to label225 in Java
 							}
 
 							if contentElement.TagInfo == nil { // Text node
-								// Do not TrimSpace here to match Java's StringBuilder behavior more closely for intermediate text parts.
-								// cu1.java does var29.append(var31.cT().trim()); - trim happens *before* append.
 								// Our parser's TextNode.Content is already the equivalent of cT().
 								// The .trim() in java was on individual text node string before appending.
 								// If parser already provides trimmed-like content for TextNode, this is fine.
 								// Based on html_parser.go, HTMLElement.Content for TextNode is not explicitly trimmed by the parser itself.
-								// Let's align with cu1.java: trim individual text node content before appending.
 								contentBuilder.WriteString(strings.TrimSpace(contentElement.Content))
 							} else {
 								// Handle elements inside textarea by appending their raw HTML string (cW() equivalent)

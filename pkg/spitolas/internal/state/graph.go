@@ -10,7 +10,6 @@ import (
 )
 
 // Graph represents the state-flow graph.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph structure.
 type Graph struct {
 	mu sync.RWMutex
 
@@ -20,17 +19,12 @@ type Graph struct {
 	stateOrder []string                       // Discovery order
 	indexState *State                         // Initial state
 
-	// CRAWLJAX PARITY: Expired edges/states tracking
-	// In Java: List<Eventable> expiredEdges, List<StateVertex> expiredStates
 	expiredEdges  []*action.Eventable // Edges that have been "removed" but can be restored
 	expiredStates []*State            // States that have been "removed" but can be restored
 
-	// CRAWLJAX PARITY: Near-duplicate detection threshold
 	// Default threshold for distance-based near-duplicate detection
 	nearDuplicateThreshold float64
 
-	// CRAWLJAX PARITY: Compare mode controls near-duplicate behavior.
-	// Java base StateVertexImpl.inThreshold() always returns false.
 	// Only HybridStateVertexImpl computes real distances.
 	// When compareMode == CompareModeExact, skip near-dup computation.
 	compareMode CompareMode
@@ -45,13 +39,12 @@ func NewGraph() *Graph {
 		stateOrder:             make([]string, 0),
 		expiredEdges:           make([]*action.Eventable, 0),
 		expiredStates:          make([]*State, 0),
-		nearDuplicateThreshold: 0.1, // CRAWLJAX PARITY: Default 10% distance threshold
+		nearDuplicateThreshold: 0.1,
 	}
 }
 
 // AddState adds a state to the graph.
 // Returns true if state was added, false if it already exists.
-// CRAWLJAX PARITY: Matches Java putIfAbsent() with setNearDuplicate() call.
 func (g *Graph) AddState(s *State) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -61,8 +54,6 @@ func (g *Graph) AddState(s *State) bool {
 		return false
 	}
 
-	// CRAWLJAX PARITY: Set near-duplicate info before adding to graph
-	// In Java: setNearDuplicate(stateVertex) is called before sfg.addVertex()
 	g.setNearDuplicateLocked(s)
 
 	g.states[s.ID] = s
@@ -84,13 +75,10 @@ func (g *Graph) AddState(s *State) bool {
 }
 
 // setNearDuplicateLocked calculates and sets the nearest state information.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.setNearDuplicate()
-// Java base StateVertexImpl.getDist() returns -1 and inThreshold() returns false.
 // Only HybridStateVertexImpl overrides these with real distance computation.
 // Therefore, skip near-dup computation for CompareModeExact (the default).
 // Must be called with lock held.
 func (g *Graph) setNearDuplicateLocked(vertex *State) {
-	// CRAWLJAX PARITY: Java base StateVertexImpl.inThreshold() always returns false.
 	// Only compute near-duplicates when using distance or fragment comparison mode.
 	if g.compareMode == CompareModeExact {
 		return
@@ -112,7 +100,6 @@ func (g *Graph) setNearDuplicateLocked(vertex *State) {
 		vertex.DistToNearest = minDistance
 		vertex.NearestStateID = closestVertex.ID
 
-		// CRAWLJAX PARITY: inThreshold check
 		// Default: distance <= threshold means it's a near-duplicate
 		vertex.IsNearDuplicate = g.inThresholdLocked(vertex, closestVertex)
 
@@ -126,7 +113,6 @@ func (g *Graph) setNearDuplicateLocked(vertex *State) {
 
 // calculateDistanceLocked calculates distance between two states.
 // Uses Levenshtein distance on stripped DOM (normalized to 0-1).
-// CRAWLJAX PARITY: Matches Java StateVertex.getDist()
 // Must be called with lock held.
 func (g *Graph) calculateDistanceLocked(s1, s2 *State) float64 {
 	if s1 == nil || s2 == nil {
@@ -212,7 +198,6 @@ func (g *Graph) calculateDistanceSampledLocked(s1, s2 string, sampleSize int) fl
 }
 
 // inThresholdLocked checks if the distance between two states is within threshold.
-// CRAWLJAX PARITY: Matches Java StateVertex.inThreshold()
 // Must be called with lock held.
 func (g *Graph) inThresholdLocked(s1, s2 *State) bool {
 	dist := g.calculateDistanceLocked(s1, s2)
@@ -228,8 +213,6 @@ func (g *Graph) SetNearDuplicateThreshold(threshold float64) {
 }
 
 // SetCompareMode sets the comparison mode for the graph.
-// CRAWLJAX PARITY: Controls whether near-duplicate detection is active.
-// CompareModeExact (default) = no near-dup detection (matches Java base StateVertexImpl).
 func (g *Graph) SetCompareMode(mode CompareMode) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -237,7 +220,6 @@ func (g *Graph) SetCompareMode(mode CompareMode) {
 }
 
 // AddEdge adds an Eventable edge between two states.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.addEdge(StateVertex, StateVertex, Eventable)
 // Only adds if no equivalent edge exists (based on Eventable.equals()).
 // Returns the edge (existing or new).
 func (g *Graph) AddEdge(sourceID, targetID string, eventable *action.Eventable) *action.Eventable {
@@ -249,12 +231,9 @@ func (g *Graph) AddEdge(sourceID, targetID string, eventable *action.Eventable) 
 	eventable.TargetStateID = targetID
 
 	// Check for existing equivalent edge
-	// CRAWLJAX PARITY: Uses Eventable.Equals() for duplicate detection
 	for _, edge := range g.edges[sourceID] {
 		if edge.TargetStateID == targetID && edge.Equals(eventable) {
-			// CRAWLJAX PARITY: Mark the NEW eventable with ID=-1 as sentinel for clone-edge detection.
-			// Java InMemoryStateFlowGraph.addEdge() sets clickable.setId(-1) on duplicate.
-			// This is checked in inspectNewDom to fix the crawlPath.
+			// Set ID to -1 on duplicate edge — checked in inspectNewDom to fix the crawlPath.
 			eventable.ID = -1
 			zap.L().Debug("Edge already exists (marked ID=-1)",
 				zap.String("source", sourceID),
@@ -358,7 +337,6 @@ func (g *Graph) AllEdges() []*action.Eventable {
 }
 
 // OutgoingEdges returns outgoing edges from a state.
-// CRAWLJAX PARITY: Java returns ImmutableSet.copyOf() — we return a copy too.
 func (g *Graph) OutgoingEdges(stateID string) []*action.Eventable {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -373,7 +351,6 @@ func (g *Graph) OutgoingEdges(stateID string) []*action.Eventable {
 }
 
 // IncomingEdges returns incoming edges to a state.
-// CRAWLJAX PARITY: Java returns ImmutableSet.copyOf() — we return a copy too.
 func (g *Graph) IncomingEdges(stateID string) []*action.Eventable {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -397,7 +374,6 @@ func (g *Graph) HasState(id string) bool {
 }
 
 // RemoveEdge removes an edge from the graph and adds it to expired edges.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.removeEdge()
 // The edge is tracked in expiredEdges for potential restoration.
 func (g *Graph) RemoveEdge(sourceID, targetID string) bool {
 	g.mu.Lock()
@@ -426,7 +402,6 @@ func (g *Graph) RemoveEdge(sourceID, targetID string) bool {
 		}
 	}
 
-	// CRAWLJAX PARITY: Track expired edge for potential restoration
 	if removedEdge != nil {
 		g.expiredEdges = append(g.expiredEdges, removedEdge)
 		zap.L().Debug("Edge removed and added to expired list",
@@ -440,7 +415,6 @@ func (g *Graph) RemoveEdge(sourceID, targetID string) bool {
 }
 
 // RemoveSpecificEdge removes a specific edge from the graph by matching eventable identity.
-// CRAWLJAX PARITY: Java removeEdge(Eventable) removes ONE specific edge by reference.
 // Unlike RemoveEdge(sourceID, targetID) which removes ALL edges between two nodes.
 func (g *Graph) RemoveSpecificEdge(eventable *action.Eventable) bool {
 	g.mu.Lock()
@@ -486,7 +460,6 @@ func (g *Graph) RemoveSpecificEdge(eventable *action.Eventable) bool {
 }
 
 // RestoreEdge restores a previously removed edge.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.restoreEdge()
 func (g *Graph) RestoreEdge(edge *action.Eventable) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -518,7 +491,6 @@ func (g *Graph) RestoreEdge(edge *action.Eventable) bool {
 }
 
 // RemoveState removes a state by adding it to expired states.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.removeState()
 // Also removes all incoming edges to this state.
 func (g *Graph) RemoveState(stateID string) bool {
 	g.mu.Lock()
@@ -537,10 +509,8 @@ func (g *Graph) RemoveState(stateID string) bool {
 		}
 	}
 
-	// CRAWLJAX PARITY: Add to expired states
 	g.expiredStates = append(g.expiredStates, state)
 
-	// CRAWLJAX PARITY: Remove all incoming edges
 	if inEdges, ok := g.inEdges[stateID]; ok {
 		for _, inEdge := range inEdges {
 			// Remove from source's outgoing edges
@@ -567,7 +537,6 @@ func (g *Graph) RemoveState(stateID string) bool {
 }
 
 // RestoreState restores a previously removed state and its incoming edges.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.restoreState()
 func (g *Graph) RestoreState(stateID string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -587,7 +556,6 @@ func (g *Graph) RestoreState(stateID string) bool {
 		return false
 	}
 
-	// CRAWLJAX PARITY: Restore all expired edges that target this state
 	edgesToRestore := make([]*action.Eventable, 0)
 	for _, expired := range g.expiredEdges {
 		if expired.TargetStateID == stateID {
@@ -617,7 +585,6 @@ func (g *Graph) RestoreState(stateID string) bool {
 }
 
 // GetExpiredEdges returns all expired edges.
-// CRAWLJAX PARITY: Matches Java getExpiredEdges()
 func (g *Graph) GetExpiredEdges() []*action.Eventable {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -628,7 +595,6 @@ func (g *Graph) GetExpiredEdges() []*action.Eventable {
 }
 
 // GetExpiredStates returns all expired states.
-// CRAWLJAX PARITY: Matches Java getExpiredStates()
 func (g *Graph) GetExpiredStates() []*State {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -639,7 +605,6 @@ func (g *Graph) GetExpiredStates() []*State {
 }
 
 // GetMeanStateStringSize returns the mean DOM string size across all states.
-// CRAWLJAX PARITY: Matches Java InMemoryStateFlowGraph.getMeanStateStringSize().
 func (g *Graph) GetMeanStateStringSize() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -721,7 +686,6 @@ func (g *Graph) ShortestPath(sourceID, targetID string) []*action.Eventable {
 }
 
 // GetNeighbors returns states reachable from the given state (deduplicated).
-// CRAWLJAX PARITY: Java getOutgoingStates() returns ImmutableSet<StateVertex> (deduped).
 func (g *Graph) GetNeighbors(stateID string) []*State {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -794,12 +758,9 @@ func (pq *priorityQueue) Pop() interface{} {
 }
 
 // ResetEventableIDCounter resets the eventable ID counter (for testing).
-// CRAWLJAX PARITY: Delegates to action.ResetEventableIDCounter()
 func ResetEventableIDCounter() {
 	action.ResetEventableIDCounter()
 }
-
-// CRAWLJAX PARITY: K-shortest paths algorithm (Yen's algorithm)
 
 // KShortestPaths finds up to k shortest paths between two states using Yen's algorithm.
 // Returns paths in order of increasing length. Returns nil if no path exists.

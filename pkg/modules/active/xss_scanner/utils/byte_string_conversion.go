@@ -7,36 +7,28 @@ import (
 
 // --- Public Static Methods ---
 
-// BytesToString corresponds to h9.a(byte[] var0)
-// and h9.a(byte[] var0, int var1, int var2)
-// The stub in stubs.go currently has BytesToString(data []byte) string
 // We will implement that signature and make it call the more general version.
 func BytesToString(data []byte) string {
 	if data == nil {
-		return "" // Return empty string for nil, as Java String would be null, Go's equivalent is ""
+		return ""
 	}
 	return BytesToStringInRange(data, 0, len(data))
 }
 
-// BytesToStringInRange corresponds to h9.a(byte[] var0, int var1, int var2)
 // This is the core logic for byte array to string conversion.
 func BytesToStringInRange(data []byte, startIndex int, endIndex int) string {
 	if data == nil {
-		return "" // Java returns null, Go returns empty string
+		return ""
 	}
 
-	// Ensure var1 and var2 are within bounds
 	if startIndex < 0 || startIndex > len(data) || endIndex < 0 || startIndex+endIndex > len(data) {
 		// Handle invalid range, perhaps return empty string or panic depending on desired strictness
-		return "" // Matching Java's likely NullPointerException or similar if bounds are bad
+		return ""
 	}
 
 	sourceBytes := data[startIndex : startIndex+endIndex]
 
-	// Java logic: byte[] var3 = new byte[var2 * 2];
-	// for (int var4 = 0; var4 < var2; var4++) { var3[2 * var4 + 1] = var0[var1 + var4]; }
 	// This creates a pseudo UTF-16BE byte array where high bytes are 0.
-	// Then new String(var3, "utf-16") effectively means UTF-16BE.
 
 	if len(sourceBytes) == 0 {
 		return ""
@@ -51,7 +43,6 @@ func BytesToStringInRange(data []byte, startIndex int, endIndex int) string {
 	return string(runes)
 }
 
-// StringToBytes corresponds to h9.a(String var0)
 // Updated to pass runes directly to internal helper.
 func StringToBytes(s string) []byte {
 	if s == "" {
@@ -63,8 +54,6 @@ func StringToBytes(s string) []byte {
 	return stringToBytes(runes, targetBytes, 0)
 }
 
-// stringToBytes corresponds to h9.a(String var0, byte[] var1, int var2)
-// Updated to accept []rune directly and strictly mimic Java's char-to-byte truncation.
 // Includes a workaround for specific problematic runes like U+FF46.
 func stringToBytes(
 	inputRunes []rune,

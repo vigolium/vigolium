@@ -35,12 +35,10 @@ func (r Rect) Area() float64 {
 }
 
 // FragmentComparison defines the result of comparing two fragments.
-// CRAWLJAX PARITY: Matches Java FragmentComparision enum exactly.
 type FragmentComparison int
 
 const (
 	// FragmentEqual - Fragments have identical DOM structure.
-	// Note: In Java Crawljax, EQUAL means DOM + visual same.
 	// Since we skip visual comparison, EQUAL means APTED distance = 0.
 	FragmentEqual FragmentComparison = iota
 
@@ -72,7 +70,6 @@ func (fc FragmentComparison) String() string {
 }
 
 // Fragment represents a DOM region on the page.
-// CRAWLJAX PARITY: Matches Java Fragment class structure.
 type Fragment struct {
 	ID       int
 	ParentID int
@@ -95,45 +92,36 @@ type Fragment struct {
 	DOMHash     string // Hash of subtree structure
 	ContentHash string // Hash of text content
 
-	// CRAWLJAX PARITY: Fragment relationships (matches Java Fragment.java)
 	// These are bidirectional links maintained by FragmentManager
 	EquivalentFragments []*Fragment // Fragments with same DOM but different visual (skip visual = same as duplicates)
 	DuplicateFragments  []*Fragment // Exact duplicate fragments
 	ND2FragmentRefs     []*Fragment // Near-duplicate type 2 related fragments
 
-	// CRAWLJAX PARITY: Fragment hierarchy
 	Parent      *Fragment   // Parent fragment in hierarchy
 	Children    []*Fragment // Child fragments
 	DOMParent   *Fragment   // Parent in DOM tree (may differ from visual hierarchy)
 	DOMChildren []*Fragment // Children in DOM tree
 
-	// CRAWLJAX PARITY: Global fragment status
 	IsGlobal          bool // True if this is a unique global fragment (not a duplicate)
 	AccessTransferred bool // True if access info has been transferred from related fragments
 
-	// CRAWLJAX PARITY: Cached usefulness check
 	usefulCached *bool // Cached result of IsUseful()
 
 	// Reference to the state containing this fragment
 	ReferenceStateID string // ID of the state this fragment belongs to
 
-	// CRAWLJAX PARITY: Influence tracking for prioritization
 	// Higher influence = more likely to reveal new content
 	Influence       float64  // Current influence score (nil = not computed)
-	InfluencePtr    *float64 // Pointer for nil check (Java uses Double object)
+	InfluencePtr    *float64
 	DirectAccess    bool     // Was directly accessed (clicked/submitted)
 	DuplicateCount  int      // Times led to duplicate state
 	EquivalentCount int      // Times was equivalent to another fragment
 
-	// CRAWLJAX PARITY: Near-duplicate clustering
 	ClusterID    int      // ND cluster ID (0 = not clustered)
 	ND2Fragments []string // DOM hashes of ND2-related fragments (legacy, use ND2FragmentRefs instead)
 
-	// CRAWLJAX PARITY: APTED tree cache
 	aptedTree *APTEDNode // Cached APTED tree representation
 
-	// CRAWLJAX PARITY: Candidate elements contained in this fragment
-	// In Java: ArrayList<CandidateElement> candidates
 	CandidateElements []*CandidateElement
 }
 
@@ -150,7 +138,7 @@ func NewFragment(id int, xpath string, rect Rect, subtreeSize int) *Fragment {
 		IsDynamic:           false,
 		AccessCount:         0,
 		Influence:           influence,
-		InfluencePtr:        &influence, // CRAWLJAX PARITY: Non-nil means computed
+		InfluencePtr:        &influence,
 		IsGlobal:            false,      // Will be set by FragmentManager.addFragment()
 		EquivalentFragments: []*Fragment{},
 		DuplicateFragments:  []*Fragment{},
@@ -161,7 +149,6 @@ func NewFragment(id int, xpath string, rect Rect, subtreeSize int) *Fragment {
 }
 
 // FragmentRules defines thresholds for determining useful fragments.
-// CRAWLJAX PARITY: Matches Java FragmentRules class exactly.
 type FragmentRules struct {
 	ThresholdWidth  float64 // Minimum width for useful fragment (default: 50)
 	ThresholdHeight float64 // Minimum height for useful fragment (default: 50)
@@ -169,7 +156,6 @@ type FragmentRules struct {
 	SubtreeWidthOr  int     // Minimum nodes regardless of size (OR condition, default: 4)
 }
 
-// DefaultFragmentRules returns the default fragment rules matching Java Crawljax.
 func DefaultFragmentRules() *FragmentRules {
 	return &FragmentRules{
 		ThresholdWidth:  50,
@@ -193,7 +179,6 @@ func GetFragmentRules() *FragmentRules {
 }
 
 // IsUseful returns true if the fragment is large enough to be useful.
-// CRAWLJAX PARITY: Matches Java usefulFragment() logic exactly:
 // (width > threshold AND height > threshold AND nodes >= subtreeWidthAnd)
 // OR (nodes >= subtreeWidthOr)
 func (f *Fragment) IsUseful() bool {
@@ -205,7 +190,6 @@ func (f *Fragment) IsUseful() bool {
 	rules := globalFragmentRules
 	subtreeWidth := f.SubtreeSize
 
-	// CRAWLJAX PARITY: Java condition exactly:
 	// (width > 50 AND height > 50 AND nodes >= 1) OR nodes >= 4
 	useful := (f.Rect.Width > rules.ThresholdWidth &&
 		f.Rect.Height > rules.ThresholdHeight &&
@@ -342,9 +326,6 @@ func (f *Fragment) String() string {
 		f.ID, f.TagName, f.SubtreeSize, hashStr, f.IsDynamic)
 }
 
-// CRAWLJAX PARITY: Influence tracking methods
-
-// AccessType defines how a fragment was accessed (matches Java Crawljax).
 type AccessType int
 
 const (
@@ -357,7 +338,6 @@ const (
 )
 
 // RecordAccess updates influence based on access type.
-// This matches Java Crawljax's influence tracking for prioritization.
 func (f *Fragment) RecordAccess(accessType AccessType) {
 	switch accessType {
 	case AccessTypeDirect:
@@ -390,8 +370,6 @@ func (f *Fragment) ResetInfluence() {
 	f.EquivalentCount = 0
 }
 
-// CRAWLJAX PARITY: Near-duplicate clustering methods
-
 // SetCluster sets the ND cluster ID for this fragment.
 func (f *Fragment) SetCluster(clusterID int) {
 	f.ClusterID = clusterID
@@ -417,8 +395,6 @@ func (f *Fragment) HasND2Relation(domHash string) bool {
 	}
 	return false
 }
-
-// CRAWLJAX PARITY: Fragment relationship methods (matches Java Fragment.java)
 
 // AddDuplicateFragment adds a duplicate fragment (bidirectional link).
 func (f *Fragment) AddDuplicateFragment(other *Fragment) {
@@ -533,7 +509,6 @@ func (f *Fragment) AddDOMChild(child *Fragment) {
 }
 
 // GetCandidateInfluence returns the cached candidate influence.
-// Returns nil if not computed yet (matches Java Double behavior).
 func (f *Fragment) GetCandidateInfluence() *float64 {
 	return f.InfluencePtr
 }
@@ -544,10 +519,7 @@ func (f *Fragment) SetCandidateInfluence(influence float64) {
 	f.InfluencePtr = &influence
 }
 
-// CRAWLJAX PARITY: APTED-based comparison methods
-
 // Compare compares this fragment with another using APTED algorithm.
-// CRAWLJAX PARITY: Matches Java Fragment.compare() but skips visual comparison.
 // Since we skip visual comparison, EQUAL and EQUIVALENT are treated the same.
 func (f *Fragment) Compare(other *Fragment) FragmentComparison {
 	if f == nil || other == nil {
@@ -575,8 +547,6 @@ func (f *Fragment) Compare(other *Fragment) FragmentComparison {
 	apted := NewAPTED()
 	distance := apted.Distance(thisTree, otherTree)
 
-	// CRAWLJAX PARITY: If structural distance = 0, fragments are equal
-	// Java Crawljax would check visual (compareImage) here, but we skip it
 	if distance == 0 {
 		return FragmentEqual
 	}
@@ -585,7 +555,6 @@ func (f *Fragment) Compare(other *Fragment) FragmentComparison {
 }
 
 // CompareFast performs fast comparison by checking size first.
-// CRAWLJAX PARITY: Matches Java Fragment.compareFast().
 func (f *Fragment) CompareFast(other *Fragment) FragmentComparison {
 	if f == nil || other == nil {
 		return FragmentDifferent
@@ -628,7 +597,6 @@ func (f *Fragment) ClearAPTEDTree() {
 	f.aptedTree = nil
 }
 
-// GetSize returns the subtree size (matches Java getSize()).
 func (f *Fragment) GetSize() int {
 	return f.SubtreeSize
 }

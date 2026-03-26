@@ -5,7 +5,6 @@ import (
 )
 
 // =============================================================================
-// Rect Tests - Mirrors Crawljax's visual block rectangle handling
 // =============================================================================
 
 func TestRectContains(t *testing.T) {
@@ -178,7 +177,6 @@ func TestRectArea(t *testing.T) {
 }
 
 // =============================================================================
-// Fragment Tests - Mirrors Crawljax's Fragment, StateVertex tests
 // =============================================================================
 
 func TestNewFragment(t *testing.T) {
@@ -215,7 +213,6 @@ func TestNewFragment(t *testing.T) {
 }
 
 func TestFragmentIsUseful(t *testing.T) {
-	// CRAWLJAX PARITY: Test cases match Java FragmentRules logic
 	// Formula: (width > 50 AND height > 50 AND nodes >= 1) OR nodes >= 4
 	tests := []struct {
 		name     string
@@ -555,7 +552,6 @@ func TestFragmentString(t *testing.T) {
 }
 
 // =============================================================================
-// Crawljax Parity: Influence Tracking Tests
 // =============================================================================
 
 func TestFragmentRecordAccess(t *testing.T) {
@@ -682,7 +678,6 @@ func TestFragmentResetInfluence(t *testing.T) {
 }
 
 // =============================================================================
-// Crawljax Parity: Near-Duplicate Clustering Tests
 // =============================================================================
 
 func TestFragmentSetCluster(t *testing.T) {

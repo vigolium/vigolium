@@ -7,7 +7,6 @@ import (
 )
 
 // TestConditionEquality tests structural equality of conditions.
-// Matches Crawljax's ConditionTest.java parameterized tests.
 func TestConditionEquality(t *testing.T) {
 	testCases := []struct {
 		name       string

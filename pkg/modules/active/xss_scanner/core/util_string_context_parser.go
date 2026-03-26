@@ -10,13 +10,11 @@ import (
 )
 
 // ExtractedStringSegment represents an extracted string segment and its starting position,
-// corresponding to the Java 'fdl' class.
 type ExtractedStringSegment struct {
 	Content    string // The content of the string literal (without quotes)
 	StartIndex int    // The starting index of the content in the original string
 }
 
-// Constants for segment types, mirroring the byte values used in Java's 'var6'.
 const (
 	segmentTypeDoubleQuote  byte = 0 // "..."
 	segmentTypeSingleQuote  byte = 1 // '...'
@@ -25,11 +23,8 @@ const (
 	segmentTypeBlockComment byte = 4 // /*...*/
 )
 
-// ExtractQuotedStringSegments corresponds to Java: public static List<fdl> a(String var0, int var1, int var2)
 // It parses the string 's' from 'startIdx' (inclusive) to 'exclusiveEndIdx' (exclusive).
 // Its primary function is to extract the content of single and double-quoted strings.
-// Obfuscation related to 'v2.c()' (simulated by V2cValue previously) has been removed,
-// and the code now follows the primary functional path.
 func ExtractQuotedStringSegments(
 	Source string,
 	startIndex, endIndexExclusive int,
@@ -46,7 +41,7 @@ func ExtractQuotedStringSegments(
 	segments := []ExtractedStringSegment{}
 	currentIndex := startIndex // Current parsing position
 
-mainLoop: // Label retained for clarity of original structure, though not strictly necessary with removed obfuscation paths
+mainLoop:
 	for currentIndex < endIndexExclusive {
 		currentChar := rune(Source[currentIndex])
 		currentSegmentType := segmentTypeNone
@@ -76,7 +71,6 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 		}
 
 		// Determine the starting index of the segment's content.
-		// Java: 'int var12 = ++var5;' where var5 was index of opener.
 		// Here, 'i' is already at the opener. segmentContentStartIndex will be after the opener.
 		segmentContentStartIndex := currentIndex + 1
 		if currentSegmentType == segmentTypeLineComment || currentSegmentType == segmentTypeBlockComment {
@@ -121,7 +115,7 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 				currentIndex = segmentClosingDelimiterIndex + 1 // Move 'i' past the closing quote.
 			} else {
 				// Unterminated string.
-				break mainLoop // Stop parsing, as original Java code would.
+				break mainLoop
 			}
 
 		case segmentTypeLineComment:
@@ -138,7 +132,6 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 				// Comment goes to the end of the analyzed range
 				currentIndex = endIndexExclusive
 			}
-			// Line comments are not added to results in the original Java logic for Fdl.
 
 		case segmentTypeBlockComment:
 			// Find "*/"
@@ -154,7 +147,6 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 				// Unterminated block comment.
 				break mainLoop // Stop parsing.
 			}
-			// Block comments are not added to results in the original Java logic for Fdl.
 		} // End switch identifiedSegmentType
 	} // End mainLoop
 
@@ -165,13 +157,7 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 
 // decodeHTMLEntitiesInBytes decodes HTML entities in a byte slice.
 // This function decodes HTML entities in a byte slice.
-// Obfuscation related to nc.b() (simulated by ncStaticBValue previously) has been removed
-// by assuming the functional path where its conditional breaks are not taken.
 func decodeHTMLEntitiesInBytes(data []byte) []byte {
-	// The original Java code's `String var1 = b();` (where b() returns a static string)
-	// was used to control obfuscated `break` statements.
-	// This implementation assumes the functional path where those breaks are not taken.
-
 	if len(data) == 0 {
 		return data
 	}
@@ -229,12 +215,11 @@ func decodeHTMLEntitiesInBytes(data []byte) []byte {
 							numStr,
 							base,
 							16,
-						) // Parse as short (byte in Java)
+						)
 						if err == nil {
 							decodedByte = byte(parsedVal)
 							entityDecoded = true
 						}
-						// Original Java logs NumberFormatException, ignored here for simplicity.
 					}
 				} else { // Named entity
 					if charVal, ok := utils.HtmlEntitiesMap[strings.ToLower(entityName)]; ok {
@@ -261,9 +246,7 @@ func decodeHTMLEntitiesInBytes(data []byte) []byte {
 	return data
 }
 
-// determineByteContextAtEnd corresponds to Java: private static byte a(byte[] var0, int var1, int var2)
 // This function determines the lexical context at the end of the given byte slice.
-// This function did not show signs of heavy obfuscation like the string parser.
 func determineByteContextAtEnd(data []byte, startIndex, endIndexExclusive int) byte {
 	if startIndex < 0 || endIndexExclusive > len(data) || startIndex > endIndexExclusive {
 		return segmentTypeNone
@@ -371,12 +354,9 @@ func determineByteContextAtEnd(data []byte, startIndex, endIndexExclusive int) b
 	return currentContext // Context at the very end of iteration
 }
 
-// GetByteContextAfterDecoding corresponds to Java: public static byte b(byte[] var0, int var1, int var2)
-// Original Java parameters: var0 (byte[]), var1 (start index), var2 (end index).
-// The Java code `if (var2 >= var1 && var1 >= 0)` suggests var1 and var2 are inclusive indices.
 func GetByteContextAfterDecoding(data []byte, startIndex, endIndex int) byte {
 	if endIndex < startIndex || startIndex < 0 {
-		return segmentTypeNone // Invalid range based on original Java check
+		return segmentTypeNone
 	}
 
 	// Handle empty data array and adjust endIdxInclusive if out of bounds

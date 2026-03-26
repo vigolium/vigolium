@@ -81,7 +81,7 @@ func LoadInlineModuleDefinitions(configPath string) (*ModuleConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // Config file không tồn tại = không có definitions
+			return nil, nil // Config file does not exist = no definitions
 		}
 		return nil, fmt.Errorf("read config file: %w", err)
 	}
@@ -91,7 +91,7 @@ func LoadInlineModuleDefinitions(configPath string) (*ModuleConfig, error) {
 		return nil, fmt.Errorf("parse config YAML: %w", err)
 	}
 
-	// Return nil nếu không có definitions
+	// Return nil if there are no definitions
 	if len(cfg.ModuleDefinitions.Custom) == 0 &&
 		len(cfg.ModuleDefinitions.BuiltIn) == 0 {
 		return nil, nil

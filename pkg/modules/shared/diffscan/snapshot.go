@@ -14,7 +14,6 @@ import (
 // allowing the ResponseChain to be closed and its buffers returned to the pool.
 type ResponseSnapshot struct {
 	// Filtered response for keyword tracking and anchor reflection counting
-	// (matches Java's BulkUtilities.filterResponse() — content-type based normalization)
 	FilteredResponse []byte
 
 	// Full fingerprint for structural comparison (replaces FastResponseVariations + QuantFingerprint)
@@ -71,7 +70,6 @@ func NewResponseSnapshot(respChain *httputil.ResponseChain) *ResponseSnapshot {
 }
 
 // filterResponse extracts and normalizes response data based on content type.
-// Matches Java's BulkUtilities.filterResponse() behavior.
 func filterResponse(response *httputil.ResponseChain) []byte {
 	if response == nil || !response.Has() {
 		return []byte("null")
@@ -90,11 +88,9 @@ func filterResponse(response *httputil.ResponseChain) []byte {
 	} else if mime.Is(anomaly.ContentTypeJSON, anomaly.ContentTypeScript) {
 		headers := response.Headers().String()
 		body := response.Body().String()
-		// Unescape JSON like Java's StringEscapeUtils.unescapeJson()
 		unescapedBody := unescapeJSON(body)
 		filteredResponse = []byte(headers + unescapedBody)
 	} else {
-		// Java: only headers + inferred mime type, lowercased, body discarded
 		headers := response.Headers().String()
 		mimeStr := mime.GetInferredMimeType().String()
 		filteredResponse = bytes.ToLower([]byte(headers + mimeStr))
@@ -106,7 +102,6 @@ func filterResponse(response *httputil.ResponseChain) []byte {
 	return result
 }
 
-// unescapeJSON unescapes JSON escape sequences, matching Java's StringEscapeUtils.unescapeJson().
 // Handles: \\ → \, \" → ", \' → ', \n → newline, \r → CR, \t → tab, \/ → /
 func unescapeJSON(s string) string {
 	if !strings.Contains(s, "\\") {

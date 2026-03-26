@@ -8,15 +8,15 @@ import { isURLLike } from '../requestpattern/utils';
 // ============================================================================
 
 interface TracebackOptions {
-  /** Số dòng context mỗi bên (default: 15) */
+  /** Number of context lines per side (default: 15) */
   contextLines?: number;
-  /** Nếu dòng dài hơn = minified code (default: 500) */
+  /** If line is longer than this = minified code (default: 500) */
   maxLineLength?: number;
-  /** Số call sites tối đa (default: 5) */
+  /** Maximum number of call sites (default: 5) */
   maxCallSites?: number;
-  /** AST của file (optional, không dùng trong line-based approach) */
+  /** AST of the file (optional, not used in line-based approach) */
   ast?: ParseResult<t.File> | null;
-  /** Source code (optional, nếu không có sẽ lấy từ hub.file.code) */
+  /** Source code (optional, if not provided will be read from hub.file.code) */
   sourceCode?: string;
 }
 
@@ -26,17 +26,17 @@ interface CallSiteInfo {
 }
 
 export interface TracebackResult {
-  /** Grep-style formatted code với line numbers */
+  /** Grep-style formatted code with line numbers */
   code: string;
-  /** Tên function chứa target */
+  /** Name of the function containing the target */
   functionName: string;
-  /** Số params của function */
+  /** Number of function parameters */
   paramCount: number;
-  /** Các biến đã trace được */
+  /** Traced variables */
   tracedVariables: Set<string>;
-  /** Các string literals tìm thấy */
+  /** String literals found */
   literals: string[];
-  /** Các call sites */
+  /** Call sites */
   callSites: CallSiteInfo[];
 }
 
@@ -77,24 +77,24 @@ class LineBasedContextExtractor {
   }
 
   extract(): TracebackResult {
-    // 1. Lấy line number từ AST (chỉ dùng loc)
+    // 1. Get line number from AST (using loc only)
     const targetLine = this.getTargetLine();
 
-    // 2. Thu thập context theo dòng
+    // 2. Collect context by line
     const { code: contextCode, startLine, endLine } = this.collectLineContext(targetLine);
 
-    // 3. Tìm function info
+    // 3. Find function info
     const funcInfo = this.extractFunctionInfo();
 
-    // 4. Tìm call sites bằng text search
+    // 4. Find call sites via text search
     const callSites = funcInfo.name.length >= 2
       ? this.findCallSitesByText(funcInfo.name, targetLine)
       : [];
 
-    // 5. Thu thập literals từ context
+    // 5. Collect literals from context
     const literals = this.extractLiterals(contextCode);
 
-    // 6. Thu thập traced variables
+    // 6. Collect traced variables
     const tracedVariables = this.extractVariables(contextCode);
 
     // 7. Format output

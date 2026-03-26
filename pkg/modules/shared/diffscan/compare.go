@@ -32,35 +32,34 @@ func Identical(candidate *Attack, attack2 *Attack) bool {
 	return true
 }
 
-// SimilarIsh compares consistency between break/noBreak groups and individuals.
+// SimilarWithTolerance compares consistency between break/baseline groups and individuals.
 // Returns true if similar according to complex conditions.
 // This logic checks the consistency of fingerprint attributes between groups
 // and individual attacks, handling missing keys by referencing the corresponding
 // individual attack.
-func SimilarIsh(
-	noBreakGroup *Attack,
+func SimilarWithTolerance(
+	baselineGroup *Attack,
 	breakGroup *Attack,
-	noBreak *Attack,
-	doBreak *Attack,
+	baselineAttack *Attack,
+	breakAttack *Attack,
 ) bool {
-	for key, noBreakVal := range noBreakGroup.Fingerprint {
-		// Compare int with int (like Java)
-		if key == "input_reflections" && noBreakVal == int(ReflectType_INCALCULABLE) {
+	for key, baselineVal := range baselineGroup.Fingerprint {
+		if key == "input_reflections" && baselineVal == int(ReflectionCountIncalculable) {
 			continue
 		}
 
 		if _, ok := breakGroup.Fingerprint[key]; !ok {
-			if !valuesEqual(noBreakVal, doBreak.Fingerprint[key]) {
+			if !valuesEqual(baselineVal, breakAttack.Fingerprint[key]) {
 				return false
 			}
-		} else if !valuesEqual(noBreakVal, breakGroup.Fingerprint[key]) {
+		} else if !valuesEqual(baselineVal, breakGroup.Fingerprint[key]) {
 			return false
 		}
 	}
 
 	for key, breakVal := range breakGroup.Fingerprint {
-		if _, ok := noBreakGroup.Fingerprint[key]; !ok {
-			if !valuesEqual(breakVal, noBreak.Fingerprint[key]) {
+		if _, ok := baselineGroup.Fingerprint[key]; !ok {
+			if !valuesEqual(breakVal, baselineAttack.Fingerprint[key]) {
 				return false
 			}
 		}
@@ -69,14 +68,14 @@ func SimilarIsh(
 	return true
 }
 
-// Similar checks if all key-value pairs in doNotBreakAttackGroup
-// exist and match in individualBreakAttack.
-// This function basically checks if the second fingerprint is a superset of
+// Similar checks if all key-value pairs in baselineGroup
+// exist and match in breakAttack.
+// This function checks if the second fingerprint is a superset of
 // (or identical to) the first fingerprint.
 // Returns true if the second fingerprint contains all entries from the first.
-func Similar(doNotBreakAttackGroup *Attack, individualBreakAttack *Attack) bool {
-	for key, value := range doNotBreakAttackGroup.Fingerprint {
-		fingerprint2Value, ok := individualBreakAttack.Fingerprint[key]
+func Similar(baselineGroup *Attack, breakAttack *Attack) bool {
+	for key, value := range baselineGroup.Fingerprint {
+		fingerprint2Value, ok := breakAttack.Fingerprint[key]
 		if !ok {
 			return false
 		}
@@ -92,7 +91,7 @@ func Similar(doNotBreakAttackGroup *Attack, individualBreakAttack *Attack) bool 
 // First, it checks if the number of keys is equal.
 // Then, it iterates through the first fingerprint and checks if each key exists
 // in the second fingerprint with the same value, except for the key "input_reflections"
-// (which allows the value ReflectType_INCALCULABLE in either).
+// (which allows the value ReflectionCountIncalculable in either).
 // Returns true if very similar (same length and matching key-values, except input_reflections).
 func VerySimilar(attack1 *Attack, attack2 *Attack) bool {
 	if len(attack1.Fingerprint) != len(attack2.Fingerprint) {
@@ -100,10 +99,9 @@ func VerySimilar(attack1 *Attack, attack2 *Attack) bool {
 	}
 
 	for key, val1 := range attack1.Fingerprint {
-		// Compare int with int (like Java)
 		if key == "input_reflections" &&
-			(val1 == int(ReflectType_INCALCULABLE) ||
-				attack2.Fingerprint[key] == int(ReflectType_INCALCULABLE)) {
+			(val1 == int(ReflectionCountIncalculable) ||
+				attack2.Fingerprint[key] == int(ReflectionCountIncalculable)) {
 			continue
 		}
 

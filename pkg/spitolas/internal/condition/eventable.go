@@ -8,7 +8,6 @@ import (
 )
 
 // EventableCondition checks conditions for specific elements.
-// This mirrors Java Crawljax's EventableCondition interface.
 type EventableCondition struct {
 	// XPath scope - only check elements matching this XPath
 	InXPath string
@@ -24,9 +23,8 @@ type EventableCondition struct {
 }
 
 // LinkedInput represents a form input that should be filled with specific values.
-// CRAWLJAX PARITY: Matches Java EventableCondition.linkedInputFields (List<FormInput>)
 type LinkedInput struct {
-	Identification *action.Identification // CRAWLJAX PARITY: How + Value for element lookup
+	Identification *action.Identification
 	Type           string                 // text, checkbox, radio, select
 	Values         []string               // Values to use
 }
@@ -78,7 +76,6 @@ func (ec *EventableCondition) WithDescription(desc string) *EventableCondition {
 }
 
 // AddLinkedInput adds a linked form input using Identification.
-// CRAWLJAX PARITY: Uses Identification (How + Value) instead of CSS selector.
 func (ec *EventableCondition) AddLinkedInput(identification *action.Identification, inputType string, values ...string) *EventableCondition {
 	ec.LinkedInputs = append(ec.LinkedInputs, LinkedInput{
 		Identification: identification,
@@ -128,8 +125,7 @@ func (ec *EventableCondition) Check(elementXPath string, page *browser.Page) boo
 }
 
 // matchesXPathScope checks if an element XPath is within the scope.
-// CRITICAL FIX: Uses strict prefix matching only, matching Java Crawljax behavior.
-// Java: xpath.startsWith(scope) - only true if element is a descendant of scope.
+// CRITICAL FIX: Uses strict prefix matching only,
 // Before: Also used Contains() which was too permissive.
 func (ec *EventableCondition) matchesXPathScope(elementXPath string) bool {
 	if ec.InXPath == "" {
@@ -226,7 +222,6 @@ func WhenInXPath(xpath string) *EventableCondition {
 }
 
 // WithFormFill creates a condition with linked form input.
-// CRAWLJAX PARITY: Uses Identification instead of CSS selector.
 func WithFormFill(xpath string, inputIdentification *action.Identification, inputType string, values ...string) *EventableCondition {
 	return NewEventableCondition().
 		InXPathScope(xpath).
@@ -246,7 +241,6 @@ func WithFormFillByName(xpath, inputName, inputType string, values ...string) *E
 }
 
 // GetCandidateElementsForInputs generates CandidateElement variants with different form input values.
-// CRAWLJAX PARITY: Matches Java FormHandler.getCandidateElementsForInputs(Element, EventableCondition).
 func (ecc *EventableConditionChecker) GetCandidateElementsForInputs(elementXPath string, baseCandidate *action.CandidateElement) []*action.CandidateElement {
 	// Collect all linked inputs from matching conditions
 	var allInputs []LinkedInput
@@ -284,7 +278,6 @@ func (ecc *EventableConditionChecker) GetCandidateElementsForInputs(elementXPath
 		}
 
 		// Add form inputs for this combination
-		// CRAWLJAX PARITY: Uses Identification directly (no CSS selector conversion)
 		for _, input := range allInputs {
 			if len(input.Values) > 0 && input.Identification != nil {
 				valueIndex := i % len(input.Values)
@@ -303,7 +296,6 @@ func (ecc *EventableConditionChecker) GetCandidateElementsForInputs(elementXPath
 }
 
 // GetFormInputs returns all form inputs from all conditions.
-// CRAWLJAX PARITY: Matches Java FormHandler.getFormInputs().
 func (ecc *EventableConditionChecker) GetFormInputs() []*action.FormInput {
 	var result []*action.FormInput
 	for _, ec := range ecc.conditions {
@@ -312,7 +304,6 @@ func (ecc *EventableConditionChecker) GetFormInputs() []*action.FormInput {
 				continue
 			}
 			// Convert LinkedInput to FormInput
-			// CRAWLJAX PARITY: Uses Identification directly (no CSS selector conversion)
 			formInput := &action.FormInput{
 				Type:           action.InputType(input.Type),
 				Identification: input.Identification,

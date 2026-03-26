@@ -12,7 +12,7 @@ func TestParseSimpleTag(t *testing.T) {
 		input            string
 		contentType      byte // 0 for HTML, 1 for XML
 		expectedNumElems int
-		expectedElements []HTMLElement // Chỉ kiểm tra chi tiết một vài element đầu tiên nếu cần
+		expectedElements []HTMLElement
 	}{
 		{
 			name:             "Simple Div",
@@ -131,18 +131,18 @@ func TestParseSimpleTag(t *testing.T) {
 func TestParseWithBOM(t *testing.T) {
 	tests := []struct {
 		name                   string
-		inputBytes             []byte // Sử dụng []byte để biểu diễn BOM chính xác
-		bomLength              int    // Độ dài của BOM để kiểm tra StartOffset
+		inputBytes             []byte
+		bomLength              int
 		expectedNumElems       int
 		expectedFirstElType    HTMLElementType
-		expectedFirstElName    string // Nếu là tag
-		expectedFirstElContent string // Nếu là text node sau BOM
+		expectedFirstElName    string
+		expectedFirstElContent string
 	}{
 		{
 			name:                "UTF-8 BOM then Div Tag",
 			inputBytes:          append([]byte{0xEF, 0xBB, 0xBF}, []byte("<div></div>")...),
 			bomLength:           3,
-			expectedNumElems:    2, // <div> và </div>
+			expectedNumElems:    2,
 			expectedFirstElType: OpenTag,
 			expectedFirstElName: "div",
 		},
@@ -182,7 +182,7 @@ func TestParseWithBOM(t *testing.T) {
 			name:             "Only UTF-8 BOM",
 			inputBytes:       []byte{0xEF, 0xBB, 0xBF},
 			bomLength:        3,
-			expectedNumElems: 0, // BOM được loại bỏ, không còn gì để parse
+			expectedNumElems: 0, // BOM stripped, nothing left to parse
 		},
 		{
 			name:                "No BOM, just Div Tag",
@@ -192,9 +192,8 @@ func TestParseWithBOM(t *testing.T) {
 			expectedFirstElType: OpenTag,
 			expectedFirstElName: "div",
 		},
-		// Các BOM khác trong bomSequences của parser: UTF-32BE, UTF-32LE
-		// Chúng có thể được thêm vào đây nếu cần thiết, nhưng việc xử lý chuỗi byte của chúng phức tạp hơn.
-		// Test với UTF-8 và UTF-16 thường đủ để bao phủ logic loại bỏ BOM.
+		// UTF-32BE and UTF-32LE BOMs could be added here but UTF-8/UTF-16 tests
+		// sufficiently cover the BOM removal logic.
 	}
 
 	for _, tc := range tests {
@@ -265,18 +264,10 @@ func TestParseWithBOM(t *testing.T) {
 							"Tag name mismatch",
 						)
 					}
-					// EndOffset của tag element sẽ là bomLength + độ dài của tag string
-					// Ví dụ: BOM + "<div></div>". Tag <div> có StartOffset=bomLength (trong content), EndOffset=bomLength+5.
-					// HTMLElement.EndOffset của nó sẽ là bomLength + len("<div>") nếu nó là element đầu tiên *sau* BOM.
-					// Tuy nhiên, ở đây firstActualElement.StartOffset là 0 (bao gồm BOM).
-					// Nên EndOffset của nó sẽ là độ dài của (BOM + tag string đó).
-					// Điều này phức tạp để tính toán ở đây, tốt hơn là kiểm tra StartOffset của element *thứ hai* nếu có.
-					// Hiện tại, chúng ta chỉ kiểm tra StartOffset của element đầu tiên là 0.
 				case TextNode:
 					assert.Equal(t, tc.expectedFirstElContent, firstActualElement.Content, "Text node content mismatch")
 					assert.Nil(t, firstActualElement.TagInfo, "TagInfo should be nil for a text node")
-					// EndOffset của TextNode (bao gồm BOM) sẽ là bomLength + len(textContent)
-					assert.Equal(t, tc.bomLength+len(tc.expectedFirstElContent), firstActualElement.EndOffset, "TextNode EndOffset mismatch")
+						assert.Equal(t, tc.bomLength+len(tc.expectedFirstElContent), firstActualElement.EndOffset, "TextNode EndOffset mismatch")
 				}
 			}
 		})
@@ -311,9 +302,8 @@ func TestParseCommentsAndCDATA(t *testing.T) {
 			contentType:      0, // HTML
 			expectedNumElems: 1,
 			expectedElements: []HTMLElement{
-				// Trong HTML mode, <![CDATA[...]]> được coi là một directive lạ, bắt đầu bằng <!
-				// và phương thức parseCommentOrDirective sẽ đọc đến >.
-				// Nội dung của HTMLElement.Content sẽ bao gồm toàn bộ chuỗi.
+				// In HTML mode, <![CDATA[...]]> is treated as a directive starting with <!
+				// and parseCommentOrDirective reads until >.
 				{
 					Type:        CommentOrDirective,
 					Content:     "<![CDATA[This is some CDATA]]>",
@@ -327,20 +317,8 @@ func TestParseCommentsAndCDATA(t *testing.T) {
 			input:            "<![CDATA[This is some CDATA]]>",
 			contentType:      1, // XML
 			expectedNumElems: 1,
-			// Trong XML mode, skipUntilTag xử lý CDATA. Nó sẽ bỏ qua <![CDATA[ và ]]>.
-			// Kết quả là một TextNode chứa nội dung bên trong, hoặc không có gì nếu CDATA rỗng.
-			// Tuy nhiên, logic hiện tại của skipUntilTag trong parser Go sẽ coi phần bên trong CDATA như text
-			// và sau đó parse() sẽ tạo TextNode từ đó. Vì vậy, chúng ta mong đợi 1 TextNode.
-			// Logic của e7u.java this.c() khi this.h == 1 (XML) sẽ tìm `]]>` và `this.l` sẽ nhảy qua nó.
-			// Phần text trước CDATA (nếu có) sẽ tạo TextNode. Phần text *bên trong* CDATA có thể không được tạo thành TextNode riêng biệt
-			// mà được bỏ qua bởi skipUntilTag. Logic này cần được kiểm tra lại rất cẩn thận với e7u.java.
-			// Giả định tạm thời: e7u.java không tạo text node cho nội dung CDATA mà chỉ skip nó.
-			// Nếu parser Go hiện tại tạo TextNode cho nội dung CDATA, test này sẽ fail và cần sửa parser hoặc test.
-			// Dựa trên implement hiện tại của Go parser (skipUntilTag tìm CDATA và nhảy qua, sau đó vòng lặp parse có thể tạo text node sau đó):
-			// Nếu input chỉ là CDATA, skipUntilTag sẽ nhảy đến cuối. Vòng parse chính sẽ không còn gì để đọc. -> 0 elements.
-			// Nếu là "text1<![CDATA[cdata]]>text2", thì "text1" là TextNode, CDATA được skip, "text2" là TextNode.
-			// Do đó, cho input chỉ có CDATA ở XML mode, kỳ vọng là 0 element được tạo ra bởi logic của e7u.
-			// Cần test case: "text <![CDATA[content]]> text" trong XML mode.
+			// In XML mode, skipUntilTag handles CDATA by jumping past <![CDATA[...]]>.
+			// For CDATA-only input, skipUntilTag advances to the end, producing 0 elements.
 			expectedElements: []HTMLElement{},
 		},
 		{
@@ -467,9 +445,9 @@ func TestParseTagTypes(t *testing.T) {
 	tests := []struct {
 		name             string
 		input            string
-		contentType      byte // 0 for HTML, 1 for XML (ảnh hưởng đến thẻ tự đóng ngầm định)
+		contentType      byte // 0 for HTML, 1 for XML (affects implicit self-closing)
 		expectedNumElems int
-		expectedElements []HTMLElement // Kiểm tra chi tiết element đầu tiên
+		expectedElements []HTMLElement
 	}{
 		{
 			name:             "Simple Opening Tag",
@@ -524,14 +502,13 @@ func TestParseTagTypes(t *testing.T) {
 			expectedNumElems: 1,
 			expectedElements: []HTMLElement{
 				{Type: OpenTag, TagInfo: &HTMLTagInfo{Name: "div"}, StartOffset: 0, EndOffset: 5},
-			}, // Tên thẻ được chuyển thành chữ thường
+			},
 		},
 		{
 			name:             "PHP style tag <?php ?>",
 			input:            "<?php echo 'hello'; ?>",
 			contentType:      0,
 			expectedNumElems: 1,
-			// Tên thẻ là "?php" (bao gồm cả '?'), loại là SelfClosingTagOrPI
 			expectedElements: []HTMLElement{
 				{
 					Type:        SelfClosingTagOrPI,
@@ -659,7 +636,7 @@ func TestParseTagTypes(t *testing.T) {
 								"Tag name mismatch for element %d",
 								i,
 							)
-							// Kiểm tra chi tiết thuộc tính nếu expectedEl.TagInfo.Attributes được định nghĩa
+							// Check detailed attributes if defined
 							if len(expectedEl.TagInfo.Attributes) > 0 {
 								assert.Equal(
 									t,
@@ -752,12 +729,10 @@ func TestParseAttributes(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		// contentType không cần thiết ở đây vì chúng ta tập trung vào cấu trúc thuộc tính,
-		// và các thẻ ví dụ không phải là loại tự đóng ngầm định thay đổi theo contentType.
 		expectedNumElems     int
 		expectedFirstElType  HTMLElementType
 		expectedFirstElName  string
-		expectedFirstElAttrs []HTMLAttribute // Kiểm tra chi tiết các thuộc tính
+		expectedFirstElAttrs []HTMLAttribute
 	}{
 		{
 			name:                 "Tag with no attributes",
@@ -841,7 +816,7 @@ func TestParseAttributes(t *testing.T) {
 		},
 		{
 			name:                "Attribute with no value",
-			input:               "<input disabled>", // input là self-closing trong HTML mode (0)
+			input:               "<input disabled>", // input is self-closing in HTML mode
 			expectedNumElems:    1,
 			expectedFirstElType: SelfClosingTagOrPI,
 			expectedFirstElName: "input",
@@ -859,7 +834,7 @@ func TestParseAttributes(t *testing.T) {
 		},
 		{
 			name:                "Multiple attributes",
-			input:               "<input type=\"text\" id='inputId' disabled value=val />", // Thêm self-closing />
+			input:               "<input type=\"text\" id='inputId' disabled value=val />",
 			expectedNumElems:    1,
 			expectedFirstElType: SelfClosingTagOrPI,
 			expectedFirstElName: "input",
@@ -969,8 +944,7 @@ func TestParseAttributes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Luôn dùng contentType 0 (HTML) cho các test này vì chúng ta tập trung vào cấu trúc thuộc tính
-			// và các thẻ void (như <input>) sẽ được xử lý đúng theo HTML mode.
+			// Use contentType 0 (HTML) so void tags like <input> are handled correctly.
 			actualElements, err := ParseHTMLElementsSimple([]byte(tc.input), 0, len(tc.input), 0)
 
 			assert.NoError(t, err)
@@ -1067,11 +1041,11 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 		input            string
 		contentType      byte // 0 for HTML, 1 for XML
 		expectedNumElems int
-		expectedElements []HTMLElement // Kiểm tra chi tiết một vài element đầu tiên hoặc tất cả nếu cần
+		expectedElements []HTMLElement
 	}{
 		{
 			name:             "Unclosed tag with following text",
-			input:            "<div><p>text", // e7u sẽ parse <div>, <p>, và "text" là TextNode
+			input:            "<div><p>text",
 			contentType:      0,
 			expectedNumElems: 3,
 			expectedElements: []HTMLElement{
@@ -1082,7 +1056,7 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 		},
 		{
 			name:             "Tag with missing closing bracket and attributes",
-			input:            "<div class=\"main\" id=item", // Parser sẽ đọc đến hết
+			input:            "<div class=\"main\" id=item",
 			contentType:      0,
 			expectedNumElems: 1,
 			expectedElements: []HTMLElement{
@@ -1111,7 +1085,7 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 							},
 						},
 					},
-					StartOffset: 0, EndOffset: 25, // EndOffset là cuối chuỗi vì không có '>'
+					StartOffset: 0, EndOffset: 25, // EndOffset is end of string since there's no '>'
 				},
 			},
 		},
@@ -1119,20 +1093,17 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 			name:             "Text node before any tag",
 			input:            "Some text <div>content</div>",
 			contentType:      0,
-			expectedNumElems: 4, // "Some text ", <div>, </div> (content của div là text node tiếp theo)
+			expectedNumElems: 4, // "Some text ", <div>, "content", </div>
 			expectedElements: []HTMLElement{
 				{Type: TextNode, Content: "Some text ", StartOffset: 0, EndOffset: 10},
 				{Type: OpenTag, TagInfo: &HTMLTagInfo{Name: "div"}, StartOffset: 10, EndOffset: 15},
-				// "content" sẽ là TextNode thứ 3, và </div> là thứ 4. Test này chỉ kiểm tra 3 cái đầu cho đơn giản.
-				// Thực tế ParseHTMLElementsSimple sẽ trả về: Text, OpenTag, Text, CloseTag
-				// Sửa lại expectedNumElems và expectedElements cho đúng
 			},
 		},
 		{
 			name:             "Script tag with content containing < >",
 			input:            "<script>alert(\"hello <world>\");</script>",
 			contentType:      0,
-			expectedNumElems: 3, // <script>, "alert(...)" (là TextNode), </script>
+			expectedNumElems: 3, // <script>, TextNode, </script>
 			expectedElements: []HTMLElement{
 				{
 					Type:        OpenTag,
@@ -1156,7 +1127,7 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 		},
 		{
 			name:             "Tag mismatch <p></div>",
-			input:            "<p></div>", // Parser sẽ parse <p> và </div> riêng biệt
+			input:            "<p></div>",
 			contentType:      0,
 			expectedNumElems: 2,
 			expectedElements: []HTMLElement{
@@ -1166,7 +1137,7 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 		},
 		{
 			name:             "Attribute without name <div =\"val\">",
-			input:            "<div =\"val\">", // e7u sẽ tạo attribute tên rỗng
+			input:            "<div =\"val\">",
 			contentType:      0,
 			expectedNumElems: 1,
 			expectedElements: []HTMLElement{
@@ -1217,7 +1188,7 @@ func TestParseMalformedHTMLAndSpecialCases(t *testing.T) {
 		},
 		{
 			name:             "IE hack comment </.foo>",
-			input:            "</.foo>", // e7u parses as CommentOrDirective with content "/.foo>"
+			input:            "</.foo>",
 			contentType:      0,
 			expectedNumElems: 1,
 			expectedElements: []HTMLElement{

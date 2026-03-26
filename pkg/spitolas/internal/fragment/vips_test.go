@@ -5,7 +5,6 @@ import (
 )
 
 // =============================================================================
-// VIPS Block Tests - Mirrors Java Crawljax's visual block handling
 // =============================================================================
 
 func TestNewVisualBlock(t *testing.T) {
@@ -590,7 +589,6 @@ func TestCalculateDoC(t *testing.T) {
 }
 
 // =============================================================================
-// Iteration Thresholds Tests - Mirrors Crawljax's threshold reduction
 // =============================================================================
 
 func TestIterationThresholds(t *testing.T) {

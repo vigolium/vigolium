@@ -13,13 +13,11 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CrawlWithCustomScopeTest.java
 // Tests custom URL scope filtering for crawl scope boundaries.
 // Validates that the crawler respects URL-based scope constraints.
 // =============================================================================
 
 // TestCrawlsPagesOnlyInCustomScope tests custom URL scope filtering.
-// Crawljax parity: CrawlWithCustomScopeTest.crawlsPagesOnlyInCustomScope()
 // Expected: 3 states (only in_scope pages)
 //
 // Site structure:
@@ -29,7 +27,6 @@ import (
 // - out_of_scope.html: Link to out_of_scope_inner.html (NOT crawled)
 // - out_of_scope_inner.html: NOT crawled
 //
-// Configuration (matching Crawljax):
 // - Custom CrawlScope: url -> url.contains("in_scope") || url.endsWith("crawlscope/index.html")
 //
 // Expected crawled URLs:
@@ -38,7 +35,6 @@ import (
 // - baseUrl + "crawlscope/in_scope_inner.html"
 func TestCrawlsPagesOnlyInCustomScope(t *testing.T) {
 	const (
-		// Crawljax exact value from CrawlWithCustomScopeTest.java line 48
 		// assertThat(crawledUrls.size(), is(3))
 		NUMBER_OF_STATES = 3
 	)
@@ -46,13 +42,11 @@ func TestCrawlsPagesOnlyInCustomScope(t *testing.T) {
 	server := testutil.CrawlScopeSiteServer()
 	defer server.Close()
 
-	// Use crawlscope/ path as base URL (matching Crawljax's BaseCrawler("crawlscope"))
 	cfg, err := config.New(server.URL() + "/crawlscope/")
 	if err != nil {
 		t.Fatalf("Failed to create config: %v", err)
 	}
 
-	// Crawljax configuration parity:
 	// CrawlScope crawlScope = url -> url.contains("in_scope") || url.endsWith("crawlscope/index.html")
 	// builder.setCrawlScope(crawlScope)
 	cfg.SetCrawlScope(func(url string) bool {
@@ -80,13 +74,11 @@ func TestCrawlsPagesOnlyInCustomScope(t *testing.T) {
 		t.Fatalf("Crawl failed: %v", err)
 	}
 
-	// Crawljax parity: assertThat(crawledUrls.size(), is(3))
 	if result.StateCount() != NUMBER_OF_STATES {
-		t.Errorf("StateCount() = %d, want %d (Crawljax: crawledUrls.size() = 3)",
+		t.Errorf("StateCount() = %d, want %d = 3)",
 			result.StateCount(), NUMBER_OF_STATES)
 	}
 
-	// Crawljax parity: Verify crawled URLs contain expected pages
 	// assertThat(crawledUrls, hasItems(
 	//     baseUrl + "crawlscope",
 	//     baseUrl + "crawlscope/in_scope.html",
@@ -96,7 +88,6 @@ func TestCrawlsPagesOnlyInCustomScope(t *testing.T) {
 		crawledURLs[state.URL] = true
 	}
 
-	// Expected URL patterns (based on Crawljax test)
 	expectedPatterns := []string{
 		"crawlscope",          // index page
 		"in_scope.html",       // first in-scope page

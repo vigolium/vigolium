@@ -19,12 +19,11 @@ const (
 type FragmentationMode string
 
 // CrawlScope is a function that determines if a URL should be crawled.
-// CRAWLJAX PARITY: Matches Java Crawljax's CrawlScope interface.
 type CrawlScope func(url string) bool
 
 const (
 	FragmentationLandmark FragmentationMode = "landmark" // Fast, semantic landmark-based (default)
-	FragmentationVIPS     FragmentationMode = "vips"     // Crawljax-style visual page segmentation
+	FragmentationVIPS     FragmentationMode = "vips"
 )
 
 // CrawlStrategy determines both state selection order and action selection mode.
@@ -53,7 +52,7 @@ const (
 	CondElementExists  ConditionType = "element_exists"
 	CondElementVisible ConditionType = "element_visible"
 	CondJavaScript     ConditionType = "js"
-	// MEDIUM PRIORITY: Additional condition types from Crawljax
+	// MEDIUM PRIORITY: Additional condition types
 	CondXPathExists ConditionType = "xpath_exists" // Check if XPath matches any element
 	CondDOMRegex    ConditionType = "dom_regex"    // Regex match on DOM content
 	CondCountLimit  ConditionType = "count_limit"  // Limit based on occurrence count
@@ -79,10 +78,8 @@ type WaitConditionConfig struct {
 }
 
 // FormInputConfig defines how to fill a specific form input.
-// CRAWLJAX PARITY: Uses Identification (How + Value) instead of CSS selector
-// Matches Java: new FormInput(InputType, new Identification(How, value))
 type FormInputConfig struct {
-	How    string   // "id", "name", "xpath" - matches Java Identification.How
+	How    string   // "id", "name", "xpath"
 	Value  string   // The identification value (raw ID, name, or xpath)
 	Type   string   // text, checkbox, radio, select
 	Values []string // Possible values (rotate through)
@@ -118,14 +115,14 @@ type Config struct {
 	// Clickable Detection
 	ClickSelectors               []string // CSS selectors for clickables
 	ExcludeSelectors             []string // CSS selectors to exclude
-	DontClickSelectors           []string // CRAWLJAX PARITY: dontClick() selectors
-	DontClickChildrenOfSelectors []string // CRAWLJAX PARITY: dontClickChildrenOf() selectors
+	DontClickSelectors           []string
+	DontClickChildrenOfSelectors []string
 	UseCDPDetection              bool     // Enable CDP event listener detection
 	ClickOnce                    bool     // Click each element only once
 	CrawlFrames                  bool     // Crawl iframes
 	ExcludeFrames                []string // Frame names/patterns to exclude from crawling
 	CrawlHiddenAnchors           bool     // Crawl hidden anchor elements
-	RandomizeElements            bool     // Randomize order of extracted elements (like Java Crawljax)
+	RandomizeElements            bool     // Randomize order of extracted elements
 
 	// Form Handling
 	FormFillEnabled bool
@@ -140,11 +137,9 @@ type Config struct {
 	DOMStripTags  []string // Tags to remove before comparison
 	DOMStripAttrs []string // Attributes to remove before comparison
 
-	// CRAWLJAX PARITY: Backtracking options
 	AvoidUnrelatedBacktracking bool // Skip backtracking through unrelated fragments
 	AvoidDifferentBacktracking bool // Skip backtracking through completely different states
 
-	// CRAWLJAX PARITY: Fragment extraction options
 	FragmentationMode FragmentationMode // "landmark" (default) or "vips"
 	VIPSPDoC          int               // VIPS Permitted Degree of Coherence (1-11), default 11
 	VIPSIterations    int               // VIPS iteration count, default 10
@@ -153,7 +148,6 @@ type Config struct {
 	IncludeResponseBody    bool // Include response body in HTTP traffic capture
 	IncludeResponseHeaders bool // Include response headers in HTTP traffic capture
 
-	// CRAWLJAX PARITY: Custom URL scope
 	CrawlScope CrawlScope // Custom URL scope filter (nil = default same-domain check)
 
 	// Crawl strategy - determines both state selection and action selection
@@ -235,7 +229,7 @@ func New(targetURL string) (*Config, error) {
 		BasicAuthPass: "",
 		ProxyURL:      "",
 
-		// CRITICAL FIX: Match Java Crawljax defaults (200ms instead of 500ms)
+		// CRITICAL FIX: (200ms instead of 500ms)
 		WaitAfterReload: 200 * time.Millisecond,
 		WaitAfterEvent:  200 * time.Millisecond,
 		PageLoadTimeout: 30 * time.Second,
@@ -246,17 +240,16 @@ func New(targetURL string) (*Config, error) {
 		ExcludeSelectors:             []string{},
 		DontClickSelectors:           []string{},
 		DontClickChildrenOfSelectors: []string{},
-		// CRAWLJAX PARITY: CDP detection is OFF by default
 		// WebDriverBackedEmbeddedBrowser.USE_CDP defaults to false
 		// Must be explicitly enabled via BrowserOptions.setUSE_CDP(true) or
 		// crawlRules().clickElementsWithClickEventHandler()
 		UseCDPDetection: false,
 		ClickOnce:       true,
-		// CRITICAL FIX: Match Java Crawljax default (true instead of false)
+		// CRITICAL FIX: (true instead of false)
 		CrawlFrames:        true,
 		ExcludeFrames:      []string{},
 		CrawlHiddenAnchors: true,
-		RandomizeElements:  false, // Match Java Crawljax default
+		RandomizeElements:  false,
 
 		FormFillEnabled: true,
 		FormFillMode:    FormFillNormal,
@@ -268,14 +261,12 @@ func New(targetURL string) (*Config, error) {
 		DOMStripTags:  DefaultStripTags(),
 		DOMStripAttrs: DefaultStripAttrs(),
 
-		// CRAWLJAX PARITY: Backtracking defaults (disabled by default like Java)
 		AvoidUnrelatedBacktracking: false,
 		AvoidDifferentBacktracking: false,
 
-		// CRAWLJAX PARITY: Fragment extraction defaults
 		FragmentationMode: FragmentationLandmark, // Default to fast landmark-based
-		VIPSPDoC:          11,                    // Fine granularity (Crawljax default)
-		VIPSIterations:    10,                    // Crawljax default
+		VIPSPDoC:          11,                    // Fine granularity
+		VIPSIterations:    10,
 
 		// Crawl strategy default
 		CrawlStrategy: CrawlStrategyNormal, // BFS state + FIFO action (default)
@@ -412,7 +403,6 @@ func (c *Config) AddExcludeSelector(selector string) *Config {
 }
 
 // AddFormInput adds a form input configuration.
-// CRAWLJAX PARITY: Matches Java new FormInput(InputType, new Identification(How, value))
 // how: "id", "name", "xpath"
 // value: raw identification value (e.g., "input" NOT "#input")
 func (c *Config) AddFormInput(how, value, inputType string, values ...string) *Config {
@@ -476,13 +466,11 @@ func (c *Config) SetFormFillMode(mode FormFillMode) *Config {
 	return c
 }
 
-// SetRandomizeElements enables or disables random element order (like Java Crawljax).
+// SetRandomizeElements enables or disables random element order.
 func (c *Config) SetRandomizeElements(randomize bool) *Config {
 	c.RandomizeElements = randomize
 	return c
 }
-
-// CRAWLJAX PARITY: Backtracking option setters
 
 // SetAvoidUnrelatedBacktracking enables skipping backtracking through unrelated fragments.
 func (c *Config) SetAvoidUnrelatedBacktracking(avoid bool) *Config {
@@ -496,11 +484,9 @@ func (c *Config) SetAvoidDifferentBacktracking(avoid bool) *Config {
 	return c
 }
 
-// CRAWLJAX PARITY: Fragment extraction option setters
-
 // SetFragmentationMode sets the fragmentation mode (landmark or vips).
 // Landmark is faster and uses semantic HTML elements.
-// VIPS provides Crawljax-style visual page segmentation.
+// VIPS provides visual page segmentation.
 func (c *Config) SetFragmentationMode(mode FragmentationMode) *Config {
 	c.FragmentationMode = mode
 	return c
@@ -515,12 +501,9 @@ func (c *Config) SetVIPSConfig(pDoC, iterations int) *Config {
 	return c
 }
 
-// CRAWLJAX PARITY: Custom URL scope setter
-
 // SetCrawlScope sets a custom URL scope filter.
 // The filter function receives a URL string and returns true if the URL should be crawled.
 // When nil (default), same-domain check is used.
-// CRAWLJAX PARITY: Matches Java Crawljax's setCrawlScope() method.
 func (c *Config) SetCrawlScope(scope CrawlScope) *Config {
 	c.CrawlScope = scope
 	return c

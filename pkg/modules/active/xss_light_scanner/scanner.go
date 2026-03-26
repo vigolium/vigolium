@@ -1,4 +1,3 @@
-// XSS Light Scanner — Burp Suite inspired character-based reflected XSS detection.
 package xss_light_scanner
 
 import (

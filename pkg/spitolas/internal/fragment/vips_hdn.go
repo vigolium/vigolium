@@ -7,7 +7,6 @@ import (
 )
 
 // HDNDetector detects the Highest Differentiator Node for fragments.
-// This mirrors Java Crawljax's HybridStateVertexImpl.setFragmentHdn().
 //
 // The HDN is the DOM node closest to the root that contains all nested blocks
 // of a fragment. It's used for:
@@ -124,7 +123,6 @@ func (d *HDNDetector) SetFragmentHDNs(fragments []*Fragment) error {
 }
 
 // DynamicFragmentDetector detects fragments that change between states.
-// This mirrors Java Crawljax's HybridStateVertexImpl.assignDynamicFragments().
 type DynamicFragmentDetector struct {
 	page *browser.Page
 }
@@ -258,7 +256,6 @@ func uniqueFragments(fragments []*Fragment) []*Fragment {
 }
 
 // CandidateElementLinker links candidate elements to fragments.
-// This mirrors Java Crawljax's addCandidatesToFragments().
 type CandidateElementLinker struct {
 	page *browser.Page
 }
@@ -271,7 +268,6 @@ func NewCandidateElementLinker(page *browser.Page) *CandidateElementLinker {
 }
 
 // CandidateElement represents a clickable element.
-// CRAWLJAX PARITY: Matches Java CandidateElement structure with access tracking.
 type CandidateElement struct {
 	XPath       string
 	Selector    string
@@ -281,39 +277,31 @@ type CandidateElement struct {
 	FragmentID  int  // ID of containing fragment
 	IsProcessed bool // Whether this element has been clicked
 
-	// CRAWLJAX PARITY: Access tracking fields
-	// In Java: duplicateAccess, equivalentAccess, directAccess
 	DuplicateAccess  int  // Number of duplicate access events
 	EquivalentAccess int  // Number of equivalent access events
 	DirectAccess     bool // Whether this element was directly accessed
 
-	// CRAWLJAX PARITY: Fragment references
-	// In Java: closestFragment, closestDomFragment
 	ClosestFragment    *Fragment // Closest fragment containing this element
 	ClosestDomFragment *Fragment // Closest DOM fragment
 }
 
 // WasExplored returns true if this candidate was explored (direct, duplicate, or equivalent access).
-// CRAWLJAX PARITY: Matches Java CandidateElement.wasExplored()
 func (c *CandidateElement) WasExplored() bool {
 	return c.DirectAccess || c.DuplicateAccess > 0 || c.EquivalentAccess > 0
 }
 
 // IncrementDuplicateAccess increments both duplicate and equivalent access counters.
-// CRAWLJAX PARITY: Matches Java CandidateElement.incrementDuplicateAccess()
 func (c *CandidateElement) IncrementDuplicateAccess() {
 	c.DuplicateAccess++
 	c.EquivalentAccess++
 }
 
 // IncrementEquivalentAccess increments only the equivalent access counter.
-// CRAWLJAX PARITY: Matches Java CandidateElement.incrementEquivalentAccess()
 func (c *CandidateElement) IncrementEquivalentAccess() {
 	c.EquivalentAccess++
 }
 
 // SetDirectAccess marks this element as directly accessed.
-// CRAWLJAX PARITY: Matches Java CandidateElement.setDirectAccess()
 func (c *CandidateElement) SetDirectAccess(directAccess bool) {
 	c.DirectAccess = directAccess
 	c.IncrementDuplicateAccess()

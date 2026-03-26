@@ -106,18 +106,15 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 // detectFormat checks if a value matches known serialization signatures.
 func detectFormat(value string) string {
-	// Java: base64 prefix "rO0AB"
 	if strings.HasPrefix(value, javaBase64Prefix) {
 		return "Java"
 	}
 
-	// Java: hex prefix "aced0005"
 	lower := strings.ToLower(value)
 	if strings.HasPrefix(lower, javaHexPrefix) {
 		return "Java"
 	}
 
-	// Java: raw bytes \xac\xed
 	if len(value) >= 2 && value[0] == 0xAC && value[1] == 0xED {
 		return "Java"
 	}

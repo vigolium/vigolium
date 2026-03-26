@@ -10,13 +10,11 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CrawlerTest.java
 // Tests for crawler initialization, reset behavior, invariant handling,
 // and form trainer configuration.
 // =============================================================================
 
 // TestCrawlerNew tests crawler initialization.
-// Crawljax parity: CrawlerTest setup() verifies crawler is properly initialized
 // Expected: crawler != nil, graph initialized, queue initialized, config set
 func TestCrawlerNew(t *testing.T) {
 	cfg, err := config.New("http://example.com")
@@ -26,32 +24,26 @@ func TestCrawlerNew(t *testing.T) {
 
 	crawler, err := New(cfg)
 
-	// Crawljax: crawler should be created successfully
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	// Crawljax: crawler != null
 	if crawler == nil {
 		t.Fatal("New() returned nil crawler")
 	}
 
-	// Crawljax: graph is initialized (via graphProvider.get())
 	if crawler.graph == nil {
 		t.Error("crawler.graph is nil, want initialized graph")
 	}
 
-	// Crawljax: candidates is initialized (via candidateActionCache)
 	if crawler.candidates == nil {
 		t.Error("crawler.candidates is nil, want initialized candidates")
 	}
 
-	// Crawljax: config is set
 	if crawler.config == nil {
 		t.Error("crawler.config is nil, want config set")
 	}
 
-	// Crawljax: config URL matches
 	if crawler.config.URL.String() != "http://example.com" {
 		t.Errorf("crawler.config.URL = %s, want http://example.com",
 			crawler.config.URL.String())
@@ -59,21 +51,18 @@ func TestCrawlerNew(t *testing.T) {
 }
 
 // TestCrawlerNewInvalidConfig tests crawler rejects invalid config.
-// Crawljax parity: CrawljaxConfiguration.builderFor validates URL
 func TestCrawlerNewInvalidConfig(t *testing.T) {
 	// Empty URL should fail validation
 	cfg := &config.Config{}
 
 	_, err := New(cfg)
 
-	// Crawljax: invalid config should throw exception
 	if err == nil {
 		t.Error("New() with invalid config returned nil error, want error")
 	}
 }
 
 // TestCrawlerAddInvariant tests adding invariants.
-// Crawljax parity: StateMachine invariants via config.getCrawlRules().getInvariants()
 // Expected: invariants are stored and retrievable
 func TestCrawlerAddInvariant(t *testing.T) {
 	cfg, err := config.New("http://example.com")
@@ -86,7 +75,6 @@ func TestCrawlerAddInvariant(t *testing.T) {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	// Crawljax: initial invariant count = 0
 	initialCount := len(crawler.invariants)
 	if initialCount != 0 {
 		t.Errorf("initial invariant count = %d, want 0", initialCount)
@@ -96,7 +84,6 @@ func TestCrawlerAddInvariant(t *testing.T) {
 	inv := condition.New(config.CondElementExists, "#app")
 	crawler.AddInvariant(inv)
 
-	// Crawljax: invariant count increases by 1
 	afterCount := len(crawler.invariants)
 	expectedCount := 1
 	if afterCount != expectedCount {
@@ -104,14 +91,12 @@ func TestCrawlerAddInvariant(t *testing.T) {
 			afterCount, expectedCount)
 	}
 
-	// Crawljax: added invariant is the same object
 	if crawler.invariants[0] != inv {
 		t.Error("invariants[0] != added invariant, want same object")
 	}
 }
 
 // TestCrawlerSetFormTrainer tests form trainer configuration.
-// Crawljax parity: CrawlerTest.trainingFormHandler setup
 // Expected: form trainer can be set and retrieved
 func TestCrawlerSetFormTrainer(t *testing.T) {
 	cfg, err := config.New("http://example.com")
@@ -124,7 +109,6 @@ func TestCrawlerSetFormTrainer(t *testing.T) {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	// Crawljax: initial trainer is null
 	if crawler.GetFormTrainer() != nil {
 		t.Error("initial GetFormTrainer() != nil, want nil")
 	}
@@ -133,14 +117,12 @@ func TestCrawlerSetFormTrainer(t *testing.T) {
 	trainer := form.NewFormTrainer(form.FillRandom, "")
 	crawler.SetFormTrainer(trainer)
 
-	// Crawljax: trainer is set correctly
 	if crawler.GetFormTrainer() != trainer {
 		t.Error("GetFormTrainer() != trainer, want same object")
 	}
 }
 
 // TestCrawlerSetClusterManager tests ND cluster manager configuration.
-// Crawljax parity: Near-duplicate state handling configuration
 func TestCrawlerSetClusterManager(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {
@@ -168,7 +150,6 @@ func TestCrawlerSetClusterManager(t *testing.T) {
 }
 
 // TestCrawlerIsRunning tests running state tracking.
-// Crawljax parity: CrawlSession running state via CrawlerContext
 // Expected: initial state is not running
 func TestCrawlerIsRunning(t *testing.T) {
 	cfg, err := config.New("http://example.com")
@@ -181,14 +162,12 @@ func TestCrawlerIsRunning(t *testing.T) {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	// Crawljax: initial running state is false
 	if crawler.running {
 		t.Error("crawler.running = true initially, want false")
 	}
 }
 
 // TestCrawlerAddEventableCondition tests eventable condition configuration.
-// Crawljax parity: EventableConditionChecker for form-to-element linking
 func TestCrawlerAddEventableCondition(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {
@@ -226,7 +205,6 @@ func TestCrawlerAddEventableCondition(t *testing.T) {
 }
 
 // TestCrawlerSetInvariantChecker tests structured invariant checker.
-// Crawljax parity: Invariant management via checker
 func TestCrawlerSetInvariantChecker(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {
@@ -254,7 +232,6 @@ func TestCrawlerSetInvariantChecker(t *testing.T) {
 }
 
 // TestCrawlerMultipleInvariants tests adding multiple invariants.
-// Crawljax parity: Multiple invariants in config.getCrawlRules().getInvariants()
 func TestCrawlerMultipleInvariants(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {
@@ -275,13 +252,11 @@ func TestCrawlerMultipleInvariants(t *testing.T) {
 	crawler.AddInvariant(inv2)
 	crawler.AddInvariant(inv3)
 
-	// Crawljax: all invariants are stored
 	expectedCount := 3
 	if len(crawler.invariants) != expectedCount {
 		t.Errorf("invariant count = %d, want %d", len(crawler.invariants), expectedCount)
 	}
 
-	// Crawljax: invariants are in order
 	if crawler.invariants[0] != inv1 {
 		t.Error("invariants[0] != inv1")
 	}
@@ -294,7 +269,6 @@ func TestCrawlerMultipleInvariants(t *testing.T) {
 }
 
 // TestCrawlerStateMachineNotInitializedBeforeCrawl tests StateMachine is nil before crawl.
-// CRAWLJAX PARITY: StateMachine is created in initializeIndexState(), not in New()
 func TestCrawlerStateMachineNotInitializedBeforeCrawl(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {
@@ -306,7 +280,6 @@ func TestCrawlerStateMachineNotInitializedBeforeCrawl(t *testing.T) {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	// CRAWLJAX PARITY: StateMachine is nil before crawl starts
 	// It gets initialized in initializeIndexState() during Crawl()
 	if crawler.stateMachine != nil {
 		t.Error("crawler.stateMachine should be nil before Crawl() is called")
@@ -322,7 +295,6 @@ func TestCrawlerStateMachineNotInitializedBeforeCrawl(t *testing.T) {
 }
 
 // TestCrawlerStatsInitialized tests stats are initialized.
-// Crawljax parity: CrawlSession stats tracking
 func TestCrawlerStatsInitialized(t *testing.T) {
 	cfg, err := config.New("http://example.com")
 	if err != nil {

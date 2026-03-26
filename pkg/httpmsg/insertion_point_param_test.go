@@ -6,7 +6,6 @@ import (
 )
 
 // TestParameterInsertionPoint_URLEncoding tests URL parameter encoding.
-// Ported from: ggd.java with URL parameter type
 func TestParameterInsertionPoint_URLEncoding(t *testing.T) {
 	request := []byte("GET /search?q=test HTTP/1.1\r\nHost: example.com\r\n\r\n")
 
@@ -50,7 +49,6 @@ func TestParameterInsertionPoint_URLEncoding(t *testing.T) {
 
 // TestParameterInsertionPoint_JSONNoEncoding tests JSON parameter (no URL encoding).
 // JSON string payloads should be escaped but not URL-encoded.
-// Ported from: ggd.java with JSON parameter type
 func TestParameterInsertionPoint_JSONNoEncoding(t *testing.T) {
 	request := []byte("POST /api HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"name\":\"test\"}")
 	// Positions: {"name":"test"}
@@ -77,7 +75,6 @@ func TestParameterInsertionPoint_JSONNoEncoding(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_BodyEncoding tests body parameter encoding.
-// Ported from: ggd.java with BODY parameter type
 func TestParameterInsertionPoint_BodyEncoding(t *testing.T) {
 	request := []byte("POST /api HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 9\r\n\r\nkey=value")
 	// Body "key=value" starts at position 90
@@ -99,7 +96,6 @@ func TestParameterInsertionPoint_BodyEncoding(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_CookieEncoding tests cookie parameter encoding.
-// Ported from: ggd.java with COOKIE parameter type
 func TestParameterInsertionPoint_CookieEncoding(t *testing.T) {
 	request := []byte("GET / HTTP/1.1\r\nCookie: session=abc123\r\n\r\n")
 	// "Cookie: session=abc123"
@@ -120,7 +116,6 @@ func TestParameterInsertionPoint_CookieEncoding(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_PathFolderEncoding tests path folder parameter encoding.
-// Ported from: ggd.java with PATH_FOLDER_PARAM parameter type
 func TestParameterInsertionPoint_PathFolderEncoding(t *testing.T) {
 	request := []byte("GET /api/users/123 HTTP/1.1\r\nHost: example.com\r\n\r\n")
 	// Path: /api/users/123
@@ -176,7 +171,6 @@ func TestParameterInsertionPoint_PathFolderEncoding(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_PathFilenameEncoding tests path filename parameter encoding.
-// Ported from: ggd.java with PATH_FILENAME_PARAM parameter type
 func TestParameterInsertionPoint_PathFilenameEncoding(t *testing.T) {
 	request := []byte("GET /api/users/profile.html HTTP/1.1\r\nHost: example.com\r\n\r\n")
 	// Path: /api/users/profile.html
@@ -295,7 +289,6 @@ func TestParameterInsertionPoint_PathParameterOffsets(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_Types tests type mapping.
-// Ported from: ggd.getInsertionPointType() switch statement (lines 68-108)
 func TestParameterInsertionPoint_Types(t *testing.T) {
 	request := []byte("GET / HTTP/1.1\r\n\r\n")
 
@@ -328,7 +321,6 @@ func TestParameterInsertionPoint_Types(t *testing.T) {
 }
 
 // TestParameterInsertionPoint_PayloadOffsets tests offset tracking through encoding.
-// Ported from: ggd.getPayloadOffsets() (lines 35-65)
 func TestParameterInsertionPoint_PayloadOffsets(t *testing.T) {
 	request := []byte("GET /api?id=123 HTTP/1.1\r\n\r\n")
 	param := NewParsedParam(ParamURL, "id", "123", 9, 11, 12, 15)
@@ -504,7 +496,6 @@ func TestParameterInsertionPoint_MultipartNoEncoding(t *testing.T) {
 }
 
 // TestParamTypeToInsertionPointType tests the mapping function.
-// Ported from: ggd.getInsertionPointType() switch statement
 func TestParamTypeToInsertionPointType(t *testing.T) {
 	tests := []struct {
 		paramType ParamType
@@ -535,7 +526,6 @@ func TestParamTypeToInsertionPointType(t *testing.T) {
 
 // TestUpdateContentLength tests Content-Length header update.
 // This test now uses the proper UpdateContentLength from request_builder.go
-// Ported from: glo.java d(bi9) method (lines 295-312)
 func TestUpdateContentLength(t *testing.T) {
 	tests := []struct {
 		name     string

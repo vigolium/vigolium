@@ -55,7 +55,6 @@ func AnalyzeHTTPTransaction(
 	contentTypeInfo := NewContentTypeProfile(httpResponse.Header, responseBodyBytes)
 	reportBuilder.WithContentTypeProfile(contentTypeInfo)
 
-	// i2xBuilder.B_setBodyStartOffset(0)
 	htmlParserMode := GetHtmlParserInternalMode(parseMode)
 
 	if contentTypeInfo != nil && htmlParserMode != htmlparser.ParseModeNone &&
@@ -88,8 +87,7 @@ func AnalyzeHTTPTransaction(
 	return analysisReport, nil
 }
 
-// Corresponds to private static void a(h2 var0, i2x var1, hik var2, bi9 var3, c5e var4, int var5, def var6, Supplier<Boolean> var7)
-// Refactored: var2Hik and var4C5e replaced/removed. bodyBytes instead of Bi9.
+// performHTMLAnalysisInternal handles HTML parsing, content type refinement, and form extraction.
 func performHTMLAnalysisInternal(
 	parseMode HTMLParseMode,
 	reportBuilder *HTTPAnalysisResultBuilder,
@@ -121,7 +119,6 @@ func performHTMLAnalysisInternal(
 		shouldStop,
 	)
 
-	// List var10 = cu1.a(var2, var8, var4, var7);
 	extractedForms := formparser.ExtractFormsInfo(
 		httpRequest,
 		parsedElements,
@@ -134,8 +131,7 @@ func performHTMLAnalysisInternal(
 	reportBuilder.WithParsedForms(extractedForms) // Use SetForms for []FormInfo
 }
 
-// Corresponds to private static List<ahe> a(int var0, bi9 var1, _9 var2)
-// Refactored to accept data []byte instead of Bi9 and return []*HTMLElement
+// parseHTMLElementsForAnalysis parses HTML data into elements for analysis.
 func parseHTMLElementsForAnalysis(
 	startOffset int,
 	htmlData []byte,

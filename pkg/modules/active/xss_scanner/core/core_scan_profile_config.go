@@ -2,25 +2,22 @@ package core
 
 import "github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 
-// ScanExecutionProfile is the Go equivalent of the Java class hnx.
 // It implements the ScanExecutionProfile interface.
 type ScanExecutionProfile struct {
-	targetReflectionContext     ReflectionContext          // Corresponds to 'private final byte g;'
-	isAdvancedModeEnabled       bool                       // Corresponds to 'public final boolean e;' - made public for direct access if needed
-	requiresDetectorValidation  bool                       // Corresponds to 'final boolean a;' - made public for direct access if needed
-	matchCriteria               []ReflectionMatchCriterion // Corresponds to 'private final Collection<e7s> d;' - using a slice
-	payloadTemplateData         *PayloadGenerationTemplate // Corresponds to 'private final glw c;'
-	baseCanaryComponent         string                     // Corresponds to 'private final String f;'
-	variantCanaryComponent      string                     // Corresponds to 'private final String b;'
-	isHtmlEntityDecodingEnabled bool                       // Corresponds to 'private final boolean h;'
+	targetReflectionContext     ReflectionContext
+	isAdvancedModeEnabled       bool
+	requiresDetectorValidation  bool
+	matchCriteria               []ReflectionMatchCriterion
+	payloadTemplateData         *PayloadGenerationTemplate
+	baseCanaryComponent         string
+	variantCanaryComponent      string
+	isHtmlEntityDecodingEnabled bool
 }
 
 // --- Constructors ---
 
-// NewScanExecutionProfile is the public constructor, corresponds to 'public hnx(byte var1)'.
-// It returns Hnx interface type.
+// NewScanExecutionProfile creates a new profile for the given target context.
 func NewScanExecutionProfile(targetContext ReflectionContext) *ScanExecutionProfile {
-	// In Java: this(var1, false, false, Collections.unmodifiableCollection(Collections.singletonList(new dp_(var1))), null, null, null, false);
 	defaultMatchCriteria := []ReflectionMatchCriterion{
 		NewContextSpecificReflectionMatcher(targetContext),
 	}
@@ -38,10 +35,8 @@ func NewScanExecutionProfile(targetContext ReflectionContext) *ScanExecutionProf
 
 // --- Interface Implementation ---
 
-// WithAdvancedMode corresponds to 'public hnx a(boolean var1)'
-// This is part of the Hnx interface in stubs.go
+// This is part of the ScanExecutionProfile interface.
 func (profile *ScanExecutionProfile) WithAdvancedMode(enabled bool) *ScanExecutionProfile {
-	// return new hnx(this.g, var1, this.a, this.d, this.c, this.f, this.b, this.h);
 	return newScanExecutionProfileInternal(
 		profile.targetReflectionContext,
 		enabled,
@@ -54,10 +49,9 @@ func (profile *ScanExecutionProfile) WithAdvancedMode(enabled bool) *ScanExecuti
 	)
 }
 
-// WithDetectorValidation corresponds to 'public hnx f()'
-// This is part of the Hnx interface in stubs.go
+// WithDetectorValidation returns a copy with detector validation enabled
+// This is part of the ScanExecutionProfile interface.
 func (profile *ScanExecutionProfile) WithDetectorValidation() *ScanExecutionProfile {
-	// return new hnx(this.g, this.e, true, this.d, this.c, this.f, this.b, this.h);
 	return newScanExecutionProfileInternal(
 		profile.targetReflectionContext,
 		profile.isAdvancedModeEnabled,
@@ -70,14 +64,10 @@ func (profile *ScanExecutionProfile) WithDetectorValidation() *ScanExecutionProf
 	)
 }
 
-// WithAdditionalMatchCriterion corresponds to 'public hnx a(e7s var1)'
-// This is part of the Hnx interface in stubs.go
+// This is part of the ScanExecutionProfile interface.
 func (profile *ScanExecutionProfile) WithAdditionalMatchCriterion(
 	criterion ReflectionMatchCriterion,
 ) *ScanExecutionProfile {
-	// ArrayList var2 = new ArrayList<>(this.d);
-	// var2.add(var1);
-	// return new hnx(this.g, this.e, this.a, Collections.unmodifiableCollection(var2), this.c, this.f, this.b, this.h);
 	updatedCriteria := make(
 		[]ReflectionMatchCriterion,
 		len(profile.matchCriteria),
@@ -98,12 +88,10 @@ func (profile *ScanExecutionProfile) WithAdditionalMatchCriterion(
 	)
 }
 
-// WithVariantCanaryComponent corresponds to 'public hnx b(String var1)'
-// This is part of the Hnx interface in stubs.go
+// This is part of the ScanExecutionProfile interface.
 func (profile *ScanExecutionProfile) WithVariantCanaryComponent(
 	component string,
 ) *ScanExecutionProfile {
-	// return new hnx(this.g, this.e, this.a, this.d, this.c, this.f, var1, this.h);
 	return newScanExecutionProfileInternal(
 		profile.targetReflectionContext,
 		profile.isAdvancedModeEnabled,
@@ -116,10 +104,8 @@ func (profile *ScanExecutionProfile) WithVariantCanaryComponent(
 	)
 }
 
-// WithHtmlEntityDecoding corresponds to 'public hnx a()'
-// This is part of the Hnx interface in stubs.go
+// WithHtmlEntityDecoding returns a copy with HTML entity decoding enabled.
 func (profile *ScanExecutionProfile) WithHtmlEntityDecoding() *ScanExecutionProfile {
-	// return new hnx(this.g, this.e, this.a, this.d, this.c, this.f, this.b, true);
 	return newScanExecutionProfileInternal(
 		profile.targetReflectionContext,
 		profile.isAdvancedModeEnabled,
@@ -132,8 +118,7 @@ func (profile *ScanExecutionProfile) WithHtmlEntityDecoding() *ScanExecutionProf
 	)
 }
 
-// newScanExecutionProfileInternal is the private constructor equivalent for creating Hnx instances.
-// Corresponds to 'private hnx(byte var1, boolean var2, boolean var3, Collection<e7s> var4, glw var5, String var6, String var7, boolean var8)'
+// newScanExecutionProfileInternal is the private constructor for creating ScanExecutionProfile instances.
 func newScanExecutionProfileInternal(
 	targetContext ReflectionContext,
 	isAdvancedMode bool,
@@ -160,14 +145,11 @@ func newScanExecutionProfileInternal(
 	}
 }
 
-// --- Other Public/Package-Private Methods (Not part of Hnx interface but part of hnx.java functionality) ---
-
-// GetPayloadTemplateData corresponds to 'public glw b()'
+// GetPayloadTemplateData returns the payload generation template data.
 func (profile *ScanExecutionProfile) GetPayloadTemplateData() *PayloadGenerationTemplate {
 	return profile.payloadTemplateData
 }
 
-// withPayloadTemplateData corresponds to package-private 'hnx a(glw var1)'
 // Renamed to avoid conflict with interface method A(), and to show it's for internal chaining.
 func (profile *ScanExecutionProfile) withPayloadTemplateData(
 	templateData *PayloadGenerationTemplate,
@@ -184,7 +166,6 @@ func (profile *ScanExecutionProfile) withPayloadTemplateData(
 	)
 }
 
-// withBaseCanaryComponent corresponds to package-private 'hnx a(String var1)'
 // Renamed to avoid conflict and indicate internal use.
 func (profile *ScanExecutionProfile) withBaseCanaryComponent(fStr string) *ScanExecutionProfile {
 	return newScanExecutionProfileInternal(
@@ -199,9 +180,8 @@ func (profile *ScanExecutionProfile) withBaseCanaryComponent(fStr string) *ScanE
 	)
 }
 
-// CreateMatcherWithRandomSuffix corresponds to Java's package-private 'db9 b(byte[] var1_randomSuffix)'.
-// It creates a search pattern by combining the Hnx's internal base payload (from eInternal)
-// with the provided random suffix.
+// CreateMatcherWithRandomSuffix creates a search pattern by combining the profile's
+// internal base payload with the provided random suffix.
 func (profile *ScanExecutionProfile) CreateMatcherWithRandomSuffix(
 	randomSuffix []byte,
 ) ByteSequenceMatcher {
@@ -228,35 +208,25 @@ func (profile *ScanExecutionProfile) CreateMatcherForEffectiveCanary() ByteSeque
 
 // --- Private Helper Methods ---
 
-// getAggregatedMatchCriterion corresponds to 'e7s d()' which returns the lambda.
-// The lambda checks if all E7s matchers in the internal list 'd' pass for a given Eqx.
+// getAggregatedMatchCriterion returns a composite matcher that checks if all
+// match criteria pass for a given reflection detail.
 func (profile *ScanExecutionProfile) getAggregatedMatchCriterion() ReflectionMatchCriterion {
-	// return this::lambda$aggregateReflectionMatchers$0;
-	// In Go, we can return a struct that implements E7s and captures 'h.valD'
+	// Return a struct that implements ReflectionMatchCriterion and checks all criteria
 	return &aggregateReflectionMatcher{criteria: profile.matchCriteria}
 }
 
 // getEffectiveCanaryComponent corresponds to 'private String e()'
 func (profile *ScanExecutionProfile) getEffectiveCanaryComponent() string {
-	// return this.b == null ? this.f : hgm.a(this.b, this.c);
-	// In Go, string zero value is "". Java null check becomes empty string check.
 	if profile.variantCanaryComponent == "" {
 		return profile.baseCanaryComponent
 	}
 	return FormatPayloadFromTemplate(
 		profile.variantCanaryComponent,
 		profile.payloadTemplateData,
-	) // Static call to hgm.a(String, glw), from hgm.go or stubs
+	)
 }
 
-// createPatternMatcher corresponds to 'private db9 a(byte[] var1)'
 func (profile *ScanExecutionProfile) createPatternMatcher(patternBytes []byte) ByteSequenceMatcher {
-	// if (this.h) {
-	//    return this.e ? e8u.b(var1) : e8u.d(var1);
-	// } else {
-	//    return this.e ? e8u.c(var1) : e8u.a(var1);
-	// }
-	// E8u methods are from stubs.go
 	if profile.isHtmlEntityDecodingEnabled {
 		if profile.isAdvancedModeEnabled {
 			return NewUnescapingHtmlDecodingBytePatternMatcher(patternBytes)
@@ -273,8 +243,7 @@ func (profile *ScanExecutionProfile) createPatternMatcher(patternBytes []byte) B
 }
 
 /* -------------------------------------------------------------------------- */
-// aggregateReflectionMatcher implements E7s to combine multiple matchers.
-// This replaces the Java lambda this::lambda$aggregateReflectionMatchers$0
+// aggregateReflectionMatcher implements ReflectionMatchCriterion to combine multiple matchers.
 type aggregateReflectionMatcher struct {
 	criteria []ReflectionMatchCriterion
 }
@@ -311,8 +280,8 @@ func (d *ContextSpecificReflectionMatcher) Matches(
 	if detectedReflection == nil || detectedReflection.CoreInfo() == nil {
 		return false
 	}
-	hpo := detectedReflection.CoreInfo()
-	match := hpo.ContextType() == d.targetContextType
+	coreInfo := detectedReflection.CoreInfo()
+	match := coreInfo.ContextType() == d.targetContextType
 
 	return match
 }

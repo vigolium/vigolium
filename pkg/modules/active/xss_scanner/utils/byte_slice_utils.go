@@ -117,7 +117,6 @@ func TruncateWithEllipsis(
 		newLengthForTruncatedPart = availableCharsForTrunc
 	}
 
-	// byte[] var4 = new byte[var3 + 4]; // var3 is newLengthForTruncatedPart
 	result := make([]byte, newLengthForTruncatedPart+4)
 	copy(result, data[offset:offset+newLengthForTruncatedPart])
 	result[newLengthForTruncatedPart] = ' '

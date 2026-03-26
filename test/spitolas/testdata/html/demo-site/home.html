@@ -1,16 +1,16 @@
-<h1>Welcome to the Crawljax Testing page</h1>
-<h2>What is Crawljax?</h2>
-<p>Crawljax is a Java tool for automatically crawling and testing AJAX based applications.</p>
+<h1>Welcome to the Spitolas Testing page</h1>
+<h2>What is Spitolas?</h2>
+<p>Spitolas is a tool for automatically crawling and testing AJAX based applications.</p>
 
-<p>Crawljax can crawl any AJAX based web application by clicking links and filling in form data.
+<p>Spitolas can crawl any AJAX based web application by clicking links and filling in form data.
     It
     creates a state-flow graph of the states of the web application. This state-flow graph which
     is a very powerful base for many types of automated
     tests.</p>
 
-<p>This site explains how to configure Crawljax and also acts as a test site for Crawljax.</p>
+<p>This site explains how to configure Spitolas and also acts as a test site for Spitolas.</p>
 
-<h2>Applications for Crawljax</h2>
+<h2>Applications for Spitolas</h2>
 <ul>
     <li>Invariant-based testing</li>
     <li>Regression testing</li>
@@ -20,14 +20,14 @@
 </ul>
 
 <h2>Setup</h2>
-<p>Setting up Crawljax only takes a couple of minutes:</p>
+<p>Setting up Spitolas only takes a couple of minutes:</p>
 <ul>
     <li>Create a new Java project.</li>
-    <li>Include the Crawljax.jar (and its needed libraries) to your project.</li>
+    <li>Include the Spitolas.jar (and its needed libraries) to your project.</li>
     <li>Copy/paste the code fragment below.</li>
 </ul>
 <pre>
-CrawljaxConfigurationBuilder builder = CrawljaxConfiguration.builderFor(URL);
+SpitolasConfigurationBuilder builder = SpitolasConfiguration.builderFor(URL);
 builder.crawlRules().insertRandomDataInInputForms(false);
 
 // click these elements
@@ -59,6 +59,6 @@ builder.addPlugin(new CrawlOverview(outFolder));
 // We want to use two browsers simultaneously.
 builder.setBrowserConfig(new BrowserConfiguration(BrowserType.firefox, 2));
 
-CrawljaxRunner crawljax = new CrawljaxRunner(builder.build());
-crawljax.call();
+SpitolasRunner spitolas = new SpitolasRunner(builder.build());
+spitolas.call();
 </pre>

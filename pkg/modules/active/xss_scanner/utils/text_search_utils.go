@@ -186,31 +186,31 @@ func IsPrintableASCII(data []byte) bool {
 
 // --- Placeholder for Search-related Interfaces and Structs (to be defined later) ---
 
-// Pc interface wraps a haystack for use in search algorithms.
-type Pc interface {
-	IsPc()         // Marker method
-	B() bool       // Returns true if data is nil/empty
-	A() int        // Returns the length of the data
-	AAt(i int) int // Returns the unsigned byte value at index i
+// SearchableData interface wraps a haystack for use in search algorithms.
+type SearchableData interface {
+	IsSearchableData()  // Marker method
+	IsEmpty() bool      // Returns true if data is nil/empty
+	Length() int        // Returns the length of the data
+	ByteAt(i int) int   // Returns the unsigned byte value at index i
 }
 
-// G3 struct implements Pc, wraps a byte slice
-type G3 struct {
+// ByteSliceSearchable struct implements SearchableData, wraps a byte slice
+type ByteSliceSearchable struct {
 	data []byte
 }
 
-func NewG3(data []byte) *G3 {
-	return &G3{data: data}
+func NewByteSliceSearchable(data []byte) *ByteSliceSearchable {
+	return &ByteSliceSearchable{data: data}
 }
-func (g *G3) IsPc()           {}
-func (g *G3) B() bool         { return g.data == nil }
-func (g *G3) A() int          { return len(g.data) }
-func (g *G3) AAt(idx int) int { return int(g.data[idx] & 0xFF) }
+func (g *ByteSliceSearchable) IsSearchableData() {}
+func (g *ByteSliceSearchable) IsEmpty() bool     { return g.data == nil }
+func (g *ByteSliceSearchable) Length() int        { return len(g.data) }
+func (g *ByteSliceSearchable) ByteAt(idx int) int { return int(g.data[idx] & 0xFF) }
 
-// E0 interface for search algorithms.
-type E0 interface {
-	IsE0()                                         // Marker method
-	A(haystack Pc, fromIndex int, toIndex int) int // Search and return index of match, or -1
+// PatternSearcher interface for search algorithms.
+type PatternSearcher interface {
+	IsPatternSearcher()                                                 // Marker method
+	Search(haystack SearchableData, fromIndex int, toIndex int) int     // Search and return index of match, or -1
 }
 
 // --- HashCode Methods ---
@@ -218,7 +218,7 @@ type E0 interface {
 // ByteHashCode computes a hash code for a byte slice.
 func ByteHashCode(data []byte, caseSensitive bool) int {
 	if data == nil {
-		return -1 // Java might NPE. Returning -1 for nil data based on original plan.
+		return -1
 	}
 	return ByteHashCodeRange(data, 0, len(data), caseSensitive, 0)
 }
@@ -232,7 +232,6 @@ func ByteHashCodeRange(
 	seed int,
 ) int {
 	if data == nil {
-		// Java behavior for null with seed isn't directly specified but often results in an error or uses seed.
 		// Returning seed seems a plausible non-error outcome if data is nil but seed is given.
 		return seed
 	}
@@ -432,7 +431,7 @@ func IndexOfRangeCS(
 	return IndexOfPattern(haystack, needle, true, fromIndex, toIndex)
 }
 
-// IndexOfPattern is the main indexOf method using Boyer-Moore (via M1 and KwSearcher).
+// IndexOfPattern is the main indexOf method using Boyer-Moore search.
 func IndexOfPattern(
 	haystack []byte,
 	needle []byte,
@@ -440,10 +439,10 @@ func IndexOfPattern(
 	fromIndex int,
 	toIndex int,
 ) int {
-	m1Instance := NewM1()
-	searcher := m1Instance.CreateSearcher(needle, caseSensitive)
-	haystackWrapper := NewG3(haystack)
-	return searcher.A(haystackWrapper, fromIndex, toIndex)
+	factory := NewSearcherFactory()
+	searcher := factory.CreateSearcher(needle, caseSensitive)
+	haystackWrapper := NewByteSliceSearchable(haystack)
+	return searcher.Search(haystackWrapper, fromIndex, toIndex)
 }
 
 // IndexOfSimple is a simple char-by-char case-sensitive indexOf.

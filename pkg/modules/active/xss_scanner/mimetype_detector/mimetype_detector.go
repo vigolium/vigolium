@@ -23,9 +23,8 @@ const (
 	ContentType_UNRECOGNIZED_CONTENT
 )
 
-// MimetypeDetector helps in determining stated and inferred content types
-// and ultimately the effective EluType.
-// It also gathers other related information from headers for DefContentTypeInfo.
+// MimetypeDetector helps in determining stated and inferred content types.
+// It also gathers other related information from headers.
 type MimetypeDetector struct {
 	// Raw values from Content-Type headers
 	rawContentTypeHeaderValues []string
@@ -73,7 +72,6 @@ func ExtractCharset(contentTypeHeader string) string {
 }
 
 // GetStatedInferredContentType processes raw Content-Type headers to find the main type
-// and its corresponding short code. Java's def.b() appears to use the last specified Content-Type.
 func GetStatedInferredContentType(
 	contentTypeHeaders string,
 ) (processedMimeValue string, typeShort ContentType) {
@@ -81,7 +79,6 @@ func GetStatedInferredContentType(
 		return "", ContentType_NONE
 	}
 
-	// Use the last header value if multiple are present, mimicking Java's potential behavior.
 	// lastHeaderValue := contentTypeHeaders
 
 	// Take part before ';', trim, lowercase
@@ -99,7 +96,6 @@ func GetStatedInferredContentType(
 }
 
 // GetInferredContentType uses the mimetype library to detect content type from the body
-// and then maps it to a Java short code using mapStringToContentTypeShort.
 func GetInferredContentType(body []byte) ContentType {
 	if len(body) == 0 {
 		return ContentType_NONE
@@ -183,7 +179,6 @@ func (md *MimetypeDetector) GetInferredType() ContentType {
 
 // GetRawContentTypeHeaderValues returns the raw Content-Type header values.
 func (md *MimetypeDetector) GetRawContentTypeHeaderValues() []string {
-	// Return a copy to prevent external modification if necessary, though not strictly required by original Java Set behavior for getters.
 	if md.rawContentTypeHeaderValues == nil {
 		return []string{}
 	}
@@ -224,7 +219,7 @@ func mapStringToContentType(mimeString string) ContentType {
 		return ContentType_PLAIN_TEXT
 	case "text/css":
 		return ContentType_CSS
-	case "application/javascript", "text/javascript": // "script" in def.java
+	case "application/javascript", "text/javascript":
 		return ContentType_SCRIPT
 	case "application/json", "text/json":
 		return ContentType_JSON
@@ -234,8 +229,8 @@ func mapStringToContentType(mimeString string) ContentType {
 		return ContentType_RTF
 	case "application/yaml", "text/yaml", "application/x-yaml", "text/x-yaml":
 		return ContentType_YAML
-	case "image/svg+xml": // SVG is often this, treated as XML by elu.java
-		return ContentType_SVG // which then GetEluType maps to EluXml
+	case "image/svg+xml":
+		return ContentType_SVG
 	}
 
 	// Handle partial matches, similar to user's original Go snippet's getType

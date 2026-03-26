@@ -1438,7 +1438,6 @@ func deriveIntentFromAction(tool string, args map[string]string) string {
 	}
 }
 
-
 // ============================================================================
 // State Management Helpers
 // ============================================================================

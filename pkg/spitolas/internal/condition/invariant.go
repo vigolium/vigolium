@@ -3,7 +3,6 @@ package condition
 import "github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 
 // Invariant represents a condition that must always hold during crawling.
-// This matches Java Crawljax's Invariant for detecting unexpected state changes.
 //
 // An invariant has:
 // - A description explaining what it checks

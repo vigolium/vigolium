@@ -148,7 +148,6 @@ func NewTestConfig(targetURL string) *config.Config {
 }
 
 // SimpleSiteExpected contains expected values for simple-site tests.
-// This matches Crawljax's SimpleSiteCrawl expectations.
 var SimpleSiteExpected = struct {
 	NumberOfStates int
 	NumberOfEdges  int

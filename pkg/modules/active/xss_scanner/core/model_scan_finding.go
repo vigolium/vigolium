@@ -15,8 +15,8 @@ type XSSScanFinding struct {
 	URL                string
 	InjectionPoint     httpmsg.InsertionPoint
 	EffectivePayload   string
-	ReflectionTactic   ReflectionTacticType // Ll is from definitions_scan_tactic_type_ll.go
-	ReflectionLocation ReflectionLocation   // from reflection_definition_location.go
+	ReflectionTactic   ReflectionTacticType
+	ReflectionLocation ReflectionLocation
 	EvidenceSummary    string
 	// AnalysisResult          *AnalysisResult // from engine_types.go
 	ReflectionPointInfo *ReflectionPointCoreInfo    // from reflection_point_base.go
@@ -121,7 +121,7 @@ func BuildXSSScanFinding(
 	effectivePayloadBytes []byte,
 	tactic ReflectionTacticType,
 	currentScanFlags int,
-	reflectionInfo *ReflectionPointCoreInfo, // This is the HPO object from Eqx, its .Canary is payloadUsedInErwLogic
+	reflectionInfo *ReflectionPointCoreInfo,
 	transaction *localUtils.HTTPTransaction,
 ) *XSSScanFinding {
 	// Copy data from transaction before it gets closed
@@ -212,14 +212,14 @@ func BuildXSSScanFinding(
 		chainPosition:     0,                                  // 0 = standalone/root
 	}
 	if finding.ReflectionPointInfo != nil {
-		zap.L().Debug("[DEBUG FruBuildKResult] KResult.HpoData after potential recalculation",
+		zap.L().Debug("BuildFinding: ReflectionPointInfo after recalculation",
 			zap.Int("ContextIndicator", int(finding.ReflectionPointInfo.location)),
 			zap.Int("ReflectionType", int(finding.ReflectionPointInfo.contextType)),
 			zap.Int("ReflectionStartInInput", finding.ReflectionPointInfo.startIndexInInput),
 			zap.Int("ReflectionEndInInput", finding.ReflectionPointInfo.endIndexInInput),
 			zap.String("Canary", string(finding.ReflectionPointInfo.canaryBytes)))
 	} else {
-		zap.L().Debug("[DEBUG FruBuildKResult] KResult.HpoData after potential recalculation: nil")
+		zap.L().Debug("BuildFinding: ReflectionPointInfo after recalculation: nil")
 	}
 	return finding
 }

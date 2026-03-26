@@ -5,8 +5,6 @@ import (
 )
 
 // ============================================================================
-// CRAWLJAX PARITY: Near-Duplicate Detection Tests
-// Based on: Crawljax's StateComparison and NearDuplicate functionality
 // ============================================================================
 
 func TestNewNDClusterManager(t *testing.T) {
@@ -52,7 +50,6 @@ func TestNDClusterManagerSetThresholds(t *testing.T) {
 }
 
 func TestCompareStatesIdentical(t *testing.T) {
-	// CRAWLJAX PARITY: Test identical state comparison
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -68,7 +65,6 @@ func TestCompareStatesIdentical(t *testing.T) {
 }
 
 func TestCompareStatesND1(t *testing.T) {
-	// CRAWLJAX PARITY: Test ND1 (very similar) comparison
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -88,7 +84,6 @@ func TestCompareStatesND1(t *testing.T) {
 }
 
 func TestCompareStatesND2(t *testing.T) {
-	// CRAWLJAX PARITY: Test ND2 (moderately similar) comparison
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -108,7 +103,6 @@ func TestCompareStatesND2(t *testing.T) {
 }
 
 func TestCompareStatesDifferent(t *testing.T) {
-	// CRAWLJAX PARITY: Test completely different states
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -123,7 +117,6 @@ func TestCompareStatesDifferent(t *testing.T) {
 }
 
 func TestAddStateCreatesCluster(t *testing.T) {
-	// CRAWLJAX PARITY: Adding first state creates new cluster
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -148,7 +141,6 @@ func TestAddStateCreatesCluster(t *testing.T) {
 }
 
 func TestAddDuplicateStateSameCluster(t *testing.T) {
-	// CRAWLJAX PARITY: Duplicate states go to same cluster
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -171,7 +163,6 @@ func TestAddDuplicateStateSameCluster(t *testing.T) {
 }
 
 func TestAddNearDuplicateStateSameCluster(t *testing.T) {
-	// CRAWLJAX PARITY: Near-duplicate states go to same cluster
 	m := NewNDClusterManager()
 	ResetCounter()
 
@@ -192,7 +183,6 @@ func TestAddNearDuplicateStateSameCluster(t *testing.T) {
 }
 
 func TestAddDifferentStateNewCluster(t *testing.T) {
-	// CRAWLJAX PARITY: Different states create separate clusters
 	m := NewNDClusterManager()
 	ResetCounter()
 

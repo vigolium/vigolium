@@ -186,7 +186,7 @@ func TestVerySimilar(t *testing.T) {
 	t.Run("input_reflections INCALCULABLE is ignored", func(t *testing.T) {
 		attack1 := makeAttack(map[string]any{
 			"a":                 1,
-			"input_reflections": int(ReflectType_INCALCULABLE),
+			"input_reflections": int(ReflectionCountIncalculable),
 		})
 		attack2 := makeAttack(map[string]any{
 			"a":                 1,
@@ -203,7 +203,7 @@ func TestVerySimilar(t *testing.T) {
 		})
 		attack2 := makeAttack(map[string]any{
 			"a":                 1,
-			"input_reflections": int(ReflectType_INCALCULABLE),
+			"input_reflections": int(ReflectionCountIncalculable),
 		})
 		assert.True(t, VerySimilar(attack1, attack2))
 	})
@@ -227,7 +227,7 @@ func TestVerySimilar(t *testing.T) {
 	})
 }
 
-func TestSimilarIsh(t *testing.T) {
+func TestSimilarWithTolerance(t *testing.T) {
 	t.Run("all identical returns true", func(t *testing.T) {
 		fp := map[string]any{"a": 1, "b": 2}
 		noBreakGroup := makeAttack(fp)
@@ -235,13 +235,13 @@ func TestSimilarIsh(t *testing.T) {
 		noBreak := makeAttack(fp)
 		doBreak := makeAttack(fp)
 
-		assert.True(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.True(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("INCALCULABLE input_reflections skipped", func(t *testing.T) {
 		noBreakGroup := makeAttack(map[string]any{
 			"a":                 1,
-			"input_reflections": int(ReflectType_INCALCULABLE),
+			"input_reflections": int(ReflectionCountIncalculable),
 		})
 		breakGroup := makeAttack(map[string]any{
 			"a":                 1,
@@ -251,7 +251,7 @@ func TestSimilarIsh(t *testing.T) {
 		doBreak := makeAttack(map[string]any{"a": 1})
 
 		// input_reflections INCALCULABLE is skipped, only "a" compared
-		assert.True(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.True(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("key in noBreakGroup but not breakGroup falls back to doBreak", func(t *testing.T) {
@@ -261,7 +261,7 @@ func TestSimilarIsh(t *testing.T) {
 		doBreak := makeAttack(map[string]any{"a": 1, "b": 2}) // has "b" with same value
 
 		// "b" not in breakGroup, falls back to comparing with doBreak
-		assert.True(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.True(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("key in noBreakGroup but not breakGroup and doBreak differs returns false", func(t *testing.T) {
@@ -270,7 +270,7 @@ func TestSimilarIsh(t *testing.T) {
 		noBreak := makeAttack(map[string]any{"a": 1})
 		doBreak := makeAttack(map[string]any{"a": 1, "b": 999}) // "b" has different value
 
-		assert.False(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.False(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("key in breakGroup but not noBreakGroup falls back to noBreak", func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestSimilarIsh(t *testing.T) {
 		noBreak := makeAttack(map[string]any{"a": 1, "c": 3}) // has "c" with same value
 		doBreak := makeAttack(map[string]any{"a": 1})
 
-		assert.True(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.True(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("key in breakGroup but not noBreakGroup and noBreak differs returns false", func(t *testing.T) {
@@ -288,7 +288,7 @@ func TestSimilarIsh(t *testing.T) {
 		noBreak := makeAttack(map[string]any{"a": 1, "c": 999}) // "c" has different value
 		doBreak := makeAttack(map[string]any{"a": 1})
 
-		assert.False(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.False(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 
 	t.Run("values differ between noBreakGroup and breakGroup", func(t *testing.T) {
@@ -297,6 +297,6 @@ func TestSimilarIsh(t *testing.T) {
 		noBreak := makeAttack(map[string]any{"a": 1})
 		doBreak := makeAttack(map[string]any{"a": 1})
 
-		assert.False(t, SimilarIsh(noBreakGroup, breakGroup, noBreak, doBreak))
+		assert.False(t, SimilarWithTolerance(noBreakGroup, breakGroup, noBreak, doBreak))
 	})
 }

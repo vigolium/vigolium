@@ -51,7 +51,6 @@ func findElementByID(doc *html.Node, id string) *html.Node {
 }
 
 // TestPageNavigate tests navigation to URL.
-// Crawljax parity: goToUrl()
 func TestPageNavigate(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -104,7 +103,7 @@ func TestPageNavigateToIndex(t *testing.T) {
 		t.Fatalf("Title() failed: %v", err)
 	}
 
-	expectedTitle := "Crawljax testSite"
+	expectedTitle := "Spitolas testSite"
 	if title != expectedTitle {
 		t.Errorf("Expected title %q, got %q", expectedTitle, title)
 	}
@@ -142,7 +141,6 @@ func TestPageReload(t *testing.T) {
 }
 
 // TestPageURL tests getting current URL.
-// Crawljax parity: getCurrentUrl()
 func TestPageURL(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -179,7 +177,6 @@ func TestPageURL(t *testing.T) {
 }
 
 // TestPageHTML tests getting page HTML.
-// Crawljax parity: getStrippedDom()
 func TestPageHTML(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -240,7 +237,6 @@ func TestPageTitle(t *testing.T) {
 }
 
 // TestPageNavigateBack tests navigation back.
-// Crawljax parity: goBack()
 func TestPageNavigateBack(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -424,7 +420,6 @@ func TestPageWaitVisible(t *testing.T) {
 }
 
 // TestPageElement tests finding element by CSS selector.
-// Crawljax parity: getWebElement()
 func TestPageElement(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -456,7 +451,6 @@ func TestPageElement(t *testing.T) {
 }
 
 // TestPageElementX tests finding element by XPath.
-// Crawljax parity: XPath element selection
 func TestPageElementX(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -542,7 +536,6 @@ func TestPageElementsX(t *testing.T) {
 }
 
 // TestPageHasElement tests checking element existence.
-// Crawljax parity: elementExists()
 func TestPageHasElement(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -569,7 +562,6 @@ func TestPageHasElement(t *testing.T) {
 }
 
 // TestPageHasElementX tests checking element existence by XPath.
-// Crawljax parity: elementExists() with XPath
 func TestPageHasElementX(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -596,7 +588,6 @@ func TestPageHasElementX(t *testing.T) {
 }
 
 // TestPageClick tests clicking element by selector.
-// Crawljax parity: fireEventAndWait()
 func TestPageClick(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -650,7 +641,6 @@ func TestPageHover(t *testing.T) {
 }
 
 // TestPageEval tests JavaScript execution.
-// Crawljax parity: executeJavaScript()
 func TestPageEval(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -724,7 +714,6 @@ func TestPageEvalWithArgs(t *testing.T) {
 }
 
 // TestPageScreenshot tests screenshot capture.
-// Crawljax parity: saveScreenShot()
 func TestPageScreenshot(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -783,7 +772,7 @@ func TestPageFullScreenshot(t *testing.T) {
 		t.Error("FullScreenshot data should not be empty")
 	}
 
-	// Save to temp file to verify (Crawljax pattern)
+	// Save to temp file to verify
 	tmpFile := filepath.Join(os.TempDir(), "test-screenshot.png")
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 		t.Fatalf("Failed to write screenshot: %v", err)
@@ -802,7 +791,6 @@ func TestPageFullScreenshot(t *testing.T) {
 }
 
 // TestPageFrames tests iframe handling.
-// Crawljax parity: getFrameDom()
 func TestPageFrames(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -845,7 +833,6 @@ func TestPageFrames(t *testing.T) {
 }
 
 // TestPageGetDocument tests getting DOM document with iframes.
-// Crawljax parity: testGetDocument()
 func TestPageGetDocument(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -877,7 +864,6 @@ func TestPageGetDocument(t *testing.T) {
 
 	iframeCount := countElements(doc, "iframe")
 
-	// Crawljax test expects 2 iframes
 	if iframeCount != 2 {
 		t.Errorf("Expected 2 IFRAME elements, got %d", iframeCount)
 	}

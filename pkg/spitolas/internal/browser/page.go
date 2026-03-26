@@ -435,7 +435,6 @@ type FrameInfo struct {
 }
 
 // FramesWithInfo returns all iframe elements with their identification info.
-// CRAWLJAX PARITY: Returns frame id/name for proper frame identification.
 func (p *Page) FramesWithInfo() ([]FrameInfo, error) {
 	iframes, err := p.rodPage.Timeout(p.config.ElementTimeout).Elements("iframe")
 	if err != nil {
@@ -449,8 +448,6 @@ func (p *Page) FramesWithInfo() ([]FrameInfo, error) {
 			continue // Skip iframes that can't be accessed
 		}
 
-		// CRAWLJAX PARITY: Get frame identification (id before name)
-		// This matches Java Crawljax DomUtils.getFrameIdentification()
 		idPtr, _ := iframe.Attribute("id")
 		namePtr, _ := iframe.Attribute("name")
 
@@ -471,7 +468,6 @@ func (p *Page) FramesWithInfo() ([]FrameInfo, error) {
 }
 
 // HTMLWithFrames returns the page HTML with all iframe content embedded.
-// CRAWLJAX PARITY: This matches Java Crawljax getDomTreeWithFrames() which
 // builds a combined DOM by importing frame content into iframe elements.
 // This is critical for proper state comparison when content changes in iframes.
 func (p *Page) HTMLWithFrames() (string, error) {
@@ -479,7 +475,6 @@ func (p *Page) HTMLWithFrames() (string, error) {
 }
 
 // htmlWithFramesRecursive recursively builds HTML with frame content.
-// CRAWLJAX PARITY: Embeds frame content directly after parent content (simple concatenation).
 // This approach is simpler than DOM manipulation and works for state comparison.
 func (p *Page) htmlWithFramesRecursive(parentFramePath string, visited map[string]bool) (string, error) {
 	mainHTML, err := p.rodPage.HTML()
@@ -532,7 +527,6 @@ func (p *Page) htmlWithFramesRecursive(parentFramePath string, visited map[strin
 }
 
 // HTMLWithFramesFiltered returns HTML with frame content, respecting ignore patterns.
-// CRAWLJAX PARITY: Matches CandidateElementExtractor.isFrameIgnored() behavior.
 func (p *Page) HTMLWithFramesFiltered(crawlFrames bool, ignorePatterns []string) (string, error) {
 	if !crawlFrames {
 		// If frame crawling is disabled, return just the main page HTML
@@ -542,7 +536,6 @@ func (p *Page) HTMLWithFramesFiltered(crawlFrames bool, ignorePatterns []string)
 }
 
 // htmlWithFramesFilteredRecursive recursively builds HTML with filtered frame content.
-// CRAWLJAX PARITY: Embeds frame content directly (simple concatenation).
 func (p *Page) htmlWithFramesFilteredRecursive(parentFramePath string, visited map[string]bool, ignorePatterns []string) (string, error) {
 	mainHTML, err := p.rodPage.HTML()
 	if err != nil {
@@ -598,7 +591,6 @@ func (p *Page) htmlWithFramesFilteredRecursive(parentFramePath string, visited m
 }
 
 // isFrameIgnored checks if a frame should be ignored based on patterns.
-// CRAWLJAX PARITY: Matches Java Crawljax CandidateElementExtractor.isFrameIgnored()
 // Pattern matching: "%" is treated as wildcard (replaced with ".*" for regex)
 // Go version uses "*" as wildcard for consistency with glob patterns.
 func isFrameIgnored(frameIdent string, patterns []string) bool {
@@ -611,9 +603,9 @@ func isFrameIgnored(frameIdent string, patterns []string) bool {
 }
 
 // matchesFramePattern checks if frameIdent matches the pattern.
-// Supports wildcard: "*" matches any characters, "%" also supported for Crawljax compat.
+// Supports wildcard: "*" matches any characters, "%" also supported.
 func matchesFramePattern(pattern, frameIdent string) bool {
-	// Handle both "*" (Go style) and "%" (Crawljax style) wildcards
+	// Handle both "*" (Go style) and "%" wildcards
 	if strings.Contains(pattern, "%") || strings.Contains(pattern, "*") {
 		// Convert to regex pattern
 		regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
@@ -627,7 +619,6 @@ func matchesFramePattern(pattern, frameIdent string) bool {
 }
 
 // setupAutoDialogHandler sets up automatic dialog handling for alert/confirm/prompt.
-// CRAWLJAX PARITY: This matches Java Crawljax handlePopups() which auto-accepts all dialogs.
 // Must be called when page is created to ensure dialogs don't block crawl.
 // The handler runs in a background goroutine and accepts all JS dialogs automatically.
 func (p *Page) setupAutoDialogHandler() {
@@ -647,7 +638,6 @@ func (p *Page) setupAutoDialogHandler() {
 }
 
 // HandlePopups handles any alert/confirm/prompt dialogs on the page.
-// This matches Java Crawljax's browser.handlePopups() behavior.
 // Note: Auto-dialog handler is already set up in setupAutoDialogHandler().
 // This method is kept for manual dialog handling if needed.
 func (p *Page) HandlePopups() error {

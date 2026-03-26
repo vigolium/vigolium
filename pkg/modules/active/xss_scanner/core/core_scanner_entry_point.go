@@ -64,7 +64,7 @@ func (g *XSSScanningCoordinator) PerformXSSChecks() {
 		}
 	}()
 
-	appendTacticDetector, err := g.getReflectionDetectorForTactic(LlAppend)
+	appendTacticDetector, err := g.getReflectionDetectorForTactic(TacticAppend)
 	if err != nil {
 		zap.L().Debug("error in getReflectionDetectorForTactic", zap.Error(err))
 		return
@@ -102,7 +102,7 @@ func (g *XSSScanningCoordinator) PerformXSSChecks() {
 			// 	),
 			// )
 			isXSSFound, err := g.executeSingleCheck(
-				LlAppend,
+				TacticAppend,
 				appendTacticDetector,
 				reflectionDetail,
 			)
@@ -110,15 +110,15 @@ func (g *XSSScanningCoordinator) PerformXSSChecks() {
 				continue
 			}
 
-			// TODO: Tạm thời bỏ qua vì append là đủ
+			// TODO: Skipping replace tactic for now since append is sufficient
 			// if !isXSSFound && g.isSpecialContext(reflectionDetail.CoreInfo().contextType) {
-			// 	replaceTacticDetector, err := g.getReflectionDetectorForTactic(LlReplace)
+			// 	replaceTacticDetector, err := g.getReflectionDetectorForTactic(TacticReplace)
 			// 	if err != nil {
 			// 		continue
 			// 	}
 
 			// 	_, err = g.executeSingleCheck(
-			// 		LlReplace,
+			// 		TacticReplace,
 			// 		replaceTacticDetector,
 			// 		reflectionDetail,
 			// 	)
@@ -138,7 +138,6 @@ func (coordinator *XSSScanningCoordinator) PerformSSTIChecks(thoroughScan bool) 
 	sstiPayloadProvider := NewSSTIPayloadProvider(coordinator.randomProvider, thoroughScan)
 
 	for _, sstiPayload := range sstiPayloadProvider.Payloads() {
-		// In the Java version, a list of ignored reflection contexts can be provided.
 		// For now, we will use an empty list.
 		var ignoredContexts []ReflectionContext
 
@@ -225,7 +224,7 @@ func (coordinator *XSSScanningCoordinator) prepareFuzzingRequest(
 	var payloadString string
 	randomSuffix := coordinator.randomProvider.GeneratePrefixedAlphanumeric(6)
 	originalValue := coordinator.injectionPoint.BaseValue()
-	if tactic == LlAppend {
+	if tactic == TacticAppend {
 		payloadString = originalValue + randomSuffix
 	} else {
 		payloadString = randomSuffix

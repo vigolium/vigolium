@@ -3,8 +3,6 @@ package ssti_detection
 import "github.com/vigolium/vigolium/pkg/modules/shared/diffscan"
 
 // SSTI Detection Probes
-// Based on "Successful Errors" research by vladko312 (SSTImap)
-// https://github.com/vladko312/SSTImap
 //
 // Boolean Error-Based Blind Detection Logic:
 // - Break payload = ERROR payload (causes syntax error OR evaluates to false for divide-by-zero)

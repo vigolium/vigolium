@@ -4,8 +4,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 )
 
-// HTTPReflectionPointDetector implements the Crp interface.
-// Original Java class: b5k
+// HTTPReflectionPointDetector detects payload reflections in HTTP responses.
 type HTTPReflectionPointDetector struct {
 	transaction           *utils.HTTPTransaction // Stores the full transaction
 	payloadMatcherForScan ByteSequenceMatcher
@@ -20,7 +19,7 @@ type HTTPReflectionPointDetector struct {
 	scanTriggerPayload []byte
 }
 
-// NewHTTPReflectionPointDetector creates a new B5k instance and performs initial reflection scan.
+// NewHTTPReflectionPointDetector creates a new detector instance and performs initial reflection scan.
 func NewHTTPReflectionPointDetector(
 	transaction *utils.HTTPTransaction, // Changed to accept HTTPTransaction
 	payloadMatcher ByteSequenceMatcher,
@@ -111,13 +110,12 @@ func (detector *HTTPReflectionPointDetector) determineScanRegions(
 }
 
 // scanBytesForReflections attempts to replicate the reflection finding
-// logic from erw.java that uses hqr.
 func (detector *HTTPReflectionPointDetector) scanBytesForReflections(
 	dataToScan []byte,
-	payloadMatcher ByteSequenceMatcher, // This is the *E8u instance
+	payloadMatcher ByteSequenceMatcher,
 	region *ByteScanRegion,
 	location ReflectionLocation,
-	sourceBodyOffset int, // hkk.g equivalent
+	sourceBodyOffset int,
 	randomProvider *utils.RandomGenerator,
 ) {
 	if dataToScan == nil || region == nil || payloadMatcher == nil ||
@@ -129,63 +127,53 @@ func (detector *HTTPReflectionPointDetector) scanBytesForReflections(
 		return
 	}
 
-
-	// Use newHqrInternal which accepts a Db9 interface directly
-	// and also the originalPayloadForDc3
 	payloadLocator := NewPayloadReflectionLocatorWithMatcher(
-		dataToScan,        // var1: bytes being scanned
-		sourceBodyOffset,  // var2: hkk.g, global body offset
-		payloadMatcher,    // var3Db9: the e8u pattern (created from originalPayloadForHqr within NewHqr)
-		region.StartIndex, // var4: offset in targetBytes
-		region.EndIndex,   // var5: end in targetBytes
-		location,          // var6: context for reflection
-		randomProvider,    // var7NetOu
+		dataToScan,
+		sourceBodyOffset,
+		payloadMatcher,
+		region.StartIndex,
+		region.EndIndex,
+		location,
+		randomProvider,
 	)
 
 	if payloadLocator != nil {
-		// The Hqr.A method will call Crp.AEqxByte (which is b.AEqxByte)
-		// to add discovered reflections. The canary for those Eqx objects
-		// will be derived from b.payloadUsedInErwLogic by dc3 logic,
-		// as dc3's constructor (called by hqr) takes this payload as its canary.
 		payloadLocator.LocateReflections(detector)
 	}
 }
 
-// AddReflection corresponds to Java: public void a(eqx var1, byte var2)
 func (detector *HTTPReflectionPointDetector) AddReflection(
 	reflection ReflectionOccurrenceDetail,
 	location ReflectionLocation,
 ) {
-	// Ensure eqxVal and its HPO are not nil before accessing fields
+	// Ensure reflection detail and its core info are not nil before accessing fields
 	if reflection == nil || reflection.CoreInfo() == nil {
 		// Optionally log this situation
 		return
 	}
 	pointInfo := reflection.CoreInfo()
-	if pointInfo == nil { // Double check, though eqxVal.A() returning nil Hpo should be caught above
+	if pointInfo == nil { // Double check, though reflection having nil core info should be caught above
 		return
 	}
 	switch location {
 	case ReflectionLocationHeader: // Header context reflections
 		detector.headerReflections = append(detector.headerReflections, reflection)
-		contextFlagIndex := pointInfo.GetContextCode() // HPO.e is ReflectionType in Java HPO
+		contextFlagIndex := pointInfo.GetContextCode()
 		if contextFlagIndex < byte(len(detector.headerReflectionContextFlags)) {
 			detector.headerReflectionContextFlags[contextFlagIndex] = true
 		}
 
 	case ReflectionLocationBody: // Body context reflections
 		detector.bodyReflections = append(detector.bodyReflections, reflection)
-		index := pointInfo.GetContextCode() // HPO.e is ReflectionType in Java HPO
+		index := pointInfo.GetContextCode()
 		if index < byte(len(detector.bodyReflectionContextFlags)) {
 			detector.bodyReflectionContextFlags[index] = true
 		}
 	default:
-		// In Java, this case calls an assertion/error.
 		// We can log or ignore for now.
 	}
 }
 
-// HasReflectionContextFlag corresponds to Java: public boolean a(byte var1, byte var2)
 func (detector *HTTPReflectionPointDetector) HasReflectionContextFlag(
 	location ReflectionLocation,
 	contextCode byte,
@@ -210,7 +198,6 @@ func (detector *HTTPReflectionPointDetector) HasReflectionContextFlag(
 	}
 }
 
-// GetReflections corresponds to Java: public List<eqx> b(byte var1)
 func (detector *HTTPReflectionPointDetector) GetReflections(
 	location ReflectionLocation,
 ) []ReflectionOccurrenceDetail {
@@ -295,7 +282,7 @@ func (detector *HTTPReflectionPointDetector) IsReflectionRegionWhitespaceOrContr
 			return true
 		}
 
-		if contentBytes[startIndex] > 32 {
+		if contentBytes[startIndex] > charSpace {
 			return false
 		}
 		startIndex++
@@ -337,20 +324,19 @@ func (detector *HTTPReflectionPointDetector) SetContentTypeProfile(profile *Cont
 	detector.contentTypeProfile = profile
 }
 
-// IsReflectionDataProvider marker method for Crp interface.
+// IsReflectionDataProvider marker method for the reflection data provider interface.
 func (detector *HTTPReflectionPointDetector) IsReflectionDataProvider() {}
 
 func (detector *HTTPReflectionPointDetector) GetTransaction() *utils.HTTPTransaction {
 	return detector.transaction
 }
 
-// ByteScanRegion corresponds to the Java class burp.by9.
 type ByteScanRegion struct {
-	StartIndex int // Corresponds to public final int b; (start index or relevant int value)
-	EndIndex   int // Corresponds to public final int a; (end index or relevant int value)
+	StartIndex int
+	EndIndex   int
 }
 
-// NewByteScanRegion creates a new By9 instance.
+// NewByteScanRegion creates a new ByteScanRegion instance.
 func NewByteScanRegion(startIndex int, endIndex int) *ByteScanRegion {
 	return &ByteScanRegion{
 		StartIndex: startIndex,
@@ -358,10 +344,9 @@ func NewByteScanRegion(startIndex int, endIndex int) *ByteScanRegion {
 	}
 }
 
-// HTTPResponseScanRegions corresponds to the Java class burp.bhy.
 type HTTPResponseScanRegions struct {
-	BodyRegion   *ByteScanRegion // For body scan region in Erw
-	HeaderRegion *ByteScanRegion // For header scan region in Erw
+	BodyRegion   *ByteScanRegion
+	HeaderRegion *ByteScanRegion
 }
 
 func NewHTTPResponseScanRegions(

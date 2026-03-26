@@ -16,7 +16,7 @@ func compareBcShift(a, b [256]int) bool {
 	return true
 }
 
-func TestNewKwSearcher(t *testing.T) {
+func TestNewBoyerMooreSearcher(t *testing.T) {
 	tests := []struct {
 		name          string
 		pattern       []byte
@@ -63,15 +63,15 @@ func TestNewKwSearcher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher := NewKwSearcher(tt.pattern, tt.caseSensitive)
-			kwSearcher, ok := searcher.(*KwSearcher)
+			searcher := NewBoyerMooreSearcher(tt.pattern, tt.caseSensitive)
+			kwSearcher, ok := searcher.(*BoyerMooreSearcher)
 			if !ok {
-				t.Fatalf("NewKwSearcher did not return a *KwSearcher")
+				t.Fatalf("NewBoyerMooreSearcher did not return a *BoyerMooreSearcher")
 			}
 
 			if !bytes.Equal(kwSearcher.pattern, tt.wantPattern) {
 				t.Errorf(
-					"NewKwSearcher().pattern = %v (%s), want %v (%s)",
+					"NewBoyerMooreSearcher().pattern = %v (%s), want %v (%s)",
 					kwSearcher.pattern,
 					string(kwSearcher.pattern),
 					tt.wantPattern,
@@ -80,25 +80,25 @@ func TestNewKwSearcher(t *testing.T) {
 			}
 			if kwSearcher.caseSensitive != tt.wantCaseSens {
 				t.Errorf(
-					"NewKwSearcher().caseSensitive = %v, want %v",
+					"NewBoyerMooreSearcher().caseSensitive = %v, want %v",
 					kwSearcher.caseSensitive,
 					tt.wantCaseSens,
 				)
 			}
 			if len(tt.pattern) > 0 {
 				if kwSearcher.bcShift == [256]int{} {
-					t.Error("NewKwSearcher().bcShift was not initialized for non-empty pattern")
+					t.Error("NewBoyerMooreSearcher().bcShift was not initialized for non-empty pattern")
 				}
 				if kwSearcher.gsShift == nil {
 					t.Error(
-						"NewKwSearcher().gsShift was not initialized (nil) for non-empty pattern",
+						"NewBoyerMooreSearcher().gsShift was not initialized (nil) for non-empty pattern",
 					)
 				} else if len(kwSearcher.gsShift) != len(tt.pattern) {
-					t.Errorf("NewKwSearcher().gsShift length = %d, want %d", len(kwSearcher.gsShift), len(tt.pattern))
+					t.Errorf("NewBoyerMooreSearcher().gsShift length = %d, want %d", len(kwSearcher.gsShift), len(tt.pattern))
 				}
 			} else {
 				if len(kwSearcher.gsShift) != 0 {
-					t.Errorf("NewKwSearcher().gsShift should be nil or empty for nil/empty pattern, got %v", kwSearcher.gsShift)
+					t.Errorf("NewBoyerMooreSearcher().gsShift should be nil or empty for nil/empty pattern, got %v", kwSearcher.gsShift)
 				}
 			}
 		})
@@ -246,70 +246,70 @@ func TestKwComputeGsShift(t *testing.T) {
 	tests := []struct {
 		name        string
 		pattern     []byte
-		wantGsShift []int // Expected gsShift from Java output
+		wantGsShift []int
 	}{
 		{
-			name:        "pattern ABC from Java",
+			name:        "pattern ABC",
 			pattern:     []byte("ABC"),
 			wantGsShift: []int{1, 4, 5},
 		},
 		{
-			name:        "pattern ABABA from Java",
+			name:        "pattern ABABA",
 			pattern:     []byte("ABABA"),
 			wantGsShift: []int{1, 5, 6, 5, 6},
 		},
 		{
-			name:        "pattern AAAAA from Java",
+			name:        "pattern AAAAA",
 			pattern:     []byte("AAAAA"),
 			wantGsShift: []int{5, 5, 5, 5, 5},
 		},
 		{
-			name:        "pattern ANPANMAN from Java",
+			name:        "pattern ANPANMAN",
 			pattern:     []byte("ANPANMAN"),
 			wantGsShift: []int{1, 9, 5, 9, 10, 11, 12, 13},
 		},
 		{
-			name:        "pattern EXAMPLE from Java",
+			name:        "pattern EXAMPLE",
 			pattern:     []byte("EXAMPLE"),
 			wantGsShift: []int{1, 7, 8, 9, 10, 11, 12},
 		},
 		{
-			name:        "pattern BABAB from Java",
+			name:        "pattern BABAB",
 			pattern:     []byte("BABAB"),
 			wantGsShift: []int{1, 5, 6, 5, 6},
 		},
 		{
-			name:        "pattern TEST from Java",
+			name:        "pattern TEST",
 			pattern:     []byte("TEST"),
 			wantGsShift: []int{1, 4, 5, 6},
 		},
 		{
-			name:        "pattern ABA from Java",
+			name:        "pattern ABA",
 			pattern:     []byte("ABA"),
 			wantGsShift: []int{1, 3, 4},
 		},
 		{
-			name:        "pattern GCAGAGAG from Java",
+			name:        "pattern GCAGAGAG",
 			pattern:     []byte("GCAGAGAG"),
 			wantGsShift: []int{1, 8, 6, 10, 6, 12, 13, 14},
 		},
 		{
-			name:        "pattern ABABCABAB from Java",
+			name:        "pattern ABABCABAB",
 			pattern:     []byte("ABABCABAB"),
 			wantGsShift: []int{1, 10, 4, 10, 9, 10, 11, 12, 13},
 		},
 		{
-			name:        "pattern PATTERN from Java",
+			name:        "pattern PATTERN",
 			pattern:     []byte("PATTERN"),
 			wantGsShift: []int{1, 8, 9, 10, 11, 12, 13},
 		},
 		{
-			name:        "single char pattern A from Java",
+			name:        "single char pattern A",
 			pattern:     []byte("A"),
 			wantGsShift: []int{1},
 		},
 		{
-			name:        "empty pattern from Java",
+			name:        "empty pattern",
 			pattern:     []byte(""),
 			wantGsShift: []int{},
 		},
@@ -329,27 +329,27 @@ func TestKwComputeGsShift(t *testing.T) {
 	}
 }
 
-// Mocking Pc for tests
-type mockPc struct {
+// Mocking SearchableData for tests
+type mockSearchableData struct {
 	data []byte
 }
 
-func (m *mockPc) IsPc()   {}
-func (m *mockPc) B() bool { return len(m.data) == 0 }
-func (m *mockPc) A() int {
-	if m.B() {
+func (m *mockSearchableData) IsSearchableData() {}
+func (m *mockSearchableData) IsEmpty() bool      { return len(m.data) == 0 }
+func (m *mockSearchableData) Length() int {
+	if m.IsEmpty() {
 		return 0
 	}
 	return len(m.data)
 }
-func (m *mockPc) AAt(i int) int {
-	if m.B() || i < 0 || i >= len(m.data) {
+func (m *mockSearchableData) ByteAt(i int) int {
+	if m.IsEmpty() || i < 0 || i >= len(m.data) {
 		return 0
 	}
 	return int(m.data[i] & 0xFF)
 }
 
-func TestKwSearcher_A(t *testing.T) {
+func TestBoyerMooreSearcher_A(t *testing.T) {
 	tests := []struct {
 		name          string
 		haystack      []byte
@@ -615,16 +615,16 @@ func TestKwSearcher_A(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher := NewKwSearcher(tt.pattern, tt.caseSensitive)
-			haystackWrapper := &mockPc{data: tt.haystack}
+			searcher := NewBoyerMooreSearcher(tt.pattern, tt.caseSensitive)
+			haystackWrapper := &mockSearchableData{data: tt.haystack}
 
 			if tt.name == "special_ls_b_null_case_match" ||
 				tt.name == "special_ls_b_null_case_no_match_anyway" {
 
-				got := searcher.A(haystackWrapper, tt.fromIndex, tt.toIndex)
+				got := searcher.Search(haystackWrapper, tt.fromIndex, tt.toIndex)
 				if got != tt.want {
 					t.Errorf(
-						"KwSearcher.A() with LsStaticC=nil for '%s' in '%s' got = %v, want %v",
+						"BoyerMooreSearcher.Search() with LsStaticC=nil for '%s' in '%s' got = %v, want %v",
 						string(tt.pattern),
 						string(tt.haystack),
 						got,
@@ -632,9 +632,9 @@ func TestKwSearcher_A(t *testing.T) {
 					)
 				}
 			} else {
-				got := searcher.A(haystackWrapper, tt.fromIndex, tt.toIndex)
+				got := searcher.Search(haystackWrapper, tt.fromIndex, tt.toIndex)
 				if got != tt.want {
-					t.Errorf("KwSearcher.A() for '%s' in '%s' (cs:%t, from:%d, to:%d) = %v, want %v", string(tt.pattern), string(tt.haystack), tt.caseSensitive, tt.fromIndex, tt.toIndex, got, tt.want)
+					t.Errorf("BoyerMooreSearcher.Search() for '%s' in '%s' (cs:%t, from:%d, to:%d) = %v, want %v", string(tt.pattern), string(tt.haystack), tt.caseSensitive, tt.fromIndex, tt.toIndex, got, tt.want)
 				}
 			}
 		})

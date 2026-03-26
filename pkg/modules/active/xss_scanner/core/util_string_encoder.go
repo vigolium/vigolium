@@ -6,8 +6,6 @@ import (
 	"unicode"
 )
 
-// EncodeStringWithMode corresponds to public static String a(String var0, int var1) in c6w.java
-// This is the main public method. Based on the 'mode' (var1), it either:
 // 1. Encodes the string 's' using c6wEncodeStringInternal (if mode is odd).
 // 2. Prepends a NUL character to 's' (if mode is even and its second bit is set).
 // 3. Returns 's' as is (if mode is even and its second bit is not set).
@@ -22,7 +20,6 @@ func EncodeStringWithMode(inputString string, encodingMode int) string {
 	}
 }
 
-// customPercentEncodeString corresponds to private static String a(String var0) in c6w.java
 // This function performs a custom URL-like encoding.
 // Alphanumeric characters are appended directly.
 // Other characters are percent-encoded:
@@ -33,18 +30,12 @@ func EncodeStringWithMode(inputString string, encodingMode int) string {
 // - If hex string is >2 chars long (for chars > 0xFF), its last two hex digits are appended (e.g., for ǿ (hex "1ff"), "%ff" is appended).
 func customPercentEncodeString(s string) string {
 	var encodedBuilder strings.Builder
-	// The loop control variable 'var1' (from Java's `int var1 = var10000;` where `var10000 = a();`)
-	// was 61. This non-zero value ensured that internal `break label37;` statements were always taken,
-	// effectively making the loop iterate once per character of the input string.
-	// The `if (var1 == 0)` check at the end of the Java while loop was dead code.
-	// The Go `for...range` loop naturally provides this one-iteration-per-character behavior.
 
-	for _, char := range s { // Iterate over runes in the string
+	for _, char := range s {
 		if unicode.IsLetter(char) || unicode.IsDigit(char) {
 			encodedBuilder.WriteRune(char)
 		} else {
 			encodedBuilder.WriteString("%")
-			// Java's Integer.toHexString(char) produces lowercase hex.
 			hexValueString := fmt.Sprintf("%x", char)
 
 			if len(hexValueString) == 1 { // e.g., for char value 7, hexStr is "7"

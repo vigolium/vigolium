@@ -6,26 +6,22 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/htmlparser"
 )
 
-// TagAttributeValidator corresponds to the Java interface burp.brh.
 type TagAttributeValidator interface {
 	IsValidForTag(tagName string) bool
 	IsValidForAnyTagInSet(tagNames map[string]struct{}) bool
 }
 
 /* -------------------------------------------------------------------------- */
-// HTMLTagInfoAccessor corresponds to the Java interface burp.dr2.
-// Methods are based on usage in edk.java, dz0.java and its own definition in dr2.java.
 type HTMLTagInfoAccessor interface {
 	IsHTMLTagInfoAccessor() // Marker method, assuming it might be checked by concrete types
-	TagName() string        // Corresponds to String a4();
+	TagName() string
 	Attributes() []*htmlparser.HTMLAttribute
-	GetAttributeValue(attributeName string) string // Corresponds to String e(String var1);
+	GetAttributeValue(attributeName string) string
 }
 
 /* -------------------------------------------------------------------------- */
-// TagAttributeCompatibilityAssessor corresponds to the Java interface burp.fbt.
 type TagAttributeCompatibilityAssessor interface {
-	IsCompatible(tagAccessor HTMLTagInfoAccessor) bool // Uses renamed Dr2_g1r
+	IsCompatible(tagAccessor HTMLTagInfoAccessor) bool
 }
 
 /* -------------------------------------------------------------------------- */
@@ -58,11 +54,9 @@ func (b *TagSpecificAssessorRegistry) RegisterCheckerForTag(
 
 /* -------------------------------------------------------------------------- */
 type CaseInsensitiveStringSetChecker struct {
-	items map[string]struct{} // private final Set<String> a;
-}
+	items map[string]struct{}}
 
-// NewCaseInsensitiveStringSetChecker creates a new Fl0 instance.
-// Corresponds to public fl0(Set<String> var1)
+// NewCaseInsensitiveStringSetChecker creates a new CaseInsensitiveStringSetChecker instance.
 func NewCaseInsensitiveStringSetChecker(
 	initialItems map[string]struct{},
 ) *CaseInsensitiveStringSetChecker {
@@ -73,7 +67,6 @@ func NewCaseInsensitiveStringSetChecker(
 	return &CaseInsensitiveStringSetChecker{items: itemsCopy}
 }
 
-// FilterContainedItems corresponds to public Set<String> a(Set<String> var1) in fl0.java
 func (f *CaseInsensitiveStringSetChecker) FilterContainedItems(
 	itemsToFilter map[string]struct{},
 ) map[string]struct{} {
@@ -87,7 +80,6 @@ func (f *CaseInsensitiveStringSetChecker) FilterContainedItems(
 	return containedItems
 }
 
-// Contains corresponds to public boolean a(String var1) in fl0.java
 func (f *CaseInsensitiveStringSetChecker) Contains(itemToFind string) bool {
 	for existingItem := range f.items {
 		if strings.EqualFold(existingItem, itemToFind) {
@@ -99,11 +91,9 @@ func (f *CaseInsensitiveStringSetChecker) Contains(itemToFind string) bool {
 
 /* -------------------------------------------------------------------------- */
 type ExclusionTagAttributeValidator struct {
-	excludedTags *CaseInsensitiveStringSetChecker // private final fl0 a;
-}
+	excludedTags *CaseInsensitiveStringSetChecker}
 
-// NewExclusionTagAttributeValidator creates a new Dbz instance.
-// Corresponds to public dbz(String... var1)
+// NewExclusionTagAttributeValidator creates a new ExclusionTagAttributeValidator instance.
 func NewExclusionTagAttributeValidator(excludedTagNames ...string) *ExclusionTagAttributeValidator {
 	excludedSet := make(map[string]struct{})
 	for _, s := range excludedTagNames {
@@ -114,12 +104,10 @@ func NewExclusionTagAttributeValidator(excludedTagNames ...string) *ExclusionTag
 	}
 }
 
-// IsValidForTag corresponds to public boolean a(String var1) in dbz.java
 func (d *ExclusionTagAttributeValidator) IsValidForTag(tagName string) bool {
 	return !d.excludedTags.Contains(strings.ToLower(tagName))
 }
 
-// IsValidForAnyTagInSet corresponds to public boolean a(Set<String> var1) in dbz.java
 func (d *ExclusionTagAttributeValidator) IsValidForAnyTagInSet(tagNames map[string]struct{}) bool {
 	excludedAndPresentTags := d.excludedTags.FilterContainedItems(tagNames)
 	hasNonExcludedTag := len(excludedAndPresentTags) < len(tagNames)
@@ -128,11 +116,9 @@ func (d *ExclusionTagAttributeValidator) IsValidForAnyTagInSet(tagNames map[stri
 
 /* -------------------------------------------------------------------------- */
 type InclusionTagAttributeValidator struct {
-	includedTags *CaseInsensitiveStringSetChecker // private final fl0 a;
-}
+	includedTags *CaseInsensitiveStringSetChecker}
 
-// NewInclusionTagAttributeValidator creates a new Crs instance.
-// Corresponds to public crs(String... var1)
+// NewInclusionTagAttributeValidator creates a new InclusionTagAttributeValidator instance.
 func NewInclusionTagAttributeValidator(includedTagNames ...string) *InclusionTagAttributeValidator {
 	includedSet := make(map[string]struct{})
 	for _, s := range includedTagNames {
@@ -143,12 +129,10 @@ func NewInclusionTagAttributeValidator(includedTagNames ...string) *InclusionTag
 	}
 }
 
-// IsValidForTag corresponds to public boolean a(String var1) in crs.java
 func (c *InclusionTagAttributeValidator) IsValidForTag(tagName string) bool {
 	return c.includedTags.Contains(strings.ToLower(tagName))
 }
 
-// IsValidForAnyTagInSet corresponds to public boolean a(Set<String> var1) in crs.java
 func (c *InclusionTagAttributeValidator) IsValidForAnyTagInSet(tagNames map[string]struct{}) bool {
 	includedAndPresentTags := c.includedTags.FilterContainedItems(tagNames)
 	return len(includedAndPresentTags) > 0
@@ -157,12 +141,11 @@ func (c *InclusionTagAttributeValidator) IsValidForAnyTagInSet(tagNames map[stri
 /* -------------------------------------------------------------------------- */
 type FocusEventHiddenInputAssessor struct{}
 
-// NewFocusEventHiddenInputAssessor creates a new Edk_g1r instance.
+// NewFocusEventHiddenInputAssessor creates a new FocusEventHiddenInputAssessor instance.
 func NewFocusEventHiddenInputAssessor() *FocusEventHiddenInputAssessor {
 	return &FocusEventHiddenInputAssessor{}
 }
 
-// IsCompatible corresponds to public boolean a(dr2 var1) in edk.java
 func (e *FocusEventHiddenInputAssessor) IsCompatible(tagAccessor HTMLTagInfoAccessor) bool {
 	if tagAccessor != nil {
 		tagName := tagAccessor.TagName()
@@ -177,12 +160,11 @@ func (e *FocusEventHiddenInputAssessor) IsCompatible(tagAccessor HTMLTagInfoAcce
 /* -------------------------------------------------------------------------- */
 type MouseOverEventHiddenInputAssessor struct{}
 
-// NewMouseOverEventHiddenInputAssessor creates a new Dz0_g1r instance.
+// NewMouseOverEventHiddenInputAssessor creates a new MouseOverEventHiddenInputAssessor instance.
 func NewMouseOverEventHiddenInputAssessor() *MouseOverEventHiddenInputAssessor {
 	return &MouseOverEventHiddenInputAssessor{}
 }
 
-// IsCompatible corresponds to public boolean a(dr2 var1) in dz0.java
 func (d *MouseOverEventHiddenInputAssessor) IsCompatible(tagAccessor HTMLTagInfoAccessor) bool {
 	if tagAccessor != nil {
 		tagName := tagAccessor.TagName()

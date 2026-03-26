@@ -2,22 +2,24 @@ package diffscan
 
 import "fmt"
 
-type ReflectType int
+// ReflectionCount tracks how many times the injected payload appears in the response.
+// Negative values represent special states rather than actual counts.
+type ReflectionCount int
 
 const (
-	ReflectType_UNINITIALISED ReflectType = -1
-	ReflectType_DYNAMIC       ReflectType = -2
-	ReflectType_INCALCULABLE  ReflectType = -3
+	ReflectionCountUninitialized ReflectionCount = -1
+	ReflectionCountDynamic       ReflectionCount = -2
+	ReflectionCountIncalculable  ReflectionCount = -3
 )
 
-func (s ReflectType) String() string {
+func (s ReflectionCount) String() string {
 	switch s {
-	case ReflectType_DYNAMIC:
+	case ReflectionCountDynamic:
 		return "Dynamic"
-	case ReflectType_INCALCULABLE:
+	case ReflectionCountIncalculable:
 		return "Incalculable"
-	case ReflectType_UNINITIALISED:
-		return "Uninitialised"
+	case ReflectionCountUninitialized:
+		return "Uninitialized"
 	default:
 		return fmt.Sprintf("%v", int(s))
 	}

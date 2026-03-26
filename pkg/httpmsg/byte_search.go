@@ -1,7 +1,6 @@
 package httpmsg
 
 // byte_search.go - Byte search and replace utilities
-// Ported from: Utilities.java (search/replace operations)
 //
 // This file contains:
 // - Exported: ContainsBytes, CountMatches, GetMatches
@@ -10,7 +9,6 @@ package httpmsg
 // ==================== EXPORTED FUNCTIONS ====================
 
 // ContainsBytes checks if data contains the pattern.
-// Ported from: Utilities.java containsBytes() (lines 837-842)
 //
 // Algorithm:
 //  1. Use IndexOfBytes to find first occurrence
@@ -35,7 +33,6 @@ func ContainsBytes(data, pattern []byte) bool {
 }
 
 // CountMatches counts occurrences of pattern in data.
-// Ported from: Utilities.java countMatches() (lines 525-542)
 //
 // Algorithm:
 //  1. Start from position 0
@@ -74,7 +71,6 @@ func CountMatches(data, pattern []byte) int {
 }
 
 // GetMatches returns all [start, end] positions of pattern in data.
-// Ported from: Utilities.java getMatches() (lines 679-704)
 //
 // Algorithm:
 //  1. Start from position 0

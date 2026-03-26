@@ -4,9 +4,9 @@ package xss_light_scanner
 type ReflectionContext int
 
 const (
-	HTMLGeneric ReflectionContext = iota // 0: Reflection in HTML text node
-	// ID 1 skipped
-	HTMLTagCloseAndInject              // 2: Reflection in tag name
+	HTMLGeneric           ReflectionContext = iota // 0: Reflection in HTML text node
+	_                                             // 1: reserved
+	HTMLTagCloseAndInject                         // 2: Reflection in tag name
 	HTMLAttributeName                  // 3: Reflection in attribute name
 	HTMLAttributeValueDQBreakout       // 4: Reflection in double-quoted attribute
 	HTMLAttributeValueSQBreakout       // 5: Reflection in single-quoted attribute

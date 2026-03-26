@@ -41,7 +41,6 @@ func NewWaitCondition(selector string, timeout time.Duration) *WaitCondition {
 func NewWaitConditionFromConfig(cfg config.WaitConditionConfig) *WaitCondition {
 	timeout := cfg.Timeout
 	if timeout == 0 {
-		// CRAWLJAX PARITY: Java WaitCondition.WAIT_TIME = 500ms
 		timeout = 500 * time.Millisecond
 	}
 
@@ -78,7 +77,6 @@ func (w *WaitCondition) WithPolling(d time.Duration) *WaitCondition {
 //   - WaitTimeout (0): condition timed out
 //   - WaitURLMismatch (-1): URL pattern didn't match
 func (w *WaitCondition) Wait(page *browser.Page) WaitResult {
-	// CRAWLJAX PARITY: Java uses case-insensitive substring containment:
 	// browser.getCurrentUrl().toLowerCase().contains(expectedURL.toLowerCase())
 	if w.URLPattern != "" {
 		url, err := page.URL()
@@ -147,7 +145,6 @@ func WaitAny(page *browser.Page, conditions ...*WaitCondition) WaitResult {
 	for time.Now().Before(deadline) {
 		for _, c := range conditions {
 			// Check URL pattern if specified
-			// CRAWLJAX PARITY: Case-insensitive substring containment
 			if c.URLPattern != "" {
 				url, err := page.URL()
 				if err != nil {

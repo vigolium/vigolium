@@ -6,7 +6,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 )
 
-// XSSCheckRunner is the Go equivalent of f9n.java
 type XSSCheckRunner struct {
 	payloadModifier                       BytePayloadModifier
 	randomProvider                        *utils.RandomGenerator
@@ -16,7 +15,7 @@ type XSSCheckRunner struct {
 	httpClient                            *http.Requester
 }
 
-// NewXSSCheckRunner creates a new F9n instance.
+// NewXSSCheckRunner creates a new XSSCheckRunner instance.
 func NewXSSCheckRunner(
 	payloadModifier BytePayloadModifier,
 	randomProvider *utils.RandomGenerator,
@@ -36,10 +35,9 @@ func NewXSSCheckRunner(
 	}
 }
 
-// Scan is the primary method for f9n, initiating XSS checks.
+// Scan initiates XSS checks for the given injection point.
 func (runner *XSSCheckRunner) Scan(
-	// initialHttpRequest *http.Request,
-	injectionPointToFuzz httpmsg.InsertionPoint, // Changed from bnoInsertionPoint
+	injectionPointToFuzz httpmsg.InsertionPoint,
 	currentScanFlags int,
 	basePayload []byte,
 	tactic ReflectionTacticType,
@@ -49,14 +47,12 @@ func (runner *XSSCheckRunner) Scan(
 	profile *ScanExecutionProfile,
 ) PotentialXSSFinding {
 	var effectivePayloadUsed []byte
-	// var finalB5kForKResult *B5k // Không cần lưu trữ B5k cuối cùng ở đây nữa, vì KResult sẽ lấy thông tin từ finalDetectedReflection và finalHttpTransaction
 	var finalDetectedReflection ReflectionOccurrenceDetail
 	var effectiveHTTPTransaction *utils.HTTPTransaction
 
 	if performFollowUpRequest {
 
-		// Gửi request với (basePayloadToFuzz + randomSuffix)
-		// doModifiedRequestAndAnalyze sẽ tự tạo B5k từ response của nó.
+		// Send request with (basePayload + randomSuffix) and analyze the response
 		followUpAnalysis := runner.sendModifiedRequestAndAnalyze(
 			injectionPointToFuzz,
 			profile,
@@ -70,11 +66,10 @@ func (runner *XSSCheckRunner) Scan(
 		}()
 		if followUpAnalysis != nil && followUpAnalysis.FoundReflection != nil {
 			effectivePayloadUsed = followUpAnalysis.EffectivePayloadUsed
-			// finalB5kForKResult = d14Result.B5k
 			finalDetectedReflection = followUpAnalysis.FoundReflection
 			effectiveHTTPTransaction = followUpAnalysis.ResponseTransaction
 		} else {
-			// log.Println("[DEBUG F9n Scan] No reflection found from doModifiedRequestAndAnalyze in followUpRequest path.")
+			// No reflection found from sendModifiedRequestAndAnalyze in followUpRequest path.
 			return nil
 		}
 	} else { // followUpRequest is false
@@ -88,7 +83,6 @@ func (runner *XSSCheckRunner) Scan(
 				}()
 				if secondRequestResult != nil && secondRequestResult.FoundReflection != nil {
 					effectivePayloadUsed = secondRequestResult.EffectivePayloadUsed
-					// finalB5kForKResult = d14Result.B5k
 					finalDetectedReflection = secondRequestResult.FoundReflection
 					effectiveHTTPTransaction = secondRequestResult.ResponseTransaction
 				} else {
@@ -97,36 +91,27 @@ func (runner *XSSCheckRunner) Scan(
 			} else {
 				return nil
 			}
-		} else { // preparedB5k is NOT nil
+		} else { // preparedDetector is NOT nil
 			modifiedBasePayload := basePayload
 			if runner.payloadModifier != nil {
 				modifiedBasePayload = runner.payloadModifier.Modify(basePayload)
 			}
 
-			// Hnx được truyền vào đã được cấu hình bởi lớp gọi (gus) dựa trên preparedB5k.CDef()
-			// và reflectionContextTypeForHnx.
-			// Matcher sẽ tìm kiếm context phù hợp trong các reflection đã có của preparedB5k.
-			// Lưu ý: preparedB5k.payloadUsedInErwLogic phải là tranformedBasePayload để HPO.Canary có ý nghĩa.
-			// Nếu preparedB5k được tạo từ một request khác (ví dụ request force HTML),
-			// thì eqxInPrepared.A().Canary sẽ là payload của request đó, không phải tranformedBasePayload.
-			// Điều này cần được xử lý cẩn thận ở lớp gọi khi tạo KResult.
-			// Hiện tại FruBuildKResult sẽ dùng Canary từ Eqx được tìm thấy.
-			matcherForPreparedDetector := profile.getAggregatedMatchCriterion() // DInternal tạo matcher dựa trên hnx.reflectionContext
+			// Build a matcher for the reflection context and search the prepared detector's reflections.
+			matcherForPreparedDetector := profile.getAggregatedMatchCriterion()
 
-			reflectionInPrepared := preparedDetector.FindMatchingReflection(ReflectionLocationBody, matcherForPreparedDetector) // Hoặc Header
-			if reflectionInPrepared == nil && profile.targetReflectionContext != ReflectionContextHTMLGeneric {                 // Fallback to generic if specific fails
-				// This is a heuristic. Java's fn0 has complex D3b selection.
-				// Here, if specific HNX context matcher fails, try a generic HTML matcher.
-				// This assumes hnx passed in had a specific context.
-				genericHTMLProfile := NewScanExecutionProfile(ReflectionContextHTMLGeneric) // 19 is XML_GENERIC / general HTML
+			reflectionInPrepared := preparedDetector.FindMatchingReflection(ReflectionLocationBody, matcherForPreparedDetector)
+			if reflectionInPrepared == nil && profile.targetReflectionContext != ReflectionContextHTMLGeneric {
+				// Fallback: if the specific context matcher fails, try a generic HTML matcher.
+				genericHTMLProfile := NewScanExecutionProfile(ReflectionContextHTMLGeneric)
 				matcherForPreparedDetector = genericHTMLProfile.getAggregatedMatchCriterion()
 				reflectionInPrepared = preparedDetector.FindMatchingReflection(ReflectionLocationBody, matcherForPreparedDetector)
 			}
 
 			if reflectionInPrepared != nil {
-				effectivePayloadUsed = modifiedBasePayload // Payload mà chúng ta đã cố gắng tìm
+				effectivePayloadUsed = modifiedBasePayload
 				finalDetectedReflection = reflectionInPrepared
-				effectiveHTTPTransaction = preparedDetector.transaction // Transaction mà từ đó preparedB5k được tạo
+				effectiveHTTPTransaction = preparedDetector.transaction
 				if effectiveHTTPTransaction == nil {
 					return nil
 				}
@@ -159,16 +144,15 @@ func (runner *XSSCheckRunner) Scan(
 	if effectiveHTTPTransaction == nil || !effectiveHTTPTransaction.IsHasResponse() {
 		return nil
 	}
-	if finalDetectedReflection.CoreInfo() == nil { // Double check HPO is not nil
+	if finalDetectedReflection.CoreInfo() == nil {
 		return nil
 	}
 
-	// Tạo KFindingBuilder
 	finding := BuildXSSScanFinding(
-		injectionPointToFuzz, // fuzzParam mà f9n đã sử dụng
-		effectivePayloadUsed, // payload thực tế đã gửi (finalPayloadUsed từ f9n)
-		tactic,               // llVal từ f9n
-		currentScanFlags,     // scanFlags từ f9n
+		injectionPointToFuzz,
+		effectivePayloadUsed,
+		tactic,
+		currentScanFlags,
 		finalDetectedReflection.CoreInfo(),
 		effectiveHTTPTransaction,
 	)
@@ -193,7 +177,7 @@ func (runner *XSSCheckRunner) findReflectionWithMatcher(
 	foundReflection := detector.FindMatchingReflection(
 		ReflectionLocationBody,
 		matcher,
-	) // Assuming context 2 (body)
+	)
 
 	return foundReflection
 }
@@ -237,10 +221,7 @@ func (runner *XSSCheckRunner) sendModifiedRequestAndAnalyze(
 		finalPayloadToSendBytes = runner.payloadModifier.Modify(payloadWithRandomSuffix)
 	}
 
-	// **** USER'S FUZZING LOGIC CALL ****
 	fuzzedRequestBytes := injectionPoint.BuildRequest(finalPayloadToSendBytes)
-
-	// **** END USER'S FUZZING LOGIC CALL ****
 
 	responseTransaction, err := utils.SendAndReceive(fuzzedRequestBytes, runner.httpService, runner.httpClient)
 	if err != nil {

@@ -1,30 +1,27 @@
 package utils
 
-// SearcherFactory is a factory for creating E0 searcher instances.
+// SearcherFactory is a factory for creating PatternSearcher instances.
 type SearcherFactory struct {
 }
 
-// --- E0 Implementations for Special Cases and Wrappers ---
+// --- PatternSearcher Implementations for Special Cases and Wrappers ---
 
-// e0ForNullPatternImpl implements E0 for when the search pattern is null.
-// Corresponds to lambda m1::lambda$create$0
-type e0ForNullPatternImpl struct{}
+// nullPatternSearcher implements PatternSearcher for when the search pattern is null.
+type nullPatternSearcher struct{}
 
-func (s *e0ForNullPatternImpl) IsE0() {}
-func (s *e0ForNullPatternImpl) A(haystack Pc, fromIndex int, toIndex int) int {
+func (s *nullPatternSearcher) IsPatternSearcher() {}
+func (s *nullPatternSearcher) Search(haystack SearchableData, fromIndex int, toIndex int) int {
 	return -1
 }
 
-// e0ForEmptyPatternImpl implements E0 for when the search pattern is empty.
-// Corresponds to lambda m1::lambda$create$1
-type e0ForEmptyPatternImpl struct{}
+// emptyPatternSearcher implements PatternSearcher for when the search pattern is empty.
+type emptyPatternSearcher struct{}
 
-func (s *e0ForEmptyPatternImpl) IsE0() {}
-func (s *e0ForEmptyPatternImpl) A(haystack Pc, fromIndex int, toIndex int) int {
-	// Java m1.lambda$create$1 returns `var1` (fromIndex).
-	// Since this E0 is returned directly without the SanitizingSearcherWrapper for empty patterns,
+func (s *emptyPatternSearcher) IsPatternSearcher() {}
+func (s *emptyPatternSearcher) Search(haystack SearchableData, fromIndex int, toIndex int) int {
+	// Since this PatternSearcher is returned directly without the SanitizingSearcherWrapper for empty patterns,
 	// it needs to perform its own sanitization of fromIndex to match expected indexOf behavior.
-	if haystack == nil || haystack.B() { // If haystack is null or effectively empty
+	if haystack == nil || haystack.IsEmpty() { // If haystack is null or effectively empty
 		// For an empty pattern in an empty/null haystack:
 		// If fromIndex is 0 (or less, which gets clamped to 0), result is 0.
 		// If fromIndex is > 0, it's past the end of an empty haystack, so effectively should be 0 (length of empty haystack).
@@ -34,7 +31,7 @@ func (s *e0ForEmptyPatternImpl) A(haystack Pc, fromIndex int, toIndex int) int {
 		// This means for nil/empty haystack, result is always 0 for empty pattern.
 		return 0
 	}
-	haystackLen := haystack.A()
+	haystackLen := haystack.Length()
 	if fromIndex < 0 {
 		return 0
 	}
@@ -44,34 +41,29 @@ func (s *e0ForEmptyPatternImpl) A(haystack Pc, fromIndex int, toIndex int) int {
 	return fromIndex
 }
 
-// sanitizeIndexInternal is a helper corresponding to m1.a(pc, int).
-// It's made unexported as it's internal to this package's logic.
-func sanitizeIndexInternal(haystack Pc, index int) int {
-	// This function assumes haystack is non-nil and not empty (via pc.B()) because the
+// sanitizeIndexInternal clamps a search index to valid bounds within the haystack.
+func sanitizeIndexInternal(haystack SearchableData, index int) int {
+	// This function assumes haystack is non-nil and not empty (via IsEmpty()) because the
 	// NullHaystackCheckingSearcherWrapper should be applied before the SanitizingSearcherWrapper.
 	if index < 0 {
 		return 0
 	}
-	// If haystack was indeed nil/empty and this was called, haystack.A() would be problematic.
+	// If haystack was indeed nil/empty and this was called, haystack.Length() would be problematic.
 	// The design implies wrappers handle these upstream.
-	return min(haystack.A(), index)
+	return min(haystack.Length(), index)
 }
 
-// SanitizingSearcherWrapperImpl wraps an E0 searcher to sanitize indices before calling.
-// Corresponds to the e0 wrapper created by m1.a(e0) using lambda$createSanitisingSearch$3.
+// SanitizingSearcherWrapperImpl wraps a PatternSearcher to sanitize indices before calling.
 type SanitizingSearcherWrapperImpl struct {
-	originalSearcher E0
+	originalSearcher PatternSearcher
 }
 
-func NewSanitizingSearcherWrapperImpl(original E0) E0 {
+func NewSanitizingSearcherWrapperImpl(original PatternSearcher) PatternSearcher {
 	return &SanitizingSearcherWrapperImpl{originalSearcher: original}
 }
-func (s *SanitizingSearcherWrapperImpl) IsE0() {}
-func (s *SanitizingSearcherWrapperImpl) A(haystack Pc, fromIndex int, toIndex int) int {
+func (s *SanitizingSearcherWrapperImpl) IsPatternSearcher() {}
+func (s *SanitizingSearcherWrapperImpl) Search(haystack SearchableData, fromIndex int, toIndex int) int {
 	// This wrapper assumes it might be called even if haystack is nil/empty,
-	// because the lambda$createSanitisingSearch$3 in Java is wrapped by lambda$createNullHaystackCheckingSearch$2.
-	// However, the lambda$createSanitisingSearch$3 *itself* calls `a(var1, var2)` which is `sanitizeIndexInternal`.
-	// `sanitizeIndexInternal` in Java was `Math.min(pc.A(), index)` which would NPE if pc is nil.
 	// This means `NullHaystackCheckingSearcherWrapperImpl` MUST be the outer wrapper.
 
 	// If this wrapper is called by NullHaystackCheckingSearcherWrapperImpl, haystack is guaranteed non-nil and not empty.
@@ -81,42 +73,40 @@ func (s *SanitizingSearcherWrapperImpl) A(haystack Pc, fromIndex int, toIndex in
 	if saneFrom > saneTo { // If sanitized range is invalid
 		return -1
 	}
-	return s.originalSearcher.A(haystack, saneFrom, saneTo)
+	return s.originalSearcher.Search(haystack, saneFrom, saneTo)
 }
 
-// NullHaystackCheckingSearcherWrapperImpl wraps an E0 searcher to check for null/empty haystack.
-// Corresponds to the e0 wrapper created by m1.b(e0) using lambda$createNullHaystackCheckingSearch$2.
+// NullHaystackCheckingSearcherWrapperImpl wraps a PatternSearcher to check for null/empty haystack.
 type NullHaystackCheckingSearcherWrapperImpl struct {
-	originalSearcher E0 // This would be the SanitizingSearcherWrapperImpl instance
+	originalSearcher PatternSearcher // This would be the SanitizingSearcherWrapperImpl instance
 }
 
-func NewNullHaystackCheckingSearcherWrapperImpl(original E0) E0 {
+func NewNullHaystackCheckingSearcherWrapperImpl(original PatternSearcher) PatternSearcher {
 	return &NullHaystackCheckingSearcherWrapperImpl{originalSearcher: original}
 }
-func (s *NullHaystackCheckingSearcherWrapperImpl) IsE0() {}
-func (s *NullHaystackCheckingSearcherWrapperImpl) A(haystack Pc, fromIndex int, toIndex int) int {
-	// Corresponds to lambda$createNullHaystackCheckingSearch$2
-	if haystack != nil && !haystack.B() { // If haystack is valid
-		return s.originalSearcher.A(haystack, fromIndex, toIndex) // Calls the (Sanitizing) wrapper
+func (s *NullHaystackCheckingSearcherWrapperImpl) IsPatternSearcher() {}
+func (s *NullHaystackCheckingSearcherWrapperImpl) Search(haystack SearchableData, fromIndex int, toIndex int) int {
+	if haystack != nil && !haystack.IsEmpty() { // If haystack is valid
+		return s.originalSearcher.Search(haystack, fromIndex, toIndex) // Calls the (Sanitizing) wrapper
 	}
 	return -1 // Haystack is null or empty
 }
 
-// NewM1 creates a new SearcherFactory instance.
-func NewM1() *SearcherFactory {
+// NewSearcherFactory creates a new SearcherFactory instance.
+func NewSearcherFactory() *SearcherFactory {
 	return &SearcherFactory{}
 }
 
-// CreateSearcher creates an E0 searcher instance based on the pattern and case sensitivity.
-func (m1Inst *SearcherFactory) CreateSearcher(pattern []byte, caseSensitive bool) E0 {
+// CreateSearcher creates a PatternSearcher instance based on the pattern and case sensitivity.
+func (m1Inst *SearcherFactory) CreateSearcher(pattern []byte, caseSensitive bool) PatternSearcher {
 	if pattern == nil {
-		return &e0ForNullPatternImpl{}
+		return &nullPatternSearcher{}
 	}
 	if len(pattern) == 0 {
-		return &e0ForEmptyPatternImpl{}
+		return &emptyPatternSearcher{}
 	}
 
-	coreSearcher := NewKwSearcher(pattern, caseSensitive)
+	coreSearcher := NewBoyerMooreSearcher(pattern, caseSensitive)
 	sanitizedCoreSearcher := NewSanitizingSearcherWrapperImpl(coreSearcher)
 	nullCheckedAndSanitizedSearcher := NewNullHaystackCheckingSearcherWrapperImpl(
 		sanitizedCoreSearcher,

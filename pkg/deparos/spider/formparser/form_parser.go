@@ -8,7 +8,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-// InputType mirrors the Java enum ad7 for form input types.
 type InputType byte
 
 const (

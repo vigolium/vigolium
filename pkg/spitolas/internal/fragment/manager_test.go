@@ -7,7 +7,6 @@ import (
 
 // =============================================================================
 // Manager Basic Tests
-// Mirrors: Crawljax's FragmentManager and state tracking
 // =============================================================================
 
 func TestNewManager(t *testing.T) {
@@ -348,7 +347,6 @@ func TestManagerClear(t *testing.T) {
 }
 
 // =============================================================================
-// Crawljax Parity: Influence Tests
 // =============================================================================
 
 func TestManagerUpdateInfluence(t *testing.T) {
@@ -426,7 +424,6 @@ func TestManagerPropagateInfluence(t *testing.T) {
 		t.Errorf("child influence = %f, want 0.0", childInf)
 	}
 
-	// CRAWLJAX PARITY: Java propagates SAME access type to parent chain.
 	// DIRECT access (-1.0) propagates to parent, so parent also gets -1.0
 	parentInf := m.GetFragmentInfluence("parent")
 	if parentInf != 0.0 {
@@ -463,7 +460,6 @@ func TestManagerCalculateCandidateInfluence(t *testing.T) {
 }
 
 // =============================================================================
-// Crawljax Parity: Fragment Relationship Tests
 // =============================================================================
 
 func TestManagerAreRelatedSameHash(t *testing.T) {

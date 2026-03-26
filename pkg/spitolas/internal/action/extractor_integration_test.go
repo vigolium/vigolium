@@ -14,8 +14,6 @@ import (
 )
 
 // =============================================================================
-// CRAWLJAX PARITY: CandidateElementExtractorTest.java
-// Integration tests with real browser matching Crawljax's element extraction tests
 // =============================================================================
 
 // setupTestServer creates a test server serving files from testdata directory.
@@ -44,7 +42,6 @@ func setupBrowser(t *testing.T, serverURL string) *browser.Browser {
 }
 
 // TestExtractClickableElements tests extraction of clickable elements.
-// Crawljax parity: CandidateElementExtractorTest.testExtract()
 func TestExtractClickableElements(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -102,7 +99,6 @@ func containsID(attrs, id string) bool {
 }
 
 // TestExtractWithEventHandlerDetection tests CDP-based event handler detection.
-// Crawljax parity: CandidateElementExtractorTest.testExtractClickables()
 func TestExtractWithEventHandlerDetection(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -150,7 +146,6 @@ func TestExtractWithEventHandlerDetection(t *testing.T) {
 }
 
 // TestExtractExcludesDownloadLinks tests that file download links are excluded.
-// Crawljax parity: CandidateElementExtractorTest (file download exclusion)
 func TestExtractExcludesDownloadLinks(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -227,7 +222,6 @@ func findByte(s string, b byte) int {
 }
 
 // TestExtractFromIframes tests extraction from nested iframes.
-// Crawljax parity: Frame extraction like Java Crawljax
 func TestExtractFromIframes(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -283,7 +277,6 @@ func TestExtractFromIframes(t *testing.T) {
 }
 
 // TestExtractWithExcludeSelectors tests element exclusion.
-// Crawljax parity: CandidateElementExtractor exclude patterns
 func TestExtractWithExcludeSelectors(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -320,7 +313,6 @@ func TestExtractWithExcludeSelectors(t *testing.T) {
 }
 
 // TestExtractSkipsMailtoAndTelLinks tests special link filtering.
-// CRAWLJAX PARITY: CandidateElementExtractor.hrefShouldBeIgnored() only skips:
 // - mailto: links
 // - Download files (pdf, ps, zip, mp3)
 // - External links (when followExternalLinks is false)
@@ -349,7 +341,6 @@ func TestExtractSkipsMailtoAndTelLinks(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	// CRAWLJAX PARITY: Only mailto: and tel: should be skipped
 	// javascript: and # links should NOT be skipped - they may have onclick handlers
 	for _, a := range actions {
 		href := a.Href
@@ -363,13 +354,10 @@ func TestExtractSkipsMailtoAndTelLinks(t *testing.T) {
 		if len(href) >= 4 && href[:4] == "tel:" {
 			t.Errorf("tel link should be skipped: %s", href)
 		}
-		// CRAWLJAX PARITY: Do NOT check javascript: or # - these are valid clickables!
-		// Reference: CandidateElementExtractor.java:312-314 hrefShouldBeIgnored()
 	}
 }
 
 // TestExtractDeduplicatesElements tests that duplicate elements are not extracted twice.
-// Crawljax parity: CandidateElementManager uses HashSet for deduplication
 func TestExtractDeduplicatesElements(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -413,7 +401,6 @@ func TestExtractDeduplicatesElements(t *testing.T) {
 }
 
 // TestExtractSetsActionProperties tests that extracted actions have correct properties.
-// Crawljax parity: CandidateElement properties like tag, text, href
 func TestExtractSetsActionProperties(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -451,7 +438,7 @@ func TestExtractSetsActionProperties(t *testing.T) {
 		t.Fatal("Expected to find #clickable action")
 	}
 
-	// Verify properties - Crawljax uses lowercase tag names
+	// Verify properties - tag names are lowercase
 	if strings.ToLower(clickableAction.TagName) != "div" {
 		t.Errorf("TagName = %q, want 'div'", clickableAction.TagName)
 	}
@@ -469,14 +456,12 @@ func TestExtractSetsActionProperties(t *testing.T) {
 }
 
 // TestExtractFormSubmitButtons tests extraction of form submit buttons.
-// Crawljax parity: Form handling - submit button detection
 // NOTE: ExtractForms is not implemented yet in Go version
 func TestExtractFormSubmitButtons(t *testing.T) {
-	t.Skip("ExtractForms not implemented - forms are handled by FormHandler in Crawljax")
+	t.Skip("ExtractForms not implemented - forms are handled by FormHandler")
 }
 
 // TestExtractAnchors tests extraction of anchor links.
-// Crawljax parity: Link extraction
 // NOTE: ExtractAnchors is not implemented - use Extract with "a" selector
 func TestExtractAnchors(t *testing.T) {
 	server := setupTestServer(t)
@@ -539,7 +524,6 @@ func TestExtractAnchors(t *testing.T) {
 }
 
 // TestExtractorWithRandomization tests element randomization.
-// Crawljax parity: Collections.shuffle() for element randomization
 func TestExtractorWithRandomization(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -595,7 +579,6 @@ func TestExtractorWithRandomization(t *testing.T) {
 }
 
 // TestClickableDetectionCDP tests CDP event listener detection.
-// Crawljax parity: ClickableDetectorPlugin using CDP
 func TestClickableDetectionCDP(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -702,7 +685,6 @@ func TestExtractWithDisabledCDP(t *testing.T) {
 // duplicate elements. Previously, the same element could be found via CSS selector
 // (e.g., "#clickable") AND via CDP XPath (e.g., "/html[1]/body[1]/div[1]"), causing
 // duplicates in the output.
-// CRAWLJAX PARITY: CDP detection should complement CSS selectors, not duplicate.
 func TestCDPDetectionNoDuplicates(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Close()
@@ -796,7 +778,6 @@ func TestCDPDetectionNoDuplicates(t *testing.T) {
 // TestCDPDetectionOnPopupPage tests CDP detection on the popup page used by crawler tests.
 // This is the same page that caused the TestPopups failure (got 4 edges, want 3) when
 // CDP was enabled by default, because it was finding elements via both CSS and XPath.
-// CRAWLJAX PARITY: popup/index.html test with anchor selectors
 func TestCDPDetectionOnPopupPage(t *testing.T) {
 	// Use the demo-site popup page from testdata/html/site/popup
 	server := httptest.NewServer(http.FileServer(http.Dir("../../testdata/html/site")))
@@ -819,8 +800,7 @@ func TestCDPDetectionOnPopupPage(t *testing.T) {
 		t.Fatalf("Failed to navigate: %v", err)
 	}
 
-	// Extract with "a" selector (matching Crawljax PopUpTest.java:25)
-	// CRAWLJAX PARITY: builder.crawlRules().click("a")
+	// Extract with "a" selector
 
 	// Without CDP
 	cfg1, _ := config.New(server.URL)

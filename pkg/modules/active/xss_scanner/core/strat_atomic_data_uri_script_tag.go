@@ -9,14 +9,13 @@ import (
 )
 
 // DataURIBase64ScriptStrategy implements the ContextualXSSTechnique interface.
-// Original Java class: e2b
 type DataURIBase64ScriptStrategy struct {
-	randomProvider     *utils.RandomGenerator // Corresponds to 'a' (ou) in Java
-	uriPrefix          string                 // Corresponds to 'b' (String) in Java
-	uriSchemeSeparator string                 // Corresponds to 'c' (String) in Java
+	randomProvider     *utils.RandomGenerator
+	uriPrefix          string
+	uriSchemeSeparator string
 }
 
-// NewDataURIBase64ScriptStrategy creates a new instance of E2b.
+// NewDataURIBase64ScriptStrategy creates a new instance.
 func NewDataURIBase64ScriptStrategy(
 	randomProvider *utils.RandomGenerator,
 	prefix string,
@@ -29,8 +28,6 @@ func NewDataURIBase64ScriptStrategy(
 	}
 }
 
-// GeneratePayload is the Go equivalent of the 'a' method from the ContextualXSSTechnique interface for class E2b.
-// Original Java method: public PreliminaryXSSFinding a(hgm var1, hnx var2, byte var3, byte var4, DetectedReflection var5, byte[] var6)
 func (receiver *DataURIBase64ScriptStrategy) GeneratePayload(
 	probeBuilder *ScanProbeBuilder,
 	profile *ScanExecutionProfile,
@@ -39,14 +36,9 @@ func (receiver *DataURIBase64ScriptStrategy) GeneratePayload(
 	reflection ReflectionOccurrenceDetail,
 	transaction *utils.HTTPTransaction,
 ) PotentialXSSFinding {
-	// int[] var7 = g4h.b(); // Static call, result not directly used in payload construction
 
-	// cgv var8 = fn0.a(); // Static call
 	defaultTechniqueClassifier := GetDefaultAttackTechniqueClassifier()
 
-	// String.format("<script>%s//%s</script>", var8, this.a.a(8))
-	// this.a.a(8) -> receiver.ValOuA.A(8)
-	// var8 (cgv type) -> cgvVar8.ToString() (assuming cgv has a suitable string method)
 	scriptTagPayload := fmt.Sprintf(
 		"<script>%s//%s</script>",
 		defaultTechniqueClassifier.String(),
@@ -56,7 +48,6 @@ func (receiver *DataURIBase64ScriptStrategy) GeneratePayload(
 	scriptTagBytes := utils.StringToBytes(scriptTagPayload)
 	base64EncodedScript := base64.StdEncoding.EncodeToString(scriptTagBytes)
 
-	// String.format("%sdata%s:text/html;base64,%s", this.b, this.c, base64Script)
 	formattedDataURIPayload := fmt.Sprintf(
 		"%sdata%s:text/html;base64,%s",
 		receiver.uriPrefix,
@@ -68,7 +59,6 @@ func (receiver *DataURIBase64ScriptStrategy) GeneratePayload(
 		zap.String("uriSchemeSeparator", receiver.uriSchemeSeparator),
 		zap.String("base64EncodedScript", base64EncodedScript))
 
-	// var1.a(4).a((byte)11, finalPayload, var2.f())
 	finding := probeBuilder.WithAdditionalScanFlags(4).
 		BuildFinding(byte(11), formattedDataURIPayload, profile.WithDetectorValidation())
 
