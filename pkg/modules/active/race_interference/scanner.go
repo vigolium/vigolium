@@ -16,7 +16,6 @@ import (
 )
 
 // Module detects race condition vulnerabilities through parallel request analysis.
-// Ported from Burp's Backslash Powered Scanner Interference.java.
 type Module struct {
 	modkit.BaseActiveModule
 	rhm     dedup.Lazy[dedup.RequestHashManager]

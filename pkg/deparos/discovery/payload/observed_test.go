@@ -41,8 +41,7 @@ func TestObservedProvider_Add(t *testing.T) {
 	})
 }
 
-// TestObservedProvider_Deduplication verifies Burp's deduplication behavior.
-// Burp Reference: _x.java:706 - if (!this.l.contains(var1))
+// TestObservedProvider_Deduplication verifies deduplication behavior.
 func TestObservedProvider_Deduplication(t *testing.T) {
 	t.Run("skip duplicate names", func(t *testing.T) {
 		provider := NewObservedProvider(true)
@@ -85,7 +84,6 @@ func TestObservedProvider_Deduplication(t *testing.T) {
 }
 
 // TestObservedProvider_Sorting verifies alphabetical sorting.
-// Burp Reference: _x.java:708 - this.l.sort(idt.a)
 func TestObservedProvider_Sorting(t *testing.T) {
 	t.Run("maintains alphabetical order", func(t *testing.T) {
 		provider := NewObservedProvider(true)
@@ -138,7 +136,6 @@ func TestObservedProvider_Sorting(t *testing.T) {
 }
 
 // TestObservedProvider_CaseNormalization verifies case handling.
-// Burp Reference: _x.java:701-703 - if (this.k()) { var1 = var1.toLowerCase(); }
 func TestObservedProvider_CaseNormalization(t *testing.T) {
 	t.Run("case sensitive preserves case", func(t *testing.T) {
 		provider := NewObservedProvider(true)
@@ -317,20 +314,18 @@ func TestObservedProvider_AddMultiple(t *testing.T) {
 	})
 }
 
-// TestObservedProvider_BurpParity verifies exact Burp behavior.
-func TestObservedProvider_BurpParity(t *testing.T) {
-	t.Run("matches burp deduplication", func(t *testing.T) {
-		// Burp: _x.java:706 - if (!this.l.contains(var1))
+// TestObservedProvider_Parity verifies expected behavior.
+func TestObservedProvider_Parity(t *testing.T) {
+	t.Run("matches deduplication", func(t *testing.T) {
 		provider := NewObservedProvider(true)
 
 		provider.Add([]byte("config"))
-		provider.Add([]byte("config")) // Burp would skip this
+		provider.Add([]byte("config")) // duplicate, skipped
 
 		assert.Equal(t, 1, provider.Count())
 	})
 
-	t.Run("matches burp sorting", func(t *testing.T) {
-		// Burp: _x.java:708 - this.l.sort(idt.a)
+	t.Run("matches sorting", func(t *testing.T) {
 		provider := NewObservedProvider(true)
 
 		provider.Add([]byte("z"))
@@ -342,9 +337,8 @@ func TestObservedProvider_BurpParity(t *testing.T) {
 		assert.Equal(t, "a", string(first), "First should be 'a' after sorting")
 	})
 
-	t.Run("matches burp case normalization", func(t *testing.T) {
-		// Burp: _x.java:701-703 - if (this.k()) { var1 = var1.toLowerCase(); }
-		provider := NewObservedProvider(false) // case-insensitive like Burp auto-detect
+	t.Run("matches case normalization", func(t *testing.T) {
+		provider := NewObservedProvider(false) // case-insensitive (auto-detect)
 
 		provider.Add([]byte("TEST"))
 

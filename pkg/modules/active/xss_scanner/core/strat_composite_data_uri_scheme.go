@@ -5,7 +5,7 @@ import "github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 // DataURISchemeCompositeStrategy implements the ContextualXSSTechnique interface.
 // Original Java class: eb (renamed to DataURISchemeCompositeStrategy for Go convention)
 type DataURISchemeCompositeStrategy struct {
-	randomProvider      *utils.RandomGenerator           // Corresponds to 'private final net.portswigger.ou c;'
+	randomProvider      *utils.RandomGenerator           // Corresponds to 'private final ou c;'
 	dataSchemeDirective SchemeDefinition                 // Corresponds to 'private final dir a;'
 	combinedStrategy    ContextualAttackPayloadGenerator // Corresponds to 'private final ContextualXSSTechnique b;'
 }
@@ -33,7 +33,7 @@ func (receiver *DataURISchemeCompositeStrategy) createDataURISubStrategy(
 }
 
 // NewDataURISchemeCompositeStrategy creates a new instance of Eb.
-// Original Java constructor: public eb(net.portswigger.ou var1, dir var2)
+// Original Java constructor: public eb(ou var1, dir var2)
 func NewDataURISchemeCompositeStrategy(
 	randomProvider *utils.RandomGenerator,
 	dataScheme SchemeDefinition,

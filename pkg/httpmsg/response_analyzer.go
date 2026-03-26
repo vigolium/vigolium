@@ -1,113 +1,62 @@
 package httpmsg
 
-// response_analyzer.go - HTTP response analysis ported from Burp Suite
-// Ported from:
-//   - burp/IResponseInfo.java (lines 5-17) - Response info interface
-//   - burp/by4.java (lines 6-60) - IResponseInfo implementation
-//   - burp/hkk.java (lines 6-70) - Response data structure
-//   - burp/dn.java (lines 8-109) - Response parsing logic
-//   - burp/fci.java (lines 15-280) - Cookie parsing
-//   - burp/def.java (lines 9-312) - MIME type definitions
-//   - burp/d4n.java (lines 204-215) - analyzeResponse entry point
+// response_analyzer.go - HTTP response analysis
 //
-// CRITICAL: Uses ONLY loop-based parsing (NO REGEX)
-// Follows Burp's char-by-char parsing patterns
+// Uses loop-based parsing (no regex) with char-by-char parsing patterns.
 
 import (
 	"time"
 )
 
 // ResponseInfo represents parsed HTTP response information.
-// Ported from: IResponseInfo interface (burp/IResponseInfo.java lines 5-17)
-//
-//	by4.java implementation (lines 6-60)
-//
-// Maps to 6 getter methods in IResponseInfo:
-//   - getStatusCode() -> StatusCode
-//   - getHeaders() -> Headers
-//   - getBodyOffset() -> BodyOffset
-//   - getStatedMimeType() -> StatedMimeType
-//   - getInferredMimeType() -> InferredMimeType
-//   - getCookies() -> Cookies
 type ResponseInfo struct {
-	// StatusCode is the HTTP status code (short in Java)
-	// Maps to IResponseInfo.getStatusCode() (IResponseInfo.java line 10)
-	// Stored in hkk.a field (hkk.java line 11)
+	// StatusCode is the HTTP status code
 	StatusCode int16
 
 	// Headers is the list of HTTP headers (including status line)
-	// Maps to IResponseInfo.getHeaders() (IResponseInfo.java line 6)
-	// Stored in hkk.l field (hkk.java line 8)
 	Headers []string
 
 	// BodyOffset is the byte offset where response body starts
-	// Maps to IResponseInfo.getBodyOffset() (IResponseInfo.java line 8)
-	// Stored in hkk.g field (hkk.java line 10)
 	BodyOffset int
 
 	// StatedMimeType is the MIME type from Content-Type header
-	// Maps to IResponseInfo.getStatedMimeType() (IResponseInfo.java line 14)
-	// Derived from hkk.c.e field (by4.java line 53)
 	StatedMimeType string
 
 	// InferredMimeType is the inferred MIME type from body content
-	// Maps to IResponseInfo.getInferredMimeType() (IResponseInfo.java line 16)
-	// Derived from hkk.c.g field (by4.java line 58)
 	InferredMimeType string
 
 	// Cookies is the list of parsed Set-Cookie headers
-	// Maps to IResponseInfo.getCookies() (IResponseInfo.java line 12)
-	// Stored in hkk.j field (hkk.java line 16)
 	Cookies []*Cookie
 }
 
 // Cookie represents an HTTP cookie from Set-Cookie header.
-// Ported from: burp/ICookie.java interface (lines 5-15)
-//
-//	burp/ap3.java implementation (cookie storage)
-//	burp/fu_.java (lines 5-40) - ICookie wrapper
-//
-// Maps to 5 getter methods in ICookie:
-//   - getName() -> Name
-//   - getValue() -> Value
-//   - getDomain() -> Domain
-//   - getPath() -> Path
-//   - getExpiration() -> Expiration
 type Cookie struct {
 	// Name is the cookie name
-	// Maps to ICookie.getName() (ICookie.java line 12)
 	Name string
 
 	// Value is the cookie value
-	// Maps to ICookie.getValue() (ICookie.java line 14)
 	Value string
 
 	// Domain is the domain attribute
-	// Maps to ICookie.getDomain() (ICookie.java line 6)
 	Domain string
 
 	// Path is the path attribute
-	// Maps to ICookie.getPath() (ICookie.java line 8)
 	Path string
 
 	// Expiration is the expires/max-age timestamp
-	// Maps to ICookie.getExpiration() (ICookie.java line 10)
 	// Returns nil if no expiration set
 	Expiration *time.Time
 }
 
 // AnalyzeResponse analyzes an HTTP response and extracts structured information.
-// Ported from: d4n.analyzeResponse(byte[] var1) (d4n.java lines 204-215)
 //
-//	dn.a(hik, bi9, h2, c5e) (dn.java lines 19-79)
-//
-// Algorithm (dn.java lines 19-79):
-//  1. Find body offset using FindBodyOffset (line 24, calls glo.b)
-//  2. Extract headers using ExtractAllHeaders (line 30, calls glo.a)
-//  3. Parse status line for status code (lines 48-54)
-//  4. Extract Content-Type for StatedMimeType (line 62, calls ea5.a)
-//  5. Infer MIME type from response body (line 62, ea5.a infers type)
-//  6. Parse all Set-Cookie headers into Cookie objects (line 72, calls fci.a)
+// Algorithm:
+//  1. Find body offset
+//  2. Extract headers
+//  3. Parse status line for status code
+//  4. Extract Content-Type for StatedMimeType
+//  5. Infer MIME type from response body
+//  6. Parse all Set-Cookie headers into Cookie objects
 //
 // Parameters:
 //   - response: Complete HTTP response bytes
@@ -130,52 +79,36 @@ func AnalyzeResponse(response []byte) (*ResponseInfo, error) {
 
 	info := &ResponseInfo{}
 
-	// Step 1: Find body offset (dn.java lines 24-27)
-	// Calls glo.b(var1, 0) which finds header/body separator
+	// Step 1: Find body offset (header/body separator)
 	bodyOffset := FindBodyOffset(response)
 	info.BodyOffset = bodyOffset
 
-	// Step 2: Extract headers (dn.java lines 29-31)
-	// Calls glo.a(var1, 0, var8, var9, var4, var6)
+	// Step 2: Extract headers
 	headers, _, _, _ := ExtractAllHeaders(response)
 	info.Headers = headers
 
-	// Step 3: Parse status code from status line (dn.java lines 48-54)
-	// Uses StringTokenizer to parse "HTTP/1.1 200 OK"
+	// Step 3: Parse status code from status line ("HTTP/1.1 200 OK")
 	if len(headers) > 0 {
 		info.StatusCode = parseStatusLine(headers[0])
 	}
 
 	// Step 4: Extract stated MIME type from Content-Type header
-	// (dn.java line 62, calls ea5.a which parses Content-Type)
-	// def.d(this.a.c.e) returns string from short type (by4.java line 53)
 	contentType := Header(headers, "Content-Type")
 	info.StatedMimeType = extractMimeType(contentType)
 
 	// Step 5: Infer MIME type from response body
-	// (dn.java line 62, ea5.a infers from body content)
-	// def.d(this.a.c.g) returns string from short type (by4.java line 58)
 	if bodyOffset < len(response) {
 		body := response[bodyOffset:]
 		info.InferredMimeType = inferMimeType(body)
 	}
 
-	// Step 6: Parse Set-Cookie headers (dn.java line 72)
-	// Calls fci.a(var13, var10, var9) to parse cookies
+	// Step 6: Parse Set-Cookie headers
 	info.Cookies = parseSetCookieHeaders(headers)
 
 	return info, nil
 }
 
 // parseStatusLine extracts HTTP status code from status line.
-// Ported from: dn.java lines 48-54
-//
-// Algorithm (dn.java lines 48-54):
-//  1. Use StringTokenizer on status line (line 48)
-//  2. First token is HTTP version (line 49)
-//  3. Second token is status code (line 50)
-//  4. Parse as Short (line 50: Short.parseShort)
-//  5. Handle exceptions (lines 55-57)
 //
 // Status line format: "HTTP/1.1 200 OK"
 // Uses loop-based parsing (NO REGEX)
@@ -197,19 +130,16 @@ func parseStatusLine(statusLine string) int16 {
 	}
 
 	// Parse tokens separated by spaces
-	// Equivalent to StringTokenizer in Java (dn.java line 48)
 	tokens := parseTokens(statusLine, ' ')
 
 	// Need at least 2 tokens: "HTTP/1.1" and "200"
-	// (dn.java lines 49-50)
 	if len(tokens) < 2 {
 		return 0
 	}
 
-	// Second token is status code (dn.java line 50)
+	// Second token is status code
 	statusCodeStr := tokens[1]
 
-	// Parse as short (dn.java line 50: Short.parseShort)
 	// Loop-based integer parsing (no strconv)
 	statusCode := parseShort(statusCodeStr)
 
@@ -217,14 +147,13 @@ func parseStatusLine(statusLine string) int16 {
 }
 
 // parseSetCookieHeaders parses all Set-Cookie headers into Cookie objects.
-// Ported from: fci.a(fs7, List<String>, List<Integer>) (fci.java lines 19-106)
 //
-// Algorithm (fci.java lines 19-106):
-//  1. Loop through all headers (line 27)
-//  2. Find Set-Cookie headers (line 30, case-insensitive check)
-//  3. Parse cookie name=value (lines 38-40, calls b())
-//  4. Parse cookie attributes: Domain, Path, Expires (lines 42-94)
-//  5. Create Cookie object for each Set-Cookie (line 96)
+// Algorithm:
+//  1. Loop through all headers
+//  2. Find Set-Cookie headers (case-insensitive check)
+//  3. Parse cookie name=value
+//  4. Parse cookie attributes: Domain, Path, Expires
+//  5. Create Cookie object for each Set-Cookie
 //
 // Parameters:
 //   - headers: List of HTTP headers
@@ -240,10 +169,9 @@ func parseStatusLine(statusLine string) int16 {
 func parseSetCookieHeaders(headers []string) []*Cookie {
 	var cookies []*Cookie
 
-	// Loop through headers looking for Set-Cookie (fci.java line 27)
+	// Loop through headers looking for Set-Cookie
 	for _, header := range headers {
-		// Check if this is a Set-Cookie header (fci.java line 30)
-		// Case-insensitive comparison: toLowerCase().startsWith("set-cookie:")
+		// Check if this is a Set-Cookie header (case-insensitive)
 		if len(header) >= 11 && startsWithCaseInsensitive(header, "set-cookie:") {
 			// Parse this Set-Cookie header
 			cookie := parseSetCookie(header)
@@ -257,16 +185,13 @@ func parseSetCookieHeaders(headers []string) []*Cookie {
 }
 
 // parseSetCookie parses a single Set-Cookie header value into a Cookie object.
-// Ported from: fci.java lines 38-96 (parsing logic within loop)
 //
-//	fci.b(String) (lines 141-163) - extract name/value
-//
-// Algorithm (fci.java lines 38-96):
-//  1. Extract cookie name=value before first semicolon (lines 38-40, calls b())
-//  2. Loop through attributes after semicolons (lines 42-94)
-//  3. Parse Domain attribute (lines 66-90)
-//  4. Parse Expires attribute (lines 91-93, calls a(String))
-//  5. Parse Path attribute (implicit in attribute parsing)
+// Algorithm:
+//  1. Extract cookie name=value before first semicolon
+//  2. Loop through attributes after semicolons
+//  3. Parse Domain attribute
+//  4. Parse Expires attribute
+//  5. Parse Path attribute
 //
 // Set-Cookie format: "name=value; Domain=.example.com; Path=/; Expires=..."
 // Uses loop-based parsing (NO REGEX)
@@ -290,8 +215,6 @@ func parseSetCookie(setCookieValue string) *Cookie {
 	value := setCookieValue[11:]
 
 	// Extract cookie name=value before first semicolon
-	// (fci.java lines 38-40, calls b(var6))
-	// b() is defined at lines 141-163
 	name, cookieValue, remaining := extractCookieNameValue(value)
 	if name == "" {
 		return nil
@@ -302,7 +225,7 @@ func parseSetCookie(setCookieValue string) *Cookie {
 		Value: cookieValue,
 	}
 
-	// Parse attributes after semicolons (fci.java lines 42-94)
+	// Parse attributes after semicolons
 	parsePosition := 0
 	for parsePosition < len(remaining) {
 		// Find next attribute (between semicolons)
@@ -343,11 +266,11 @@ func parseSetCookie(setCookieValue string) *Cookie {
 			attrValue = TrimSpace(remaining[attrValueStart:attrValueEnd])
 		}
 
-		// Parse specific attributes (fci.java lines 66-93)
+		// Parse specific attributes
 
-		// Domain attribute (fci.java lines 66-90)
+		// Domain attribute
 		if EqualsCaseInsensitive(attrName, "domain") {
-			// Remove leading dots and wildcards (fci.java lines 79-82)
+			// Remove leading dots and wildcards
 			domain := attrValue
 			for len(domain) > 0 && (domain[0] == '.' || domain[0] == '*') {
 				domain = domain[1:]
@@ -355,12 +278,12 @@ func parseSetCookie(setCookieValue string) *Cookie {
 			cookie.Domain = domain
 		}
 
-		// Path attribute (implicit in fci.java attribute parsing)
+		// Path attribute
 		if EqualsCaseInsensitive(attrName, "path") {
 			cookie.Path = attrValue
 		}
 
-		// Expires attribute (fci.java lines 91-93)
+		// Expires attribute
 		if EqualsCaseInsensitive(attrName, "expires") {
 			expiration := parseExpirationDate(attrValue)
 			cookie.Expiration = expiration
@@ -386,15 +309,12 @@ func parseSetCookie(setCookieValue string) *Cookie {
 }
 
 // extractCookieNameValue extracts cookie name and value from Set-Cookie header.
-// Ported from: fci.b(String var0) (fci.java lines 141-163)
 //
-// Algorithm (fci.java lines 141-163):
-//  1. Find first semicolon (line 142)
-//  2. Extract substring before semicolon (line 144)
-//  3. Find equals sign (line 151)
-//  4. Extract name (substring 11 to equals) (line 160)
-//  5. Extract value (substring after equals) (line 161)
-//  6. Return e8t object with name, value, offsets (line 162)
+// Algorithm:
+//  1. Find first semicolon
+//  2. Extract substring before semicolon
+//  3. Find equals sign
+//  4. Extract name and value
 //
 // Parameters:
 //   - value: Set-Cookie value after "Set-Cookie:" prefix
@@ -409,29 +329,29 @@ func parseSetCookie(setCookieValue string) *Cookie {
 //	name, value, remaining := extractCookieNameValue(" id=123; Domain=.example.com")
 //	// name = "id", value = "123", remaining = "; Domain=.example.com"
 func extractCookieNameValue(value string) (name, cookieValue, remaining string) {
-	// Find first semicolon (fci.java line 142)
+	// Find first semicolon
 	semiIdx := FindCharIndex(value, SEMI)
 
 	nameValuePart := value
 	remaining = ""
 
 	if semiIdx != -1 {
-		// Extract part before semicolon (fci.java line 144)
+		// Extract part before semicolon
 		nameValuePart = value[0:semiIdx]
 		remaining = value[semiIdx:]
 	}
 
-	// Find equals sign (fci.java line 151)
+	// Find equals sign
 	equalsIdx := FindCharIndex(nameValuePart, EQ)
 
 	if equalsIdx == -1 {
-		// No equals sign, treat entire part as name (fci.java lines 154-157)
+		// No equals sign, treat entire part as name
 		name = TrimSpace(nameValuePart)
 		cookieValue = ""
 		return
 	}
 
-	// Extract name and value (fci.java lines 160-161)
+	// Extract name and value
 	name = TrimSpace(nameValuePart[0:equalsIdx])
 	cookieValue = TrimSpace(nameValuePart[equalsIdx+1:])
 
@@ -439,15 +359,13 @@ func extractCookieNameValue(value string) (name, cookieValue, remaining string) 
 }
 
 // parseExpirationDate parses cookie expiration date string.
-// Ported from: fci.a(String var0) (fci.java lines 108-121)
 //
-// Algorithm (fci.java lines 108-121):
-//  1. Try multiple date formats (line 110, iterates over c[] array)
-//  2. Use SimpleDateFormat.parse for each format (line 112)
-//  3. Return first successful parse (line 113)
-//  4. Return nil if all formats fail (line 120)
+// Algorithm:
+//  1. Try multiple date formats
+//  2. Return first successful parse
+//  3. Return nil if all formats fail
 //
-// Supported formats (fci.java line 16):
+// Supported formats:
 //   - "EEE, d-MMM-yyyy HH:mm:ss Z"  (e.g., "Mon, 01-Jan-2024 00:00:00 GMT")
 //   - "EEE, d MMM yyyy HH:mm:ss Z"  (e.g., "Mon, 01 Jan 2024 00:00:00 GMT")
 //
@@ -466,8 +384,7 @@ func parseExpirationDate(dateStr string) *time.Time {
 		return nil
 	}
 
-	// Try common cookie date formats (fci.java lines 110-117)
-	// Formats from fci.java line 16
+	// Try common cookie date formats
 	formats := []string{
 		"Mon, 02-Jan-2006 15:04:05 MST",
 		"Mon, 02 Jan 2006 15:04:05 MST",
@@ -480,8 +397,7 @@ func parseExpirationDate(dateStr string) *time.Time {
 	for _, format := range formats {
 		t, err := time.Parse(format, dateStr)
 		if err == nil {
-			// Adjust 2-digit years (fci.java lines 123-138)
-			// If year < 100, adjust to 1900s or 2000s
+			// Adjust 2-digit years to 1900s or 2000s
 			year := t.Year()
 			if year < 100 {
 				if year < 70 {
@@ -494,14 +410,11 @@ func parseExpirationDate(dateStr string) *time.Time {
 		}
 	}
 
-	// All formats failed (fci.java line 120)
+	// All formats failed
 	return nil
 }
 
 // inferMimeType infers MIME type from response body content.
-// Ported from: ea5.a (MIME type inference logic)
-//
-//	def.d(short) (def.java lines 190-242) - Convert type to string
 //
 // Algorithm:
 //  1. Check first few bytes for common patterns
@@ -510,13 +423,7 @@ func parseExpirationDate(dateStr string) *time.Time {
 //  4. XML: Check for <?xml or < prefix
 //  5. Return corresponding MIME type string
 //
-// MIME type constants (def.java lines 136-242):
-//   - 256 = "HTML"
-//   - 260 = "JSON"
-//   - 262 = "XML"
-//   - 257 = "text"
-//
-// Uses loop-based pattern matching (NO REGEX)
+// Uses loop-based pattern matching (no regex).
 //
 // Parameters:
 //   - body: Response body bytes
@@ -544,7 +451,6 @@ func inferMimeType(body []byte) string {
 	}
 
 	// Check for HTML patterns
-	// def.java line 199: case 256 returns "HTML"
 	if hasPrefix(body[start:], []byte("<html")) ||
 		hasPrefix(body[start:], []byte("<HTML")) ||
 		hasPrefix(body[start:], []byte("<!DOCTYPE")) ||
@@ -557,13 +463,11 @@ func inferMimeType(body []byte) string {
 	}
 
 	// Check for JSON patterns
-	// def.java line 207: case 260 returns "JSON"
 	if body[start] == '{' || body[start] == '[' {
 		return "JSON"
 	}
 
 	// Check for XML patterns
-	// def.java line 212: case 262 returns "XML"
 	if hasPrefix(body[start:], []byte("<?xml")) ||
 		hasPrefix(body[start:], []byte("<?XML")) {
 		return "XML"
@@ -574,7 +478,7 @@ func inferMimeType(body []byte) string {
 		return "XML"
 	}
 
-	// Default to empty (def.java line 193: case 0 returns "")
+	// Default to empty
 	return ""
 }
 
@@ -611,8 +515,7 @@ func extractMimeType(contentType string) string {
 // Helper functions
 
 // parseTokens splits string by delimiter into tokens.
-// Equivalent to Java's StringTokenizer (used in dn.java line 48).
-// Loop-based implementation (NO strings.Split).
+// Loop-based implementation (no strings.Split).
 //
 // Parameters:
 //   - s: String to tokenize
@@ -783,7 +686,6 @@ func isWhitespaceByte(b byte) bool {
 // ==================== RESPONSE/REQUEST DETECTION ====================
 
 // IsResponse checks if message is an HTTP response (starts with "HTTP/").
-// Ported from: Utilities.java isResponse() (lines 976-979)
 //
 // Algorithm:
 //  1. Check if message starts with "HTTP/" (case-insensitive)
@@ -833,7 +735,6 @@ func IsRequest(message []byte) bool {
 }
 
 // GetStatusCode extracts status code from response (shortcut for AnalyzeResponse).
-// Ported from: Utilities.java getCode() (lines 813-833)
 //
 // Algorithm:
 //  1. Find first space (after HTTP version)
@@ -890,7 +791,6 @@ func GetStatusCode(response []byte) int16 {
 }
 
 // GetStartType detects content type from response body start.
-// Ported from: Utilities.java getStartType() (lines 768-786)
 //
 // Algorithm:
 //  1. Find body offset
@@ -985,7 +885,6 @@ func GetStartType(response []byte) string {
 }
 
 // GetNestedResponse extracts nested HTTP response from body.
-// Ported from: Utilities.java getNestedResponse() (lines 1137-1144)
 // Useful for HTTP request smuggling detection.
 //
 // Algorithm:

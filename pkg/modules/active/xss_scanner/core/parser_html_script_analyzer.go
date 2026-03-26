@@ -535,11 +535,11 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeJavaScriptContent(
 		}
 
 		// byte[] var10000 = var2; byte[] var10001 = var3; int var10002 = var8; int var10003 = var7 (updated);
-		// if (net.portswigger.ls.b(var2, var3, segmentStart, idx_after_token_marker_detection) != -1) {
+		// Check if canary is in the segment that just got classified
 		// ls.b is indexOf. So, check if canary is in the segment that just got classified (e.g. the '//' itself, or the quote char)
 		// OR if tokenType is 2 (code), it checks in that code segment.
 		// The Java code performs a single check here on the segment [segmentStart, idx_after_token_marker_detection).
-		if utils.NetPortswiggerLsBIndexOfRangeCS(
+		if utils.IndexOfRangeCS(
 			jsContent,
 			canaryToFind,
 			tokenStartIndex,
@@ -619,9 +619,9 @@ func (analyzer *HTMLScriptReflectionAnalyzer) findCanaryInJSSegment(
 	if segmentType == 2 {
 		return nil
 	}
-	// if (net.portswigger.ls.b(var2, var3, var4, var5) != -1)
+	// Check if canary exists in the segment
 	if segmentStartIndex < segmentEndIndex &&
-		utils.NetPortswiggerLsBIndexOfRangeCS(
+		utils.IndexOfRangeCS(
 			jsSegment,
 			canaryToFind,
 			segmentStartIndex,
@@ -631,7 +631,7 @@ func (analyzer *HTMLScriptReflectionAnalyzer) findCanaryInJSSegment(
 		// log.Debugf("contentStartOffset: %d", contentStartOffset)
 		// log.Debugf("contentEndOffset: %d", contentEndOffset)
 		// log.Debugf("tokenType: %d", tokenType)
-		// String var7 = net.portswigger.h9.a(var2, var4, var5 - var4);
+		// Original content string where canary was found
 		// Original content string where canary was found
 		jsSegmentString := utils.BytesToStringInRange(
 			jsSegment,
@@ -683,10 +683,7 @@ func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInAttributeValue(
 	canary string,
 	attr *htmlparser.HTMLAttribute,
 ) string {
-	// return var2.cY().replace(var1, net.portswigger.h9.a(this.e));
-	// var2.cY() is attribute.Value
-	// var1 is canaryString
-	// net.portswigger.h9.a(this.e) is string representation of bca.canaryTokenBytes
+	// Replace canary in attribute value with analyzer's canary bytes
 	analyzerCanaryString := utils.BytesToString(analyzer.searchCanaryBytes)
 	return strings.ReplaceAll(attr.Value, canary, analyzerCanaryString)
 }
@@ -696,9 +693,7 @@ func (analyzer *HTMLScriptReflectionAnalyzer) replaceCanaryInJSStringValue(
 	canaryToReplace []byte,
 	jsStringValue string,
 ) string {
-	// return var2.replace(net.portswigger.h9.a(var1), net.portswigger.h9.a(this.e));
-	// net.portswigger.h9.a(var1) is string from canaryToken
-	// net.portswigger.h9.a(this.e) is string from bca.canaryTokenBytes
+	// Replace canary in JS string value with analyzer's canary bytes
 	stringToReplace := utils.BytesToString(canaryToReplace)
 	analyzerCanaryString := utils.BytesToString(analyzer.searchCanaryBytes)
 	return strings.ReplaceAll(jsStringValue, stringToReplace, analyzerCanaryString)

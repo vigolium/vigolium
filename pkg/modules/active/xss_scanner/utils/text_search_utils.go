@@ -2,13 +2,10 @@ package utils
 
 // --- Basic Utility Methods ---
 
-// NetPortswiggerLsDBytesEquals checks if two byte slices are equal.
-// Corresponds to public static boolean d(byte[] var0, byte[] var1)
-func NetPortswiggerLsDBytesEquals(arr1 []byte, arr2 []byte) bool {
+// BytesEqual checks if two byte slices are equal.
+func BytesEqual(arr1 []byte, arr2 []byte) bool {
 	if arr1 == nil && arr2 == nil {
-		return true // Consistent with some interpretations, though Java `==` on arrays is reference
-		// However, the internal logic of Java d implies content check if not null.
-		// If both are nil, they could be considered "equal" in terms of content (no content).
+		return true
 	}
 	if arr1 == nil || arr2 == nil {
 		return false // If one is nil and the other isn't, they are not equal.
@@ -24,9 +21,8 @@ func NetPortswiggerLsDBytesEquals(arr1 []byte, arr2 []byte) bool {
 	return true
 }
 
-// NetPortswiggerLsARegionMatches checks if two byte slice regions are equal.
-// Corresponds to public static boolean a(byte[] var0, int var1, int var2, byte[] var3, int var4, int var5)
-func NetPortswiggerLsARegionMatches(
+// RegionMatches checks if two byte slice regions are equal.
+func RegionMatches(
 	haystack []byte,
 	offset1 int,
 	end1 int,
@@ -60,24 +56,16 @@ func NetPortswiggerLsARegionMatches(
 	return true
 }
 
-// NetPortswiggerLsBFirstDifferenceOffset finds the first offset where two byte slices differ.
+// FirstDifferenceOffset finds the first offset where two byte slices differ.
 // Returns -1 if they are identical up to the length of the shorter slice, or if one/both are nil.
 // If lengths differ but content matches up to shorter, it indicates difference at that length.
-// Corresponds to public static int b(byte[] var0, byte[] var1)
-func NetPortswiggerLsBFirstDifferenceOffset(arr1 []byte, arr2 []byte) int {
+func FirstDifferenceOffset(arr1 []byte, arr2 []byte) int {
 	if arr1 == nil || arr2 == nil {
-		// Java version might throw NPE if not careful. Behavior for nil inputs needs to be defined.
-		// The Java code snippet for this specific method isn't fully shown, but usually, direct access would NPE.
-		// For robustness, let's return -1 or an error. Given it returns int, -1 is plausible for no common prefix/error.
-		// However, the more detailed b(byte[], int, int, byte[], int, int) returns int[] {offset1, offset2}
-		// Let's assume the simple version returns the first differing index or length if one is prefix of other.
-		// If we follow the more detailed b, it returns the differing indices.
-		// For a single int return, it likely means the first index in arr1 that differs.
-		diffs := NetPortswiggerLsBFirstDifferenceOffsets(arr1, 0, len(arr1), arr2, 0, len(arr2))
-		if diffs == nil { // Identical
-			return -1 // Or some indicator they are identical, Java might return a specific value or use length.
+		diffs := FirstDifferenceOffsets(arr1, 0, len(arr1), arr2, 0, len(arr2))
+		if diffs == nil {
+			return -1
 		}
-		return diffs[0] // Return differing index in the first array
+		return diffs[0]
 	}
 	minLen := len(arr1)
 	if len(arr2) < minLen {
@@ -94,10 +82,9 @@ func NetPortswiggerLsBFirstDifferenceOffset(arr1 []byte, arr2 []byte) int {
 	return -1 // Identical
 }
 
-// NetPortswiggerLsBFirstDifferenceOffsets finds the first pair of differing offsets.
+// FirstDifferenceOffsets finds the first pair of differing offsets.
 // Returns nil if identical, or []int{offset1, offset2} of the differing characters.
-// Corresponds to public static int[] b(byte[] var0, int var1, int var2, byte[] var3, int var4, int var5)
-func NetPortswiggerLsBFirstDifferenceOffsets(
+func FirstDifferenceOffsets(
 	arr1 []byte,
 	offset1 int,
 	end1 int,
@@ -149,9 +136,8 @@ func NetPortswiggerLsBFirstDifferenceOffsets(
 	return nil // Identical within the specified ranges
 }
 
-// NetPortswiggerLsACommonSuffixLength calculates the length of the common suffix of two byte arrays.
-// Corresponds to public static int a(byte[] var0, byte[] var1)
-func NetPortswiggerLsACommonSuffixLength(arr1 []byte, arr2 []byte) int {
+// CommonSuffixLength calculates the length of the common suffix of two byte arrays.
+func CommonSuffixLength(arr1 []byte, arr2 []byte) int {
 	if arr1 == nil || arr2 == nil {
 		return 0
 	}
@@ -176,21 +162,18 @@ func NetPortswiggerLsACommonSuffixLength(arr1 []byte, arr2 []byte) int {
 	return commonLen
 }
 
-// NetPortswiggerLsAToLowerByte converts an ASCII byte to lowercase.
-// Corresponds to public static byte a(byte var0)
-func NetPortswiggerLsAToLowerByte(b byte) byte {
+// ToLowerByte converts an ASCII byte to lowercase.
+func ToLowerByte(b byte) byte {
 	if b >= 'A' && b <= 'Z' {
 		return b + ('a' - 'A') // More robust than fixed offset 32
 	}
 	return b
 }
 
-// NetPortswiggerLsAIsPrintableAscii checks if all bytes in the slice are printable ASCII (>=32 and <127) or LF, CR, TAB.
-// Corresponds to public static boolean a(byte[] var0)
-func NetPortswiggerLsAIsPrintableAscii(data []byte) bool {
+// IsPrintableASCII checks if all bytes in the slice are printable ASCII (>=32 and <127) or LF, CR, TAB.
+func IsPrintableASCII(data []byte) bool {
 	if data == nil {
-		return true // Or false, depending on how nil is interpreted in Java context. Java might NPE.
-		// Assuming true for empty/nil content not being "non-printable".
+		return true
 	}
 	for _, b := range data {
 		isPrintable := (b >= 32 && b < 127) || b == 10 /*LF*/ || b == 13 /*CR*/ || b == 9 /*TAB*/
@@ -203,12 +186,12 @@ func NetPortswiggerLsAIsPrintableAscii(data []byte) bool {
 
 // --- Placeholder for Search-related Interfaces and Structs (to be defined later) ---
 
-// Pc (Portswigger Comparable?) interface, wrapper for haystack in searches
+// Pc interface wraps a haystack for use in search algorithms.
 type Pc interface {
 	IsPc()         // Marker method
-	B() bool       // Corresponds to b() in Java pc (e.g. g3.a == null)
-	A() int        // Corresponds to a() in Java pc (e.g. g3.a.length)
-	AAt(i int) int // Corresponds to a(int) in Java pc (e.g. g3.a[var1] & 0xFF)
+	B() bool       // Returns true if data is nil/empty
+	A() int        // Returns the length of the data
+	AAt(i int) int // Returns the unsigned byte value at index i
 }
 
 // G3 struct implements Pc, wraps a byte slice
@@ -219,31 +202,29 @@ type G3 struct {
 func NewG3(data []byte) *G3 {
 	return &G3{data: data}
 }
-func (g *G3) IsPc()           {}                                 // Marker
-func (g *G3) B() bool         { return g.data == nil }           // Java: this.a == null
-func (g *G3) A() int          { return len(g.data) }             // Java: this.a.length
-func (g *G3) AAt(idx int) int { return int(g.data[idx] & 0xFF) } // Java: this.a[var1] & 0xFF
+func (g *G3) IsPc()           {}
+func (g *G3) B() bool         { return g.data == nil }
+func (g *G3) A() int          { return len(g.data) }
+func (g *G3) AAt(idx int) int { return int(g.data[idx] & 0xFF) }
 
-// E0 (Executor? Engine?) interface for search algorithms
+// E0 interface for search algorithms.
 type E0 interface {
 	IsE0()                                         // Marker method
-	A(haystack Pc, fromIndex int, toIndex int) int // Corresponds to a(pc, int, int)
+	A(haystack Pc, fromIndex int, toIndex int) int // Search and return index of match, or -1
 }
 
 // --- HashCode Methods ---
 
-// NetPortswiggerLsAHashCode computes a hash code for a byte slice.
-// Corresponds to public static int a(byte[] var0, boolean var1)
-func NetPortswiggerLsAHashCode(data []byte, caseSensitive bool) int {
+// ByteHashCode computes a hash code for a byte slice.
+func ByteHashCode(data []byte, caseSensitive bool) int {
 	if data == nil {
 		return -1 // Java might NPE. Returning -1 for nil data based on original plan.
 	}
-	return NetPortswiggerLsAHashCodeRange(data, 0, len(data), caseSensitive, 0)
+	return ByteHashCodeRange(data, 0, len(data), caseSensitive, 0)
 }
 
-// NetPortswiggerLsAHashCodeRange computes a hash code for a range within a byte slice.
-// Corresponds to public static int a(byte[] var0, int var1, int var2, boolean var3, int var4)
-func NetPortswiggerLsAHashCodeRange(
+// ByteHashCodeRange computes a hash code for a range within a byte slice.
+func ByteHashCodeRange(
 	data []byte,
 	offset int,
 	end int,
@@ -270,7 +251,7 @@ func NetPortswiggerLsAHashCodeRange(
 	for i := actualOffset; i < actualEnd; i++ {
 		b := data[i]
 		if !caseSensitive {
-			b = NetPortswiggerLsAToLowerByte(b) // Uses the existing toLowerByte helper
+			b = ToLowerByte(b) // Uses the existing toLowerByte helper
 		}
 		hash = 31*hash + int(b) // Classic hash algorithm component
 	}
@@ -279,9 +260,8 @@ func NetPortswiggerLsAHashCodeRange(
 
 // --- Compare Method ---
 
-// NetPortswiggerLsACompare compares two byte slices lexicographically.
-// Corresponds to public static int a(byte[] var0, byte[] var1, boolean var2)
-func NetPortswiggerLsACompare(arr1 []byte, arr2 []byte, caseSensitive bool) int {
+// CompareBytes compares two byte slices lexicographically.
+func CompareBytes(arr1 []byte, arr2 []byte, caseSensitive bool) int {
 	if arr1 == nil && arr2 == nil {
 		return 0
 	}
@@ -300,8 +280,8 @@ func NetPortswiggerLsACompare(arr1 []byte, arr2 []byte, caseSensitive bool) int 
 		b1 := arr1[i]
 		b2 := arr2[i]
 		if !caseSensitive {
-			b1 = NetPortswiggerLsAToLowerByte(b1)
-			b2 = NetPortswiggerLsAToLowerByte(b2)
+			b1 = ToLowerByte(b1)
+			b2 = ToLowerByte(b2)
 		}
 		if b1 < b2 {
 			return -1
@@ -322,9 +302,8 @@ func NetPortswiggerLsACompare(arr1 []byte, arr2 []byte, caseSensitive bool) int 
 
 // --- indexOf and lastIndexOf Methods (Byte) ---
 
-// NetPortswiggerLsAIndexOfByte finds the first index of a byte in a slice.
-// Corresponds to public static int a(byte[] var0, byte var1, boolean var2, int var3, int var4)
-func NetPortswiggerLsAIndexOfByte(
+// IndexOfByte finds the first index of a byte in a slice.
+func IndexOfByte(
 	data []byte,
 	b byte,
 	caseSensitive bool,
@@ -347,13 +326,13 @@ func NetPortswiggerLsAIndexOfByte(
 
 	searchByte := b
 	if !caseSensitive {
-		searchByte = NetPortswiggerLsAToLowerByte(b)
+		searchByte = ToLowerByte(b)
 	}
 
 	for i := actualFromIndex; i < actualToIndex; i++ {
 		haystackByte := data[i]
 		if !caseSensitive {
-			haystackByte = NetPortswiggerLsAToLowerByte(haystackByte)
+			haystackByte = ToLowerByte(haystackByte)
 		}
 		if haystackByte == searchByte {
 			return i
@@ -362,9 +341,8 @@ func NetPortswiggerLsAIndexOfByte(
 	return -1
 }
 
-// NetPortswiggerLsBIndexOfByteCS finds the first index of a byte (case-sensitive).
-// Corresponds to public static int b(byte[] var0, byte var1, int var2, int var3)
-func NetPortswiggerLsBIndexOfByteCS(data []byte, b byte, fromIndex int, toIndex int) int {
+// IndexOfByteCS finds the first index of a byte (case-sensitive).
+func IndexOfByteCS(data []byte, b byte, fromIndex int, toIndex int) int {
 	if data == nil {
 		return -1
 	}
@@ -387,9 +365,8 @@ func NetPortswiggerLsBIndexOfByteCS(data []byte, b byte, fromIndex int, toIndex 
 	return -1
 }
 
-// NetPortswiggerLsALastIndexOfByteCS finds the last index of a byte (case-sensitive).
-// Corresponds to public static int a(byte[] var0, byte var1, int var2, int var3) [this signature was for lastIndexOf in Java]
-func NetPortswiggerLsALastIndexOfByteCS(data []byte, b byte, fromIndex int, toIndex int) int {
+// LastIndexOfByteCS finds the last index of a byte (case-sensitive).
+func LastIndexOfByteCS(data []byte, b byte, fromIndex int, toIndex int) int {
 	if data == nil {
 		return -1
 	}
@@ -416,27 +393,24 @@ func NetPortswiggerLsALastIndexOfByteCS(data []byte, b byte, fromIndex int, toIn
 
 // --- indexOf Methods (Sub-array) ---
 
-// NetPortswiggerLsCIndexOfCS is a case-sensitive indexOf.
-// Corresponds to public static int c(byte[] var0, byte[] var1)
-func NetPortswiggerLsCIndexOfCS(haystack []byte, needle []byte) int {
+// IndexOfCS is a case-sensitive indexOf.
+func IndexOfCS(haystack []byte, needle []byte) int {
 	if haystack == nil {
 		return -1
 	} // Explicit nil check for haystack before length call
-	return NetPortswiggerLsAIndexOf(haystack, needle, true, 0, len(haystack))
+	return IndexOfPattern(haystack, needle, true, 0, len(haystack))
 }
 
-// NetPortswiggerLsBIndexOf is an indexOf with case sensitivity option.
-// Corresponds to public static int b(byte[] var0, byte[] var1, boolean var2)
-func NetPortswiggerLsBIndexOf(haystack []byte, needle []byte, caseSensitive bool) int {
+// IndexOfBytes is an indexOf with case sensitivity option.
+func IndexOfBytes(haystack []byte, needle []byte, caseSensitive bool) int {
 	if haystack == nil {
 		return -1
 	}
-	return NetPortswiggerLsAIndexOf(haystack, needle, caseSensitive, 0, len(haystack))
+	return IndexOfPattern(haystack, needle, caseSensitive, 0, len(haystack))
 }
 
-// NetPortswiggerLsBIndexOfFrom is an indexOf with case sensitivity and fromIndex.
-// Corresponds to public static int b(byte[] var0, byte[] var1, boolean var2, int var3)
-func NetPortswiggerLsBIndexOfFrom(
+// IndexOfBytesFrom is an indexOf with case sensitivity and fromIndex.
+func IndexOfBytesFrom(
 	haystack []byte,
 	needle []byte,
 	caseSensitive bool,
@@ -445,46 +419,35 @@ func NetPortswiggerLsBIndexOfFrom(
 	if haystack == nil {
 		return -1
 	}
-	return NetPortswiggerLsAIndexOf(haystack, needle, caseSensitive, fromIndex, len(haystack))
+	return IndexOfPattern(haystack, needle, caseSensitive, fromIndex, len(haystack))
 }
 
-// NetPortswiggerLsBIndexOfRangeCS is a case-sensitive indexOf within a range.
-// Corresponds to public static int b(byte[] var0, byte[] var1, int var2, int var3)
-func NetPortswiggerLsBIndexOfRangeCS(
+// IndexOfRangeCS is a case-sensitive indexOf within a range.
+func IndexOfRangeCS(
 	haystack []byte,
 	needle []byte,
 	fromIndex int,
 	toIndex int,
 ) int {
-	return NetPortswiggerLsAIndexOf(haystack, needle, true, fromIndex, toIndex)
+	return IndexOfPattern(haystack, needle, true, fromIndex, toIndex)
 }
 
-// NetPortswiggerLsAIndexOf is the main indexOf method using Boyer-Moore (via M1 and KwSearcher).
-// Corresponds to public static int a(byte[] var0, byte[] var1, boolean var2, int var3, int var4)
-func NetPortswiggerLsAIndexOf(
+// IndexOfPattern is the main indexOf method using Boyer-Moore (via M1 and KwSearcher).
+func IndexOfPattern(
 	haystack []byte,
 	needle []byte,
 	caseSensitive bool,
 	fromIndex int,
 	toIndex int,
 ) int {
-	// Simulate m1.b.a(needle, caseSensitive).a(new g3(haystack), fromIndex, toIndex)
-	// In Java, ls.b is a static final m1 instance, initialized with Executors.newCachedThreadPool()
-	// We create a default M1 instance here as we are not handling ExecutorService.
-	m1Instance := NewM1() // NewM1Default is from net_portswigger_m1.go
-
+	m1Instance := NewM1()
 	searcher := m1Instance.CreateSearcher(needle, caseSensitive)
-	haystackWrapper := NewG3(haystack) // NewG3 is from this file (net_portswigger_ls.go)
-
-	// The searcher returned by CreateSearcher already includes sanitizing and null/empty haystack checks.
+	haystackWrapper := NewG3(haystack)
 	return searcher.A(haystackWrapper, fromIndex, toIndex)
 }
 
-// NetPortswiggerLsAIndexOfSimple is a simple char-by-char indexOf (case-sensitive based on implementation).
-// Corresponds to public static int a(byte[] var0, byte[] var1, int var2, int var3) in Java.
-// The Java version had a complex `|| a(byte,byte)` which was for whitespace, not general case-insensitivity.
-// This Go port is case-sensitive as the primary comparison `var0[var9++] == var1[var10++]` is case-sensitive.
-func NetPortswiggerLsAIndexOfSimple(
+// IndexOfSimple is a simple char-by-char case-sensitive indexOf.
+func IndexOfSimple(
 	haystack []byte,
 	needle []byte,
 	fromIndex int,
@@ -530,9 +493,8 @@ func NetPortswiggerLsAIndexOfSimple(
 	return -1
 }
 
-// NetPortswiggerLsCLastIndexOf finds the last index of a sub-array (case-sensitive).
-// Corresponds to public static int c(byte[] var0, byte[] var1, int var2, int var3)
-func NetPortswiggerLsCLastIndexOf(haystack []byte, needle []byte, fromIndex int, toIndex int) int {
+// LastIndexOf finds the last index of a sub-array (case-sensitive).
+func LastIndexOf(haystack []byte, needle []byte, fromIndex int, toIndex int) int {
 	if haystack == nil || needle == nil {
 		return -1
 	}
@@ -570,9 +532,8 @@ func NetPortswiggerLsCLastIndexOf(haystack []byte, needle []byte, fromIndex int,
 
 // --- Prefix/Suffix and Matching Methods ---
 
-// NetPortswiggerLsAStartsWith checks if a byte slice starts with a given prefix.
-// Corresponds to public static boolean a(byte[] var0, byte[] var1, boolean var2, int var3)
-func NetPortswiggerLsAStartsWith(data []byte, prefix []byte, caseSensitive bool, offset int) bool {
+// StartsWithBytes checks if a byte slice starts with a given prefix.
+func StartsWithBytes(data []byte, prefix []byte, caseSensitive bool, offset int) bool {
 	if data == nil || prefix == nil {
 		return data == nil &&
 			prefix == nil // True if both nil, false otherwise, aligning with some equals logic
@@ -586,8 +547,8 @@ func NetPortswiggerLsAStartsWith(data []byte, prefix []byte, caseSensitive bool,
 		db := data[offset+i]
 		pb := prefix[i]
 		if !caseSensitive {
-			db = NetPortswiggerLsAToLowerByte(db)
-			pb = NetPortswiggerLsAToLowerByte(pb)
+			db = ToLowerByte(db)
+			pb = ToLowerByte(pb)
 		}
 		if db != pb {
 			return false
@@ -596,9 +557,8 @@ func NetPortswiggerLsAStartsWith(data []byte, prefix []byte, caseSensitive bool,
 	return true
 }
 
-// NetPortswiggerLsAMatchesAt checks if a needle matches the haystack at a specific offset (case-sensitive).
-// Corresponds to public static boolean a(byte[] var0, byte[] var1, int var2)
-func NetPortswiggerLsAMatchesAt(haystack []byte, needle []byte, offset int) bool {
+// MatchesAt checks if a needle matches the haystack at a specific offset (case-sensitive).
+func MatchesAt(haystack []byte, needle []byte, offset int) bool {
 	if haystack == nil || needle == nil {
 		return false // If either is nil, cannot match
 	}

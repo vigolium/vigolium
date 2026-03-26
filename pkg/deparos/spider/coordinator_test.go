@@ -66,7 +66,7 @@ func TestExtractionCoordinator_Extract_EmptyResponse(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_SmallBody(t *testing.T) {
-	// Test body < 10 bytes case (Burp mapping: wb.java line 34)
+	// Test body < 10 bytes case
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/")
 
@@ -85,7 +85,7 @@ func TestExtractionCoordinator_Extract_SmallBody(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_InlineURLs(t *testing.T) {
-	// Test that inline URL scanner always runs (Burp mapping: wb.java line 33)
+	// Test that inline URL scanner always runs
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/")
 
@@ -117,7 +117,7 @@ func TestExtractionCoordinator_Extract_InlineURLs(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_HTTPHeaders(t *testing.T) {
-	// Test HTTP header extraction (Burp mapping: wb.java line 39)
+	// Test HTTP header extraction
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/")
 
@@ -143,7 +143,7 @@ func TestExtractionCoordinator_Extract_HTTPHeaders(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_HTMLAttributes(t *testing.T) {
-	// Test HTML attribute extraction (Burp mapping: wb.java line 41)
+	// Test HTML attribute extraction
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/")
 
@@ -193,7 +193,7 @@ func TestExtractionCoordinator_Extract_HTMLAttributes(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_HTMLComments(t *testing.T) {
-	// Test HTML comment extraction (Burp mapping: wb.java line 42)
+	// Test HTML comment extraction
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/")
 
@@ -234,7 +234,7 @@ func TestExtractionCoordinator_Extract_HTMLComments(t *testing.T) {
 }
 
 func TestExtractionCoordinator_Extract_RobotsTxt(t *testing.T) {
-	// Test robots.txt parsing (Burp mapping: wb.java line 45)
+	// Test robots.txt parsing
 	coordinator := createTestCoordinator()
 	baseURL := mustParseURL("https://example.com/robots.txt")
 
@@ -278,7 +278,7 @@ Sitemap: https://example.com/sitemap.xml`
 }
 
 func TestExtractionCoordinator_Extract_ExtractionOrder(t *testing.T) {
-	// Verify extraction order matches Burp (wb.java lines 33-46)
+	// Verify extraction order
 	// Order: inline scanner → HTTP headers → HTML attrs → comments → robots.txt
 
 	coordinator := createTestCoordinator()

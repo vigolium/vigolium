@@ -11,7 +11,7 @@ import (
 // DataURIBase64ScriptStrategy implements the ContextualXSSTechnique interface.
 // Original Java class: e2b
 type DataURIBase64ScriptStrategy struct {
-	randomProvider     *utils.RandomGenerator // Corresponds to 'a' (net.portswigger.ou) in Java
+	randomProvider     *utils.RandomGenerator // Corresponds to 'a' (ou) in Java
 	uriPrefix          string                 // Corresponds to 'b' (String) in Java
 	uriSchemeSeparator string                 // Corresponds to 'c' (String) in Java
 }
@@ -53,14 +53,8 @@ func (receiver *DataURIBase64ScriptStrategy) GeneratePayload(
 		receiver.randomProvider.GeneratePrefixedAlphanumeric(8),
 	)
 
-	// net.portswigger.h9.a(String) -> NetPortswiggerH9AStringToBytes
 	scriptTagBytes := utils.StringToBytes(scriptTagPayload)
-
-	// net.portswigger.kh.b(byte[]) -> NetPortswiggerKhB (Base64 encode)
 	base64EncodedScript := base64.StdEncoding.EncodeToString(scriptTagBytes)
-
-	// net.portswigger.h9.a(byte[]) -> NetPortswiggerH9ABytesToString
-	// base64Script := utils.NetPortswiggerH9ABytesToString(encodedBytes)
 
 	// String.format("%sdata%s:text/html;base64,%s", this.b, this.c, base64Script)
 	formattedDataURIPayload := fmt.Sprintf(

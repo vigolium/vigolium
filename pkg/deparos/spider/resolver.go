@@ -10,7 +10,6 @@ import (
 
 // URLResolver resolves relative URLs against a base URL and normalizes them.
 //
-// Burp mapping: iqp.java (Relative path resolver)
 type URLResolver struct {
 	// No fields needed - stateless resolver
 }
@@ -235,7 +234,6 @@ func sanitizePathSegments(p string) string {
 // - Absolute paths (/path)
 // - Relative paths (../path, path)
 //
-// Burp mapping: iqp.a(v1 base, String relativeURL) - Lines 26-89
 func (r *URLResolver) Resolve(base *url.URL, relativeURL string) (*url.URL, error) {
 	if base == nil {
 		return nil, fmt.Errorf("base URL is nil")
@@ -273,7 +271,6 @@ func (r *URLResolver) Resolve(base *url.URL, relativeURL string) (*url.URL, erro
 // Normalize canonicalizes a URL preserving query params.
 // Returns full URL string with query params for HTTP requests.
 //
-// Burp mapping: Inferred from storage requirements
 func (r *URLResolver) Normalize(u *url.URL) string {
 	if u == nil {
 		return ""

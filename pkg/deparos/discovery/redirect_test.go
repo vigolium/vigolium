@@ -63,7 +63,7 @@ func TestRedirectDetector_DetectRedirect(t *testing.T) {
 			expectedResolvedPath: "/new",
 		},
 		{
-			name:                 "303 redirect (not detected per Burp)",
+			name:                 "303 redirect (not detected - only 301/302 handled)",
 			originalURL:          "http://example.com/admin",
 			statusCode:           303,
 			locationHeader:       "/admin/",
@@ -76,7 +76,7 @@ func TestRedirectDetector_DetectRedirect(t *testing.T) {
 			expectedResolvedPath: "",
 		},
 		{
-			name:                 "307 redirect (not detected per Burp)",
+			name:                 "307 redirect (not detected - only 301/302 handled)",
 			originalURL:          "http://example.com/admin",
 			statusCode:           307,
 			locationHeader:       "/admin/",
@@ -89,7 +89,7 @@ func TestRedirectDetector_DetectRedirect(t *testing.T) {
 			expectedResolvedPath: "",
 		},
 		{
-			name:                 "308 redirect (not detected per Burp)",
+			name:                 "308 redirect (not detected - only 301/302 handled)",
 			originalURL:          "http://example.com/admin",
 			statusCode:           308,
 			locationHeader:       "/admin/",
@@ -212,7 +212,7 @@ func TestRedirectDetector_DetectRedirect(t *testing.T) {
 }
 
 func TestRedirectDetector_TrailingSlashAlgorithm(t *testing.T) {
-	// Test the exact algorithm from Burp ff6.java:171-175
+	// Test the exact algorithm 
 	tests := []struct {
 		name         string
 		originalPath []byte
@@ -285,7 +285,7 @@ func TestRedirectDetector_TrailingSlashAlgorithm(t *testing.T) {
 }
 
 func TestRedirectDetector_URLNormalization(t *testing.T) {
-	// Test URL normalization matching at.java:264-363
+	// Test URL normalization 
 	tests := []struct {
 		name        string
 		inputPath   string
@@ -296,37 +296,37 @@ func TestRedirectDetector_URLNormalization(t *testing.T) {
 			name:        "backslash to forward slash",
 			inputPath:   "\\admin\\test",
 			expected:    "/admin/test",
-			description: "Convert backslashes (at.java:97-99)",
+			description: "Convert backslashes",
 		},
 		{
 			name:        "ensure leading slash",
 			inputPath:   "admin/test",
 			expected:    "/admin/test",
-			description: "Add leading slash (at.java:287-289)",
+			description: "Add leading slash",
 		},
 		{
 			name:        "remove dot segments",
 			inputPath:   "/admin/./test",
 			expected:    "/admin/test",
-			description: "Remove /./ (at.java:334-338)",
+			description: "Remove /./",
 		},
 		{
 			name:        "collapse double slashes",
 			inputPath:   "/admin//test",
 			expected:    "/admin/test",
-			description: "Collapse // to / (at.java:340-344)",
+			description: "Collapse // to /",
 		},
 		{
 			name:        "remove trailing dot",
 			inputPath:   "/admin/.",
 			expected:    "/admin",
-			description: "Remove trailing /. (at.java:346-348)",
+			description: "Remove trailing /.",
 		},
 		{
 			name:        "resolve parent directory",
 			inputPath:   "/admin/test/../config",
 			expected:    "/admin/config",
-			description: "Resolve /../ (at.java:300-332)",
+			description: "Resolve /../",
 		},
 		{
 			name:        "complex normalization",

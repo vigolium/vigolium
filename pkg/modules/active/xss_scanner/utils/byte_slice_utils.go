@@ -7,15 +7,13 @@ import (
 
 // --- Public Static Methods (Exported) ---
 
-// NetPortswiggerNkE converts all uppercase ASCII characters in a byte slice to lowercase, in-place.
-// Corresponds to public static void e(byte[] var0) in nk.java
-func NetPortswiggerNkE(data []byte) {
-	netPortswiggerNkAToLower(data, 0)
+// ToLowerASCII converts all uppercase ASCII characters in a byte slice to lowercase, in-place.
+func ToLowerASCII(data []byte) {
+	toLowerASCIIFrom(data, 0)
 }
 
-// netPortswiggerNkAToLower is the internal helper for converting to lowercase from a starting index.
-// Corresponds to private static void a(byte[] var0, int var1) in nk.java
-func netPortswiggerNkAToLower(data []byte, startIndex int) {
+// toLowerASCIIFrom is the internal helper for converting to lowercase from a starting index.
+func toLowerASCIIFrom(data []byte, startIndex int) {
 	if data == nil {
 		return
 	}
@@ -26,10 +24,8 @@ func netPortswiggerNkAToLower(data []byte, startIndex int) {
 	}
 }
 
-// NetPortswiggerNkD converts all lowercase ASCII characters in a byte slice to uppercase, in-place.
-// Corresponds to public static void d(byte[] var0) in nk.java
-// The ls.b() logic is ignored as it seems to be for external flow control/debug.
-func NetPortswiggerNkD(data []byte) {
+// ToUpperASCII converts all lowercase ASCII characters in a byte slice to uppercase, in-place.
+func ToUpperASCII(data []byte) {
 	if data == nil {
 		return
 	}
@@ -40,23 +36,21 @@ func NetPortswiggerNkD(data []byte) {
 	}
 }
 
-// NetPortswiggerNkC converts the first ASCII character of a byte slice to uppercase
-// and the rest to lowercase, in-place (Title Case like).
-// Corresponds to public static void c(byte[] var0) in nk.java
-func NetPortswiggerNkC(data []byte) {
+// CapitalizeFirst converts the first ASCII character of a byte slice to uppercase
+// and the rest to lowercase, in-place (title case).
+func CapitalizeFirst(data []byte) {
 	if len(data) == 0 {
 		return
 	}
 	if data[0] >= 'a' && data[0] <= 'z' { // First char to uppercase
 		data[0] = data[0] - 32
 	}
-	netPortswiggerNkAToLower(data, 1) // Rest to lowercase
+	toLowerASCIIFrom(data, 1) // Rest to lowercase
 }
 
-// NetPortswiggerNkA converts the first ASCII character of a byte slice to uppercase, in-place.
+// UpperFirst converts the first ASCII character of a byte slice to uppercase, in-place.
 // Other characters are not changed.
-// Corresponds to public static void a(byte[] var0) in nk.java
-func NetPortswiggerNkAFirstCharUpper(data []byte) { // Renamed to avoid conflict
+func UpperFirst(data []byte) {
 	if len(data) == 0 {
 		return
 	}
@@ -65,23 +59,21 @@ func NetPortswiggerNkAFirstCharUpper(data []byte) { // Renamed to avoid conflict
 	}
 }
 
-// NetPortswiggerNkASingleByteToLower converts a single ASCII byte to lowercase.
-// Corresponds to public static byte a(byte var0) in nk.java
-func NetPortswiggerNkASingleByteToLower(b byte) byte {
+// SingleByteToLower converts a single ASCII byte to lowercase.
+func SingleByteToLower(b byte) byte {
 	if b >= 'A' && b <= 'Z' {
 		return b + 32
 	}
 	return b
 }
 
-// NetPortswiggerNkBTruncateOrGet is an alias for NetPortswiggerNkATruncateWithEllipsis with offset 0.
-// Corresponds to public static byte[] b(byte[] var0, int var1, int var2) in nk.java
-func NetPortswiggerNkBTruncateOrGet(
+// TruncateOrGet is an alias for TruncateWithEllipsis with offset 0.
+func TruncateOrGet(
 	data []byte,
 	maxLengthBeforeTruncate int,
 	newLengthForTruncatedPart int,
 ) []byte {
-	return NetPortswiggerNkATruncateWithEllipsis(
+	return TruncateWithEllipsis(
 		data,
 		0,
 		maxLengthBeforeTruncate,
@@ -89,10 +81,9 @@ func NetPortswiggerNkBTruncateOrGet(
 	)
 }
 
-// NetPortswiggerNkATruncateWithEllipsis truncates a byte slice if it's longer than a threshold,
+// TruncateWithEllipsis truncates a byte slice if it's longer than a threshold,
 // appending " ..." to the truncated part.
-// Corresponds to public static byte[] a(byte[] var0, int var1, int var2, int var3) in nk.java
-func NetPortswiggerNkATruncateWithEllipsis(
+func TruncateWithEllipsis(
 	data []byte,
 	offset int,
 	maxLengthBeforeTruncate int,
@@ -111,12 +102,10 @@ func NetPortswiggerNkATruncateWithEllipsis(
 		if offset == 0 {
 			return data
 		}
-		// Equivalent to a(var0, var1, var0.length) which is a slice from offset to end
-		// Ensure offset and length for slicing are valid
-		if offset > len(data) { // Should be caught by earlier check, but for safety
-			return []byte{} // return empty if offset is out of bounds for slicing
+		if offset > len(data) {
+			return []byte{}
 		}
-		return NetPortswiggerNkACopyOfRange(data, offset, len(data)) // Use the copyOfRange logic
+		return CopyOfRange(data, offset, len(data))
 	}
 
 	// Ensure newLengthForTruncatedPart is not negative and not excessively large for the source
@@ -138,32 +127,23 @@ func NetPortswiggerNkATruncateWithEllipsis(
 	return result
 }
 
-// NetPortswiggerNkCombine concatenates multiple byte slices into one.
-// Corresponds to public static byte[] a(byte[]... var0) in nk.java
-// This was previously stubbed as NetPortswiggerNkCombine in stubs.go and used by hnx.go
-func NetPortswiggerNkCombine(slices ...[]byte) []byte {
-	// The ls.b() and agd.i() calls related to loop control are ignored.
+// CombineByteSlices concatenates multiple byte slices into one.
+func CombineByteSlices(slices ...[]byte) []byte {
 	var buf bytes.Buffer
 	for _, s := range slices {
-		if s != nil { // Java varargs can contain null arrays
+		if s != nil {
 			buf.Write(s)
 		}
 	}
 	return buf.Bytes()
 }
 
-// NetPortswiggerNkACopyOfRange creates a copy of a range within a byte slice.
-// Corresponds to public static byte[] a(byte[] var0, int var1, int var2) in nk.java
-func NetPortswiggerNkACopyOfRange(data []byte, start int, end int) []byte {
-	// The ls.b() and agd.d() calls are ignored.
+// CopyOfRange creates a copy of a range within a byte slice.
+func CopyOfRange(data []byte, start int, end int) []byte {
 	if data == nil {
 		return nil
 	}
-	// Basic bounds checking for Java-like behavior (NullPointerException or IndexOutOfBounds)
 	if start < 0 || end < start || end > len(data) {
-		// Depending on strictness, could panic or return nil/empty.
-		// Java's System.arraycopy would throw IndexOutOfBoundsException.
-		// Returning nil to indicate error for now.
 		return nil
 	}
 
@@ -177,9 +157,8 @@ func NetPortswiggerNkACopyOfRange(data []byte, start int, end int) []byte {
 	return result
 }
 
-// NetPortswiggerNkBCopyOf creates a full copy of a byte slice.
-// Corresponds to public static byte[] b(byte[] var0) in nk.java
-func NetPortswiggerNkBCopyOf(data []byte) []byte {
+// CopyBytes creates a full copy of a byte slice.
+func CopyBytes(data []byte) []byte {
 	if data == nil {
 		return nil
 	}

@@ -20,13 +20,13 @@ var proofOfConceptPayloads = []string{
 
 // XSSPayloadStrategyCoordinator is the Go equivalent of the Java class burp.fn0.
 type XSSPayloadStrategyCoordinator struct {
-	randomProvider   *utils.RandomGenerator // Corresponds to private final net.portswigger.ou b;
+	randomProvider   *utils.RandomGenerator // Corresponds to private final ou b;
 	isAggressiveScan bool                   // Corresponds to private final boolean a;
 	attackStepRunner AttackStepRunner       // Corresponds to private final i2j d;
 }
 
 // NewXSSPayloadStrategyCoordinator creates a new instance of Fn0.
-// Corresponds to public fn0(net.portswigger.ou var1, f4x var2, boolean var3)
+// Corresponds to public fn0(ou var1, f4x var2, boolean var3)
 func NewXSSPayloadStrategyCoordinator(
 	randomProvider *utils.RandomGenerator,
 	attackExecutor ScanExecutionManager,
@@ -129,7 +129,7 @@ func (coordinator *XSSPayloadStrategyCoordinator) SelectAndExecuteStrategy(
 }
 
 // selectAttackStrategyForContext is the Go equivalent of:
-// private static d3b a(byte var0, net.portswigger.ou var1, def var2)
+// private static d3b a(byte var0, ou var1, def var2)
 func selectAttackStrategyForContext(
 	contextType ReflectionContext,
 	randomProvider *utils.RandomGenerator,

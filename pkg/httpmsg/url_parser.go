@@ -1,18 +1,10 @@
 package httpmsg
 
-// url_parser.go - Port of Burp Suite's URL parsing logic
-// Ported from:
-//   - akv.java - URL container class
-//   - at.java - URL parsing and construction
-//   - fr8.java - URL utility functions
-//   - fwd.java - Query string boundary detection
-//   - dvk.java - URL extraction from request
+// url_parser.go - URL parsing logic
 //
-// CRITICAL: Uses ONLY loop-based parsing (NO REGEX, NO net/url)
-// Follows Burp's char-by-char URL component extraction
+// Uses loop-based character-by-character parsing (no regex, no net/url).
 
 // ParsedURL represents a parsed URL with all components and byte offsets.
-// Ported from: akv.java and fr8.java
 type ParsedURL struct {
 	Protocol string // "http" or "https"
 	Host     string // "example.com" or "192.168.1.1"
@@ -37,8 +29,6 @@ type ParsedURL struct {
 // ParseURL parses a URL byte slice into components.
 // Main URL parsing function that handles both absolute and relative URLs.
 //
-// Ported from: at.java lines 6-215 and fr8.java lines 175-189
-//
 // Parameters:
 //   - urlBytes: URL as byte slice (e.g., "http://example.com:8080/path?query#frag")
 //
@@ -46,7 +36,7 @@ type ParsedURL struct {
 //   - ParsedURL with all components extracted
 //   - error if URL is malformed
 //
-// Algorithm (from at.java):
+// Algorithm:
 //  1. Parse protocol (http:// or https://)
 //  2. Parse host and port
 //  3. Parse path
@@ -82,7 +72,7 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 	}
 
 	// Step 1: Parse protocol (http:// or https://)
-	// From at.java lines 50-51
+	// Check for "://" sequence
 	protocolEnd := FindProtocolEnd(urlBytes)
 
 	if protocolEnd > 0 {
@@ -93,13 +83,11 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 		parsed.HostStart = protocolEnd + 3 // Skip "://"
 	} else {
 		// Relative URL (no protocol)
-		// From at.java lines 73-93
 		parsed.HostStart = 0
 		parsed.Protocol = "" // Will be inferred from context
 	}
 
 	// Step 2: Parse host and port
-	// From at.java lines 62-72 and fr8.java lines 191-194
 	parsed.HostEnd = FindHostEnd(urlBytes, parsed.HostStart)
 
 	if parsed.HostEnd > parsed.HostStart {
@@ -108,13 +96,11 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 	}
 
 	// Apply default port if not specified
-	// From fr8.java lines 196-197 and at.java lines 68-69
 	if parsed.Port == -1 && parsed.Protocol != "" {
 		parsed.Port = GetDefaultPort(parsed.Protocol)
 	}
 
 	// Step 3: Parse path
-	// From at.java lines 73-93
 	parsed.PathStart = parsed.HostEnd
 	parsed.PathEnd = FindPathEnd(urlBytes, parsed.PathStart)
 
@@ -123,7 +109,6 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 	}
 
 	// Step 4: Parse query string (after ?)
-	// From fwd.java lines 7-33 and fr8.java lines 15-35
 	if parsed.PathEnd < len(urlBytes) && urlBytes[parsed.PathEnd] == '?' {
 		parsed.QueryStart = parsed.PathEnd + 1 // Skip '?'
 		parsed.QueryEnd = FindQueryEnd(urlBytes, parsed.QueryStart)
@@ -137,7 +122,6 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 	}
 
 	// Step 5: Parse fragment (after #)
-	// From at.java lines 264-270 and fwd.java lines 15-17
 	if parsed.QueryEnd < len(urlBytes) && urlBytes[parsed.QueryEnd] == '#' {
 		parsed.FragmentStart = parsed.QueryEnd + 1 // Skip '#'
 		parsed.FragmentEnd = len(urlBytes)
@@ -154,9 +138,7 @@ func ParseURL(urlBytes []byte) (*ParsedURL, error) {
 }
 
 // FindProtocolEnd finds the end position of the protocol (before ://).
-// Loop-based implementation (NO REGEX).
-//
-// Ported from: at.java lines 50-51
+// Loop-based implementation (no regex).
 //
 // Parameters:
 //   - url: URL bytes to search
@@ -181,7 +163,7 @@ func FindProtocolEnd(url []byte) int {
 	}
 
 	// Loop-based search for "://" sequence
-	// From at.java lines 50-51
+	// Check for "://" sequence
 	for i := 0; i < len(url)-2; i++ {
 		if url[i] == ':' && url[i+1] == '/' && url[i+2] == '/' {
 			return i
@@ -193,8 +175,6 @@ func FindProtocolEnd(url []byte) int {
 
 // FindHostEnd finds the end position of the host:port portion.
 // Loop until '/', '?', '#', or end of string.
-//
-// Ported from: at.java lines 62-72
 //
 // Parameters:
 //   - url: URL bytes
@@ -215,7 +195,6 @@ func FindProtocolEnd(url []byte) int {
 //	// Returns 16 (position of '/')
 func FindHostEnd(url []byte, hostStart int) int {
 	// Loop until delimiter or end
-	// From at.java lines 62-72
 	for i := hostStart; i < len(url); i++ {
 		ch := url[i]
 		// Check for path/query/fragment delimiters
@@ -229,9 +208,7 @@ func FindHostEnd(url []byte, hostStart int) int {
 }
 
 // ParseHostPort extracts host and port from "host:port" string.
-// Loop-based parsing (NO strings.Split or strconv).
-//
-// Ported from: at.java lines 68-72 and fr8.java lines 191-197
+// Loop-based parsing (no strings.Split or strconv).
 //
 // Parameters:
 //   - hostBytes: Bytes containing host:port (e.g., "example.com:8080")
@@ -261,7 +238,6 @@ func ParseHostPort(hostBytes []byte) (host string, port int) {
 	}
 
 	// Find ':' separator using loop
-	// From at.java lines 68-72
 	colonPos := -1
 	for i := 0; i < len(hostBytes); i++ {
 		if hostBytes[i] == ':' {
@@ -285,10 +261,8 @@ func ParseHostPort(hostBytes []byte) (host string, port int) {
 	return host, port
 }
 
-// ParseInt parses an integer string using loops (NO strconv.Atoi).
+// ParseInt parses an integer string using loops (no strconv.Atoi).
 // Loop-based digit-by-digit parsing.
-//
-// Ported from: Basic integer parsing logic
 //
 // Parameters:
 //   - s: String containing digits
@@ -333,8 +307,6 @@ func ParseInt(s string) int {
 // FindPathEnd finds the end position of the path (before '?' or '#').
 // Loop until query or fragment delimiter.
 //
-// Ported from: fr8.java lines 15-35 and fwd.java lines 7-33
-//
 // Parameters:
 //   - url: URL bytes
 //   - pathStart: Position where path begins
@@ -354,7 +326,6 @@ func ParseInt(s string) int {
 //	// Returns 10 (position of '?')
 func FindPathEnd(url []byte, pathStart int) int {
 	// Loop until query or fragment delimiter
-	// From fr8.java lines 18-31
 	for i := pathStart; i < len(url); i++ {
 		ch := url[i]
 		if ch == '?' || ch == '#' {
@@ -368,8 +339,6 @@ func FindPathEnd(url []byte, pathStart int) int {
 
 // FindQueryEnd finds the end position of the query string (before '#').
 // Loop until fragment delimiter.
-//
-// Ported from: fwd.java lines 18-26
 //
 // Parameters:
 //   - url: URL bytes
@@ -391,11 +360,9 @@ func FindPathEnd(url []byte, pathStart int) int {
 //	// Returns 16 (position of '#')
 func FindQueryEnd(url []byte, queryStart int) int {
 	// Loop until fragment delimiter or whitespace
-	// From fwd.java lines 20-26
 	for i := queryStart; i < len(url); i++ {
 		ch := url[i]
 		// Check for fragment delimiter or terminators
-		// From fwd.java line 21
 		if ch == '#' || ch == 10 || ch <= 32 {
 			return i
 		}
@@ -406,9 +373,6 @@ func FindQueryEnd(url []byte, queryStart int) int {
 }
 
 // GetDefaultPort returns the default port for a protocol.
-// Loop-based case conversion.
-//
-// Ported from: fr8.java lines 196-197 and at.java lines 68-69
 //
 // Parameters:
 //   - protocol: Protocol string ("http", "https", etc.)
@@ -433,7 +397,6 @@ func GetDefaultPort(protocol string) int {
 	// Convert to lowercase using loop (NO strings.ToLower)
 	protocolLower := ToLowerString(protocol)
 
-	// From fr8.java lines 196-197
 	switch protocolLower {
 	case "http":
 		return 80
@@ -448,10 +411,7 @@ func GetDefaultPort(protocol string) int {
 	}
 }
 
-// ToLowerString converts a string to lowercase using loops (NO strings.ToLower).
-// Loop-based case conversion.
-//
-// Ported from: Java String.toLowerCase() equivalent
+// ToLowerString converts a string to lowercase using loops (no strings.ToLower).
 //
 // Parameters:
 //   - s: String to convert
@@ -483,8 +443,6 @@ func ToLowerString(s string) string {
 // ExtractURLFromRequest extracts URL from HTTP request line.
 // Returns URL bytes and their start/end positions.
 //
-// Ported from: fwd.java lines 35-105 and dvk.java lines 116-143
-//
 // Parameters:
 //   - request: HTTP request bytes
 //
@@ -494,11 +452,11 @@ func ToLowerString(s string) string {
 //   - urlEnd: Position where URL ends
 //   - error: Any parsing error
 //
-// Algorithm (from fwd.java lines 42-104):
+// Algorithm:
 //  1. Skip leading whitespace
 //  2. Skip HTTP method (until first space)
 //  3. Skip whitespace after method
-//  4. Extract URL (until second space)
+//  4. Extract URL (until next space)
 //  5. Return URL bytes and positions
 //
 // Example:
@@ -512,7 +470,6 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 		return nil, -1, -1, nil
 	}
 
-	// From fwd.java lines 42-58: Skip leading whitespace
 	pos := 0
 	for pos < len(request) {
 		ch := request[pos]
@@ -528,7 +485,6 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 		}
 	}
 
-	// From fwd.java lines 60-80: Skip HTTP method
 	for pos < len(request) {
 		ch := request[pos]
 		// Check for newline (invalid)
@@ -547,10 +503,8 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 		pos++
 	}
 
-	// From fwd.java lines 82: Mark URL start
 	urlStart := pos
 
-	// From fwd.java lines 84-101: Find URL end
 	for pos < len(request) {
 		ch := request[pos]
 		// Check for newline (invalid)
@@ -566,7 +520,7 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 
 	urlEnd := pos
 
-	// Validate URL bounds (fwd.java line 104)
+	// Validate URL bounds
 	if urlStart >= urlEnd {
 		return nil, -1, -1, nil
 	}
@@ -580,8 +534,6 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 // FindQueryStringBounds finds the start and end of query string in URL path.
 // Returns indices of '?' and '#' delimiters.
 //
-// Ported from: fwd.java lines 7-33
-//
 // Parameters:
 //   - urlPath: URL path bytes (may contain query)
 //
@@ -589,7 +541,7 @@ func ExtractURLFromRequest(request []byte) ([]byte, int, int, error) {
 //   - queryStart: Position of '?' (or -1 if not found)
 //   - queryEnd: Position of '#' or end of string
 //
-// Algorithm (from fwd.java lines 10-30):
+// Algorithm:
 //  1. Loop through bytes looking for '?'
 //  2. When found, mark start position
 //  3. Continue looking for '#' or whitespace
@@ -605,29 +557,25 @@ func FindQueryStringBounds(urlPath []byte) (queryStart int, queryEnd int) {
 		return -1, -1
 	}
 
-	// From fwd.java lines 10-30: Search for query string
 	pos := 0
 	for pos < len(urlPath) {
 		ch := urlPath[pos]
 
 		// Check for newline (end of URL)
-		// From fwd.java line 11
 		if ch == 10 {
 			return -1, -1
 		}
 
 		// Check for fragment (no query string)
-		// From fwd.java line 18
 		if ch == '#' {
 			return -1, -1
 		}
 
 		// Check for query start
-		// From fwd.java line 20
 		if ch == '?' {
 			queryStart = pos
 
-			// Find query end (from fwd.java lines 22-27)
+			// Find query end 
 			pos++
 			for pos < len(urlPath) {
 				ch := urlPath[pos]
@@ -640,7 +588,6 @@ func FindQueryStringBounds(urlPath []byte) (queryStart int, queryEnd int) {
 			}
 
 			// Query extends to end of string
-			// From fwd.java line 29
 			queryEnd = len(urlPath)
 			return queryStart, queryEnd
 		}
@@ -691,7 +638,6 @@ func IsRelativeURL(urlBytes []byte) bool {
 }
 
 // String reconstructs full URL from parsed components (implements fmt.Stringer).
-// Ported from: fr8.java lines 105-109
 //
 // Example:
 //

@@ -11,7 +11,6 @@ import (
 )
 
 // Sample represents a fingerprint sample from a single HTTP response
-// Maps to Burp's elz.java fingerprint sample (Lines 6-70)
 // Contains CRC32 hashes for all 32 attributes
 type Sample struct {
 	attributes map[Attribute]uint32 // CRC32 hashes for each attribute
@@ -98,14 +97,12 @@ func (s *Sample) Debug() string {
 }
 
 // extractStatus extracts status-related attributes
-// Maps to ad1.java:extractStatusAttributes() (Lines 20-25)
 func (s *Sample) extractStatus(resp *http.Response) {
 	// Attribute 1: StatusCode (critical, non-maskable)
 	s.attributes[StatusCode] = uint32(resp.StatusCode)
 }
 
 // extractHeaders extracts header-related attributes
-// Maps to ad1.java:extractHeaderAttributes() (Lines 27-70)
 func (s *Sample) extractHeaders(resp *http.Response) {
 	header := resp.Header
 
@@ -159,7 +156,6 @@ func (s *Sample) extractHeaders(resp *http.Response) {
 }
 
 // extractHTML extracts HTML structure attributes
-// Maps to ad1.java:extractHTMLAttributes() (Lines 72-130)
 func (s *Sample) extractHTML(htmlParsed *html.HTMLParsed) {
 	// Attribute 9: Tag names (CRC32 accumulated)
 	if len(htmlParsed.TagNames) > 0 {
@@ -259,7 +255,6 @@ func (s *Sample) extractHTML(htmlParsed *html.HTMLParsed) {
 }
 
 // extractContent extracts content-based attributes from raw body
-// Maps to ad1.java:extractContentAttributes() (Lines 132-158)
 func (s *Sample) extractContent(body []byte) {
 	if len(body) == 0 {
 		return

@@ -1,4 +1,4 @@
-// XSS Scanner — Burp Suite inspired reflected XSS detection module.
+// XSS Scanner — reflected XSS detection module.
 package xss_scanner
 
 import (

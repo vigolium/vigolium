@@ -12,7 +12,6 @@ import (
 )
 
 // Learner implements the 3-baseline sampling algorithm for learning 404 signatures
-// Maps to Burp's ds9.java learning algorithm (Lines 5-109)
 type Learner struct {
 	client        *http.Client
 	delay         time.Duration     // Delay between requests (default: 1 second)
@@ -40,7 +39,6 @@ func (l *Learner) SetDelay(delay time.Duration) {
 }
 
 // Learn performs 3-baseline sampling and returns a signature
-// Maps to Burp's ds9.java:learn() (Lines 15-95)
 //
 // Algorithm:
 // 1. Generate 3 random non-existent paths
@@ -143,7 +141,6 @@ func (l *Learner) LearnFromPaths(ctx context.Context, baseURL *url.URL, paths []
 }
 
 // RequestAndExtract performs HTTP request and extracts fingerprint sample
-// Maps to Burp's request and extraction logic (Lines 50-80)
 // This is exported for use by wildcard comparator
 func (l *Learner) RequestAndExtract(ctx context.Context, url *url.URL) (*Sample, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
@@ -189,7 +186,6 @@ func (l *Learner) RequestAndExtract(ctx context.Context, url *url.URL) (*Sample,
 // A good signature should have:
 // - At least 5 stable attributes (structural stability)
 // - Include critical attributes (StatusCode, ContentType)
-// Maps to Burp's signature validation (Lines 97-109)
 func (l *Learner) ValidateSignature(sig *Signature) error {
 	if sig == nil {
 		return fmt.Errorf("signature is nil")

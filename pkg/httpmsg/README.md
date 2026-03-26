@@ -147,7 +147,7 @@ Critical for: payload offset calculation, response matching.
 
 5. **Multipart boundary**: `ParseMultipartBody()` requires boundary from Content-Type header. Use `ExtractBoundary()` helper.
 
-6. **Loop-based algorithms**: All byte operations use loop-based algorithms (no regex) following Burp patterns.
+6. **Loop-based algorithms**: All byte operations use loop-based algorithms (no regex) for performance and precision.
 
 7. **Immutable pattern**: Utility functions return new slices, never modify input.
 

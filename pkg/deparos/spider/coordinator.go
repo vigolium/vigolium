@@ -60,7 +60,7 @@ func NewExtractionCoordinator(
 
 // Extract runs all extractors in the correct order and collects discovered links.
 //
-// Extraction pipeline (matching Burp's exact order):
+// Extraction pipeline order:
 //  1. Inline URL scanner - always runs
 //  2. Check body size >= 10 bytes
 //  3. Parse HTML if needed

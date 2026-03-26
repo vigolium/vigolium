@@ -16,7 +16,7 @@ import (
 // ==================== REQUEST LINE OPERATIONS ====================
 
 // GetMethod extracts the HTTP method from a request.
-// Extension to Burp API - provides direct method access.
+// Provides direct method access.
 //
 // Algorithm:
 //  1. Extract first header line (request line)
@@ -55,7 +55,7 @@ func GetMethod(request []byte) (string, error) {
 }
 
 // GetPath extracts the full path (including query string) from a request.
-// Extension to Burp API - provides direct path access.
+// Provides direct path access.
 //
 // Algorithm:
 //  1. Extract first header line (request line)
@@ -94,7 +94,7 @@ func GetPath(request []byte) (string, error) {
 }
 
 // GetPathOnly extracts the path without query string from a request.
-// Extension to Burp API - provides path-only access.
+// Provides path-only access.
 //
 // Algorithm:
 //  1. Get full path using GetPath
@@ -185,7 +185,7 @@ func GetURLFromService(request []byte, httpService *Service) (*urlutil.URL, erro
 }
 
 // GetHTTPVersion extracts the HTTP version from a request.
-// Extension to Burp API - provides direct version access.
+// Provides direct version access.
 //
 // Algorithm:
 //  1. Extract first header line (request line)
@@ -224,7 +224,7 @@ func GetHTTPVersion(request []byte) (string, error) {
 }
 
 // SetMethod replaces the HTTP method in a request.
-// Extension to Burp API - provides direct method modification.
+// Provides direct method modification.
 //
 // Algorithm:
 //  1. Extract all headers and body
@@ -276,7 +276,7 @@ func SetMethod(request []byte, method string) ([]byte, error) {
 }
 
 // SetPath replaces the full path (including query string) in a request.
-// Extension to Burp API - provides direct path modification.
+// Provides direct path modification.
 //
 // Algorithm:
 //  1. Extract all headers and body
@@ -328,7 +328,7 @@ func SetPath(request []byte, path string) ([]byte, error) {
 }
 
 // SetPathOnly replaces the path portion while preserving the query string.
-// Extension to Burp API - provides path-only modification.
+// Provides path-only modification.
 //
 // Algorithm:
 //  1. Get current full path
@@ -378,7 +378,7 @@ func SetPathOnly(request []byte, pathOnly string) ([]byte, error) {
 }
 
 // IsMethodType checks if the request uses a specific HTTP method.
-// Extension to Burp API - provides method checking.
+// Provides method checking.
 //
 // Algorithm:
 //  1. Extract method using GetMethod
@@ -405,7 +405,7 @@ func IsMethodType(request []byte, method string) (bool, error) {
 }
 
 // SwitchMethod changes the request to use a different HTTP method.
-// Extension to Burp API - generalized method switching (beyond GET↔POST).
+// Generalized method switching (beyond GET<->POST).
 //
 // Algorithm:
 //  1. Use SetMethod to change method
@@ -434,7 +434,7 @@ func SwitchMethod(request []byte, newMethod string) ([]byte, error) {
 // ==================== QUERY STRING OPERATIONS ====================
 
 // GetQueryString extracts the query string portion from a request path.
-// Extension to Burp API - provides direct query access.
+// Provides direct query access.
 //
 // Algorithm:
 //  1. Get full path using GetPath
@@ -469,7 +469,7 @@ func GetQueryString(request []byte) (string, error) {
 }
 
 // SetQueryString replaces the query string in a request.
-// Extension to Burp API - provides direct query modification.
+// Provides direct query modification.
 //
 // Algorithm:
 //  1. Get current path without query using GetPathOnly
@@ -505,7 +505,7 @@ func SetQueryString(request []byte, query string) ([]byte, error) {
 }
 
 // ClearQueryString removes all query parameters from a request.
-// Extension to Burp API - provides query removal.
+// Provides query removal.
 //
 // Algorithm:
 //  1. Get path without query using GetPathOnly
@@ -527,7 +527,7 @@ func ClearQueryString(request []byte) ([]byte, error) {
 }
 
 // GetURLParameter extracts a single URL parameter value by name.
-// Extension to Burp API - provides direct parameter access without AnalyzeRequest.
+// Provides direct parameter access without AnalyzeRequest.
 //
 // Algorithm:
 //  1. Get query string
@@ -558,7 +558,6 @@ func GetURLParameter(request []byte, name string) (string, error) {
 	}
 
 	// Parse query string using low-level parser (no '?' prefix in query)
-	// Matches Burp's architecture where high-level extracts query, low-level parses
 	params := ParseQueryParameters([]byte(query))
 
 	// Find parameter by name
@@ -572,7 +571,7 @@ func GetURLParameter(request []byte, name string) (string, error) {
 }
 
 // HasURLParameter checks if a URL parameter exists.
-// Extension to Burp API - provides parameter existence check.
+// Provides parameter existence check.
 //
 // Algorithm:
 //  1. Get URL parameter value
@@ -600,7 +599,6 @@ func HasURLParameter(request []byte, name string) (bool, error) {
 	}
 
 	// Parse query string using low-level parser (no '?' prefix in query)
-	// Matches Burp's architecture where high-level extracts query, low-level parses
 	params := ParseQueryParameters([]byte(query))
 
 	// Check if parameter exists
@@ -614,7 +612,7 @@ func HasURLParameter(request []byte, name string) (bool, error) {
 }
 
 // GetURLParametersMap returns all URL parameters as a map.
-// Extension to Burp API - provides map-based parameter access.
+// Provides map-based parameter access.
 //
 // Algorithm:
 //  1. Get query string
@@ -643,7 +641,6 @@ func GetURLParametersMap(request []byte) (map[string]string, error) {
 	}
 
 	// Parse query string using low-level parser (no '?' prefix in query)
-	// Matches Burp's architecture where high-level extracts query, low-level parses
 	params := ParseQueryParameters([]byte(query))
 
 	// Convert to map
@@ -656,7 +653,7 @@ func GetURLParametersMap(request []byte) (map[string]string, error) {
 }
 
 // SetURLParametersMap replaces all URL parameters with those from a map.
-// Extension to Burp API - provides map-based parameter setting.
+// Provides map-based parameter setting.
 //
 // Algorithm:
 //  1. Build query string from map
@@ -697,7 +694,7 @@ func SetURLParametersMap(request []byte, params map[string]string) ([]byte, erro
 }
 
 // AppendURLParameter adds a URL parameter without removing existing ones.
-// Extension to Burp API - provides append operation.
+// Provides append operation.
 //
 // Algorithm:
 //  1. Get current query string
@@ -739,7 +736,7 @@ func AppendURLParameter(request []byte, name, value string) ([]byte, error) {
 // ==================== BODY OPERATIONS ====================
 
 // GetBody extracts the body portion from an HTTP request.
-// Extension to Burp API - provides direct body access.
+// Provides direct body access.
 //
 // Algorithm:
 //  1. Find body offset using FindBodyOffset
@@ -772,7 +769,7 @@ func GetBody(request []byte) ([]byte, error) {
 }
 
 // GetBodyString extracts the body as a string.
-// Extension to Burp API - provides string body access.
+// Provides string body access.
 //
 // Algorithm:
 //  1. Get body bytes using GetBody
@@ -798,7 +795,7 @@ func GetBodyString(request []byte) (string, error) {
 }
 
 // GetBodySize returns the size of the request body.
-// Extension to Burp API - provides body size calculation.
+// Provides body size calculation.
 //
 // Algorithm:
 //  1. Find body offset
@@ -829,7 +826,7 @@ func GetBodySize(request []byte) (int, error) {
 }
 
 // HasBody checks if the request contains a body.
-// Extension to Burp API - provides body existence check.
+// Provides body existence check.
 //
 // Algorithm:
 //  1. Find body offset
@@ -855,7 +852,7 @@ func HasBody(request []byte) (bool, error) {
 }
 
 // SetBody replaces the body of an HTTP request.
-// Extension to Burp API - provides direct body modification.
+// Provides direct body modification.
 //
 // Algorithm:
 //  1. Extract headers
@@ -893,7 +890,7 @@ func SetBody(request []byte, body []byte) ([]byte, error) {
 }
 
 // SetBodyString replaces the body with a string value.
-// Extension to Burp API - provides string body modification.
+// Provides string body modification.
 //
 // Algorithm:
 //  1. Convert string to bytes
@@ -915,7 +912,7 @@ func SetBodyString(request []byte, body string) ([]byte, error) {
 }
 
 // ClearBody removes the body from an HTTP request.
-// Extension to Burp API - provides body removal.
+// Provides body removal.
 //
 // Algorithm:
 //  1. Set body to empty byte array
@@ -951,7 +948,7 @@ func ClearBody(request []byte) ([]byte, error) {
 }
 
 // AppendBody appends data to the existing request body.
-// Extension to Burp API - provides body append operation.
+// Provides body append operation.
 //
 // Algorithm:
 //  1. Get current body
@@ -980,7 +977,7 @@ func AppendBody(request []byte, data []byte) ([]byte, error) {
 }
 
 // PrependBody prepends data to the existing request body.
-// Extension to Burp API - provides body prepend operation.
+// Provides body prepend operation.
 //
 // Algorithm:
 //  1. Get current body
@@ -1050,7 +1047,6 @@ func GetURLFromRequest(scheme string, request []byte) string {
 }
 
 // GetExtension extracts file extension from request path.
-// Ported from: Utilities.java getExtension() (lines 464-478)
 //
 // Algorithm:
 //  1. Get path without query string
@@ -1103,7 +1099,6 @@ func GetExtension(request []byte) (string, error) {
 }
 
 // AppendToPath appends a segment to path (before query string).
-// Ported from: Utilities.java appendToPath() (lines 656-677)
 //
 // Algorithm:
 //  1. Get current path without query

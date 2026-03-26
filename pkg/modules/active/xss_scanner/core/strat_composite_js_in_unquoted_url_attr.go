@@ -9,7 +9,7 @@ type JSInUnquotedURLAttributeCompositeStrategy struct {
 }
 
 // NewJSInUnquotedURLAttributeCompositeStrategy creates a new instance of H0i.
-// Original Java constructor: public h0i(net.portswigger.ou var1, def var2)
+// Original Java constructor: public h0i(ou var1, def var2)
 func NewJSInUnquotedURLAttributeCompositeStrategy(
 	randomProvider *utils.RandomGenerator,
 	contentType *ContentTypeProfile,

@@ -53,7 +53,6 @@ func NewHTTPResponse(u *url.URL, headers map[string][]string, body []byte, bodyS
 //   - ErrBodyTooLarge if body exceeds MaxBodySize
 //   - error if parsing failed (not HTML, malformed, etc.)
 //
-// Burp mapping: Inferred from optimization requirements
 func (r *HTTPResponse) ParseHTML() error {
 	r.htmlOnce.Do(func() {
 		// Check body size to prevent DoS from large HTML

@@ -163,7 +163,7 @@ mainLoop: // Label retained for clarity of original structure, though not strict
 
 // --- Byte-oriented functions ---
 
-// decodeHTMLEntitiesInBytes directly ports the logic of net.portswigger.nc.r(byte[] var0).
+// decodeHTMLEntitiesInBytes decodes HTML entities in a byte slice.
 // This function decodes HTML entities in a byte slice.
 // Obfuscation related to nc.b() (simulated by ncStaticBValue previously) has been removed
 // by assuming the functional path where its conditional breaks are not taken.
@@ -185,7 +185,7 @@ func decodeHTMLEntitiesInBytes(data []byte) []byte {
 		currentByte := data[currentIndex]
 
 		if currentByte == '&' {
-			semicolonIndex := utils.NetPortswiggerLsBIndexOfByteCS(
+			semicolonIndex := utils.IndexOfByteCS(
 				data,
 				';',
 				currentIndex+1,
@@ -396,13 +396,13 @@ func GetByteContextAfterDecoding(data []byte, startIndex, endIndex int) byte {
 		}
 	}
 
-	// For NetPortswiggerNkACopyOfRange, end is exclusive.
+	// For CopyOfRange, end is exclusive.
 	exclusiveEndIndexForSlice := endIndex + 1
 
-	dataSegment := utils.NetPortswiggerNkACopyOfRange(data, startIndex, exclusiveEndIndexForSlice)
+	dataSegment := utils.CopyOfRange(data, startIndex, exclusiveEndIndexForSlice)
 
 	if dataSegment == nil {
-		// NetPortswiggerNkACopyOfRange returns nil for invalid ranges.
+		// CopyOfRange returns nil for invalid ranges.
 		// analyzeByteContextInternal can handle an empty slice.
 		dataSegment = []byte{}
 	}

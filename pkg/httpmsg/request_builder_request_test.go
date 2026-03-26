@@ -906,7 +906,7 @@ func TestClearQueryString(t *testing.T) {
 }
 
 // TestGetURLParameter tests extracting single URL parameter.
-// Uses ParseQueryParameters for query-string-only input per Burp's two-function architecture:
+// Uses ParseQueryParameters for query-string-only input:
 // - High-level: ParseQueryString expects full URL with '?'
 // - Low-level: ParseQueryParameters expects query portion only (no '?')
 func TestGetURLParameter(t *testing.T) {
@@ -980,7 +980,6 @@ func TestGetURLParameter(t *testing.T) {
 }
 
 // TestHasURLParameter tests checking URL parameter existence.
-// Uses ParseQueryParameters for query-string-only input per Burp's architecture.
 func TestHasURLParameter(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1038,7 +1037,6 @@ func TestHasURLParameter(t *testing.T) {
 }
 
 // TestGetURLParametersMap tests getting all parameters as map.
-// Uses ParseQueryParameters for query-string-only input per Burp's architecture.
 func TestGetURLParametersMap(t *testing.T) {
 	tests := []struct {
 		name     string

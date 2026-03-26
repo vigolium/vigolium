@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// RedirectDetector handles redirect detection and analysis matching Burp Suite behavior
+// RedirectDetector handles redirect detection and analysis
 type RedirectDetector struct {
 	mu sync.RWMutex
 	// Track discovered redirects to avoid loops
@@ -41,21 +41,20 @@ type RedirectInfo struct {
 	IsSameHost         bool   // True if redirect stays on same host
 }
 
-// DetectRedirect analyzes an HTTP response for redirect patterns matching Burp's behavior
-// Implements the exact algorithm from ff6.java lines 162-186
+// DetectRedirect analyzes an HTTP response for redirect patterns
 func (rd *RedirectDetector) DetectRedirect(resp *http.Response, originalURL string, depth uint16, maxDepth uint16) (*RedirectInfo, error) {
 	info := &RedirectInfo{
 		StatusCode: resp.StatusCode,
 	}
 
-	// Burp only checks 301 and 302 (ff6.java:162)
+	// Only check 301 and 302 redirects
 	if resp.StatusCode != http.StatusMovedPermanently && resp.StatusCode != http.StatusFound {
 		return info, nil
 	}
 
 	info.IsRedirect = true
 
-	// Extract Location header (ff6.java:164)
+	// Extract Location header
 	locationHeader := resp.Header.Get("Location")
 	if locationHeader == "" {
 		return info, nil
@@ -68,7 +67,7 @@ func (rd *RedirectDetector) DetectRedirect(resp *http.Response, originalURL stri
 		return info, err
 	}
 
-	// Parse and resolve redirect URL (at.java:84-363)
+	// Parse and resolve redirect URL
 	redirectURL, err := rd.parseAndNormalizeURL(info.LocationHeader, origURL)
 	if err != nil {
 		return info, err
@@ -76,11 +75,11 @@ func (rd *RedirectDetector) DetectRedirect(resp *http.Response, originalURL stri
 	// Store full URL for queueing, but we'll use path for comparison
 	info.ResolvedLocation = redirectURL.String()
 
-	// Get paths as bytes for comparison (ff6.java:168-169)
+	// Get paths as bytes for comparison
 	info.OriginalPath = []byte(origURL.Path)
 	info.RedirectPath = []byte(redirectURL.Path)
 
-	// Check for trailing slash redirect (ff6.java:171-175)
+	// Check for trailing slash redirect
 	if rd.IsTrailingSlashRedirect(info.OriginalPath, info.RedirectPath) {
 		info.IsTrailingSlash = true
 		info.ShouldMarkDirectory = true
@@ -95,7 +94,7 @@ func (rd *RedirectDetector) DetectRedirect(resp *http.Response, originalURL stri
 		info.ExtractedFilename, info.ExtractedExtension = ExtractFilename(redirectURL.Path)
 	}
 
-	// Check if we should queue the redirect target (ff6.java:177-183)
+	// Check if we should queue the redirect target
 	if depth+1 <= maxDepth {
 		// Check if not already discovered
 		rd.mu.Lock()
@@ -110,8 +109,7 @@ func (rd *RedirectDetector) DetectRedirect(resp *http.Response, originalURL stri
 	return info, nil
 }
 
-// IsTrailingSlashRedirect implements Burp's exact trailing slash detection
-// Algorithm from ff6.java lines 171-175
+// IsTrailingSlashRedirect detects trailing slash redirects
 // Exported for testing
 func (rd *RedirectDetector) IsTrailingSlashRedirect(originalPath, redirectPath []byte) bool {
 	// Check length: redirect must be exactly 1 byte longer
@@ -132,9 +130,9 @@ func (rd *RedirectDetector) IsTrailingSlashRedirect(originalPath, redirectPath [
 	return true
 }
 
-// parseAndNormalizeURL implements URL parsing and normalization matching at.java
+// parseAndNormalizeURL implements URL parsing and normalization
 func (rd *RedirectDetector) parseAndNormalizeURL(location string, baseURL *url.URL) (*url.URL, error) {
-	// Remove fragment (at.java:86-88)
+	// Remove fragment
 	if idx := strings.IndexByte(location, '#'); idx != -1 {
 		location = location[:idx]
 	}
@@ -145,18 +143,18 @@ func (rd *RedirectDetector) parseAndNormalizeURL(location string, baseURL *url.U
 		return nil, err
 	}
 
-	// Resolve relative URLs (at.java:92-96)
+	// Resolve relative URLs
 	if !redirectURL.IsAbs() {
 		redirectURL = baseURL.ResolveReference(redirectURL)
 	}
 
-	// Normalize the path (at.java:264-363)
+	// Normalize the path
 	redirectURL.Path = rd.NormalizePath(redirectURL.Path)
 
 	return redirectURL, nil
 }
 
-// NormalizePath implements Burp's path normalization from at.java:264-363
+// NormalizePath implements path normalization for redirect URLs
 // Exported for testing
 func (rd *RedirectDetector) NormalizePath(path string) string {
 	// Remove fragment if present (should already be done, but just in case)
@@ -164,25 +162,25 @@ func (rd *RedirectDetector) NormalizePath(path string) string {
 		path = path[:idx]
 	}
 
-	// Convert backslashes to forward slashes (at.java:97-99)
+	// Convert backslashes to forward slashes
 	path = strings.ReplaceAll(path, "\\", "/")
 
-	// Ensure path starts with / (at.java:287-289)
+	// Ensure path starts with /
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
 
-	// Remove /./ sequences (at.java:334-338)
+	// Remove /./ sequences
 	for strings.Contains(path, "/./") {
 		path = strings.ReplaceAll(path, "/./", "/")
 	}
 
-	// Collapse // to / (at.java:340-344)
+	// Collapse // to /
 	for strings.Contains(path, "//") {
 		path = strings.ReplaceAll(path, "//", "/")
 	}
 
-	// Remove trailing /. (at.java:346-348)
+	// Remove trailing /.
 	if strings.HasSuffix(path, "/.") {
 		path = path[:len(path)-2]
 		if path == "" {
@@ -193,7 +191,7 @@ func (rd *RedirectDetector) NormalizePath(path string) string {
 	// Remember if path had trailing slash before processing
 	hadTrailingSlash := strings.HasSuffix(path, "/") && !strings.HasSuffix(path, "/.")
 
-	// Resolve /../ sequences (at.java:300-332)
+	// Resolve /../ sequences
 	segments := strings.Split(path, "/")
 	var resolved []string
 	for _, segment := range segments {
@@ -209,7 +207,7 @@ func (rd *RedirectDetector) NormalizePath(path string) string {
 	// Reconstruct path
 	result := "/" + strings.Join(resolved, "/")
 
-	// Handle trailing /.. (at.java:350-357)
+	// Handle trailing /..
 	if strings.HasSuffix(path, "/..") {
 		// This case is handled by the segment resolution above
 		// Just ensure we don't have an empty path

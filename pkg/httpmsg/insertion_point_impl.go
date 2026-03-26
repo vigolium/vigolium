@@ -25,7 +25,6 @@ type sharedBaseRequest struct {
 // ==================== PARAMETER INSERTION POINT ====================
 
 // ParameterInsertionPoint implements parameter-aware insertion point with encoding.
-// Ported from: ggd.java (lines 3-109)
 //
 // This insertion point is aware of parameter types and applies appropriate encoding:
 // - URL parameters: URL-encode special characters
@@ -40,7 +39,6 @@ type ParameterInsertionPoint struct {
 }
 
 // NewParameterInsertionPoint creates a new parameter-aware insertion point.
-// Ported from: ggd.a() factory method (lines 7-9) and constructor (lines 11-13)
 func NewParameterInsertionPoint(request []byte, param *Param) *ParameterInsertionPoint {
 	if param == nil {
 		panic("Parameter cannot be nil")
@@ -53,7 +51,7 @@ func NewParameterInsertionPoint(request []byte, param *Param) *ParameterInsertio
 	requestCopy := make([]byte, len(request))
 	copy(requestCopy, request)
 
-	// Map parameter type to insertion point type (ggd.java lines 68-108)
+	// Map parameter type to insertion point type
 	ipType := param.ToInsertionPointType()
 
 	return &ParameterInsertionPoint{
@@ -93,9 +91,8 @@ func (p *ParameterInsertionPoint) Type() InsertionPointType {
 }
 
 // BuildRequest creates a new request with payload injected and properly encoded.
-// Ported from: ggd.buildRequest() (lines 25-33)
 func (p *ParameterInsertionPoint) BuildRequest(payload []byte) []byte {
-	// Validate payload (ggd.java lines 27-29)
+	// Validate payload
 	if payload == nil {
 		panic("Payload cannot be nil")
 	}
@@ -331,7 +328,6 @@ func wrapAsJSONString(payload []byte) []byte {
 // ==================== ENCODED INSERTION POINT ====================
 
 // EncodedInsertionPoint implements insertion point with custom encoding.
-// Ported from: ia8.java (lines 5-135)
 //
 // This insertion point extends the base functionality with:
 // 1. Custom encoder support (URL encoding, Base64, etc.)
@@ -349,7 +345,6 @@ type EncodedInsertionPoint struct {
 }
 
 // NewEncodedInsertionPoint creates a new encoded insertion point.
-// Ported from: ia8 constructor (lines 12-19)
 func NewEncodedInsertionPoint(name string, request []byte, startOffset, endOffset int, encoder Encoder, prefix []byte, ipType InsertionPointType) *EncodedInsertionPoint {
 	if name == "" {
 		panic("Name cannot be empty")
@@ -368,7 +363,7 @@ func NewEncodedInsertionPoint(name string, request []byte, startOffset, endOffse
 	requestCopy := make([]byte, len(request))
 	copy(requestCopy, request)
 
-	// Extract and decode base value (ia8.java line 13)
+	// Extract and decode base value
 	baseBytes := request[startOffset:endOffset]
 	decodedBaseValue := encoder.Decode(baseBytes)
 
@@ -407,7 +402,6 @@ func (e *EncodedInsertionPoint) Type() InsertionPointType {
 }
 
 // BuildRequest creates a new request with payload injected and encoded.
-// Ported from: ia8.b() method (lines 22-50)
 func (e *EncodedInsertionPoint) BuildRequest(payload []byte) []byte {
 	if payload == nil {
 		panic("Payload cannot be nil")
@@ -501,7 +495,6 @@ func (e *EncodedInsertionPoint) SetEncoder(encoder Encoder) {
 // ==================== NESTED INSERTION POINT ====================
 
 // NestedInsertionPoint implements insertion point for nested parameters with multi-layer encoding.
-// Ported from: burp/ia3.java (lines 7-73)
 //
 // This handles parameters containing embedded parameters in different formats
 // (e.g., URL parameter containing JSON, Cookie containing URL-encoded data).
@@ -519,7 +512,6 @@ type NestedInsertionPoint struct {
 }
 
 // NewNestedInsertionPoint creates a new nested insertion point.
-// Ported from: ia3.java constructor (lines 12-17)
 func NewNestedInsertionPoint(request []byte, parentParam, childParam InsertionPoint) *NestedInsertionPoint {
 	requestCopy := make([]byte, len(request))
 	copy(requestCopy, request)
@@ -575,7 +567,6 @@ func (n *NestedInsertionPoint) Type() InsertionPointType {
 }
 
 // BuildRequest creates request with payload injected through nested encoding chain.
-// Ported from: ia3.java b() method (lines 28-32)
 func (n *NestedInsertionPoint) BuildRequest(payload []byte) []byte {
 	// Step 1: Apply child encoding to get the child's encoded value
 	childEncodedValue := n.getChildEncodedValue(payload)
@@ -632,7 +623,6 @@ func (n *NestedInsertionPoint) BuildState() int {
 }
 
 // UnwrapChain unwraps a nested insertion point chain to find the root parent.
-// Ported from: ia3.java a(bno) static method (lines 60-72)
 func UnwrapChain(ip InsertionPoint) InsertionPoint {
 	current := ip
 

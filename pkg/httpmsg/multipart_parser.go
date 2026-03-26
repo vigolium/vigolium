@@ -1,17 +1,13 @@
 package httpmsg
 
-// multipart_parser.go - Multipart/form-data parser ported from Burp Suite
-// Ported from: burp/c9s.java (MULTIPART parameter parsing, lines 125-230)
-//              burp/e8k.java (Multipart boundary handling)
-//              burp/dz8.java (Request analysis integration)
-//              burp/ap1.java (Parameter structure with MULTIPART_ATTR type)
+// multipart_parser.go - Multipart/form-data parser
 
 import (
 	"fmt"
 	"strings"
 )
 
-// Byte patterns for multipart parsing (from c9s.java lines 9-10)
+// Byte patterns for multipart parsing
 var (
 	// namePattern = []byte{110, 97, 109, 101, 61, 34} = "name=\""
 	namePattern = []byte("name=\"")
@@ -23,20 +19,16 @@ var (
 // ParseMultipartBody parses multipart/form-data body and extracts parameters.
 // This is the main entry point for multipart parsing.
 //
-// Ported from: c9s.java method a() for MULTIPART parsing (lines 125-230)
-//
-//	Case 2 in switch statement (line 125)
-//
-// Algorithm (from c9s.java lines 125-230):
+// Algorithm:
 //  1. Extract boundary from Content-Type header
 //  2. Construct boundary markers: "--boundary" for parts, "--boundary--" for end
 //  3. Find all boundary positions using loop-based search
 //  4. For each part between boundaries:
-//     - Search for "name=\"" and extract name attribute (lines 142-152)
-//     - Search for "filename=\"" and extract filename if present (lines 156-163)
-//     - Find end of headers (double newline sequence) (lines 166-189)
-//     - Extract value content between headers and next boundary (lines 190-218)
-//     - Create Parameter with type BODY_PARAM_MULTIPART (line 216-218)
+//     - Search for "name=\"" and extract name attribute
+//     - Search for "filename=\"" and extract filename if present
+//     - Find end of headers (double newline sequence)
+//     - Extract value content between headers and next boundary
+//     - Create Parameter with type BODY_PARAM_MULTIPART
 //  5. Track all byte offsets relative to request start
 //
 // Example:
@@ -69,32 +61,28 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 		return []*Param{}, nil
 	}
 
-	// Construct boundary markers (Burp uses raw byte concatenation)
-	// From c9s.java line 132: boundary bytes are extracted and used directly
+	// Construct boundary markers
 	boundaryBytes := []byte(boundary)
 
 	// Parse all multipart parts
-	// From c9s.java lines 136-223
 	params := []*Param{}
 	requestLen := len(request)
 	offset := bodyOffset
 
-	// Loop through all parts (from c9s.java lines 137-223)
+	// Loop through all parts
 	for offset < requestLen {
-		// Search for "name=\"" pattern (cec.a method call at line 142)
-		// This finds the start of the name attribute
+		// Search for "name=\"" pattern to find the start of the name attribute
 		nameStart := IndexOfBytes(request, namePattern, offset)
 		if nameStart == -1 {
 			// No more parts found
 			break
 		}
 
-		// Extract name value (from c9s.java lines 147-152)
+		// Extract name value
 		// nameStart points to "name=\"", so name value starts after the pattern
 		nameValueStart := nameStart + len(namePattern)
 
-		// Find closing quote for name (cec.b method call at line 148)
-		// Searches for byte 34 which is '"'
+		// Find closing quote for name (byte 34 = '"')
 		nameValueEnd := IndexOfByte(request, byte(34), nameValueStart)
 		if nameValueEnd == -1 {
 			// Malformed - no closing quote
@@ -104,15 +92,14 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 		// Update offset to continue searching
 		offset = nameValueEnd + 1
 
-		// Find end of current line to search for filename (from c9s.java line 154)
-		// cec.b(var1, (byte)10, var36, var3) searches for LF (byte 10)
+		// Find end of current line to search for filename
 		lineEnd := IndexOfByte(request, LF, nameValueStart)
 		if lineEnd <= 0 {
 			// Malformed - no line ending
 			break
 		}
 
-		// Search for "filename=\"" in the same header line (from c9s.java lines 156-163)
+		// Search for "filename=\"" in the same header line
 		// This is optional - only present for file uploads
 		var filenameParam *Param
 		filenameStart := IndexOfBytes(request, filenamePattern, offset)
@@ -121,8 +108,7 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 			filenameValueStart := filenameStart + len(filenamePattern)
 			filenameValueEnd := IndexOfByte(request, byte(34), filenameValueStart)
 			if filenameValueEnd > 0 && filenameValueEnd < lineEnd {
-				// Create filename parameter (from c9s.java line 161)
-				// Type: ParamMultipartAttr, Name: "filename", Value: extracted value
+				// Create filename parameter (ParamMultipartAttr type)
 				filenameValue := string(SliceBytes(request, filenameValueStart, filenameValueEnd))
 				filenameParam = NewParsedParam(
 					ParamMultipartAttr,
@@ -136,27 +122,26 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 			}
 		}
 
-		// Find end of headers (from c9s.java lines 166-189)
+		// Find end of headers
 		// Look for double newline sequence (LF LF or CRLF CRLF)
-		// The algorithm tracks when we see consecutive newlines
 		headerEnd := offset
 		sawNewline := false
 
 		for headerEnd < requestLen {
 			currentByte := request[headerEnd]
 
-			// Check if byte is printable (>= 32) (from c9s.java line 169)
+			// Check if byte is printable (>= 32)
 			if currentByte >= 32 {
 				sawNewline = false
 			}
 
-			// Check if byte is LF (10) (from c9s.java line 173)
+			// Check if byte is LF (10)
 			if currentByte != LF {
 				headerEnd++
 				continue
 			}
 
-			// Found LF - check if we saw one before (from c9s.java line 180)
+			// Found LF - check if we saw one before
 			if sawNewline {
 				// Double newline found - headers end here
 				break
@@ -171,29 +156,27 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 			break
 		}
 
-		// Value starts after the double newline (from c9s.java line 195)
+		// Value starts after the double newline
 		headerEnd++ // Move past the second LF
 		valueStart := headerEnd
 
-		// Find next boundary to determine value end (from c9s.java line 196)
-		// cec.a(var1, var10, true, var30, var3) searches for boundary bytes
+		// Find next boundary to determine value end
 		valueEnd := IndexOfBytes(request, boundaryBytes, valueStart)
 		if valueEnd == -1 || valueEnd > requestLen {
 			valueEnd = requestLen
 		}
 
-		// Trim trailing CRLF/LF from value (from c9s.java lines 201-214)
-		// Work backwards to remove trailing whitespace
+		// Trim trailing CRLF/LF from value (work backwards)
 		for valueEnd-1 > valueStart && request[valueEnd-1] != LF && request[valueEnd-1] != CR {
 			valueEnd--
 		}
 
-		// Remove trailing LF if present (from c9s.java line 208)
+		// Remove trailing LF if present
 		if valueEnd-1 > valueStart && request[valueEnd-1] == LF {
 			valueEnd--
 		}
 
-		// Remove trailing CR if present (from c9s.java line 212)
+		// Remove trailing CR if present
 		if valueEnd-1 >= valueStart && request[valueEnd-1] == CR {
 			valueEnd--
 		}
@@ -203,7 +186,6 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 		value := string(SliceBytes(request, valueStart, valueEnd))
 
 		// Extract metadata (additional headers between name and value)
-		// From c9s.java line 217: var1.a(var40 + 1, var46 - 1).x().trim()
 		// This is the content between closing quote of name and start of value
 		metadataStart := nameValueEnd + 1
 		metadataEnd := valueStart - 1
@@ -212,8 +194,7 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 			metadata = strings.TrimSpace(string(SliceBytes(request, metadataStart, metadataEnd)))
 		}
 
-		// Create parameter (from c9s.java lines 216-218)
-		// Constructor: new ap1(var0, name, value, nameStart, nameEnd, valueStart, valueEnd, metadata)
+		// Create parameter
 		param := NewParsedParamWithMetadata(
 			ParamBodyMultipart,
 			name,
@@ -232,7 +213,7 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 			params = append(params, filenameParam)
 		}
 
-		// Move offset to next part (from c9s.java line 220)
+		// Move offset to next part
 		offset = valueEnd
 	}
 
@@ -240,8 +221,6 @@ func ParseMultipartBody(request []byte, bodyOffset int, boundary string) ([]*Par
 }
 
 // ExtractBoundary extracts the boundary string from a Content-Type header value.
-//
-// Ported from: c9s.java lines 126-132
 //
 // Algorithm:
 //  1. Search for "boundary=" in Content-Type header
@@ -265,14 +244,12 @@ func ExtractBoundary(contentType string) string {
 		return ""
 	}
 
-	// From c9s.java line 126: var9 = var5.indexOf("boundary=")
 	boundaryPrefix := "boundary="
 	idx := strings.Index(contentType, boundaryPrefix)
 	if idx == -1 {
 		return ""
 	}
 
-	// From c9s.java line 131: var5.substring(var9).trim()
 	idx += len(boundaryPrefix)
 	boundary := strings.TrimSpace(contentType[idx:])
 

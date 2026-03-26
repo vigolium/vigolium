@@ -9,7 +9,7 @@ type EncodedJavaScriptSchemeCompositeStrategy struct {
 }
 
 // NewEncodedJavaScriptSchemeCompositeStrategy creates a new instance of Ao9.
-// Original Java constructor: ao9(net.portswigger.ou var1)
+// Original Java constructor: ao9(ou var1)
 func NewEncodedJavaScriptSchemeCompositeStrategy(
 	randomProvider *utils.RandomGenerator,
 ) *EncodedJavaScriptSchemeCompositeStrategy {

@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDefaultConfig verifies that all default values match Burp Suite exactly.
-// This is critical for maintaining feature parity with the original implementation.
+// TestDefaultConfig verifies that all default values are correctly set.
 func TestDefaultConfig(t *testing.T) {
 	cfg := NewDefaultConfig()
 	require.NotNil(t, cfg)
@@ -18,16 +17,13 @@ func TestDefaultConfig(t *testing.T) {
 		// StartURL has no default (must be provided by user)
 		assert.Empty(t, cfg.Target.StartURL)
 
-		// Mode: files_and_dirs (Burp default)
-		// Source: did.java lines 12-13, both w (hasFiles) and I (hasDirectories) are true
+		// Mode: files_and_dirs
 		assert.Equal(t, ModeFilesAndDirs, cfg.Target.Mode)
 
 		// Recursion enabled by default
-		// Source: did.java line 14, L (recursionEnabled) = true
 		assert.True(t, cfg.Target.Recursion.Enabled)
 
-		// Max depth: 16 (Burp default)
-		// Source: did.java line 15, b (maxDepth) = 16
+		// Max depth: 16
 		assert.Equal(t, int16(16), cfg.Target.Recursion.MaxDepth)
 	})
 
@@ -45,7 +41,6 @@ func TestDefaultConfig(t *testing.T) {
 		assert.False(t, cfg.Filenames.Wordlists.HasLongDirs())
 
 		// Observed and derived names enabled
-		// Source: did.java lines 20-21
 		assert.True(t, cfg.Filenames.UseObservedNames, "observed names should be enabled")
 		assert.False(t, cfg.Filenames.EnableNumericFuzzing, "numeric fuzzing should be opt-in (disabled by default)")
 	})
@@ -74,10 +69,10 @@ func TestDefaultConfig(t *testing.T) {
 		// Case sensitivity: auto-detect
 		assert.Equal(t, CaseAutoDetect, cfg.Engine.CaseSensitivity, "case sensitivity should be auto-detect")
 
-		// Discovery threads: 40 (did.java line 33)
+		// Discovery threads: 40
 		assert.Equal(t, 40, cfg.Engine.DiscoveryThreads, "discovery threads should be 40")
 
-		// Timeout: 10 seconds (did.java default)
+		// Timeout: 10 seconds
 		assert.Equal(t, 10*time.Second, cfg.Engine.Timeout, "timeout should be 10 seconds")
 	})
 }
@@ -123,7 +118,7 @@ func TestAllowedObservedExtensions(t *testing.T) {
 }
 
 func TestDefaultBackupExtensions(t *testing.T) {
-	// Verify the exported default list has 36 items (did.java lines 100-137)
+	// Verify the exported default list has 36 items
 	assert.Len(t, DefaultBackupExtensions, 36, "should have 36 backup extensions")
 
 	// Verify critical backup extensions are present
@@ -213,14 +208,14 @@ func TestDefaultConfig_WordlistsEmpty(t *testing.T) {
 	assert.Empty(t, cfg.Filenames.Wordlists.LongDirPath)
 }
 
-// TestDefaultsMatchBurpDefaults verifies that defaults match Burp Suite values.
-func TestDefaultsMatchBurpDefaults(t *testing.T) {
+// TestDefaultsMatchDefaults verifies that defaults match expected values.
+func TestDefaultsMatchDefaults(t *testing.T) {
 	cfg := NewDefaultConfig()
 
-	// These values should match Burp Suite's did.java defaults
-	assert.Equal(t, ModeFilesAndDirs, cfg.Target.Mode, "mode should match Burp defaults")
-	assert.True(t, cfg.Target.Recursion.Enabled, "recursion should match Burp defaults")
-	assert.Equal(t, int16(16), cfg.Target.Recursion.MaxDepth, "max depth should match Burp defaults")
-	assert.Equal(t, 40, cfg.Engine.DiscoveryThreads, "discovery threads should match Burp defaults")
-	assert.Equal(t, CaseAutoDetect, cfg.Engine.CaseSensitivity, "case sensitivity should match Burp defaults")
+	// These values should match expected defaults
+	assert.Equal(t, ModeFilesAndDirs, cfg.Target.Mode, "mode should match defaults")
+	assert.True(t, cfg.Target.Recursion.Enabled, "recursion should match defaults")
+	assert.Equal(t, int16(16), cfg.Target.Recursion.MaxDepth, "max depth should match defaults")
+	assert.Equal(t, 40, cfg.Engine.DiscoveryThreads, "discovery threads should match defaults")
+	assert.Equal(t, CaseAutoDetect, cfg.Engine.CaseSensitivity, "case sensitivity should match defaults")
 }

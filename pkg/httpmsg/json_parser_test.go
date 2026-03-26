@@ -410,7 +410,7 @@ func TestJSONParser_ValueTypes(t *testing.T) {
 }
 
 // TestJSONParser_Arrays tests array parsing behavior.
-// Burp's behavior: array elements don't get indexed paths - all share the parent key name.
+// Array elements don't get indexed paths - all share the parent key name.
 func TestJSONParser_Arrays(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -506,7 +506,7 @@ func TestJSONParser_EmptyStructures(t *testing.T) {
 }
 
 // TestJSONParser_LenientParsing tests that parser handles malformed JSON gracefully.
-// Burp's parser is lenient - it extracts what it can without strict validation.
+// The parser is lenient - it extracts what it can without strict validation.
 func TestJSONParser_LenientParsing(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -517,7 +517,7 @@ func TestJSONParser_LenientParsing(t *testing.T) {
 		{
 			name:        "missing closing brace",
 			json:        `{"user":"john"`,
-			expectError: false, // Burp is lenient
+			expectError: false, // Parser is lenient
 			minParams:   0,     // May or may not extract anything
 		},
 		{

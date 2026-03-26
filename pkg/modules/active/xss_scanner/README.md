@@ -1,6 +1,6 @@
 # XSS Scanner
 
-Burp Suite inspired reflected XSS scanner with multiple attack vectors.
+Reflected XSS scanner with multiple attack vectors.
 
 ## Scanner Coverage
 

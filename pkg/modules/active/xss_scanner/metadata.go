@@ -19,7 +19,6 @@ context (HTML body, attributes, JavaScript, URL) and generates targeted payloads
 - Includes SSTI scanning as a secondary check
 
 ## References
-- https://portswigger.net/burp/documentation/scanner/xss
 - https://owasp.org/www-community/attacks/xss/`
 
 	ModuleConfirmation = "Confirmed when a crafted XSS payload executes or is reflected in an exploitable context without encoding"

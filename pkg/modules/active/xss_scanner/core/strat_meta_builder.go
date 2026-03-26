@@ -76,14 +76,12 @@ func (executor *MappedStrategyExecutor) ExecuteStrategyByCode(
 	transaction *utils.HTTPTransaction,
 ) PotentialXSSFinding {
 	// if (!this.a.containsKey(var1)) {
-	//    net.portswigger.qe.a(false, net.portswigger.rg.j, (long)var1);
 	//    return null;
 	// }
 	selectedStrategy, isStrategyFound := executor.strategyMap[strategyCode]
 	if !isStrategyFound ||
 		selectedStrategy == nil { // Combined Java's containsKey and implicit null check from get
-		// net.portswigger.qe.a call is for logging/assertion - can be added if qe is ported/stubbed
-		// For now, just mimic returning null
+		// No matching strategy found
 		return nil
 	}
 

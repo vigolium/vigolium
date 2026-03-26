@@ -451,7 +451,7 @@ func TestAppendBodyParameter(t *testing.T) {
 			request:    "POST /path HTTP/1.1\r\nHost: example.com\r\n\r\n",
 			paramName:  "data",
 			paramValue: "a b&c=d",
-			// Values are written AS-IS per Burp Suite behavior (no encoding)
+			// Values are written as-is without encoding
 			// User must pre-encode values if needed
 			wantContains: "data=a b&c=d",
 		},

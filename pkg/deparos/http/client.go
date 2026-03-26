@@ -30,7 +30,7 @@ type ClientConfig struct {
 
 	// MaxRedirects limits the number of redirects to follow
 	// 0 means no redirects, -1 means unlimited
-	// Default: 10 (matches Burp)
+	// Default: 10
 	MaxRedirects int
 
 	// DisableAutoRedirect completely disables automatic redirect following

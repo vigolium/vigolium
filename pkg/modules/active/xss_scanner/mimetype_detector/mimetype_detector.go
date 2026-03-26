@@ -212,8 +212,7 @@ func (md *MimetypeDetector) GetIsAttachment() bool {
 	return md.isAttachment
 }
 
-// to its corresponding Java short code (e.g., ContentType_HTML, ContentType_JSON).
-// This function is crucial for aligning with Burp's internal content type representation.
+// mapStringToContentType maps a MIME type string to its corresponding ContentType constant.
 func mapStringToContentType(mimeString string) ContentType {
 	normalizedMime := strings.ToLower(strings.TrimSpace(mimeString))
 

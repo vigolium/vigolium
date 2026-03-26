@@ -5,7 +5,6 @@ import (
 )
 
 // Signature represents a learned 404 fingerprint signature
-// Maps to Burp's b5e.java fingerprint signature (Lines 7-89)
 // Contains only stable attributes (consistent across multiple samples)
 // Immutable after creation - no synchronization needed.
 type Signature struct {
@@ -14,7 +13,6 @@ type Signature struct {
 }
 
 // NewSignature creates a signature by analyzing consistency across multiple samples
-// Maps to Burp's ds9.java learning algorithm (Lines 5-109)
 // Uses 3-baseline sampling: only attributes stable across all 3 samples are included
 func NewSignature(samples []*Sample) (*Signature, error) {
 	if len(samples) == 0 {
@@ -46,7 +44,6 @@ func NewSignature(samples []*Sample) (*Signature, error) {
 }
 
 // isStableAcrossSamples checks if an attribute has the same hash across all samples
-// Maps to Burp's consistency detection in b5e.java (Lines 35-60)
 func (sig *Signature) isStableAcrossSamples(attr Attribute, samples []*Sample) bool {
 	if len(samples) == 0 {
 		return false
@@ -74,7 +71,6 @@ func (sig *Signature) isStableAcrossSamples(attr Attribute, samples []*Sample) b
 }
 
 // Matches checks if a sample matches this signature
-// Maps to Burp's b5e.java:matches() (Lines 62-89)
 // Returns true if ALL stable attributes in signature match the sample
 func (sig *Signature) Matches(sample *Sample) bool {
 	// Check each stable attribute

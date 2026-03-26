@@ -102,8 +102,7 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 				var2 = fmt.Errorf("%v", var25)
 			}
 
-			// net.portswigger.m5.a(var2, this.d(), net.portswigger.rr.UNEXPECTED);
-			err = fmt.Errorf(
+				err = fmt.Errorf(
 				"UNEXPECTED_PARSER_ERROR: %v - Context: %s",
 				var2,
 				p.getContextForError(),
@@ -115,7 +114,6 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 		}
 	}()
 
-	// net.portswigger.qe.a(this.g >= 0 && this.g <= this.d && this.d <= this.i.aF(), net.portswigger.rg.j, (long)this.g, (long)this.d, (long)this.i.aF());
 	p.currentIndex = p.startIdx // this.l = this.g;
 
 	for {
@@ -262,9 +260,8 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 						// int var10 = this.l;
 						var10 := p.currentIndex
 
-						// String var11 = net.portswigger.cy.c(this.i.a(var9, var10).x());
 						var11Data, _ := p.data.SubSequence(var9, var10)
-						var11 := utils.NetPortswiggerCyCHtmlEntityDecode(var11Data.GetString())
+						var11 := utils.HTMLEntityDecode(var11Data.GetString())
 
 						// var8.add(new apy(var11, null, var9, var10, this.l, this.l, (byte)3));
 						var8 = append(var8, &HTMLAttribute{
@@ -328,9 +325,8 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 							// int var23 = this.l;
 							var23 := p.currentIndex
 
-							// String var24 = net.portswigger.cy.c(this.i.a(var21, var23).x());
 							var24Data, _ := p.data.SubSequence(var21, var23)
-							var24 := utils.NetPortswiggerCyCHtmlEntityDecode(var24Data.GetString())
+							var24 := utils.HTMLEntityDecode(var24Data.GetString())
 
 							// this.e();
 							p.skipWhitespace()
@@ -377,9 +373,8 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 								// var14 = this.l;
 								var14 = p.currentIndex
 
-								// var12 = net.portswigger.cy.c(this.i.a(var13, var14).x());
 								var12Data, _ := p.data.SubSequence(var13, var14)
-								var12 = utils.NetPortswiggerCyCHtmlEntityDecode(var12Data.GetString())
+								var12 = utils.HTMLEntityDecode(var12Data.GetString())
 
 								// switch (var15)
 								switch var15 {

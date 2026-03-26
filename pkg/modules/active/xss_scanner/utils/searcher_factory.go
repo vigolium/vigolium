@@ -1,11 +1,7 @@
 package utils
 
-// --- m1.java Port ---
-
-// NetPortswiggerM1 struct corresponds to net.portswigger.m1 class.
-// It acts as a factory or provider for E0 searcher instances.
-// The ExecutorService field from Java is omitted for now as sd.java is not ported.
-type NetPortswiggerM1 struct {
+// SearcherFactory is a factory for creating E0 searcher instances.
+type SearcherFactory struct {
 }
 
 // --- E0 Implementations for Special Cases and Wrappers ---
@@ -58,7 +54,7 @@ func sanitizeIndexInternal(haystack Pc, index int) int {
 	}
 	// If haystack was indeed nil/empty and this was called, haystack.A() would be problematic.
 	// The design implies wrappers handle these upstream.
-	return min(haystack.A(), index) // Use local min helper from net_portswigger_ls.go
+	return min(haystack.A(), index)
 }
 
 // SanitizingSearcherWrapperImpl wraps an E0 searcher to sanitize indices before calling.
@@ -106,44 +102,24 @@ func (s *NullHaystackCheckingSearcherWrapperImpl) A(haystack Pc, fromIndex int, 
 	return -1 // Haystack is null or empty
 }
 
-// --- M1 Constructors ---
-
-// NewM1 creates an M1 instance, currently only uses the threshold.
-// Corresponds to package-private m1(ExecutorService var1, int var2)
-// Since ExecutorService is ignored, this is effectively NewM1WithThreshold.
-func NewM1() *NetPortswiggerM1 {
-	return &NetPortswiggerM1{}
+// NewM1 creates a new SearcherFactory instance.
+func NewM1() *SearcherFactory {
+	return &SearcherFactory{}
 }
 
-// --- M1 Public Methods ---
-
 // CreateSearcher creates an E0 searcher instance based on the pattern and case sensitivity.
-// Corresponds to public e0 a(byte[] var1, boolean var2) in m1.java
-func (m1Inst *NetPortswiggerM1) CreateSearcher(pattern []byte, caseSensitive bool) E0 {
+func (m1Inst *SearcherFactory) CreateSearcher(pattern []byte, caseSensitive bool) E0 {
 	if pattern == nil {
-		// Java: return m1::lambda$create$0; (NOT wrapped further by b(e0) or a(e0))
 		return &e0ForNullPatternImpl{}
 	}
 	if len(pattern) == 0 {
-		// Java: return m1::lambda$create$1; (NOT wrapped further by b(e0) or a(e0))
-		// The raw fromIndex returned by e0ForEmptyPatternImpl will be handled by the caller (ls.AIndexOf)
-		// or if the E0 interface itself implies sanitization for all implementers (which it doesn't explicitly).
-		// Based on direct return in Java, we also return directly.
 		return &e0ForEmptyPatternImpl{}
 	}
 
-	// Else branch: pattern is not nil and not empty
-	// kw var3 = new kw(var1, var2);
-	coreSearcher := NewKwSearcher(pattern, caseSensitive) // From net_portswigger_kw.go
-
-	// Original Java for this branch: return b(var3);
-	// where b(e0_core) { e0_sanitized = a(e0_core); return new NullChecker(e0_sanitized); }
-	// and   a(e0_core) { return new Sanitizer(e0_core); }
-	// This means: coreSearcher -> Sanitizer -> NullChecker
+	coreSearcher := NewKwSearcher(pattern, caseSensitive)
 	sanitizedCoreSearcher := NewSanitizingSearcherWrapperImpl(coreSearcher)
 	nullCheckedAndSanitizedSearcher := NewNullHaystackCheckingSearcherWrapperImpl(
 		sanitizedCoreSearcher,
 	)
-
 	return nullCheckedAndSanitizedSearcher
 }

@@ -19,7 +19,6 @@ import (
 // =============================================================================
 
 // Encoder defines the interface for encoding payloads at insertion points.
-// Ported from: burp/egp.java
 type Encoder interface {
 	// Encode encodes the payload and adjusts offset positions.
 	// payload: the bytes to encode
@@ -35,9 +34,9 @@ type Encoder interface {
 
 // Encoder type constants
 const (
-	EncoderNoop       = iota // Passthrough encoder (no encoding) - burp/czx.java
-	EncoderJSONString        // Escapes only double quotes for JSON string values - burp/d1z.java
-	EncoderJSONEscape        // Full JSON escaping including control characters - burp/ct7.java
+	EncoderNoop       = iota // Passthrough encoder (no encoding)
+	EncoderJSONString        // Escapes only double quotes for JSON string values
+	EncoderJSONEscape        // Full JSON escaping including control characters
 )
 
 // GetEncoder returns an encoder instance for the specified type.
@@ -59,7 +58,6 @@ func GetEncoder(encoderType int) Encoder {
 // =============================================================================
 
 // NoopEncoder is a passthrough encoder that returns payloads unchanged.
-// Ported from: burp/czx.java
 type NoopEncoder struct{}
 
 // Encode returns the payload unchanged.
@@ -78,7 +76,6 @@ func (e *NoopEncoder) Decode(encoded []byte) []byte {
 
 // JSONStringEncoder escapes double quotes for JSON string values.
 // Only handles: " → \"
-// Ported from: burp/d1z.java
 type JSONStringEncoder struct{}
 
 // Encode escapes double quotes and tracks offset positions.
@@ -137,7 +134,6 @@ func (e *JSONStringEncoder) Decode(encoded []byte) []byte {
 
 // JSONEscapeEncoder performs full JSON escaping including all control characters.
 // Handles: " → \", / → \/, \ → \\, plus \n, \r, \t, \b, \f, and \u00xx for non-printable
-// Ported from: burp/ct7.java
 type JSONEscapeEncoder struct{}
 
 // Encode performs full JSON escaping and tracks offset positions.
@@ -254,7 +250,6 @@ func (e *JSONEscapeEncoder) Decode(encoded []byte) []byte {
 var hexChars = []byte{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'}
 
 // URLEncoder implements URL percent-encoding with custom charset support.
-// Ported from: burp/b_2.java
 type URLEncoder struct {
 	allowedChars map[byte]bool
 }
@@ -356,7 +351,6 @@ func percentEncode(output *bytes.Buffer, b byte) {
 // =============================================================================
 
 // URLEncoderExtended implements URL encoding with character substitution.
-// Ported from: burp/euc.java
 type URLEncoderExtended struct {
 	charMap map[byte][]byte
 }
@@ -456,7 +450,6 @@ func (e *URLEncoderExtended) percentEncodeExt(output *bytes.Buffer, b byte) {
 // =============================================================================
 
 // Base64Encoder implements standard Base64 encoding with offset tracking.
-// Ported from: burp/fo3.java (standard mode), burp/d7a.java (MIME mode)
 type Base64Encoder struct {
 	mimeMode bool
 }
@@ -577,7 +570,6 @@ func isValidBase64Char(b byte) bool {
 // =============================================================================
 
 // GzipEncoder implements Gzip compression with offset tracking.
-// Ported from: burp/dx7.java
 type GzipEncoder struct{}
 
 // NewGzipEncoder creates a new Gzip encoder instance.

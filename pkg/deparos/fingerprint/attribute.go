@@ -1,12 +1,10 @@
 package fingerprint
 
 // Attribute represents a fingerprint attribute type
-// Maps to Burp's hsy.java enum (Lines 7-166)
 // 32 total attributes for response fingerprinting
 type Attribute uint8
 
 // Attribute constants (1-32)
-// Maps exactly to hsy.java attribute definitions
 const (
 	StatusCode              Attribute = 1  // HTTP status code
 	ETagHeader              Attribute = 2  // ETag header value (hashed)
@@ -58,7 +56,6 @@ const (
 )
 
 // AttributeMetadata contains metadata for each attribute
-// Maps to Burp's attribute properties in hsy.java
 type AttributeMetadata struct {
 	ID          int      // Attribute ID (1-32)
 	Name        string   // Attribute name
@@ -70,7 +67,6 @@ type AttributeMetadata struct {
 }
 
 // AttributeRegistry maps attributes to their metadata
-// Maps to Burp's hsy.java enum metadata (Lines 7-166)
 var AttributeRegistry = map[Attribute]AttributeMetadata{
 	StatusCode: {
 		ID:          1,

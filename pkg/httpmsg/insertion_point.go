@@ -1,9 +1,6 @@
 package httpmsg
 
-// insertion_point.go - Burp Suite insertion point system for payload injection
-// Ported from:
-//   - IScannerInsertionPoint.java: Interface definition
-//   - daw.java: Wrapper for API boundary checks
+// insertion_point.go - Insertion point system for payload injection
 //
 // Implementations are in separate files:
 //   - insertion_point_simple.go: SimpleInsertionPoint (basic byte replacement)
@@ -11,26 +8,6 @@ package httpmsg
 //   - insertion_point_encoded.go: EncodedInsertionPoint (custom encoder support)
 
 // InsertionPointType represents where payload injection occurs in an HTTP request.
-// Ported from: IScannerInsertionPoint.java constants (lines 4-22)
-//
-// Source mapping:
-//   - INS_PARAM_URL (0): URL query parameter value
-//   - INS_PARAM_BODY (1): POST body parameter value
-//   - INS_PARAM_COOKIE (2): Cookie value
-//   - INS_PARAM_XML (3): XML element value
-//   - INS_PARAM_XML_ATTR (4): XML attribute value
-//   - INS_PARAM_MULTIPART_ATTR (5): Multipart attribute value
-//   - INS_PARAM_JSON (6): JSON value
-//   - INS_PARAM_AMF (7): AMF parameter
-//   - INS_HEADER (32): HTTP header value
-//   - INS_URL_PATH_FOLDER (33): REST URL path folder
-//   - INS_PARAM_NAME_URL (34): URL parameter name
-//   - INS_PARAM_NAME_BODY (35): Body parameter name
-//   - INS_ENTIRE_BODY (36): Entire request body
-//   - INS_URL_PATH_FILENAME (37): REST URL path filename
-//   - INS_USER_PROVIDED (64): User-defined position
-//   - INS_EXTENSION_PROVIDED (65): Extension-provided position
-//   - INS_UNKNOWN (127): Unknown/unclassified
 type InsertionPointType byte
 
 const (
@@ -136,14 +113,13 @@ type InsertionPoint interface {
 }
 
 // CreateAllInsertionPoints creates insertion points with optional nested discovery.
-// Ported from: Burp's scanner "Use nested insertion points" option
 //
-// This is the main factory function matching Burp's scanner workflow:
+// This is the main factory function for creating insertion points:
 // 1. Extract all parameters from request (URL, body, cookies, headers, etc.)
 // 2. Create standard insertion points for each parameter
 // 3. Optionally detect and create nested insertion points (JSON in params, etc.)
 //
-// The includeNested parameter matches Burp's "Scan insertion point" options:
+// The includeNested parameter controls nested structure scanning:
 //   - false: Only scan direct parameter values (faster, less thorough)
 //   - true: Also scan nested structures like JSON/XML/Base64 (slower, more thorough)
 //
@@ -194,7 +170,6 @@ func CreateAllInsertionPoints(request []byte, includeNested bool) ([]InsertionPo
 	}
 
 	// Step 3: Optionally discover and create nested insertion points
-	// This matches Burp's "Use nested insertion points" scanner option
 	if includeNested {
 		nestedIPs := discoverNestedInsertionPointsShared(shared, info.Parameters)
 		for _, nip := range nestedIPs {

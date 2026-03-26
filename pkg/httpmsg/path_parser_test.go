@@ -5,7 +5,6 @@ import (
 )
 
 // TestParsePathParameters_BasicPaths tests basic path parameter extraction.
-// Ported from Burp Suite behavior validation.
 func TestParsePathParameters_BasicPaths(t *testing.T) {
 	tests := []struct {
 		name     string

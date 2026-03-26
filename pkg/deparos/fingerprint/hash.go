@@ -7,7 +7,6 @@ import (
 )
 
 // HashString computes CRC32 hash of a string
-// Maps to Burp's fmx.java single value hashing (Lines 5-52)
 func HashString(s string) uint32 {
 	if s == "" {
 		return 0
@@ -16,7 +15,6 @@ func HashString(s string) uint32 {
 }
 
 // HashStrings computes accumulated CRC32 hash of multiple strings
-// Maps to Burp's dis.java CRC32 accumulator (Lines 5-59)
 // Strings are processed in order (not sorted)
 func HashStrings(strings []string) uint32 {
 	if len(strings) == 0 {
@@ -33,7 +31,6 @@ func HashStrings(strings []string) uint32 {
 }
 
 // HashStringSet computes CRC32 hash of string set (sorted for consistency)
-// Maps to Burp's set-based hashing for unique values
 // Used for cookie names, class names, etc.
 func HashStringSet(strings []string) uint32 {
 	if len(strings) == 0 {
@@ -63,14 +60,12 @@ func HashBytes(b []byte) uint32 {
 }
 
 // accumulateCRC32 accumulates CRC32 hash
-// Maps to Burp's dis.java:accumulate() (Lines 20-35)
-// Combines existing hash with new data using XOR and addition
+// Combines existing hash with new data using XOR and rotation
 func accumulateCRC32(currentHash uint32, data []byte) uint32 {
 	// Compute CRC32 of new data
 	newHash := crc32.ChecksumIEEE(data)
 
 	// Accumulate: XOR and rotate
-	// This matches Burp's accumulation algorithm
 	accumulated := currentHash ^ newHash
 	accumulated = rotateLeft(accumulated, 1)
 
@@ -83,7 +78,6 @@ func rotateLeft(value uint32, n uint) uint32 {
 }
 
 // ParseContentType extracts content type without charset
-// Maps to Burp's content-type parsing in ad1.java
 func ParseContentType(contentType string) string {
 	if contentType == "" {
 		return ""
@@ -100,7 +94,6 @@ func ParseContentType(contentType string) string {
 }
 
 // ExtractCookieNames extracts cookie names from Set-Cookie headers
-// Maps to Burp's cookie extraction in ad1.java
 func ExtractCookieNames(setCookieHeaders []string) []string {
 	if len(setCookieHeaders) == 0 {
 		return nil
@@ -130,7 +123,6 @@ func TruncateBytes(data []byte, maxBytes int) []byte {
 }
 
 // Constants for content truncation
-// Maps to Burp's content size limits
 const (
 	// InitialContentBytes = 1024  // First 1KB for InitialContent
 	// LimitedContentBytes = 10240 // First 10KB for LimitedBodyContent

@@ -29,11 +29,11 @@ var standardHtmlTagBlocklist = []string{
 // RandomHTMLTagGenerator implements the Fen interface.
 // Original Java class: d8v
 type RandomHTMLTagGenerator struct {
-	randomProvider *utils.RandomGenerator // Corresponds to private final net.portswigger.ou b;
+	randomProvider *utils.RandomGenerator // Corresponds to private final ou b;
 }
 
 // NewRandomHTMLTagGenerator creates a new instance of D8v.
-// Original Java constructor: d8v(net.portswigger.ou var1)
+// Original Java constructor: d8v(ou var1)
 func NewRandomHTMLTagGenerator(randomProvider *utils.RandomGenerator) *RandomHTMLTagGenerator {
 	return &RandomHTMLTagGenerator{randomProvider: randomProvider}
 }

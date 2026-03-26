@@ -1,29 +1,23 @@
 package httpmsg
 
-// urlencoded_parser.go - URL-encoded body parameter parsing ported from Burp Suite
-// Ported from: burp/c9s.java (URL_ENCODED body parameter parsing, lines 16-117, case 1)
-//              burp/c9s.java (body parameter extraction, lines 399-417)
-//              burp/glo.java (body extraction logic)
+// urlencoded_parser.go - URL-encoded body parameter parsing
 //
-// CRITICAL: Uses ONLY loop-based parsing (NO REGEX)
-// Follows Burp's char-by-char parameter detection for application/x-www-form-urlencoded bodies
+// Uses loop-based parsing (no regex) with char-by-char parameter detection
+// for application/x-www-form-urlencoded bodies.
 
 // ParseURLEncodedBody parses application/x-www-form-urlencoded body parameters.
 // This is the primary function for extracting parameters from POST body data.
 //
-// Ported from: c9s.java method a() for h5p.URL_ENCODED case (lines 20-117, case 1)
-// Called from: c9s.java method a(bi9, h5p, String, int) (lines 399-417, case 1)
-//
-// Algorithm (from c9s.java lines 22-117):
+// Algorithm:
 //  1. Initialize position markers: pos, nameStart, nameEnd, valueStart, valueEnd
 //  2. Loop through body bytes character by character
-//  3. Skip leading CRLF/LF at parameter start (lines 41-47)
-//  4. Find '=' character to separate name from value (lines 49-53)
-//  5. Find '&' character to separate parameters (lines 56-63)
-//  6. Handle edge cases: whitespace/control characters (lines 66-68)
-//  7. Parse value portion after '=' (lines 85-106)
-//  8. Create Parameter object with type ParamBody (line 110)
-//  9. Move to next parameter (line 113)
+//  3. Skip leading CRLF/LF at parameter start
+//  4. Find '=' character to separate name from value
+//  5. Find '&' character to separate parameters
+//  6. Handle edge cases: whitespace/control characters
+//  7. Parse value portion after '='
+//  8. Create Parameter object with type ParamBody
+//  9. Move to next parameter
 //
 // Example:
 //
@@ -40,7 +34,7 @@ package httpmsg
 //
 // Returns:
 //   - List of Parameter objects with ParamBody type
-//   - Error if parsing fails (currently never returns error for Burp compatibility)
+//   - Error if parsing fails (currently never returns error for compatibility)
 func ParseURLEncodedBody(request []byte, bodyOffset int) ([]*Param, error) {
 	if request == nil {
 		return []*Param{}, nil
@@ -52,11 +46,9 @@ func ParseURLEncodedBody(request []byte, bodyOffset int) ([]*Param, error) {
 	}
 
 	// Body extends from bodyOffset to end of request
-	// From c9s.java line 402: a(e_q.BODY_PARAM_URL_ENCODED, var0, var3, var0.aF(), ...)
-	// where var0.aF() returns the full length of the request
 	bodyEnd := len(request)
 
-	// Parse parameters using core URL-encoded parsing logic (c9s.java lines 22-117)
+	// Parse parameters using core URL-encoded parsing logic
 	// Key difference from query parsing: use ParamBody instead of ParamURL
 	params := parseURLEncodedParameters(ParamBody, request, bodyOffset, bodyEnd)
 
@@ -65,8 +57,6 @@ func ParseURLEncodedBody(request []byte, bodyOffset int) ([]*Param, error) {
 
 // GetBodyBytes extracts the body portion of an HTTP request as a byte slice.
 // Helper function for working with request bodies.
-//
-// Ported from: glo.java body extraction logic
 //
 // Parameters:
 //   - request: Complete HTTP request bytes
@@ -96,9 +86,6 @@ func GetBodyBytes(request []byte, bodyOffset int) []byte {
 
 // HasURLEncodedBody checks if an HTTP request has a URL-encoded body.
 // Examines Content-Type header for application/x-www-form-urlencoded.
-//
-// Ported from: Request analysis logic in c9s.java and h5p.java
-// Maps to: h5p.URL_ENCODED content type detection
 //
 // Algorithm:
 //  1. Extract Content-Type header from headers list
@@ -130,7 +117,6 @@ func HasURLEncodedBody(headers []string) bool {
 	contentType, _ := ParseContentType(headers)
 
 	// Compare against application/x-www-form-urlencoded (case-insensitive)
-	// From h5p.java: URL_ENCODED maps to "application/x-www-form-urlencoded"
 	return EqualsCaseInsensitive(contentType, "application/x-www-form-urlencoded")
 }
 
@@ -162,8 +148,6 @@ func ParseURLEncodedBodyString(body string) ([]*Param, error) {
 
 // ExtractBodyParameters extracts all body parameters from a complete HTTP request.
 // Automatically detects body offset and parses URL-encoded parameters.
-//
-// Ported from: c9s.java method a(bi9, h5p, String, int) for URL_ENCODED case
 //
 // Algorithm:
 //  1. Find header/body separator (FindBodyOffset)
@@ -210,15 +194,10 @@ func ExtractBodyParameters(request []byte) (params []*Param, bodyOffset int, err
 // GetBodyContentType determines the content type of the request body.
 // Parses Content-Type header and maps to ContentType enum.
 //
-// Ported from: c9s.java method a(String, bi9, int) (lines 458-487)
-//
-//	h5p.java content type detection
-//
-// Algorithm (from c9s.java lines 458-487):
-//  1. Check if body exists (bodyOffset != -1 and != length)
-//  2. Try auto-detection using rp.a() heuristics
-//  3. Fall back to Content-Type header parsing
-//  4. Map MIME types to h5p enum values:
+// Algorithm:
+//  1. Check if body exists
+//  2. Parse Content-Type header
+//  3. Map MIME types to ContentType values:
 //     - "multipart" -> MULTIPART
 //     - "xml" -> XML
 //     - "json" -> JSON
@@ -240,41 +219,40 @@ func ExtractBodyParameters(request []byte) (params []*Param, bodyOffset int, err
 // Returns:
 //   - ContentType enum value
 func GetBodyContentType(headers []string, request []byte, bodyOffset int) ContentType {
-	// If no body, return NONE (c9s.java lines 459-461)
+	// If no body, return NONE
 	if bodyOffset == -1 || bodyOffset >= len(request) {
 		return ContentTypeNone
 	}
 
-	// Parse Content-Type header (c9s.java line 464)
+	// Parse Content-Type header
 	contentTypeStr, _ := ParseContentType(headers)
 
-	// If no Content-Type header, default to URL_ENCODED (c9s.java line 482)
+	// If no Content-Type header, default to URL_ENCODED
 	if contentTypeStr == "" {
 		return ContentTypeURLEncoded
 	}
 
-	// Map MIME type to ContentType enum (c9s.java lines 465-480)
-	// Check for multipart (line 465-466)
+	// Map MIME type to ContentType enum
 	if containsSubstring(contentTypeStr, "multipart") {
 		return ContentTypeMultipart
 	}
 
-	// Check for XML (line 468-469)
+	// Check for XML
 	if containsSubstring(contentTypeStr, "xml") {
 		return ContentTypeXML
 	}
 
-	// Check for JSON (line 471-472)
+	// Check for JSON
 	if containsSubstring(contentTypeStr, "json") {
 		return ContentTypeJSON
 	}
 
-	// Check for AMF (line 474-475)
+	// Check for AMF
 	if containsSubstring(contentTypeStr, "application/x-amf") {
 		return ContentTypeAMF
 	}
 
-	// Default to URL_ENCODED (c9s.java line 482)
+	// Default to URL_ENCODED
 	return ContentTypeURLEncoded
 }
 

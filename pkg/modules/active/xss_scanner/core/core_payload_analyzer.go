@@ -19,12 +19,12 @@ type PayloadReflectionLocator struct {
 	scanRangeEndIndex int
 	// private final byte a;
 	reflectionLocation ReflectionLocation
-	// private final net.portswigger.ou d;
+	// private final ou d;
 	randomProvider *utils.RandomGenerator
 }
 
 // NewPayloadReflectionLocator is the public constructor for Hqr.
-// Corresponds to Java: public hqr(byte[] var1, int var2, byte[] var3, int var4, int var5, byte var6, net.portswigger.ou var7)
+// Corresponds to Java: public hqr(byte[] var1, int var2, byte[] var3, int var4, int var5, byte var6, ou var7)
 // var3 (in Java) is the original full payload/canary used for deeper dc3 analysis.
 func NewPayloadReflectionLocator(
 	scanTargetBytes []byte,
@@ -60,7 +60,7 @@ func NewPayloadReflectionLocator(
 }
 
 // NewPayloadReflectionLocatorWithMatcher is the unexported constructor.
-// Corresponds to Java: hqr(byte[] var1, int var2, db9 var3, int var4, int var5, byte var6, net.portswigger.ou var7)
+// Corresponds to Java: hqr(byte[] var1, int var2, db9 var3, int var4, int var5, byte var6, ou var7)
 // Added originalPayload for dc3 canary consistency.
 func NewPayloadReflectionLocatorWithMatcher(
 	scanTargetBytes []byte, // b
@@ -134,7 +134,7 @@ func (locator *PayloadReflectionLocator) LocateReflections(detector *HTTPReflect
 			currentScanIndex,           // var2 (start of matched db9 pattern in targetBytes)
 			locator.sourceBodyOffset,   // this.g (overallBodyOffsetInFullResponse)
 			locator.reflectionLocation, // this.a (contextIndicatorForEqx)
-			locator.randomProvider,     // this.d (NetPortswiggerOu instance)
+			locator.randomProvider,     // this.d (RandomGenerator instance)
 			matchedPayloadSegment,
 		)
 		detectedReflection := contextAnalyzer.AnalyzedReflection() // AnalyzedReflection() is the method on Dc3 that returns Eqx (from dc3.go)

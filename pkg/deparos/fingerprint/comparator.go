@@ -12,7 +12,6 @@ import (
 )
 
 // MatchResult represents the result of fingerprint comparison
-// Maps to Burp's comparison result types
 type MatchResult byte
 
 const (
@@ -36,14 +35,12 @@ func (mr MatchResult) String() string {
 }
 
 // WildcardDetection tracks which strategy detected a wildcard response
-// Maps to Burp's separate handling of var6, var7, var8 in hvw.java:40-62
 type WildcardDetection struct {
 	Sample   *Sample
 	Strategy PathVariation // Which path generation strategy detected this wildcard
 }
 
 // Comparator implements fingerprint comparison and validation logic
-// Maps to Burp's hvw.java fingerprint comparator (Lines 6-94)
 type Comparator struct {
 	cache   *Cache
 	learner *Learner
@@ -58,7 +55,6 @@ func NewComparator(cache *Cache, learner *Learner) *Comparator {
 }
 
 // Compare compares a response against cached signatures using cascading check.
-// Maps to Burp's hvw.java:compare() (Lines 15-70)
 //
 // Algorithm (updated with cascade):
 // 1. Extract sample from response
@@ -116,7 +112,6 @@ func (c *Comparator) Compare(ctx context.Context, req *http.Request, rc *respons
 }
 
 // CompareWithLearning compares and learns if no signatures exist
-// Maps to Burp's automatic learning on first request
 func (c *Comparator) CompareWithLearning(ctx context.Context, req *http.Request, rc *responsechain.ResponseChain) (MatchResult, error) {
 	// Try normal comparison first
 	result, err := c.Compare(ctx, req, rc)
@@ -144,7 +139,6 @@ func (c *Comparator) CompareWithLearning(ctx context.Context, req *http.Request,
 }
 
 // ValidateDynamic performs dynamic validation using path variations
-// Maps to Burp's dynamic validation in hvw.java (Lines 72-94)
 //
 // Algorithm:
 // 1. Generate 3 new random path variations from the current URL
@@ -224,7 +218,6 @@ func (c *Comparator) LearnIfNeeded(ctx context.Context, url *url.URL) error {
 }
 
 // CheckWildcardWithValidation performs complete wildcard detection with 3-path validation
-// Maps to Burp's hvw.java:a(hik, bi9, hkk, b5e) complete flow (Lines 19-66)
 //
 // This is the FINAL step in the detection flow, called after cascade check passes.
 // Algorithm:
@@ -235,7 +228,6 @@ func (c *Comparator) LearnIfNeeded(ctx context.Context, url *url.URL) error {
 // 5. Return whether content is valid or wildcard
 func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL *url.URL, rc *responsechain.ResponseChain, sample *Sample) (MatchResult, error) {
 	// Quick exit: HTTP 404 is always a false positive (wildcard)
-	// Burp afb.java:27-29
 	if rc.Response().StatusCode == 404 {
 		return FalsePositive, nil
 	}
@@ -247,7 +239,6 @@ func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL 
 	}
 
 	// No match in cache - need to validate with wildcard test
-	// Maps to Burp's hvw.java:a(hik, b5e) - full validation (Lines 28-66)
 	key := ExtractCacheKey(targetURL)
 	isValid, err := c.validateWithWildcardTest(ctx, targetURL, key)
 	if err != nil {
@@ -370,13 +361,6 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 }
 
 // fetchAndCheckContent fetches a URL and checks if it returns content
-// Maps to Burp's hvw.java:b(hik, b5e) (lines 68-80) and emm.b() content check
-//
-// Burp's logic (hvw.java:75-78):
-// - Fetches the URL
-// - Compares response fingerprint against baseline
-// - Returns emm with d=!is404
-// - emm.b() returns this boolean (whether response has unique content)
 //
 // CRITICAL: Uses cascade check to catch cross-extension soft-404s!
 func (c *Comparator) fetchAndCheckContent(ctx context.Context, targetURL *url.URL) (*Sample, bool, error) {
@@ -393,7 +377,6 @@ func (c *Comparator) fetchAndCheckContent(ctx context.Context, targetURL *url.UR
 	is404Like := c.cache.MatchesWithCascade(targetURL, sample)
 
 	// hasContent = NOT 404-like
-	// Maps to Burp's emm.d = !is404 (hvw.java:76)
 	hasContent := !is404Like
 
 	return sample, hasContent, nil

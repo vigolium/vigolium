@@ -6,10 +6,9 @@ import (
 	"io"
 )
 
-// Ac0 represents a byte array container equivalent to ac0.java
-// This is a Go implementation of the Java ac0 class which extends ah7 and implements bi9
+// Ac0 represents a byte array container with indexed access and subsequence operations.
 type Ac0 struct {
-	data []byte // Equivalent to private final byte[] c; in ac0.java
+	data []byte
 }
 
 // NewAc0ByteDataWithCapacity creates a new Ac0ByteData with a given capacity
@@ -92,10 +91,10 @@ func (a *Ac0) SubSequence(startIndex, endIndex int) (*Ac0, error) {
 	if startIndex < 0 || endIndex < startIndex || endIndex > len(a.data) {
 		return nil, fmt.Errorf("array index out of bounds")
 	}
-	subArray := NetPortswiggerNkACopyOfRange(a.data, startIndex, endIndex)
+	subArray := CopyOfRange(a.data, startIndex, endIndex)
 	if subArray == nil && (endIndex-startIndex > 0) {
 		return nil, fmt.Errorf(
-			"NkSubArray/NetPortswiggerNkACopyOfRange returned nil for range [%d:%d] on data of len %d",
+			"CopyOfRange returned nil for range [%d:%d] on data of len %d",
 			startIndex,
 			endIndex,
 			len(a.data),

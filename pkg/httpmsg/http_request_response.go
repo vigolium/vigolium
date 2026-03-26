@@ -21,7 +21,6 @@ import (
 )
 
 // HttpRequestResponse is a unified struct containing HTTP request and response.
-// This follows Burp Suite Montoya API pattern - coupling request and response together.
 //
 // Design:
 //   - Contains HttpRequest (required) and HttpResponse (optional)

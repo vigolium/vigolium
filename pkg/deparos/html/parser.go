@@ -8,25 +8,24 @@ import (
 )
 
 // HTMLParsed contains all extracted HTML attributes used for fingerprinting
-// Maps to Burp's ad1.java response attribute extractor (Lines 13-158)
 type HTMLParsed struct {
-	// Tag structure (Lines 37-52 in ad1.java)
+	// Tag structure
 	TagNames   []string // All HTML tag names encountered
 	TagIDs     []string // All id attributes from any tag
 	DivIDs     []string // id attributes specifically from <div> tags
 	CSSClasses []string // All class attributes from any tag
 
-	// Content structure (Lines 53-89)
+	// Content structure
 	Title      string   // <title> tag content
 	HeaderTags []string // Content from h1, h2, h3, h4, h5, h6 tags
 	Comments   []string // HTML comment content
 
-	// Link and navigation (Lines 90-115)
+	// Link and navigation
 	AnchorLabels      []string // Text content of <a> tags
 	OutboundLinkCount int      // Count of <a> tags with href
 	OutboundTagNames  []string // Tag names that contain links (a, link, etc.)
 
-	// Form elements (Lines 116-145)
+	// Form elements
 	InputSubmitLabels   []string // value attribute of <input type="submit">
 	ButtonSubmitLabels  []string // Text content of <button> tags
 	InputImageLabels    []string // alt attribute of <input type="image">
@@ -40,7 +39,6 @@ type HTMLParsed struct {
 }
 
 // Parser handles HTML parsing for fingerprinting
-// Maps to Burp's HTML parsing in ad1.java
 type Parser struct{}
 
 // NewParser creates a new HTML parser
@@ -49,7 +47,6 @@ func NewParser() *Parser {
 }
 
 // Parse parses HTML from reader and extracts all fingerprint attributes
-// Maps to ad1.java:extractAttributes()
 func (p *Parser) Parse(r io.Reader) (*HTMLParsed, error) {
 	doc, err := html.Parse(r)
 	if err != nil {
@@ -100,7 +97,6 @@ func (p *Parser) parseFromNode(doc *html.Node) *HTMLParsed {
 }
 
 // traverse recursively walks the HTML tree and extracts attributes
-// Maps to Burp's recursive DOM traversal in ad1.java:processNode()
 func (p *Parser) traverse(n *html.Node, result *HTMLParsed, bodyBuilder, visibleBuilder *strings.Builder) {
 	if n.Type == html.ElementNode {
 		// Record tag name
@@ -292,7 +288,6 @@ func extractTextRecursive(n *html.Node, builder *strings.Builder) {
 }
 
 // countWords counts words in text (splits on whitespace)
-// Maps to Burp's word counting in ad1.java
 func countWords(text string) int {
 	if text == "" {
 		return 0
@@ -302,7 +297,6 @@ func countWords(text string) int {
 }
 
 // countLines counts lines in text
-// Maps to Burp's line counting in ad1.java
 func countLines(text string) int {
 	if text == "" {
 		return 0

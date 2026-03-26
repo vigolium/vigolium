@@ -10,14 +10,13 @@ import (
 )
 
 // PoolConfig defines connection pool configuration for the HTTP client.
-// Matches Burp Suite's connection pool behavior (cq5.java).
 type PoolConfig struct {
 	// MaxIdleConns controls the maximum number of idle connections across all hosts.
-	// Burp default: 100
+	// Default: 100
 	MaxIdleConns int
 
 	// MaxIdleConnsPerHost controls the maximum idle connections per host.
-	// Burp default: 10
+	// Default: 10
 	MaxIdleConnsPerHost int
 
 	// IdleConnTimeout is the maximum time an idle connection will remain idle before closing.
@@ -57,7 +56,6 @@ type PoolConfig struct {
 }
 
 // DefaultPoolConfig returns the default connection pool configuration.
-// Matches Burp Suite's defaults from cq5.java.
 func DefaultPoolConfig() *PoolConfig {
 	return &PoolConfig{
 		MaxIdleConns:           100,
@@ -96,7 +94,7 @@ func (c *PoolConfig) NewTransport() *nethttp.Transport {
 		ResponseHeaderTimeout: c.ResponseHeaderTimeout,
 		ExpectContinueTimeout: c.ExpectContinueTimeout,
 
-		// Force HTTP/1.1 for compatibility (Burp behavior)
+		// Force HTTP/1.1 for compatibility
 		ForceAttemptHTTP2: false,
 	}
 

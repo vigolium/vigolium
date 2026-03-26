@@ -462,14 +462,11 @@ func TestJavaScriptStringExtractor_EdgeCases(t *testing.T) {
 	})
 }
 
-func TestJavaScriptStringExtractor_BurpCompatibility(t *testing.T) {
-	// Test cases that match Burp's eba.java behavior
+func TestJavaScriptStringExtractor_ParserCompatibility(t *testing.T) {
 	extractor := NewJavaScriptStringExtractor(nil, nil)
 
-	t.Run("Burp mode detection", func(t *testing.T) {
+	t.Run("mode detection", func(t *testing.T) {
 		// Test that we correctly identify string/comment delimiters
-		// Mode 0: double quote, Mode 1: single quote
-		// Mode 3: line comment, Mode 4: block comment
 
 		tests := []struct {
 			code     string
@@ -488,24 +485,22 @@ func TestJavaScriptStringExtractor_BurpCompatibility(t *testing.T) {
 		}
 	})
 
-	t.Run("Burp escape handling", func(t *testing.T) {
-		// Burp skips backslash + next char (line 69-70)
+	t.Run("escape handling", func(t *testing.T) {
+		// Parser skips backslash + next char
 		result := extractor.ExtractStrings(`"test\"quote"`, 0)
 		assert.Len(t, result, 1)
 		assert.Equal(t, `test\"quote`, result[0].Value)
 	})
 
-	t.Run("Burp position tracking", func(t *testing.T) {
+	t.Run("position tracking", func(t *testing.T) {
 		// Position should point to first char after opening quote
-		// Burp: var12 = ++var5 (line 65)
 		result := extractor.ExtractStrings(`var x = "test";`, 0)
 		assert.Len(t, result, 1)
 		assert.Equal(t, 9, result[0].Position) // Position of 't' in "test"
 	})
 
-	t.Run("Burp block comment end", func(t *testing.T) {
+	t.Run("block comment end", func(t *testing.T) {
 		// Block comment ends with */ and position advances by 2
-		// Burp: lines 98-100
 		result := extractor.ExtractStrings(`/* comment */ "after"`, 0)
 		assert.Len(t, result, 1)
 		assert.Equal(t, "after", result[0].Value)

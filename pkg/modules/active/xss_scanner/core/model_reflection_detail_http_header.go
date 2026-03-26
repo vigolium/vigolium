@@ -83,7 +83,7 @@ func (reflection *HTTPHeaderReflection) GetRedirectionTarget(
 				)
 			}
 			// Original Java code has a try-catch for Exception around indexOf and substring,
-			// logging with net.portswigger.m5.a. In Go, string operations don't throw exceptions
+			// In Go, string operations don't throw exceptions
 			// but out-of-bounds slicing will panic. Index() returning -1 is handled.
 		}
 		return nil

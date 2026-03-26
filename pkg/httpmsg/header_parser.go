@@ -1,13 +1,8 @@
 package httpmsg
 
-// header_parser.go - Port of Burp Suite's header parsing logic
-// Ported from:
-//   - glo.java (lines 90-163, 186-201) - Header extraction
-//   - aad.java (lines 30-44) - Header lookup
-//   - cqt.java - Utility wrappers
+// header_parser.go - HTTP header parsing logic
 //
-// CRITICAL: Uses ONLY loop-based parsing (NO REGEX)
-// Follows Burp's char-by-char line terminator detection
+// Uses loop-based character-by-character parsing (no regex).
 
 // Byte constants for parsing
 // Note: CR and LF are defined in byte_utils.go
@@ -20,8 +15,6 @@ const (
 )
 
 // ExtractHeaders extracts HTTP headers from byte slice.
-// Ported from: glo.a(bi9, int, int, List<Integer>, boolean, Supplier<Boolean>)
-// Source: glo.java lines 135-180
 //
 // Parameters:
 //   - request: HTTP request/response bytes
@@ -33,12 +26,12 @@ const (
 //   - headerOffsets: Byte offset where each header starts
 //   - error: Any parsing error
 //
-// Logic (glo.java lines 145-180):
+// Logic:
 //  1. Loop through bytes from startOffset to endOffset
-//  2. Find CRLF (\r\n) line terminators (lines 154-164)
+//  2. Find CRLF (\r\n) line terminators
 //  3. Extract line between terminators
-//  4. Skip empty lines (line 156)
-//  5. Track offset of each non-empty line (lines 158-160)
+//  4. Skip empty lines
+//  5. Track offset of each non-empty line
 //  6. Return headers and their offsets
 //
 // Example:
@@ -52,7 +45,7 @@ func ExtractHeaders(request []byte, startOffset, endOffset int) ([]string, []int
 		return []string{}, []int{}, nil
 	}
 
-	// Bounds checking (glo.java lines 141-143)
+	// Bounds checking
 	if endOffset > len(request) {
 		endOffset = len(request)
 	}
@@ -60,29 +53,29 @@ func ExtractHeaders(request []byte, startOffset, endOffset int) ([]string, []int
 	headers := []string{}
 	headerOffsets := []int{}
 
-	// Main parsing loop (glo.java lines 146-178)
+	// Main parsing loop
 	lineStart := startOffset
 
-	// Loop through data looking for CRLF terminators (lines 149-165)
+	// Loop through data looking for CRLF terminators
 	for pos := startOffset; pos < endOffset; pos++ {
-		// Check for CRLF line terminator (glo.java lines 154-164)
+		// Check for CRLF line terminator
 		if request[pos] == CR && pos+1 < endOffset && request[pos+1] == LF {
-			// Extract line from lineStart to pos (line 155)
+			// Extract line from lineStart to pos
 			line := string(request[lineStart:pos])
 
-			// Skip empty lines (line 156)
+			// Skip empty lines
 			if len(line) > 0 {
 				headers = append(headers, line)
-				// Track offset of this header (lines 158-160)
+				// Track offset of this header
 				headerOffsets = append(headerOffsets, lineStart)
 			}
 
-			// Move to start of next line (skip CRLF) (line 163)
+			// Move to start of next line (skip CRLF)
 			lineStart = pos + 2
 		}
 	}
 
-	// Handle final line if no terminator at end (glo.java lines 170-175)
+	// Handle final line if no terminator at end
 	if lineStart < endOffset {
 		line := string(request[lineStart:endOffset])
 		if len(line) > 0 {
@@ -155,8 +148,6 @@ func SkipLineTerminator(data []byte, pos, end int) int {
 }
 
 // GetHeader retrieves header value by name (case-insensitive).
-// Ported from: aad.a(String)
-// Source: aad.java lines 30-44
 //
 // Parameters:
 //   - headers: List of header lines from ExtractHeaders
@@ -165,12 +156,11 @@ func SkipLineTerminator(data []byte, pos, end int) int {
 // Returns:
 //   - Header value (trimmed), or empty string if not found
 //
-// Logic (aad.java lines 33-43):
-//  1. Loop through headers (line 33)
-//  2. Skip first line (request/status line)
-//  3. Parse each header as "Name: Value"
-//  4. Compare name case-insensitively (line 34)
-//  5. Return trimmed value (line 35)
+// Logic:
+//  1. Loop through headers, skipping request/status line
+//  2. Parse each header as "Name: Value"
+//  3. Compare name case-insensitively
+//  4. Return trimmed value
 //
 // Example:
 //
@@ -179,7 +169,6 @@ func SkipLineTerminator(data []byte, pos, end int) int {
 //	// value = "text/html"
 func Header(headers []string, name string) string {
 	// Loop through headers, skipping request line (index 0)
-	// aad.java lines 33-43
 	for i := 1; i < len(headers); i++ {
 		header := headers[i]
 
@@ -193,14 +182,14 @@ func Header(headers []string, name string) string {
 		headerName := header[0:colonIdx]
 		headerValue := header[colonIdx+1:]
 
-		// Case-insensitive comparison (aad.java line 34)
+		// Case-insensitive comparison
 		if EqualsCaseInsensitive(headerName, name) {
-			// Return trimmed value (aad.java line 35)
+			// Return trimmed value
 			return TrimSpace(headerValue)
 		}
 	}
 
-	// Not found (aad.java line 43)
+	// Not found
 	return ""
 }
 
@@ -506,8 +495,6 @@ func ParseParameter(params string, name string) string {
 
 // FindHeaderBodySeparator finds the position where headers end and body begins.
 // Looks for double line terminator: \r\n\r\n or \n\n
-// Ported from: glo.a(bi9, int, boolean, boolean)
-// Source: glo.java lines 37-75
 //
 // Parameters:
 //   - data: HTTP request/response bytes
@@ -517,11 +504,11 @@ func ParseParameter(params string, name string) string {
 //   - Position after the double line terminator (start of body)
 //   - Returns -1 if not found
 //
-// Logic (glo.java lines 51-71):
-//  1. Search for CRLFCRLF (\r\n\r\n) sequence (lines 52-55)
-//  2. Also search for LFLF (\n\n) sequence (lines 57-60)
-//  3. Return position after separator (line 53 or 58)
-//  4. Handle edge case near end of data (lines 63-70)
+// Logic:
+//  1. Search for CRLFCRLF (\r\n\r\n) sequence
+//  2. Also search for LFLF (\n\n) sequence
+//  3. Return position after separator
+//  4. Handle edge case near end of data
 //
 // Example:
 //
@@ -531,23 +518,23 @@ func ParseParameter(params string, name string) string {
 func FindHeaderBodySeparator(data []byte, startOffset int) int {
 	dataLen := len(data)
 
-	// Main search loop (glo.java lines 51-61)
+	// Main search loop
 	for pos := startOffset; pos < dataLen-3; pos++ {
-		// Check for CRLFCRLF (glo.java lines 52-55)
+		// Check for CRLFCRLF
 		if data[pos] == CR && data[pos+1] == LF &&
 			data[pos+2] == CR && data[pos+3] == LF {
-			// Return position after separator (line 53)
+			// Return position after separator
 			return pos + 4
 		}
 
-		// Check for LFLF (glo.java lines 57-60)
+		// Check for LFLF
 		if data[pos] == LF && data[pos+1] == LF {
-			// Return position after separator (line 58)
+			// Return position after separator
 			return pos + 2
 		}
 	}
 
-	// Edge case: check last few bytes for LFLF (glo.java lines 63-70)
+	// Edge case: check last few bytes for LFLF
 	if dataLen >= 3 {
 		for pos := dataLen - 3; pos < dataLen-1; pos++ {
 			if data[pos] == LF && data[pos+1] == LF {
@@ -556,14 +543,12 @@ func FindHeaderBodySeparator(data []byte, startOffset int) int {
 		}
 	}
 
-	// Not found (glo.java line 73)
+	// Not found
 	return -1
 }
 
 // ExtractAllHeaders is a convenience function that extracts headers from
 // an HTTP request/response, automatically finding the header section.
-// Ported from: glo.e(bi9) and cqt.b(byte[])
-// Source: glo.java lines 118-125, cqt.java lines 23-25
 //
 // Parameters:
 //   - data: Complete HTTP request/response bytes
@@ -574,7 +559,7 @@ func FindHeaderBodySeparator(data []byte, startOffset int) int {
 //   - bodyStart: Position where body begins (after headers)
 //   - error: Any parsing error
 //
-// Logic (glo.java lines 118-125):
+// Logic:
 //  1. Find header/body separator
 //  2. Extract headers from start to separator
 //  3. Return headers and body position
@@ -591,14 +576,14 @@ func ExtractAllHeaders(data []byte) ([]string, []int, int, error) {
 		return []string{}, []int{}, 0, nil
 	}
 
-	// Find header/body separator (glo.java line 122)
+	// Find header/body separator
 	bodyStart := FindHeaderBodySeparator(data, 0)
 	if bodyStart == -1 {
 		// No separator found, treat entire data as headers
 		bodyStart = len(data)
 	}
 
-	// Extract headers (glo.java line 123)
+	// Extract headers
 	headers, offsets, err := ExtractHeaders(data, 0, bodyStart)
 
 	return headers, offsets, bodyStart, err

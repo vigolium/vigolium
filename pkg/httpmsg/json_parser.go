@@ -1,33 +1,21 @@
 package httpmsg
 
 // JSON Parameter Extractor
-// Direct port of Burp Suite's character-by-character JSON parser (bag.java)
 //
-// BURP SOURCE FILE MAPPING:
-//   - bag.java: Main JSON parser with manual character-by-character parsing
-//     Location: /reverse/burp_reverse_sourcecode/burp/bag.java
+// Character-by-character JSON parser that tracks byte offsets.
 //
-// CRITICAL DESIGN DECISION:
-//   - Burp does NOT use a JSON library
-//   - Burp manually parses character-by-character to track byte offsets
-//   - This allows returning offsets to RAW JSON (with escape sequences intact)
-//   - Trying to use json.Unmarshal then search for decoded values FAILS
+// Design:
+//   - No JSON library is used
+//   - Manual character-by-character parsing to track byte offsets
+//   - Returns offsets to RAW JSON (with escape sequences intact)
+//   - Using json.Unmarshal then searching for decoded values would fail
 //
-// Algorithm (from bag.java):
+// Algorithm:
 //  1. Manual state machine parsing (no JSON library)
-//  2. Track position index (this.b in Java → pos in Go)
+//  2. Track position index
 //  3. Parse structure characters: { } [ ] : , "
 //  4. Handle escape sequences: when \ found, skip next character
 //  5. Return raw byte offsets pointing to content in original JSON
-//
-// Method Mapping (Burp → Go):
-//   bag.java line 14  → ParseJSONBody()           Entry point
-//   bag.java line 36  → parseObject()              Parse {key:value,...}
-//   bag.java line 90  → parseArray()               Parse [value,value,...]
-//   bag.java line 130 → parseValue()               Parse any value type
-//   bag.java line 146 → parseQuotedString()        Parse "..." with escape handling
-//   bag.java line 182 → parseUnquotedValue()       Parse numbers/bool/null
-//   bag.java line 210 → skipWhitespace()           Skip spaces/tabs/newlines
 
 import (
 	"fmt"
@@ -35,26 +23,18 @@ import (
 )
 
 // jsonParser is the state machine for character-by-character JSON parsing.
-// Directly mirrors Burp's bag.java fields and parsing approach.
-//
-// Field mapping from bag.java:
-//   - d (bi9) → data ([]byte) - The raw JSON bytes
-//   - b (int) → pos (int) - Current position index (this.b in Java)
-//   - a (int) → end (int) - End position (this.a in Java)
-//   - c (List<cwa>) → params ([]*Param) - Collected parameters
 type jsonParser struct {
-	data       []byte   // Raw JSON bytes (bag.java field 'd')
-	pos        int      // Current position (bag.java field 'b')
-	end        int      // End position (bag.java field 'a')
+	data       []byte   // Raw JSON bytes
+	pos        int      // Current position
+	end        int      // End position
 	baseOffset int      // Offset to adjust for position in full request
-	params     []*Param // Collected parameters (bag.java field 'c')
+	params     []*Param // Collected parameters
 	path       string   // Current JSON path (for metadata)
 }
 
 // ParseJSONBody parses application/json body and extracts parameters.
-// Ported from: bag.java static method a(bi9, int, int, Supplier<Boolean>) [line 14-16]
 //
-// Algorithm (from bag.java):
+// Algorithm:
 //  1. Create parser instance with data range
 //  2. Call parseValue to start parsing from root
 //  3. Return collected parameters
@@ -76,7 +56,7 @@ func ParseJSONBody(request []byte, bodyOffset int) ([]*Param, error) {
 		return []*Param{}, nil
 	}
 
-	// Create parser (maps to bag.java constructor at line 18-34)
+	// Create parser
 	p := &jsonParser{
 		data:       body,
 		pos:        0,
@@ -86,25 +66,23 @@ func ParseJSONBody(request []byte, bodyOffset int) ([]*Param, error) {
 		path:       "",
 	}
 
-	// Start parsing (maps to bag.java line 27: this.a(new int[]{0, 0}, (byte)0, var4))
-	// The initial call with empty int[]{0, 0} means no parent key for root value
+	// Start parsing from root value
 	if err := p.parseValue(nil, 0); err != nil {
-		return []*Param{}, nil // Burp returns empty list on parse errors
+		return []*Param{}, nil // Return empty list on parse errors
 	}
 
 	return p.params, nil
 }
 
 // parseValue parses a JSON value at current position.
-// Ported from: bag.java method a(int[], byte, Supplier<Boolean>) [lines 130-144]
 //
-// Algorithm (from bag.java lines 130-144):
+// Algorithm:
 //  1. Skip whitespace
 //  2. Check first character:
-//     - 34 (") → Parse quoted string (call d())
-//     - 91 ([) → Parse array (call a(int[], Supplier))
-//     - 123 ({) → Parse object (call a(Supplier))
-//     - Other → Parse unquoted value (call a(byte, byte))
+//     - " → Parse quoted string
+//     - [ → Parse array
+//     - { → Parse object
+//     - Other → Parse unquoted value (number, boolean, null)
 //
 // Parameters:
 //   - keyOffsets: Offsets of the key for this value (nil for root/array elements)
@@ -120,22 +98,22 @@ func (p *jsonParser) parseValue(keyOffsets []int, delimiter byte) error {
 	}
 
 	switch p.data[p.pos] {
-	case '"': // Quoted string value (line 133-134)
+	case '"': // Quoted string value
 		valueOffsets := p.parseQuotedString()
 		if valueOffsets != nil && keyOffsets != nil {
 			p.createParameterWithType(keyOffsets, valueOffsets, JSONTypeString)
 		}
 		return nil
 
-	case '[': // Array value (line 135-137)
+	case '[': // Array value
 		p.parseArray(keyOffsets)
 		return nil
 
-	case '{': // Object value (line 138-140)
+	case '{': // Object value
 		p.parseObject()
 		return nil
 
-	default: // Unquoted value: number, boolean, null (line 141-142)
+	default: // Unquoted value: number, boolean, null
 		valueOffsets, valueType := p.parseUnquotedValueWithType(',', delimiter)
 		if valueOffsets != nil && keyOffsets != nil {
 			p.createParameterWithType(keyOffsets, valueOffsets, valueType)
@@ -145,17 +123,6 @@ func (p *jsonParser) parseValue(keyOffsets []int, delimiter byte) error {
 }
 
 // parseObject parses a JSON object: {key1:value1, key2:value2, ...}
-// Ported from: bag.java method a(Supplier<Boolean>) [lines 36-88]
-//
-// Algorithm (from bag.java lines 36-88):
-//  1. Check opening { (line 39)
-//  2. Loop while not } (lines 42-84):
-//     a. Parse key string with d() (line 54)
-//     b. Check for : separator (line 56-58)
-//     c. Parse value with a(int[], byte, Supplier) (line 61)
-//     d. Create parameter (line 63)
-//     e. Check for , or } (lines 67-78)
-//  3. Move past } (line 77)
 func (p *jsonParser) parseObject() {
 	savedPath := p.path
 
@@ -169,14 +136,14 @@ func (p *jsonParser) parseObject() {
 	for p.pos < p.end {
 		p.skipWhitespace()
 
-		// Check for closing } (line 47)
+		// Check for closing }
 		if p.data[p.pos] == '}' {
 			p.pos++
 			p.path = savedPath
 			return
 		}
 
-		// Parse key (line 54 → calls d())
+		// Parse key
 		keyOffsets := p.parseQuotedString()
 		if keyOffsets == nil {
 			p.path = savedPath
@@ -195,14 +162,14 @@ func (p *jsonParser) parseObject() {
 
 		p.skipWhitespace()
 
-		// Check for : separator (lines 56-58)
+		// Check for : separator
 		if p.pos >= p.end || p.data[p.pos] != ':' {
 			p.path = savedPath
 			return
 		}
 		p.pos++ // Skip :
 
-		// Parse value (line 61)
+		// Parse value
 		_ = p.parseValue(keyOffsets, '}')
 
 		// Restore path after value
@@ -210,20 +177,20 @@ func (p *jsonParser) parseObject() {
 
 		p.skipWhitespace()
 
-		// Check for , or } (lines 67-78)
+		// Check for , or }
 		if p.pos >= p.end {
 			return
 		}
 
 		switch p.data[p.pos] {
-		case ',': // Continue to next key-value pair (line 68-74)
+		case ',': // Continue to next key-value pair
 			p.pos++
 			p.skipWhitespace()
 			if p.pos < p.end && p.data[p.pos] == '}' {
 				p.pos++
 				return
 			}
-		case '}': // End of object (lines 76-78)
+		case '}': // End of object
 			p.pos++
 			return
 		default:
@@ -233,16 +200,7 @@ func (p *jsonParser) parseObject() {
 }
 
 // parseArray parses a JSON array: [value1, value2, ...]
-// Ported from: bag.java method a(int[], Supplier<Boolean>) [lines 90-128]
-//
-// Algorithm (from bag.java lines 90-128):
-//  1. Check opening [ (line 93)
-//  2. Loop while not ] (lines 96-124):
-//     a. Parse value with a(int[], byte, Supplier) (line 101)
-//     b. Create parameter using SAME keyOffsets for all elements (line 103)
-//     This is Burp's behavior: array elements don't get indexed paths
-//     c. Check for , or ] (lines 107-118)
-//  3. Move past ] (line 117)
+// Array elements share the parent key name (no indexed paths).
 //
 // Parameters:
 //   - keyOffsets: Offsets of the key for this array (used for all elements)
@@ -255,9 +213,7 @@ func (p *jsonParser) parseArray(keyOffsets []int) {
 	p.pos++ // Skip [
 
 	for p.pos < p.end {
-		// Parse value (line 101)
-		// Note: Burp passes the SAME keyOffsets to all array elements
-		// This means all elements share the same parameter name
+		// Parse value (all array elements share the same keyOffsets/parameter name)
 		_ = p.parseValue(keyOffsets, ']')
 
 		p.skipWhitespace()
@@ -266,16 +222,16 @@ func (p *jsonParser) parseArray(keyOffsets []int) {
 			return
 		}
 
-		// Check for , or ] (lines 107-118)
+		// Check for , or ]
 		switch p.data[p.pos] {
-		case ',': // Continue to next element (line 108-114)
+		case ',': // Continue to next element
 			p.pos++
 			p.skipWhitespace()
 			if p.pos < p.end && p.data[p.pos] == ']' {
 				p.pos++
 				return
 			}
-		case ']': // End of array (lines 116-118)
+		case ']': // End of array
 			p.pos++
 			return
 		default:
@@ -285,21 +241,9 @@ func (p *jsonParser) parseArray(keyOffsets []int) {
 }
 
 // parseQuotedString parses a quoted JSON string and returns its byte offsets.
-// Ported from: bag.java method d() [lines 146-180]
 //
-// CRITICAL: This handles escape sequences correctly.
-// When \ is found, the next character is skipped (line 164-165).
+// Handles escape sequences correctly: when \ is found, the next character is skipped.
 // This allows returning offsets to the RAW content in the original JSON.
-//
-// Algorithm (from bag.java lines 146-180):
-//  1. Skip whitespace
-//  2. Check for opening " (line 149)
-//  3. Skip " and mark start (lines 152-153)
-//  4. Loop until closing " (lines 157-172):
-//     - If " found → mark end and break (lines 159-160)
-//     - If \ found → skip next character (lines 164-165)
-//     - Otherwise → continue (line 167)
-//  5. Return [start, end] offsets (line 178)
 //
 // Returns:
 //   - int[]{start, end} pointing to content (excluding quotes)
@@ -309,36 +253,34 @@ func (p *jsonParser) parseQuotedString() []int {
 
 	if p.pos >= p.end || p.data[p.pos] != '"' {
 		// Not a quoted string, try unquoted (for lenient parsing)
-		// bag.java line 150: calls a(byte, byte) if not quoted
 		offsets, _ := p.parseUnquotedValueWithType(':', 0)
 		return offsets
 	}
 
-	p.pos++ // Skip opening " (line 152)
+	p.pos++ // Skip opening "
 	start := p.pos
 
 	end := -1
 	for p.pos < p.end {
 		switch p.data[p.pos] {
-		case '"': // Found closing " (lines 159-163)
+		case '"': // Found closing "
 			end = p.pos
 			p.pos++ // Move past "
 			return []int{start, end}
 
-		case '\\': // Found escape sequence (lines 164-165)
-			// CRITICAL: Skip the backslash AND the next character
-			// This is how Burp handles \", \\, \n, etc.
+		case '\\': // Found escape sequence
+			// Skip the backslash AND the next character
 			p.pos++ // Skip \
 			if p.pos < p.end {
 				p.pos++ // Skip escaped character
 			}
 
-		default: // Regular character (line 167)
+		default: // Regular character
 			p.pos++
 		}
 	}
 
-	// String not properly closed, use end of data (lines 174-176)
+	// String not properly closed, use end of data
 	if end == -1 {
 		end = p.end
 	}
@@ -348,16 +290,6 @@ func (p *jsonParser) parseQuotedString() []int {
 
 // parseUnquotedValueWithType parses an unquoted JSON value (number, boolean, null)
 // and returns both the offsets and the detected JSON value type.
-// Ported from: bag.java method a(byte, byte) [lines 182-208]
-//
-// Algorithm (from bag.java lines 182-208):
-//  1. Mark start position (line 183)
-//  2. Loop until delimiter or whitespace (lines 188-201):
-//     - Check for whitespace (<=32) or delimiters (lines 190-195)
-//     - If found → mark end and break
-//  3. If no delimiter found, use end of data (lines 203-205)
-//  4. Detect value type from raw content
-//  5. Return [start, end] and type, or nil if empty (line 207)
 //
 // Parameters:
 //   - delim1: First delimiter byte (e.g., ',' for comma)
@@ -373,10 +305,7 @@ func (p *jsonParser) parseUnquotedValueWithType(delim1, delim2 byte) ([]int, JSO
 	for p.pos < p.end {
 		b := p.data[p.pos]
 
-		// Check for end conditions (lines 190-195):
-		// - Whitespace (b <= 32)
-		// - Delimiter 1 (b == delim1)
-		// - Delimiter 2 (b == delim2)
+		// Check for end conditions: whitespace or delimiters
 		if b <= 32 || b == delim1 || b == delim2 {
 			end = p.pos
 			break
@@ -385,12 +314,12 @@ func (p *jsonParser) parseUnquotedValueWithType(delim1, delim2 byte) ([]int, JSO
 		p.pos++
 	}
 
-	// If no terminator found, use end of data (lines 203-205)
+	// If no terminator found, use end of data
 	if end == -1 {
 		end = p.end
 	}
 
-	// Return nil if empty value (line 207)
+	// Return nil if empty value
 	if start == end {
 		return nil, JSONTypeUnknown
 	}
@@ -445,18 +374,11 @@ func isJSONNumber(s string) bool {
 	return true
 }
 
-// skipWhitespace skips over whitespace characters.
-// Ported from: bag.java method c() [lines 210-228]
-//
-// Algorithm (from bag.java lines 210-228):
-//  1. Loop while position < end (lines 213-223)
-//  2. Check if byte is whitespace (b > 32 || b < 0) (line 215)
-//  3. If not whitespace → break
-//  4. Otherwise → increment position (line 219)
+// skipWhitespace skips over whitespace characters (bytes <= 32).
 func (p *jsonParser) skipWhitespace() {
 	for p.pos < p.end {
 		b := p.data[p.pos]
-		// Whitespace check: b <= 32 (line 215 inverted)
+		// Non-whitespace: stop
 		if b > 32 {
 			break
 		}
@@ -465,7 +387,6 @@ func (p *jsonParser) skipWhitespace() {
 }
 
 // createParameterWithType creates a Param from key and value offsets with JSON type info.
-// Ported from: bag.java parameter creation at lines 63 and 103
 //
 // Algorithm:
 //  1. Extract key name from keyOffsets

@@ -1,23 +1,14 @@
 package httpmsg
 
 // request_builder_params.go - HTTP parameter manipulation functions
-// Ported from: burp/d4n.java, burp/ec5.java, burp/ho5.java
 //
-// This file contains ALL parameter operations:
-// - Burp Standard API: BuildParameter, AddParameter, RemoveParameter, UpdateParameter, ToggleRequestMethod
+// This file contains all parameter operations:
+// - Core: BuildParameter, AddParameter, RemoveParameter, UpdateParameter, ToggleRequestMethod
 // - Extensions: Get, Has, GetAll, GetByType, Maps, Append, RemoveAll, AddMultiple
 
-// ==================== BURP STANDARD API: PARAMETER OPERATIONS ====================
+// ==================== CORE PARAMETER OPERATIONS ====================
 
 // BuildParameter creates a new Param object.
-// Ported from: d4n.java buildParameter() method (line 460-467)
-//
-//	ho5.java a() method (lines 8-60)
-//
-// Algorithm (from ho5.java):
-//  1. Create Param struct with type, name, value
-//  2. Set offsets to -1 (not positioned yet)
-//  3. Return param ready for AddParameter
 //
 // Parameters:
 //   - name: Parameter name
@@ -32,17 +23,12 @@ package httpmsg
 //	param := BuildParameter("sessionid", "abc123", ParamCookie)
 //	request, _ := AddParameter(request, param)
 func BuildParameter(name, value string, paramType ParamType) *Param {
-	// From ho5.java line 58: new ap1(var6, var0, var1, -1, -1, -1, -1)
 	return NewParsedParam(paramType, name, value, -1, -1, -1, -1)
 }
 
 // AddParameter adds a parameter to an HTTP request.
-// Ported from: d4n.java addParameter() method (lines 355-357)
 //
-//	ec5.java a() method for parameter addition (lines 454-598)
-//	b1i.java a() wrapper (line 31-34 and 36-43)
-//
-// Algorithm (from Burp ec5.java lines 454-598):
+// Algorithm:
 //  1. Analyze request to get current parameters and structure
 //  2. Determine where to add parameter based on type
 //  3. For ParamURL: Add to query string
@@ -72,7 +58,6 @@ func AddParameter(request []byte, param *Param) ([]byte, error) {
 	}
 
 	// Dispatch to appropriate handler based on parameter type
-	// From ec5.java lines 464-598
 	switch param.Type() {
 	case ParamURL:
 		return addParameterToURL(request, param)
@@ -81,15 +66,12 @@ func AddParameter(request []byte, param *Param) ([]byte, error) {
 	case ParamCookie:
 		return addParameterToCookie(request, param)
 	default:
-		// Unsupported parameter type (d4n.java line 404)
+		// Unsupported parameter type
 		return request, nil
 	}
 }
 
 // RemoveParameter removes a parameter from an HTTP request.
-// Ported from: d4n.java removeParameter() method (lines 360-362)
-//
-//	ec5.java a() method (shared with add, lines 364-411)
 //
 // Algorithm:
 //  1. Analyze request to get all parameters
@@ -131,14 +113,13 @@ func RemoveParameter(request []byte, param *Param) ([]byte, error) {
 }
 
 // UpdateParameter updates a parameter's value in an HTTP request.
-// Ported from: d4n.java updateParameter() method (lines 454-457)
 //
-// Algorithm (from d4n.java lines 454-457):
-//  1. Remove parameter from request (line 455)
-//  2. Add parameter with new value (line 456)
+// Algorithm:
+//  1. Remove parameter from request
+//  2. Add parameter with new value
 //  3. Return modified request
 //
-// Note: Burp implements update as remove+add, not direct replacement.
+// Note: Update is implemented as remove+add, not direct replacement.
 // This ensures proper handling of parameter encoding and structure.
 //
 // Parameters:
@@ -154,7 +135,7 @@ func RemoveParameter(request []byte, param *Param) ([]byte, error) {
 //	param := BuildParameter("version", "2.0", ParamURL)
 //	modified, _ := UpdateParameter(request, param)
 func UpdateParameter(request []byte, param *Param) ([]byte, error) {
-	// From d4n.java lines 454-457: remove then add
+	// Remove then add
 	var err error
 	request, err = RemoveParameter(request, param)
 	if err != nil {
@@ -164,20 +145,16 @@ func UpdateParameter(request []byte, param *Param) ([]byte, error) {
 }
 
 // ToggleRequestMethod toggles between GET and POST methods.
-// Ported from: d4n.java toggleRequestMethod() method (lines 435-446)
 //
-//	ec5.java a() method (lines 290-336)
-//	b1i.java a() wrapper (lines 16-19)
-//
-// Algorithm (from ec5.java lines 290-336):
+// Algorithm:
 //  1. Parse request to get current method and parameters
-//  2. Determine new method: GET→POST or POST→GET (line 295-296)
-//  3. If current method is NOT GET (lines 301-318):
-//     - Convert BODY params to URL params (line 302-303)
-//     - URL-encode parameter values (lines 307-315)
-//  4. If current method IS GET (lines 321-323):
+//  2. Determine new method: GET→POST or POST→GET
+//  3. If current method is NOT GET:
+//     - Convert BODY params to URL params
+//     - URL-encode parameter values
+//  4. If current method IS GET:
 //     - Convert URL params to BODY params
-//  5. Rebuild request with new method (line 331)
+//  5. Rebuild request with new method
 //
 // Parameters:
 //   - request: HTTP request
@@ -202,7 +179,7 @@ func ToggleRequestMethod(request []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Determine new method (ec5.java lines 295-296)
+	// Determine new method
 	currentMethod := info.Method
 	isCurrentlyGET := EqualsCaseInsensitive(currentMethod, "GET")
 
@@ -223,17 +200,17 @@ func ToggleRequestMethod(request []byte) ([]byte, error) {
 		newName := p.Name()
 		newValue := p.Value()
 
-		// If changing from non-GET to GET (ec5.java lines 301-318)
+		// If changing from non-GET to GET
 		if !isCurrentlyGET {
 			if p.Type() == ParamBody {
-				// Convert body param to URL param (line 303)
+				// Convert body param to URL param
 				newType = ParamURL
-				// URL-encode the values (lines 314-315)
+				// URL-encode the values
 				newName = EncodeQueryValue(p.Name())
 				newValue = EncodeQueryValue(p.Value())
 			}
 		} else {
-			// Changing from GET to POST (ec5.java lines 321-323)
+			// Changing from GET to POST
 			if p.Type() == ParamURL {
 				// Convert URL param to body param
 				newType = ParamBody
@@ -252,7 +229,6 @@ func ToggleRequestMethod(request []byte) ([]byte, error) {
 // ==================== HELPER FUNCTIONS ====================
 
 // addParameterToURL adds a parameter to the URL query string.
-// Ported from: ec5.java a() method PARAM_URL case (lines 465-466)
 func addParameterToURL(request []byte, param *Param) ([]byte, error) {
 	// Extract headers and body
 	headers, _, bodyOffset, err := ExtractAllHeaders(request)
@@ -284,9 +260,8 @@ func addParameterToURL(request []byte, param *Param) ([]byte, error) {
 	}
 
 	// Build new URL with added parameter
-	// Write parameter name and value AS-IS (no encoding per Burp Suite behavior)
-	// Burp writes parameter values exactly as provided (ec5.java lines 694-696)
-	// User must pre-encode values if needed
+	// Write parameter name and value AS-IS (no encoding).
+	// User must pre-encode values if needed.
 	var newURL string
 	paramStr := param.Name() + "=" + param.Value()
 
@@ -313,7 +288,6 @@ func addParameterToURL(request []byte, param *Param) ([]byte, error) {
 }
 
 // addParameterToBody adds a parameter to the request body.
-// Ported from: ec5.java a() method PARAM_BODY cases (lines 467-565)
 func addParameterToBody(request []byte, param *Param) ([]byte, error) {
 	// Extract headers and body
 	headers, _, bodyOffset, err := ExtractAllHeaders(request)
@@ -327,9 +301,8 @@ func addParameterToBody(request []byte, param *Param) ([]byte, error) {
 		body = request[bodyOffset:]
 	}
 
-	// Write parameter name and value AS-IS (no encoding per Burp Suite behavior)
-	// Burp writes parameter values exactly as provided (ec5.java lines 484-491)
-	// User must pre-encode values if needed
+	// Write parameter name and value AS-IS (no encoding).
+	// User must pre-encode values if needed.
 	paramStr := param.Name() + "=" + param.Value()
 
 	// Append to body
@@ -355,7 +328,6 @@ func addParameterToBody(request []byte, param *Param) ([]byte, error) {
 }
 
 // addParameterToCookie adds a parameter to the Cookie header.
-// Ported from: ec5.java a() method PARAM_COOKIE case (lines 572-645)
 func addParameterToCookie(request []byte, param *Param) ([]byte, error) {
 	// Extract headers
 	headers, _, bodyOffset, err := ExtractAllHeaders(request)
@@ -366,16 +338,15 @@ func addParameterToCookie(request []byte, param *Param) ([]byte, error) {
 	// Find existing Cookie header
 	cookieValue := Header(headers, "Cookie")
 
-	// Write cookie name and value AS-IS (no encoding per Burp Suite behavior)
-	// Burp stores and writes parameter values exactly as they appear in the request
-	// User must pre-encode values if needed (ec5.java lines 583-586, 636-638)
+	// Write cookie name and value AS-IS (no encoding).
+	// User must pre-encode values if needed.
 	paramStr := param.Name() + "=" + param.Value()
 
 	if cookieValue == "" {
-		// No Cookie header exists, add one (ec5.java lines 575-597)
+		// No Cookie header exists, add one
 		headers = append(headers, "Cookie: "+paramStr)
 	} else {
-		// Append to existing Cookie header (ec5.java lines 600-645)
+		// Append to existing Cookie header
 		// Remove existing Cookie header
 		headers = removeHeaderFromList(headers, "Cookie")
 		// Add new Cookie header with appended value
@@ -755,7 +726,7 @@ func buildRequestWithMethodAndParams(request []byte, info *RequestInfo, newMetho
 // ==================== EXTENSION API: PARAMETER OPERATIONS ====================
 
 // GetParameter extracts a single parameter value by name and type.
-// Extension to Burp API - provides direct parameter access without AnalyzeRequest.
+// Provides direct parameter access without AnalyzeRequest.
 //
 // Algorithm:
 //  1. Call AnalyzeRequest to get all parameters
@@ -790,7 +761,7 @@ func GetParameter(request []byte, name string, paramType ParamType) (string, err
 }
 
 // HasParameter checks if a parameter exists.
-// Extension to Burp API - provides parameter existence check.
+// Provides parameter existence check.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -821,7 +792,7 @@ func HasParameter(request []byte, name string, paramType ParamType) (bool, error
 }
 
 // GetParameterOrDefault returns parameter value or default if not found.
-// Extension to Burp API - provides parameter access with fallback.
+// Provides parameter access with fallback.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -845,7 +816,7 @@ func GetParameterOrDefault(request []byte, name string, paramType ParamType, def
 }
 
 // GetAllParameters returns all parameters from a request.
-// Extension to Burp API - wrapper for AnalyzeRequest.
+// Wrapper for AnalyzeRequest.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -867,7 +838,7 @@ func GetAllParameters(request []byte) ([]*Param, error) {
 }
 
 // GetParametersByType returns all parameters of a specific type.
-// Extension to Burp API - filters parameters by type.
+// Filters parameters by type.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -897,7 +868,7 @@ func GetParametersByType(request []byte, paramType ParamType) ([]*Param, error) 
 }
 
 // GetBodyParametersMap returns all body parameters as a map.
-// Extension to Burp API - provides map-based body parameter access.
+// Provides map-based body parameter access.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -924,7 +895,7 @@ func GetBodyParametersMap(request []byte) (map[string]string, error) {
 }
 
 // SetBodyParametersMap replaces all body parameters with those from a map.
-// Extension to Burp API - provides map-based body parameter setting.
+// Provides map-based body parameter setting.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -958,7 +929,7 @@ func SetBodyParametersMap(request []byte, params map[string]string) ([]byte, err
 }
 
 // AppendBodyParameter adds a body parameter without removing existing ones.
-// Extension to Burp API - provides append operation.
+// Provides append operation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -978,7 +949,7 @@ func AppendBodyParameter(request []byte, name, value string) ([]byte, error) {
 }
 
 // RemoveAllParametersByType removes all parameters of a specific type.
-// Extension to Burp API - provides batch remove operation.
+// Provides batch remove operation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -1009,7 +980,7 @@ func RemoveAllParametersByType(request []byte, paramType ParamType) ([]byte, err
 }
 
 // RemoveParametersByName removes all parameters matching names.
-// Extension to Burp API - provides batch name-based removal.
+// Provides batch name-based removal.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -1039,7 +1010,7 @@ func RemoveParametersByName(request []byte, names []string, paramType ParamType)
 }
 
 // AddMultipleParameters adds multiple parameters at once.
-// Extension to Burp API - provides batch add operation.
+// Provides batch add operation.
 //
 // Parameters:
 //   - request: HTTP request bytes

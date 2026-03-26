@@ -16,7 +16,7 @@ import (
 type ScanProbeBuilder struct {
 	scanFlags                   int                       // Corresponds to 'private final int c;'
 	attackStepRunner            AttackStepRunner          // Corresponds to 'private final i2j e;'
-	randomProvider              *utils.RandomGenerator    // Corresponds to 'private final net.portswigger.ou a;'
+	randomProvider              *utils.RandomGenerator    // Corresponds to 'private final ou a;'
 	randomStringGenerator       RandomTextProvider        // Corresponds to 'private final fen f;'
 	injectionPoint              httpmsg.InsertionPoint     // Corresponds to 'private final bno d;'
 	tacticType                  ReflectionTacticType      // Corresponds to 'private final ll i;' (enum type)
@@ -30,7 +30,7 @@ func (h *ScanProbeBuilder) IsScanProbeBuilder() {}
 // --- Constructors ---
 
 // NewScanProbeBuilder is the primary public constructor.
-// Corresponds to 'public hgm(net.portswigger.ou var1, fen var2, i2j var3, bno var4, cgv var5, ll var6, boolean var7)'
+// Corresponds to 'public hgm(ou var1, fen var2, i2j var3, bno var4, cgv var5, ll var6, boolean var7)'
 func NewScanProbeBuilder(
 	randomProvider *utils.RandomGenerator,
 	randomStringGenerator RandomTextProvider,
@@ -54,7 +54,7 @@ func NewScanProbeBuilder(
 }
 
 // newScanProbeBuilderInternal is the private constructor equivalent.
-// Corresponds to 'private hgm(net.portswigger.ou var1, fen var2, i2j var3, bno var4, cgv var5, int var6, ll var7, boolean var8)'
+// Corresponds to 'private hgm(ou var1, fen var2, i2j var3, bno var4, cgv var5, int var6, ll var7, boolean var8)'
 func newScanProbeBuilderInternal(
 	randomProvider *utils.RandomGenerator,
 	randomStringGenerator RandomTextProvider,

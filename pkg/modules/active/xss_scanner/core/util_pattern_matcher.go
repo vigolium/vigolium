@@ -126,10 +126,7 @@ func (e *ConfigurableBytePatternMatcher) findDirectMatch(
 	startIndex int,
 	endIndex int,
 ) *ByteMatchPosition {
-	// int var4 = net.portswigger.ls.a(var1, this.c, false, var2, var3);
-	// Assuming ls.a corresponds to NetPortswiggerLsAIndexOf from net_portswigger_ls.go
-	// (haystack, needle, caseSensitive, fromIndex, toIndex)
-	foundAtIndex := utils.NetPortswiggerLsAIndexOf(
+	foundAtIndex := utils.IndexOfPattern(
 		data,
 		e.searchPattern,
 		false,
@@ -166,12 +163,7 @@ func (e *ConfigurableBytePatternMatcher) decodeCharacterAndUpdateState(
 
 	// Java: if (this.a && var5 == 38)
 	if e.shouldDecodeHTMLEntities && processedCharByte == 38 {
-		// int var6 = net.portswigger.ls.b(var1, (byte) 59, var2 + 1, var1.length);
-		// NetPortswiggerLsBIndexOfByteCS(data, byteToFind, fromIndex, toIndex)
-		// Java uses var2+1 (currentIndex+1 after pre-increment) and var1.length as toIndex.
-		// For strictness, if data is shorter than currentIndex+1, LsBIndexOfByteCS might behave differently or error.
-		// The original Java var2 was the character *after* '&'. So, fromIndex for semicolon search is correct currentIndex.
-		semicolonPos := utils.NetPortswiggerLsBIndexOfByteCS(
+		semicolonPos := utils.IndexOfByteCS(
 			data,
 			59,
 			scanIndex+1,
@@ -234,7 +226,6 @@ func (e *ConfigurableBytePatternMatcher) parseHTMLEntity(
 		if len(entityCode) < 2 { // Catches "#", Java's Byte.parseByte("") would throw NFE
 			// strconv.ParseInt("", 10, 8) also errors.
 			err := errors.New("numeric entity too short: " + entityCode)
-			// NetPortswiggerM5A_ReportError1(err, RrIgnored) // Removed as per instruction
 			return 0, err
 		}
 
@@ -244,7 +235,6 @@ func (e *ConfigurableBytePatternMatcher) parseHTMLEntity(
 				entityCode,
 			) < 3 { // Catches "#x" or "#X", Java's Byte.parseByte("", 16) would throw NFE
 				err := errors.New("hex entity too short: " + entityCode)
-				// NetPortswiggerM5A_ReportError1(err, RrIgnored) // Removed
 				return 0, err
 			}
 			// Try to parse as hex
@@ -253,7 +243,6 @@ func (e *ConfigurableBytePatternMatcher) parseHTMLEntity(
 				return byte(numericValue), nil
 			}
 			// If hex parsing fails
-			// NetPortswiggerM5A_ReportError1(err, RrIgnored) // Removed
 			return 0, fmt.Errorf("hex entity parsing error for '%s': %w", entityCode, err)
 		} else {
 			// Not hex, try to parse as decimal (already checked len(entityName) >= 2)
@@ -262,7 +251,6 @@ func (e *ConfigurableBytePatternMatcher) parseHTMLEntity(
 				return byte(numericValue), nil
 			}
 			// If decimal parsing fails
-			// NetPortswiggerM5A_ReportError1(err, RrIgnored) // Removed
 			return 0, fmt.Errorf("decimal entity parsing error for '%s': %w", entityCode, err)
 		}
 	} else { // Named entity
@@ -270,7 +258,6 @@ func (e *ConfigurableBytePatternMatcher) parseHTMLEntity(
 		if found {
 			return byte(namedEntityValue), nil
 		}
-		// NetPortswiggerM5A_ReportError1(errors.New("unknown named entity: "+entityName), RrIgnored) // Removed
 		return 0, errors.New("unknown named entity: " + entityCode)
 	}
 }
@@ -366,9 +353,9 @@ func (e *ConfigurableBytePatternMatcher) findMatchWithTransformations(
 		// Character matching logic
 		isCurrentCharMatch := false
 		if currentPatternMatchOffset < len(e.searchPattern) &&
-			utils.NetPortswiggerLsAToLowerByte(
+			utils.ToLowerByte(
 				dataCharToCompare,
-			) == utils.NetPortswiggerLsAToLowerByte(
+			) == utils.ToLowerByte(
 				e.searchPattern[currentPatternMatchOffset],
 			) {
 			currentPatternMatchOffset++

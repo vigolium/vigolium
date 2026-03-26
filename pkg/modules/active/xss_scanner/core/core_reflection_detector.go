@@ -129,7 +129,6 @@ func (detector *HTTPReflectionPointDetector) scanBytesForReflections(
 		return
 	}
 
-	// ouInstance := utils.NewNetPortswiggerOu() // Default instance for now
 
 	// Use newHqrInternal which accepts a Db9 interface directly
 	// and also the originalPayloadForDc3
@@ -181,7 +180,7 @@ func (detector *HTTPReflectionPointDetector) AddReflection(
 			detector.bodyReflectionContextFlags[index] = true
 		}
 	default:
-		// In Java, this case calls net.portswigger.qe.a, which is an assertion/error.
+		// In Java, this case calls an assertion/error.
 		// We can log or ignore for now.
 	}
 }

@@ -37,7 +37,7 @@ func (e *Engine) initSession() error {
 			zap.Strings("components", hostComponents))
 	}
 
-	// Burp _x.java:1039-1042 - Always read from sitemap at startup
+	// Always read from sitemap at startup
 	logger.Info("Copying existing URLs from sitemap")
 	if err := e.copyFromSiteMap(); err != nil {
 		logger.Warn("Failed to copy from sitemap", zap.Error(err))
@@ -55,7 +55,7 @@ func (e *Engine) initSession() error {
 		}
 	}
 
-	// Burp _x.java:1034-1038 - Probe start URL before scanning
+	// Probe start URL before scanning
 	logger.Info("Probing start URL", zap.String("url", targetURL.String()))
 	if err := e.probeStartURL(targetURL); err != nil {
 		return fmt.Errorf("start URL probe failed: %w", err)
@@ -298,13 +298,13 @@ func (e *Engine) generateInitialTasks() {
 	logger.Debug("Enqueuing initial tasks", zap.Int("count", len(tasks)))
 	e.addTasks(tasks)
 
-	// Create observed name tasks (Burp: _x.java:917-952)
+	// Create observed name tasks
 	// Note: CreateObservedNameTasks internally extracts scheme://host and path from baseURL
 	observedTasks := e.factory.CreateObservedNameTasks(baseURL, depth, e.observedNames, e.observedExtensions)
 	logger.Debug("Enqueuing observed name tasks", zap.Int("count", len(observedTasks)))
 	e.addTasks(observedTasks)
 
-	// Create observed directory tasks (Burp: _x.java:928-932)
+	// Create observed directory tasks
 	// Extract scheme://host and path for the new API
 	schemeHost := extractSchemeHost(string(baseURL))
 	dirPath := extractPathFromURL(string(baseURL))

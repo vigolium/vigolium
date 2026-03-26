@@ -1,7 +1,6 @@
 package httpmsg
 
 // ContentType represents the content type of an HTTP request body.
-// Values match Burp Suite's IRequestInfo CONTENT_TYPE_* constants.
 type ContentType byte
 
 const (
@@ -28,8 +27,7 @@ const (
 )
 
 // RequestInfo represents parsed HTTP request information.
-// Ported from Burp Suite's dz8.java class and IRequestInfo interface.
-// This is the primary container for analyzed request data, matching Burp's internal structure.
+// This is the primary container for analyzed request data.
 //
 // Field layout:
 // - Headers: HTTP headers including request line
@@ -43,31 +41,24 @@ const (
 // - Parameters: extracted parameters from URL, body, cookies
 type RequestInfo struct {
 	// Headers is the list of HTTP header strings (including the request line)
-	// Maps to dz8.d and IRequestInfo.getHeaders()
 	// Example: ["GET /path HTTP/1.1", "Host: example.com", "User-Agent: ..."]
 	Headers []string
 
 	// HTTPVersion indicates the HTTP version as an integer
-	// Maps to dz8.e
 	// Example: 11 for HTTP/1.1, 20 for HTTP/2.0
 	HTTPVersion int
 
 	// BodyOffset is the byte offset where the message body begins
-	// Maps to dz8.h (via dz8.a() method) and IRequestInfo.getBodyOffset()
 	// This is the position immediately after the \r\n\r\n (or \n\n) separator
 	BodyOffset int
 
 	// Method is the HTTP request method (GET, POST, etc.)
-	// Maps to dz8.f and IRequestInfo.getMethod()
 	Method string
 
 	// URL is the full request URL as a string
-	// Maps to dz8.g (converted from hik type) and IRequestInfo.getUrl()
-	// Note: hik is Burp's internal URL representation; we use string here
 	URL string
 
 	// HasBody indicates whether the request contains a message body
-	// Maps to dz8.b
 	// True for POST/PUT/PATCH requests, false for GET/HEAD/etc.
 	HasBody bool
 
@@ -77,18 +68,15 @@ type RequestInfo struct {
 	HttpService string
 
 	// ContentType indicates the request body content type
-	// Maps to dz8.a (h5p enum)
 	// Uses ContentType constants defined above
 	ContentType ContentType
 
 	// Parameters is the list of extracted HTTP parameters
-	// Maps to dz8.c and IRequestInfo.getParameters()
 	// Includes URL params, body params, cookies, etc. depending on request type
 	Parameters []*Param
 }
 
 // NewRequestInfo creates a new RequestInfo instance with default values.
-// Equivalent to creating a new dz8 object in Burp Suite.
 func NewRequestInfo() *RequestInfo {
 	return &RequestInfo{
 		Headers:     make([]string, 0),

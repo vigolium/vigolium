@@ -11,15 +11,13 @@ import (
 
 // HTMLAttributeExtractor extracts URLs from HTML tag attributes.
 //
-// Supported elements (32 tags from Burp Suite):
+// Supported elements (32 tags):
 //   - a, img, script, link, applet, area, base, bgsound, sound, body
 //   - embed, frame, fig, iframe, li, meta, note, object, ul, blockquote
 //   - ins, del, video, image, svg, html, isindex, source, table, td
 //   - input, feimage
 //
 // Note: This extractor does NOT check scope. Caller is responsible for scope filtering.
-//
-// Burp mapping: ap7.java (HTML attribute extractor)
 type HTMLAttributeExtractor struct {
 	urlResolver *URLResolver
 }
@@ -40,8 +38,6 @@ func NewHTMLAttributeExtractor(urlResolver *URLResolver) *HTMLAttributeExtractor
 //  4. Extract URLs from each supported tag/attribute combination
 //  5. Resolve relative URLs and check scope
 //  6. Report via callback
-//
-// Burp mapping: ap7.a(hik var0, List<ahe> var1, int var2, c5e var3) - Lines 15-500
 func (e *HTMLAttributeExtractor) Extract(ctx context.Context, baseURL *url.URL, response *HTTPResponse, callback LinkCallback) error {
 	// Ensure HTML is parsed (cached with sync.Once)
 	if response.HTML == nil {
@@ -61,7 +57,6 @@ func (e *HTMLAttributeExtractor) Extract(ctx context.Context, baseURL *url.URL, 
 			tagName := strings.ToLower(n.Data)
 
 			// Handle <base href> tag specially - it overrides the base URL
-			// Burp mapping: Lines 350-358
 			if tagName == "base" && !baseOverridden {
 				if newBase := e.extractFromElement(n, currentBase, "base", callback); newBase != nil {
 					currentBase = newBase
@@ -85,28 +80,21 @@ func (e *HTMLAttributeExtractor) Extract(ctx context.Context, baseURL *url.URL, 
 
 // extractFromElement extracts URLs from a single HTML element based on its tag name.
 // Returns the resolved URL for <base> tag, nil otherwise.
-//
-// Burp mapping: Lines 312-491 (switch statement for each tag)
 func (e *HTMLAttributeExtractor) extractFromElement(n *html.Node, baseURL *url.URL, tagName string, callback LinkCallback) *url.URL {
 	// Map tag names to their attributes and resource types
-	// This follows the exact mapping from Burp's ap7.java switch statement
 	switch tagName {
 	case "a":
-		// Burp: case 0, lines 313-317
 		e.extractAttr(n, "href", ResourceHTML, baseURL, callback)
 
 	case "img":
-		// Burp: case 1, lines 318-323
 		e.extractAttr(n, "src", ResourceImage, baseURL, callback)
 		e.extractSrcset(n, "srcset", ResourceImage, baseURL, callback)
 
 	case "script":
-		// Burp: case 2, lines 324-329
 		e.extractAttr(n, "src", ResourceScript, baseURL, callback)
 		e.extractAttr(n, "xlink:href", ResourceScript, baseURL, callback)
 
 	case "link":
-		// Burp: case 3, lines 330-336
 		// Determine resource type from type, rel, and as attributes
 		// Modern apps use: <link rel="preload" as="script">, <link rel="modulepreload">
 		resType := e.determineLinkResourceType(n)
@@ -114,18 +102,15 @@ func (e *HTMLAttributeExtractor) extractFromElement(n *html.Node, baseURL *url.U
 		e.extractAttr(n, "src", resType, baseURL, callback)
 
 	case "applet":
-		// Burp: case 4, lines 337-344
 		e.extractAttr(n, "code", ResourceBinary, baseURL, callback)
 		e.extractAttr(n, "codebase", ResourceHTML, baseURL, callback)
 		e.extractAttr(n, "archive", ResourceBinary, baseURL, callback)
 		e.extractAttr(n, "object", ResourceBinary, baseURL, callback)
 
 	case "area":
-		// Burp: case 5, lines 345-349
 		e.extractAttr(n, "href", ResourceHTML, baseURL, callback)
 
 	case "base":
-		// Burp: case 6, lines 350-359
 		// Special handling: extract href and return it to override base URL
 		value := getAttr(n, "href")
 		if value == "" {
@@ -140,105 +125,81 @@ func (e *HTMLAttributeExtractor) extractFromElement(n *html.Node, baseURL *url.U
 		return resolved // Return to override base URL
 
 	case "bgsound":
-		// Burp: case 7, lines 360-364
 		e.extractAttr(n, "src", ResourceAudio, baseURL, callback)
 
 	case "sound":
-		// Burp: case 8, lines 365-369
 		e.extractAttr(n, "src", ResourceAudio, baseURL, callback)
 
 	case "body":
-		// Burp: case 9, lines 370-375
 		e.extractAttr(n, "background", ResourceImage, baseURL, callback)
 		e.extractAttr(n, "location", ResourceHTML, baseURL, callback)
 
 	case "embed":
-		// Burp: case 10, lines 376-381
 		e.extractAttr(n, "src", ResourceBinary, baseURL, callback)
 		e.extractAttr(n, "code", ResourceBinary, baseURL, callback)
 
 	case "frame":
-		// Burp: case 11, lines 382-386
 		e.extractAttr(n, "src", ResourceHTML, baseURL, callback)
 
 	case "fig":
-		// Burp: case 12, lines 387-391
 		e.extractAttr(n, "src", ResourceImage, baseURL, callback)
 
 	case "iframe":
-		// Burp: case 13, lines 392-396
 		e.extractAttr(n, "src", ResourceHTML, baseURL, callback)
 
 	case "li":
-		// Burp: case 14, lines 397-401
 		e.extractAttr(n, "src", ResourceHTML, baseURL, callback)
 
 	case "meta":
-		// Burp: case 15, lines 402-406
 		e.extractAttr(n, "url", ResourceHTML, baseURL, callback)
 
 	case "note":
-		// Burp: case 16, lines 407-411
 		e.extractAttr(n, "src", ResourceHTML, baseURL, callback)
 
 	case "object":
-		// Burp: case 17, lines 412-418
 		e.extractAttr(n, "code", ResourceBinary, baseURL, callback)
 		e.extractAttr(n, "codebase", ResourceHTML, baseURL, callback)
 		e.extractAttr(n, "data", ResourceBinary, baseURL, callback)
 
 	case "ul":
-		// Burp: case 18, lines 419-423
 		e.extractAttr(n, "src", ResourceHTML, baseURL, callback)
 
 	case "blockquote":
-		// Burp: case 19, lines 424-428
 		e.extractAttr(n, "cite", ResourceHTML, baseURL, callback)
 
 	case "ins":
-		// Burp: case 20, lines 429-433
 		e.extractAttr(n, "cite", ResourceHTML, baseURL, callback)
 
 	case "del":
-		// Burp: case 21, lines 434-438
 		e.extractAttr(n, "cite", ResourceHTML, baseURL, callback)
 
 	case "video":
-		// Burp: case 22, lines 439-443
 		e.extractAttr(n, "src", ResourceVideo, baseURL, callback)
 
 	case "image":
-		// Burp: case 23, lines 444-450
 		e.extractAttr(n, "src", ResourceImage, baseURL, callback)
 		e.extractAttr(n, "href", ResourceImage, baseURL, callback)
 		e.extractAttr(n, "xlink:href", ResourceImage, baseURL, callback)
 
 	case "svg":
-		// Burp: case 24, lines 451-455
 		e.extractAttr(n, "src", ResourceBinary, baseURL, callback)
 
 	case "html":
-		// Burp: case 25, lines 456-460
 		e.extractAttr(n, "manifest", ResourceBinary, baseURL, callback)
 
 	case "isindex":
-		// Burp: case 26, lines 461-465
 		e.extractAttr(n, "src", ResourceBinary, baseURL, callback)
 
 	case "source":
-		// Burp: case 27, lines 466-470
 		e.extractAttr(n, "src", ResourceBinary, baseURL, callback)
 
 	case "table":
-		// Burp: case 28, lines 471-475
 		e.extractAttr(n, "background", ResourceImage, baseURL, callback)
 
 	case "td":
-		// Burp: case 29, lines 476-480
 		e.extractAttr(n, "background", ResourceImage, baseURL, callback)
 
 	case "input":
-		// Burp: case 30, lines 481-488
 		// Check type attribute to determine resource type
 		typeAttr := getAttr(n, "type")
 		resType := ResourceBinary
@@ -248,7 +209,6 @@ func (e *HTMLAttributeExtractor) extractFromElement(n *html.Node, baseURL *url.U
 		e.extractAttr(n, "src", resType, baseURL, callback)
 
 	case "feimage", "feImage": // HTML parser normalizes to feImage
-		// Burp: case 31, lines 489-491
 		e.extractAttr(n, "xlink:href", ResourceBinary, baseURL, callback)
 	}
 
@@ -256,9 +216,6 @@ func (e *HTMLAttributeExtractor) extractFromElement(n *html.Node, baseURL *url.U
 }
 
 // extractAttr extracts a URL from a single attribute.
-//
-// Burp mapping: ap7.a(ahe var0, String var1, hik var2, List<v2> var3, short var4, int var5, c5e var6)
-// Lines 502-659
 func (e *HTMLAttributeExtractor) extractAttr(n *html.Node, attrName string, resType ResourceType, baseURL *url.URL, callback LinkCallback) {
 	value := getAttr(n, attrName)
 	if value == "" {
@@ -272,7 +229,6 @@ func (e *HTMLAttributeExtractor) extractAttr(n *html.Node, attrName string, resT
 	}
 
 	// Detect image type from extension if needed
-	// Burp mapping: Lines 527-632
 	if resType == ResourceImage {
 		resType = e.detectImageType(resolved)
 	}
@@ -284,8 +240,6 @@ func (e *HTMLAttributeExtractor) extractAttr(n *html.Node, attrName string, resT
 // extractSrcset handles srcset attribute which can contain multiple URLs.
 //
 // Format: "url1 1x, url2 2x" or "url1 480w, url2 800w"
-//
-// Burp mapping: Lines 320 (img srcset extraction)
 func (e *HTMLAttributeExtractor) extractSrcset(n *html.Node, attrName string, resType ResourceType, baseURL *url.URL, callback LinkCallback) {
 	value := getAttr(n, attrName)
 	if value == "" {
@@ -327,8 +281,6 @@ func (e *HTMLAttributeExtractor) extractSrcset(n *html.Node, attrName string, re
 
 // resolveAndValidate performs URL resolution and validation.
 // Note: Does NOT check scope - caller is responsible for scope filtering.
-//
-// Burp mapping: Lines 508-656
 func (e *HTMLAttributeExtractor) resolveAndValidate(rawURL string, baseURL *url.URL) (*url.URL, error) {
 	// Normalize: trim and encode spaces
 	rawURL = strings.TrimSpace(rawURL)
@@ -360,8 +312,6 @@ func (e *HTMLAttributeExtractor) resolveAndValidate(rawURL string, baseURL *url.
 
 // isValidProtocol checks if the URL has a valid protocol.
 // Only http, https, ws, wss are allowed. Relative URLs (no protocol) are also valid.
-//
-// Burp mapping: Lines 513-520
 func (e *HTMLAttributeExtractor) isValidProtocol(value string) bool {
 	// Check first 12 characters for protocol
 	if len(value) < 12 {
@@ -425,8 +375,6 @@ func (e *HTMLAttributeExtractor) determineLinkResourceType(n *html.Node) Resourc
 }
 
 // detectImageType detects specific image type from URL extension.
-//
-// Burp mapping: Lines 527-632
 func (e *HTMLAttributeExtractor) detectImageType(u *url.URL) ResourceType {
 	ext := strings.ToLower(filepath.Ext(u.Path))
 
@@ -447,8 +395,6 @@ func (e *HTMLAttributeExtractor) detectImageType(u *url.URL) ResourceType {
 }
 
 // reportLink creates a DiscoveredLink and invokes the callback.
-//
-// Burp mapping: Line 649 (new v2(...))
 func (e *HTMLAttributeExtractor) reportLink(n *html.Node, attrName, rawURL string, resolved *url.URL, resType ResourceType, callback LinkCallback) {
 	link := &DiscoveredLink{
 		SourceType:   SourceHTMLAttribute,

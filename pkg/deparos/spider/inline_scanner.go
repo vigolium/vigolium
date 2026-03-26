@@ -16,46 +16,41 @@ import (
 // - Meta refresh parser
 // - Script content parser
 //
-// Burp mapping: uc.java (Inline URL scanner)
 type InlineURLScanner struct {
 	urlResolver *URLResolver
 }
 
 // URL protocol prefixes to scan for
 var (
-	// Burp mapping: uc.java lines 8-11
-	protocolHTTPS = []byte("https://") // Line 9: {104, 116, 116, 112, 115, 58, 47, 47}
-	protocolHTTP  = []byte("http://")  // Line 8: {104, 116, 116, 112, 58, 47, 47}
-	protocolWSS   = []byte("wss://")   // Line 11: {119, 115, 115, 58, 47, 47}
-	protocolWS    = []byte("ws://")    // Line 10: {119, 115, 58, 47, 47}
-	protocolAny   = []byte("://")      // Line 12: {58, 47, 47}
+	protocolHTTPS = []byte("https://")
+	protocolHTTP  = []byte("http://")
+	protocolWSS   = []byte("wss://")
+	protocolWS    = []byte("ws://")
+	protocolAny   = []byte("://")
 
 	// All protocols in scan order (longest first)
-	// Burp mapping: uc.java line 13: a = {j, l, k, d}
 	protocols = [][]byte{protocolHTTPS, protocolHTTP, protocolWSS, protocolWS}
 
 	// URL terminators (characters that end a URL)
-	// Burp mapping: uc.java lines 17-19
 	terminators = [][]byte{
-		{'<'},                          // Line 17
-		{'>'},                          // Line 17
-		{'\''},                         // Line 17
-		{'"'},                          // Line 17
+		{'<'},
+		{'>'},
+		{'\''},
+		{'"'},
 		{'&', 'q', 'u', 'o', 't', ';'}, // &quot;
 		{'&', 'g', 't', ';'},           // &gt;
-		{')'},                          // Line 17
-		{']'},                          // Line 17
-		{'}'},                          // Line 17
-		{' '},                          // Space
-		{'\r'},                         // CR
-		{'\n'},                         // LF
+		{')'},
+		{']'},
+		{'}'},
+		{' '},
+		{'\r'},
+		{'\n'},
 	}
 
 	// Relative path prefixes
-	// Burp mapping: uc.java lines 14-16
-	relativeSlash     = []byte("/")   // Line 14
-	relativeDotSlash  = []byte("./")  // Line 15
-	relativeDotDot    = []byte("../") // Line 16
+	relativeSlash     = []byte("/")
+	relativeDotSlash  = []byte("./")
+	relativeDotDot    = []byte("../")
 	relativesPrefixes = [][]byte{relativeSlash, relativeDotSlash, relativeDotDot}
 )
 
@@ -67,8 +62,6 @@ func NewInlineURLScanner(urlResolver *URLResolver) *InlineURLScanner {
 }
 
 // Extract scans the response body for inline URLs and reports them via callback.
-//
-// Burp mapping: uc.a(byte[] var1, int var2, byte var3, fi3 var4) - Lines 42-56
 func (s *InlineURLScanner) Extract(ctx context.Context, baseURL *url.URL, response *HTTPResponse, callback LinkCallback) error {
 	// Scan for URLs in the body
 	positions := s.findProtocolPositions(response.Body, 0)
@@ -108,20 +101,16 @@ func (s *InlineURLScanner) Extract(ctx context.Context, baseURL *url.URL, respon
 
 // ScanBytes scans a byte slice for inline URLs and reports them.
 // This is used by other extractors to scan string literals.
-//
-// Burp mapping: uc.a(hik var1, byte[] var2, int var3, byte var4, fi3 var5) - Lines 27-40
 func (s *InlineURLScanner) ScanBytes(ctx context.Context, baseURL *url.URL, data []byte, offset int) bool {
 	if len(data) < 6 {
 		return false
 	}
 
 	// Try to find an absolute URL first
-	// Burp mapping: uc.a(byte[] var1, int var2) - Lines 113-120
 	urlStr, startPos, endPos := s.findAbsoluteURL(data, offset)
 
 	if urlStr == "" {
 		// Try to find a relative URL
-		// Burp mapping: uc.a(hik var1, byte[] var2, int var3) - Lines 195-265
 		urlStr, startPos, endPos = s.findRelativeURL(baseURL, data, offset)
 	}
 
@@ -144,8 +133,6 @@ func (s *InlineURLScanner) ScanBytes(ctx context.Context, baseURL *url.URL, data
 }
 
 // findProtocolPositions finds all positions where :// appears in the data.
-//
-// Burp mapping: uc.b(byte[] var1, int var2) - Lines 58-91
 func (s *InlineURLScanner) findProtocolPositions(data []byte, offset int) []int {
 	positions := []int{}
 	searchStart := offset
@@ -160,7 +147,6 @@ func (s *InlineURLScanner) findProtocolPositions(data []byte, offset int) []int 
 		protoPos := searchStart + idx
 
 		// Now find the actual protocol prefix (http://, https://, etc.)
-		// Burp mapping: uc.a(byte[] var1, int var2, int var3) - Lines 93-103
 		actualStart := s.findProtocolStart(data, offset, protoPos)
 		if actualStart != -1 {
 			positions = append(positions, actualStart)
@@ -173,8 +159,6 @@ func (s *InlineURLScanner) findProtocolPositions(data []byte, offset int) []int 
 }
 
 // findProtocolStart finds the start of a protocol given the position of ://
-//
-// Burp mapping: uc.a(byte[] var1, int var2, int var3) - Lines 93-103
 func (s *InlineURLScanner) findProtocolStart(data []byte, offset int, colonSlashPos int) int {
 	// Check https:// (5 bytes before ://)
 	if colonSlashPos >= offset+5 && bytes.Equal(data[colonSlashPos-5:colonSlashPos+3], protocolHTTPS) {
@@ -200,8 +184,6 @@ func (s *InlineURLScanner) findProtocolStart(data []byte, offset int, colonSlash
 }
 
 // extractURLAt extracts the URL starting at the given position.
-//
-// Burp mapping: uc.b(byte[] var1, int var2, int var3) - Lines 122-151
 func (s *InlineURLScanner) extractURLAt(data []byte, pos int, offset int) (string, int, int) {
 	if len(data) < 6 {
 		return "", 0, 0
@@ -233,8 +215,6 @@ func (s *InlineURLScanner) extractURLAt(data []byte, pos int, offset int) (strin
 }
 
 // getProtocolLength returns the length of the protocol at the given position.
-//
-// Burp mapping: uc.e(byte[] var1, int var2) - Lines 153-173
 func (s *InlineURLScanner) getProtocolLength(data []byte, pos int) int {
 	for _, proto := range protocols {
 		if bytes.HasPrefix(data[pos:], proto) {
@@ -245,8 +225,6 @@ func (s *InlineURLScanner) getProtocolLength(data []byte, pos int) int {
 }
 
 // isTerminator checks if the byte at pos is a URL terminator.
-//
-// Burp mapping: uc.d(byte[] var1, int var2) - Lines 271-291
 func (s *InlineURLScanner) isTerminator(data []byte, pos int) bool {
 	for _, term := range terminators {
 		if bytes.HasPrefix(data[pos:], term) {
@@ -257,8 +235,6 @@ func (s *InlineURLScanner) isTerminator(data []byte, pos int) bool {
 }
 
 // findAbsoluteURL finds the first absolute URL in the data.
-//
-// Burp mapping: uc.a(byte[] var1, int var2) - Lines 113-120
 func (s *InlineURLScanner) findAbsoluteURL(data []byte, offset int) (string, int, int) {
 	if len(data) < 6 {
 		return "", 0, 0
@@ -285,8 +261,6 @@ func (s *InlineURLScanner) findAbsoluteURL(data []byte, offset int) (string, int
 // baseURL is accepted for API consistency with other extraction methods,
 // though relative URL syntax validation requires only the data bytes.
 // The caller must perform URL resolution against baseURL after extraction.
-//
-// Burp mapping: uc.a(hik var1, byte[] var2, int var3) - Lines 195-265
 func (s *InlineURLScanner) findRelativeURL(baseURL *url.URL, data []byte, offset int) (string, int, int) {
 	_ = baseURL // Accepted for API consistency, resolution handled by caller
 	if len(data) < 6 {
@@ -304,7 +278,6 @@ func (s *InlineURLScanner) findRelativeURL(baseURL *url.URL, data []byte, offset
 	}
 
 	// Check if it starts with a relative path prefix
-	// Burp mapping: uc.c(byte[] var1, int var2) - Lines 267-269
 	if !s.startsWithRelativePrefix(data, start) {
 		return "", 0, 0
 	}
@@ -355,8 +328,6 @@ func (s *InlineURLScanner) findRelativeURL(baseURL *url.URL, data []byte, offset
 }
 
 // startsWithRelativePrefix checks if data starts with /, ./, or ../
-//
-// Burp mapping: uc.c(byte[] var1, int var2) - Lines 267-269
 func (s *InlineURLScanner) startsWithRelativePrefix(data []byte, pos int) bool {
 	for _, prefix := range relativesPrefixes {
 		if bytes.HasPrefix(data[pos:], prefix) {

@@ -8,7 +8,7 @@ import (
 
 // --- Static Fields and Initializer ---
 
-// HtmlEntitiesMap corresponds to 'public static final Map<String, Character> a' in cy.java
+// HtmlEntitiesMap maps HTML entity names to their corresponding runes.
 var HtmlEntitiesMap map[string]rune
 
 // init function for package-level static initialization for cy.
@@ -120,16 +120,14 @@ func init() {
 
 // --- Public Static Methods ---
 
-// NetPortswiggerCyAUrlEncodeAll corresponds to 'public static String a(String var0)' in cy.java
-// Encodes a string for use in a URL, encoding almost all non-alphanumeric characters.
-func NetPortswiggerCyAUrlEncodeAll(s string) string {
-	// String[] var10000 = h9.b(); // Ignored
+// URLEncodeAll encodes a string for use in a URL, encoding almost all non-alphanumeric characters.
+func URLEncodeAll(s string) string {
 	length := len(s)
 	var sb strings.Builder
-	sb.Grow(length * 3) // Max expansion: %XX for each char
+	sb.Grow(length * 3)
 
 	for i := 0; i < length; i++ {
-		c := s[i] // In Go, this is a byte
+		c := s[i]
 		if c == ' ' {
 			sb.WriteByte('+')
 		} else if (c >= '0' && c <= '9') ||
@@ -138,28 +136,24 @@ func NetPortswiggerCyAUrlEncodeAll(s string) string {
 			c == '*' || c == '-' || c == '.' || c == '_' {
 			sb.WriteByte(c)
 		} else {
-			// String var6 = "0" + Integer.toHexString(var5);
-			// var6 = var6.substring(var6.length() - 2);
-			// var3.append("%").append(var6);
-			fmt.Fprintf(&sb, "%%%02X", c) // %XX format
+			fmt.Fprintf(&sb, "%%%02X", c)
 		}
 	}
-	// if (!agd.e()) { h9.b(new String[1]); } // Ignored
 	return sb.String()
 }
 
-// NetPortswiggerCyDUrlDecodeSpacesOnly corresponds to 'public static String d(String var0)'
-func NetPortswiggerCyDUrlDecodeSpacesOnly(s string) string {
-	return netPortswiggerCyAUrlDecodeInternal(s, true)
+// URLDecodeSpacesOnly decodes only '+' as space in a URL-encoded string.
+func URLDecodeSpacesOnly(s string) string {
+	return urlDecodeInternal(s, true)
 }
 
-// NetPortswiggerCyBUrlDecode corresponds to 'public static String b(String var0)'
-func NetPortswiggerCyBUrlDecode(s string) string {
-	return netPortswiggerCyAUrlDecodeInternal(s, false)
+// URLDecode performs full URL decoding of a string.
+func URLDecode(s string) string {
+	return urlDecodeInternal(s, false)
 }
 
-// netPortswiggerCyAUrlDecodeInternal corresponds to 'private static String a(String var0, boolean var1)'
-func netPortswiggerCyAUrlDecodeInternal(s string, decodePlusToSpace bool) string {
+// urlDecodeInternal is the shared implementation for URL decoding.
+func urlDecodeInternal(s string, decodePlusToSpace bool) string {
 	length := len(s)
 	var sb strings.Builder
 	sb.Grow(length) // Decoded string is likely shorter or same length
@@ -174,7 +168,6 @@ func netPortswiggerCyAUrlDecodeInternal(s string, decodePlusToSpace bool) string
 				sb.WriteByte(byte(byteVal))
 				i += 2 // Advance past XX
 			} else {
-				// m5.a(var7, rr.IGNORED); // Java logs NumberFormatException
 				sb.WriteByte(c) // Append '%' if not valid hex
 			}
 		} else {
@@ -184,24 +177,19 @@ func netPortswiggerCyAUrlDecodeInternal(s string, decodePlusToSpace bool) string
 	return sb.String()
 }
 
-// NetPortswiggerCyCHtmlEntityDecode corresponds to 'public static String c(String var0)'
-func NetPortswiggerCyCHtmlEntityDecode(s string) string {
-	return netPortswiggerCyAHtmlEntityDecodeWithOffsets(s, nil)
+// HTMLEntityDecode decodes HTML entities in a string.
+func HTMLEntityDecode(s string) string {
+	return htmlEntityDecodeWithOffsets(s, nil)
 }
 
-// netPortswiggerCyAHtmlEntityDecodeWithOffsets corresponds to 'public static String a(String var0, int[] var1)'
-// The offset logic (var1) is complex and tied to Java array mutation. For a direct Go port,
-// returning modified offsets in a Go-idiomatic way (e.g., a slice of structs or multiple return values)
-// would be different. Given the current usage context, if var1 is nil in most calls (like c() does),
-// we can simplify this to not handle offset mapping for now, or implement it if a specific need arises.
-// For now, var1 (offsets) is ignored as per the c() method calling it with null.
-func netPortswiggerCyAHtmlEntityDecodeWithOffsets(s string, offsets []int) string {
-	if s == "" { // Java null check
-		return "" // Go equivalent for null string
+// htmlEntityDecodeWithOffsets decodes HTML entities with optional offset tracking.
+// When offsets is nil, offset tracking is skipped.
+func htmlEntityDecodeWithOffsets(s string, offsets []int) string {
+	if s == "" {
+		return ""
 	}
 
 	var sb strings.Builder
-	// int var3 = 0; // Original offset tracking, not directly used if offsets array is nil
 
 	for i := 0; i < len(s); {
 		if s[i] == '&' {
@@ -221,7 +209,7 @@ func netPortswiggerCyAHtmlEntityDecodeWithOffsets(s string, offsets []int) strin
 						}
 					}
 
-					if err == nil && charCode >= ' ' { // Java also checks if charCode < ' '
+					if err == nil && charCode >= ' ' {
 						sb.WriteRune(rune(charCode))
 						i += semicolonIdx + 1
 						continue
@@ -231,7 +219,6 @@ func netPortswiggerCyAHtmlEntityDecodeWithOffsets(s string, offsets []int) strin
 					if r, ok := HtmlEntitiesMap[strings.ToLower(entityName)]; ok {
 						sb.WriteRune(r)
 						i += semicolonIdx + 1
-						// if (var1 != null) { var3 = a(var1, var3, sb.length(), i); } // Offset logic ignored
 						continue
 					}
 					// If not found or not numeric, fall through to append '&' as literal
@@ -240,7 +227,6 @@ func netPortswiggerCyAHtmlEntityDecodeWithOffsets(s string, offsets []int) strin
 		}
 		sb.WriteByte(s[i])
 		i++
-		// if (var1 != null) { var3 = a(var1, var3, sb.length(), i); } // Offset logic ignored
 	}
 	return sb.String()
 }

@@ -59,10 +59,8 @@ func (strategy *ScriptSchemeInAttributeStrategy) GeneratePayload(
 	// fcp var7 = (fcp)var5;
 	attributeReflection, isCorrectType := reflection.(*HTMLAttributeReflection)
 
-	// if (var7 == null) { net.portswigger.qe.a(false, net.portswigger.rg.e); return null; }
 	if !isCorrectType ||
 		attributeReflection == nil { // Combined Java null check and Go type assertion check
-		// net.portswigger.qe.a call is for logging/assertion, we just return nil as per Java logic
 		return nil
 	}
 

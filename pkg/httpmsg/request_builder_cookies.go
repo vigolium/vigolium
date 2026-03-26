@@ -12,7 +12,6 @@ import "errors"
 // ==================== COOKIE OPERATIONS ====================
 
 // GetCookie extracts a single cookie value by name.
-// Extension to Burp API - provides cookie-specific access.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -30,7 +29,6 @@ func GetCookie(request []byte, name string) (string, error) {
 }
 
 // GetAllCookies returns all cookies as a map.
-// Extension to Burp API - provides map-based cookie access.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -57,7 +55,6 @@ func GetAllCookies(request []byte) (map[string]string, error) {
 }
 
 // HasCookie checks if a cookie exists.
-// Extension to Burp API - provides cookie existence check.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -75,7 +72,6 @@ func HasCookie(request []byte, name string) (bool, error) {
 }
 
 // SetCookie sets or updates a cookie.
-// Extension to Burp API - provides cookie-specific setting.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -95,7 +91,6 @@ func SetCookie(request []byte, name, value string) ([]byte, error) {
 }
 
 // RemoveCookie removes a cookie.
-// Extension to Burp API - provides cookie-specific removal.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -114,7 +109,6 @@ func RemoveCookie(request []byte, name string) ([]byte, error) {
 }
 
 // SetAllCookies replaces all cookies with those from a map.
-// Extension to Burp API - provides map-based cookie setting.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -150,7 +144,6 @@ func SetAllCookies(request []byte, cookies map[string]string) ([]byte, error) {
 // ==================== VALIDATION & INSPECTION ====================
 
 // ValidateRequest checks if a request is well-formed.
-// Extension to Burp API - provides request validation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -170,7 +163,6 @@ func ValidateRequest(request []byte) error {
 }
 
 // ValidateRequestLine checks if the request line is well-formed.
-// Extension to Burp API - provides request line validation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -215,7 +207,6 @@ func ValidateRequestLine(request []byte) error {
 }
 
 // ValidateHeaders checks if headers are well-formed.
-// Extension to Burp API - provides header validation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -234,7 +225,6 @@ func ValidateHeaders(request []byte) error {
 }
 
 // GetRequestSize returns the total size of the request.
-// Extension to Burp API - provides size calculation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -250,7 +240,6 @@ func GetRequestSize(request []byte) int {
 }
 
 // GetHeadersSize returns the size of headers (including request line).
-// Extension to Burp API - provides headers size calculation.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -272,7 +261,6 @@ func GetHeadersSize(request []byte) (int, error) {
 }
 
 // GetBodyOffset returns the offset where the body starts.
-// Extension to Burp API - direct access to body offset.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -290,7 +278,6 @@ func GetBodyOffset(request []byte) (int, error) {
 }
 
 // IsWellFormed checks if request is well-formed (convenience wrapper).
-// Extension to Burp API - provides boolean check.
 //
 // Parameters:
 //   - request: HTTP request bytes

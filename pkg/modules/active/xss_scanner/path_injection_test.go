@@ -327,8 +327,8 @@ func TestPathInjectionGeneratorEdgeCases(t *testing.T) {
 	}
 }
 
-// TestPathInjectionIntegrationWithBurpx tests integration with httpmsg APIs
-func TestPathInjectionIntegrationWithBurpx(t *testing.T) {
+// TestPathInjectionIntegration tests integration with httpmsg APIs
+func TestPathInjectionIntegration(t *testing.T) {
 	request := []byte("GET /api/v1/users?status=active HTTP/1.1\r\n" +
 		"Host: example.com\r\n" +
 		"User-Agent: test\r\n" +

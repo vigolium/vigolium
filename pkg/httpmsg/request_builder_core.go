@@ -1,21 +1,16 @@
 package httpmsg
 
 // request_builder_core.go - Core HTTP message building utilities
-// Ported from: burp/ec5.java, burp/d4n.java
 //
-// CRITICAL: Uses ONLY loop-based parsing (NO REGEX)
-// Follows Burp's byte-by-byte message construction
+// Uses loop-based parsing (no regex) with byte-by-byte message construction.
 
 // BuildHttpMessage builds an HTTP message from headers and body.
-// Ported from: ec5.java a(List<String>, bi9) method (lines 38-64)
 //
-//	d4n.java buildHttpMessage() method (lines 218-233)
-//
-// Algorithm (from ec5.java lines 38-64):
-//  1. Write each header line followed by CRLF (lines 46-52)
-//  2. Write additional CRLF to separate headers from body (line 54)
-//  3. Append body bytes if present (lines 55-57)
-//  4. Return complete message as byte array (line 59)
+// Algorithm:
+//  1. Write each header line followed by CRLF
+//  2. Write additional CRLF to separate headers from body
+//  3. Append body bytes if present
+//  4. Return complete message as byte array
 //
 // Parameters:
 //   - headers: List of HTTP headers (including request/status line as first element)
@@ -45,21 +40,20 @@ func BuildHttpMessage(headers []string, body []byte) []byte {
 		totalSize += len(body)
 	}
 
-	// Build message (ec5.java lines 43-59)
+	// Build message
 	result := make([]byte, 0, totalSize)
 
-	// Write headers with CRLF (ec5.java lines 46-52)
+	// Write headers with CRLF
 	for _, header := range headers {
-		// Convert string to bytes (net.portswigger.h9.a())
 		result = append(result, []byte(header)...)
-		// Write CRLF (net.portswigger.ky.c which is \r\n)
+		// Write CRLF
 		result = append(result, CR, LF)
 	}
 
-	// Write final CRLF to separate headers from body (ec5.java line 54)
+	// Write final CRLF to separate headers from body
 	result = append(result, CR, LF)
 
-	// Append body if present (ec5.java lines 55-57)
+	// Append body if present
 	if body != nil {
 		result = append(result, body...)
 	}
@@ -68,15 +62,6 @@ func BuildHttpMessage(headers []string, body []byte) []byte {
 }
 
 // BuildHttpRequest builds a basic HTTP GET request for a URL.
-// Ported from: d4n.java buildHttpRequest() method (lines 414-432)
-//
-// Algorithm (from d4n.java):
-//  1. Parse URL to extract components (line 419)
-//  2. Build request using internal request builder (lines 422)
-//  3. Return as byte array (line 422)
-//
-// NOTE: Burp uses java.net.URL and internal request builder.
-// We use our ParseURL and build manually to avoid stdlib net/url.
 //
 // Parameters:
 //   - urlStr: Complete URL string (e.g., "http://example.com:8080/path")
@@ -135,14 +120,12 @@ func BuildHttpRequest(urlStr string) ([]byte, error) {
 // ==================== SHARED HELPER FUNCTIONS ====================
 
 // buildHeaderLine creates a "Name: Value" header line.
-// Ported from: Standard HTTP header format
 func buildHeaderLine(name, value string) string {
 	return name + ": " + value
 }
 
 // intToString converts an integer to string using loop-based conversion.
 // No strconv allowed per requirements.
-// Ported from: Standard integer to string conversion
 //
 // Algorithm:
 //  1. Handle zero special case

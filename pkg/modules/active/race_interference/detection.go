@@ -111,7 +111,6 @@ func isWafBlocked(statusCode int, serverHeader string) bool {
 }
 
 // status403To421Filter filters out false positives where status changes from 403 to 421.
-// This is a specific Burp FP filter from the original Interference.java.
 func status403To421Filter(baselineStatus, responseStatus int) bool {
 	return baselineStatus == 403 && responseStatus == 421
 }

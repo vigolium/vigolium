@@ -1,8 +1,6 @@
 package httpmsg
 
-// path_parser.go - REST-style path parameter parsing ported from Burp Suite
-// Ported from: burp/c9s.java method c(bi9 var0) (lines 489-550)
-//              burp/etq.java method a(byte[] var0) wrapper (line 30-32)
+// path_parser.go - REST-style path parameter parsing
 //
 // This parser extracts REST-style path parameters from HTTP request URLs.
 // It splits URL paths by '/' and creates parameters for each segment.
@@ -19,20 +17,17 @@ package httpmsg
 // This function parses the URL path (not query string) and creates parameters
 // for each path segment separated by '/'.
 //
-// Ported from: c9s.java method c(bi9) (lines 489-550)
-// Wrapper from: etq.java method a(byte[]) (lines 30-32)
-//
-// Algorithm (from c9s.java):
-//  1. Skip HTTP method (lines 496-502)
-//  2. Skip spaces after method (lines 504-509)
-//  3. Loop through URL path (lines 513-547):
-//     a. Check for '/' separator (line 514)
-//     b. Find segment end (lines 520-530) - stop at:
+// Algorithm:
+//  1. Skip HTTP method
+//  2. Skip spaces after method
+//  3. Loop through URL path:
+//     a. Check for '/' separator
+//     b. Find segment end - stop at:
 //     - Whitespace (<=32)
 //     - Another '/' (path separator)
 //     - '?' (query string start)
 //     - ';', '&', '=' (URL special chars)
-//     c. Classify segment (lines 533-541):
+//     c. Classify segment:
 //     - If followed by '/' → PATH_FOLDER_PARAM
 //     - If NOT followed by '/' → PATH_FILENAME_PARAM
 //     d. Create parameter with sequential integer name
@@ -68,17 +63,14 @@ func ParsePathParameters(request []byte) ([]*Param, error) {
 	return params, nil
 }
 
-// parsePathParametersFromRequest is the core path parsing logic.
-// Ported from: c9s.java method c(bi9) (lines 489-550)
-//
-// This implements the exact algorithm from Burp Suite for extracting
+// parsePathParametersFromRequest is the core path parsing logic for extracting
 // REST-style path parameters from HTTP requests.
 //
-// Algorithm steps (matching c9s.java line-by-line):
-//  1. Skip HTTP method (lines 496-502)
-//  2. Skip spaces (lines 504-509)
-//  3. Parse path segments (lines 513-547)
-//  4. Classify as folder or filename (lines 533-541)
+// Algorithm:
+//  1. Skip HTTP method
+//  2. Skip spaces
+//  3. Parse path segments
+//  4. Classify as folder or filename
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -91,36 +83,35 @@ func parsePathParametersFromRequest(request []byte) []*Param {
 	length := len(request)
 	segmentCounter := 0 // Used for sequential parameter names: "1", "2", "3", ...
 
-	// Step 1: Skip HTTP method (c9s.java lines 496-502)
-	// Find first space after method (GET, POST, etc.)
+	// Step 1: Skip HTTP method (find first space after method)
 	for pos < length && request[pos] > 32 {
 		pos++
 	}
 
-	// Step 2: Skip spaces after method (c9s.java lines 504-509)
+	// Step 2: Skip spaces after method
 	for pos < length && request[pos] == 32 {
 		pos++
 	}
 
-	// Step 3: Parse path segments (c9s.java lines 513-547)
+	// Step 3: Parse path segments
 	// Loop through URL path character by character
 	for pos < length {
-		// Check for '/' separator (c9s.java line 514)
+		// Check for '/' separator
 		if request[pos] != 47 { // 47 is ASCII for '/'
 			// No '/' found - end of path
 			return params
 		}
 
-		// Move past '/' and mark segment start (c9s.java line 518)
+		// Move past '/' and mark segment start
 		pos++
 		segmentStart := pos
 
-		// Find segment end (c9s.java lines 520-530)
+		// Find segment end
 		// Stop at: whitespace, '/', '?', ';', '&', '='
 		for pos < length {
 			b := request[pos]
 
-			// Stop conditions (c9s.java line 522):
+			// Stop conditions:
 			// - Whitespace (<=32)
 			// - '/' (47) - next path separator
 			// - '?' (63) - query string start
@@ -134,7 +125,7 @@ func parsePathParametersFromRequest(request []byte) []*Param {
 			pos++
 		}
 
-		// Create parameter if segment has content (c9s.java lines 533-541)
+		// Create parameter if segment has content
 		if pos-segmentStart > 0 {
 			// Increment counter for parameter name
 			segmentCounter++
@@ -142,17 +133,15 @@ func parsePathParametersFromRequest(request []byte) []*Param {
 			// Decode path segment using RFC 3986 rules (+ stays literal, %XX decoded)
 			value := DecodePathValue(string(request[segmentStart:pos]))
 
-			// Classify as folder or filename (c9s.java lines 534-541)
+			// Classify as folder or filename
 			var paramType ParamType
-			if pos < length && request[pos] == 47 { // Followed by '/' (line 534)
-				// This is a folder parameter (line 541)
+			if pos < length && request[pos] == 47 { // Followed by '/'
 				paramType = ParamPathFolder
 			} else {
-				// This is a filename parameter (line 535)
 				paramType = ParamPathFilename
 			}
 
-			// Create parameter with offsets (c9s.java line 535, 541)
+			// Create parameter with offsets
 			// Note: NameStart and NameEnd are -1 because path params don't have
 			// explicit names in the URL (name is the sequential integer)
 			param := NewParsedParam(

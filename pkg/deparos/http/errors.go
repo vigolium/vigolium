@@ -33,7 +33,6 @@ func (e *RequestError) Unwrap() error {
 }
 
 // IsRetryable determines if an error should trigger a retry.
-// Based on Burp's retry logic in cq5.java.
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false

@@ -11,7 +11,6 @@ import (
 )
 
 // RequestBuilder provides a fluent API for building HTTP requests.
-// Matches Burp's request generation pattern from er3.java.
 type RequestBuilder struct {
 	method  string
 	url     string

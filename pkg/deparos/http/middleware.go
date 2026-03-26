@@ -11,7 +11,7 @@ import (
 // RetryConfig configures retry behavior.
 type RetryConfig struct {
 	// MaxAttempts is the maximum number of attempts (including first request).
-	// Burp default: 3 (1 initial + 2 retries)
+	// Default: 3 (1 initial + 2 retries)
 	MaxAttempts int
 
 	// InitialBackoff is the initial backoff duration.
@@ -31,7 +31,7 @@ type RetryConfig struct {
 	RetryableStatusCodes []int
 }
 
-// DefaultRetryConfig returns default retry configuration matching Burp Suite.
+// DefaultRetryConfig returns default retry configuration.
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
 		MaxAttempts:          3,
@@ -43,7 +43,6 @@ func DefaultRetryConfig() *RetryConfig {
 }
 
 // RetryMiddleware returns a middleware that retries failed requests with exponential backoff.
-// Matches Burp's retry logic in cq5.java.
 func RetryMiddleware(config *RetryConfig) Middleware {
 	if config == nil {
 		config = DefaultRetryConfig()

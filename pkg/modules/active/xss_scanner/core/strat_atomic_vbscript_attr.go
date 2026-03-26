@@ -30,9 +30,7 @@ func (receiver *VBScriptAttributeStrategy) GeneratePayload(
 	// fcp var7 = (fcp)var5;
 	attributeReflection, isCorrectType := reflection.(*HTMLAttributeReflection)
 
-	// if (var7 == null) { net.portswigger.qe.a(false, net.portswigger.rg.e); return null; }
 	if !isCorrectType || attributeReflection == nil {
-		// net.portswigger.qe.a is ignored
 		return nil
 	}
 

@@ -1,13 +1,8 @@
 package httpmsg
 
 // request_analyzer.go - Main HTTP request analyzer orchestrating all parsers
-// Ported from:
-//   - dz8.java: Main request info container and analysis orchestration
-//   - c9s.java: Parameter extraction dispatcher (lines 369-571)
-//   - glo.java: Request line parsing and helper methods
-//   - hm.java: IRequestInfo implementation
 //
-// This is the MAIN ENTRY POINT that ties all components together:
+// This is the main entry point that ties all components together:
 //   - ExtractAllHeaders() from header_parser.go
 //   - ParseQueryString() from query_parser.go
 //   - ParseURLEncodedBody() from urlencoded_parser.go
@@ -21,14 +16,8 @@ package httpmsg
 // AnalyzeRequest analyzes an HTTP request and returns parsed information.
 // This is the main entry point that orchestrates all parsing components.
 //
-// Ported from: dz8.java constructor and c9s.a(bi9, dz8) dispatcher method
-// Source mapping:
-//   - dz8.java: RequestInfo container (lines 6-61)
-//   - c9s.a(bi9, dz8): Main analysis entry (lines 378-388)
-//   - c9s.a(List<String>, int, bi9, Supplier): Full parameter extraction (lines 552-571)
-//
-// Algorithm (from Burp sources):
-// 1. Extract headers and find body offset (glo.e() method)
+// Algorithm:
+// 1. Extract headers and find body offset
 // 2. Parse request line (method, URL, HTTP version) from first header
 // 3. Determine Content-Type from headers
 // 4. Parse URL query parameters from request line
@@ -71,8 +60,6 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 	}
 
 	// Step 1: Extract headers and find body offset
-	// Ported from: glo.e(bi9) method
-	// Source: glo.java lines 118-124
 	headers, headerOffsets, bodyOffset, err := ExtractAllHeaders(request)
 	if err != nil {
 		return nil, err
@@ -86,8 +73,6 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 	}
 
 	// Step 2: Parse request line (first header)
-	// Ported from: glo request line parsing
-	// Source: c9s.java line 489-548 for path parsing, glo for request line
 	method, url, httpVersion := parseRequestLine(headers[0])
 	info.Method = method
 	info.URL = url
@@ -97,14 +82,10 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 	info.HttpService = extractHostHeader(headers)
 
 	// Step 3: Determine Content-Type from headers
-	// Ported from: glo.a(List<String>, String, boolean) for header lookup
-	// Source: c9s.java lines 379-381, 458-487
 	contentType, boundary := ParseContentType(headers)
 	info.ContentType = mapContentType(contentType)
 
 	// Step 4: Parse URL query parameters from request line
-	// Ported from: c9s.a(bi9) method for URL param extraction
-	// Source: c9s.java lines 373-376
 	// Calculate URL offset in request: "METHOD URL HTTP..." -> URL starts after "METHOD "
 	urlOffset := len(method) + 1 // +1 for space after method
 	parsedUrlParams, _ := extractQueryParametersFromURL(url)
@@ -117,20 +98,14 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 	}
 
 	// Step 5: Extract REST-style path parameters from URL
-	// Ported from: c9s.c(bi9) method for path parameter extraction
-	// Source: c9s.java lines 489-550, etq.java line 30-32
 	pathParams, _ := ParsePathParameters(request)
 	info.Parameters = append(info.Parameters, pathParams...)
 
 	// Step 6: Extract cookies from Cookie headers
-	// Ported from: c9s.b(bi9, Supplier) method for cookie extraction
-	// Source: c9s.java lines 423-456
 	cookieParams := extractCookieParameters(request, headers, headerOffsets)
 	info.Parameters = append(info.Parameters, cookieParams...)
 
 	// Step 7: Dispatch to appropriate body parser based on Content-Type
-	// Ported from: c9s.a(bi9, h5p, String, int, Supplier) dispatcher
-	// Source: c9s.java lines 399-417
 	if bodyOffset < len(request) {
 		info.HasBody = true
 		bodyParams := parseBodyByContentType(request, bodyOffset, contentType, boundary)
@@ -141,10 +116,8 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 }
 
 // parseRequestLine extracts method, URL, and HTTP version from request line.
-// Ported from: glo.java request line parsing and c9s path parsing
-// Source: c9s.java lines 489-548 for URL extraction
 //
-// Algorithm (from Burp):
+// Algorithm:
 // 1. Split request line by spaces: "GET /path HTTP/1.1"
 // 2. Extract method (first token)
 // 3. Extract URL (second token)
@@ -220,7 +193,6 @@ func parseRequestLine(requestLine string) (method string, url string, httpVersio
 }
 
 // parseHTTPVersion converts HTTP version string to integer.
-// Ported from: Burp's HTTP version handling
 //
 // Algorithm:
 // 1. Check for "HTTP/" prefix
@@ -270,9 +242,6 @@ func parseHTTPVersion(version string) int {
 }
 
 // extractQueryParametersFromURL extracts query parameters from URL string.
-// Ported from: c9s.a(bi9) method for URL parameter extraction
-// Source: c9s.java lines 373-376
-//
 // This is a wrapper around ParseQueryString that works with URL strings.
 //
 // Parameters:
@@ -293,16 +262,7 @@ func extractQueryParametersFromURL(url string) ([]*Param, error) {
 	return ParseQueryString(urlBytes)
 }
 
-// parseBodyByContentType dispatches to appropriate body parser.
-// Ported from: c9s.a(bi9, h5p, String, int, Supplier) dispatcher method
-// Source: c9s.java lines 399-417 (switch statement)
-//
-// Algorithm (from c9s.java switch):
-// - case 1 (URL_ENCODED): Parse URL-encoded body → ParamBody
-// - case 2 (MULTIPART): Parse multipart/form-data → ParamBodyMultipart
-// - case 4 (XML): Parse XML body → ParamXML
-// - case 5 (JSON): Parse JSON body → ParamJSON
-// - default: Return empty list
+// parseBodyByContentType dispatches to appropriate body parser based on content type.
 //
 // Parameters:
 //   - request: Complete HTTP request bytes
@@ -313,45 +273,29 @@ func extractQueryParametersFromURL(url string) ([]*Param, error) {
 // Returns:
 //   - List of Param objects extracted from body
 func parseBodyByContentType(request []byte, bodyOffset int, contentType, boundary string) []*Param {
-	// Switch based on content type (c9s.java lines 400-416)
 	switch contentType {
 	case "application/x-www-form-urlencoded":
-		// case 1: URL_ENCODED (line 402)
 		params, _ := ParseURLEncodedBody(request, bodyOffset)
 		return params
 
 	case "multipart/form-data":
-		// case 2: MULTIPART (line 404)
 		params, _ := ParseMultipartBody(request, bodyOffset, boundary)
 		return params
 
 	case "application/xml", "text/xml":
-		// case 4: XML (line 410)
 		params, _ := ParseXMLBody(request, bodyOffset)
 		return params
 
 	case "application/json", "text/json":
-		// case 5: JSON (line 412)
 		params, _ := ParseJSONBody(request, bodyOffset)
 		return params
 
 	default:
-		// case 3, 6, 7: Unsupported or no body params (lines 406-408, 414-415)
 		return []*Param{}
 	}
 }
 
 // extractCookieParameters extracts cookies from Cookie headers.
-// Ported from: c9s.b(bi9, Supplier) method for cookie extraction
-// Source: c9s.java lines 423-456
-//
-// Algorithm (from c9s.java):
-//  1. Find all "Cookie:" headers in request (lines 426-449)
-//  2. For each Cookie header:
-//     a. Skip "Cookie:" prefix and whitespace (lines 434-441)
-//     b. Find end of header value (line 443-446)
-//     c. Parse cookie values as name=value pairs (line 448)
-//  3. Return all extracted cookie parameters
 //
 // Cookie format: "Cookie: name1=value1; name2=value2"
 // Each cookie becomes a ParamCookie parameter.
@@ -366,7 +310,7 @@ func parseBodyByContentType(request []byte, bodyOffset int, contentType, boundar
 func extractCookieParameters(request []byte, headers []string, headerOffsets []int) []*Param {
 	params := []*Param{}
 
-	// Loop through headers looking for "Cookie:" (c9s.java lines 429-452)
+	// Loop through headers looking for "Cookie:"
 	for i := 0; i < len(headers); i++ {
 		header := headers[i]
 
@@ -376,7 +320,6 @@ func extractCookieParameters(request []byte, headers []string, headerOffsets []i
 		}
 
 		// Find the start of cookie value (after "Cookie:" and spaces)
-		// c9s.java lines 434-441
 		cookieValueStart := 7 // Length of "Cookie:"
 		for cookieValueStart < len(header) && IsWhitespace(header[cookieValueStart]) {
 			cookieValueStart++
@@ -394,7 +337,6 @@ func extractCookieParameters(request []byte, headers []string, headerOffsets []i
 		}
 
 		// Parse cookies from header value
-		// c9s.java line 448: a(e_q.COOKIE, var0, var4, var5, h5p.COOKIES, null, var1)
 		cookieValue := header[cookieValueStart:]
 		cookieParams := parseCookies(cookieValue, headerOffset+cookieValueStart)
 		params = append(params, cookieParams...)
@@ -405,16 +347,6 @@ func extractCookieParameters(request []byte, headers []string, headerOffsets []i
 
 // parseCookies parses Cookie header value into parameters.
 // Format: "name1=value1; name2=value2; name3=value3"
-// Ported from: c9s.a() method with e_q.COOKIE type
-// Source: c9s.java lines 231-298 (case 3 in switch)
-//
-// Algorithm (from c9s.java lines 233-298):
-// 1. Loop through cookie string (line 235)
-// 2. Find name (before '=') (lines 240-259)
-// 3. Find value (between '=' and ';') (lines 265-284)
-// 4. Create parameter with ParamCookie type (line 286)
-// 5. Skip whitespace and semicolons (lines 288-293)
-// 6. Repeat until end of string
 //
 // Parameters:
 //   - cookieValue: Cookie header value (e.g., "session=abc; user=john")
@@ -429,12 +361,12 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 		return params
 	}
 
-	// Main parsing loop (c9s.java lines 235-298)
+	// Main parsing loop
 	pos := 0
 	length := len(cookieValue)
 
 	for pos < length {
-		// Skip leading whitespace and separators (c9s.java lines 288-293)
+		// Skip leading whitespace and separators
 		for pos < length && (IsWhitespace(cookieValue[pos]) || cookieValue[pos] == SEMI) {
 			pos++
 		}
@@ -443,7 +375,7 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 			break
 		}
 
-		// Find name end ('=' or control char) (c9s.java lines 240-259)
+		// Find name end ('=' or control char)
 		nameStart := pos
 		nameEnd := -1
 
@@ -452,14 +384,14 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 				nameEnd = pos
 				break
 			}
-			// Control character check (c9s.java lines 251-253)
+			// Control character check
 			if cookieValue[pos] < 32 {
 				break
 			}
 			pos++
 		}
 
-		// No '=' found or empty name, skip this cookie (c9s.java lines 261-263)
+		// No '=' found or empty name, skip this cookie
 		if nameEnd == -1 || nameEnd == nameStart {
 			// Skip to next semicolon
 			for pos < length && cookieValue[pos] != SEMI && cookieValue[pos] >= 32 {
@@ -471,12 +403,12 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 		// Extract and decode name (cookies use form-encoding like query strings)
 		name := DecodeQueryValue(cookieValue[nameStart:nameEnd])
 
-		// Move past '=' (c9s.java line 265)
+		// Move past '='
 		pos = nameEnd + 1
 		valueStart := pos
 		valueEnd := -1
 
-		// Find value end (';' or control char) (c9s.java lines 267-280)
+		// Find value end (';' or control char)
 		for pos < length {
 			if cookieValue[pos] == SEMI || cookieValue[pos] < 32 {
 				valueEnd = pos
@@ -485,7 +417,7 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 			pos++
 		}
 
-		// If no separator found, value extends to end (c9s.java lines 282-284)
+		// If no separator found, value extends to end
 		if valueEnd == -1 {
 			valueEnd = length
 		}
@@ -493,7 +425,7 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 		// Extract and decode value (cookies use form-encoding like query strings)
 		value := DecodeQueryValue(cookieValue[valueStart:valueEnd])
 
-		// Create parameter with ParamCookie type (c9s.java line 286)
+		// Create parameter with ParamCookie type
 		// Calculate absolute offsets in request
 		param := NewParsedParam(
 			ParamCookie,
@@ -507,7 +439,6 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 		params = append(params, param)
 
 		// Continue to next cookie (advance past separator)
-		// c9s.java lines 288-293
 		if pos < length && cookieValue[pos] == SEMI {
 			pos++
 		}
@@ -517,14 +448,6 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 }
 
 // mapContentType converts MIME type string to ContentType enum.
-// Ported from: h5p.java content type mapping and c9s.a() content type detection
-// Source: c9s.java lines 458-487
-//
-// Algorithm (from c9s.java):
-// 1. Check if body exists (lines 459-460, 484-486)
-// 2. Try to detect from body content first (line 461)
-// 3. Fall back to Content-Type header (lines 464-479)
-// 4. Map string to h5p enum value
 //
 // Parameters:
 //   - mimeType: MIME type string (e.g., "application/json")
@@ -532,7 +455,7 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 // Returns:
 //   - ContentType enum value
 func mapContentType(mimeType string) ContentType {
-	// Map MIME type to ContentType enum (c9s.java lines 465-479)
+	// Map MIME type to ContentType enum
 	switch mimeType {
 	case "application/x-www-form-urlencoded":
 		return ContentTypeURLEncoded

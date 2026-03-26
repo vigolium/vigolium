@@ -7,11 +7,7 @@ import (
 )
 
 // TestExtractFilename verifies URL filename/extension extraction.
-// Implements Burp's algorithm from c2n.java:22-36 and ff6.java:49-59.
 //
-// Note: Burp uses the extracted name for BOTH file (Priority 0) AND directory (Priority 1)
-// discovery tasks - they share the SAME list l. This is why we don't have a separate
-// "directory" return value - name IS the directory.
 func TestExtractFilename(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -218,12 +214,10 @@ func TestExtractFilename_CompoundExtensions(t *testing.T) {
 	})
 }
 
-// TestExtractFilename_BurpParity verifies exact Burp behavior.
-// Based on Burp source code analysis from c2n.java and ff6.java.
-func TestExtractFilename_BurpParity(t *testing.T) {
+// TestExtractFilename_Parity verifies expected extraction behavior.
+func TestExtractFilename_Parity(t *testing.T) {
 
 	t.Run("burp extracts last segment only", func(t *testing.T) {
-		// Burp c2n.java:22 - var3 = var1.fq() gets filename after last slash
 		name, ext := ExtractFilename("/a/b/c/d/file.txt")
 		assert.Equal(t, "file", name)
 		assert.Equal(t, "txt", ext)
@@ -238,21 +232,18 @@ func TestExtractFilename_BurpParity(t *testing.T) {
 	})
 
 	t.Run("burp handles no extension", func(t *testing.T) {
-		// Burp c2n.java:24-26 - if (var4 == -1) { _x.a(this.a, var3); }
 		name, ext := ExtractFilename("/noextension")
 		assert.Equal(t, "noextension", name)
 		assert.Empty(t, ext)
 	})
 
 	t.Run("burp skips root path", func(t *testing.T) {
-		// Burp _x.java:705 - if (!var1.equals("/"))
 		name, ext := ExtractFilename("/")
 		assert.Empty(t, name)
 		assert.Empty(t, ext)
 	})
 
 	t.Run("name used for both file and directory discovery", func(t *testing.T) {
-		// Burp ff6.java uses SAME list l for both:
 		//   - Priority 0: new boh((byte)0, ..., new ezo(this.l), ...) - file mode
 		//   - Priority 1: new boh((byte)1, ..., new ezo(this.l), ...) - dir mode
 		// So "login" from "login.php" becomes both "login" (file) and "login/" (directory)

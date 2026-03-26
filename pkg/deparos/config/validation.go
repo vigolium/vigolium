@@ -80,7 +80,7 @@ func (t *TargetConfig) Validate() error {
 func (r *RecursionConfig) Validate() error {
 	// Only validate depth if recursion is enabled
 	if r.Enabled {
-		// Burp Suite limit: 1-32767 (int16 max positive value)
+		// Valid range: 1-32767 (int16 max positive value)
 		if r.MaxDepth < 1 {
 			return fmt.Errorf("%w: got %d", ErrInvalidDepth, r.MaxDepth)
 		}
@@ -112,7 +112,7 @@ func (e *ExtensionConfig) Validate() error {
 
 // Validate validates engine configuration.
 func (e *EngineConfig) Validate() error {
-	// Discovery threads: 1-255 (Burp Suite limit, uint8 max)
+	// Discovery threads: 1-255 (uint8 max)
 	if e.DiscoveryThreads < 1 || e.DiscoveryThreads > 255 {
 		return fmt.Errorf("%w: discovery threads must be 1-255, got %d", ErrInvalidThreads, e.DiscoveryThreads)
 	}

@@ -27,7 +27,7 @@ type ReflectionContextualAnalyzer struct {
 }
 
 // NewReflectionContextualAnalyzer creates a new Dc3 instance.
-// Corresponds to Java constructor: dc3(crp var1, int var2, int var3, byte var4, net.portswigger.ou var5, byte[] var6)
+// Corresponds to Java constructor: dc3(crp var1, int var2, int var3, byte var4, ou var5, byte[] var6)
 func NewReflectionContextualAnalyzer(
 	detector *HTTPReflectionPointDetector,
 	reflectionStartOffset int,
@@ -108,8 +108,7 @@ func (analyzer *ReflectionContextualAnalyzer) performInternalAnalysis() Reflecti
 		) // new bca(this.d, this.g, this.c)
 		zap.L().Debug("bcaAnalyzer created", zap.Any("analyzer", htmlScriptAnalyzer))
 		// Original Java: String var6 = this.f.b().b().a(10);
-		// this.f is d.utilsOu (NetPortswiggerOu)
-		// Assuming d.utilsOu.A(10) is the simplified equivalent for now if B() methods are not defined or lead to issues.
+		// Assuming A(10) is the simplified equivalent for now if B() methods are not defined or lead to issues.
 		randomCanarySuffix := analyzer.randomProvider.GeneratePrefixedAlphanumeric(10)
 		randomCanaryBytes := utils.StringToBytes(randomCanarySuffix)
 
@@ -181,9 +180,8 @@ func (analyzer *ReflectionContextualAnalyzer) analyzeHTTPHeaderValue(
 
 	reflectionPointEndOffset := analyzer.startReflectionOffset // This will track Java's `var5` that goes into HPO constructor
 
-	// Java: int var5 = net.portswigger.ls.a(var1, (byte)10, 0, this.d);
-	// `this.d` is d.startOffset. Search for LF up to the injection point.
-	lineFeedIndex := utils.NetPortswiggerLsALastIndexOfByteCS(
+	// Search for LF up to the injection point.
+	lineFeedIndex := utils.LastIndexOfByteCS(
 		headerBytes,
 		10,
 		0,
@@ -196,7 +194,7 @@ func (analyzer *ReflectionContextualAnalyzer) analyzeHTTPHeaderValue(
 		searchStartIndex = lineFeedIndex + 1
 		reflectionPointEndOffset = searchStartIndex // Java's var5 is updated
 		// Corrected logic for colon search start:
-		colonIndex := utils.NetPortswiggerLsBIndexOfByteCS(
+		colonIndex := utils.IndexOfByteCS(
 			headerBytes,
 			':',
 			searchStartIndex,               // Search for colon starts right after the initial LF's position.
@@ -232,9 +230,9 @@ func (analyzer *ReflectionContextualAnalyzer) analyzeHTTPHeaderValue(
 			// hpoReflectionEndPos should be the start of the value (after spaces).
 			reflectionPointEndOffset = searchStartIndex
 
-			// Find next LF for value. Java: var6 = net.portswigger.ls.b(var1, (byte)10, var5, this.g);
+			// Find next LF for value.
 			// Search from currentSearchPos (after colon and spaces) up to d.endOffset.
-			nextLinkFeedIndex := utils.NetPortswiggerLsBIndexOfByteCS(
+			nextLinkFeedIndex := utils.IndexOfByteCS(
 				headerBytes,
 				10,                       // LF
 				searchStartIndex,         // from
@@ -294,55 +292,45 @@ func (analyzer *ReflectionContextualAnalyzer) patchDataWithCanary(
 	if sourceData == nil {
 		zap.L().Warn("originalData is nil in constructPatchedDataInternal, returning canaryReplacement directly")
 		// Java might throw NPE. Returning canary if original is nil is a possible interpretation if nk.a handles it or fails.
-		// If canaryReplacement is also nil, NetPortswiggerNkCombine should handle it.
-		return utils.NetPortswiggerNkCombine(
+		// If canaryReplacement is also nil, CombineByteSlices should handle it.
+		return utils.CombineByteSlices(
 			nil,
 			replacementCanary,
 			nil,
 		) // Match structure of combine
 	}
 
-	// Java: net.portswigger.nk.a(var1, this.g, this.d) -> part1
-	// this.g is d.endOffset, this.d is d.startOffset
-	// QUAN TRỌNG: Trong Java, offset này là tuyệt đối trong full response.
-	// Trong Go, chúng ta đang làm việc với body riêng biệt, nên cần điều chỉnh.
-	//
-	// Nếu reflection location là BODY, thì startOffset và endOffset đã là relative to body.
-	// Nếu g > d (bình thường), NetPortswiggerNkACopyOfRange sẽ trả về nil vì start > end.
-	// Điều này có nghĩa là Java có thể đang sử dụng logic đặc biệt hoặc
-	// thứ tự tham số khác.
+	// part1: prefix bytes from start of source to start of reflection
 
 	prefixBytes := []byte{}
 	// Thử với logic: lấy từ đầu đến start của reflection
 	if analyzer.startReflectionOffset > 0 && analyzer.startReflectionOffset <= len(sourceData) {
-		prefixBytes = utils.NetPortswiggerNkACopyOfRange(
+		prefixBytes = utils.CopyOfRange(
 			sourceData,
 			0,
 			analyzer.startReflectionOffset,
 		)
 	}
 
-	// Java: net.portswigger.nk.a(var1, this.d + this.c.length, var1.length) -> part3
-	// this.d is d.startOffset, this.c is d.matchedBytes
+	// part3: suffix bytes from end of matched region to end of source
 	suffixStartIndex := analyzer.startReflectionOffset + len(analyzer.initialMatchedBytes)
 	suffixBytes := []byte{}
 	if suffixStartIndex < len(sourceData) {
-		suffixBytes = utils.NetPortswiggerNkACopyOfRange(
+		suffixBytes = utils.CopyOfRange(
 			sourceData,
 			suffixStartIndex,
 			len(sourceData),
 		)
 	}
 
-	// Ensure canaryReplacement is not nil if it's passed to NetPortswiggerNkCombine
+	// Ensure canaryReplacement is not nil if it's passed to CombineByteSlices
 	finalReplacementCanary := replacementCanary
 	if finalReplacementCanary == nil {
 		finalReplacementCanary = []byte{}
 	}
 
-	// Java: net.portswigger.nk.a(part1, var2, part3)
-	// var2 is canaryReplacement (actualCanaryReplacement in Go)
-	patchedData := utils.NetPortswiggerNkCombine(prefixBytes, finalReplacementCanary, suffixBytes)
+	// Combine: prefix + canary + suffix
+	patchedData := utils.CombineByteSlices(prefixBytes, finalReplacementCanary, suffixBytes)
 
 	zap.L().Debug("constructPatchedDataInternal",
 		zap.Int("originalLen", len(sourceData)),

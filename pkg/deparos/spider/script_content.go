@@ -13,8 +13,6 @@ import (
 // Scans JavaScript code for:
 //   - Inline URLs (http://, https://, etc.)
 //   - JavaScript string literals
-//
-// Burp mapping: r6.java (Script content extractor)
 type ScriptContentExtractor struct {
 	inlineScanner *InlineURLScanner
 	jsExtractor   *JavaScriptStringExtractor
@@ -29,8 +27,6 @@ func NewScriptContentExtractor(inlineScanner *InlineURLScanner, jsExtractor *Jav
 }
 
 // Extract examines HTML content and reports URLs found in <script> tag content.
-//
-// Burp mapping: r6.a(hik var1, List<ahe> var2, fi3 var3) - Lines 16-50
 func (e *ScriptContentExtractor) Extract(ctx context.Context, baseURL *url.URL, response *HTTPResponse, callback LinkCallback) error {
 	// Ensure HTML is parsed (cached with sync.Once)
 	if response.HTML == nil {
@@ -46,10 +42,8 @@ func (e *ScriptContentExtractor) Extract(ctx context.Context, baseURL *url.URL, 
 			tagName := strings.ToLower(n.Data)
 
 			// Look for script tags and extract their content
-			// Burp mapping: Lines 16-50
 			if tagName == "script" {
 				// Get text content of script tag
-				// Burp mapping: Line 35: this.b.a(var1, var7.cT(), var7.cR(), var3)
 				scriptContent := getScriptContent(n)
 				if scriptContent != "" {
 					// Scan for JavaScript strings
@@ -60,9 +54,7 @@ func (e *ScriptContentExtractor) Extract(ctx context.Context, baseURL *url.URL, 
 					}
 
 					// Also scan script content directly for inline URLs
-					// Burp mapping: Line 41: this.a.a(var1, net.portswigger.h9.a(var7.cT()), var7.cR(), (byte)2, var3)
 					// Intentionally ignore error - nested extraction failures shouldn't stop parent extractor
-					// Burp mapping: wb.java continues processing even if individual extractors fail
 					_ = e.inlineScanner.Extract(ctx, baseURL, &HTTPResponse{
 						Body:      []byte(scriptContent),
 						BodyStart: response.BodyStart,

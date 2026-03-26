@@ -227,18 +227,10 @@ func (runner *XSSCheckRunner) sendModifiedRequestAndAnalyze(
 ) *ModifiedRequestAnalysis {
 	randomSuffix := runner.randomProvider.GeneratePrefixedAlphanumeric(6)
 	randomSuffixBytes := utils.StringToBytes(randomSuffix)
-	payloadWithRandomSuffix := utils.NetPortswiggerNkCombine(
+	payloadWithRandomSuffix := utils.CombineByteSlices(
 		basePayload,
 		randomSuffixBytes,
 	)
-	// log.Printf(
-	// 	"[DEBUG F9n doModifiedRequestAndAnalyze] payloadInputForThisAttempt: %s, llType: %d, randomString6Chars: %s, combinedPayloadWithRandom: %s",
-	// 	// baseReq,
-	// 	utils.NetPortswiggerH9ABytesToString(payloadInputForThisAttempt),
-	// 	llType,
-	// 	randomString6Chars,
-	// 	utils.NetPortswiggerH9ABytesToString(combinedPayloadWithRandom),
-	// )
 
 	finalPayloadToSendBytes := payloadWithRandomSuffix
 	if runner.payloadModifier != nil {

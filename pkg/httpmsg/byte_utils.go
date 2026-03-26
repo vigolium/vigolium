@@ -1,7 +1,6 @@
 package httpmsg
 
-// byte_utils.go - Byte array utilities ported from Burp Suite
-// Source: burp/glo.java and burp/ac0.java
+// byte_utils.go - Byte array utilities for HTTP message parsing
 
 const (
 	// HTTP line ending bytes
@@ -12,10 +11,7 @@ const (
 // FindBodyOffset finds the offset where the HTTP body starts in a request or response.
 // This is the position immediately after the header/body separator.
 //
-// Ported from: glo.java method b(bi9 var0) [line 13]
-// Which calls: glo.java method a(bi9 var0, int var1, boolean var2, boolean var3) [lines 37-75]
-//
-// Algorithm (from glo.java lines 51-70):
+// Algorithm:
 //  1. Search for CRLF CRLF sequence (0x0D 0x0A 0x0D 0x0A)
 //  2. If not found, search for LF LF sequence (0x0A 0x0A)
 //  3. If found, return offset AFTER the separator (body start position)
@@ -43,26 +39,22 @@ func FindBodyOffset(request []byte) int {
 	offset := -1
 
 	// Main loop: search for CRLF CRLF or LF LF
-	// From glo.java lines 51-61
 	for i := 0; i < length-3; i++ {
 		// Check for CRLF CRLF (13 10 13 10)
 		if request[i] == CR && request[i+1] == LF &&
 			request[i+2] == CR && request[i+3] == LF {
-			// var3=true means return offset AFTER separator (glo.java line 53)
 			offset = i + 4
 			break
 		}
 
 		// Check for LF LF (10 10)
 		if request[i] == LF && request[i+1] == LF {
-			// var3=true means return offset AFTER separator (glo.java line 58)
 			offset = i + 2
 			break
 		}
 	}
 
 	// Edge case: check last 2 bytes for LF LF
-	// From glo.java lines 63-70
 	if offset == -1 && length >= 3 {
 		for i := length - 3; i < length-1; i++ {
 			if request[i] == LF && request[i+1] == LF {
@@ -82,9 +74,6 @@ func FindBodyOffset(request []byte) int {
 
 // FindBodyEnd finds the offset where the HTTP body ends (before trailing separators).
 // This searches backwards from the end to find trailing CRLF CRLF or LF LF sequences.
-//
-// Ported from: glo.java method a(bi9 var0, int var1) [line 29]
-// Which calls: glo.java method a(bi9 var0, int var1, boolean var2, boolean var3) with var3=false
 //
 // Algorithm:
 //  1. Search backwards for CRLF CRLF or LF LF
@@ -151,13 +140,6 @@ func FindBodyEnd(request []byte, startOffset int) int {
 
 // SliceBytes performs safe byte slicing with bounds checking.
 //
-// Ported from: ac0.java method a(int var1, int var2) [lines 64-69]
-//
-// Algorithm (from ac0.java):
-//  1. Check bounds: var1 >= 0 && var2 >= var1 && var2 <= length
-//  2. If valid, return CopyOfRange(data, var1, var2)
-//  3. Else throw ArrayIndexOutOfBoundsException
-//
 // Example:
 //
 //	data := []byte("hello world")
@@ -180,7 +162,7 @@ func SliceBytes(data []byte, start, end int) []byte {
 
 	length := len(data)
 
-	// Bounds checking (from ac0.java lines 65-68)
+	// Bounds checking
 	if start < 0 {
 		start = 0
 	}
@@ -194,13 +176,11 @@ func SliceBytes(data []byte, start, end int) []byte {
 		end = length
 	}
 
-	// Equivalent to Java's CopyOfRange (ac0.java line 66)
+	// Return the subslice
 	return data[start:end]
 }
 
 // IndexOfByte finds the first occurrence of a target byte starting from startOffset.
-//
-// Ported from: Similar to glo.java boundary searching logic
 //
 // Algorithm:
 //  1. Loop from startOffset to end of array
@@ -244,8 +224,6 @@ func IndexOfByte(data []byte, target byte, startOffset int) int {
 
 // IndexOfBytes finds the first occurrence of a target byte sequence starting from startOffset.
 //
-// Ported from: glo.java boundary searching logic (lines 51-70)
-//
 // Algorithm:
 //  1. Loop from startOffset to end
 //  2. For each position, check if target sequence matches
@@ -284,8 +262,7 @@ func IndexOfBytes(data []byte, target []byte, startOffset int) int {
 		return -1
 	}
 
-	// Loop-based byte-by-byte comparison (NO REGEX per requirements)
-	// Following Burp's pattern from glo.java lines 51-60
+	// Loop-based byte-by-byte comparison
 	for i := startOffset; i <= dataLen-targetLen; i++ {
 		// Check if target sequence matches at position i
 		matched := true
@@ -304,7 +281,6 @@ func IndexOfBytes(data []byte, target []byte, startOffset int) int {
 }
 
 // IsHTTP2 checks if request uses HTTP/2 protocol.
-// Ported from: Utilities.java isHTTP2() (lines 447-462)
 //
 // Algorithm:
 //  1. Find end of first line
@@ -362,7 +338,6 @@ func IsHTTP2(request []byte) bool {
 }
 
 // ConvertToHTTP1 converts HTTP/2 request to HTTP/1.1.
-// Ported from: Utilities.java convertToHttp1() (lines 1047-1049)
 //
 // Algorithm:
 //  1. Find "HTTP/2" in request line
@@ -422,7 +397,6 @@ func ConvertToHTTP1(request []byte) []byte {
 }
 
 // GetHeaders extracts all headers as string (excluding request/status line).
-// Ported from: Utilities.java getHeaders() (lines 344-350)
 //
 // Algorithm:
 //  1. Find end of first line (request/status line)

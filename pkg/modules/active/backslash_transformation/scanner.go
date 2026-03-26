@@ -16,7 +16,6 @@ import (
 )
 
 // Module detects server-side handling of backslash-escaped characters.
-// Ported from Burp's backslash-powered-scanner TransformationScan.java
 type Module struct {
 	modkit.BaseActiveModule
 	rhm dedup.Lazy[dedup.RequestHashManager]

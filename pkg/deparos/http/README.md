@@ -1,6 +1,6 @@
-# HTTP Client Infrastructure (Week 5)
+# HTTP Client Infrastructure
 
-Production-ready HTTP client implementation for Burp Suite Content Discovery.
+Production-ready HTTP client implementation for content discovery.
 
 ## Overview
 
@@ -76,7 +76,7 @@ if analyzer.IsValidResource(status) {
 }
 ```
 
-Status bytes (matches Burp Suite):
+Status bytes:
 - `0`: Unknown/NotFound (404)
 - `1`: Found (200-399)
 - `2`: Error (500+)
@@ -108,8 +108,7 @@ The HTTP client integrates seamlessly with the existing task system:
 
 ```go
 import (
-    infrahttp "github.com/burp/god/internal/infrastructure/http"
-    "github.com/burp/god/internal/domain/discovery"
+    infrahttp "github.com/vigolium/vigolium/pkg/deparos/http"
 )
 
 // Create HTTP client
@@ -202,5 +201,4 @@ Coverage:
 ## References
 
 - Architecture: [docs/architecture/04-http-pipeline.md](../../../docs/architecture/04-http-pipeline.md)
-- Burp Source: cq5.java (HTTP executor), er3.java (request generator), gnn.java (response analyzer)
-- Go 1.25: native `net/http` with RoundTripper middleware pattern
+- Go `net/http` with RoundTripper middleware pattern

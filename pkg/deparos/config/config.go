@@ -5,7 +5,6 @@ import (
 )
 
 // Config represents all content discovery configuration.
-// Maps to Burp Suite's did.java configuration container.
 type Config struct {
 	Target     TargetConfig    `json:"target" validate:"required"`
 	Filenames  FilenameConfig  `json:"filenames"`
@@ -15,7 +14,6 @@ type Config struct {
 }
 
 // TargetConfig defines where and what to discover.
-// Maps to Burp's an5.java panel.
 type TargetConfig struct {
 	StartURL  string          `json:"start_url" validate:"required,url"`
 	Mode      DiscoveryMode   `json:"mode" validate:"required,oneof=files_and_dirs files_only dirs_only"`
@@ -76,7 +74,6 @@ func (w *WordlistConfig) HasLongDirs() bool { return w.LongDirPath != "" }
 func (w *WordlistConfig) HasFuzzWordlist() bool { return w.FuzzWordlistPath != "" }
 
 // ExtensionConfig controls file extension testing.
-// Maps to Burp's ann.java panel.
 type ExtensionConfig struct {
 	TestCustom      bool     `json:"test_custom"`
 	CustomList      []string `json:"custom_list"`
@@ -87,7 +84,6 @@ type ExtensionConfig struct {
 }
 
 // EngineConfig controls discovery execution.
-// Maps to Burp's ang.java panel.
 type EngineConfig struct {
 	CaseSensitivity         CaseSensitivityMode `json:"case_sensitivity" validate:"oneof=sensitive insensitive auto_detect"`
 	DiscoveryThreads        int                 `json:"discovery_threads" validate:"min=1,max=255"`
@@ -106,7 +102,6 @@ type EngineConfig struct {
 // Enums.
 
 // DiscoveryMode controls what types of resources to discover.
-// Maps to Burp's mode radio buttons in an5.java.
 type DiscoveryMode string
 
 const (
@@ -116,7 +111,6 @@ const (
 )
 
 // CaseSensitivityMode controls filename matching.
-// Maps to Burp's case sensitivity options in ang.java.
 type CaseSensitivityMode string
 
 const (

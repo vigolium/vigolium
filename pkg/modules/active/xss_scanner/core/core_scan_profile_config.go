@@ -210,7 +210,7 @@ func (profile *ScanExecutionProfile) CreateMatcherWithRandomSuffix(
 	basePayloadBytes := utils.StringToBytes(basePayloadComponent)
 
 	// Combine the base payload part with the random suffix
-	fullPatternBytes := utils.NetPortswiggerNkCombine(
+	fullPatternBytes := utils.CombineByteSlices(
 		basePayloadBytes,
 		randomSuffix, // This is the random suffix
 	)
@@ -219,7 +219,6 @@ func (profile *ScanExecutionProfile) CreateMatcherWithRandomSuffix(
 
 // CreateMatcherForEffectiveCanary corresponds to package-private 'db9 c()'
 func (profile *ScanExecutionProfile) CreateMatcherForEffectiveCanary() ByteSequenceMatcher {
-	// return this.a(net.portswigger.h9.a(this.e()));
 	effectiveCanaryString := profile.getEffectiveCanaryComponent()
 	effectiveCanaryBytes := utils.StringToBytes(
 		effectiveCanaryString,

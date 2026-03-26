@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestNetPortswiggerH9ABytesToString tests the NetPortswiggerH9ABytesToString function.
-func TestNetPortswiggerH9ABytesToString(t *testing.T) {
+// TestBytesToString tests the BytesToString function.
+func TestBytesToString(t *testing.T) {
 	tests := []struct {
 		name  string
 		input []byte
@@ -53,7 +53,7 @@ func TestNetPortswiggerH9ABytesToString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := BytesToString(tt.input)
 			if got != tt.want {
-				t.Errorf("NetPortswiggerH9ABytesToString() got = %v, want %v", got, tt.want)
+				t.Errorf("BytesToString() got = %v, want %v", got, tt.want)
 				// For debugging characters
 				t.Logf("Got runes: %v", []rune(got))
 				t.Logf("Want runes: %v", []rune(tt.want))
@@ -62,8 +62,8 @@ func TestNetPortswiggerH9ABytesToString(t *testing.T) {
 	}
 }
 
-// TestNetPortswiggerH9AStringToBytes tests the NetPortswiggerH9AStringToBytes function.
-func TestNetPortswiggerH9AStringToBytes(t *testing.T) {
+// TestStringToBytes tests the StringToBytes function.
+func TestStringToBytes(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -138,7 +138,7 @@ func TestNetPortswiggerH9AStringToBytes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := StringToBytes(tt.input)
 			if !bytes.Equal(got, tt.want) {
-				t.Errorf("NetPortswiggerH9AStringToBytes() failed for input '%s'", tt.input)
+				t.Errorf("StringToBytes() failed for input '%s'", tt.input)
 				t.Logf("Got bytes (decimal): %v", got)
 				t.Logf("Got bytes (hex): %x", got)
 				t.Logf("Want bytes (decimal): %v", tt.want)
@@ -173,8 +173,8 @@ func TestNetPortswiggerH9AStringToBytes(t *testing.T) {
 	}
 }
 
-// TestNetPortswiggerH9AStringToBytesInternal tests the internal helper function.
-func TestNetPortswiggerH9AStringToBytesInternal(t *testing.T) {
+// TestStringToBytesInternal tests the internal helper function.
+func TestStringToBytesInternal(t *testing.T) {
 	tests := []struct {
 		name        string
 		inputRunes  []rune
@@ -260,7 +260,7 @@ func TestNetPortswiggerH9AStringToBytesInternal(t *testing.T) {
 
 			if !bytes.Equal(gotReturn, tt.wantReturn) {
 				t.Errorf(
-					"netPortswiggerH9AStringToBytesInternal() returned %v (hex: %x), want %v (hex: %x)",
+					"stringToBytesInternal() returned %v (hex: %x), want %v (hex: %x)",
 					gotReturn,
 					gotReturn,
 					tt.wantReturn,
@@ -271,7 +271,7 @@ func TestNetPortswiggerH9AStringToBytesInternal(t *testing.T) {
 			if tt.wantBytes != nil {
 				if !bytes.Equal(tt.targetBytes, tt.wantBytes) {
 					t.Errorf(
-						"netPortswiggerH9AStringToBytesInternal() targetBytes became %v (hex: %x), want %v (hex: %x)",
+						"stringToBytesInternal() targetBytes became %v (hex: %x), want %v (hex: %x)",
 						tt.targetBytes,
 						tt.targetBytes,
 						tt.wantBytes,
@@ -280,7 +280,7 @@ func TestNetPortswiggerH9AStringToBytesInternal(t *testing.T) {
 				}
 			} else if gotReturn != nil {
 				if len(tt.targetBytes) > 0 && len(gotReturn) > 0 && &tt.targetBytes[0] != &gotReturn[0] && !bytes.Equal(tt.targetBytes, originalTargetBytes) {
-					t.Errorf("netPortswiggerH9AStringToBytesInternal() targetBytes was modified to %v, expected to remain %v", tt.targetBytes, originalTargetBytes)
+					t.Errorf("stringToBytesInternal() targetBytes was modified to %v, expected to remain %v", tt.targetBytes, originalTargetBytes)
 				}
 			}
 		})

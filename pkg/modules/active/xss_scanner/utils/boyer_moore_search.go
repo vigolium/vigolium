@@ -1,9 +1,6 @@
 package utils
 
-// This file ports kw.java, which contains the Boyer-Moore search algorithm implementation.
-
 // KwSearcher implements the E0 interface using Boyer-Moore algorithm.
-// Corresponds to kw.java
 type KwSearcher struct {
 	pattern       []byte   // Corresponds to 'private final byte[] d;' (the needle)
 	bcShift       [256]int // Bad character shift table (Java: c). Size 256 for all byte values.
@@ -23,7 +20,7 @@ func NewKwSearcher(pattern []byte, caseSensitive bool) E0 {
 		if !caseSensitive {
 			kw.pattern = make([]byte, len(pattern))
 			copy(kw.pattern, pattern)
-			NetPortswiggerNkE(
+			ToLowerASCII(
 				kw.pattern,
 			) // Convert pattern to lowercase if case-insensitive (from nk.go)
 		} else {
@@ -245,7 +242,7 @@ func kwSuffixLength(pattern []byte, endIndexInPattern int) int {
 	return commonSuffixLen
 }
 
-// kwComputeGsShift computes the good suffix shift table, strictly mirroring Java logic from kw.java.
+// kwComputeGsShift computes the good suffix shift table.
 // Corresponds to Java: private static int[] a(byte[] var0) [the one that computes gsShift]
 func kwComputeGsShift(pattern []byte) []int {
 	patternLen := len(pattern)
@@ -261,7 +258,7 @@ func kwComputeGsShift(pattern []byte) []int {
 	// To match Java's `var1[var0.length - var3_java]`: index is `patternLen - javaVar3_loopVal`
 	// javaVar3_loopVal goes from patternLen down to 1.
 	for javaVar3_loopVal := patternLen; javaVar3_loopVal > 0; javaVar3_loopVal-- {
-		// In kw.java, b(byte[] var0, int var1) is kwIsPrefix(pattern, suffixStartIndex)
+		// Check if pattern[javaVar3_loopVal:] is a prefix of pattern.
 		// The `var3` passed to `b` in the Java loop is `javaVar3_loopVal` here.
 		if kwIsPrefix(pattern, javaVar3_loopVal) {
 			borderPtr = javaVar3_loopVal

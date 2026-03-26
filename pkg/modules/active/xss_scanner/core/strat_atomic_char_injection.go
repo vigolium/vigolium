@@ -16,7 +16,7 @@ func NewSingleCharacterInjectionStrategy(charToInject byte) *SingleCharacterInje
 	// String var2 = "";
 	prefixForEventHandler := ""
 	// this.a = var1;
-	// String var3 = net.portswigger.h9.a(new byte[]{this.a});
+	// Convert the byte to a string
 	// In Go, byte is uint8. Java byte is signed.
 	// However, h9.a seems to work with the direct byte value for character conversion.
 	charAsString := utils.BytesToString([]byte{charToInject})

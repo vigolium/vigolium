@@ -7,7 +7,6 @@ import (
 )
 
 // HttpResponse represents an HTTP response with raw bytes as source of truth.
-// This follows Burp Suite Montoya API pattern with lazy parsing and immutable builders.
 //
 // Design:
 //   - Raw bytes are the source of truth

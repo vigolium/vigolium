@@ -2,11 +2,10 @@ package config
 
 import "time"
 
-// Default values matching Burp Suite Content Discovery exactly.
-// Extracted from did.java lines 10-37.
+// Default values for content discovery configuration.
 
 var (
-	// Default custom extensions (did.java line 27).
+	// DefaultCustomExtensions lists commonly tested file extensions.
 	DefaultCustomExtensions = []string{
 		"php",
 		"asp",
@@ -38,8 +37,8 @@ var (
 		"zip": {}, "~": {}, "rar": {}, "7z": {},
 	}
 
-	// DefaultBackupExtensions (did.java lines 100-137).
-	// Backup/temp file extensions tested when a file is discovered (e.g., admin.php → admin.bak).
+	// DefaultBackupExtensions lists backup/temp file extensions tested when a file is discovered
+	// (e.g., admin.php -> admin.bak).
 	DefaultBackupExtensions = []string{
 		"~1", "$$$", "1", "bac", "backup", "bak", "conf", "cs", "csproj",
 		"gz", "inc", "ini", "java", "log", "old", "sav", "tar", "tmp", "zip",
@@ -48,15 +47,15 @@ var (
 	}
 )
 
-// NewDefaultConfig returns a configuration with Burp Suite's default values.
+// NewDefaultConfig returns a configuration with sensible default values.
 func NewDefaultConfig() *Config {
 	return &Config{
 		Target: TargetConfig{
 			StartURL: "",
 			Mode:     ModeFilesAndDirs,
 			Recursion: RecursionConfig{
-				Enabled:  true, // did.java line 14
-				MaxDepth: 16,   // did.java line 15
+				Enabled:  true,
+				MaxDepth: 16,  
 			},
 			ScopeMode: "subdomain", // Default: same main domain (eTLD+1)
 		},
@@ -75,16 +74,16 @@ func NewDefaultConfig() *Config {
 			},
 		},
 		Extensions: ExtensionConfig{
-			TestCustom:      true,                     // did.java line 24
-			CustomList:      DefaultCustomExtensions,  // did.java line 27
-			TestObserved:    true,                     // did.java line 25
-			TestBackupExtensions: true,                    // did.java line 26
-			BackupExtensions:     DefaultBackupExtensions, // did.java line 31
-			TestNoExtension: true,                     // did.java line 28
+			TestCustom:      true,                    
+			CustomList:      DefaultCustomExtensions, 
+			TestObserved:    true,                    
+			TestBackupExtensions: true,                   
+			BackupExtensions:     DefaultBackupExtensions,
+			TestNoExtension: true,                    
 		},
 		Engine: EngineConfig{
-			CaseSensitivity:  CaseAutoDetect,   // ang.java default (auto-detect)
-			DiscoveryThreads: 40,               // did.java line 33
+			CaseSensitivity:  CaseAutoDetect,  
+			DiscoveryThreads: 40,              
 			Timeout:          10 * time.Second, // HTTP per-request timeout
 			ObservedMaxItems: 4000,             // Max items per observed provider
 		},

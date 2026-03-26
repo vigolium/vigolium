@@ -55,6 +55,5 @@ func GetReflectionTacticFromCollection(
 			return llInstance, true
 		}
 	}
-	// net.portswigger.qe.a(false, net.portswigger.rg.d);
 	return ReflectionTacticType(0), false // Return a default Ll (like LlReplace) and false
 }

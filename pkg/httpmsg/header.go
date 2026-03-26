@@ -5,8 +5,6 @@ import (
 )
 
 // HttpHeader represents an HTTP header with name and value.
-// This follows Burp Suite Montoya API pattern using simple struct
-// for ordered header access.
 type HttpHeader struct {
 	Name  string
 	Value string

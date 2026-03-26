@@ -33,10 +33,6 @@ const (
 // items are evicted to make room for new discoveries.
 //
 // Thread-safe for concurrent additions during discovery.
-//
-// Implements Burp's observed name collection algorithm from:
-//   - _x.java:700-726 - Synchronized name/extension storage
-//   - ezo.java:14-29 - Observed names iterator
 type ObservedProvider struct {
 	mu sync.RWMutex
 
@@ -64,9 +60,6 @@ type ObservedProvider struct {
 // NewObservedProvider creates an empty observed provider with default capacity.
 // caseSensitive controls whether names are normalized to lowercase.
 //
-// Burp Reference: _x.java:701-703
-//
-//	if (this.k()) { var1 = var1.toLowerCase(); }
 func NewObservedProvider(caseSensitive bool) *ObservedProvider {
 	return NewObservedProviderWithLimit(caseSensitive, DefaultMaxItems)
 }
@@ -94,17 +87,6 @@ func NewObservedProviderWithLimit(caseSensitive bool, maxItems int) *ObservedPro
 //
 // When at capacity, triggers eviction of lowest-frequency items before adding.
 //
-// Burp Reference: _x.java:700-711
-//
-//	private synchronized void c(String var1) {
-//	  if (this.k()) { var1 = var1.toLowerCase(); }
-//	  if (!var1.equals("/")) {
-//	    if (!this.l.contains(var1)) {
-//	      this.l.add(var1);
-//	      this.l.sort(idt.a);
-//	    }
-//	  }
-//	}
 func (o *ObservedProvider) Add(filename []byte) {
 	if len(filename) == 0 {
 		return

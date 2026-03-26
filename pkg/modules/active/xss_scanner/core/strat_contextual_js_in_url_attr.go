@@ -9,7 +9,7 @@ type JavaScriptInURLAttributeStrategy struct {
 }
 
 // NewJavaScriptInURLAttributeStrategy creates a new concrete instance of De.
-// Original Java constructor: public de(net.portswigger.ou var1, def var2, String var3)
+// Original Java constructor: public de(ou var1, def var2, String var3)
 func NewJavaScriptInURLAttributeStrategy(
 	randomProvider *utils.RandomGenerator,
 	contentType *ContentTypeProfile,

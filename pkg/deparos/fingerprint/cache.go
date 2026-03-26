@@ -195,7 +195,6 @@ func (c *Cache) Matches(key CacheKey, sample *Sample) bool {
 }
 
 // LearnAndCache learns a new signature and caches it
-// Maps to Burp's learning and caching flow
 func (c *Cache) LearnAndCache(ctx context.Context, key CacheKey, baseURL *url.URL) (*Signature, error) {
 	c.mu.RLock()
 	learner := c.learner

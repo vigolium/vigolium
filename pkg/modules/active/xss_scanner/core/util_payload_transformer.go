@@ -39,8 +39,8 @@ func NewPayloadModificationContextWithPrefix(
 	breakoutSequenceString := randomComponent + "'/\"<" + randomComponent // Escaped the double quote
 	context.breakoutSequenceBytes = utils.StringToBytes(breakoutSequenceString)
 
-	// this.c = net.portswigger.nk.a(var1, var2, this.e); trong Java
-	context.dataWithBreakoutSequence = utils.NetPortswiggerNkCombine(
+	// Combine prefix, mainData, and breakout payload
+	context.dataWithBreakoutSequence = utils.CombineByteSlices(
 		prefix,
 		mainData,
 		context.breakoutSequenceBytes,
@@ -63,8 +63,8 @@ func NewPayloadModificationContext(
 // Tương đương với public byte[] b() trong Java class d2.
 // Tên cũ: B
 func (tc *PayloadModificationContext) GetPrefixedPrimaryData() []byte {
-	// return net.portswigger.nk.a(this.a, this.d); trong Java
-	return utils.NetPortswiggerNkCombine(tc.prefixData, tc.primaryData)
+	// Combine prefix and primary data
+	return utils.CombineByteSlices(tc.prefixData, tc.primaryData)
 }
 
 // HasPrefix kiểm tra xem context có tiền tố hay không.
@@ -104,11 +104,10 @@ func (ct *PrefixingPayloadModifier) Modify(payload []byte) []byte {
 	inputPayloadCopy := make([]byte, len(payload))
 	copy(inputPayloadCopy, payload)
 
-	// return net.portswigger.nk.a(this.a.b(), var2); trong Java
 	// Lấy dữ liệu đã được prefix từ context
 	contextPrefixedData := ct.context.GetPrefixedPrimaryData()
 	// Kết hợp dữ liệu đã prefix với payload đã sao chép
-	return utils.NetPortswiggerNkCombine(contextPrefixedData, inputPayloadCopy)
+	return utils.CombineByteSlices(contextPrefixedData, inputPayloadCopy)
 }
 
 // NoOpPayloadModifier implement PayloadTransformer, trả về payload đầu vào không thay đổi.

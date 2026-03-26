@@ -9,7 +9,7 @@ type JavaScriptSchemeCompositeStrategy struct {
 }
 
 // NewJavaScriptSchemeCompositeStrategy creates a new instance of Dfs.
-// Original Java constructor: dfs(net.portswigger.ou var1, def var2)
+// Original Java constructor: dfs(ou var1, def var2)
 func NewJavaScriptSchemeCompositeStrategy(
 	randomProvider *utils.RandomGenerator,
 	contentType *ContentTypeProfile,

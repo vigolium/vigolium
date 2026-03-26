@@ -7,13 +7,12 @@ import (
 )
 
 // DefaultExtensionVariants contains 43 file extension variants for backup/temp file testing.
-// Includes Burp Suite defaults (bow.java) plus high-value pentester additions.
 var DefaultExtensionVariants = []string{
 	// Vim swap files - often contain full source code
 	"swp", "swo",
 	// Distribution/template files - often have credentials
 	"dist", "sample", "example",
-	// Burp Suite defaults (bow.java)
+	// Common backup/temp extensions
 	"~", "~1", "$$$", "1", "bac", "backup", "bak", "conf", "cs", "csproj",
 	"gz", "inc", "ini", "java", "log", "old", "sav", "tar", "tmp",
 	"zip", "~bk", "0", "BAC", "BACKUP", "BAK", "OLD", "INC", "lst",

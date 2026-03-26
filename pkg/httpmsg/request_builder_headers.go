@@ -1,30 +1,22 @@
 package httpmsg
 
 // request_builder_headers.go - HTTP header manipulation functions
-// Ported from: burp/glo.java (header operations)
 //
-// This file contains ALL header operations:
-// - Burp Standard API: AddHeader, RemoveHeader, UpdateContentLength
+// This file contains all header operations:
+// - Core: AddHeader, RemoveHeader, UpdateContentLength
 // - Extensions: Replace, Get, Has, GetAll, GetByPrefix, ContentType, Host
 
-// ==================== BURP STANDARD API: HEADER OPERATIONS ====================
+// ==================== CORE HEADER OPERATIONS ====================
 
 // AddHeader adds a new header to an HTTP message.
-// Ported from: glo.java a(bi9, String) method (lines 77-103)
 //
-//	Which calls a(bi9, byte[], boolean) (lines 81-103)
-//
-// Algorithm (from glo.java lines 81-103):
-//  1. Find header end position (before separator) (lines 85-88)
-//  2. Write message up to that position (line 93)
-//  3. Write new header bytes (line 94)
-//  4. Write CRLF (lines 95-96)
-//  5. Write rest of message from that position onward (line 97)
-//  6. Return new message (line 98)
-//
-// Note: The key is that var3=false in glo.java line 46 returns i+2,
-// which is the position BEFORE the final CRLF (after the first CRLF
-// of the CRLFCRLF separator). This is where we insert the header.
+// Algorithm:
+//  1. Find header end position (before separator)
+//  2. Write message up to that position
+//  3. Write new header bytes
+//  4. Write CRLF
+//  5. Write rest of message from that position onward
+//  6. Return new message
 //
 // Parameters:
 //   - message: Original HTTP message
@@ -49,7 +41,7 @@ func AddHeader(message []byte, name, value string) ([]byte, error) {
 	headerLine := buildHeaderLine(name, value)
 	headerBytes := []byte(headerLine)
 
-	// Find header end position (glo.java lines 85-88)
+	// Find header end position
 	// This is the position BEFORE the final CRLF of the separator
 	headerEndPos := findHeaderEndPosition(message, 0)
 	if headerEndPos == -1 {
@@ -61,37 +53,27 @@ func AddHeader(message []byte, name, value string) ([]byte, error) {
 	newSize := headerEndPos + len(headerBytes) + 2 + (len(message) - headerEndPos)
 	result := make([]byte, 0, newSize)
 
-	// Write message up to header end (glo.java line 93)
+	// Write message up to header end
 	result = append(result, message[:headerEndPos]...)
 
-	// Write new header (glo.java line 94)
+	// Write new header
 	result = append(result, headerBytes...)
 
-	// Write CRLF (glo.java lines 95-96)
+	// Write CRLF
 	result = append(result, CR, LF)
 
-	// Write rest of message from header end (glo.java line 97)
+	// Write rest of message from header end
 	result = append(result, message[headerEndPos:]...)
 
 	return result, nil
 }
 
 // RemoveHeader removes a header from an HTTP message.
-// Ported from: glo.java a(bi9, String, boolean, String, boolean, boolean) method
 //
-//	(lines 228-293) called via parameter manipulation
-//
-// Algorithm (from glo.java lines 237-244):
-//  1. Find header/body separator (lines 232-233)
-//  2. Extract all headers (line 238)
-//  3. Remove matching header using a() helper (line 243)
-//  4. Rebuild message with ec5.a() (line 244)
-//
-// The actual removal happens in glo.a() lines 247-293:
-//  1. Loop through headers (lines 262-287)
-//  2. Find matching header (case-insensitive) (line 264)
-//  3. Remove header from list (line 266)
-//  4. Rebuild message (line 244 in caller)
+// Algorithm:
+//  1. Extract all headers and body offset
+//  2. Filter out matching header (case-insensitive)
+//  3. Rebuild message
 //
 // Parameters:
 //   - message: Original HTTP message
@@ -118,7 +100,6 @@ func RemoveHeader(message []byte, name string) ([]byte, error) {
 	}
 
 	// Filter out matching header (case-insensitive)
-	// From glo.java lines 262-287
 	filteredHeaders := make([]string, 0, len(headers))
 	for _, header := range headers {
 		// Extract header name (everything before ':')
@@ -138,21 +119,19 @@ func RemoveHeader(message []byte, name string) ([]byte, error) {
 		body = message[bodyOffset:]
 	}
 
-	// Rebuild message (ec5.java a() method)
+	// Rebuild message
 	return BuildHttpMessage(filteredHeaders, body), nil
 }
 
 // UpdateContentLength updates or adds Content-Length header.
-// Ported from: glo.java d(bi9) method (lines 295-312)
 //
-// Algorithm (from glo.java lines 295-312):
-//  1. Find body offset with strict CRLF CRLF check (line 299)
-//  2. If no separator, return unchanged (lines 300-301)
-//  3. Extract headers (line 303)
-//  4. Calculate body length: total - offset - 2 (line 304)
-//  5. If body exists OR Content-Length header exists (line 305):
-//     - Update/add Content-Length header (line 306)
-//  6. Return updated message (line 309)
+// Algorithm:
+//  1. Find body offset with strict CRLF CRLF check
+//  2. If no separator, return unchanged
+//  3. Extract headers
+//  4. Calculate body length
+//  5. If body exists OR Content-Length header exists, update/add it
+//  6. Return updated message
 //
 // Parameters:
 //   - message: HTTP message
@@ -171,27 +150,23 @@ func UpdateContentLength(message []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	// Find body offset with strict CRLF CRLF (glo.java line 299)
-	// Uses var2=true which means strict CRLF CRLF checking
+	// Find body offset with strict CRLF CRLF checking
 	bodyOffset := findBodyOffsetStrict(message, 0)
 	if bodyOffset == -1 {
-		// No separator found, return unchanged (glo.java lines 300-301)
+		// No separator found, return unchanged
 		return message, nil
 	}
 
-	// Extract headers (glo.java line 303)
+	// Extract headers
 	headers, _, _, err := ExtractAllHeaders(message)
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate body length (glo.java line 304)
-	// Note: Burp subtracts 2 from the calculation, but this is already
-	// accounted for since bodyOffset points AFTER the separator
+	// Calculate body length
 	bodyLength := len(message) - bodyOffset
 
-	// Check if we need to add/update Content-Length (glo.java line 305)
-	// Only if body exists OR Content-Length header already present
+	// Only update if body exists OR Content-Length header already present
 	hasContentLength := Header(headers, "Content-Length") != ""
 
 	if bodyLength > 0 || hasContentLength {
@@ -217,14 +192,12 @@ func UpdateContentLength(message []byte) ([]byte, error) {
 // ==================== HELPER FUNCTIONS ====================
 
 // findHeaderEndPosition finds the position where headers end (before final separator CRLF).
-// Ported from: glo.java a(bi9, int, boolean, boolean) with var3=false
-// (lines 37-75, specifically returning i+2 at line 46 and i+1 at line 58)
 //
-// Algorithm (glo.java lines 51-61 with var3=false):
+// Algorithm:
 //  1. Search for CRLF CRLF sequence (13 10 13 10)
-//  2. If found, return i+2 (position after first CRLF, before second CRLF)
+//  2. If found, return position after first CRLF, before second CRLF
 //  3. Also check for LF LF sequence (10 10)
-//  4. If found, return i+1 (position after first LF, before second LF)
+//  4. If found, return position after first LF, before second LF
 //  5. Return -1 if not found
 //
 // This is used by AddHeader to insert headers before the final separator.
@@ -235,23 +208,23 @@ func findHeaderEndPosition(message []byte, startOffset int) int {
 
 	length := len(message)
 
-	// Search for CRLF CRLF or LF LF (glo.java lines 51-61)
+	// Search for CRLF CRLF or LF LF
 	for i := startOffset; i < length-3; i++ {
 		// Check for CRLF CRLF (13 10 13 10)
 		if message[i] == CR && message[i+1] == LF &&
 			message[i+2] == CR && message[i+3] == LF {
-			// var3=false means return position after first CRLF (glo.java line 46)
+			// Return position after first CRLF
 			return i + 2
 		}
 
 		// Check for LF LF (10 10)
 		if message[i] == LF && message[i+1] == LF {
-			// var3=false means return position after first LF (glo.java line 58)
+			// Return position after first LF
 			return i + 1
 		}
 	}
 
-	// Edge case: check last few bytes for LF LF (glo.java lines 63-70)
+	// Edge case: check last few bytes for LF LF
 	if length >= 3 {
 		for i := length - 3; i < length-1; i++ {
 			if message[i] == LF && message[i+1] == LF {
@@ -265,13 +238,11 @@ func findHeaderEndPosition(message []byte, startOffset int) int {
 }
 
 // findBodyOffsetStrict finds body offset with strict CRLF CRLF checking.
-// Ported from: glo.java a(bi9, int, boolean, boolean) with var2=true
-// (lines 37-75, specifically the var2=true path at lines 43-49)
 //
-// Algorithm (glo.java lines 43-49):
+// Algorithm:
 //  1. Only look for CRLF CRLF sequence (13 10 13 10)
 //  2. Do NOT accept LF LF as alternative
-//  3. Return offset after separator (var3=false means return separator start + 2)
+//  3. Return offset after separator
 //  4. Return -1 if not found
 //
 // This is used by UpdateContentLength which needs strict checking.
@@ -282,13 +253,12 @@ func findBodyOffsetStrict(message []byte, startOffset int) int {
 
 	length := len(message)
 
-	// Search for CRLF CRLF only (glo.java lines 44-48)
+	// Search for CRLF CRLF only
 	for i := startOffset; i < length-3; i++ {
 		if message[i] == CR && message[i+1] == LF &&
 			message[i+2] == CR && message[i+3] == LF {
-			// var3=false means return offset BEFORE final CRLF (line 46)
-			// which is separator start + 2 (after first CRLF)
-			return i + 4 // Actually for body start we want after all 4 bytes
+			// Body starts after all 4 separator bytes
+			return i + 4
 		}
 	}
 
@@ -316,7 +286,6 @@ func removeHeaderFromList(headers []string, name string) []string {
 // ==================== EXTENSION API: HEADER OPERATIONS ====================
 
 // ReplaceHeader atomically replaces a header value (remove + add).
-// Extension to Burp API - provides atomic header replacement.
 //
 // Algorithm:
 //  1. Remove existing header if present
@@ -346,7 +315,6 @@ func ReplaceHeader(request []byte, name, value string) ([]byte, error) {
 }
 
 // AddOrReplaceHeader adds header if not exists, replaces if exists.
-// Extension to Burp API - provides conditional header operation.
 //
 // Algorithm:
 //  1. Check if header exists
@@ -369,7 +337,6 @@ func AddOrReplaceHeader(request []byte, name, value string) ([]byte, error) {
 }
 
 // AddHeaderIfNotExists adds a header only if it doesn't already exist.
-// Extension to Burp API - provides conditional add operation.
 //
 // Algorithm:
 //  1. Check if header exists
@@ -402,7 +369,6 @@ func AddHeaderIfNotExists(request []byte, name, value string) ([]byte, error) {
 }
 
 // GetHeaderValue extracts a header value directly from request bytes.
-// Extension to Burp API - provides direct header access without pre-parsing.
 //
 // Algorithm:
 //  1. Extract headers using ExtractAllHeaders
@@ -429,7 +395,6 @@ func GetHeaderValue(request []byte, name string) (string, error) {
 }
 
 // HasHeader checks if a header exists in the request.
-// Extension to Burp API - provides header existence check.
 //
 // Algorithm:
 //  1. Get header value
@@ -456,7 +421,6 @@ func HasHeader(request []byte, name string) (bool, error) {
 }
 
 // GetAllHeaderValues returns all values for a header (for multi-value headers).
-// Extension to Burp API - supports headers that can appear multiple times.
 //
 // Algorithm:
 //  1. Extract all headers
@@ -503,7 +467,7 @@ func GetAllHeaderValues(request []byte, name string) ([]string, error) {
 }
 
 // GetHeadersByPrefix returns all headers matching a prefix.
-// Extension to Burp API - useful for getting all X-* headers, etc.
+// Useful for getting all X-* headers, etc.
 //
 // Algorithm:
 //  1. Extract all headers
@@ -553,7 +517,6 @@ func GetHeadersByPrefix(request []byte, prefix string) ([]string, error) {
 }
 
 // GetContentType extracts the Content-Type header value.
-// Extension to Burp API - convenience wrapper for common header.
 //
 // Algorithm:
 //  1. Call GetHeaderValue for "Content-Type"
@@ -573,7 +536,6 @@ func GetContentType(request []byte) (string, error) {
 }
 
 // SetContentType sets the Content-Type header.
-// Extension to Burp API - convenience wrapper for common header.
 //
 // Algorithm:
 //  1. Call ReplaceHeader for "Content-Type"
@@ -594,7 +556,6 @@ func SetContentType(request []byte, contentType string) ([]byte, error) {
 }
 
 // GetHost extracts the Host header value.
-// Extension to Burp API - convenience wrapper for common header.
 //
 // Algorithm:
 //  1. Call GetHeaderValue for "Host"
@@ -615,7 +576,6 @@ func GetHost(request []byte) (string, error) {
 
 // AppendToHeader appends a value to an existing header.
 // If header doesn't exist, returns request unchanged.
-// Ported from: Utilities.java appendToHeader() (lines 788-794)
 //
 // Algorithm:
 //  1. Find header offsets using GetHeaderOffsets
@@ -669,7 +629,6 @@ func AppendToHeader(request []byte, name, appendValue string) ([]byte, error) {
 }
 
 // GetHeaderOffsets returns [lineStart, valueStart, valueEnd] offsets for a header.
-// Ported from: Utilities.java getHeaderOffsets() (lines 883-917)
 //
 // Algorithm:
 //  1. Search through headers line by line

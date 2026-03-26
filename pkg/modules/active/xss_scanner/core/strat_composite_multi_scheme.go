@@ -5,11 +5,11 @@ import "github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 // MultiSchemeURLCompositeStrategy corresponds to Java class hcb which extends hcu and implements d3b.
 // Logic from hcu is effectively part of MultiSchemeURLCompositeStrategy's D3b implementation.
 type MultiSchemeURLCompositeStrategy struct {
-	randomProvider *utils.RandomGenerator // Corresponds to 'private final net.portswigger.ou a;' in hcb
+	randomProvider *utils.RandomGenerator // Corresponds to 'private final ou a;' in hcb
 }
 
 // NewMultiSchemeURLCompositeStrategy creates a new instance of Hcb.
-// Original Java constructor: public hcb(net.portswigger.ou var1)
+// Original Java constructor: public hcb(ou var1)
 func NewMultiSchemeURLCompositeStrategy(
 	randomProvider *utils.RandomGenerator,
 ) *MultiSchemeURLCompositeStrategy {

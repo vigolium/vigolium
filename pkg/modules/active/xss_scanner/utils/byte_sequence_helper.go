@@ -4,7 +4,7 @@ import (
 	"fmt" // For Math.min equivalent
 )
 
-// Corresponds to 'private static final net.portswigger.m1 a;'
+// cecStaticM1 is the package-level SearcherFactory instance.
 var cecStaticM1 = NewM1()
 
 func DecodeUTF16PseudoBE(data []byte) string {
@@ -69,7 +69,7 @@ func (b *B8WrapperForPc) AAt(index int) int { // Corresponds to Pc.a(int) - get 
 	return int(b.ac0Data.GetByte(index))
 }
 
-// Ensure B8WrapperForPc implements Pc (defined in net_portswigger_ls.go)
+// Ensure B8WrapperForPc implements Pc
 var _ Pc = (*B8WrapperForPc)(nil)
 
 // Helper for Math.min equivalent if not wanting to import "math" for just one function
@@ -197,7 +197,7 @@ func CecIndexOfBytesCSFromOffsetRange(
 	toIndex int,
 ) int {
 	// return a.a(var1, var2).a(new b_8(var0), var3, var4);
-	// `a` is cecStaticM1 (*NetPortswiggerM1)
+	// cecStaticM1 is the package-level SearcherFactory instance
 	if cecStaticM1 == nil {
 		// This should not happen if init() worked correctly
 		return -1
@@ -233,7 +233,7 @@ func CecIndexOfByteCSFromOffsetRange(
 
 	searchByte := needle
 	if !caseSensitive {
-		searchByte = NetPortswiggerNkASingleByteToLower(needle) // nk.a(byte)
+		searchByte = SingleByteToLower(needle) // nk.a(byte)
 	}
 
 	// Math.min(var4, var0.aF());
@@ -243,7 +243,7 @@ func CecIndexOfByteCSFromOffsetRange(
 	for currentIndex < actualToIndex {
 		haystackByte := obj.GetByte(currentIndex)
 		if !caseSensitive {
-			haystackByte = NetPortswiggerLsAToLowerByte(haystackByte) // ls.a(byte)
+			haystackByte = ToLowerByte(haystackByte) // ls.a(byte)
 		}
 		if haystackByte == searchByte {
 			return currentIndex
@@ -404,7 +404,7 @@ func CecStartsWith(obj *Ac0, prefix []byte, caseSensitive bool, offset int) bool
 		if caseSensitive {
 			currentObjByte = objByte
 		} else {
-			currentObjByte = NetPortswiggerLsAToLowerByte(objByte) // ls.a(byte)
+			currentObjByte = ToLowerByte(objByte) // ls.a(byte)
 			// Note: Java code applies toLower to objByte, but compares with original prefixByte.
 			// If prefixByte should also be case-normalized for case-insensitive, it's missing in Java logic.
 			// Porting strictly, so prefixByte is not changed here.

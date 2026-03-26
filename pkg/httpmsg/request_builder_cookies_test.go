@@ -333,7 +333,7 @@ func TestSetCookie(t *testing.T) {
 			cookieName:  "data",
 			cookieValue: "hello%20world",
 			checkFunc: func(result []byte) bool {
-				// Values are written AS-IS per Burp Suite behavior (no double-encoding)
+				// Values are written as-is without double-encoding
 				// If value is "hello%20world", it's written as "data=hello%20world"
 				return bytes.Contains(result, []byte("data=hello%20world"))
 			},
@@ -355,7 +355,7 @@ func TestSetCookie(t *testing.T) {
 			cookieName:  "special",
 			cookieValue: "a+b=c",
 			checkFunc: func(result []byte) bool {
-				// Values are written AS-IS per Burp Suite behavior (no encoding)
+				// Values are written as-is without encoding
 				// User must pre-encode values if needed
 				return bytes.Contains(result, []byte("special=a+b=c"))
 			},
@@ -538,7 +538,7 @@ func TestSetAllCookies(t *testing.T) {
 				"special": "a+b=c",
 			},
 			checkFunc: func(result []byte) bool {
-				// Values are written AS-IS per Burp Suite behavior (no encoding)
+				// Values are written as-is without encoding
 				return bytes.Contains(result, []byte("data=hello%20world")) &&
 					bytes.Contains(result, []byte("special=a+b=c"))
 			},

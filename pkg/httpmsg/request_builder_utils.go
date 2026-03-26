@@ -9,7 +9,6 @@ package httpmsg
 // - RequestsEqual, RequestsEqualNormalized
 
 // CloneRequest creates a deep copy of a request.
-// Extension to Burp API - provides request cloning.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -31,7 +30,6 @@ func CloneRequest(request []byte) []byte {
 }
 
 // NormalizeLineEndings ensures all line endings are CRLF.
-// Extension to Burp API - provides line ending normalization.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -75,7 +73,6 @@ func NormalizeLineEndings(request []byte) []byte {
 }
 
 // StripTrailingData removes any data after the body.
-// Extension to Burp API - removes trailing garbage.
 //
 // Parameters:
 //   - request: HTTP request bytes
@@ -93,7 +90,6 @@ func StripTrailingData(request []byte) []byte {
 }
 
 // RequestsEqual checks if two requests are byte-level equal.
-// Extension to Burp API - provides request comparison.
 //
 // Parameters:
 //   - req1: First request
@@ -122,7 +118,6 @@ func RequestsEqual(req1, req2 []byte) bool {
 }
 
 // RequestsEqualNormalized checks if requests are equal after normalization.
-// Extension to Burp API - provides normalized comparison.
 //
 // Parameters:
 //   - req1: First request

@@ -8,7 +8,6 @@ import (
 )
 
 // ParameterFormat represents the detected content format of a parameter value.
-// Follows Burp's h5p enum for format classification.
 type ParameterFormat int
 
 const (
@@ -43,8 +42,7 @@ func (f ParameterFormat) String() string {
 // DetectParameterFormat analyzes a parameter value to detect if it contains
 // a nested structure (JSON, XML, Base64, or URL-encoded data).
 //
-// This follows Burp Suite's rp.java format detection logic (lines 12-40),
-// which uses structural markers to identify content types:
+// Uses structural markers to identify content types:
 //   - JSON: starts with { or [, ends with } or ]
 //   - XML: starts with <, ends with >
 //   - Base64: matches Base64 alphabet with valid padding
@@ -52,7 +50,7 @@ func (f ParameterFormat) String() string {
 //
 // The detection is conservative to avoid false positives.
 func DetectParameterFormat(value string) ParameterFormat {
-	// Trim whitespace (Burp's rp.java uses by9.a() to trim)
+	// Trim whitespace
 	trimmed := strings.TrimSpace(value)
 	if len(trimmed) == 0 {
 		return FormatNone
@@ -62,7 +60,6 @@ func DetectParameterFormat(value string) ParameterFormat {
 	last := trimmed[len(trimmed)-1]
 
 	// Check for JSON object: {...}
-	// Burp's rp.java line 23-25
 	if first == '{' && last == '}' {
 		// Verify it's valid JSON to avoid false positives
 		var data map[string]interface{}
@@ -72,7 +69,6 @@ func DetectParameterFormat(value string) ParameterFormat {
 	}
 
 	// Check for JSON array: [...]
-	// Burp's rp.java line 26-28
 	if first == '[' && last == ']' {
 		// Verify it's valid JSON
 		var data []interface{}
@@ -82,7 +78,6 @@ func DetectParameterFormat(value string) ParameterFormat {
 	}
 
 	// Check for XML: <...>
-	// Burp's rp.java line 19-21
 	if first == '<' && last == '>' {
 		// Basic XML validation
 		if strings.Contains(trimmed, "</") || strings.HasSuffix(trimmed, "/>") {
@@ -94,13 +89,11 @@ func DetectParameterFormat(value string) ParameterFormat {
 	}
 
 	// Check for Base64 encoding
-	// Burp doesn't have explicit Base64 detection in rp.java, but it's useful for nested discovery
 	if isValidBase64(trimmed) {
 		return FormatBase64
 	}
 
 	// Check for URL-encoded data
-	// Burp's detection is implicit through URL_ENCODED type
 	if containsURLEncoding(trimmed) {
 		return FormatURLEncoded
 	}
