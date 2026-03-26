@@ -281,7 +281,7 @@ func TestSwarmEmptyAgentOutput(t *testing.T) {
 
 	// Should fail with a parse error, not panic
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to parse swarm plan")
+	assert.Contains(t, err.Error(), "empty output")
 	// Result should still be returned (with the agent run UUID for debugging)
 	assert.NotNil(t, result)
 	assert.NotEmpty(t, result.AgentRunUUID)
@@ -463,9 +463,9 @@ func TestSwarmCheckpointWrite(t *testing.T) {
 	assert.NoError(t, statErr, "expected checkpoint.json in session dir")
 
 	// Verify prompt file exists
-	promptPath := filepath.Join(sessionDir, "prompt-master.md")
+	promptPath := filepath.Join(sessionDir, "master-prompt.md")
 	_, statErr = os.Stat(promptPath)
-	assert.NoError(t, statErr, "expected prompt-master.md in session dir")
+	assert.NoError(t, statErr, "expected master-prompt.md in session dir")
 }
 
 // TestSwarmMultipleInputs tests the swarm with multiple URL inputs.
@@ -1823,24 +1823,27 @@ Reason: Test IDOR vulnerability in basket endpoint by accessing other users bask
 INPUT=$(cat)
 
 # Detect role from actual prompt template content (consolidated 3-call flow)
-if echo "$INPUT" | grep -qi 'previously analyzed the application source code'; then
-  # Format phase: output JSONL records + session_config
+# Check extensions BEFORE format — both contain "source code analysis" but extensions
+# additionally contains "generate targeted JavaScript scanner extensions"
+if echo "$INPUT" | grep -qi 'generate targeted JavaScript scanner extensions'; then
+  # Extensions phase
+  cat <<'EXT_EOF'
+%s
+EXT_EOF
+elif echo "$INPUT" | grep -qi 'documenting HTTP routes and endpoints'; then
+  # Format-routes phase: output JSONL records
   echo '` + "```jsonl" + `'
   cat <<'FORMAT_EOF'
 %s
 FORMAT_EOF
   echo '` + "```" + `'
-  echo ''
+elif echo "$INPUT" | grep -qi 'documenting authentication routes'; then
+  # Format-session phase: output session_config JSON
   echo '` + "```json" + `'
   cat <<'SESSION_EOF'
 %s
 SESSION_EOF
   echo '` + "```" + `'
-elif echo "$INPUT" | grep -qi 'Generate targeted JavaScript scanner extensions'; then
-  # Extensions phase
-  cat <<'EXT_EOF'
-%s
-EXT_EOF
 elif echo "$INPUT" | grep -qi 'explore the application source code'; then
   # Explore phase: output free-form notes
   cat <<'EXPLORE_EOF'
@@ -1855,7 +1858,7 @@ else
 %s
 PLAN_EOF
 fi
-`, formatJSON, formatSessionConfig, extensionsOutput, exploreNotes, extPhaseOutput, planOutput)
+`, extensionsOutput, formatJSON, formatSessionConfig, exploreNotes, extPhaseOutput, planOutput)
 
 	require.NoError(t, os.WriteFile(script, []byte(content), 0755))
 	return script
@@ -2134,9 +2137,9 @@ func TestSwarmSourceAnalysisFullPipeline(t *testing.T) {
 	}
 
 	// 14. Source analysis prompt and output should be saved
-	saPromptPath := filepath.Join(sessionDir, "prompt-source-analysis.md")
+	saPromptPath := filepath.Join(sessionDir, "source-analysis-prompt.md")
 	_, statErr = os.Stat(saPromptPath)
-	assert.NoError(t, statErr, "expected prompt-source-analysis.md")
+	assert.NoError(t, statErr, "expected source-analysis-prompt.md")
 
 	saOutputPath := filepath.Join(sessionDir, "source-analysis-output.md")
 	_, statErr = os.Stat(saOutputPath)
@@ -2250,8 +2253,11 @@ func TestSwarmSourceAnalysisHostnameFiltering(t *testing.T) {
 	script := filepath.Join(dir, "fake-filter-agent.sh")
 	filterContent := `#!/bin/sh
 INPUT=$(cat)
-if echo "$INPUT" | grep -qi 'previously analyzed the application source code'; then
-  # Format phase: output JSONL records (some external hosts to be filtered)
+if echo "$INPUT" | grep -qi 'generate targeted JavaScript scanner extensions'; then
+  # Extensions phase: no extensions for this test
+  echo 'No vulnerability sinks identified for extension generation.'
+elif echo "$INPUT" | grep -qi 'documenting HTTP routes and endpoints'; then
+  # Format-routes phase: output JSONL records (some external hosts to be filtered)
   echo '` + "```jsonl" + `'
   echo '{"method":"GET","url":"http://localhost:3000/api/products","notes":"should match"}'
   echo '{"method":"GET","url":"http://localhost:3000/api/users","notes":"should match"}'
@@ -2259,9 +2265,6 @@ if echo "$INPUT" | grep -qi 'previously analyzed the application source code'; t
   echo '{"method":"POST","url":"http://external-api.example.com/webhook","notes":"should be filtered out"}'
   echo '{"method":"GET","url":"/relative/path","notes":"relative - should resolve to target host"}'
   echo '` + "```" + `'
-elif echo "$INPUT" | grep -qi 'Generate targeted JavaScript scanner extensions'; then
-  # Extensions phase: no extensions for this test
-  echo 'No vulnerability sinks identified for extension generation.'
 elif echo "$INPUT" | grep -qi 'explore the application source code'; then
   # Explore phase: free-form notes
   cat <<'EXPLORE'

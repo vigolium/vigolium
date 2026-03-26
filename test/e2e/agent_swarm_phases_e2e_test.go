@@ -298,11 +298,11 @@ fi
 	assert.Equal(t, "done", result.TriageResults[0].Verdict)
 
 	// Triage prompt and output should be saved to session dir
-	triagePromptPath := filepath.Join(sessionDir, "prompt-triage-0.md")
+	triagePromptPath := filepath.Join(sessionDir, "triage-0-prompt.md")
 	_, statErr := os.Stat(triagePromptPath)
 	assert.NoError(t, statErr, "expected triage prompt file in session dir")
 
-	triageOutputPath := filepath.Join(sessionDir, "triage-output-0.md")
+	triageOutputPath := filepath.Join(sessionDir, "triage-0-output.md")
 	_, statErr = os.Stat(triageOutputPath)
 	assert.NoError(t, statErr, "expected triage output file in session dir")
 }

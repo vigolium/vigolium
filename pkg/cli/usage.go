@@ -264,6 +264,8 @@ var scanExamples = FormatExamples(
 	"vigolium scan -t https://example.com --format html -o report.html",
 	"# Write findings to file",
 	"vigolium scan -t https://example.com -o findings.jsonl",
+	"# Stateless scan with JSONL and HTML output",
+	"vigolium scan --stateless -t https://example.com --format jsonl,html -o scan-output",
 	"",
 	"# Scope all operations to a project",
 	"vigolium scan -t https://example.com --project-name my-project",
