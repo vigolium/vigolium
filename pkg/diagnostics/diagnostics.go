@@ -24,24 +24,27 @@ const (
 
 // CheckResult holds the outcome of a single diagnostic check.
 type CheckResult struct {
-	Status  Status `json:"status"`
-	Message string `json:"message,omitempty"`
+	Status  Status   `json:"status"`
+	Message string   `json:"message,omitempty"`
+	Details []string `json:"details,omitempty"` // verbose-only diagnostic details
 }
 
 // AgentCheck holds the outcome of the agent backend check.
 type AgentCheck struct {
-	Status   Status `json:"status"`
-	Name     string `json:"name"`
-	Binary   string `json:"binary,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Status   Status   `json:"status"`
+	Name     string   `json:"name"`
+	Binary   string   `json:"binary,omitempty"`
+	Protocol string   `json:"protocol,omitempty"`
+	Message  string   `json:"message,omitempty"`
+	Details  []string `json:"details,omitempty"`
 }
 
 // ToolCheck holds the outcome of a third-party tool check.
 type ToolCheck struct {
-	Status  Status `json:"status"`
-	Path    string `json:"path,omitempty"`
-	Message string `json:"message,omitempty"`
+	Status  Status   `json:"status"`
+	Path    string   `json:"path,omitempty"`
+	Message string   `json:"message,omitempty"`
+	Details []string `json:"details,omitempty"`
 }
 
 // Report is the complete diagnostic report.
@@ -54,7 +57,6 @@ type Report struct {
 	Browser      *CheckResult          `json:"browser"`
 	Tools        map[string]*ToolCheck `json:"tools"`
 	TemplatesDir *CheckResult          `json:"templates_dir"`
-	SessionsDir  *CheckResult          `json:"sessions_dir"`
 }
 
 // Deps provides the dependencies needed to run diagnostics.
@@ -84,7 +86,6 @@ func Run(deps Deps) *Report {
 	r.Tools["ast-grep"] = checkTool("ast-grep", nil)
 	r.Tools["chromium"] = checkTool("chromium", []string{"chromium-browser", "google-chrome", "google-chrome-stable"})
 	r.TemplatesDir = checkTemplatesDir(settings)
-	r.SessionsDir = checkSessionsDir(settings)
 
 	r.Status = computeOverallStatus(r)
 	return r
@@ -92,17 +93,22 @@ func Run(deps Deps) *Report {
 
 func checkDatabase(db *database.DB) *CheckResult {
 	if db == nil {
-		return &CheckResult{Status: StatusError, Message: "not configured"}
+		return &CheckResult{Status: StatusError, Message: "not configured", Details: []string{"checking database connection via ping with 2s timeout"}}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if err := db.PingContext(ctx); err != nil {
-		return &CheckResult{Status: StatusError, Message: fmt.Sprintf("ping failed: %v", err)}
+	details := []string{
+		fmt.Sprintf("driver: %s", db.Driver()),
+		"checking database connection via ping with 2s timeout",
 	}
 
-	return &CheckResult{Status: StatusOK, Message: fmt.Sprintf("driver=%s", db.Driver())}
+	if err := db.PingContext(ctx); err != nil {
+		return &CheckResult{Status: StatusError, Message: fmt.Sprintf("ping failed: %v", err), Details: details}
+	}
+
+	return &CheckResult{Status: StatusOK, Message: fmt.Sprintf("driver=%s", db.Driver()), Details: details}
 }
 
 func checkQueue(q queue.Queue) *CheckResult {
@@ -132,21 +138,27 @@ func checkQueue(q queue.Queue) *CheckResult {
 func checkAgent(settings *config.Settings) *AgentCheck {
 	name := settings.Agent.DefaultAgent
 	if name == "" {
-		return &AgentCheck{Status: StatusError, Name: "(none)", Message: "no default agent configured"}
+		return &AgentCheck{Status: StatusError, Name: "(none)", Message: "no default agent configured", Details: []string{"checking agent.default_agent in config"}}
 	}
 
 	def, ok := settings.Agent.Backends[name]
 	if !ok {
-		return &AgentCheck{Status: StatusError, Name: name, Message: "agent not found in backends config"}
+		return &AgentCheck{Status: StatusError, Name: name, Message: "agent not found in backends config", Details: []string{fmt.Sprintf("looking up %q in agent.backends config", name)}}
 	}
 
 	if !def.IsEnabled() {
-		return &AgentCheck{Status: StatusError, Name: name, Message: "agent is disabled"}
+		return &AgentCheck{Status: StatusError, Name: name, Message: "agent is disabled", Details: []string{fmt.Sprintf("agent %q is configured but disabled", name)}}
 	}
 
 	cmd := def.Command
 	if cmd == "" {
 		cmd = "claude" // default for SDK protocol
+	}
+
+	details := []string{
+		fmt.Sprintf("default_agent: %s", name),
+		fmt.Sprintf("protocol: %s", def.EffectiveProtocol()),
+		fmt.Sprintf("looking up command %q in PATH", cmd),
 	}
 
 	path, err := exec.LookPath(cmd)
@@ -156,40 +168,51 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 			Name:     name,
 			Protocol: def.EffectiveProtocol(),
 			Message:  fmt.Sprintf("%q not found in PATH", cmd),
+			Details:  details,
 		}
 	}
 
+	details = append(details, fmt.Sprintf("resolved binary: %s", path))
 	return &AgentCheck{
 		Status:   StatusOK,
 		Name:     name,
 		Binary:   path,
 		Protocol: def.EffectiveProtocol(),
+		Details:  details,
 	}
 }
 
 func checkBrowser(settings *config.Settings) *CheckResult {
+	details := []string{"checking agent.browser.enabled in config"}
+
 	if !settings.Agent.Browser.IsEnabled() {
-		return &CheckResult{Status: StatusWarning, Message: "disabled in config"}
+		return &CheckResult{Status: StatusWarning, Message: "disabled in config", Details: details}
 	}
 
 	bin := settings.Agent.Browser.EffectiveBinaryPath()
+	details = append(details, fmt.Sprintf("looking up command %q in PATH", bin))
+
 	path, err := exec.LookPath(bin)
 	if err != nil {
-		return &CheckResult{Status: StatusError, Message: fmt.Sprintf("%q not found in PATH", bin)}
+		return &CheckResult{Status: StatusError, Message: fmt.Sprintf("%q not found in PATH", bin), Details: details}
 	}
 
-	return &CheckResult{Status: StatusOK, Message: path}
+	details = append(details, fmt.Sprintf("resolved binary: %s", path))
+	return &CheckResult{Status: StatusOK, Message: path, Details: details}
 }
 
 func checkTool(name string, fallbacks []string) *ToolCheck {
 	candidates := append([]string{name}, fallbacks...)
+	details := []string{fmt.Sprintf("searching PATH for candidates: %v", candidates)}
+
 	for _, candidate := range candidates {
 		if path, err := exec.LookPath(candidate); err == nil {
-			return &ToolCheck{Status: StatusOK, Path: path}
+			details = append(details, fmt.Sprintf("resolved %q: %s", candidate, path))
+			return &ToolCheck{Status: StatusOK, Path: path, Details: details}
 		}
 	}
 
-	return &ToolCheck{Status: StatusWarning, Message: "not found in PATH"}
+	return &ToolCheck{Status: StatusWarning, Message: "not found in PATH", Details: details}
 }
 
 func checkTemplatesDir(settings *config.Settings) *CheckResult {
@@ -199,43 +222,26 @@ func checkTemplatesDir(settings *config.Settings) *CheckResult {
 	}
 	dir = config.ExpandPath(dir)
 
+	details := []string{fmt.Sprintf("checking directory: %s", dir)}
+
 	info, err := os.Stat(dir)
 	if err != nil {
-		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("directory not found: %s", dir)}
+		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("directory not found: %s", dir), Details: details}
 	}
 	if !info.IsDir() {
-		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("not a directory: %s", dir)}
+		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("not a directory: %s", dir), Details: details}
 	}
 
 	matches, _ := filepath.Glob(filepath.Join(dir, "**", "*.md"))
 	topLevel, _ := filepath.Glob(filepath.Join(dir, "*.md"))
 	count := len(matches) + len(topLevel)
 
+	details = append(details, fmt.Sprintf("found %d template files", count))
 	return &CheckResult{
 		Status:  StatusOK,
 		Message: fmt.Sprintf("path=%s, templates=%d", config.ContractPath(dir), count),
+		Details: details,
 	}
-}
-
-func checkSessionsDir(settings *config.Settings) *CheckResult {
-	dir := settings.Agent.EffectiveSessionsDir()
-
-	info, err := os.Stat(dir)
-	if err != nil {
-		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("directory not found: %s", config.ContractPath(dir))}
-	}
-	if !info.IsDir() {
-		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("not a directory: %s", config.ContractPath(dir))}
-	}
-
-	// Check writable by creating a temp file
-	tmp := filepath.Join(dir, ".vigolium-doctor-probe")
-	if err := os.WriteFile(tmp, []byte("probe"), 0600); err != nil {
-		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("not writable: %s", config.ContractPath(dir))}
-	}
-	os.Remove(tmp)
-
-	return &CheckResult{Status: StatusOK, Message: fmt.Sprintf("path=%s, writable=true", config.ContractPath(dir))}
 }
 
 func computeOverallStatus(r *Report) Status {
@@ -255,7 +261,7 @@ func computeOverallStatus(r *Report) Status {
 	}
 
 	// Check all non-critical for warnings/errors
-	checks := []*CheckResult{r.Browser, r.TemplatesDir, r.SessionsDir}
+	checks := []*CheckResult{r.Browser, r.TemplatesDir}
 	if r.Queue != nil {
 		checks = append(checks, r.Queue)
 	}

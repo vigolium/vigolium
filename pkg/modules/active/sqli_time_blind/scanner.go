@@ -13,9 +13,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-// sleepThreshold is the minimum response time differential (in seconds) to consider
-// a timing-based injection confirmed.
-const sleepThreshold = 2500 * time.Millisecond
+// sleepThreshold is the minimum response time differential to consider
+// a timing-based injection confirmed. Set high (8s) to avoid false positives
+// from slow servers or network jitter.
+const sleepThreshold = 8 * time.Second
 
 // Module implements the time-based blind SQL injection active scanner.
 type Module struct {

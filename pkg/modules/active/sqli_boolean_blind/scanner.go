@@ -70,13 +70,25 @@ ipScan:
 	for _, ip := range points {
 		baseValue := ip.BaseValue()
 
+		// Get baseline signature by sending the original unmodified value.
+		// This lets us detect cases where both TRUE and FALSE payloads differ
+		// from baseline in the same way (e.g., mangled header values causing
+		// different responses due to syntax breakage, not SQL logic).
+		_, baselineSig, err := m.sendPayload(ctx, httpClient, ip, baseValue)
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return results, nil
+			}
+			continue
+		}
+
 		payloads := getPayloadsForValue(baseValue)
 
 		for _, pair := range payloads {
 			truePayload := baseValue + pair.trueVal
 			falsePayload := baseValue + pair.falseVal
 
-			result, err := m.testPayloadPair(ctx, httpClient, ip, truePayload, falsePayload)
+			result, err := m.testPayloadPair(ctx, httpClient, ip, truePayload, falsePayload, baselineSig)
 			if err != nil {
 				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 					return results, nil
@@ -95,33 +107,43 @@ ipScan:
 	return results, nil
 }
 
-// testPayloadPair implements the triple-verification algorithm.
+// testPayloadPair implements the verification algorithm with baseline comparison.
 func (m *Module) testPayloadPair(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	ip httpmsg.InsertionPoint,
 	truePayload, falsePayload string,
+	baselineSig responseSignature,
 ) (*output.ResultEvent, error) {
 	// Step 1: Send TRUE payload
-	trueResp1, trueSig1, err := m.sendPayload(ctx, httpClient, ip, truePayload)
+	_, trueSig1, err := m.sendPayload(ctx, httpClient, ip, truePayload)
 	if err != nil {
 		return nil, err
 	}
-	_ = trueResp1
 
 	// Step 2: Send FALSE payload
-	falseResp1, falseSig1, err := m.sendPayload(ctx, httpClient, ip, falsePayload)
+	_, falseSig1, err := m.sendPayload(ctx, httpClient, ip, falsePayload)
 	if err != nil {
 		return nil, err
 	}
-	_ = falseResp1
 
 	// Step 3: Check if TRUE and FALSE produce different responses
 	if !isDifferent(trueSig1, falseSig1) {
 		return nil, nil
 	}
 
-	// Step 4: Confirm TRUE is consistent
+	// Step 4: Verify the differential is driven by SQL logic, not just syntax breakage.
+	// If both TRUE and FALSE differ from the baseline in the same direction (both differ
+	// from baseline), but neither matches the baseline, the injection likely just broke
+	// the value (e.g., mangled ETag/header causing different error pages with dynamic content).
+	// At least one of TRUE/FALSE must match the baseline to confirm SQL-driven behavior.
+	trueSimilarToBaseline := isSimilar(trueSig1, baselineSig)
+	falseSimilarToBaseline := isSimilar(falseSig1, baselineSig)
+	if !trueSimilarToBaseline && !falseSimilarToBaseline {
+		return nil, nil // Both differ from baseline — likely syntax breakage, not SQLi
+	}
+
+	// Step 5: Confirm TRUE is consistent
 	_, trueSig2, err := m.sendPayload(ctx, httpClient, ip, truePayload)
 	if err != nil {
 		return nil, err
@@ -130,7 +152,7 @@ func (m *Module) testPayloadPair(
 		return nil, nil // Unstable TRUE response
 	}
 
-	// Step 5: Confirm FALSE is consistent
+	// Step 6: Confirm FALSE is consistent
 	_, falseSig2, err := m.sendPayload(ctx, httpClient, ip, falsePayload)
 	if err != nil {
 		return nil, err
@@ -139,18 +161,13 @@ func (m *Module) testPayloadPair(
 		return nil, nil // Unstable FALSE response
 	}
 
-	// Step 6: Send original value and verify it maps to one of the two states.
-	// For AND-based payloads (no comment), original ≈ TRUE because the injected
-	// AND '1'='1' is a tautology. For comment-terminated payloads on login forms,
-	// original may match FALSE instead (e.g. wrong password makes both fail).
-	// Accepting either confirms the differential is driven by SQL logic.
-	origValue := ip.BaseValue()
-	_, origSig, err := m.sendPayload(ctx, httpClient, ip, origValue)
+	// Step 7: Re-verify baseline hasn't drifted (catches dynamic content noise).
+	_, baselineSig2, err := m.sendPayload(ctx, httpClient, ip, ip.BaseValue())
 	if err != nil {
 		return nil, err
 	}
-	if !isSimilar(trueSig1, origSig) && !isSimilar(falseSig1, origSig) {
-		return nil, nil // Original doesn't match either TRUE or FALSE behavior
+	if !isSimilar(baselineSig, baselineSig2) {
+		return nil, nil // Baseline is unstable — responses are too dynamic to trust
 	}
 
 	// All checks passed — confirmed blind SQLi
@@ -160,7 +177,7 @@ func (m *Module) testPayloadPair(
 		FuzzingParameter: ip.Name(),
 		ExtractedResults: []string{truePayload, falsePayload},
 		Info: output.Info{
-			Description: "Boolean-based blind SQL injection confirmed via TRUE/FALSE response differential",
+			Description: "Boolean-based blind SQL injection confirmed via TRUE/FALSE response differential with baseline verification",
 		},
 	}, nil
 }

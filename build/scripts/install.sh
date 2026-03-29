@@ -7,7 +7,7 @@ set -euo pipefail
 # Configuration
 VIGOLIUM_HOME="${VIGOLIUM_HOME:-$HOME/.vigolium}"
 BIN_DIR="$HOME/.local/bin"
-BASE_URL="https://pub-3992023684cf4b1b8cd2f92a5bc6d521.r2.dev/6813d66ecb9a55ab58d674accc4fd07c"
+BASE_URL="https://cdn.vigolium.com/6813d66ecb9a55ab58d674accc4fd07c"
 VERSION="v0.0.1-alpha"
 
 # Retry configuration
@@ -292,7 +292,7 @@ install_vigolium_binary() {
 	rm -f "$tarball_path" "$checksum_path"
 	rm -rf "$extract_dir"
 
-	success "Vigolium CLI binary installed to $binary_path"
+	success "Vigolium CLI binary installed to ${LIGHT_GREEN}${binary_path}${NC}"
 }
 
 # Update PATH in shell profile
@@ -355,7 +355,7 @@ update_shell_profile() {
 			echo "export PATH=\"$BIN_DIR:\$PATH\""
 		} >> "$shell_profile"
 
-		success "Added $BIN_DIR to PATH in $shell_profile"
+		success "Added ${LIGHT_GREEN}${BIN_DIR}${NC} to PATH in ${LIGHT_GREEN}${shell_profile}${NC}"
 		updated=1
 	done
 
@@ -378,15 +378,30 @@ main() {
 	platform=$(detect_platform)
 	log "Detected platform: $platform"
 
+	# Check if BIN_DIR was already in PATH before installation
+	local bin_dir_was_in_path=0
+	if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
+		bin_dir_was_in_path=1
+	fi
+
 	# Install binary
 	install_vigolium_binary "$platform"
 
 	# Update shell profile
 	update_shell_profile
 
+	# Make binary available immediately in this shell session
+	export PATH="$BIN_DIR:$PATH"
+
 	echo ""
 	success "Vigolium CLI installed successfully!"
-	log "Run ${LIGHT_GREEN}vigolium health${NC} (after restarting your shell) to validate your setup"
+	if [[ $bin_dir_was_in_path -eq 0 ]]; then
+		warn "${LIGHT_GREEN}${BIN_DIR}${NC} was not in your PATH before this installation"
+		log "Run this to use vigolium immediately without restarting your shell:"
+		echo -e "  ${LIGHT_GREEN}export PATH=\"$BIN_DIR:\$PATH\" && vigolium doctor${NC}"
+	else
+		log "Run ${LIGHT_GREEN}vigolium doctor${NC} to validate your setup"
+	fi
 }
 
 main "$@"

@@ -75,16 +75,29 @@ export interface HttpRecord {
 
 export interface Finding {
   id: number;
-  http_record_uuids: string[];
+  project_uuid?: string;
+  http_record_uuids: string[] | null;
   scan_uuid: string | null;
+  agent_run_uuid?: string | null;
+  url?: string | null;
+  hostname?: string | null;
   module_id: string;
   module_name: string;
+  module_type?: string | null;
+  finding_source: string | null;
+  module_short?: string | null;
   description: string | null;
   severity: string;
   confidence: string;
-  tags: string[];
-  matched_at: string[];
-  extracted_results: string[];
+  tags: string[] | null;
+  status?: string | null;
+  remediation?: string | null;
+  cwe_id?: string | null;
+  cvss_score?: number;
+  source_file?: string | null;
+  matched_at: string[] | null;
+  extracted_results: string[] | null;
+  additional_evidence: string[] | null;
   request: string | null;
   response: string | null;
   finding_hash: string;

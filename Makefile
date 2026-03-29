@@ -535,7 +535,7 @@ release:
 	mc cp build/dist/*.tar.gz r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
 	mc cp build/dist/checksums.txt r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
 	mc cp build/scripts/install.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
-	mc cp build/scripts/initialize.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
 	@echo "$(PREFIX) Release uploaded successfully!"
 
 # Clean build artifacts

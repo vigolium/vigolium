@@ -27,7 +27,7 @@ var probes = []probe{
 		return sc == 200 && strings.Contains(body, "routes")
 	}},
 	{"/__remix/dev", "Remix", "Remix dev server endpoint exposed", func(sc int, body string) bool {
-		return sc == 200
+		return sc == 200 && (strings.Contains(body, "remix") || strings.Contains(body, "dev") || strings.Contains(body, "hmr"))
 	}},
 
 	// Astro
@@ -35,10 +35,10 @@ var probes = []probe{
 		return sc == 200 && (strings.Contains(body, "Index of") || strings.Contains(body, ".astro"))
 	}},
 	{"/.astro/", "Astro", "Astro internal directory exposed", func(sc int, body string) bool {
-		return sc == 200 && len(body) > 0
+		return sc == 200 && (strings.Contains(body, "Index of") || strings.Contains(body, ".astro") || strings.Contains(body, "astro"))
 	}},
 	{"/__astro_dev_toolbar/", "Astro", "Astro dev toolbar exposed in production", func(sc int, body string) bool {
-		return sc == 200
+		return sc == 200 && (strings.Contains(body, "astro") || strings.Contains(body, "toolbar") || strings.Contains(body, "dev-toolbar"))
 	}},
 
 	// SvelteKit

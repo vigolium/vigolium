@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
@@ -49,23 +50,26 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 		return enc.Encode(report)
 	}
 
-	printDoctorReport(report)
+	printDoctorReport(report, globalVerbose || globalDebug)
 	return nil
 }
 
-func printDoctorReport(r *diagnostics.Report) {
+func printDoctorReport(r *diagnostics.Report, verbose bool) {
 	fmt.Println()
 	fmt.Printf("  %s %s\n", terminal.BoldCyan("Vigolium Doctor"), terminal.White("— system readiness check"))
 	fmt.Println()
 
 	printCheck("Database", r.Database.Status, r.Database.Message)
+	printDetails(verbose, r.Database.Details)
 	printCheck("Agent", r.Agent.Status, formatAgentMessage(r.Agent))
+	printDetails(verbose, r.Agent.Details)
 
 	if r.Queue != nil {
 		printCheck("Queue", r.Queue.Status, r.Queue.Message)
 	}
 
-	printCheck("Browser", r.Browser.Status, r.Browser.Message)
+	printCheck("Agent Browser", r.Browser.Status, r.Browser.Message)
+	printDetails(verbose, r.Browser.Details)
 
 	for name, tool := range r.Tools {
 		msg := tool.Path
@@ -73,10 +77,11 @@ func printDoctorReport(r *diagnostics.Report) {
 			msg = tool.Message
 		}
 		printCheck("Tool: "+name, tool.Status, msg)
+		printDetails(verbose, tool.Details)
 	}
 
 	printCheck("Templates Dir", r.TemplatesDir.Status, r.TemplatesDir.Message)
-	printCheck("Sessions Dir", r.SessionsDir.Status, r.SessionsDir.Message)
+	printDetails(verbose, r.TemplatesDir.Details)
 
 	fmt.Println()
 	switch r.Status {
@@ -105,10 +110,44 @@ func printCheck(label string, status diagnostics.Status, message string) {
 	}
 
 	if message != "" {
-		fmt.Printf("  %s %-20s %s\n", symbol, coloredLabel, terminal.White(message))
+		fmt.Printf("  %s %-20s %s\n", symbol, coloredLabel, highlightKeyValues(message))
 	} else {
 		fmt.Printf("  %s %s\n", symbol, coloredLabel)
 	}
+}
+
+func printDetails(verbose bool, details []string) {
+	if !verbose || len(details) == 0 {
+		return
+	}
+	for _, d := range details {
+		fmt.Printf("      %s %s\n", terminal.Gray(terminal.SymbolTriangle), highlightDetail(d))
+	}
+}
+
+// highlightKeyValues highlights values in key=value pairs within a message string.
+func highlightKeyValues(msg string) string {
+	parts := strings.Split(msg, ", ")
+	for i, part := range parts {
+		if idx := strings.Index(part, "="); idx > 0 {
+			key := part[:idx+1]
+			val := part[idx+1:]
+			parts[i] = terminal.White(key) + terminal.Cyan(val)
+		} else {
+			parts[i] = terminal.White(part)
+		}
+	}
+	return strings.Join(parts, terminal.White(", "))
+}
+
+// highlightDetail highlights key: value patterns and quoted strings in detail lines.
+func highlightDetail(detail string) string {
+	if idx := strings.Index(detail, ": "); idx > 0 {
+		key := detail[:idx+1]
+		val := detail[idx+2:]
+		return terminal.Gray(key) + " " + terminal.Cyan(val)
+	}
+	return terminal.Gray(detail)
 }
 
 func formatAgentMessage(a *diagnostics.AgentCheck) string {

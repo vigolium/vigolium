@@ -26,7 +26,7 @@ and development endpoints in production deployments.
 - https://kit.svelte.dev/docs/introduction`
 
 	ModuleConfirmation = "Confirmed when the server responds with framework-specific content at known internal paths, indicating exposed build artifacts or debug endpoints"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"javascript", "misconfiguration", "light"}
 )

@@ -7,7 +7,7 @@ import {
   type GridReadyEvent,
   type GridApi,
 } from "ag-grid-community";
-import { Download, Search, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Download, Search, ChevronDown, ChevronRight, X, Copy, Check, Terminal } from "lucide-react";
 import type { Finding, HttpRecord } from "../types";
 import { useTheme } from "../utils/theme";
 import { getSeverityColors, getConfidenceColors, getChartColors } from "../utils/chartTheme";
@@ -31,6 +31,11 @@ function hashStr(s: string): number {
   return Math.abs(h);
 }
 
+// Strip leading markdown heading markers (e.g. "## Title" → "Title")
+function stripMarkdownHeading(s: string): string {
+  return s.replace(/^#{1,6}\s*/, "");
+}
+
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 0,
   high: 1,
@@ -39,66 +44,289 @@ const SEVERITY_ORDER: Record<string, number> = {
   info: 4,
 };
 
+// Convert a raw HTTP request string to a curl command
+function rawRequestToCurl(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  if (lines.length === 0) return "";
+
+  // Parse request line: METHOD PATH HTTP/VERSION
+  const requestLine = lines[0].trim();
+  const [method, path] = requestLine.split(/\s+/);
+  if (!method || !path) return "";
+
+  // Parse headers until empty line
+  const headers: [string, string][] = [];
+  let host = "";
+  let i = 1;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      break;
+    }
+    const colonIdx = line.indexOf(":");
+    if (colonIdx > 0) {
+      const name = line.slice(0, colonIdx).trim();
+      const value = line.slice(colonIdx + 1).trim();
+      if (name.toLowerCase() === "host") {
+        host = value;
+      } else {
+        headers.push([name, value]);
+      }
+    }
+  }
+
+  // Remaining lines are the body
+  const body = lines.slice(i).join("\n").trim();
+
+  // Build URL — guess scheme from port or default to https
+  const scheme = host.endsWith(":80") ? "http" : "https";
+  const url = `${scheme}://${host}${path}`;
+
+  const parts: string[] = ["curl"];
+  if (method !== "GET") {
+    parts.push(`-X '${method}'`);
+  }
+  parts.push(`'${url}'`);
+  for (const [name, value] of headers) {
+    parts.push(`-H '${name}: ${value}'`);
+  }
+  if (body) {
+    parts.push(`-d '${body.replace(/'/g, "'\\''")}'`);
+  }
+  return parts.join(" \\\n  ");
+}
+
+function CopyButton({ text, label, icon: Icon }: { text: string; label: string; icon: typeof Copy }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="flex items-center gap-1 text-[10px] font-sans font-semibold text-text-muted hover:text-terracotta transition-colors px-1.5 py-0.5 border border-warm-border rounded hover:border-terracotta/30"
+      title={label}
+    >
+      {copied ? <Check size={10} /> : <Icon size={10} />}
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+function DetailLabel({ children }: { children: React.ReactNode }) {
+  return <span className="text-xs text-text-muted font-semibold">{children}</span>;
+}
+
+function DetailValue({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+  return <span className={`text-xs text-charcoal-light ${mono ? "font-mono" : ""}`}>{children}</span>;
+}
+
+function EvidenceTabs({ items }: { items: string[] }) {
+  const [active, setActive] = useState(0);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <DetailLabel>additional_evidence:</DetailLabel>
+        <span className="text-[10px] text-text-muted">({items.length})</span>
+        <div className="flex items-center gap-0.5">
+          {items.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setActive(i)}
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors ${
+                active === i
+                  ? "border-terracotta text-terracotta bg-terracotta/5"
+                  : "border-warm-border text-text-muted hover:border-terracotta/30"
+              }`}
+            >
+              #{i + 1}
+            </button>
+          ))}
+        </div>
+        <CopyButton text={items[active]} label="Copy" icon={Copy} />
+      </div>
+      <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto max-h-[300px]">
+        {items[active]}
+      </pre>
+    </div>
+  );
+}
+
 function FindingDetail({ finding }: { finding: Finding }) {
-  const [showReq, setShowReq] = useState(true);
+  const { theme } = useTheme();
+  const severityColors = getSeverityColors(theme);
+  const confidenceColors = getConfidenceColors(theme);
+  const sevColor = severityColors[finding.severity] || "#888";
+  const confColor = confidenceColors[finding.confidence] || "#888";
+
+  const foundDate = (() => {
+    try {
+      return new Date(finding.found_at).toLocaleString();
+    } catch {
+      return finding.found_at;
+    }
+  })();
 
   return (
     <div className="p-4 bg-cream-dark/50 border-t border-warm-border space-y-3 text-sm font-sans">
+      {/* Header: Finding #ID */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-serif font-bold text-charcoal">Finding #{finding.id}</span>
+          <span className="inline-block px-2 py-0.5 text-[10px] font-bold uppercase rounded" style={{ color: sevColor, backgroundColor: `${sevColor}18` }}>
+            {finding.severity}
+          </span>
+          <span className="text-[10px] font-semibold capitalize" style={{ color: confColor }}>
+            {finding.confidence}
+          </span>
+          {finding.status && finding.status !== "open" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded border border-warm-border text-text-muted capitalize">{finding.status}</span>
+          )}
+        </div>
+        <p className="text-xs text-charcoal-light font-semibold">{finding.module_name}</p>
+        {finding.module_short && (
+          <p className="text-[11px] text-text-muted">{finding.module_short}</p>
+        )}
+      </div>
+
+      {/* Description */}
       {finding.description && (
-        <p className="text-charcoal-light">{finding.description}</p>
+        <p className="text-xs text-charcoal-light">{stripMarkdownHeading(finding.description)}</p>
       )}
-      {finding.matched_at.length > 0 && (
-        <div>
-          <span className="text-xs text-text-muted uppercase tracking-wider font-semibold">Matched At</span>
-          <div className="mt-1 flex flex-wrap gap-2">
+
+      {/* Metadata rows */}
+      <div className="space-y-1">
+        {finding.finding_source && (
+          <div className="flex gap-2">
+            <DetailLabel>source:</DetailLabel>
+            <DetailValue>{finding.finding_source}</DetailValue>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <DetailLabel>finding_hash:</DetailLabel>
+          <DetailValue mono>{finding.finding_hash}</DetailValue>
+        </div>
+        <div className="flex gap-2">
+          <DetailLabel>found_at:</DetailLabel>
+          <DetailValue>{foundDate}</DetailValue>
+        </div>
+        {finding.url && (
+          <div className="flex gap-2">
+            <DetailLabel>url:</DetailLabel>
+            <DetailValue mono>{finding.url}</DetailValue>
+          </div>
+        )}
+        {finding.cwe_id && (
+          <div className="flex gap-2">
+            <DetailLabel>cwe:</DetailLabel>
+            <DetailValue>{finding.cwe_id}</DetailValue>
+          </div>
+        )}
+        {finding.cvss_score !== undefined && finding.cvss_score > 0 && (
+          <div className="flex gap-2">
+            <DetailLabel>cvss:</DetailLabel>
+            <DetailValue>{finding.cvss_score}</DetailValue>
+          </div>
+        )}
+        {finding.source_file && (
+          <div className="flex gap-2">
+            <DetailLabel>source_file:</DetailLabel>
+            <DetailValue mono>{finding.source_file}</DetailValue>
+          </div>
+        )}
+        {finding.http_record_uuids && finding.http_record_uuids.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            <DetailLabel>http_records:</DetailLabel>
+            <div className="flex flex-wrap gap-1">
+              {finding.http_record_uuids.map((uuid, i) => (
+                <span key={i} className="text-[10px] font-mono text-terracotta">{uuid}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {finding.tags && finding.tags.length > 0 && (
+          <div className="flex gap-2 flex-wrap items-center">
+            <DetailLabel>tags:</DetailLabel>
+            <div className="flex flex-wrap gap-1">
+              {finding.tags.map((t) => (
+                <span key={t} className="text-[10px] px-1.5 py-0.5 rounded border border-warm-border text-charcoal-light">{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Matched At */}
+      {finding.matched_at && finding.matched_at.length > 0 && (
+        <div className="space-y-1">
+          <DetailLabel>matched_at:</DetailLabel>
+          <div className="flex flex-wrap gap-1.5 mt-0.5">
             {finding.matched_at.map((m, i) => (
-              <span key={i} className="text-xs px-2 py-1 bg-cream border border-warm-border rounded text-charcoal-light">
+              <span key={i} className="text-[11px] font-mono px-2 py-0.5 bg-cream border border-warm-border rounded text-charcoal-light break-all">
                 {m}
               </span>
             ))}
           </div>
         </div>
       )}
-      {finding.extracted_results.length > 0 && (
-        <div>
-          <span className="text-xs text-text-muted uppercase tracking-wider font-semibold">Extracted</span>
-          <ul className="mt-1 list-disc list-inside text-xs text-charcoal-light">
+
+      {/* Extracted Results */}
+      {finding.extracted_results && finding.extracted_results.length > 0 && (
+        <div className="space-y-1">
+          <DetailLabel>extracted_results:</DetailLabel>
+          <ul className="list-disc list-inside text-[11px] text-charcoal-light mt-0.5">
             {finding.extracted_results.map((r, i) => (
-              <li key={i}>{r}</li>
+              <li key={i} className="break-all">{r}</li>
             ))}
           </ul>
         </div>
       )}
-      {(finding.request || finding.response) && (
-        <div>
-          <button
-            onClick={() => setShowReq(!showReq)}
-            className="flex items-center gap-1 text-xs text-terracotta font-semibold hover:text-charcoal transition-colors"
-          >
-            {showReq ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            Request / Response
-          </button>
-          {showReq && (
-            <div className="mt-2 space-y-3">
-              {finding.request && (
-                <div className="space-y-1">
-                  <span className="text-xs text-text-muted uppercase tracking-wider font-semibold">Request</span>
-                  <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto">
-                    {finding.request}
-                  </pre>
-                </div>
-              )}
-              {finding.response && (
-                <div className="space-y-1">
-                  <span className="text-xs text-text-muted uppercase tracking-wider font-semibold">Response</span>
-                  <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto">
-                    {finding.response}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
+
+      {/* Remediation */}
+      {finding.remediation && (
+        <div className="space-y-1">
+          <DetailLabel>remediation:</DetailLabel>
+          <p className="text-[11px] text-charcoal-light mt-0.5">{finding.remediation}</p>
         </div>
+      )}
+
+      {/* Request */}
+      {finding.request && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <DetailLabel>request:</DetailLabel>
+            <CopyButton text={finding.request} label="Copy" icon={Copy} />
+            <CopyButton text={rawRequestToCurl(finding.request)} label="cURL" icon={Terminal} />
+          </div>
+          <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto max-h-[300px]">
+            {finding.request}
+          </pre>
+        </div>
+      )}
+
+      {/* Response */}
+      {finding.response && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <DetailLabel>response:</DetailLabel>
+            <CopyButton text={finding.response} label="Copy" icon={Copy} />
+          </div>
+          <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto max-h-[300px]">
+            {finding.response}
+          </pre>
+        </div>
+      )}
+
+      {/* Additional Evidence */}
+      {finding.additional_evidence && finding.additional_evidence.length > 0 && (
+        <EvidenceTabs items={finding.additional_evidence} />
       )}
     </div>
   );
@@ -120,6 +348,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("all");
   const [moduleFilter, setModuleFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set());
@@ -157,6 +386,11 @@ export default function FindingsTable({ data, httpRecords }: Props) {
     return Array.from(s).sort();
   }, [data]);
 
+  const sources = useMemo(() => {
+    const s = new Set(data.map((f) => f.finding_source).filter(Boolean) as string[]);
+    return Array.from(s).sort();
+  }, [data]);
+
   const severities = useMemo(() => {
     const s = new Set(data.map((f) => f.severity));
     return Array.from(s).sort((a, b) => (SEVERITY_ORDER[a] ?? 99) - (SEVERITY_ORDER[b] ?? 99));
@@ -183,7 +417,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         }
       }
       result = result.filter((f) =>
-        f.http_record_uuids.some((uuid) => allowedUuids.has(uuid))
+        f.http_record_uuids?.some((uuid) => allowedUuids.has(uuid))
       );
     }
     if (severityFilter !== "all") {
@@ -195,11 +429,14 @@ export default function FindingsTable({ data, httpRecords }: Props) {
     if (moduleFilter !== "all") {
       result = result.filter((f) => f.module_name === moduleFilter);
     }
+    if (sourceFilter !== "all") {
+      result = result.filter((f) => f.finding_source === sourceFilter);
+    }
     if (tagFilter !== "all") {
       result = result.filter((f) => f.tags?.includes(tagFilter));
     }
     return result;
-  }, [data, selectedHosts, hostToUuids, severityFilter, confidenceFilter, moduleFilter, tagFilter]);
+  }, [data, selectedHosts, hostToUuids, severityFilter, confidenceFilter, moduleFilter, sourceFilter, tagFilter]);
 
   const columnDefs = useMemo<ColDef<Finding>[]>(
     () => [
@@ -225,6 +462,8 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         flex: 1,
         minWidth: 250,
         cellClass: "text-xs",
+        valueFormatter: ({ value }: { value: string | null }) =>
+          value ? stripMarkdownHeading(value) : "",
       },
       {
         field: "confidence",
@@ -234,6 +473,12 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           const color = confidenceColors[value] || "#888";
           return <span className="inline-block text-xs font-sans font-semibold capitalize" style={{ color }}>{value}</span>;
         },
+      },
+      {
+        field: "finding_source",
+        headerName: "Source",
+        width: 110,
+        cellClass: "text-xs capitalize",
       },
       {
         field: "matched_at",
@@ -335,6 +580,11 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           value={moduleFilter}
           onChange={setModuleFilter}
           options={[{ value: "all", label: "All Modules" }, ...modules.map((m) => ({ value: m, label: m }))]}
+        />
+        <FilterDropdown
+          value={sourceFilter}
+          onChange={setSourceFilter}
+          options={[{ value: "all", label: "All Sources" }, ...sources.map((s) => ({ value: s, label: s }))]}
         />
         <FilterDropdown
           value={tagFilter}

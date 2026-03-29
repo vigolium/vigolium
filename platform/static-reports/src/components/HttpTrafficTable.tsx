@@ -334,7 +334,7 @@ export default function HttpTrafficTable({ data }: Props) {
   }, [gridApi, syncPagination]);
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 90px)" }}>
+    <div className="flex flex-col" style={{ height: "calc(100vh - 150px)", minHeight: 400 }}>
       <HostSitemap
         hosts={hostCounts}
         selectedHosts={selectedHosts}

@@ -2,6 +2,72 @@
 
 Guide for exposing a Vigolium server running on a VPS (Hetzner, DigitalOcean, etc.) to the internet via Cloudflare Tunnel with full SSL, without opening any ports.
 
+## Automated Setup (Recommended)
+
+Use the `bootstrap.sh` script to automate the entire VPS setup including Vigolium installation, systemd service, and Cloudflare Tunnel configuration.
+
+### Full setup with Cloudflare Tunnel
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- --domain vigolium.yourdomain.com
+```
+
+### Full setup with custom tunnel name and port
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --domain vigolium.yourdomain.com \
+    --tunnel-name my-tunnel \
+    --port 8080
+```
+
+### Full setup with agent mode and SAST tools
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --domain vigolium.yourdomain.com \
+    --full \
+    --with-agent
+```
+
+### Install Vigolium only (no Cloudflare Tunnel)
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- --skip-cloudflare
+```
+
+### Add Cloudflare Tunnel to an existing Vigolium VPS
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --cloudflare-only \
+    --domain vigolium.yourdomain.com
+```
+
+### Multiple VPS instances
+
+A Cloudflare Tunnel is tied to a single `cloudflared` daemon — you cannot reuse one tunnel across multiple VPS instances. Instead, create a separate tunnel on each VPS with a unique name and subdomain:
+
+```bash
+# VPS 1
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --domain vps1.yourdomain.com --tunnel-name vigolium-vps1
+
+# VPS 2
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --domain vps2.yourdomain.com --tunnel-name vigolium-vps2
+```
+
+All tunnels can live under the same Cloudflare account and domain. Each VPS gets its own credentials file, systemd service, and subdomain.
+
+The script handles system dependencies, binary installation, config generation (with random API key), systemd services, cloudflared authentication, tunnel creation, DNS routing, and firewall lockdown.
+
+---
+
+## Manual Setup
+
+The steps below walk through the manual process if you prefer to set things up yourself.
+
 ## Prerequisites
 
 - A VPS with Vigolium already installed and running (`vigolium server` on port 9002)

