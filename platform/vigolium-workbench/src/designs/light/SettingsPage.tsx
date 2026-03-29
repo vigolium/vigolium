@@ -630,6 +630,21 @@ export default function SettingsPage({ initialTab = 'config' }: { initialTab?: S
                 {ABOUT_CONTENT}
               </ReactMarkdown>
             </div>
+            <div className="mt-6 px-4 py-4 border" style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-surface)' }}>
+              <h3 className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: 'var(--v-accent)' }}>Official Resources</h3>
+              <div className="flex items-center gap-3">
+                <a href="https://www.vigolium.com/" target="_blank" rel="noopener noreferrer"
+                  className="text-xs font-bold px-3 py-1.5 border transition-colors hover:opacity-80"
+                  style={{ borderColor: 'var(--v-accent)', color: 'var(--v-accent)' }}>
+                  [website]
+                </a>
+                <a href="https://docs.vigolium.com/" target="_blank" rel="noopener noreferrer"
+                  className="text-xs font-bold px-3 py-1.5 border transition-colors hover:opacity-80"
+                  style={{ borderColor: 'var(--v-secondary)', color: 'var(--v-secondary)' }}>
+                  [documentation]
+                </a>
+              </div>
+            </div>
           </div>
         )}
       </div>

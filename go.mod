@@ -33,7 +33,6 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c
-	github.com/gobwas/ws v1.4.0
 	github.com/gofiber/contrib/v3/swaggerui v1.0.0
 	github.com/gofiber/fiber/v3 v3.0.0
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
@@ -64,6 +63,7 @@ require (
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.16
 	github.com/uptrace/bun/driver/pgdriver v1.2.16
 	github.com/uptrace/bun/driver/sqliteshim v1.2.16
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/ysmood/fetchup v0.2.3
 	github.com/ysmood/goob v0.4.0
 	github.com/ysmood/got v0.40.0
@@ -239,6 +239,7 @@ require (
 	github.com/goburrow/cache v0.1.4 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gofiber/schema v1.7.0 // indirect
 	github.com/gofiber/utils/v2 v2.0.1 // indirect
@@ -420,7 +421,6 @@ require (
 	github.com/valyala/fasthttp v1.69.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/vmihailenco/bufpool v0.1.11 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser v0.1.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/vulncheck-oss/go-exploit v1.51.0 // indirect

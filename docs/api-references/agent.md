@@ -90,6 +90,7 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `dry_run`          | bool     | No       | Render the prompt without executing the agent                  |
 | `stream`           | bool     | No       | If `true`, returns an SSE stream                               |
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
+| `audit_agent`      | string   | No       | Run background [audit agent](../agentic-scan/audit-agent.md): `"lite"` (6-phase), `"full"` (11-phase), `"off"` to disable. Requires `source` |
 
 ```bash
 # Basic autopilot scan
@@ -106,12 +107,21 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -H "Content-Type: application/json" \
   -d '{
     "target": "https://example.com",
-    "repo_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "focus": "authentication bypass",
     "timeout": "45m",
     "max_commands": 50,
     "stream": true
   }'
+
+# Autopilot with background audit agent (deep parallel code audit)
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "https://example.com",
+    "source": "/home/user/src/my-app",
+    "audit_agent": "lite"
+  }' | jq .
 ```
 
 **Response (202):**
@@ -220,6 +230,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `project_uuid`         | string   | No       | Scope results to a project                                            |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
+| `audit_agent`          | string   | No       | Run background [audit agent](../agentic-scan/audit-agent.md): `"lite"` (6-phase), `"full"` (11-phase), `"off"` to disable. Requires `source_path` |
 
 **Basic examples:**
 
@@ -319,6 +330,27 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "input": "https://example.com",
     "source_path": "/home/user/src/my-app",
     "skip_sast": true
+  }' | jq .
+
+# Source-aware with background audit agent (parallel deep code audit)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "discover": true,
+    "audit_agent": "lite"
+  }' | jq .
+
+# Full 11-phase audit agent with comprehensive scan
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source_path": "/home/user/src/my-app",
+    "discover": true,
+    "code_audit": true,
+    "audit_agent": "full"
   }' | jq .
 ```
 

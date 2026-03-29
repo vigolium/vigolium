@@ -1,6 +1,6 @@
 # Data & Management Commands Reference
 
-Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, `scope`, `source`, `strategy`, `export`, and `version` commands.
+Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, `scope`, `source`, `session`, `project`, `strategy`, `export`, and `version` commands.
 
 ## Table of Contents
 
@@ -9,7 +9,9 @@ Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, 
 - [db stats](#db-stats)
 - [db export](#db-export)
 - [db clean](#db-clean)
+- [db seed](#db-seed)
 - [finding](#finding)
+- [finding load](#finding-load)
 - [export (top-level)](#export)
 - [module](#module)
 - [extensions](#extensions)
@@ -17,6 +19,8 @@ Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, 
 - [config](#config)
 - [scope](#scope)
 - [source](#source)
+- [session](#session)
+- [project](#project)
 - [strategy](#strategy)
 - [version](#version)
 
@@ -26,7 +30,7 @@ Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, 
 
 **Usage:** `vigolium db <subcommand> [flags]`
 
-Manage database records. Parent command for `list`, `stats`, `export`, and `clean`.
+Manage database records. Parent command for `clean`, `export`, `list` (`ls`), `seed`, and `stats`.
 
 ### Shared db flags (persistent)
 
@@ -70,7 +74,7 @@ List database records with filtering, sorting, and display options.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--host` | string | — | Filter by hostname pattern |
+| `--host` | string | — | Filter by hostname pattern (wildcard supported) |
 | `--method` | []string | — | Filter by HTTP method |
 | `--status` | []int | — | Filter by HTTP status code |
 | `--path` | string | — | Filter by URL path pattern |
@@ -80,8 +84,8 @@ List database records with filtering, sorting, and display options.
 | `--remark` | string | — | Filter records containing this text in remarks |
 | `--module-type` | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
 | `--finding-source` | string | — | Filter findings by source (audit, spa, agent, oast, source-tools, extension) |
-| `--from` | string | — | Records after date (YYYY-MM-DD) |
-| `--to` | string | — | Records before date |
+| `--from` | string | — | Records after date (YYYY-MM-DD or RFC3339) |
+| `--to` | string | — | Records before date (YYYY-MM-DD or RFC3339) |
 | `--header` | string | — | Search within HTTP header names and values |
 | `--body` | string | — | Search in request/response body |
 
@@ -89,7 +93,7 @@ List database records with filtering, sorting, and display options.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--sort` | string | `created_at` | Sort field |
+| `--sort` | string | `created_at` | Sort field: uuid, created_at, sent_at, method, status_code, response_time |
 | `--asc` | bool | `false` | Sort ascending |
 
 ### Examples
@@ -145,14 +149,14 @@ Export database records in various formats.
 |------|-------|------|---------|-------------|
 | `--format` | `-f` | string | `jsonl` | Export format: jsonl, json, raw, csv, markdown, markdown-table |
 | `--output` | `-o` | string | stdout | Output file path |
-| `--host` | — | string | — | Filter by hostname |
+| `--host` | — | string | — | Filter by hostname pattern |
 | `--method` | — | []string | — | Filter by HTTP method |
 | `--status` | — | []int | — | Filter by status code |
-| `--path` | — | string | — | Filter by URL path |
-| `--scan-id` | — | string | — | Filter by scan ID |
-| `--severity` | — | string | — | Filter by severity |
-| `--from` | — | string | — | Records after date |
-| `--to` | — | string | — | Records before date |
+| `--path` | — | string | — | Filter by URL path pattern |
+| `--scan-id` | — | string | — | Filter by scan session ID |
+| `--severity` | — | string | — | Filter by severity level |
+| `--from` | — | string | — | Export records created after this date (YYYY-MM-DD) |
+| `--to` | — | string | — | Export records created before this date (YYYY-MM-DD) |
 | `--limit` | — | int | `0` (unlimited) | Max records to export |
 | `--offset` | — | int | `0` | Records to skip |
 | `--uuid` | — | string | — | Export single record by UUID |
@@ -212,6 +216,20 @@ vigolium db clean --force  # reset entire database
 
 ---
 
+## db seed
+
+**Usage:** `vigolium db seed [flags]`
+
+Populate database with sample data for development and testing.
+
+### Examples
+
+```bash
+vigolium db seed
+```
+
+---
+
 ## finding
 
 **Usage:** `vigolium finding [search-term] [flags]` (aliases: `findings`)
@@ -237,7 +255,18 @@ Browse vulnerability findings with fuzzy search, filtering, raw display, and col
 | `--columns` | []string | — | Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE) |
 | `--exclude-columns` | []string | — | Columns to hide (comma-separated) |
 
-Also accepts filter flags: `--host`, `--method`, `--status`, `--path`, `--from`, `--to`, `--search`, `--header`, `--body`, `--source`, `--sort`, `--asc`, `--limit`, `--offset`.
+### Pagination and sorting flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--limit` | `-n` | int | `100` | Maximum findings to display |
+| `--offset` | `-o` | int | `0` | Number of findings to skip (for pagination) |
+| `--sort` | — | string | `found_at` | Sort by: found_at, created_at, severity, module, confidence |
+| `--asc` | — | bool | `false` | Sort in ascending order |
+
+### Additional filter flags
+
+Also accepts: `--host`, `--method`, `--status`, `--path`, `--from`, `--to`, `--search`, `--header`, `--body`, `--source`.
 
 ### Available columns
 
@@ -263,6 +292,21 @@ vigolium finding --watch 5s
 
 ---
 
+## finding load
+
+**Usage:** `vigolium finding load [file] [flags]`
+
+Import findings from a file or stdin.
+
+### Examples
+
+```bash
+vigolium finding load findings.jsonl
+cat findings.jsonl | vigolium finding load
+```
+
+---
+
 ## export
 
 **Usage:** `vigolium export [flags]`
@@ -277,7 +321,7 @@ Top-level export command. Exports database tables and module registry as JSONL o
 | `--output` | `-o` | string | — | Output file (required for html) |
 | `--only` | — | []string | all | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
 | `--lite` | — | bool | `false` | Export summary fields only, omit raw HTTP data and headers |
-| `--search` | — | string | — | Fuzzy search filter |
+| `--search` | — | string | — | Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources |
 | `--limit` | — | int | `0` (unlimited) | Max records per table |
 
 ### Examples
@@ -314,6 +358,7 @@ Manage scanner modules. Lists active and passive modules with their scan scope, 
 |------|------|---------|-------------|
 | `--type` | string | `all` | Filter: all, active, passive |
 | `--list-enabled` | bool | `false` | Show only enabled modules |
+| `--tags` | bool | `false` | Show only unique module tags |
 | `--verbose` / `-v` | bool | `false` | Show long description and confirmation criteria |
 
 ### module enable/disable flags
@@ -348,10 +393,11 @@ Manage JavaScript extensions for custom scanning logic.
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `ext ls [filter]` | `list` | List loaded extensions |
 | `ext docs [function]` | `doc`, `api` | Show API reference |
+| `ext eval [code]` | `run`, `exec` | Evaluate JavaScript code with vigolium.* APIs available |
+| `ext lint [file]` | — | Validate extension files for syntax errors and unknown API calls |
+| `ext ls [filter]` | `list` | List loaded extensions |
 | `ext preset [name]` | `presets`, `init` | Install example presets |
-| `ext eval [code]` | `run`, `exec` | Evaluate JavaScript code |
 
 ### ext ls flags
 
@@ -364,6 +410,12 @@ Manage JavaScript extensions for custom scanning logic.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--example` | bool | `false` | Show usage examples for each function |
+
+### ext lint flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--ext-file` | string | — | Path to extension file to validate |
 
 ### ext eval flags
 
@@ -579,6 +631,58 @@ vigolium source add --hostname example.com --git https://github.com/org/repo
 vigolium source add --hostname api.example.com --path ./src -l go -f gin
 vigolium source scan 1
 vigolium source rm 2
+```
+
+---
+
+## session
+
+**Usage:** `vigolium session <subcommand> [flags]`
+
+Manage session authentication configurations and utilities.
+
+### Subcommands
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `session lint` | — | Validate session auth config files for errors and warnings |
+| `session list` | `ls` | List session authentication configs |
+| `session load` | — | Load session auth configs from a file or stdin into the database |
+| `session totp` | — | Generate a TOTP code from a base32 secret |
+
+### Examples
+
+```bash
+vigolium session list
+vigolium session lint auth-config.yaml
+vigolium session load auth-config.yaml
+vigolium session totp --secret JBSWY3DPEHPK3PXP
+```
+
+---
+
+## project
+
+**Usage:** `vigolium project <subcommand> [flags]`
+
+Manage projects for multi-tenancy scan data scoping.
+
+### Subcommands
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `project config` | — | View or update project configuration |
+| `project create` | — | Create a new project |
+| `project list` | `ls` | List all projects |
+| `project use` | — | Switch to a project |
+
+### Examples
+
+```bash
+vigolium project list
+vigolium project create --name my-project
+vigolium project use my-project
+vigolium project config
 ```
 
 ---

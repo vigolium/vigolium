@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/session"
@@ -63,6 +64,9 @@ type SwarmConfig struct {
 	ShowPrompt         bool   // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool   // run only source analysis phase and exit
 	CodeAudit          bool   // enable AI security code audit phase (--code-audit)
+	Browser            bool   // enable agent-browser integration (--browser)
+	Auth               bool   // run browser-based auth phase before discovery (--auth, requires Browser)
+	Credentials        string // optional credentials for browser auth phase (--credentials)
 
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096
@@ -119,12 +123,17 @@ type SwarmConfig struct {
 
 	// PhaseCallback is called when a swarm phase starts.
 	PhaseCallback func(phase string)
+
+	// AuditAgent enables the background vig-audit-agent when set.
+	// Requires SourcePath to be non-empty.
+	AuditAgent *config.AuditAgentConfig
 }
 
 // SwarmPhase constants for the agent swarm mode.
 // Phases prefixed with "native-" are executed by native Go code without AI agent involvement.
 const (
 	SwarmPhaseNormalize      = "native-normalize"
+	SwarmPhaseAuth           = "auth"
 	SwarmPhaseSourceAnalysis = "source-analysis"
 	SwarmPhaseCodeAudit      = "code-audit"
 	SwarmPhaseSAST           = "native-sast"
@@ -173,6 +182,7 @@ const (
 	SwarmPromptCodeAudit  = "swarm-code-audit"
 	SwarmPromptSASTReview = "swarm-sast-review"
 	SwarmPromptTriage     = "agent-swarm-triage"
+	SwarmPromptAuth       = "agent-swarm-auth"
 )
 
 // SwarmPhaseDescription returns a short description of what a swarm phase does.
@@ -180,6 +190,8 @@ func SwarmPhaseDescription(phase string) string {
 	switch phase {
 	case SwarmPhaseNormalize:
 		return "parse and normalize input targets into scannable HTTP records"
+	case SwarmPhaseAuth:
+		return "browser-based authentication — login to capture session cookies for authenticated scanning"
 	case SwarmPhaseSourceAnalysis:
 		return "analyze source code for routes, auth flows, and security-relevant patterns"
 	case SwarmPhaseCodeAudit:
@@ -208,6 +220,8 @@ func SwarmPhaseDescription(phase string) string {
 // SwarmPhasePrompt returns the prompt template name for a given swarm phase, if any.
 func SwarmPhasePrompt(phase string) string {
 	switch phase {
+	case SwarmPhaseAuth:
+		return SwarmPromptAuth
 	case SwarmPhaseCodeAudit:
 		return SwarmPromptCodeAudit
 	case SwarmPhaseSASTReview:
@@ -348,6 +362,17 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	result.SessionDir = sessionDir
 	cfg.SessionDir = sessionDir // ensure downstream functions can access the resolved session dir
 
+	// Copy skills to session dir for agent discovery
+	browserEnabled := s.engine != nil && s.engine.settings != nil && s.engine.settings.Agent.Browser.IsEnabled()
+	CopySkillsToSessionDir(sessionDir, browserEnabled)
+
+	// Start background audit agent when configured and source is available
+	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, s.repo, func(msg string) {
+		fmt.Fprintf(os.Stderr, "%s Audit agent: %s\n", terminal.InfoSymbol(), msg)
+	}); cleanup != nil {
+		defer cleanup()
+	}
+
 	// Checkpoint/resume support
 	var checkpoint *SwarmCheckpoint
 	if cfg.ResumeDir != "" {
@@ -411,6 +436,26 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		terminal.InfoSymbol(),
 		terminal.BoldOrange(SwarmPhaseNormalize),
 		terminal.Orange(fmt.Sprintf("%d", len(records))))
+
+	// Phase 0.5: Browser-based auth (captures session cookies before any scanning).
+	// Runs only when both --browser and --auth flags are set.
+	if cfg.Auth && cfg.Browser && !phaseCompleted(checkpoint, SwarmPhaseAuth) {
+		phaseStart = time.Now()
+		agentRun.CurrentPhase = SwarmPhaseAuth
+		s.persistPhase(ctx, agentRun)
+		s.emitPhase(cfg, SwarmPhaseAuth)
+
+		authConfigPath, authErr := s.runAuthPhase(ctx, cfg, targetURL, sessionDir)
+		if authErr != nil {
+			zap.L().Warn("Auth phase failed, continuing without browser auth", zap.Error(authErr))
+			printPhaseLine(SwarmPhaseAuth, fmt.Sprintf("failed: %v", authErr))
+		} else if authConfigPath != "" {
+			printPhaseLine(SwarmPhaseAuth, fmt.Sprintf("auth config saved: %s", terminal.ShortenHome(authConfigPath)))
+		}
+
+		phaseTimings[SwarmPhaseAuth] = time.Since(phaseStart)
+		completedPhases = append(completedPhases, SwarmPhaseAuth)
+	}
 
 	// Phase 1.5: Agentic source analysis (LLM explores codebase first).
 	// Phase 1.6: Native SAST (ast-grep route extraction + secret detection).
@@ -728,6 +773,15 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 	// Early exit for --source-analysis-only
 	if cfg.SourceAnalysisOnly {
+		result.TotalRecords = len(records)
+		result.PhaseTimings = phaseTimings
+		return nil
+	}
+
+	// Early exit: source-only mode (no target URL — skip dynamic phases)
+	if targetURL == "" && cfg.SourcePath != "" {
+		fmt.Fprintf(os.Stderr, "%s Source-only analysis complete. Skipping dynamic phases (no --target).\n",
+			terminal.InfoSymbol())
 		result.TotalRecords = len(records)
 		result.PhaseTimings = phaseTimings
 		return nil
@@ -2121,7 +2175,19 @@ func deduplicateRecords(records []*httpmsg.HttpRequestResponse) []*httpmsg.HttpR
 // Returns records and a parallel slice of notes (aligned 1:1 with records).
 func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) ([]*httpmsg.HttpRequestResponse, []string) {
 	if targetURL == "" {
-		return nil, nil
+		// Source-only mode: keep all records without hostname filtering.
+		normalized, _ := NormalizeAgentRecords(agentRecords)
+		var passthrough []*httpmsg.HttpRequestResponse
+		var passthroughNotes []string
+		for _, rec := range normalized {
+			rr, convertErr := ToHTTPRequestResponse(rec)
+			if convertErr != nil {
+				continue
+			}
+			passthrough = append(passthrough, rr)
+			passthroughNotes = append(passthroughNotes, rec.Notes)
+		}
+		return passthrough, passthroughNotes
 	}
 	targetParsed, err := url.Parse(targetURL)
 	if err != nil {
@@ -2708,6 +2774,67 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 // data flow vulnerabilities, and framework misconfigurations that static analysis tools miss.
 // It receives source analysis output as context (routes, auth flows) to avoid redundant codebase reads.
 // Findings are saved directly to the database with module_type "agent-code-audit".
+// runAuthPhase executes the browser-based authentication phase using agent-browser.
+// The agent navigates to the target, performs login, and captures session cookies/tokens
+// into an auth-config.yaml file in the session directory.
+func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string) (string, error) {
+	hostname := hostnameFromURL(targetURL)
+
+	extra := map[string]string{
+		"TargetURL": targetURL,
+		"Hostname":  hostname,
+	}
+	if cfg.Credentials != "" {
+		extra["Credentials"] = cfg.Credentials
+	}
+
+	authSessionID := uuid.New().String()
+	opts := Options{
+		AgentName:      cfg.AgentName,
+		AgentACPCmd:    cfg.AgentACPCmd,
+		PromptTemplate: SwarmPromptAuth,
+		TargetURL:      targetURL,
+		Hostname:       hostname,
+		Instruction:    cfg.Instruction,
+		SessionKey:     SwarmPhaseAuth,
+		SessionID:      authSessionID,
+		SessionDir:     sessionDir,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		StreamWriter:   cfg.StreamWriter,
+		Autopilot:      true,
+		MaxCommands:    30, // auth phase is bounded
+	}
+
+	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, extra)
+	if runErr != nil {
+		return "", fmt.Errorf("auth phase agent failed: %w", runErr)
+	}
+
+	WriteSDKSessionEntry(sessionDir, SDKSessionEntry{
+		SessionID: authSessionID,
+		Phase:     SwarmPhaseAuth,
+		AgentName: cfg.AgentName,
+		Timestamp: time.Now(),
+	})
+
+	// Save prompt and output to session dir
+	writePromptToSessionDir(sessionDir, "auth-prompt.md", agentResult.RenderedPrompt)
+	if sessionDir != "" && agentResult.RawOutput != "" {
+		_ = os.WriteFile(filepath.Join(sessionDir, "auth-output.md"), []byte(agentResult.RawOutput), 0644)
+	}
+
+	// Check if agent wrote auth-config.yaml to session dir
+	authConfigPath := filepath.Join(sessionDir, "auth-config.yaml")
+	if _, err := os.Stat(authConfigPath); err == nil {
+		return authConfigPath, nil
+	}
+
+	return "", nil
+}
+
 func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string, sourceAnalysisNotes string, reuseExploreSession bool) (int, error) {
 	if s.repo == nil {
 		return 0, fmt.Errorf("code audit skipped: no database repository")

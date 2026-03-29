@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -79,6 +80,9 @@ type AutopilotPipelineConfig struct {
 	SourceAnalysisCallback  func(*SourceAnalysisResult) error
 	PhaseCallback           func(AutopilotPhase)
 	ProgressCallback        func(phase string, message string)
+
+	// AuditAgent enables the background vig-audit-agent when set.
+	AuditAgent *config.AuditAgentConfig
 }
 
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
@@ -142,6 +146,13 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		PhaseTimings: make(map[AutopilotPhase]time.Duration),
 		PhaseFailed:  make(map[AutopilotPhase]bool),
 		SessionDir:   cfg.SessionDir,
+	}
+
+	// Start background audit agent when configured and source is available
+	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, r.repo, func(msg string) {
+		printPhaseLine("audit-agent", msg)
+	}); cleanup != nil {
+		defer cleanup()
 	}
 
 	prompt := buildAutonomousPrompt(cfg)
@@ -293,6 +304,13 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 		PhaseTimings: make(map[AutopilotPhase]time.Duration),
 		PhaseFailed:  make(map[AutopilotPhase]bool),
 		SessionDir:   cfg.SessionDir,
+	}
+
+	// Start background audit agent when configured and source is available
+	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, r.repo, func(msg string) {
+		printPhaseLine("audit-agent", msg)
+	}); cleanup != nil {
+		defer cleanup()
 	}
 
 	// Load checkpoint for resume

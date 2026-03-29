@@ -441,6 +441,7 @@ func (r AgentRunRequest) EffectiveSourcePath() string {
 
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
 type AgentAutopilotRequest struct {
+	Prompt      string   `json:"prompt,omitempty"`              // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
 	Target      string   `json:"target,omitempty"`              // target URL (derived from input if not set)
 	Input       string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
 	Agent       string   `json:"agent,omitempty"`               // agent backend name
@@ -457,6 +458,7 @@ type AgentAutopilotRequest struct {
 	ScanUUID    string   `json:"scan_uuid,omitempty"`           // optional scan UUID
 	ResumeDir   string   `json:"resume_dir,omitempty"`          // resume from a previous session directory
 	ProjectUUID string   `json:"project_uuid,omitempty"`        // project UUID for data scoping
+	AuditAgent  string   `json:"audit_agent,omitempty"`         // run background audit agent: "lite" (6-phase), "full" (11-phase), "off" to disable
 }
 
 // EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
@@ -469,6 +471,7 @@ func (r AgentAutopilotRequest) EffectiveSourcePath() string {
 
 // AgentPipelineRequest is the request body for POST /api/agent/run/pipeline.
 type AgentPipelineRequest struct {
+	Prompt          string   `json:"prompt,omitempty"`                // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
 	Target          string   `json:"target,omitempty"`                // target URL (derived from input if not set)
 	Input           string   `json:"input,omitempty"`                 // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
 	Agent           string   `json:"agent,omitempty"`                 // agent backend name
@@ -499,6 +502,9 @@ func (r AgentPipelineRequest) EffectiveSourcePath() string {
 
 // AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
 type AgentSwarmRequest struct {
+	// Natural language prompt (parsed into structured fields when explicit fields are empty)
+	Prompt string `json:"prompt,omitempty"`
+
 	// Inputs
 	Input              string   `json:"input,omitempty"`                // single input (URL, curl, raw HTTP, Burp XML, record UUID)
 	Inputs             []string `json:"inputs,omitempty"`               // multiple inputs (for auth flows)
@@ -550,6 +556,9 @@ type AgentSwarmRequest struct {
 	// Project/scan scoping
 	ProjectUUID string `json:"project_uuid,omitempty"` // optional project UUID
 	ScanUUID    string `json:"scan_uuid,omitempty"`    // optional scan UUID
+
+	// Background audit agent
+	AuditAgent string `json:"audit_agent,omitempty"` // run background audit agent: "lite" (6-phase), "full" (11-phase), "off" to disable
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

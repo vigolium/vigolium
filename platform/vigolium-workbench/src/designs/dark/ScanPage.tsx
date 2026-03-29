@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Copy, Check, Upload, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { ChevronRight, ChevronDown, Copy, Check, Upload, Loader2, Zap, Shield, Crosshair } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useScanURL, useScanRequest, useRunScan, useScanAllRecords, useUploadRepo, useScans, useDeleteScan, useStopScan, usePauseScan, useResumeScan, useScanLogs } from '@/api/hooks';
 import type { ScanURLRequest, ScanRequestRequest, RunScanRequest, ScanAllRecordsRequest, ScansQueryParams, Scan, ScanLog } from '@/api/types';
@@ -9,28 +9,49 @@ import { formatDate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
 
-type ScanMode = 'full_scan' | 'url' | 'raw_request' | 'repo_scan' | 'stored_records';
+type DetectedMode = 'url' | 'full_scan' | 'raw_request' | 'repo';
 
-const TAB_DEFS: { key: ScanMode; label: string; desc: string }[] = [
-  { key: 'full_scan', label: 'FULL SCAN', desc: 'Complete pipeline with discovery, spidering, and audit' },
-  { key: 'url', label: 'URL SCAN', desc: 'Target a single URL directly' },
-  { key: 'raw_request', label: 'RAW REQUEST', desc: 'Paste or upload a raw HTTP request' },
-  { key: 'repo_scan', label: 'REPO SCAN (SAST)', desc: 'Upload or specify a source repository for whitebox analysis' },
-  { key: 'stored_records', label: 'STORED RECORDS', desc: 'Scan existing HTTP records in the database' },
-];
-
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
-const FILTER_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
-const STRATEGIES = ['lite', 'balanced', 'deep', 'whitebox'] as const;
+const STRATEGIES = ['lite', 'balanced', 'deep'] as const;
+const STRATEGY_META: Record<string, { icon: React.ComponentType<{ className?: string }>; label: string; desc: string }> = {
+  lite: { icon: Zap, label: 'QUICK', desc: 'Fast & light' },
+  balanced: { icon: Shield, label: 'BALANCED', desc: 'Good coverage' },
+  deep: { icon: Crosshair, label: 'DEEP', desc: 'Maximum coverage' },
+};
 const PHASES = ['', 'discovery', 'spidering', 'audit'] as const;
 const SCOPE_ORIGINS = ['', 'all', 'relaxed', 'balanced', 'strict'] as const;
 const HEURISTICS = ['', 'none', 'basic', 'advanced'] as const;
+const FILTER_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 const HISTORY_PAGE_SIZE = 20;
 
 interface HeaderRow {
   key: string;
   value: string;
 }
+
+function detectMode(input: string): DetectedMode {
+  const trimmed = input.trim();
+  if (!trimmed) return 'full_scan';
+  const firstLine = trimmed.split('\n')[0].trim();
+  if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+\S+\s+HTTP\//i.test(firstLine)) return 'raw_request';
+  if (/\.git\s*$/.test(trimmed) || /^git@/.test(trimmed)) return 'repo';
+  if (/^(\/|~\/|\.\.?\/)/.test(trimmed) && !trimmed.includes('\n')) return 'repo';
+  const lines = trimmed.split('\n').filter(l => l.trim());
+  return 'full_scan';
+}
+
+const MODE_LABELS: Record<DetectedMode, string> = {
+  url: 'URL SCAN',
+  full_scan: 'FULL SCAN',
+  raw_request: 'RAW REQUEST',
+  repo: 'REPO SCAN',
+};
+
+const MODE_COLORS: Record<DetectedMode, string> = {
+  url: '#7fd962',
+  full_scan: '#68a8e4',
+  raw_request: '#f2c55c',
+  repo: '#2be4d0',
+};
 
 function StatusBadge({ status }: { status: string }) {
   const color =
@@ -150,64 +171,36 @@ function ScanActions({ scan, onStop, onDelete, onPause, onResume }: { scan: Scan
 }
 
 export default function ScanPage() {
-  const [mode, setMode] = useState<ScanMode>('full_scan');
   const [scanSectionOpen, setScanSectionOpen] = useState(true);
 
-  // Full scan state
-  const [fsTargets, setFsTargets] = useState('');
-  const [fsStrategy, setFsStrategy] = useState('balanced');
-  const [fsOnly, setFsOnly] = useState('');
-  const [fsSkip, setFsSkip] = useState('');
-  const [fsModules, setFsModules] = useState('');
-  const [fsModuleTags, setFsModuleTags] = useState('');
-  const [fsRepoPath, setFsRepoPath] = useState('');
-  const [fsRepoUrl, setFsRepoUrl] = useState('');
-  const [fsDryRun, setFsDryRun] = useState(false);
-  const [fsAdvancedOpen, setFsAdvancedOpen] = useState(false);
-  const [fsConcurrency, setFsConcurrency] = useState('');
-  const [fsTimeout, setFsTimeout] = useState('');
-  const [fsMaxPerHost, setFsMaxPerHost] = useState('');
-  const [fsRateLimit, setFsRateLimit] = useState('');
-  const [fsMaxDuration, setFsMaxDuration] = useState('');
-  const [fsScopeOrigin, setFsScopeOrigin] = useState('');
-  const [fsHeuristics, setFsHeuristics] = useState('');
-  const [fsScanProfile, setFsScanProfile] = useState('');
-  const [fsHeaders, setFsHeaders] = useState<HeaderRow[]>([{ key: '', value: '' }]);
+  // Smart input state
+  const [input, setInput] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [storedRecordsOpen, setStoredRecordsOpen] = useState(false);
 
-  // URL mode state
-  const [url, setUrl] = useState('');
-  const [method, setMethod] = useState('GET');
-  const [body, setBody] = useState('');
+  // Shared advanced options
+  const [strategy, setStrategy] = useState('balanced');
+  const [modules, setModules] = useState('');
+  const [moduleTags, setModuleTags] = useState('');
+  const [noPassive, setNoPassive] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
+  const [only, setOnly] = useState('');
+  const [skip, setSkip] = useState('');
+  const [scopeOrigin, setScopeOrigin] = useState('');
+  const [heuristics, setHeuristics] = useState('');
+  const [scanProfile, setScanProfile] = useState('');
+  const [concurrency, setConcurrency] = useState('');
+  const [timeout, setTimeout] = useState('');
+  const [maxPerHost, setMaxPerHost] = useState('');
+  const [rateLimit, setRateLimit] = useState('');
+  const [maxDuration, setMaxDuration] = useState('');
   const [headers, setHeaders] = useState<HeaderRow[]>([{ key: '', value: '' }]);
-  const [urlModules, setUrlModules] = useState('');
-  const [urlNoPassive, setUrlNoPassive] = useState(false);
 
-  // Raw request mode state
-  const [rawRequest, setRawRequest] = useState('');
-  const [targetUrl, setTargetUrl] = useState('');
-  const [rawModules, setRawModules] = useState('');
-  const [rawNoPassive, setRawNoPassive] = useState(false);
-
-  // Repo scan state
-  const [rsRepoPath, setRsRepoPath] = useState('');
-  const [rsRepoUrl, setRsRepoUrl] = useState('');
-  const [rsTargets, setRsTargets] = useState('');
-  const [rsStrategy, setRsStrategy] = useState('whitebox');
-  const [rsModules, setRsModules] = useState('');
-  const [rsModuleTags, setRsModuleTags] = useState('');
-  const [rsDryRun, setRsDryRun] = useState(false);
-  const [rsAdvancedOpen, setRsAdvancedOpen] = useState(false);
-  const [rsConcurrency, setRsConcurrency] = useState('');
-  const [rsTimeout, setRsTimeout] = useState('');
-  const [rsMaxPerHost, setRsMaxPerHost] = useState('');
-  const [rsRateLimit, setRsRateLimit] = useState('');
-  const [rsMaxDuration, setRsMaxDuration] = useState('');
-  const [rsHeuristics, setRsHeuristics] = useState('');
-  const [rsScanProfile, setRsScanProfile] = useState('');
-  const [rsHeaders, setRsHeaders] = useState<HeaderRow[]>([{ key: '', value: '' }]);
+  // Repo upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rsDragging, setRsDragging] = useState(false);
   const [rsCompressing, setRsCompressing] = useState(false);
+  const [uploadedRepoPath, setUploadedRepoPath] = useState('');
   const dragCounter = useRef(0);
 
   // Stored records state
@@ -220,18 +213,6 @@ export default function ScanPage() {
   const [srMinRisk, setSrMinRisk] = useState('');
   const [srRemark, setSrRemark] = useState('');
   const [srForce, setSrForce] = useState(false);
-  const [srDryRun, setSrDryRun] = useState(false);
-  const [srAdvancedOpen, setSrAdvancedOpen] = useState(false);
-  const [srModules, setSrModules] = useState('');
-  const [srModuleTags, setSrModuleTags] = useState('');
-  const [srConcurrency, setSrConcurrency] = useState('');
-  const [srTimeout, setSrTimeout] = useState('');
-  const [srMaxPerHost, setSrMaxPerHost] = useState('');
-  const [srRateLimit, setSrRateLimit] = useState('');
-  const [srMaxDuration, setSrMaxDuration] = useState('');
-  const [srHeuristics, setSrHeuristics] = useState('');
-  const [srScanProfile, setSrScanProfile] = useState('');
-  const [srHeaders, setSrHeaders] = useState<HeaderRow[]>([{ key: '', value: '' }]);
 
   // Scan history state
   const [historyParams, setHistoryParams] = useState<ScansQueryParams>({ limit: HISTORY_PAGE_SIZE, offset: 0 });
@@ -248,25 +229,24 @@ export default function ScanPage() {
   const resumeScan = useResumeScan();
   const [expandedScanUuid, setExpandedScanUuid] = useState<string | null>(null);
 
+  const detectedMode = useMemo(() => detectMode(input), [input]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const minRows = 4;
+    const lineHeight = 16;
+    el.style.height = 'auto';
+    const scrollH = el.scrollHeight;
+    const minH = minRows * lineHeight + 12;
+    el.style.height = `${Math.max(scrollH, minH)}px`;
+  }, [input]);
+
   const addHeader = () => setHeaders((prev) => [...prev, { key: '', value: '' }]);
   const removeHeader = (i: number) => setHeaders((prev) => prev.filter((_, idx) => idx !== i));
   const updateHeader = (i: number, field: 'key' | 'value', val: string) =>
     setHeaders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
-
-  const addFsHeader = () => setFsHeaders((prev) => [...prev, { key: '', value: '' }]);
-  const removeFsHeader = (i: number) => setFsHeaders((prev) => prev.filter((_, idx) => idx !== i));
-  const updateFsHeader = (i: number, field: 'key' | 'value', val: string) =>
-    setFsHeaders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
-
-  const addRsHeader = () => setRsHeaders((prev) => [...prev, { key: '', value: '' }]);
-  const removeRsHeader = (i: number) => setRsHeaders((prev) => prev.filter((_, idx) => idx !== i));
-  const updateRsHeader = (i: number, field: 'key' | 'value', val: string) =>
-    setRsHeaders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
-
-  const addSrHeader = () => setSrHeaders((prev) => [...prev, { key: '', value: '' }]);
-  const removeSrHeader = (i: number) => setSrHeaders((prev) => prev.filter((_, idx) => idx !== i));
-  const updateSrHeader = (i: number, field: 'key' | 'value', val: string) =>
-    setSrHeaders((prev) => prev.map((h, idx) => (idx === i ? { ...h, [field]: val } : h)));
 
   function buildHeadersObj(rows: HeaderRow[]): Record<string, string> | undefined {
     const obj: Record<string, string> = {};
@@ -276,69 +256,61 @@ export default function ScanPage() {
     return Object.keys(obj).length > 0 ? obj : undefined;
   }
 
-  const handleSubmitFullScan = () => {
-    const targets = fsTargets.split('\n').map(s => s.trim()).filter(Boolean);
-    const req: RunScanRequest = {};
-    if (targets.length > 0) req.targets = targets;
-    if (fsStrategy) req.strategy = fsStrategy;
-    if (fsOnly) req.only = fsOnly;
-    if (fsSkip) req.skip = fsSkip.split(',').map(s => s.trim()).filter(Boolean);
-    if (fsModules) req.modules = fsModules.split(',').map(s => s.trim()).filter(Boolean);
-    if (fsModuleTags) req.module_tags = fsModuleTags.split(',').map(s => s.trim()).filter(Boolean);
-    if (fsRepoPath) req.repo_path = fsRepoPath;
-    if (fsRepoUrl) req.repo_url = fsRepoUrl;
-    if (fsDryRun) req.dry_run = true;
-    if (fsConcurrency) req.concurrency = parseInt(fsConcurrency);
-    if (fsTimeout) req.timeout = fsTimeout;
-    if (fsMaxPerHost) req.max_per_host = parseInt(fsMaxPerHost);
-    if (fsRateLimit) req.rate_limit = parseInt(fsRateLimit);
-    if (fsMaxDuration) req.scanning_max_duration = fsMaxDuration;
-    if (fsScopeOrigin) req.scope_origin = fsScopeOrigin;
-    if (fsHeuristics) req.heuristics_check = fsHeuristics;
-    if (fsScanProfile) req.scanning_profile = fsScanProfile;
-    req.headers = buildHeadersObj(fsHeaders);
-    runScan.mutate(req);
-  };
-
-  const handleSubmitURL = () => {
-    const req: ScanURLRequest = { url };
-    if (method !== 'GET') req.method = method;
-    if (body) req.body = body;
+  function buildAdvancedFields(req: RunScanRequest) {
+    if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
+    if (moduleTags) req.module_tags = moduleTags.split(',').map(s => s.trim()).filter(Boolean);
+    if (dryRun) req.dry_run = true;
+    if (only) req.only = only;
+    if (skip) req.skip = skip.split(',').map(s => s.trim()).filter(Boolean);
+    if (scopeOrigin) req.scope_origin = scopeOrigin;
+    if (heuristics) req.heuristics_check = heuristics;
+    if (scanProfile) req.scanning_profile = scanProfile;
+    if (concurrency) req.concurrency = parseInt(concurrency);
+    if (timeout) req.timeout = timeout;
+    if (maxPerHost) req.max_per_host = parseInt(maxPerHost);
+    if (rateLimit) req.rate_limit = parseInt(rateLimit);
+    if (maxDuration) req.scanning_max_duration = maxDuration;
     req.headers = buildHeadersObj(headers);
-    if (urlModules) req.modules = urlModules;
-    if (urlNoPassive) req.no_passive = true;
-    scanURL.mutate(req);
+  }
+
+  const handleSubmit = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+
+    if (detectedMode === 'raw_request') {
+      let encoded = trimmed;
+      try { atob(trimmed); } catch { encoded = btoa(trimmed); }
+      const req: ScanRequestRequest = { raw_request: encoded };
+      if (modules) req.modules = modules;
+      if (noPassive) req.no_passive = true;
+      scanRequest.mutate(req);
+    } else if (detectedMode === 'url') {
+      const req: ScanURLRequest = { url: trimmed };
+      req.headers = buildHeadersObj(headers);
+      if (modules) req.modules = modules;
+      if (noPassive) req.no_passive = true;
+      scanURL.mutate(req);
+    } else if (detectedMode === 'full_scan') {
+      const targets = trimmed.split('\n').map(s => s.trim()).filter(Boolean);
+      const req: RunScanRequest = { targets, strategy };
+      buildAdvancedFields(req);
+      runScan.mutate(req);
+    } else if (detectedMode === 'repo') {
+      const isGitUrl = /\.git\s*$/.test(trimmed) || /^git@/.test(trimmed) || /^https?:\/\//.test(trimmed);
+      const req: RunScanRequest = { strategy: 'whitebox' };
+      if (isGitUrl) req.repo_url = trimmed; else req.repo_path = trimmed;
+      buildAdvancedFields(req);
+      runScan.mutate(req);
+    }
   };
 
-  const handleSubmitRaw = () => {
-    let encoded = rawRequest;
-    try { atob(rawRequest); } catch { encoded = btoa(rawRequest); }
-    const req: ScanRequestRequest = { raw_request: encoded };
-    if (targetUrl) req.target_url = targetUrl;
-    if (rawModules) req.modules = rawModules;
-    if (rawNoPassive) req.no_passive = true;
-    scanRequest.mutate(req);
-  };
-
-  const handleSubmitRepoScan = () => {
-    const req: RunScanRequest = {};
-    const targets = rsTargets.split('\n').map(s => s.trim()).filter(Boolean);
-    if (targets.length > 0) req.targets = targets;
-    if (rsRepoPath) req.repo_path = rsRepoPath;
-    if (rsRepoUrl) req.repo_url = rsRepoUrl;
-    if (rsStrategy) req.strategy = rsStrategy;
-    if (rsModules) req.modules = rsModules.split(',').map(s => s.trim()).filter(Boolean);
-    if (rsModuleTags) req.module_tags = rsModuleTags.split(',').map(s => s.trim()).filter(Boolean);
-    if (rsDryRun) req.dry_run = true;
-    if (rsConcurrency) req.concurrency = parseInt(rsConcurrency);
-    if (rsTimeout) req.timeout = rsTimeout;
-    if (rsMaxPerHost) req.max_per_host = parseInt(rsMaxPerHost);
-    if (rsRateLimit) req.rate_limit = parseInt(rsRateLimit);
-    if (rsMaxDuration) req.scanning_max_duration = rsMaxDuration;
-    if (rsHeuristics) req.heuristics_check = rsHeuristics;
-    if (rsScanProfile) req.scanning_profile = rsScanProfile;
-    req.headers = buildHeadersObj(rsHeaders);
-    runScan.mutate(req);
+  // Repo upload for repo mode
+  const handleRepoUpload = () => {
+    if (uploadedRepoPath) {
+      const req: RunScanRequest = { repo_path: uploadedRepoPath, strategy: 'whitebox' };
+      buildAdvancedFields(req);
+      runScan.mutate(req);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,7 +322,7 @@ export default function ScanPage() {
 
   const doUpload = useCallback((file: File) => {
     uploadRepo.mutate(file, {
-      onSuccess: (data) => { setRsRepoPath(data.repo_path); },
+      onSuccess: (data) => { setUploadedRepoPath(data.repo_path); },
     });
   }, [uploadRepo]);
 
@@ -399,7 +371,6 @@ export default function ScanPage() {
         allFiles.push(...await readEntryRecursive(entry));
       }
       if (allFiles.length === 0) { setRsCompressing(false); return; }
-
       const zipData: Record<string, Uint8Array> = {};
       for (const { path, file } of allFiles) {
         const buf = await file.arrayBuffer();
@@ -452,41 +423,37 @@ export default function ScanPage() {
     if (srMinRisk) req.min_risk_score = parseInt(srMinRisk);
     if (srRemark) req.remark = srRemark;
     if (srForce) req.force = true;
-    if (srDryRun) req.dry_run = true;
-    if (srModules) req.modules = srModules.split(',').map(s => s.trim()).filter(Boolean);
-    if (srModuleTags) req.module_tags = srModuleTags.split(',').map(s => s.trim()).filter(Boolean);
-    if (srConcurrency) req.concurrency = parseInt(srConcurrency);
-    if (srTimeout) req.timeout = srTimeout;
-    if (srMaxPerHost) req.max_per_host = parseInt(srMaxPerHost);
-    if (srRateLimit) req.rate_limit = parseInt(srRateLimit);
-    if (srMaxDuration) req.scanning_max_duration = srMaxDuration;
-    if (srHeuristics) req.heuristics_check = srHeuristics;
-    if (srScanProfile) req.scanning_profile = srScanProfile;
-    req.headers = buildHeadersObj(srHeaders);
+    if (dryRun) req.dry_run = true;
+    if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
+    if (moduleTags) req.module_tags = moduleTags.split(',').map(s => s.trim()).filter(Boolean);
+    if (concurrency) req.concurrency = parseInt(concurrency);
+    if (timeout) req.timeout = timeout;
+    if (maxPerHost) req.max_per_host = parseInt(maxPerHost);
+    if (rateLimit) req.rate_limit = parseInt(rateLimit);
+    if (maxDuration) req.scanning_max_duration = maxDuration;
+    if (heuristics) req.heuristics_check = heuristics;
+    if (scanProfile) req.scanning_profile = scanProfile;
+    req.headers = buildHeadersObj(headers);
     scanAllRecords.mutate(req);
   };
 
-  const mutation =
-    mode === 'full_scan' ? runScan :
-    mode === 'url' ? scanURL :
-    mode === 'raw_request' ? scanRequest :
-    mode === 'repo_scan' ? runScan :
-    scanAllRecords;
+  const isSubmitting = scanURL.isPending || scanRequest.isPending || runScan.isPending;
+  const mutation = storedRecordsOpen ? scanAllRecords :
+    (detectedMode === 'url' ? scanURL :
+    detectedMode === 'raw_request' ? scanRequest : runScan);
+
+  const canSubmit = input.trim() || (detectedMode === 'repo' && uploadedRepoPath);
 
   const inputClass = "w-full bg-[#1c1b19] border border-[#2e2b26] text-[#fce8c3] text-xs px-2 py-1 focus:outline-none focus:border-[#7fd962]/50";
-  const textareaClass = `${inputClass} font-mono resize-y`;
   const btnClass = "text-xs px-4 py-1 border border-[#FF9F2F] text-[#FF9F2F] bg-[#FF9F2F]/10 hover:bg-[#FF9F2F]/20 shadow-[inset_0_0_18px_rgba(255,159,47,0.5)] hover:shadow-[inset_0_0_28px_rgba(255,159,47,0.7)] disabled:opacity-50 transition-colors shrink-0";
 
   const selectedScan = expandedScanUuid ? scansData?.data?.find((s) => s.uuid === expandedScanUuid) ?? null : null;
   const historyPage = Math.floor((historyParams.offset || 0) / HISTORY_PAGE_SIZE) + 1;
   const historyTotalPages = Math.ceil((scansData?.total || 0) / HISTORY_PAGE_SIZE);
 
-  const fsCanSubmit = fsTargets.trim() || fsRepoPath || fsRepoUrl;
-  const rsCanSubmit = rsRepoPath || rsRepoUrl;
-
   return (
     <PageShell>
-      {/* NEW SCAN — collapsible */}
+      {/* NEW SCAN */}
       <div className="border border-[#2e2b26] bg-[#1c1b19]">
         <button
           onClick={() => setScanSectionOpen((v) => !v)}
@@ -498,255 +465,156 @@ export default function ScanPage() {
 
         {scanSectionOpen && (
           <div className="p-3 space-y-2">
-            {/* Mode tabs */}
+            {/* Target label with type badge and auto-detect dropdown */}
             <div>
-              <div className="flex items-center gap-1">
-                <span className="text-[#918175] text-[10px] uppercase mr-1">MODE</span>
-                {TAB_DEFS.map((t) => (
-                  <button key={t.key} onClick={() => setMode(t.key)} className={`px-2 py-0.5 text-xs border transition-colors ${mode === t.key ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>{t.label}</button>
-                ))}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[#fce8c3] text-xs">Target</span>
+                <span className="text-[#918175] text-xs">(type: <span style={{ color: MODE_COLORS[detectedMode] }}>{MODE_LABELS[detectedMode].toLowerCase()}</span>)</span>
+                <Dropdown
+                  value="auto"
+                  onChange={() => {}}
+                  options={[
+                    { value: 'auto', label: 'auto-detect' },
+                    ...Object.entries(MODE_LABELS).map(([k, v]) => ({ value: k, label: v.toLowerCase() })),
+                  ]}
+                />
               </div>
-              <div className="text-[10px] text-[#918175] italic mt-1 ml-10">{TAB_DEFS.find(t => t.key === mode)?.desc}</div>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                rows={4}
+                placeholder="Paste URL, targets, raw HTTP request, or repo URL..."
+                className="w-full bg-[#1c1b19] border border-[#2e2b26] text-[#fce8c3] text-xs px-2 py-1.5 font-mono resize-y focus:outline-none focus:border-[#7fd962]/50 overflow-hidden"
+              />
             </div>
 
-            {/* ===== FULL SCAN ===== */}
-            {mode === 'full_scan' && (
-              <>
-                <div>
-                  <label className="text-[#918175] text-[10px] uppercase block mb-0.5">TARGETS (one URL per line)</label>
-                  <textarea value={fsTargets} onChange={(e) => setFsTargets(e.target.value)} rows={3} placeholder={"https://example.com\nhttps://api.example.com"} className={textareaClass} />
+            {/* Strategy cards */}
+            <div className="grid grid-cols-3 border border-[#2e2b26]">
+              {STRATEGIES.map((s) => {
+                const meta = STRATEGY_META[s];
+                const selected = strategy === s;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStrategy(s)}
+                    className={`py-4 flex flex-col items-center gap-1 transition-colors ${
+                      selected
+                        ? 'border border-[#7fd962]/60 bg-[#7fd962]/5'
+                        : 'border border-transparent hover:bg-[#272520]'
+                    }`}
+                  >
+                    <meta.icon className={`w-5 h-5 ${selected ? 'text-[#7fd962]' : 'text-[#918175]'}`} />
+                    <span className={`text-xs font-bold tracking-wider ${selected ? 'text-[#fce8c3]' : 'text-[#918175]'}`}>{meta.label}</span>
+                    <span className="text-[10px] text-[#918175]">{meta.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Submit row */}
+            <div className="flex gap-2 items-center flex-wrap">
+              <button
+                onClick={uploadedRepoPath && !input.trim() ? handleRepoUpload : handleSubmit}
+                disabled={(!canSubmit && !uploadedRepoPath) || isSubmitting}
+                className={btnClass}
+              >
+                {isSubmitting ? 'scanning...' : '[SCAN]'}
+              </button>
+              <button onClick={() => setDryRun(!dryRun)} className={`px-2 py-0.5 text-[10px] border transition-colors ${dryRun ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>
+                DRY_RUN: {dryRun ? 'ON' : 'OFF'}
+              </button>
+              <button onClick={() => setAdvancedOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-[#918175] hover:text-[#fce8c3] ml-auto">
+                {advancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} ADVANCED OPTIONS
+              </button>
+            </div>
+
+            {/* Advanced options */}
+            {advancedOpen && (
+              <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
+                <div className="flex gap-2 items-center">
+                  <button onClick={() => setNoPassive(!noPassive)} className={`px-2 py-0.5 text-[10px] border transition-colors ${noPassive ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>
+                    NO_PASSIVE: {noPassive ? 'ON' : 'OFF'}
+                  </button>
+                  <button onClick={() => setStoredRecordsOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-[#918175] hover:text-[#fce8c3]">
+                    {storedRecordsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} STORED RECORDS
+                  </button>
                 </div>
                 <div className="flex gap-2">
-                  <div className="w-40">
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">STRATEGY</label>
-                    <Dropdown value={fsStrategy} onChange={setFsStrategy} options={STRATEGIES.map(s => ({ value: s, label: s }))} />
-                  </div>
-                  <div className="w-48">
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">ONLY (phase)</label>
-                    <Dropdown value={fsOnly} onChange={setFsOnly} options={PHASES.map(p => ({ value: p, label: p || '(all phases)' }))} />
-                  </div>
-                  <div className="w-36">
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">SCOPE_ORIGIN</label>
-                    <Dropdown value={fsScopeOrigin} onChange={setFsScopeOrigin} options={SCOPE_ORIGINS.map(s => ({ value: s, label: s || '(default)' }))} />
-                  </div>
-                  <div className="w-36">
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEURISTICS</label>
-                    <Dropdown value={fsHeuristics} onChange={setFsHeuristics} options={HEURISTICS.map(h => ({ value: h, label: h || '(default)' }))} />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">SKIP (comma-separated)</label>
-                    <input type="text" value={fsSkip} onChange={(e) => setFsSkip(e.target.value)} placeholder="spidering,discovery" className={inputClass} />
-                  </div>
                   <div className="flex-1">
                     <label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULES <span className="normal-case font-normal">(blank = all)</span></label>
-                    <input type="text" value={fsModules} onChange={(e) => setFsModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} />
+                    <input type="text" value={modules} onChange={(e) => setModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} />
                   </div>
                   <div className="flex-1">
                     <label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULE_TAGS <span className="normal-case font-normal">(blank = all)</span></label>
-                    <input type="text" value={fsModuleTags} onChange={(e) => setFsModuleTags(e.target.value)} placeholder="xss,light" className={inputClass} />
+                    <input type="text" value={moduleTags} onChange={(e) => setModuleTags(e.target.value)} placeholder="xss,light" className={inputClass} />
                   </div>
                   <div className="flex-1">
                     <label className="text-[#918175] text-[10px] uppercase block mb-0.5">SCANNING_PROFILE</label>
-                    <input type="text" value={fsScanProfile} onChange={(e) => setFsScanProfile(e.target.value)} placeholder="profile name" className={inputClass} />
+                    <input type="text" value={scanProfile} onChange={(e) => setScanProfile(e.target.value)} placeholder="profile name" className={inputClass} />
                   </div>
                 </div>
-                <button onClick={() => setFsAdvancedOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-[#918175] hover:text-[#fce8c3]">
-                  {fsAdvancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} ADVANCED OPTIONS
-                </button>
-                {fsAdvancedOpen && (
-                  <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
-                    <div className="flex gap-2">
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_PATH (local path)</label><input type="text" value={fsRepoPath} onChange={(e) => { setFsRepoPath(e.target.value); if (e.target.value) setFsRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_URL (git URL)</label><input type="text" value={fsRepoUrl} onChange={(e) => { setFsRepoUrl(e.target.value); if (e.target.value) setFsRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} /></div>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">CONCURRENCY</label><input type="number" value={fsConcurrency} onChange={(e) => setFsConcurrency(e.target.value)} placeholder="10" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TIMEOUT</label><input type="text" value={fsTimeout} onChange={(e) => setFsTimeout(e.target.value)} placeholder="30s" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_PER_HOST</label><input type="number" value={fsMaxPerHost} onChange={(e) => setFsMaxPerHost(e.target.value)} placeholder="5" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">RATE_LIMIT</label><input type="number" value={fsRateLimit} onChange={(e) => setFsRateLimit(e.target.value)} placeholder="100" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_DURATION</label><input type="text" value={fsMaxDuration} onChange={(e) => setFsMaxDuration(e.target.value)} placeholder="30m" className={inputClass} /></div>
-                    </div>
-                    <div>
-                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEADERS</label>
-                      <div className="space-y-1">
-                        {fsHeaders.map((h, i) => (<div key={i} className="flex gap-1 items-center"><input type="text" value={h.key} onChange={(e) => updateFsHeader(i, 'key', e.target.value)} placeholder="Header-Name" className={`${inputClass} flex-1`} /><input type="text" value={h.value} onChange={(e) => updateFsHeader(i, 'value', e.target.value)} placeholder="value" className={`${inputClass} flex-1`} /><button onClick={() => removeFsHeader(i)} className="text-[#918175] hover:text-[#ef2f27] text-xs px-1">x</button></div>))}
-                        <button onClick={addFsHeader} className="text-xs text-[#918175] hover:text-[#7fd962]">[+ header]</button>
-                      </div>
-                    </div>
+                <div className="flex gap-2">
+                  <div className="w-40">
+                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">ONLY (phase)</label>
+                    <Dropdown value={only} onChange={setOnly} options={PHASES.map(p => ({ value: p, label: p || '(all phases)' }))} />
                   </div>
-                )}
-                <div className="flex gap-2 items-center">
-                  <button onClick={handleSubmitFullScan} disabled={!fsCanSubmit || runScan.isPending} className={btnClass}>{runScan.isPending ? 'scanning...' : '[RUN_SCAN]'}</button>
-                  <button onClick={() => setFsDryRun(!fsDryRun)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${fsDryRun ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>DRY_RUN: {fsDryRun ? 'ON' : 'OFF'}</button>
+                  <div className="flex-1">
+                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">SKIP (comma-separated)</label>
+                    <input type="text" value={skip} onChange={(e) => setSkip(e.target.value)} placeholder="spidering,discovery" className={inputClass} />
+                  </div>
+                  <div className="w-36">
+                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">SCOPE_ORIGIN</label>
+                    <Dropdown value={scopeOrigin} onChange={setScopeOrigin} options={SCOPE_ORIGINS.map(s => ({ value: s, label: s || '(default)' }))} />
+                  </div>
+                  <div className="w-36">
+                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEURISTICS</label>
+                    <Dropdown value={heuristics} onChange={setHeuristics} options={HEURISTICS.map(h => ({ value: h, label: h || '(default)' }))} />
+                  </div>
                 </div>
-              </>
-            )}
-
-            {/* ===== URL SCAN ===== */}
-            {mode === 'url' && (
-              <>
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">URL *</label><input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/api/endpoint" className={inputClass} /></div>
-                  <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">METHOD</label><Dropdown value={method} onChange={setMethod} options={METHODS.map(m => ({ value: m, label: m }))} /></div>
+                <div className="flex gap-2">
+                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">CONCURRENCY</label><input type="number" value={concurrency} onChange={(e) => setConcurrency(e.target.value)} placeholder="10" className={inputClass} /></div>
+                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TIMEOUT</label><input type="text" value={timeout} onChange={(e) => setTimeout(e.target.value)} placeholder="30s" className={inputClass} /></div>
+                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_PER_HOST</label><input type="number" value={maxPerHost} onChange={(e) => setMaxPerHost(e.target.value)} placeholder="5" className={inputClass} /></div>
+                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">RATE_LIMIT</label><input type="number" value={rateLimit} onChange={(e) => setRateLimit(e.target.value)} placeholder="100" className={inputClass} /></div>
+                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_DURATION</label><input type="text" value={maxDuration} onChange={(e) => setMaxDuration(e.target.value)} placeholder="30m" className={inputClass} /></div>
                 </div>
-                <div><label className="text-[#918175] text-[10px] uppercase block mb-0.5">BODY (optional)</label><textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} placeholder='{"key": "value"}' className={textareaClass} /></div>
                 <div>
                   <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEADERS</label>
                   <div className="space-y-1">
-                    {headers.map((h, i) => (<div key={i} className="flex gap-1 items-center"><input type="text" value={h.key} onChange={(e) => updateHeader(i, 'key', e.target.value)} placeholder="Header-Name" className={`${inputClass} flex-1`} /><input type="text" value={h.value} onChange={(e) => updateHeader(i, 'value', e.target.value)} placeholder="value" className={`${inputClass} flex-1`} /><button onClick={() => removeHeader(i)} className="text-[#918175] hover:text-[#ef2f27] text-xs px-1">x</button></div>))}
+                    {headers.map((h, i) => (
+                      <div key={i} className="flex gap-1 items-center">
+                        <input type="text" value={h.key} onChange={(e) => updateHeader(i, 'key', e.target.value)} placeholder="Header-Name" className={`${inputClass} flex-1`} />
+                        <input type="text" value={h.value} onChange={(e) => updateHeader(i, 'value', e.target.value)} placeholder="value" className={`${inputClass} flex-1`} />
+                        <button onClick={() => removeHeader(i)} className="text-[#918175] hover:text-[#ef2f27] text-xs px-1">x</button>
+                      </div>
+                    ))}
                     <button onClick={addHeader} className="text-xs text-[#918175] hover:text-[#7fd962]">[+ header]</button>
                   </div>
                 </div>
-                <div className="flex gap-2 items-end">
-                  <button onClick={handleSubmitURL} disabled={!url || scanURL.isPending} className={btnClass}>{scanURL.isPending ? 'scanning...' : '[SCAN_URL]'}</button>
-                  <button onClick={() => setUrlNoPassive(!urlNoPassive)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${urlNoPassive ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>NO_PASSIVE: {urlNoPassive ? 'ON' : 'OFF'}</button>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULES <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={urlModules} onChange={(e) => setUrlModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} /></div>
-                </div>
-              </>
-            )}
-
-            {/* ===== RAW REQUEST ===== */}
-            {mode === 'raw_request' && (
-              <>
-                <div><label className="text-[#918175] text-[10px] uppercase block mb-0.5">RAW_REQUEST (paste plain text — auto base64-encoded on submit) *</label><textarea value={rawRequest} onChange={(e) => setRawRequest(e.target.value)} rows={6} placeholder={"GET /path HTTP/1.1\nHost: example.com\nUser-Agent: Mozilla/5.0\n..."} className={textareaClass} /></div>
-                <div><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TARGET_URL (optional)</label><input type="text" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} placeholder="https://example.com" className={inputClass} /></div>
-                <div className="flex gap-2 items-end">
-                  <button onClick={handleSubmitRaw} disabled={!rawRequest || scanRequest.isPending} className={btnClass}>{scanRequest.isPending ? 'scanning...' : '[SCAN_REQUEST]'}</button>
-                  <button onClick={() => setRawNoPassive(!rawNoPassive)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${rawNoPassive ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>NO_PASSIVE: {rawNoPassive ? 'ON' : 'OFF'}</button>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULES <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={rawModules} onChange={(e) => setRawModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} /></div>
-                </div>
-              </>
-            )}
-
-            {/* ===== REPO SCAN (SAST) ===== */}
-            {mode === 'repo_scan' && (
-              <>
+                {/* Repo upload */}
                 <div
                   onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}
-                  className={`border border-dashed p-4 text-center transition-colors ${rsCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${rsDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
+                  className={`border border-dashed p-3 text-center transition-colors ${rsCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${rsDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
                   onClick={() => { if (!rsCompressing && !uploadRepo.isPending) fileInputRef.current?.click(); }}
                 >
                   <input ref={fileInputRef} type="file" accept=".zip,.tar.gz,.tgz,.tar" onChange={handleFileUpload} className="hidden" />
                   {rsCompressing || uploadRepo.isPending ? (
                     <>
-                      <Loader2 className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962] animate-spin" />
+                      <Loader2 className="w-4 h-4 mx-auto mb-1 text-[#7fd962] animate-spin" />
                       <p className="text-xs text-[#fce8c3]">{rsCompressing ? 'Compressing folder...' : 'Uploading...'}</p>
                     </>
                   ) : (
                     <>
-                      <Upload className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962]/70" />
-                      <p className="text-xs text-[#fce8c3]">
-                        {rsDragging ? 'Drop here to upload' : 'Click or drag & drop archive or folder'}
-                      </p>
+                      <Upload className="w-4 h-4 mx-auto mb-1 text-[#7fd962]/70" />
+                      <p className="text-xs text-[#fce8c3]">{rsDragging ? 'Drop here to upload' : 'Upload repo archive / folder for SAST'}</p>
                     </>
                   )}
-                  <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
-                  {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — repo_path set</p>}
+                  <p className="text-[10px] text-[#918175] mt-0.5">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
+                  {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — repo_path: {uploadedRepoPath}</p>}
                   {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
                 </div>
-                <div className="flex gap-2">
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_PATH (local path or uploaded)</label><input type="text" value={rsRepoPath} onChange={(e) => { setRsRepoPath(e.target.value); if (e.target.value) setRsRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_URL (git URL)</label><input type="text" value={rsRepoUrl} onChange={(e) => { setRsRepoUrl(e.target.value); if (e.target.value) setRsRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} /></div>
-                </div>
-                <div><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TARGETS (optional — URLs to correlate with source, one per line)</label><textarea value={rsTargets} onChange={(e) => setRsTargets(e.target.value)} rows={2} placeholder={"https://example.com"} className={textareaClass} /></div>
-                <div className="flex gap-2">
-                  <div className="w-40"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">STRATEGY</label><Dropdown value={rsStrategy} onChange={setRsStrategy} options={STRATEGIES.map(s => ({ value: s, label: s }))} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULES <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={rsModules} onChange={(e) => setRsModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULE_TAGS <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={rsModuleTags} onChange={(e) => setRsModuleTags(e.target.value)} placeholder="sast,light" className={inputClass} /></div>
-                </div>
-                <button onClick={() => setRsAdvancedOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-[#918175] hover:text-[#fce8c3]">
-                  {rsAdvancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} ADVANCED OPTIONS
-                </button>
-                {rsAdvancedOpen && (
-                  <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
-                    <div className="flex gap-2">
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">CONCURRENCY</label><input type="number" value={rsConcurrency} onChange={(e) => setRsConcurrency(e.target.value)} placeholder="10" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TIMEOUT</label><input type="text" value={rsTimeout} onChange={(e) => setRsTimeout(e.target.value)} placeholder="30s" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_PER_HOST</label><input type="number" value={rsMaxPerHost} onChange={(e) => setRsMaxPerHost(e.target.value)} placeholder="5" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">RATE_LIMIT</label><input type="number" value={rsRateLimit} onChange={(e) => setRsRateLimit(e.target.value)} placeholder="100" className={inputClass} /></div>
-                      <div className="w-36"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_DURATION</label><input type="text" value={rsMaxDuration} onChange={(e) => setRsMaxDuration(e.target.value)} placeholder="30m" className={inputClass} /></div>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="w-36"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEURISTICS</label><Dropdown value={rsHeuristics} onChange={setRsHeuristics} options={HEURISTICS.map(h => ({ value: h, label: h || '(default)' }))} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SCANNING_PROFILE</label><input type="text" value={rsScanProfile} onChange={(e) => setRsScanProfile(e.target.value)} placeholder="profile name" className={inputClass} /></div>
-                    </div>
-                    <div>
-                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEADERS</label>
-                      <div className="space-y-1">
-                        {rsHeaders.map((h, i) => (<div key={i} className="flex gap-1 items-center"><input type="text" value={h.key} onChange={(e) => updateRsHeader(i, 'key', e.target.value)} placeholder="Header-Name" className={`${inputClass} flex-1`} /><input type="text" value={h.value} onChange={(e) => updateRsHeader(i, 'value', e.target.value)} placeholder="value" className={`${inputClass} flex-1`} /><button onClick={() => removeRsHeader(i)} className="text-[#918175] hover:text-[#ef2f27] text-xs px-1">x</button></div>))}
-                        <button onClick={addRsHeader} className="text-xs text-[#918175] hover:text-[#7fd962]">[+ header]</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className="flex gap-2 items-center">
-                  <button onClick={handleSubmitRepoScan} disabled={!rsCanSubmit || runScan.isPending} className={btnClass}>{runScan.isPending ? 'scanning...' : '[RUN_SCAN]'}</button>
-                  <button onClick={() => setRsDryRun(!rsDryRun)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${rsDryRun ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>DRY_RUN: {rsDryRun ? 'ON' : 'OFF'}</button>
-                </div>
-              </>
-            )}
-
-            {/* ===== STORED RECORDS ===== */}
-            {mode === 'stored_records' && (
-              <>
-                <div className="flex gap-2">
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">HOSTNAME (wildcard: *)</label><input type="text" value={srHostname} onChange={(e) => setSrHostname(e.target.value)} placeholder="*.example.com" className={inputClass} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">PATH (wildcard: *)</label><input type="text" value={srPath} onChange={(e) => setSrPath(e.target.value)} placeholder="/api/*" className={inputClass} /></div>
-                </div>
-                <div className="flex gap-2 items-end">
-                  <div>
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">METHODS</label>
-                    <div className="flex gap-1">
-                      {FILTER_METHODS.map(m => (<button key={m} onClick={() => setSrMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])} className={`px-1.5 py-0.5 text-[10px] border transition-colors ${srMethods.includes(m) ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>{m}</button>))}
-                    </div>
-                  </div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">STATUS_CODES (comma-separated)</label><input type="text" value={srStatusCodes} onChange={(e) => setSrStatusCodes(e.target.value)} placeholder="200,301,404" className={inputClass} /></div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SOURCE</label><input type="text" value={srSource} onChange={(e) => setSrSource(e.target.value)} placeholder="proxy, crawler" className={inputClass} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SEARCH</label><input type="text" value={srSearch} onChange={(e) => setSrSearch(e.target.value)} placeholder="keyword" className={inputClass} /></div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="w-36"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MIN_RISK_SCORE</label><input type="number" value={srMinRisk} onChange={(e) => setSrMinRisk(e.target.value)} placeholder="0" className={inputClass} /></div>
-                  <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REMARK</label><input type="text" value={srRemark} onChange={(e) => setSrRemark(e.target.value)} placeholder="filter by remark" className={inputClass} /></div>
-                </div>
-                <button onClick={() => setSrAdvancedOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-[#918175] hover:text-[#fce8c3]">
-                  {srAdvancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} SCAN OPTIONS
-                </button>
-                {srAdvancedOpen && (
-                  <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
-                    <div className="flex gap-2">
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULES <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={srModules} onChange={(e) => setSrModules(e.target.value)} placeholder="xss_scanner,sqli_error_based" className={inputClass} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MODULE_TAGS <span className="normal-case font-normal">(blank = all)</span></label><input type="text" value={srModuleTags} onChange={(e) => setSrModuleTags(e.target.value)} placeholder="xss,light" className={inputClass} /></div>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">CONCURRENCY</label><input type="number" value={srConcurrency} onChange={(e) => setSrConcurrency(e.target.value)} placeholder="10" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">TIMEOUT</label><input type="text" value={srTimeout} onChange={(e) => setSrTimeout(e.target.value)} placeholder="30s" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_PER_HOST</label><input type="number" value={srMaxPerHost} onChange={(e) => setSrMaxPerHost(e.target.value)} placeholder="5" className={inputClass} /></div>
-                      <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">RATE_LIMIT</label><input type="number" value={srRateLimit} onChange={(e) => setSrRateLimit(e.target.value)} placeholder="100" className={inputClass} /></div>
-                      <div className="w-36"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MAX_DURATION</label><input type="text" value={srMaxDuration} onChange={(e) => setSrMaxDuration(e.target.value)} placeholder="30m" className={inputClass} /></div>
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="w-36"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEURISTICS</label><Dropdown value={srHeuristics} onChange={setSrHeuristics} options={HEURISTICS.map(h => ({ value: h, label: h || '(default)' }))} /></div>
-                      <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SCANNING_PROFILE</label><input type="text" value={srScanProfile} onChange={(e) => setSrScanProfile(e.target.value)} placeholder="profile name" className={inputClass} /></div>
-                    </div>
-                    <div>
-                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">HEADERS</label>
-                      <div className="space-y-1">
-                        {srHeaders.map((h, i) => (<div key={i} className="flex gap-1 items-center"><input type="text" value={h.key} onChange={(e) => updateSrHeader(i, 'key', e.target.value)} placeholder="Header-Name" className={`${inputClass} flex-1`} /><input type="text" value={h.value} onChange={(e) => updateSrHeader(i, 'value', e.target.value)} placeholder="value" className={`${inputClass} flex-1`} /><button onClick={() => removeSrHeader(i)} className="text-[#918175] hover:text-[#ef2f27] text-xs px-1">x</button></div>))}
-                        <button onClick={addSrHeader} className="text-xs text-[#918175] hover:text-[#7fd962]">[+ header]</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className="flex gap-2 items-center">
-                  <button onClick={handleSubmitStoredRecords} disabled={scanAllRecords.isPending} className={btnClass}>{scanAllRecords.isPending ? 'scanning...' : '[SCAN_RECORDS]'}</button>
-                  <button onClick={() => setSrForce(!srForce)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${srForce ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>FORCE: {srForce ? 'ON' : 'OFF'}</button>
-                  <button onClick={() => setSrDryRun(!srDryRun)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${srDryRun ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>DRY_RUN: {srDryRun ? 'ON' : 'OFF'}</button>
-                </div>
-              </>
+              </div>
             )}
 
             {/* Result display */}
@@ -763,6 +631,45 @@ export default function ScanPage() {
               </div>
             )}
             {mutation.isError && <div className="text-xs text-[#ef2f27]">error: {(mutation.error as Error).message}</div>}
+
+            {/* Stored Records */}
+            {storedRecordsOpen && (
+              <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
+                  <div className="flex gap-2">
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">HOSTNAME (wildcard: *)</label><input type="text" value={srHostname} onChange={(e) => setSrHostname(e.target.value)} placeholder="*.example.com" className={inputClass} /></div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">PATH (wildcard: *)</label><input type="text" value={srPath} onChange={(e) => setSrPath(e.target.value)} placeholder="/api/*" className={inputClass} /></div>
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <div>
+                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">METHODS</label>
+                      <div className="flex gap-1">
+                        {FILTER_METHODS.map(m => (<button key={m} onClick={() => setSrMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])} className={`px-1.5 py-0.5 text-[10px] border transition-colors ${srMethods.includes(m) ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>{m}</button>))}
+                      </div>
+                    </div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">STATUS_CODES</label><input type="text" value={srStatusCodes} onChange={(e) => setSrStatusCodes(e.target.value)} placeholder="200,301,404" className={inputClass} /></div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SOURCE</label><input type="text" value={srSource} onChange={(e) => setSrSource(e.target.value)} placeholder="proxy, crawler" className={inputClass} /></div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SEARCH</label><input type="text" value={srSearch} onChange={(e) => setSrSearch(e.target.value)} placeholder="keyword" className={inputClass} /></div>
+                    <div className="w-28"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">MIN_RISK</label><input type="number" value={srMinRisk} onChange={(e) => setSrMinRisk(e.target.value)} placeholder="0" className={inputClass} /></div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REMARK</label><input type="text" value={srRemark} onChange={(e) => setSrRemark(e.target.value)} placeholder="filter by remark" className={inputClass} /></div>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <button onClick={handleSubmitStoredRecords} disabled={scanAllRecords.isPending} className={btnClass}>{scanAllRecords.isPending ? 'scanning...' : '[SCAN_RECORDS]'}</button>
+                    <button onClick={() => setSrForce(!srForce)} className={`px-2 py-0.5 text-[10px] border transition-colors ${srForce ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>FORCE: {srForce ? 'ON' : 'OFF'}</button>
+                  </div>
+                  {scanAllRecords.isSuccess && scanAllRecords.data && (
+                    <div className="border border-[#2e2b26] p-2 text-xs flex items-center gap-4 flex-wrap">
+                      <span className="text-[#7fd962] font-bold">RESULT</span>
+                      <span><span className="text-[#918175]">scan_id:</span> <span className="text-[#fce8c3]">{scanAllRecords.data.scan_id}</span></span>
+                      <span><span className="text-[#918175]">status:</span> <span className="text-[#fce8c3]">{scanAllRecords.data.status}</span></span>
+                      {scanAllRecords.data.records_to_scan != null && <span><span className="text-[#918175]">records:</span> <span className="text-[#fce8c3]">{scanAllRecords.data.records_to_scan}</span></span>}
+                      {scanAllRecords.data.message && <span><span className="text-[#918175]">msg:</span> <span className="text-[#fce8c3]">{scanAllRecords.data.message}</span></span>}
+                    </div>
+                  )}
+                  {scanAllRecords.isError && <div className="text-xs text-[#ef2f27]">error: {(scanAllRecords.error as Error).message}</div>}
+              </div>
+            )}
           </div>
         )}
       </div>

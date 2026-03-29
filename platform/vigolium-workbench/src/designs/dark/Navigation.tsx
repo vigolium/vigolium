@@ -29,7 +29,7 @@ const NAV_ITEMS = [
   { href: '/scope', label: 'SCOPE', icon: Target, group: 'blue' as const },
   { href: '/ingest', label: 'INGEST', icon: Import, group: 'orange' as const },
   { href: '/scan', label: 'NATIVE SCAN', icon: Radar, group: 'orange' as const },
-  { href: '/agents', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' as const },
+  { href: '/agentic-scan', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' as const },
   { href: '/database', label: 'DATABASE', icon: Database, group: 'blue' as const },
   { href: '/settings', label: 'SETTINGS', icon: SlidersHorizontal, group: 'blue' as const },
 ];

@@ -81,6 +81,31 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		})
 	}
 
+	// Natural language prompt: resolve when explicit fields are empty
+	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.EffectiveSourcePath() == "" {
+		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
+		if resolveErr != nil {
+			return resolveErr // already sent HTTP response
+		}
+		if req.DryRun {
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{"intent": resolved})
+		}
+		// Apply first app from intent (API handles single-app only; use swarm for multi-app)
+		if len(resolved.Apps) > 0 {
+			app := resolved.Apps[0]
+			req.Target = app.Target
+			if req.SourcePath == "" {
+				req.SourcePath = app.SourcePath
+			}
+			if req.Focus == "" {
+				req.Focus = app.Focus
+			}
+			if req.Instruction == "" {
+				req.Instruction = app.Instruction
+			}
+		}
+	}
+
 	// Derive target from input when target is not provided
 	if req.Target == "" && req.Input != "" {
 		targetURL, err := agent.TargetURLFromInput(context.Background(), req.Input, "", h.repo)
@@ -92,9 +117,9 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		req.Target = targetURL
 	}
 
-	if req.Target == "" {
+	if req.Target == "" && req.EffectiveSourcePath() == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: ErrMissingTarget.Error(),
+			Error: "target or source is required (use target, input, source, or prompt field)",
 		})
 	}
 
@@ -159,7 +184,7 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent
 		specialists = []string{"injection", "xss", "auth", "ssrf", "authz"}
 	}
 
-	return agent.AutopilotPipelineConfig{
+	cfg := agent.AutopilotPipelineConfig{
 		TargetURL:   req.Target,
 		SourcePath:  req.EffectiveSourcePath(),
 		Files:       req.Files,
@@ -174,6 +199,12 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent
 		ProjectUUID: req.ProjectUUID,
 		ScanUUID:    req.ScanUUID,
 	}
+
+	if auditCfg := agent.ResolveAuditAgentConfig(req.AuditAgent, h.settings.Agent.AuditAgent); auditCfg != nil {
+		cfg.AuditAgent = auditCfg
+	}
+
+	return cfg
 }
 
 // handleAutopilotSSE runs the autopilot pipeline synchronously while streaming SSE events.
@@ -326,6 +357,30 @@ func (h *Handlers) HandleAgentPipeline(c fiber.Ctx) error {
 		})
 	}
 
+	// Natural language prompt: resolve when explicit fields are empty
+	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.EffectiveSourcePath() == "" {
+		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if req.DryRun {
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{"intent": resolved})
+		}
+		if len(resolved.Apps) > 0 {
+			app := resolved.Apps[0]
+			req.Target = app.Target
+			if req.SourcePath == "" {
+				req.SourcePath = app.SourcePath
+			}
+			if req.Focus == "" {
+				req.Focus = app.Focus
+			}
+			if req.Instruction == "" {
+				req.Instruction = app.Instruction
+			}
+		}
+	}
+
 	// Derive target from input when target is not provided
 	if req.Target == "" && req.Input != "" {
 		targetURL, err := agent.TargetURLFromInput(context.Background(), req.Input, "", h.repo)
@@ -337,9 +392,9 @@ func (h *Handlers) HandleAgentPipeline(c fiber.Ctx) error {
 		req.Target = targetURL
 	}
 
-	if req.Target == "" {
+	if req.Target == "" && req.EffectiveSourcePath() == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: ErrMissingTarget.Error(),
+			Error: "target or source is required (use target, input, source, or prompt field)",
 		})
 	}
 
@@ -693,6 +748,40 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 		})
 	}
 
+	// Natural language prompt: resolve when explicit fields are empty
+	hasExplicitInput := req.Input != "" || len(req.Inputs) > 0 || req.HTTPRequestBase64 != "" || req.SourcePath != ""
+	if req.Prompt != "" && !hasExplicitInput {
+		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
+		if resolveErr != nil {
+			return resolveErr // already sent HTTP response
+		}
+		if req.DryRun {
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{"intent": resolved})
+		}
+		// Apply first app from intent
+		if len(resolved.Apps) > 0 {
+			app := resolved.Apps[0]
+			if app.Target != "" {
+				req.Input = app.Target
+			}
+			if req.SourcePath == "" {
+				req.SourcePath = app.SourcePath
+			}
+			if req.Focus == "" {
+				req.Focus = app.Focus
+			}
+			if req.Instruction == "" {
+				req.Instruction = app.Instruction
+			}
+			if app.Discover {
+				req.Discover = true
+			}
+			if app.CodeAudit {
+				req.CodeAudit = true
+			}
+		}
+	}
+
 	// If base64 HTTP request is provided, ingest it and use the record UUID as input.
 	if req.HTTPRequestBase64 != "" {
 		recordUUID, err := h.ingestSwarmBase64(c, &req)
@@ -703,9 +792,9 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 	}
 
 	inputs := req.EffectiveInputs()
-	if len(inputs) == 0 {
+	if len(inputs) == 0 && req.SourcePath == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "at least one input is required (input, inputs, or http_request_base64 field)",
+			Error: "at least one input is required (input, inputs, http_request_base64, source_path, or prompt field)",
 		})
 	}
 
@@ -917,6 +1006,11 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 			_ = agent.WriteCheckpointToDir(cfg.SessionDir, syntheticCP)
 			cfg.ResumeDir = cfg.SessionDir
 		}
+	}
+
+	// Wire audit agent
+	if auditCfg := agent.ResolveAuditAgentConfig(req.AuditAgent, h.settings.Agent.AuditAgent); auditCfg != nil {
+		cfg.AuditAgent = auditCfg
 	}
 
 	return cfg
@@ -1777,5 +1871,17 @@ func parseDurationOrDefault(s string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// resolvePromptIntent parses a natural language prompt into a ScanIntent using the agent engine.
+// On error, it sends an HTTP error response and returns the error for early return.
+func (h *Handlers) resolvePromptIntent(c fiber.Ctx, prompt string) (*agent.ScanIntent, error) {
+	intent, err := agent.ParseAndResolveIntent(c.Context(), h.agentEngine, prompt)
+	if err != nil {
+		return nil, c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "failed to parse natural language prompt: " + err.Error(),
+		})
+	}
+	return intent, nil
 }
 

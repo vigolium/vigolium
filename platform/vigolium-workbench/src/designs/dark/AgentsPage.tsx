@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Play, Square, Send, Bot, Terminal, MessageSquare, Clock, CheckCircle, XCircle, Loader2, Zap, Layers, Bug, ScrollText, Copy, Check, Upload } from 'lucide-react';
+import { Play, Square, Send, Bot, Terminal, MessageSquare, Clock, CheckCircle, XCircle, Loader2, Zap, Layers, Bug, ScrollText, Copy, Check, Upload, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useAgentSessions, useAgentSessionDetail, useUploadRepo } from '@/api/hooks';
 import { fetchSSE } from '@/lib/sse';
@@ -11,9 +11,7 @@ import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
 
-type MainTab = 'swarm' | 'autopilot' | 'query' | 'chat';
-type ScanMode = 'template' | 'custom';
-type InputMode = 'url' | 'raw' | 'curl';
+type ScanType = 'quick' | 'deep' | 'ask';
 
 const AGENT_OPTIONS = [
   { value: '', label: 'default' },
@@ -23,11 +21,10 @@ const AGENT_OPTIONS = [
   { value: 'custom', label: 'custom' },
 ];
 
-const TAB_DESCRIPTIONS: Record<MainTab, string> = {
-  swarm: 'AI-guided targeted vulnerability swarm. Best for focused scanning with module selection.',
-  autopilot: 'Full autonomy — agent drives the CLI. Best for exploratory scanning and ad-hoc testing.',
-  query: 'Single prompt → structured output. Best for code review and endpoint discovery.',
-  chat: 'Conversational interface for interactive agent sessions.',
+const SCAN_TYPE_META: Record<ScanType, { label: string; desc: string; icon: typeof Bug; endpoint: string; btnLabel: string }> = {
+  quick: { label: 'Swarm', desc: 'AI-guided targeted vulnerability scan with module selection.', icon: Bug, endpoint: '/api/agent/run/swarm', btnLabel: 'START SCAN' },
+  deep: { label: 'Autopilot', desc: 'Full autonomy — agent drives the scanner for exploratory testing.', icon: Bot, endpoint: '/api/agent/run/autopilot', btnLabel: 'START SCAN' },
+  ask: { label: 'Ask AI', desc: 'Single prompt for code review, endpoint discovery, or security questions.', icon: Search, endpoint: '/api/agent/run/query', btnLabel: 'ASK' },
 };
 
 interface ChatMessage {
@@ -178,58 +175,66 @@ function SessionDetailPanel({ session, onClose }: { session: AgentSessionDetail;
   );
 }
 
+/* ── Detect input type from pasted text ── */
+type DetectedInputType = 'url' | 'raw' | 'curl' | 'targets';
+
+function detectInputType(input: string): DetectedInputType {
+  const trimmed = input.trim();
+  if (!trimmed) return 'url';
+  if (/^curl\s/i.test(trimmed)) return 'curl';
+  if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\S+\s*HTTP\//i.test(trimmed)) return 'raw';
+  if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//i.test(trimmed)) return 'raw';
+  const lines = trimmed.split('\n').filter(l => l.trim());
+  if (lines.length > 1 && lines.every(l => /^https?:\/\//.test(l.trim()))) return 'targets';
+  return 'url';
+}
+
+const INPUT_TYPE_LABELS: Record<DetectedInputType, string> = {
+  url: 'url',
+  raw: 'raw request',
+  curl: 'curl',
+  targets: 'multi-target',
+};
+
+const INPUT_TYPE_COLORS: Record<DetectedInputType, string> = {
+  url: '#7fd962',
+  raw: '#f2c55c',
+  curl: '#68a8e4',
+  targets: '#2be4d0',
+};
+
 export default function AgentsPage() {
-  const [mainTab, setMainTab] = useState<MainTab>('swarm');
+  const [scanType, setScanType] = useState<ScanType>('quick');
 
-  // Query tab state
-  const [scanMode, setScanMode] = useState<ScanMode>('template');
-  const [agentName, setAgentName] = useState('');
-  const [promptTemplate, setPromptTemplate] = useState('');
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [repoPath, setRepoPath] = useState('');
+  // Unified input
+  const [input, setInput] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const inputTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const detectedInputType = input.trim() ? detectInputType(input) : null;
+
+  // Advanced options (shared across modes)
+  const [agent, setAgent] = useState('');
+  const [moduleTags, setModuleTags] = useState('');
+  const [vulnType, setVulnType] = useState('');
+  const [sourcePath, setSourcePath] = useState('');
+  const [timeout, setTimeout_] = useState('');
+  const [instruction, setInstruction] = useState('');
   const [files, setFiles] = useState('');
-  const [append, setAppend] = useState('');
-  const [source, setSource] = useState('');
+  const [focus, setFocus] = useState('');
+  const [profile, setProfile] = useState('');
+  const [maxIterations, setMaxIterations] = useState('');
+  const [additionalInputs, setAdditionalInputs] = useState('');
   const [scanUuid, setScanUuid] = useState('');
-  const [scanOutput, setScanOutput] = useState('');
-  const [scanResult, setScanResult] = useState<Record<string, unknown> | null>(null);
-  const [scanError, setScanError] = useState('');
+  const [projectUuid, setProjectUuid] = useState('');
+  const [discover, setDiscover] = useState(false);
+  const [codeAudit, setCodeAudit] = useState(false);
+  const [skipSast, setSkipSast] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
 
-  // Autopilot tab state
-  const [autopilotTarget, setAutopilotTarget] = useState('');
-  const [autopilotAgent, setAutopilotAgent] = useState('');
-  const [autopilotFocus, setAutopilotFocus] = useState('');
-  const [autopilotTimeout, setAutopilotTimeout] = useState('');
-  const [autopilotSystemPrompt, setAutopilotSystemPrompt] = useState('');
-  const [autopilotMaxCommands, setAutopilotMaxCommands] = useState('');
-  const [autopilotDryRun, setAutopilotDryRun] = useState(false);
-  const [autopilotRepoPath, setAutopilotRepoPath] = useState('');
-  const [autopilotFiles, setAutopilotFiles] = useState('');
-  const [autopilotScanUuid, setAutopilotScanUuid] = useState('');
-
-  // Swarm tab state
-  const [swarmInputMode, setSwarmInputMode] = useState<InputMode>('url');
-  const [swarmInput, setSwarmInput] = useState('');
-  const [swarmInputs, setSwarmInputs] = useState('');
-  const [swarmSource, setSwarmSource] = useState('');
-  const [swarmModuleTags, setSwarmModuleTags] = useState('');
-  const [swarmAgent, setSwarmAgent] = useState('');
-  const [swarmVulnType, setSwarmVulnType] = useState('');
-  const [swarmMaxIterations, setSwarmMaxIterations] = useState('');
-  const [swarmTimeout, setSwarmTimeout] = useState('');
-  const [swarmDryRun, setSwarmDryRun] = useState(false);
-  const [swarmScanUuid, setSwarmScanUuid] = useState('');
-  const [swarmProjectUuid, setSwarmProjectUuid] = useState('');
-  const [swarmInstruction, setSwarmInstruction] = useState('');
-  const [swarmFiles, setSwarmFiles] = useState('');
-  const [swarmFocus, setSwarmFocus] = useState('');
-  const [swarmProfile, setSwarmProfile] = useState('');
-  const [swarmSourceAnalysisOnly, setSwarmSourceAnalysisOnly] = useState(false);
-  const [swarmDiscover, setSwarmDiscover] = useState(false);
-  const [swarmCodeAudit, setSwarmCodeAudit] = useState(false);
-  const [swarmSkipSast, setSwarmSkipSast] = useState(false);
-
-  // Chat tab state
+  // Chat state
+  const [showChat, setShowChat] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
 
@@ -242,12 +247,18 @@ export default function AgentsPage() {
 
   // Shared state
   const [isStreaming, setIsStreaming] = useState(false);
+  const [scanOutput, setScanOutput] = useState('');
+  const [scanResult, setScanResult] = useState<Record<string, unknown> | null>(null);
+  const [scanError, setScanError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const scanOutputRef = useRef<HTMLPreElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Agent sessions
   const [expandedSessionUuid, setExpandedSessionUuid] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [outputOpen, setOutputOpen] = useState(true);
+  const [recentScansOpen, setRecentScansOpen] = useState(true);
   const { data: sessionsData } = useAgentSessions({ limit: 20 });
   const { data: sessionDetail } = useAgentSessionDetail(expandedSessionUuid);
 
@@ -263,14 +274,39 @@ export default function AgentsPage() {
 
   useEffect(scrollChatToBottom, [messages, scrollChatToBottom]);
 
+  // Auto-expand textareas
+  useEffect(() => {
+    const el = inputTextareaRef.current;
+    if (!el) return;
+    const minH = 8 * 16 + 12;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, minH)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    const el = promptTextareaRef.current;
+    if (!el) return;
+    const minH = 4 * 16 + 12;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(el.scrollHeight, minH)}px`;
+  }, [prompt]);
+
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
   }, []);
 
-  const handleQuerySubmit = useCallback(() => {
+  const handleSubmit = useCallback(() => {
     if (isStreaming) return;
+    const trimmedInput = input.trim();
+    const trimmedPrompt = prompt.trim();
+
+    // For ask mode, we need either a prompt or input
+    if (scanType === 'ask' && !trimmedPrompt && !trimmedInput) return;
+    // For scan modes, we need an input
+    if (scanType !== 'ask' && !trimmedInput) return;
+
     setScanOutput('');
     setScanResult(null);
     setScanError('');
@@ -280,19 +316,51 @@ export default function AgentsPage() {
     abortRef.current = abort;
 
     const body: Record<string, unknown> = { stream: true };
-    if (scanMode === 'template') {
-      if (agentName) body.agent = agentName;
-      if (promptTemplate) body.prompt_template = promptTemplate;
+    const meta = SCAN_TYPE_META[scanType];
+
+    if (scanType === 'quick') {
+      // Swarm mode
+      const inputType = detectInputType(trimmedInput);
+      if (inputType === 'raw') {
+        body.http_request_base64 = btoa(trimmedInput);
+      } else {
+        body.input = trimmedInput;
+      }
+      if (additionalInputs) body.inputs = additionalInputs.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (moduleTags) body.module_tags = moduleTags.split(',').map((t) => t.trim()).filter(Boolean);
+      if (vulnType) body.vuln_type = vulnType;
+      if (maxIterations) body.max_iterations = parseInt(maxIterations, 10);
+      if (instruction) body.instruction = instruction;
+      if (files) body.files = files.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (focus) body.focus = focus;
+      if (profile) body.profile = profile;
+      if (discover) body.discover = true;
+      if (codeAudit) body.code_audit = true;
+      if (skipSast) body.skip_sast = true;
+      if (projectUuid) body.project_uuid = projectUuid;
+    } else if (scanType === 'deep') {
+      // Autopilot mode
+      body.target = trimmedInput;
+      if (focus) body.focus = focus;
+      if (instruction) body.system_prompt = instruction;
+      if (maxIterations) body.max_commands = parseInt(maxIterations, 10);
+      if (files) body.files = files.split(',').map((f) => f.trim()).filter(Boolean);
     } else {
-      if (customPrompt) body.prompt = customPrompt;
+      // Ask AI / Query mode
+      if (trimmedPrompt) body.prompt = trimmedPrompt;
+      if (trimmedInput) body.source = trimmedInput;
+      if (files) body.files = files.split(',').map((f) => f.trim()).filter(Boolean);
     }
-    if (repoPath) body.repo_path = repoPath;
-    if (files) body.files = files.split(',').map((f) => f.trim()).filter(Boolean);
-    if (append) body.append = append;
-    if (source) body.source = source;
+
+    // Shared fields
+    if (agent) body.agent = agent;
+    if (sourcePath) body.source = sourcePath;
+    if (timeout) body.timeout = timeout;
     if (scanUuid) body.scan_uuid = scanUuid;
+    if (dryRun) body.dry_run = true;
+    if (sourcePath) body.repo_path = sourcePath;
 
-    fetchSSE('/api/agent/run/query', body, {
+    fetchSSE(meta.endpoint, body, {
       onChunk: (text) => {
         setScanOutput((prev) => prev + text);
         setTimeout(scrollScanOutput, 0);
@@ -308,99 +376,7 @@ export default function AgentsPage() {
         setScanError(err.message);
       },
     }, abort.signal);
-  }, [isStreaming, scanMode, agentName, promptTemplate, customPrompt, repoPath, files, append, source, scanUuid, scrollScanOutput]);
-
-  const handleAutopilotSubmit = useCallback(() => {
-    if (isStreaming || !autopilotTarget.trim()) return;
-    setScanOutput('');
-    setScanResult(null);
-    setScanError('');
-    setIsStreaming(true);
-
-    const abort = new AbortController();
-    abortRef.current = abort;
-
-    const body: Record<string, unknown> = { target: autopilotTarget.trim(), stream: true };
-    if (autopilotAgent) body.agent = autopilotAgent;
-    if (autopilotFocus) body.focus = autopilotFocus;
-    if (autopilotTimeout) body.timeout = autopilotTimeout;
-    if (autopilotSystemPrompt) body.system_prompt = autopilotSystemPrompt;
-    if (autopilotMaxCommands) body.max_commands = parseInt(autopilotMaxCommands, 10);
-    if (autopilotDryRun) body.dry_run = true;
-    if (autopilotRepoPath) body.repo_path = autopilotRepoPath;
-    if (autopilotFiles) body.files = autopilotFiles.split(',').map((f) => f.trim()).filter(Boolean);
-    if (autopilotScanUuid) body.scan_uuid = autopilotScanUuid;
-
-    fetchSSE('/api/agent/run/autopilot', body, {
-      onChunk: (text) => {
-        setScanOutput((prev) => prev + text);
-        setTimeout(scrollScanOutput, 0);
-      },
-      onDone: (result) => {
-        setIsStreaming(false);
-        abortRef.current = null;
-        if (result && typeof result === 'object') setScanResult(result as Record<string, unknown>);
-      },
-      onError: (err) => {
-        setIsStreaming(false);
-        abortRef.current = null;
-        setScanError(err.message);
-      },
-    }, abort.signal);
-  }, [isStreaming, autopilotTarget, autopilotAgent, autopilotFocus, autopilotTimeout, autopilotSystemPrompt, autopilotMaxCommands, autopilotDryRun, autopilotRepoPath, autopilotFiles, autopilotScanUuid, scrollScanOutput]);
-
-  const handleSwarmSubmit = useCallback(() => {
-    if (isStreaming || !swarmInput.trim()) return;
-    setScanOutput('');
-    setScanResult(null);
-    setScanError('');
-    setIsStreaming(true);
-
-    const abort = new AbortController();
-    abortRef.current = abort;
-
-    const body: Record<string, unknown> = { stream: true };
-    if (swarmInputMode === 'raw') {
-      body.http_request_base64 = btoa(swarmInput);
-    } else {
-      body.input = swarmInput;
-    }
-    if (swarmInputs) body.inputs = swarmInputs.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (swarmSource) body.source = swarmSource;
-    if (swarmModuleTags) body.module_tags = swarmModuleTags.split(',').map((t) => t.trim()).filter(Boolean);
-    if (swarmAgent) body.agent = swarmAgent;
-    if (swarmVulnType) body.vuln_type = swarmVulnType;
-    if (swarmMaxIterations) body.max_iterations = parseInt(swarmMaxIterations, 10);
-    if (swarmTimeout) body.timeout = swarmTimeout;
-    if (swarmDryRun) body.dry_run = true;
-    if (swarmScanUuid) body.scan_uuid = swarmScanUuid;
-    if (swarmProjectUuid) body.project_uuid = swarmProjectUuid;
-    if (swarmInstruction) body.instruction = swarmInstruction;
-    if (swarmFiles) body.files = swarmFiles.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (swarmFocus) body.focus = swarmFocus;
-    if (swarmProfile) body.profile = swarmProfile;
-    if (swarmSourceAnalysisOnly) body.source_analysis_only = true;
-    if (swarmDiscover) body.discover = true;
-    if (swarmCodeAudit) body.code_audit = true;
-    if (swarmSkipSast) body.skip_sast = true;
-
-    fetchSSE('/api/agent/run/swarm', body, {
-      onChunk: (text) => {
-        setScanOutput((prev) => prev + text);
-        setTimeout(scrollScanOutput, 0);
-      },
-      onDone: (result) => {
-        setIsStreaming(false);
-        abortRef.current = null;
-        if (result && typeof result === 'object') setScanResult(result as Record<string, unknown>);
-      },
-      onError: (err) => {
-        setIsStreaming(false);
-        abortRef.current = null;
-        setScanError(err.message);
-      },
-    }, abort.signal);
-  }, [isStreaming, swarmInput, swarmInputMode, swarmInputs, swarmSource, swarmModuleTags, swarmAgent, swarmVulnType, swarmMaxIterations, swarmTimeout, swarmDryRun, swarmScanUuid, swarmProjectUuid, swarmInstruction, swarmFiles, swarmFocus, swarmProfile, swarmSourceAnalysisOnly, swarmDiscover, swarmCodeAudit, swarmSkipSast, scrollScanOutput]);
+  }, [isStreaming, input, prompt, scanType, agent, moduleTags, vulnType, sourcePath, timeout, instruction, files, focus, profile, maxIterations, additionalInputs, scanUuid, projectUuid, discover, codeAudit, skipSast, dryRun, scrollScanOutput]);
 
   const handleChatSend = useCallback(() => {
     const text = chatInput.trim();
@@ -462,12 +438,10 @@ export default function AgentsPage() {
   const doUpload = useCallback((file: File) => {
     uploadRepo.mutate(file, {
       onSuccess: (data) => {
-        if (mainTab === 'swarm') setSwarmSource(data.repo_path);
-        else if (mainTab === 'autopilot') setAutopilotRepoPath(data.repo_path);
-        else if (mainTab === 'query') setRepoPath(data.repo_path);
+        setSourcePath(data.repo_path);
       },
     });
-  }, [uploadRepo, mainTab]);
+  }, [uploadRepo]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -563,497 +537,307 @@ export default function AgentsPage() {
     }
   }, [compressAndUpload, doUpload, uploadRepo.isPending]);
 
-  const tabBtnClass = (active: boolean) =>
-    `px-3 py-0.5 text-xs font-bold transition-colors ${
-      active ? 'text-[#7fd962] bg-[#7fd962]/10' : 'text-[#918175] hover:text-[#fce8c3]'
-    }`;
-
   const inputClass = 'bg-[#141310] border border-[#2e2b26] text-[#fce8c3] text-xs px-2 py-1 focus:outline-none focus:border-[#7fd962]/50 w-full';
 
-  const showOutputPanel = mainTab === 'swarm' || mainTab === 'query' || mainTab === 'autopilot';
-
-  const inputModeBtnClass = (active: boolean) =>
-    `px-2 py-0.5 text-xs font-bold transition-colors ${
-      active ? 'text-[#7fd962] bg-[#7fd962]/10' : 'text-[#918175] hover:text-[#fce8c3]'
+  const scanTypeBtnClass = (active: boolean) =>
+    `flex items-center gap-1.5 px-3 py-1 text-xs font-bold transition-all ${
+      active
+        ? 'text-[#7fd962] bg-[#7fd962]/10 border border-[#7fd962]/40'
+        : 'text-[#918175] hover:text-[#fce8c3] border border-[#2e2b26] hover:border-[#918175]/50'
     }`;
+
+  const canSubmit = scanType === 'ask'
+    ? (prompt.trim() || input.trim())
+    : input.trim();
 
   return (
     <PageShell>
       <div className="flex flex-col" style={{ height: 'calc(100vh - 68px)', minHeight: 500 }}>
-        {/* Tab bar + description */}
-        <div className="px-3 py-1.5 border border-b-0 border-[#2e2b26] bg-[#1c1b19] flex items-center gap-1.5">
-          <div className="flex border border-[#2e2b26]">
-            <button onClick={() => setMainTab('swarm')} className={tabBtnClass(mainTab === 'swarm')}>
-              <span className="flex items-center gap-1"><Bug className="w-3 h-3" />SWARM</span>
+        {/* ── Main form section ── */}
+        <div className="px-3 py-3 border border-b-0 border-[#2e2b26] bg-[#1c1b19] space-y-3">
+
+          {/* Scan type selector */}
+          <div className="flex items-center gap-2">
+            {(Object.keys(SCAN_TYPE_META) as ScanType[]).map((t) => {
+              const meta = SCAN_TYPE_META[t];
+              const Icon = meta.icon;
+              return (
+                <button key={t} onClick={() => setScanType(t)} className={scanTypeBtnClass(scanType === t)}>
+                  <Icon className="w-3.5 h-3.5" />{meta.label}
+                </button>
+              );
+            })}
+
+            {/* Chat toggle */}
+            <button
+              onClick={() => setShowChat(!showChat)}
+              className={`ml-auto flex items-center gap-1.5 px-3 py-1 text-xs font-bold transition-all ${
+                showChat
+                  ? 'text-[#68a8e4] bg-[#68a8e4]/10 border border-[#68a8e4]/40'
+                  : 'text-[#918175] hover:text-[#fce8c3] border border-[#2e2b26] hover:border-[#918175]/50'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />Chat
             </button>
-            <button onClick={() => setMainTab('autopilot')} className={tabBtnClass(mainTab === 'autopilot')}>
-              <span className="flex items-center gap-1"><Zap className="w-3 h-3" />AUTOPILOT</span>
-            </button>
-            <button onClick={() => setMainTab('query')} className={tabBtnClass(mainTab === 'query')}>
-              <span className="flex items-center gap-1"><Terminal className="w-3 h-3" />QUERY</span>
-            </button>
-            <button onClick={() => setMainTab('chat')} className={tabBtnClass(mainTab === 'chat')}>
-              <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />CHAT</span>
-            </button>
+
+            {isStreaming && (
+              <span className="text-xs text-[#68a8e4] flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> scanning…
+              </span>
+            )}
           </div>
-          {isStreaming && (
-            <span className="text-xs text-[#68a8e4] flex items-center gap-1 ml-2">
-              <Loader2 className="w-3 h-3 animate-spin" /> streaming…
-            </span>
-          )}
-        </div>
-        <div className="px-3 py-1 border-x border-[#2e2b26] bg-[#1c1b19] text-[#706560] text-xs italic">
-          {TAB_DESCRIPTIONS[mainTab]}
-        </div>
 
-        {/* Swarm tab */}
-        {mainTab === 'swarm' && (
-          <div className="px-3 py-2 border-x border-[#2e2b26] bg-[#1c1b19] space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex border border-[#2e2b26]">
-                <button onClick={() => setSwarmInputMode('url')} className={inputModeBtnClass(swarmInputMode === 'url')}>URL</button>
-                <button onClick={() => setSwarmInputMode('raw')} className={inputModeBtnClass(swarmInputMode === 'raw')}>RAW REQUEST</button>
-                <button onClick={() => setSwarmInputMode('curl')} className={inputModeBtnClass(swarmInputMode === 'curl')}>CURL</button>
-              </div>
-            </div>
+          <p className="text-[#706560] text-xs italic">{SCAN_TYPE_META[scanType].desc}</p>
 
-            {swarmInputMode === 'url' && (
+          {/* Unified target input + source upload */}
+          {scanType === 'ask' ? (
+            <div className="space-y-2">
               <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Target URL <span className="text-[#ef2f27]">*</span></label>
-                <input value={swarmInput} onChange={(e) => setSwarmInput(e.target.value)} placeholder="https://example.com/api/endpoint" className={inputClass} />
+                <label className="text-[#918175] text-xs block mb-0.5">Prompt <span className="text-[#ef2f27]">*</span></label>
+                <textarea
+                  ref={promptTextareaRef}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Analyze this codebase for authentication bypass vulnerabilities..."
+                  rows={4}
+                  className={`${inputClass} resize-y overflow-hidden`}
+                />
               </div>
-            )}
-            {swarmInputMode === 'raw' && (
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Raw HTTP Request <span className="text-[#ef2f27]">*</span> <span className="text-[#706560] font-normal italic">— auto base64-encoded before sending</span></label>
-                <textarea value={swarmInput} onChange={(e) => setSwarmInput(e.target.value)} placeholder={"GET /api/endpoint HTTP/1.1\nHost: example.com\nAuthorization: Bearer token123"} rows={6} className={`${inputClass} resize-y font-mono`} />
-              </div>
-            )}
-            {swarmInputMode === 'curl' && (
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">cURL Command <span className="text-[#ef2f27]">*</span></label>
-                <textarea value={swarmInput} onChange={(e) => setSwarmInput(e.target.value)} placeholder="curl -X POST https://example.com/api/endpoint -H 'Content-Type: application/json' -d '{...}'" rows={3} className={`${inputClass} resize-y font-mono`} />
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
-                <Dropdown value={swarmAgent} onChange={setSwarmAgent} options={AGENT_OPTIONS} />
-              </div>
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Module Tags (comma-sep) <span className="text-[#706560] font-normal italic">— blank = agent decides</span></label>
-                <input value={swarmModuleTags} onChange={(e) => setSwarmModuleTags(e.target.value)} placeholder="xss, sqli, auth" className={inputClass} />
-              </div>
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Vuln Type <span className="text-[#706560] font-normal italic">— blank = agent decides</span></label>
-                <input value={swarmVulnType} onChange={(e) => setSwarmVulnType(e.target.value)} placeholder="sqli" className={inputClass} />
-              </div>
-            </div>
-
-            <details className="group">
-              <summary className="text-[#706560] text-xs cursor-pointer hover:text-[#918175] select-none">optional fields</summary>
-              <div className="space-y-2 mt-1.5">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-[#918175] text-xs block mb-0.5">Source / Repo Path <span className="text-[#706560] font-normal italic">— optional</span></label>
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="/path/to/source or https://github.com/org/repo"
+                    className={inputClass}
+                  />
+                </div>
                 <div
                   onDragEnter={onUploadDragEnter} onDragLeave={onUploadDragLeave} onDragOver={onUploadDragOver} onDrop={onUploadDrop}
-                  className={`border border-dashed p-4 text-center transition-colors ${uploadCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${uploadDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
+                  className={`w-1/3 shrink-0 border border-dashed flex flex-col items-center justify-center text-center transition-colors ${uploadCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${uploadDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
                   onClick={() => { if (!uploadCompressing && !uploadRepo.isPending) uploadFileInputRef.current?.click(); }}
                 >
                   <input ref={uploadFileInputRef} type="file" accept=".zip,.tar.gz,.tgz,.tar" onChange={handleFileUpload} className="hidden" />
                   {uploadCompressing || uploadRepo.isPending ? (
-                    <><Loader2 className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962] animate-spin" /><p className="text-xs text-[#fce8c3]">{uploadCompressing ? 'Compressing folder...' : 'Uploading...'}</p></>
+                    <span className="text-xs text-[#fce8c3] flex items-center gap-1"><Loader2 className="w-3 h-3 text-[#7fd962] animate-spin" />{uploadCompressing ? 'Compressing…' : 'Uploading…'}</span>
+                  ) : uploadRepo.isSuccess ? (
+                    <span className="text-[10px] text-[#98bc37]">uploaded</span>
                   ) : (
-                    <><Upload className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962]/70" /><p className="text-xs text-[#fce8c3]">{uploadDragging ? 'Drop here to upload' : 'Click or drag & drop repo archive or folder'}</p></>
+                    <><Upload className="w-5 h-5 text-[#7fd962]/70 mb-1" /><span className="text-xs text-[#918175]">{uploadDragging ? 'Drop here to upload' : 'Upload source code'}</span><span className="text-[10px] text-[#706560] mt-0.5">zip, tar.gz, or drop a folder</span></>
                   )}
-                  <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
-                  {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — source path set</p>}
-                  {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
+                  {uploadRepo.isError && <span className="text-[10px] text-[#ef2f27]">failed</span>}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2 items-stretch">
+              <div className="flex-1 flex flex-col">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <label className="text-[#918175] text-xs">
+                    Target <span className="text-[#ef2f27]">*</span>
+                  </label>
+                  {detectedInputType && (
+                    <span className="text-[10px] px-1.5 py-0.5 border" style={{ color: INPUT_TYPE_COLORS[detectedInputType], borderColor: INPUT_TYPE_COLORS[detectedInputType] + '40', backgroundColor: INPUT_TYPE_COLORS[detectedInputType] + '10' }}>
+                      {INPUT_TYPE_LABELS[detectedInputType]}
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  ref={inputTextareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={scanType === 'deep'
+                    ? 'https://example.com'
+                    : "Paste URL, targets, raw HTTP request, or curl command..."}
+                  rows={8}
+                  className={`${inputClass} resize-y font-mono flex-1 overflow-hidden`}
+                />
+              </div>
+              <div className="w-1/3 shrink-0 flex flex-col gap-1.5">
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Source Path</label>
-                  <input value={swarmSource} onChange={(e) => setSwarmSource(e.target.value)} placeholder="/path/to/source" className={inputClass} />
+                  <input value={sourcePath} onChange={(e) => setSourcePath(e.target.value)} placeholder="/path/to/source" className={inputClass} />
                 </div>
+                <div
+                  onDragEnter={onUploadDragEnter} onDragLeave={onUploadDragLeave} onDragOver={onUploadDragOver} onDrop={onUploadDrop}
+                  className={`flex-1 min-h-[120px] border border-dashed flex flex-col items-center justify-center text-center transition-colors ${uploadCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${uploadDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
+                  onClick={() => { if (!uploadCompressing && !uploadRepo.isPending) uploadFileInputRef.current?.click(); }}
+                >
+                  <input ref={uploadFileInputRef} type="file" accept=".zip,.tar.gz,.tgz,.tar" onChange={handleFileUpload} className="hidden" />
+                  {uploadCompressing || uploadRepo.isPending ? (
+                    <span className="text-xs text-[#fce8c3] flex items-center gap-1"><Loader2 className="w-3 h-3 text-[#7fd962] animate-spin" />{uploadCompressing ? 'Compressing…' : 'Uploading…'}</span>
+                  ) : uploadRepo.isSuccess ? (
+                    <span className="text-[10px] text-[#98bc37]">uploaded</span>
+                  ) : (
+                    <><Upload className="w-5 h-5 text-[#7fd962]/70 mb-1" /><span className="text-xs text-[#918175]">{uploadDragging ? 'Drop here to upload' : 'Upload source code'}</span><span className="text-[10px] text-[#706560] mt-0.5">zip, tar.gz, or drop a folder</span></>
+                  )}
+                  {uploadRepo.isError && <span className="text-[10px] text-[#ef2f27]">failed</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Advanced options */}
+          <div>
+            <button onClick={() => setAdvancedOpen(v => !v)} className="text-[#706560] text-xs cursor-pointer hover:text-[#918175] select-none flex items-center gap-1">
+              {advancedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              Advanced Options
+            </button>
+            {advancedOpen && <div className="space-y-2 mt-2 pt-2 border-t border-[#2e2b26]/50">
+              <div className="grid grid-cols-4 gap-2">
                 <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Max Iterations</label>
-                  <input value={swarmMaxIterations} onChange={(e) => setSwarmMaxIterations(e.target.value)} placeholder="3" className={inputClass} />
+                  <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
+                  <Dropdown value={agent} onChange={setAgent} options={AGENT_OPTIONS} />
                 </div>
+                {scanType === 'quick' && (
+                  <>
+                    <div>
+                      <label className="text-[#918175] text-xs block mb-0.5">Module Tags</label>
+                      <input value={moduleTags} onChange={(e) => setModuleTags(e.target.value)} placeholder="xss, sqli, auth" className={inputClass} />
+                    </div>
+                    <div>
+                      <label className="text-[#918175] text-xs block mb-0.5">Vuln Type</label>
+                      <input value={vulnType} onChange={(e) => setVulnType(e.target.value)} placeholder="sqli" className={inputClass} />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Timeout</label>
-                  <input value={swarmTimeout} onChange={(e) => setSwarmTimeout(e.target.value)} placeholder="30m" className={inputClass} />
-                </div>
-                <div className="col-span-3">
-                  <label className="text-[#918175] text-xs block mb-0.5">Instruction</label>
-                  <textarea value={swarmInstruction} onChange={(e) => setSwarmInstruction(e.target.value)} placeholder="Focus on business logic flaws in the payment flow" rows={2} className={`${inputClass} resize-y`} />
-                </div>
-                <div className="col-span-3">
-                  <label className="text-[#918175] text-xs block mb-0.5">Files (one per line, relative to source path)</label>
-                  <textarea value={swarmFiles} onChange={(e) => setSwarmFiles(e.target.value)} placeholder={"routes/api.js\ncontrollers/auth.js\nmiddleware/session.js"} rows={3} className={`${inputClass} resize-y font-mono`} />
+                  <input value={timeout} onChange={(e) => setTimeout_(e.target.value)} placeholder="30m" className={inputClass} />
                 </div>
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Focus</label>
-                  <input value={swarmFocus} onChange={(e) => setSwarmFocus(e.target.value)} placeholder="API injection, auth bypass" className={inputClass} />
+                  <input value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="auth, injection" className={inputClass} />
                 </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Profile</label>
-                  <input value={swarmProfile} onChange={(e) => setSwarmProfile(e.target.value)} placeholder="light, thorough" className={inputClass} />
-                </div>
-                <div className="col-span-3">
-                  <label className="text-[#918175] text-xs block mb-0.5">Additional Inputs (one per line)</label>
-                  <textarea value={swarmInputs} onChange={(e) => setSwarmInputs(e.target.value)} placeholder={"https://example.com/api/users\nhttps://example.com/api/admin"} rows={3} className={`${inputClass} resize-y font-mono`} />
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Scan UUID</label>
-                  <input value={swarmScanUuid} onChange={(e) => setSwarmScanUuid(e.target.value)} placeholder="uuid" className={inputClass} />
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Project UUID</label>
-                  <input value={swarmProjectUuid} onChange={(e) => setSwarmProjectUuid(e.target.value)} placeholder="uuid" className={inputClass} />
-                </div>
-                <div className="col-span-3 flex flex-wrap items-center gap-x-4 gap-y-2 pt-2">
-                  {([
-                    ['Discover', swarmDiscover, setSwarmDiscover] as const,
-                    ['Source Analysis Only', swarmSourceAnalysisOnly, setSwarmSourceAnalysisOnly] as const,
-                    ['Skip SAST', swarmSkipSast, setSwarmSkipSast] as const,
-                    ['Dry Run', swarmDryRun, setSwarmDryRun] as const,
-                  ]).map(([label, value, setter]) => (
-                    <div key={label} className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={value}
-                        onClick={() => setter(!value)}
-                        className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0"
-                        style={{ backgroundColor: value ? '#7fd962' : '#2e2b26' }}
-                      >
-                        <span
-                          className="inline-block h-3 w-3 rounded-full bg-[#fce8c3] transition-transform"
-                          style={{ transform: value ? 'translateX(14px)' : 'translateX(2px)' }}
-                        />
-                      </button>
-                      <span className="text-[#918175] text-xs">{label}</span>
+                {scanType === 'quick' && (
+                  <>
+                    <div>
+                      <label className="text-[#918175] text-xs block mb-0.5">Max Iterations</label>
+                      <input value={maxIterations} onChange={(e) => setMaxIterations(e.target.value)} placeholder="3" className={inputClass} />
                     </div>
-                  ))}
-                </div>
+                    <div>
+                      <label className="text-[#918175] text-xs block mb-0.5">Profile</label>
+                      <input value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="light, thorough" className={inputClass} />
+                    </div>
+                  </>
+                )}
+                {scanType === 'deep' && (
+                  <div>
+                    <label className="text-[#918175] text-xs block mb-0.5">Max Commands</label>
+                    <input value={maxIterations} onChange={(e) => setMaxIterations(e.target.value)} placeholder="50" className={inputClass} />
+                  </div>
+                )}
               </div>
-              </div>
-            </details>
 
-            <div className="flex items-center gap-2">
-              {!isStreaming ? (
-                <button
-                  onClick={handleSwarmSubmit}
-                  disabled={!swarmInput.trim()}
-                  className="px-4 py-1 text-xs font-bold border border-[#FF9F2F] text-[#FF9F2F] bg-[#FF9F2F]/10 hover:bg-[#FF9F2F]/20 shadow-[inset_0_0_18px_rgba(255,159,47,0.5)] hover:shadow-[inset_0_0_28px_rgba(255,159,47,0.7)] transition-colors disabled:opacity-30"
-                >
-                  [RUN SWARM]
-                </button>
-              ) : (
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-1 px-3 py-1 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors"
-                >
-                  <Square className="w-3 h-3" /> CANCEL
-                </button>
-              )}
-              {scanError && <span className="text-xs text-[#ef2f27]">{scanError}</span>}
-            </div>
-          </div>
-        )}
-
-        {/* Query tab */}
-        {mainTab === 'query' && (
-          <div className="px-3 py-2 border-x border-[#2e2b26] bg-[#1c1b19] space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex border border-[#2e2b26]">
-                <button onClick={() => setScanMode('template')} className={tabBtnClass(scanMode === 'template')}>TEMPLATE</button>
-                <button onClick={() => setScanMode('custom')} className={tabBtnClass(scanMode === 'custom')}>CUSTOM PROMPT</button>
-              </div>
-            </div>
-
-            {scanMode === 'template' ? (
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
-                  <input value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="claude" className={inputClass} />
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Prompt Template</label>
-                  <input value={promptTemplate} onChange={(e) => setPromptTemplate(e.target.value)} placeholder="security-analysis" className={inputClass} />
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Repo Path</label>
-                  <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/path/to/repo" className={inputClass} />
-                </div>
-              </div>
-            ) : (
               <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Prompt</label>
-                <textarea
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Enter your prompt for the agent..."
-                  rows={3}
-                  className={`${inputClass} resize-y`}
-                />
+                <label className="text-[#918175] text-xs block mb-0.5">{scanType === 'deep' ? 'System Prompt' : 'Instruction'}</label>
+                <textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Focus on business logic flaws in the payment flow" rows={2} className={`${inputClass} resize-y`} />
               </div>
-            )}
 
-            <details className="group">
-              <summary className="text-[#706560] text-xs cursor-pointer hover:text-[#918175] select-none">optional fields</summary>
-              <div className="space-y-2 mt-1.5">
-                <div
-                  onDragEnter={onUploadDragEnter} onDragLeave={onUploadDragLeave} onDragOver={onUploadDragOver} onDrop={onUploadDrop}
-                  className={`border border-dashed p-4 text-center transition-colors ${uploadCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${uploadDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
-                  onClick={() => { if (!uploadCompressing && !uploadRepo.isPending) uploadFileInputRef.current?.click(); }}
-                >
-                  <input ref={uploadFileInputRef} type="file" accept=".zip,.tar.gz,.tgz,.tar" onChange={handleFileUpload} className="hidden" />
-                  {uploadCompressing || uploadRepo.isPending ? (
-                    <><Loader2 className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962] animate-spin" /><p className="text-xs text-[#fce8c3]">{uploadCompressing ? 'Compressing folder...' : 'Uploading...'}</p></>
-                  ) : (
-                    <><Upload className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962]/70" /><p className="text-xs text-[#fce8c3]">{uploadDragging ? 'Drop here to upload' : 'Click or drag & drop repo archive or folder'}</p></>
-                  )}
-                  <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
-                  {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — source path set</p>}
-                  {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Files (comma-separated)</label>
-                  <input value={files} onChange={(e) => setFiles(e.target.value)} placeholder="src/main.go, pkg/api.go" className={inputClass} />
+                  <label className="text-[#918175] text-xs block mb-0.5">Files</label>
+                  <textarea value={files} onChange={(e) => setFiles(e.target.value)} placeholder={"routes/api.js\ncontrollers/auth.js"} rows={2} className={`${inputClass} resize-y font-mono`} />
                 </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Append</label>
-                  <input value={append} onChange={(e) => setAppend(e.target.value)} placeholder="Additional context" className={inputClass} />
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">Source</label>
-                  <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="dashboard" className={inputClass} />
-                </div>
+                {scanType === 'quick' && (
+                  <div>
+                    <label className="text-[#918175] text-xs block mb-0.5">Additional Inputs (one per line)</label>
+                    <textarea value={additionalInputs} onChange={(e) => setAdditionalInputs(e.target.value)} placeholder={"https://example.com/api/users\nhttps://example.com/api/admin"} rows={2} className={`${inputClass} resize-y font-mono`} />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[#918175] text-xs block mb-0.5">Scan UUID</label>
                   <input value={scanUuid} onChange={(e) => setScanUuid(e.target.value)} placeholder="uuid" className={inputClass} />
                 </div>
-              </div>
-              </div>
-            </details>
-
-            <div className="flex items-center gap-2">
-              {!isStreaming ? (
-                <button
-                  onClick={handleQuerySubmit}
-                  className="px-4 py-1 text-xs font-bold border border-[#FF9F2F] text-[#FF9F2F] bg-[#FF9F2F]/10 hover:bg-[#FF9F2F]/20 shadow-[inset_0_0_18px_rgba(255,159,47,0.5)] hover:shadow-[inset_0_0_28px_rgba(255,159,47,0.7)] transition-colors"
-                >
-                  [RUN QUERY]
-                </button>
-              ) : (
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-1 px-3 py-1 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors"
-                >
-                  <Square className="w-3 h-3" /> CANCEL
-                </button>
-              )}
-              {scanError && <span className="text-xs text-[#ef2f27]">{scanError}</span>}
-            </div>
-          </div>
-        )}
-
-        {/* Autopilot tab */}
-        {mainTab === 'autopilot' && (
-          <div className="px-3 py-2 border-x border-[#2e2b26] bg-[#1c1b19] space-y-2">
-            <div>
-              <label className="text-[#918175] text-xs block mb-0.5">Target URL <span className="text-[#ef2f27]">*</span></label>
-              <input value={autopilotTarget} onChange={(e) => setAutopilotTarget(e.target.value)} placeholder="https://example.com" className={inputClass} />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Agent</label>
-                <Dropdown value={autopilotAgent} onChange={setAutopilotAgent} options={AGENT_OPTIONS} />
-              </div>
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Focus</label>
-                <input value={autopilotFocus} onChange={(e) => setAutopilotFocus(e.target.value)} placeholder="authentication, api" className={inputClass} />
-              </div>
-              <div>
-                <label className="text-[#918175] text-xs block mb-0.5">Timeout</label>
-                <input value={autopilotTimeout} onChange={(e) => setAutopilotTimeout(e.target.value)} placeholder="30m" className={inputClass} />
-              </div>
-            </div>
-
-            <details className="group">
-              <summary className="text-[#706560] text-xs cursor-pointer hover:text-[#918175] select-none">optional fields</summary>
-              <div className="space-y-2 mt-1.5">
-                <div
-                  onDragEnter={onUploadDragEnter} onDragLeave={onUploadDragLeave} onDragOver={onUploadDragOver} onDrop={onUploadDrop}
-                  className={`border border-dashed p-4 text-center transition-colors ${uploadCompressing || uploadRepo.isPending ? '' : 'cursor-pointer'} ${uploadDragging ? 'border-[#7fd962] bg-[#7fd962]/10' : 'border-[#2e2b26] hover:border-[#7fd962]/50'}`}
-                  onClick={() => { if (!uploadCompressing && !uploadRepo.isPending) uploadFileInputRef.current?.click(); }}
-                >
-                  <input ref={uploadFileInputRef} type="file" accept=".zip,.tar.gz,.tgz,.tar" onChange={handleFileUpload} className="hidden" />
-                  {uploadCompressing || uploadRepo.isPending ? (
-                    <><Loader2 className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962] animate-spin" /><p className="text-xs text-[#fce8c3]">{uploadCompressing ? 'Compressing folder...' : 'Uploading...'}</p></>
-                  ) : (
-                    <><Upload className="w-5 h-5 mx-auto mb-1.5 text-[#7fd962]/70" /><p className="text-xs text-[#fce8c3]">{uploadDragging ? 'Drop here to upload' : 'Click or drag & drop repo archive or folder'}</p></>
-                  )}
-                  <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
-                  {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — source path set</p>}
-                  {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
-                </div>
-                <div>
-                  <label className="text-[#918175] text-xs block mb-0.5">System Prompt</label>
-                  <textarea value={autopilotSystemPrompt} onChange={(e) => setAutopilotSystemPrompt(e.target.value)} placeholder="Custom system prompt..." rows={2} className={`${inputClass} resize-y`} />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
+                {scanType === 'quick' && (
                   <div>
-                    <label className="text-[#918175] text-xs block mb-0.5">Max Commands</label>
-                    <input value={autopilotMaxCommands} onChange={(e) => setAutopilotMaxCommands(e.target.value)} placeholder="50" className={inputClass} />
+                    <label className="text-[#918175] text-xs block mb-0.5">Project UUID</label>
+                    <input value={projectUuid} onChange={(e) => setProjectUuid(e.target.value)} placeholder="uuid" className={inputClass} />
                   </div>
-                  <div>
-                    <label className="text-[#918175] text-xs block mb-0.5">Repo Path</label>
-                    <input value={autopilotRepoPath} onChange={(e) => setAutopilotRepoPath(e.target.value)} placeholder="/path/to/repo" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="text-[#918175] text-xs block mb-0.5">Scan UUID</label>
-                    <input value={autopilotScanUuid} onChange={(e) => setAutopilotScanUuid(e.target.value)} placeholder="uuid" className={inputClass} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[#918175] text-xs block mb-0.5">Files (comma-separated)</label>
-                    <input value={autopilotFiles} onChange={(e) => setAutopilotFiles(e.target.value)} placeholder="src/main.go" className={inputClass} />
-                  </div>
-                  <div className="flex items-center gap-2 pt-4">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={autopilotDryRun}
-                      onClick={() => setAutopilotDryRun(!autopilotDryRun)}
-                      className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0"
-                      style={{ backgroundColor: autopilotDryRun ? '#7fd962' : '#2e2b26' }}
-                    >
-                      <span
-                        className="inline-block h-3 w-3 rounded-full bg-[#fce8c3] transition-transform"
-                        style={{ transform: autopilotDryRun ? 'translateX(14px)' : 'translateX(2px)' }}
-                      />
-                    </button>
-                    <span className="text-[#918175] text-xs">Dry Run</span>
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <div className="flex items-center gap-2">
-              {!isStreaming ? (
-                <button
-                  onClick={handleAutopilotSubmit}
-                  disabled={!autopilotTarget.trim()}
-                  className="px-4 py-1 text-xs font-bold border border-[#FF9F2F] text-[#FF9F2F] bg-[#FF9F2F]/10 hover:bg-[#FF9F2F]/20 shadow-[inset_0_0_18px_rgba(255,159,47,0.5)] hover:shadow-[inset_0_0_28px_rgba(255,159,47,0.7)] transition-colors disabled:opacity-30"
-                >
-                  [RUN AUTOPILOT]
-                </button>
-              ) : (
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-1 px-3 py-1 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors"
-                >
-                  <Square className="w-3 h-3" /> CANCEL
-                </button>
-              )}
-              {scanError && <span className="text-xs text-[#ef2f27]">{scanError}</span>}
-            </div>
-          </div>
-        )}
-
-        {/* Shared output panel for query/autopilot/swarm */}
-        {showOutputPanel && (
-          <div className="flex-1 flex flex-col gap-0 overflow-hidden">
-            {/* Output section */}
-            <details open className="border border-[#2e2b26] bg-[#141310] overflow-hidden flex flex-col group">
-              <summary className="px-3 py-1.5 border-b border-[#2e2b26] flex items-center justify-between cursor-pointer hover:bg-[#2e2b26]/30">
-                <span className="text-[#7fd962] text-xs font-bold flex items-center gap-1.5">
-                  <ScrollText className="w-3 h-3" />STREAMING RESPONSE
-                </span>
-                {scanResult && (
-                  <span className="text-xs text-[#918175]">
-                    {scanResult.finding_count != null && <span className="text-[#fce8c3] mr-3">findings: <b className="text-[#7fd962]">{String(scanResult.finding_count)}</b></span>}
-                    {scanResult.saved_count != null && <span className="text-[#fce8c3]">saved: <b className="text-[#98bc37]">{String(scanResult.saved_count)}</b></span>}
-                  </span>
                 )}
-              </summary>
-              <pre
-                ref={scanOutputRef}
-                className="flex-1 overflow-auto p-3 text-xs text-[#a89888] font-mono whitespace-pre-wrap leading-relaxed"
+              </div>
+
+              {/* Toggle switches */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
+                {scanType === 'quick' && (
+                  <>
+                    {([
+                      ['Discover', discover, setDiscover] as const,
+                      ['Code Audit', codeAudit, setCodeAudit] as const,
+                      ['Skip SAST', skipSast, setSkipSast] as const,
+                    ]).map(([label, value, setter]) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <button
+                          type="button" role="switch" aria-checked={value}
+                          onClick={() => setter(!value)}
+                          className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0"
+                          style={{ backgroundColor: value ? '#7fd962' : '#2e2b26' }}
+                        >
+                          <span className="inline-block h-3 w-3 rounded-full bg-[#fce8c3] transition-transform" style={{ transform: value ? 'translateX(14px)' : 'translateX(2px)' }} />
+                        </button>
+                        <span className="text-[#918175] text-xs">{label}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button" role="switch" aria-checked={dryRun}
+                    onClick={() => setDryRun(!dryRun)}
+                    className="relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0"
+                    style={{ backgroundColor: dryRun ? '#7fd962' : '#2e2b26' }}
+                  >
+                    <span className="inline-block h-3 w-3 rounded-full bg-[#fce8c3] transition-transform" style={{ transform: dryRun ? 'translateX(14px)' : 'translateX(2px)' }} />
+                  </button>
+                  <span className="text-[#918175] text-xs">Dry Run</span>
+                </div>
+              </div>
+            </div>}
+          </div>
+
+          {/* Submit row */}
+          <div className="flex items-center gap-2">
+            {!isStreaming ? (
+              <button
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className="px-5 py-1.5 text-xs font-bold border border-[#FF9F2F] text-[#FF9F2F] bg-[#FF9F2F]/10 hover:bg-[#FF9F2F]/20 shadow-[inset_0_0_18px_rgba(255,159,47,0.5)] hover:shadow-[inset_0_0_28px_rgba(255,159,47,0.7)] transition-colors disabled:opacity-30 flex items-center gap-1.5"
               >
-                {scanOutput || <span className="text-[#403d38]">agent output will appear here…</span>}
-              </pre>
-            </details>
-
-            {/* Agent Sessions section */}
-            <details open className="border border-[#2e2b26] bg-[#1c1b19] overflow-hidden">
-              <summary className="px-3 py-1.5 border-b border-[#2e2b26] cursor-pointer hover:bg-[#2e2b26]/30">
-                <span className="text-[#7fd962] text-xs font-bold inline-flex items-center gap-1.5">
-                  <Layers className="w-3 h-3" />AGENT SESSIONS
-                  {sessionsData?.total != null && <span className="text-[#918175] font-normal ml-1">({sessionsData.total})</span>}
-                </span>
-              </summary>
-              <div className="flex" style={{ minHeight: expandedSessionUuid && sessionDetail ? 320 : undefined }}>
-                <div className={`${expandedSessionUuid && sessionDetail ? 'w-1/2' : 'w-full'} overflow-x-auto`}>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-[#2e2b26] text-[#706560]">
-                        <th className="text-left px-3 py-1 font-bold">STATUS</th>
-                        <th className="text-left px-3 py-1 font-bold">UUID</th>
-                        <th className="text-left px-3 py-1 font-bold">MODE</th>
-                        <th className="text-left px-3 py-1 font-bold">AGENT</th>
-                        <th className="text-left px-3 py-1 font-bold">TARGET</th>
-                        <th className="text-right px-3 py-1 font-bold">FINDINGS</th>
-                        <th className="text-right px-3 py-1 font-bold">SAVED</th>
-                        <th className="text-right px-3 py-1 font-bold">DURATION</th>
-                        <th className="text-left px-3 py-1 font-bold">COMPLETED</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sessionsData?.data && sessionsData.data.length > 0 ? (
-                        sessionsData.data.map((s: AgentSession) => (
-                          <tr
-                            key={s.uuid}
-                            onClick={() => setExpandedSessionUuid(prev => prev === s.uuid ? null : s.uuid)}
-                            className={`border-b border-[#2e2b26]/50 hover:bg-[#2e2b26]/30 cursor-pointer ${expandedSessionUuid === s.uuid ? 'bg-[#2e2b26]' : ''}`}
-                          >
-                            <td className="px-3 py-1"><StatusBadge status={s.status} /></td>
-                            <td className="px-3 py-1 text-[#68a8e4] font-mono">{s.uuid.slice(0, 8)}</td>
-                            <td className="px-3 py-1 text-[#918175]">{s.mode}</td>
-                            <td className="px-3 py-1 text-[#fce8c3]">{s.agent_name || '—'}</td>
-                            <td className="px-3 py-1 text-[#fce8c3]">{s.target_url ? truncate(s.target_url, 40) : '—'}</td>
-                            <td className="px-3 py-1 text-right text-[#fce8c3]">{s.finding_count}</td>
-                            <td className="px-3 py-1 text-right text-[#98bc37]">{s.saved_count}</td>
-                            <td className="px-3 py-1 text-right text-[#fce8c3]">{formatDuration(s.duration_ms)}</td>
-                            <td className="px-3 py-1 text-[#706560]">{s.completed_at ? formatDate(s.completed_at) : '—'}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr><td colSpan={9} className="px-3 py-3 text-center text-[#403d38]">no sessions</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                {expandedSessionUuid && sessionDetail && (
-                  <div className="w-1/2">
-                    <SessionDetailPanel session={sessionDetail} onClose={() => setExpandedSessionUuid(null)} />
-                  </div>
-                )}
-              </div>
-            </details>
+                <Play className="w-3 h-3" />{SCAN_TYPE_META[scanType].btnLabel}
+              </button>
+            ) : (
+              <button
+                onClick={handleCancel}
+                className="flex items-center gap-1 px-4 py-1.5 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors"
+              >
+                <Square className="w-3 h-3" /> CANCEL
+              </button>
+            )}
+            {scanError && <span className="text-xs text-[#ef2f27]">{scanError}</span>}
+            {scanResult && (
+              <span className="text-xs text-[#918175] ml-2">
+                {scanResult.finding_count != null && <span className="text-[#fce8c3] mr-3">findings: <b className="text-[#7fd962]">{String(scanResult.finding_count)}</b></span>}
+                {scanResult.saved_count != null && <span className="text-[#fce8c3]">saved: <b className="text-[#98bc37]">{String(scanResult.saved_count)}</b></span>}
+              </span>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Chat tab */}
-        {mainTab === 'chat' && (
-          <div className="flex-1 flex flex-col border-x border-b border-[#2e2b26] bg-[#1c1b19] overflow-hidden">
+        {/* ── Chat panel (toggleable) ── */}
+        {showChat && (
+          <div className="flex flex-col border-x border-[#2e2b26] bg-[#1c1b19] overflow-hidden" style={{ height: 280 }}>
+            <div className="px-3 py-1 border-b border-[#2e2b26] flex items-center justify-between">
+              <span className="text-[#7fd962] text-xs font-bold flex items-center gap-1.5"><MessageSquare className="w-3 h-3" />CHAT</span>
+              <button onClick={() => setShowChat(false)} className="text-[#918175] hover:text-[#fce8c3] text-xs font-bold px-1">✕</button>
+            </div>
             <div className="flex-1 overflow-auto p-3 space-y-3">
               {messages.length === 0 && (
                 <div className="flex items-center justify-center h-full">
-                  <span className="text-[#403d38] text-xs flex items-center gap-2"><Bot className="w-4 h-4" /> send a message to start chatting with the agent</span>
+                  <span className="text-[#403d38] text-xs flex items-center gap-2"><Bot className="w-4 h-4" /> send a message to chat with the agent</span>
                 </div>
               )}
               {messages.map((msg, i) => (
@@ -1077,7 +861,6 @@ export default function AgentsPage() {
               ))}
               <div ref={chatEndRef} />
             </div>
-
             <div className="border-t border-[#2e2b26] px-3 py-2 flex items-end gap-2">
               <textarea
                 value={chatInput}
@@ -1089,10 +872,7 @@ export default function AgentsPage() {
                 className="flex-1 bg-[#141310] border border-[#2e2b26] text-[#fce8c3] text-xs px-2 py-1.5 resize-none focus:outline-none focus:border-[#7fd962]/50 disabled:opacity-50"
               />
               {isStreaming ? (
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors shrink-0"
-                >
+                <button onClick={handleCancel} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-[#ef2f27]/10 text-[#ef2f27] border border-[#ef2f27]/30 hover:bg-[#ef2f27]/20 transition-colors shrink-0">
                   <Square className="w-3 h-3" />
                 </button>
               ) : (
@@ -1107,6 +887,82 @@ export default function AgentsPage() {
             </div>
           </div>
         )}
+
+        {/* ── Streaming output ── */}
+        <div className="flex-1 flex flex-col gap-0 overflow-hidden">
+          <div className="border border-[#2e2b26] bg-[#141310] overflow-hidden flex flex-col">
+            <button onClick={() => setOutputOpen(v => !v)} className="px-3 py-1.5 border-b border-[#2e2b26] flex items-center gap-1.5 cursor-pointer hover:bg-[#2e2b26]/30 text-left">
+              {outputOpen ? <ChevronDown className="w-3 h-3 text-[#918175]" /> : <ChevronRight className="w-3 h-3 text-[#918175]" />}
+              <span className="text-[#7fd962] text-xs font-bold flex items-center gap-1.5">
+                <ScrollText className="w-3 h-3" />OUTPUT
+              </span>
+            </button>
+            {outputOpen && (
+              <pre
+                ref={scanOutputRef}
+                className="flex-1 overflow-auto p-3 text-xs text-[#a89888] font-mono whitespace-pre-wrap leading-relaxed"
+              >
+                {scanOutput || <span className="text-[#403d38]">agent output will appear here…</span>}
+              </pre>
+            )}
+          </div>
+
+          {/* ── Recent scans ── */}
+          <div className="border border-[#2e2b26] bg-[#1c1b19] overflow-hidden">
+            <button onClick={() => setRecentScansOpen(v => !v)} className="w-full px-3 py-1.5 border-b border-[#2e2b26] cursor-pointer hover:bg-[#2e2b26]/30 flex items-center gap-1.5 text-left">
+              {recentScansOpen ? <ChevronDown className="w-3 h-3 text-[#918175]" /> : <ChevronRight className="w-3 h-3 text-[#918175]" />}
+              <span className="text-[#7fd962] text-xs font-bold inline-flex items-center gap-1.5">
+                <Layers className="w-3 h-3" />RECENT SCANS
+                {sessionsData?.total != null && <span className="text-[#918175] font-normal ml-1">({sessionsData.total})</span>}
+              </span>
+            </button>
+            {recentScansOpen && (
+              <div className="flex" style={{ minHeight: expandedSessionUuid && sessionDetail ? 320 : undefined }}>
+                <div className={`${expandedSessionUuid && sessionDetail ? 'w-1/2' : 'w-full'} overflow-x-auto`}>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-[#2e2b26] text-[#706560]">
+                        <th className="text-left px-3 py-1 font-bold">STATUS</th>
+                        <th className="text-left px-3 py-1 font-bold">TYPE</th>
+                        <th className="text-left px-3 py-1 font-bold">TARGET</th>
+                        <th className="text-right px-3 py-1 font-bold">FINDINGS</th>
+                        <th className="text-right px-3 py-1 font-bold">SAVED</th>
+                        <th className="text-right px-3 py-1 font-bold">DURATION</th>
+                        <th className="text-left px-3 py-1 font-bold">COMPLETED</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessionsData?.data && sessionsData.data.length > 0 ? (
+                        sessionsData.data.map((s: AgentSession) => (
+                          <tr
+                            key={s.uuid}
+                            onClick={() => setExpandedSessionUuid(prev => prev === s.uuid ? null : s.uuid)}
+                            className={`border-b border-[#2e2b26]/50 hover:bg-[#2e2b26]/30 cursor-pointer ${expandedSessionUuid === s.uuid ? 'bg-[#2e2b26]' : ''}`}
+                          >
+                            <td className="px-3 py-1"><StatusBadge status={s.status} /></td>
+                            <td className="px-3 py-1 text-[#918175]">{s.mode}</td>
+                            <td className="px-3 py-1 text-[#fce8c3]">{s.target_url ? truncate(s.target_url, 50) : '—'}</td>
+                            <td className="px-3 py-1 text-right text-[#fce8c3]">{s.finding_count}</td>
+                            <td className="px-3 py-1 text-right text-[#98bc37]">{s.saved_count}</td>
+                            <td className="px-3 py-1 text-right text-[#fce8c3]">{formatDuration(s.duration_ms)}</td>
+                            <td className="px-3 py-1 text-[#706560]">{s.completed_at ? formatDate(s.completed_at) : '—'}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={7} className="px-3 py-3 text-center text-[#403d38]">no scans yet</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {expandedSessionUuid && sessionDetail && (
+                  <div className="w-1/2">
+                    <SessionDetailPanel session={sessionDetail} onClose={() => setExpandedSessionUuid(null)} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </PageShell>
   );

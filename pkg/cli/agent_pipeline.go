@@ -128,8 +128,12 @@ func runAgentPipeline(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if resolved.Target == "" && pipelineSource == "" {
+		return fmt.Errorf("target is required: use --target, --input, --source, or pipe via stdin")
+	}
 	if resolved.Target == "" {
-		return fmt.Errorf("target is required: use --target, --input, or pipe via stdin")
+		fmt.Fprintf(os.Stderr, "%s No --target specified. Running source-only analysis; dynamic testing will be skipped.\n",
+			terminal.WarningSymbol())
 	}
 
 	// Save current swarm flags to restore after delegation

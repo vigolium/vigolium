@@ -21,16 +21,19 @@ Start the API server with Swagger UI, ingestion endpoints, and optional scan-on-
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--host` | — | string | `0.0.0.0` | Bind address for the API server |
-| `--service-port` | — | int | `9002` | Port for the REST API server |
-| `--ingest-proxy-port` | — | int | `0` (disabled) | Transparent HTTP proxy port for recording traffic |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command for all agent runs (e.g. 'traecli acp') |
 | `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
-| `--no-auth` | `-A` | bool | `false` | Run without API key authentication |
-| `--mem-buffer` | — | int | `10000` | In-memory queue capacity before spilling to disk |
-| `--output` | `-o` | string | — | Write findings to output file |
 | `--catchup-threads` | — | int | `4` | Workers for background scanning of unscanned records |
 | `--disable-catchup` | — | bool | `false` | Disable automatic background scanning of unscanned records |
 | `--disable-warm-session` | — | bool | `false` | Disable agent subprocess warm session pooling |
+| `--host` | — | string | `0.0.0.0` | Bind address for the API server |
+| `--ingest-proxy-port` | — | int | `0` (disabled) | Transparent HTTP proxy port for recording traffic |
+| `--mem-buffer` | — | int | `10000` | In-memory queue capacity before spilling to disk |
+| `--no-agent` | — | bool | `false` | Disable all agent endpoints and warm session pooling |
+| `--no-auth` | `-A` | bool | `false` | Run server without API key authentication |
+| `--output` | `-o` | string | — | Write findings to specified output file |
+| `--service-port` | — | int | `9002` | Port for the REST API server |
+| `--view-only` | — | bool | `false` | Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints) |
 
 ### Server Authentication
 
@@ -93,7 +96,7 @@ Ingest HTTP requests into the database, either locally or via a remote server.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--server` | `-s` | string | — | Server URL for remote ingestion (omit for local) |
+| `--server` | `-s` | string | — | Server URL for remote ingestion (omit for local mode) |
 
 ### Key Global Flags for Ingest
 
@@ -156,15 +159,15 @@ Browse stored HTTP traffic. Shortcut for `vigolium db ls --table http_records`.
 | `--method` | []string | — | Filter by HTTP method (repeatable, e.g. --method GET --method POST) |
 | `--status` | []int | — | Filter by HTTP status code (repeatable, e.g. --status 200 --status 404) |
 | `--path` | string | — | Filter by URL path pattern |
-| `--from` | string | — | Records after this date (YYYY-MM-DD or RFC3339) |
-| `--to` | string | — | Records before this date |
+| `--from` | string | — | Show records after this date (YYYY-MM-DD or RFC3339) |
+| `--to` | string | — | Show records before this date (YYYY-MM-DD or RFC3339) |
 | `--search` | string | — | Fuzzy search across URLs, paths, and hostnames |
 | `--header` | string | — | Search within HTTP header names and values |
 | `--body` | string | — | Search within HTTP request/response body content |
-| `--source` | string | — | Filter by source (scanner, ingest-cli, ingest-server, etc.) |
+| `--source` | string | — | Filter by record source (e.g. scanner, ingest-cli, ingest-server, ingest-proxy, seed) |
 | `--sort` | string | `created_at` | Sort field: uuid, created_at, sent_at, method, status, time |
 | `--asc` | bool | `false` | Sort in ascending order (default: descending) |
-| `--limit` | `-n` | int | `100` | Max records to display |
+| `--limit` | `-n` | int | `100` | Maximum records to display |
 | `--offset` | `-o` | int | `0` | Number of records to skip (for pagination) |
 
 ### Display flags (traffic only)
@@ -217,9 +220,6 @@ vigolium traffic --from 2024-01-01 --to 2024-06-30
 
 # Custom columns
 vigolium traffic --columns HOST,METHOD,PATH,STATUS,AUTH
-
-# Watch mode (auto-refresh)
-vigolium traffic --watch 5s
 ```
 
 ---
@@ -234,7 +234,7 @@ Re-send stored HTTP requests and compare original vs new responses.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--in-replace` | bool | `false` | Replace stored response with the replay response |
+| `--in-replace` | bool | `false` | Replace stored response with the new replay response |
 
 Inherits all filter flags from the `traffic` command.
 

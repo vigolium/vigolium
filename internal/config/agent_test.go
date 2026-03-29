@@ -107,6 +107,54 @@ func TestAgentConfig_StreamEnabled(t *testing.T) {
 	})
 }
 
+func TestBrowserConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to false", func(t *testing.T) {
+		cfg := &BrowserConfig{}
+		if cfg.IsEnabled() {
+			t.Error("IsEnabled() = true, want false when Enable is nil")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		v := true
+		cfg := &BrowserConfig{Enable: &v}
+		if !cfg.IsEnabled() {
+			t.Error("IsEnabled() = false, want true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		v := false
+		cfg := &BrowserConfig{Enable: &v}
+		if cfg.IsEnabled() {
+			t.Error("IsEnabled() = true, want false")
+		}
+	})
+}
+
+func TestBrowserConfig_EffectiveBinaryPath(t *testing.T) {
+	t.Run("empty defaults to agent-browser", func(t *testing.T) {
+		cfg := &BrowserConfig{}
+		if got := cfg.EffectiveBinaryPath(); got != "agent-browser" {
+			t.Errorf("EffectiveBinaryPath() = %q, want agent-browser", got)
+		}
+	})
+
+	t.Run("custom path", func(t *testing.T) {
+		cfg := &BrowserConfig{BinaryPath: "/usr/local/bin/agent-browser"}
+		if got := cfg.EffectiveBinaryPath(); got != "/usr/local/bin/agent-browser" {
+			t.Errorf("EffectiveBinaryPath() = %q, want /usr/local/bin/agent-browser", got)
+		}
+	})
+}
+
+func TestAgentConfig_BrowserDefault(t *testing.T) {
+	cfg := DefaultAgentConfig()
+	if cfg.Browser.IsEnabled() {
+		t.Error("DefaultAgentConfig browser should be disabled by default")
+	}
+}
+
 func TestAgentConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string

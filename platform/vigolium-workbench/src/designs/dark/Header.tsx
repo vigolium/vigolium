@@ -49,7 +49,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
         <div className="flex items-center gap-2 md:gap-4">
           <span className="font-bold" style={{ color: 'var(--v-accent)' }}>&gt; VIGOLIUM</span>
           {serverInfo && (
-            <span className="hidden sm:inline" style={{ color: 'var(--v-text-muted)' }}>{serverInfo.version}</span>
+            <span className="hidden sm:inline" style={{ color: 'var(--v-text-muted)' }}>[<span style={{ color: '#ff8c00' }}>open-source</span> {serverInfo.version}]</span>
           )}
           <div className="relative" ref={dropdownRef}>
             <button

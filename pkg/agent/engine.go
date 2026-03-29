@@ -283,6 +283,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		if e.settings != nil {
 			sdkCfg.Guardrails = e.settings.Agent.Guardrails
+			sdkCfg.BrowserEnabled = e.settings.Agent.Browser.IsEnabled()
 		}
 
 		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash
@@ -300,6 +301,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			if opts.SourcePath != "" {
 				sysPrompt += "\n\nApplication source code is available at: " + opts.SourcePath
 			}
+			// Conditionally append browser capabilities when agent-browser is enabled
+			if e.settings != nil && e.settings.Agent.Browser.IsEnabled() {
+				if browserSection := LoadBrowserPromptSection(); browserSection != "" {
+					sysPrompt += "\n\n" + browserSection
+				}
+			}
+
 			sdkCfg.AppendSystemPrompt = sysPrompt
 			sdkCfg.SystemPromptSource = promptSource
 
@@ -307,6 +315,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			if opts.SessionDir != "" {
 				sdkCfg.SystemPromptDir = opts.SessionDir
 			}
+
+			// Copy skills to session dir for agent discovery
+			browserEnabled := e.settings != nil && e.settings.Agent.Browser.IsEnabled()
+			CopySkillsToSessionDir(opts.SessionDir, browserEnabled)
 		}
 
 		// Additional directories for source path access (non-autopilot or fallback)

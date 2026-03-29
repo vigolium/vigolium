@@ -53,8 +53,8 @@ func TestBuildSDKOptions_Defaults(t *testing.T) {
 	if !opts.NoSessionPersistence {
 		t.Error("NoSessionPersistence should be true")
 	}
-	if len(opts.DisallowedTools) != 4 {
-		t.Errorf("DisallowedTools: got %d, want 4", len(opts.DisallowedTools))
+	if len(opts.DisallowedTools) != 5 {
+		t.Errorf("DisallowedTools: got %d, want 5 (4 default + agent-browser block)", len(opts.DisallowedTools))
 	}
 }
 
@@ -507,6 +507,75 @@ func TestEngineSDKCase_SourcePathConfig(t *testing.T) {
 	}
 	if !strings.Contains(opts.AppendSystemPrompt, sourcePath) {
 		t.Error("AppendSystemPrompt should contain source path")
+	}
+}
+
+// --- Browser gating tests ---
+
+func TestBuildSDKOptions_BrowserDisabledByDefault(t *testing.T) {
+	agentDef := config.AgentDef{Command: "claude"}
+	cfg := sdkRunConfig{} // BrowserEnabled defaults to false
+
+	opts := buildSDKOptions(agentDef, cfg)
+
+	// Should contain the agent-browser block
+	found := false
+	for _, tool := range opts.DisallowedTools {
+		if tool == "Bash(agent-browser:*)" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("DisallowedTools should contain Bash(agent-browser:*) when BrowserEnabled is false")
+	}
+}
+
+func TestBuildSDKOptions_BrowserEnabled(t *testing.T) {
+	agentDef := config.AgentDef{Command: "claude"}
+	cfg := sdkRunConfig{BrowserEnabled: true}
+
+	opts := buildSDKOptions(agentDef, cfg)
+
+	// Should NOT contain the agent-browser block
+	for _, tool := range opts.DisallowedTools {
+		if tool == "Bash(agent-browser:*)" {
+			t.Error("DisallowedTools should NOT contain Bash(agent-browser:*) when BrowserEnabled is true")
+		}
+	}
+
+	// Should still have the 4 default disallowed tools
+	if len(opts.DisallowedTools) != 4 {
+		t.Errorf("DisallowedTools: got %d, want 4 (defaults only, no agent-browser block)", len(opts.DisallowedTools))
+	}
+}
+
+func TestBuildSDKOptions_BrowserWithGuardrails(t *testing.T) {
+	agentDef := config.AgentDef{Command: "claude"}
+	cfg := sdkRunConfig{
+		BrowserEnabled: true,
+		Guardrails: config.AutopilotGuardrails{
+			DisallowedTools: []string{"Bash(rm:*)"},
+		},
+	}
+
+	opts := buildSDKOptions(agentDef, cfg)
+
+	// Should have 4 defaults + 1 guardrail = 5, no agent-browser block
+	if len(opts.DisallowedTools) != 5 {
+		t.Errorf("DisallowedTools: got %d, want 5 (4 defaults + 1 guardrail)", len(opts.DisallowedTools))
+	}
+	found := false
+	for _, tool := range opts.DisallowedTools {
+		if tool == "Bash(rm:*)" {
+			found = true
+		}
+		if tool == "Bash(agent-browser:*)" {
+			t.Error("should not block agent-browser when BrowserEnabled is true")
+		}
+	}
+	if !found {
+		t.Error("guardrail Bash(rm:*) should be in DisallowedTools")
 	}
 }
 

@@ -24,7 +24,7 @@ metadata:
 
 # Vigolium CLI
 
-Operator's guide for the vigolium high-fidelity web vulnerability scanner. Covers every command, flag, workflow pattern, scanning strategy, AI agent modes, and JavaScript extension authoring.
+Operator's guide for the [Vigolium](https://www.vigolium.com/) high-fidelity web vulnerability scanner. Covers every command, flag, workflow pattern, scanning strategy, AI agent modes, and JavaScript extension authoring. Full documentation at [docs.vigolium.com](https://docs.vigolium.com/).
 
 ## Role Definition
 
@@ -88,6 +88,12 @@ Use this to find the right command quickly:
 | Link source code repository | `vigolium source add --hostname <host> --path ./src` |
 | Clone and scan with source code | `vigolium scan -t <url> --source-url https://github.com/org/repo` |
 | Manage projects | `vigolium project create <name>` / `project list` / `project use <name>` |
+| List agent sessions | `vigolium agent session` or `vigolium agent session <uuid>` |
+| Seed database with sample data | `vigolium db seed` |
+| Import findings from file | `vigolium finding load -i findings.jsonl` |
+| Validate extension files | `vigolium extensions lint --ext custom-check.js` |
+| Evaluate JS inline | `vigolium extensions eval 'vigolium.log.info("hello")'` |
+| Manage sessions (lint, list, load, totp) | `vigolium session lint` / `session list` / `session load` / `session totp` |
 
 ## Reference Guide
 
@@ -635,6 +641,24 @@ These flags are available on all commands (persistent flags on root):
 | `--ext` | — | — | Load JavaScript extension script (repeatable) |
 | `--ext-dir` | — | — | Override extension scripts directory |
 
+## Scan-Specific Flags
+
+These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--auth-config` | — | Path to auth-config file with session definitions |
+| `--session` | — | Inline session for IDOR/BOLA testing (format: `name:Header:value`, repeatable) |
+| `--session-file` | — | Path to individual session file (YAML or JSON, repeatable) |
+| `--pilot` | `false` | Enable AI pilot-driven crawling |
+| `--oast-url` | — | Fixed out-of-band callback URL |
+| `--known-issue-scan-tags` | — | Nuclei template tags to include (repeatable) |
+| `--known-issue-scan-severities` | — | Filter Nuclei templates by severity (repeatable) |
+| `--known-issue-scan-exclude-tags` | — | Nuclei template tags to exclude (repeatable) |
+| `--known-issue-scan-templates-dir` | — | Custom Nuclei templates directory |
+| `--sast-adhoc` | — | Local path or git URL for ad-hoc SAST scan |
+| `--rule` | — | Filter SAST rules by fuzzy name match |
+
 ## Constraints
 
 - `--only` and `--skip` are mutually exclusive
@@ -652,3 +676,9 @@ These flags are available on all commands (persistent flags on root):
 - `--module-tag` uses OR logic: modules matching any specified tag are included
 - `-m` and `--module-tag` merge results (union)
 - `agent pipeline` is a backward-compatible alias for `agent swarm --discover`
+
+## Resources
+
+- **Website**: [www.vigolium.com](https://www.vigolium.com/)
+- **Documentation**: [docs.vigolium.com](https://docs.vigolium.com/)
+- **GitHub**: [github.com/vigolium/vigolium](https://github.com/vigolium/vigolium)

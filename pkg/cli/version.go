@@ -77,7 +77,8 @@ func printVersion() {
 		fmt.Printf("%s %s\n", terminal.Cyan("Commit:"), terminal.Yellow(commit))
 	}
 	fmt.Printf("%s %s\n", terminal.Cyan("Author:"), terminal.Magenta(Author))
-	fmt.Printf("%s %s\n", terminal.Cyan("Docs:"), terminal.Blue("https://docs.vigolium.io"))
+	fmt.Printf("%s %s\n", terminal.Cyan("Website:"), terminal.Blue("https://www.vigolium.com"))
+	fmt.Printf("%s %s\n", terminal.Cyan("Docs:"), terminal.Blue("https://docs.vigolium.com"))
 }
 
 func printVersionJSON() {
@@ -90,7 +91,8 @@ func printVersionJSON() {
 		"name":    Name,
 		"version": getVersion(),
 		"author":  Author,
-		"docs":    "https://docs.vigolium.io",
+		"website": "https://www.vigolium.com",
+		"docs":    "https://docs.vigolium.com",
 	}
 	if BuildTime != "" {
 		info["build_time"] = BuildTime

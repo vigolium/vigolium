@@ -132,8 +132,8 @@ export default function ExtensionsPage() {
       { field: 'type', headerName: 'TYPE', width: 80, cellRenderer: TypeRenderer },
       { field: 'severity', headerName: 'SEVERITY', width: 90, cellRenderer: SeverityRenderer },
       { field: 'confidence', headerName: 'CONFIDENCE', width: 100, cellRenderer: ConfidenceRenderer },
-      { field: 'scan_types', headerName: 'SCAN TYPES', flex: 1, minWidth: 120, cellRenderer: ScanTypesRenderer },
-      { field: 'tags', headerName: 'TAGS', flex: 1, minWidth: 140, cellRenderer: TagsRenderer },
+      { field: 'scan_types', headerName: 'SCAN TYPES', flex: 1, minWidth: 120, cellRenderer: ScanTypesRenderer, valueFormatter: (p) => p.value?.join(', ') || '' },
+      { field: 'tags', headerName: 'TAGS', flex: 1, minWidth: 140, cellRenderer: TagsRenderer, valueFormatter: (p) => p.value?.join(', ') || '' },
     ],
     []
   );
@@ -259,6 +259,11 @@ export default function ExtensionsPage() {
               )}
               {tab === 'docs' && (
                 <>
+                  <a href="https://docs.vigolium.com/" target="_blank" rel="noopener noreferrer"
+                    className="text-[#68a8e4] hover:text-[#fce8c3] text-xs font-bold transition-colors">
+                    [full docs]
+                  </a>
+                  <span className="text-[#706560]">|</span>
                   <span className="text-[#918175]">{docsData?.total ?? 0} functions</span>
                   <div className="flex items-center border border-[#2e2b26] bg-[#1c1b19] focus-within:border-[#7fd962]/50">
                     <Search className="w-3 h-3 text-[#918175] ml-1.5 shrink-0" />

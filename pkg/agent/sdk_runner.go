@@ -30,6 +30,7 @@ type sdkRunConfig struct {
 	SystemPromptDir    string   // when set, write system prompt to a file here and use as CWD (avoids huge --append-system-prompt arg)
 	Guardrails         config.AutopilotGuardrails // guardrails for SDK autonomous mode
 	SessionDir         string   // session directory for saving stderr logs
+	BrowserEnabled     bool     // when true, allow agent-browser via Bash; when false, block it
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -146,6 +147,11 @@ func buildSDKOptions(agentDef config.AgentDef, cfg sdkRunConfig) *claudesdk.Opti
 	}
 	if cfg.Guardrails.MaxTurns > 0 && (opts.MaxTurns == 0 || opts.MaxTurns > cfg.Guardrails.MaxTurns) {
 		opts.MaxTurns = cfg.Guardrails.MaxTurns
+	}
+
+	// Block agent-browser when browser integration is disabled (defense-in-depth).
+	if !cfg.BrowserEnabled {
+		opts.DisallowedTools = append(opts.DisallowedTools, "Bash(agent-browser:*)")
 	}
 
 	// Additional directories the agent can access

@@ -600,4 +600,6 @@ var coloredUsageTemplate = `{{ styleHeading "Usage:" }}{{if .Runnable}}
   {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
 {{ "Use" | styleGray }} "{{.CommandPath | styleCyan}} [command] --help" {{ "for more information about a command." | styleGray }}{{end}}
+
+{{ "Website: https://www.vigolium.com | Docs: https://docs.vigolium.com" | styleGray }}
 `

@@ -327,6 +327,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s UI Dashboard %s\n",
 				terminal.InfoSymbol(),
 				terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
+			fmt.Printf("  %s Docs %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan("https://docs.vigolium.com"))
 			fmt.Println()
 		}
 
@@ -458,6 +461,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 				terminal.InfoSymbol(),
 				terminal.Cyan(fmt.Sprintf("%d workers", serverOpts.CatchupThreads)))
 		}
+		fmt.Printf("  %s Docs %s\n",
+			terminal.InfoSymbol(),
+			terminal.Cyan("https://docs.vigolium.com"))
 		fmt.Println()
 	}
 

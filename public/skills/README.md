@@ -1,10 +1,10 @@
 # vigolium-scanner
 
-Claude Code skill for operating the [Vigolium](https://github.com/vigolium/vigolium) web vulnerability scanner CLI.
+Claude Code skill for operating the [Vigolium](https://www.vigolium.com/) web vulnerability scanner CLI. See the [documentation](https://docs.vigolium.com/) for full details.
 
 ## What is Vigolium?
 
-Vigolium is a high-fidelity web vulnerability scanner built for security professionals. It combines traditional DAST scanning with AI-powered analysis to find vulnerabilities in web applications. Key capabilities:
+[Vigolium](https://www.vigolium.com/) is a high-fidelity web vulnerability scanner built for security professionals. It combines traditional DAST scanning with AI-powered analysis to find vulnerabilities in web applications. Full documentation is available at [docs.vigolium.com](https://docs.vigolium.com/). Key capabilities:
 
 - **Multi-phase scanning** — discovery, spidering, SPA analysis, audit, and SAST
 - **Flexible input** — scan URLs directly, or import from OpenAPI specs, Burp exports, HAR files, cURL commands, and more
@@ -361,7 +361,7 @@ vigolium run spa -t https://example.com --spa-severities critical,high
 > Run static analysis on my Go app, filter for gin-related rules
 ```
 ```bash
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --source /path/to/app --rule gin
 ```
 
 **Run only external harvest (Wayback, Common Crawl, OTX):**
@@ -565,7 +565,7 @@ vigolium ingest -t https://example.com -I burp -i export.xml --disable-fetch-res
 > Review my source code for security vulnerabilities
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src
+vigolium agent --prompt-template security-code-review --source ./src
 ```
 
 **Endpoint discovery from source:**
@@ -573,7 +573,7 @@ vigolium agent --prompt-template security-code-review --repo ./src
 > Find all API endpoints in my source code
 ```
 ```bash
-vigolium agent --prompt-template endpoint-discovery --repo ./src
+vigolium agent --prompt-template endpoint-discovery --source ./src
 ```
 
 **Review specific files only:**
@@ -581,7 +581,7 @@ vigolium agent --prompt-template endpoint-discovery --repo ./src
 > Review only auth.go and middleware.go for security issues
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --files "src/auth.go,src/middleware.go"
 ```
 
@@ -590,7 +590,7 @@ vigolium agent --prompt-template security-code-review --repo ./src \
 > Code review, but focus on authentication and authorization
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --append "Focus specifically on authentication and authorization vulnerabilities"
 ```
 
@@ -599,7 +599,7 @@ vigolium agent --prompt-template security-code-review --repo ./src \
 > Run the agent with my own prompt template
 ```
 ```bash
-vigolium agent --prompt-file custom-prompt.md --repo ./src
+vigolium agent --prompt-file custom-prompt.md --source ./src
 ```
 
 **Select a specific agent backend:**
@@ -607,7 +607,7 @@ vigolium agent --prompt-file custom-prompt.md --repo ./src
 > Use the Claude backend for code review
 ```
 ```bash
-vigolium agent --agent claude --prompt-template security-code-review --repo ./src
+vigolium agent --agent claude --prompt-template security-code-review --source ./src
 ```
 
 **Dry-run to preview the rendered prompt:**
@@ -615,7 +615,7 @@ vigolium agent --agent claude --prompt-template security-code-review --repo ./sr
 > Show me what prompt would be sent to the agent
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src --dry-run
+vigolium agent --prompt-template security-code-review --source ./src --dry-run
 ```
 
 **Save agent output to a file:**
@@ -623,7 +623,7 @@ vigolium agent --prompt-template security-code-review --repo ./src --dry-run
 > Save the review results to a JSON file
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --repo ./src \
+vigolium agent --prompt-template security-code-review --source ./src \
   --output review-results.json
 ```
 
@@ -634,6 +634,15 @@ vigolium agent --prompt-template security-code-review --repo ./src \
 ```bash
 vigolium agent --list-templates
 vigolium agent --list-agents
+```
+
+**List or inspect agent sessions:**
+```
+> Show all agent run sessions
+```
+```bash
+vigolium agent session
+vigolium agent session --id <session-id>
 ```
 
 **Built-in templates include:**
@@ -706,7 +715,7 @@ vigolium agent autopilot -t https://example.com
 > Autonomous scan focused on auth bypass, with source code for context
 ```
 ```bash
-vigolium agent autopilot -t https://api.example.com --repo ./src --focus "auth bypass"
+vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 ```
 
 **Custom limits (fewer commands, shorter timeout):**
@@ -772,7 +781,7 @@ The pipeline runs:
 > Pipeline scan focused on SQL injection, with source code
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --repo ./src
+vigolium agent pipeline -t https://example.com --focus "SQL injection" --source ./src
 ```
 
 **Control rescan iterations:**
@@ -820,7 +829,7 @@ vigolium agent pipeline -t https://example.com --dry-run
 > Only include routes.go and handlers.go as context
 ```
 ```bash
-vigolium agent pipeline -t https://example.com --repo ./src \
+vigolium agent pipeline -t https://example.com --source ./src \
   --files "routes.go,handlers.go"
 ```
 
@@ -1007,6 +1016,16 @@ vigolium traffic --raw --limit 5
 vigolium finding
 ```
 
+**Load findings from a file or stdin:**
+```
+> Import findings from a JSONL file
+```
+```bash
+vigolium finding load -i findings.jsonl
+# or from stdin
+cat findings.jsonl | vigolium finding load -i -
+```
+
 **Filter findings by severity:**
 ```
 > Show only high and critical findings
@@ -1172,6 +1191,14 @@ vigolium db clean --force
 vigolium db clean --vacuum
 ```
 
+**Seed database with sample data (for development/testing):**
+```
+> Populate the database with sample data
+```
+```bash
+vigolium db seed
+```
+
 ---
 
 ### 9. Export & Reports
@@ -1331,7 +1358,7 @@ vigolium source ls
 > Run static analysis on the source code
 ```
 ```bash
-vigolium run sast --repo /path/to/app
+vigolium run sast --source /path/to/app
 ```
 
 **SAST with rule filtering:**
@@ -1339,15 +1366,16 @@ vigolium run sast --repo /path/to/app
 > Run SAST, only gin-related rules
 ```
 ```bash
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --source /path/to/app --rule gin
 ```
 
-**SAST from a Git URL:**
+**Ad-hoc SAST on a local path or Git URL:**
 ```
-> Clone a repo and run static analysis
+> Run static analysis on an ad-hoc path without linking source
 ```
 ```bash
-vigolium run sast --repo-url https://github.com/org/repo
+vigolium scan -t https://example.com --sast-adhoc /path/to/app
+vigolium scan -t https://example.com --sast-adhoc https://github.com/org/repo
 ```
 
 ---
@@ -1379,6 +1407,15 @@ vigolium ext docs http               # filter by namespace
 ```bash
 vigolium ext ls
 vigolium ext ls --type active        # active extensions only
+```
+
+**Lint extensions for errors:**
+```
+> Validate my extension files for syntax errors and unknown API calls
+```
+```bash
+vigolium ext lint custom-check.js
+vigolium ext lint ./my-extensions/
 ```
 
 **Quick-test JS code inline:**
@@ -1624,6 +1661,27 @@ vigolium scan -t https://example.com --project-name my-project
 VIGOLIUM_PROJECT=my-project vigolium db stats
 ```
 
+**Session management utilities:**
+```
+> List sessions, lint a session, load a session, or generate TOTP
+```
+```bash
+vigolium session list
+vigolium session lint <session-file>
+vigolium session load <session-file>
+vigolium session totp --secret <base32-secret>
+```
+
+**Authenticated scanning with session config:**
+```
+> Scan with authentication config
+```
+```bash
+vigolium scan -t https://example.com --auth-config auth.yaml
+vigolium scan -t https://example.com --session <session-name>
+vigolium scan -t https://example.com --session-file session.yaml
+```
+
 ---
 
 ## Natural Language Examples
@@ -1637,7 +1695,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Import my Burp export and scan it" | `vigolium scan -I burp -i export.xml` |
 | "Scan my OpenAPI spec with auth" | `vigolium scan -I openapi -i spec.yaml -t <url> --spec-header "Authorization: Bearer ..."` |
 | "Only run XSS modules" | `vigolium scan -t <url> --module-tag xss` |
-| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --repo ./src` |
+| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --source ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
 | "Run the full AI pipeline" | `vigolium agent pipeline -t <url>` |
 | "Deep scan this endpoint for SQLi" | `vigolium agent swarm -t <url> --vuln-type sqli` |
@@ -1645,14 +1703,21 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Run this JS script against the API" | `vigolium js --code-file script.js --target <url>` |
 | "MD5 hash this string" | `vigolium js --format text --code 'vigolium.utils.md5("...")'` |
 | "Show me all critical findings" | `vigolium finding --severity critical` |
+| "Import findings from a file" | `vigolium finding load -i findings.jsonl` |
 | "Show active module findings in Burp format" | `vigolium finding --module-type active --burp` |
 | "Run scan for CI/CD pipeline" | `vigolium scan -t <url> --ci-output-format` |
 | "Export results as HTML report" | `vigolium export --format html -o report.html` |
 | "What traffic is in the database?" | `vigolium traffic` |
 | "Write me an extension that checks for exposed .env files" | Generates a JS extension file |
+| "Lint my extension for errors" | `vigolium ext lint custom-check.js` |
 | "Start the server with auto-scan" | `vigolium server -t <url> --scan-on-receive` |
 | "Whitebox scan with my source code" | `vigolium scan -t <url> --source ./src --strategy whitebox` |
+| "Ad-hoc SAST on a local path" | `vigolium scan -t <url> --sast-adhoc /path/to/app` |
 | "Clean up old scan data" | `vigolium db clean --before <date> --force` |
+| "Seed the database with sample data" | `vigolium db seed` |
+| "List agent sessions" | `vigolium agent session` |
+| "Show session utilities" | `vigolium session list` |
+| "Scan with auth config" | `vigolium scan -t <url> --auth-config auth.yaml` |
 
 ---
 
@@ -1668,3 +1733,10 @@ These are examples of natural language prompts you can give to Claude Code or Co
 8. **Extensions for custom logic** — Write JS extensions instead of modifying core modules. They run alongside built-in modules with `--ext`.
 9. **Projects for isolation** — Use `vigolium project create` to keep scan data separate across engagements.
 10. **Export early** — Run `vigolium export --format html -o report.html` to share results as interactive reports.
+
+## Resources
+
+- **Website**: [www.vigolium.com](https://www.vigolium.com/)
+- **Documentation**: [docs.vigolium.com](https://docs.vigolium.com/)
+- **GitHub**: [github.com/vigolium/vigolium](https://github.com/vigolium/vigolium)
+- **Skills Repository**: [github.com/vigolium/skills](https://github.com/vigolium/skills)

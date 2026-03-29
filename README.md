@@ -4,6 +4,8 @@
   <strong>Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</strong>
 </p>
 
+**Website:** [vigolium.com](https://www.vigolium.com) | **Documentation:** [docs.vigolium.com](https://docs.vigolium.com)
+
 ***
 
 Vigolium provides two complementary scanning modes:

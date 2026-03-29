@@ -1,0 +1,4 @@
+interface:
+  display_name: "vuln-report"
+  short_description: "Draft single-issue GH advisory reports"
+  default_prompt: "Use $vuln-report to draft a GitHub advisory style vulnerability report from these findings."

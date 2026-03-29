@@ -37,10 +37,12 @@ var (
 	autopilotMcpEnabled  bool
 	autopilotSpecialists []string
 	autopilotResume      string
+	autopilotBrowser     bool
+	autopilotAuditAgent  string
 )
 
 var agentAutopilotCmd = &cobra.Command{
-	Use:   "autopilot",
+	Use:   "autopilot [prompt]",
 	Short: "Agentic scan: autonomous AI-driven vulnerability scanning",
 	Long: `Launch an agentic scan that autonomously discovers, scans, and triages
 vulnerabilities using vigolium CLI commands.
@@ -53,6 +55,13 @@ When --source is provided, the agent will also analyze the application
 source code to discover routes, understand auth flows, and identify
 potential vulnerability sinks before scanning.
 
+Supports natural language prompts as a positional argument:
+  vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
+  vigolium agent autopilot "scan all source code from ~/src/crAPI, ~/src/DVWA"
+
+The prompt is parsed by an AI to extract target URLs, source paths, and focus areas.
+Use --dry-run to preview what the parser extracts without executing.
+
 Supported input types for --input (auto-detected):
   - URL:         https://example.com/api/login
   - Curl:        curl -X POST https://example.com/api -d '{"user":"admin"}'
@@ -62,6 +71,7 @@ Supported input types for --input (auto-detected):
 
 When input is piped via stdin, it is automatically read (no --input needed).
 The target URL is extracted from the input when --target is not provided.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runAgentAutopilot,
 }
 
@@ -86,11 +96,20 @@ func init() {
 	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to ACP sessions")
 	f.StringSliceVar(&autopilotSpecialists, "specialists", nil, "Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz)")
 	f.StringVar(&autopilotResume, "resume", "", "Resume from a previous session directory")
+	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
+	f.StringVar(&autopilotAuditAgent, "audit-agent", "", "Run background vig-audit-agent for parallel security auditing: 'lite' (6-phase, default) or 'full' (11-phase). Requires --source")
+	agentAutopilotCmd.Flag("audit-agent").NoOptDefVal = "lite" // bare --audit-agent defaults to lite
 }
 
-func runAgentAutopilot(_ *cobra.Command, _ []string) error {
+func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
+
+	// Natural language prompt: positional arg takes precedence when no explicit flags are set
+	hasExplicitFlags := autopilotTarget != "" || autopilotInput != "" || autopilotSource != ""
+	if len(args) > 0 && !hasExplicitFlags {
+		return runAutopilotFromPrompt(args[0])
+	}
 
 	// Resolve input and target
 	resolved, err := resolveInputAndTarget(autopilotTarget, autopilotInput)
@@ -99,8 +118,12 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	}
 	autopilotTarget = resolved.Target
 
+	if autopilotTarget == "" && autopilotSource == "" {
+		return fmt.Errorf("target is required: use --target, --input, --source, or pipe via stdin\n\nOr use a natural language prompt:\n  vigolium agent autopilot \"scan source at ~/src/app on localhost:3005\"")
+	}
 	if autopilotTarget == "" {
-		return fmt.Errorf("target is required: use --target, --input, or pipe via stdin")
+		fmt.Fprintf(os.Stderr, "%s No --target specified. Running source-only analysis; dynamic testing will be skipped.\n",
+			terminal.WarningSymbol())
 	}
 
 	settings, err := config.LoadSettings(globalConfig)
@@ -113,6 +136,12 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 	if autopilotMcpEnabled {
 		enabled := true
 		settings.Agent.McpEnabled = &enabled
+	}
+
+	// --browser flag overrides config
+	if autopilotBrowser {
+		enabled := true
+		settings.Agent.Browser.Enable = &enabled
 	}
 
 	// Open DB for context enrichment
@@ -151,8 +180,13 @@ func runAgentAutopilot(_ *cobra.Command, _ []string) error {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
 	}
 
-	fmt.Fprintf(os.Stderr, "%s Starting agentic scan (autopilot) against %s\n",
-		terminal.InfoSymbol(), terminal.Cyan(autopilotTarget))
+	if autopilotTarget != "" {
+		fmt.Fprintf(os.Stderr, "%s Starting agentic scan (autopilot) against %s\n",
+			terminal.InfoSymbol(), terminal.Cyan(autopilotTarget))
+	} else {
+		fmt.Fprintf(os.Stderr, "%s Starting source-only agentic scan (autopilot)\n",
+			terminal.InfoSymbol())
+	}
 	if autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
 			terminal.InfoSymbol(), terminal.ShortenHome(autopilotSource))
@@ -275,6 +309,11 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		StreamWriter: streamWriter,
 	}
 
+	// Wire audit agent
+	if auditCfg := agent.ResolveAuditAgentConfig(autopilotAuditAgent, settings.Agent.AuditAgent); auditCfg != nil {
+		cfg.AuditAgent = auditCfg
+	}
+
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
 	result, err := runner.RunAutonomous(ctx, cfg)
 	if err != nil {
@@ -327,6 +366,11 @@ func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *c
 		ScanFunc:    buildAgentSwarmScanFunc(settings, repo, "", nil, new(string)),
 	}
 
+	// Wire audit agent
+	if auditCfg := agent.ResolveAuditAgentConfig(autopilotAuditAgent, settings.Agent.AuditAgent); auditCfg != nil {
+		cfg.AuditAgent = auditCfg
+	}
+
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
 	result, err := runner.Run(ctx, cfg)
 	if err != nil {
@@ -342,4 +386,101 @@ func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *c
 		result.Duration.Round(time.Second))
 
 	return nil
+}
+
+// runAutopilotFromPrompt parses a natural language prompt and runs autopilot for each extracted app.
+func runAutopilotFromPrompt(prompt string) error {
+	intent, engine, settings, repo, err := parsePromptIntent(prompt)
+	if err != nil {
+		return err
+	}
+	defer engine.Close()
+
+	if autopilotDryRun {
+		return printIntentDryRun(intent)
+	}
+
+	// Single app: populate flags and re-enter the main flow.
+	// Close the intent-parsing engine first so runAgentAutopilot creates its own cleanly.
+	if len(intent.Apps) == 1 {
+		applyIntentToAutopilotFlags(intent.Apps[0])
+		engine.Close()
+		return runAgentAutopilot(nil, nil)
+	}
+
+	// Multi-app: fan-out parallel runs using the already-created engine
+	fmt.Fprintf(os.Stderr, "%s Parsed %d apps from prompt, running in parallel\n",
+		terminal.InfoSymbol(), len(intent.Apps))
+	return runMultiAppAutopilot(context.Background(), engine, settings, repo, intent)
+}
+
+// applyIntentToAutopilotFlags populates autopilot package-level flags from an AppIntent.
+func applyIntentToAutopilotFlags(app agent.AppIntent) {
+	autopilotTarget = app.Target
+	autopilotSource = app.SourcePath
+	if app.Focus != "" && autopilotFocus == "" {
+		autopilotFocus = app.Focus
+	}
+	if app.Instruction != "" && autopilotInstruction == "" {
+		autopilotInstruction = app.Instruction
+	}
+	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
+		terminal.SuccessSymbol(),
+		valueOrNone(autopilotTarget),
+		valueOrNone(terminal.ShortenHome(autopilotSource)))
+}
+
+// runMultiAppAutopilot fans out parallel autopilot runs for multiple apps.
+func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, intent *agent.ScanIntent) error {
+	if autopilotTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, autopilotTimeout)
+		defer cancel()
+	}
+
+	return runMultiAppFanOut(ctx, intent, func(ctx context.Context, idx int, app agent.AppIntent) error {
+		runID := "agt-" + uuid.New().String()
+		sessionDir, _ := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), runID)
+
+		instruction := mergeIntentInstruction(autopilotInstruction, autopilotInstructionFile, app)
+		focus := autopilotFocus
+		if app.Focus != "" {
+			focus = app.Focus
+		}
+
+		fmt.Fprintf(os.Stderr, "%s [%d/%d] Starting autopilot: target=%s source=%s\n",
+			terminal.InfoSymbol(), idx+1, len(intent.Apps),
+			valueOrNone(app.Target),
+			valueOrNone(terminal.ShortenHome(app.SourcePath)))
+
+		var streamWriter io.Writer
+		if settings.Agent.StreamEnabled() {
+			streamWriter = os.Stdout
+		}
+
+		projectUUID, _ := resolveProjectUUID()
+
+		cfg := agent.AutopilotPipelineConfig{
+			TargetURL:    app.Target,
+			SourcePath:   app.SourcePath,
+			Instruction:  instruction,
+			Focus:        focus,
+			AgentName:    autopilotAgent,
+			MaxCommands:  autopilotMaxCommands,
+			SessionsDir:  settings.Agent.EffectiveSessionsDir(),
+			SessionDir:   sessionDir,
+			ProjectUUID:  projectUUID,
+			ScanUUID:     globalScanID,
+			StreamWriter: streamWriter,
+		}
+
+		protocol := engine.ResolveAgentProtocol(autopilotAgent)
+		runner := agent.NewAutopilotPipelineRunner(engine, repo)
+		if protocol == "sdk" {
+			_, err := runner.RunAutonomous(ctx, cfg)
+			return err
+		}
+		_, err := runner.Run(ctx, cfg)
+		return err
+	})
 }

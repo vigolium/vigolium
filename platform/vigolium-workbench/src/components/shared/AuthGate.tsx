@@ -271,7 +271,12 @@ export default function AuthGate({ children }: AuthGateProps) {
           </div>
         </div>
 
-        <p className="text-[var(--v-text-muted)] text-sm text-center mt-5">
+        <div className="flex items-center gap-3 mt-5 text-sm">
+          <a href="https://www.vigolium.com/" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[website]</a>
+          <span className="text-[var(--v-text-muted)]">·</span>
+          <a href="https://docs.vigolium.com/" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[docs]</a>
+        </div>
+        <p className="text-[var(--v-text-muted)] text-sm text-center mt-2">
           Crafted with <span className="text-[var(--v-error)]">&lt;3</span> by{' '}
           <a href="https://twitter.com/j3ssie" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">@j3ssie</a>
           {' & '}

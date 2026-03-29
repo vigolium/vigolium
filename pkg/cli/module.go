@@ -297,6 +297,9 @@ func printModuleFooter() {
 	fmt.Printf("%s Configure enabled modules in: %s\n",
 		terminal.InfoSymbol(),
 		terminal.Gray(config.ConfigFilePath()))
+	fmt.Printf("%s Module docs: %s\n",
+		terminal.InfoSymbol(),
+		terminal.Gray("https://docs.vigolium.com"))
 }
 
 type moduleJSONEntry struct {

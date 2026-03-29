@@ -62,6 +62,20 @@ curl -s http://localhost:9002/ | jq .
 
 ---
 
+## GET /api/diagnostics — System Readiness Check
+
+Returns a diagnostic report checking database, agent backend, third-party tools, queue health, and directory configuration. See [Diagnostics](diagnostics.md) for full details.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:9002/api/diagnostics | jq .status
+```
+
+```json
+"ready"
+```
+
+---
+
 ## GET /health — Health Check
 
 Returns server health status.

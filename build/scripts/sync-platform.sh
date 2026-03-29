@@ -9,12 +9,16 @@ GIT_ORG="git@github.com:vigolium"
 PLATFORMS=(
   jsscan
   vigolium-workbench
-  vigolium-console
   static-reports
+  skills
+)
+
+declare -A SRC_OVERRIDE=(
+  [skills]="$REPO_ROOT/public/skills"
 )
 
 for name in "${PLATFORMS[@]}"; do
-  src="$REPO_ROOT/platform/$name"
+  src="${SRC_OVERRIDE[$name]:-$REPO_ROOT/platform/$name}"
   dest="$DEST_BASE/$name"
 
   if [ ! -d "$src" ]; then

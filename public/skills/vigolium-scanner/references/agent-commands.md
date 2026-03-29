@@ -1,6 +1,6 @@
 # Agent Commands Reference
 
-Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent pipeline`, and `agent swarm` commands.
+Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent pipeline`, `agent swarm`, and `agent session` commands.
 
 ## Table of Contents
 
@@ -9,6 +9,7 @@ Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent pi
 - [agent autopilot](#agent-autopilot)
 - [agent pipeline](#agent-pipeline)
 - [agent swarm](#agent-swarm)
+- [agent session](#agent-session)
 - [Prompt Templates](#prompt-templates)
 - [Agent Configuration](#agent-configuration)
 - [Output Schemas](#output-schemas)
@@ -19,61 +20,30 @@ Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent pi
 
 **Usage:** `vigolium agent [flags]`
 
-Run an AI coding agent for security code review, endpoint discovery, or custom analysis using prompt templates. Returns structured JSON (findings or HTTP records) saved to the database.
+Run an agentic scan using AI agents (Claude, OpenCode, Gemini) for intelligent vulnerability scanning with native scan support.
+
+The parent command only supports `--list-templates` and `--list-agents` flags — all execution requires a subcommand.
+
+### Available Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `autopilot` | Autonomous scanning with multi-agent specialist pipeline |
+| `pipeline` | Backward-compatible alias for `swarm --discover` |
+| `query` | Single-shot prompt execution with template-based or inline prompts |
+| `session` | List or inspect agent run sessions |
+| `swarm` | AI-guided vulnerability scanning with native scan support |
 
 ### agent flags
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--agent` | — | string | from config | Agent backend to use |
-| `--prompt-template` | — | string | — | Prompt template ID (e.g. security-code-review) |
-| `--prompt-file` | — | string | — | Path to a prompt template file |
-| `--prompt` | `-p` | string | — | Prompt text to send to the agent |
-| `--stdin` | — | bool | `false` | Read prompt from stdin |
-| `--source` | — | string | — | Path to application source code |
-| `--files` | — | []string | — | Specific files to include (relative to --source) |
-| `--append` | — | string | — | Append extra text to the rendered prompt |
-| `--output` | — | string | — | Write agent output to this file |
-| `--source-label` | — | string | — | Label for records ingested from agent output |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override |
-| `--instruction` | — | string | — | Custom instruction appended to prompt |
-| `--instruction-file` | — | string | — | Path to file containing custom instructions |
 | `--list-templates` | — | bool | `false` | List available prompt templates |
 | `--list-agents` | — | bool | `false` | List configured agent backends |
-| `--dry-run` | — | bool | `false` | Print the rendered prompt without executing |
-| `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
-| `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution (0 = no limit) |
 
 ### Examples
 
 ```bash
-# Security code review
-vigolium agent --prompt-template security-code-review --source ./src
-
-# Endpoint discovery
-vigolium agent --prompt-template endpoint-discovery --source ./src
-
-# Custom prompt file
-vigolium agent --prompt-file custom-prompt.md --source ./src
-
-# With specific agent backend
-vigolium agent --agent claude --prompt-template security-code-review --source ./src
-
-# Append instructions to prompt
-vigolium agent --prompt-template security-code-review --source ./src \
-  --append "Focus on authentication and authorization issues"
-
-# Specific files only
-vigolium agent --prompt-template security-code-review --source ./src \
-  --files "src/auth.go,src/middleware.go"
-
-# Dry run (preview prompt)
-vigolium agent --prompt-template security-code-review --source ./src --dry-run
-
-# Save output
-vigolium agent --prompt-template security-code-review --source ./src \
-  --output review-results.json
-
 # List available templates
 vigolium agent --list-templates
 
@@ -91,7 +61,24 @@ Send a freeform prompt to an AI agent without templates or structured output. Pr
 
 ### agent query flags
 
-Inherits all [agent flags](#agent-flags). The prompt can be passed as a positional argument.
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--agent` | — | string | from config | Agent backend to use |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
+| `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution (0 = no limit) |
+| `--append` | — | string | — | Append extra text to the rendered prompt |
+| `--dry-run` | — | bool | `false` | Print the rendered prompt without executing |
+| `--files` | — | []string | — | Specific files to include (relative to --source) |
+| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompt) |
+| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--output` | — | string | — | Write agent output to this file |
+| `--prompt` | `-p` | string | — | Prompt text to send to the agent |
+| `--prompt-file` | — | string | — | Path to a prompt template file |
+| `--prompt-template` | — | string | — | Prompt template ID (e.g. security-code-review) |
+| `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
+| `--source` | — | string | — | Path to source code repository |
+| `--source-label` | — | string | — | Label for records ingested from agent output (e.g. 'agent-review') |
+| `--stdin` | — | bool | `false` | Read prompt from stdin |
 
 ### Examples
 
@@ -113,6 +100,30 @@ vigolium agent query 'explain the auth flow' --source ./src
 
 # With timeout
 vigolium agent query --agent-timeout 10m 'comprehensive security review'
+
+# Security code review with template
+vigolium agent query --prompt-template security-code-review --source ./src
+
+# Endpoint discovery
+vigolium agent query --prompt-template endpoint-discovery --source ./src
+
+# Custom prompt file
+vigolium agent query --prompt-file custom-prompt.md --source ./src
+
+# Append instructions to prompt
+vigolium agent query --prompt-template security-code-review --source ./src \
+  --append "Focus on authentication and authorization issues"
+
+# Specific files only
+vigolium agent query --prompt-template security-code-review --source ./src \
+  --files "src/auth.go,src/middleware.go"
+
+# Dry run (preview prompt)
+vigolium agent query --prompt-template security-code-review --source ./src --dry-run
+
+# Save output
+vigolium agent query --prompt-template security-code-review --source ./src \
+  --output review-results.json
 ```
 
 ---
@@ -129,23 +140,23 @@ Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists hand
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
-| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL). Reads from stdin if piped |
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override |
-| `--source` | — | string | — | Path to application source code |
-| `--files` | — | []string | — | Specific files to include (relative to --source) |
-| `--focus` | — | string | — | Focus area hint (e.g. "API injection", "auth bypass") |
-| `--instruction` | — | string | — | Custom instruction appended to prompt |
-| `--instruction-file` | — | string | — | Path to file containing custom instructions |
-| `--specialists` | — | []string | — | Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz) |
-| `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
-| `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
-| `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
-| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough to ACP sessions |
-| `--resume` | — | string | — | Resume from a previous session directory |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
+| `--files` | — | []string | — | Specific files to include (relative to --source) |
+| `--focus` | — | string | — | Focus area hint (e.g. 'API injection', 'auth bypass') |
+| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
+| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompt) |
+| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
+| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough to ACP sessions |
+| `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
+| `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
+| `--source` | — | string | — | Path to application source code for source-aware scanning |
+| `--specialists` | — | []string | — | Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz) |
+| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
+| `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
 
 ### Terminal Security Model (ACP mode)
 
@@ -210,22 +221,22 @@ Run a multi-phase scanning pipeline where native Go code handles heavy lifting a
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
-| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL). Reads from stdin if piped |
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override |
-| `--source` | — | string | — | Path to application source code |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
+| `--dry-run` | — | bool | `false` | Render agent prompts without executing (shows plan and triage prompts) |
 | `--files` | — | []string | — | Specific source files to include (relative to --source) |
-| `--focus` | — | string | — | Focus area hint for the planning agent |
-| `--instruction` | — | string | — | Custom instruction appended to prompts |
-| `--instruction-file` | — | string | — | Path to file containing custom instructions |
-| `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
-| `--max-rescan-rounds` | — | int | `2` | Maximum triage→rescan iterations |
-| `--skip-phase` | — | []string | — | Skip phases (source-analysis, discover, plan, scan, triage, rescan, report) |
-| `--start-from` | — | string | — | Resume pipeline from a specific phase |
-| `--profile` | — | string | — | Scanning profile for scan phases |
-| `--dry-run` | — | bool | `false` | Render agent prompts without executing |
+| `--focus` | — | string | — | Focus area hint for the planning agent (e.g. 'API injection', 'auth bypass') |
+| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
+| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompts) |
+| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--max-rescan-rounds` | — | int | `2` | Maximum number of triage->rescan iterations |
+| `--profile` | — | string | — | Scanning profile to use for scan phases |
 | `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
+| `--skip-phase` | — | []string | — | Skip specific phases (source-analysis, discover, plan, scan, triage, rescan, report) |
+| `--source` | — | string | — | Path to application source code for source-aware scanning |
+| `--start-from` | — | string | — | Resume pipeline from a specific phase |
+| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
+| `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
 
 ### Examples
 
@@ -280,67 +291,66 @@ Inputs are auto-detected from their content:
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--target` | `-t` | string | — | Target URL (required when `--source` is used without other inputs) |
-| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL). Reads from stdin if piped |
-| `--record-uuid` | — | string | — | HTTP record UUID from database |
-| `--discover` | — | bool | `false` | Run discovery+spidering before planning to expand attack surface |
-| `--source` | — | string | — | Path to application source code (enables source analysis + SAST) |
-| `--files` | — | []string | — | Specific source files to include (relative to --source) |
-| `--code-audit` | — | bool | auto | Enable AI code audit (on by default with --source, use `--code-audit=false` to disable) |
-| `--vuln-type` | — | string | — | Vulnerability type focus (e.g. `sqli`, `xss`, `ssrf`, `auth`, `idor`) |
-| `--focus` | — | string | — | Focus area hint (e.g. "API injection", "auth bypass") |
-| `--modules` | `-m` | []string | — | Explicit module names to include alongside agent selections |
-| `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
-| `--max-rescan-rounds` | — | int | `3` | Alias for --max-iterations (pipeline backward compat) |
-| `--triage` | — | bool | `false` | Enable AI triage and rescan phases |
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command override |
-| `--swarm-duration` | — | duration | `12h` | Maximum swarm duration (0 = unlimited) |
-| `--profile` | — | string | — | Scanning profile to use |
-| `--only` | — | string | — | Run only this scanning phase |
-| `--skip` | — | []string | — | Skip specific scanning phases |
-| `--start-from` | — | string | — | Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage) |
-| `--instruction` | — | string | — | Custom instruction appended to prompts |
-| `--instruction-file` | — | string | — | Path to file containing custom instructions |
-| `--source-analysis-only` | — | bool | `false` | Run only the source analysis phase and exit |
-| `--skip-sast` | — | bool | `false` | Skip native SAST tools (ast-grep, osv-scanner, semgrep) |
+| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
+| `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto, scales with CPU count) |
+| `--code-audit` | — | bool | auto | Enable AI security code audit phase (on by default when --source is provided, use `--code-audit=false` to disable) |
+| `--custom-agent` | — | []string | — | Custom agents the swarm can invoke via 'vigolium agent query --agent=X' (repeatable) |
+| `--custom-slash-command` | — | []string | — | Slash commands available inside the ACP session (repeatable) |
+| `--discover` | — | bool | `false` | Run discovery+spidering before master agent planning to expand attack surface |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
-| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
-| `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto) |
-| `--max-master-retries` | — | int | `3` | Max master agent retries on parse failure |
-| `--sub-agent-concurrency` | — | int | `3` | Max parallel source analysis sub-agents |
-| `--max-plan-records` | — | int | `10` | Max records sent to plan agent (0 = no limit) |
+| `--files` | — | []string | — | Specific source files to include (relative to --source) |
+| `--focus` | — | string | — | Focus area hint for the agent (e.g. 'API injection', 'auth bypass') |
+| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
+| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompts) |
+| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
 | `--master-batch-size` | — | int | `0` | Max records per master agent batch (0 = default 5) |
+| `--max-commands` | — | int | `0` | Max terminal commands per session (default: 50, only applies when --custom-slash-command or --custom-agent is set) |
+| `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
+| `--max-master-retries` | — | int | `3` | Max master agent retries on parse failure |
+| `--max-plan-records` | — | int | `10` | Max records sent to plan agent (selects most interesting; 0 = no limit) |
+| `--max-probe-body` | — | int | `0` | Max response body size in bytes during probing (0 = default 2MB) |
+| `--modules` | `-m` | []string | — | Explicit module names to include |
+| `--only` | — | string | — | Run only this scanning phase (discovery, spidering, spa, audit, external-harvest) |
 | `--probe-concurrency` | — | int | `0` | Max parallel probe requests (0 = default 10) |
 | `--probe-timeout` | — | duration | `0` | Per-request probe timeout (0 = default 10s) |
-| `--max-probe-body` | — | int | `0` | Max response body size during probing (0 = default 2MB) |
-| `--custom-slash-command` | — | []string | — | Slash commands available inside ACP session |
-| `--custom-agent` | — | []string | — | Custom agents the swarm can invoke |
-| `--max-commands` | — | int | `0` | Max terminal commands per session (default: 50, only with --custom-slash-command or --custom-agent) |
+| `--profile` | — | string | — | Scanning profile to use |
+| `--record-uuid` | — | string | — | HTTP record UUID from database |
+| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
+| `--skip` | — | []string | — | Skip specific phases (discovery, spidering, spa, audit, external-harvest, triage, rescan) |
+| `--skip-sast` | — | bool | `false` | Skip native SAST tools (ast-grep, osv-scanner, semgrep) during source analysis |
+| `--source` | — | string | — | Path to application source code for route discovery |
+| `--source-analysis-only` | — | bool | `false` | Run only the source analysis phase and exit |
+| `--start-from` | — | string | — | Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage) |
+| `--sub-agent-concurrency` | — | int | `3` | Max parallel source analysis sub-agents (routes, auth, extensions) |
+| `--swarm-duration` | — | duration | `12h` | Maximum swarm duration (0 = unlimited) |
+| `--target` | `-t` | string | — | Target URL (required when --source is used) |
+| `--triage` | — | bool | `false` | Enable AI triage and rescan phases (disabled by default) |
+| `--vuln-type` | — | string | — | Vulnerability type focus (e.g. sqli, xss, ssrf) |
 
 At least one input is required: `--target`, `--input`, `--record-uuid`, `--source`, or piped stdin. `--source` requires `--target` for hostname filtering.
 
 ### Swarm Phases
 
 ```
-Phase 1:    Normalize         (Go)       — Parse input(s) into HttpRequestResponse objects, save to DB
-Phase 1.5:  Source Analysis   (AI)       — Extract routes, auth config, JS extensions from source (conditional: --source)
-Phase 1.6:  Code Audit        (AI)       — Deep AI security code audit for business logic flaws (conditional: --source, on by default)
-Phase 1.7:  SAST              (Go)       — Static analysis via ast-grep + secret detection (conditional: --source)
-Phase 1.8:  SAST Review       (AI)       — AI reviews SAST findings (conditional: --source)
-Phase 1.9:  Discover          (Go)       — Content discovery + spidering (conditional: --discover)
-Phase 2:    Plan              (AI)       — Master agent analyzes requests, selects modules, generates extensions
-Phase 3:    Extension         (Go)       — Write generated JS extensions to temp directory
-Phase 4:    Native Scan       (Go)       — Dynamic assessment with selected modules + extensions
-Phase 5:    Triage            (AI)       — Agent reviews extension-generated findings (conditional: --triage)
-Phase 5-6:  Rescan            (Go, loop) — Targeted rescan from triage follow-ups (conditional: --triage)
+Phase 1:    native-normalize    (Go)       — Parse input(s) into HttpRequestResponse objects, save to DB
+Phase 2:    source-analysis     (AI)       — Extract routes, auth config, JS extensions from source (conditional: --source)
+Phase 3:    code-audit          (AI)       — Deep AI security code audit for business logic flaws (conditional: --source, on by default)
+Phase 4:    native-sast         (Go)       — Static analysis via ast-grep + secret detection (conditional: --source)
+Phase 5:    native-sast-review  (AI)       — AI reviews SAST findings (conditional: --source)
+Phase 6:    native-discover     (Go)       — Content discovery + spidering (conditional: --discover)
+Phase 7:    plan                (AI)       — Master agent analyzes requests, selects modules, generates extensions
+Phase 8:    native-extension    (Go)       — Write generated JS extensions to temp directory
+Phase 9:    native-scan         (Go)       — Dynamic assessment with selected modules + extensions
+Phase 10:   triage              (AI)       — Agent reviews extension-generated findings (conditional: --triage)
+Phase 11:   rescan              (Go, loop) — Targeted rescan from triage follow-ups (conditional: --triage)
 ```
 
-Phases 1.5–1.8 are automatically skipped when `--source` is not provided. Phase 1.9 is skipped unless `--discover` is passed. Phases 5–6 are skipped unless `--triage` is enabled.
+Phases 2-5 are automatically skipped when `--source` is not provided. Phase 6 is skipped unless `--discover` is passed. Phases 10-11 are skipped unless `--triage` is enabled.
 
 ### Swarm Output Schemas
 
-**SwarmPlan** (phase 2 output):
+**SwarmPlan** (plan phase output):
 
 The master agent produces a plan with three tiers of custom checks (lightest first):
 
@@ -479,6 +489,40 @@ vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli a
 vigolium agent swarm -t https://example.com \
   --custom-slash-command /security-review \
   --custom-agent @my-sqli-specialist
+```
+
+---
+
+## agent session
+
+**Usage:** `vigolium agent session [uuid] [flags]`
+
+**Aliases:** `session`, `sessions`
+
+List or inspect agent run sessions. Without arguments, lists all agent run sessions. With a UUID argument, shows detailed session information.
+
+### agent session flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--limit` | `-n` | int | `50` | Maximum number of records to display |
+| `--offset` | `-o` | int | `0` | Number of records to skip |
+| `--mode` | — | string | — | Filter by mode (query, autopilot, pipeline, swarm) |
+
+### Examples
+
+```bash
+# List all agent sessions
+vigolium agent session
+
+# List with pagination
+vigolium agent session -n 20 -o 40
+
+# Filter by mode
+vigolium agent session --mode swarm
+
+# Show details for a specific session
+vigolium agent session agt-550e8400-e29b-41d4-a716-446655440000
 ```
 
 ---

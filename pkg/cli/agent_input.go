@@ -2,13 +2,18 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/terminal"
+	"go.uber.org/zap"
 )
 
 // stdinIsPiped returns true if stdin is a pipe (not a terminal).
@@ -95,4 +100,115 @@ func resolveInputAndTarget(target, input string) (*ResolvedInput, error) {
 		Target:    resolvedTarget,
 		InputData: inputData,
 	}, nil
+}
+
+// printIntentDryRun prints the parsed ScanIntent as JSON and exits.
+func printIntentDryRun(intent *agent.ScanIntent) error {
+	data, err := json.MarshalIndent(intent, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal intent: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+// valueOrNone returns the value or "(none)" if empty.
+func valueOrNone(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	return s
+}
+
+// parsePromptIntent is the shared scaffold for both runAutopilotFromPrompt and
+// runSwarmFromPrompt. It loads settings, opens the DB, creates an engine,
+// parses the natural language prompt, and resolves targets.
+// The caller is responsible for closing the returned engine.
+func parsePromptIntent(prompt string) (*agent.ScanIntent, *agent.Engine, *config.Settings, *database.Repository, error) {
+	settings, err := config.LoadSettings(globalConfig)
+	if err != nil {
+		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
+		settings = config.DefaultSettings()
+	}
+
+	var repo *database.Repository
+	db, dbErr := getDB()
+	if dbErr == nil {
+		ctx := context.Background()
+		if schemaErr := db.CreateSchema(ctx); schemaErr != nil {
+			zap.L().Warn("Failed to create schema", zap.Error(schemaErr))
+		}
+		repo = database.NewRepository(db)
+	}
+
+	engine := agent.NewEngine(settings, repo)
+
+	fmt.Fprintf(os.Stderr, "%s Parsing natural language prompt...\n", terminal.InfoSymbol())
+
+	intent, err := agent.ParseAndResolveIntent(context.Background(), engine, prompt)
+	if err != nil {
+		engine.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to parse scan prompt: %w", err)
+	}
+
+	return intent, engine, settings, repo, nil
+}
+
+// runMultiAppFanOut runs a function for each app in the intent, in parallel,
+// and collects errors. This is the shared fan-out logic for both autopilot and swarm.
+func runMultiAppFanOut(ctx context.Context, intent *agent.ScanIntent, runFn func(ctx context.Context, idx int, app agent.AppIntent) error) error {
+	type appResult struct {
+		index int
+		err   error
+	}
+
+	results := make(chan appResult, len(intent.Apps))
+	var wg sync.WaitGroup
+
+	for i, app := range intent.Apps {
+		wg.Add(1)
+		go func(idx int, app agent.AppIntent) {
+			defer wg.Done()
+			results <- appResult{index: idx, err: runFn(ctx, idx, app)}
+		}(i, app)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var errs []string
+	for r := range results {
+		if r.err != nil {
+			app := intent.Apps[r.index]
+			label := app.SourcePath
+			if label == "" {
+				label = app.Target
+			}
+			errs = append(errs, fmt.Sprintf("[%s] %v", label, r.err))
+			fmt.Fprintf(os.Stderr, "%s App %q failed: %v\n",
+				terminal.ErrorSymbol(), label, r.err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%d/%d apps failed:\n  %s", len(errs), len(intent.Apps), strings.Join(errs, "\n  "))
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%s All %d runs complete\n",
+		terminal.SuccessSymbol(), len(intent.Apps))
+	return nil
+}
+
+// mergeIntentInstruction merges base instruction with app-specific instruction.
+func mergeIntentInstruction(base, instructionFile string, app agent.AppIntent) string {
+	instruction, _ := resolveInstruction(base, instructionFile)
+	if app.Instruction != "" {
+		if instruction != "" {
+			instruction += "\n\n"
+		}
+		instruction += app.Instruction
+	}
+	return instruction
 }

@@ -18,21 +18,40 @@ Complete flag reference for `scan`, `scan-url`, `scan-request`, and `run` comman
 
 Run a full vulnerability scan pipeline. Supports multiple targets, input formats, phase control, and strategy presets.
 
-### scan-specific flags
+### Output flags (scan & run)
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--output` | `-o` | string | — | Write findings to specified output file |
 | `--stats` | — | bool | `false` | Show live progress stats during scanning |
 | `--include-response` | — | bool | `false` | Include full HTTP response body in output |
-| `--retries` | — | int | `1` | Retry attempts for failed requests |
-| `--stream` | — | bool | `false` | Process targets as a stream without buffering or deduplication |
+| `--stateless` | — | bool | `false` | Use a temporary database, export results to --output, then discard |
+
+### Request flags (scan & run)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
 | `--header` | `-H` | []string | — | Add custom HTTP header (repeatable, e.g. -H 'Auth: Bearer token') |
 | `--advanced-options` | `-a` | map | — | Module-specific options as key=value (e.g. -a xss.dom=true) |
-| `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
-| `--skip-format-validation` | — | bool | `false` | Skip validation of input file format |
-| `--source-url` | — | string | — | Git URL to clone for source-aware scanning |
-| `--module-tag` | — | []string | — | Filter modules by tag (OR condition, repeatable) |
+| `--retries` | — | int | `1` | Retry attempts for failed requests |
+| `--stream` | — | bool | `false` | Process targets as a stream without buffering or deduplication |
+
+### Input Format flags (scan & run)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--required-only` | bool | `false` | Parse only required fields from input format (ignore optional) |
+| `--skip-format-validation` | bool | `false` | Skip validation of input file format |
+
+### Other flags (scan & run)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--auth-config` | string | — | Path to auth-config file with session definitions |
+| `--oast-url` | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
+| `--pilot` | bool | `false` | Enable AI pilot-driven crawling |
+| `--session` | []string | — | Inline session for IDOR/BOLA testing (repeatable, format: name:Header:value) |
+| `--session-file` | []string | — | Path to individual session file (YAML or JSON, repeatable) |
 
 ### Content Discovery flags (scan & run)
 
@@ -59,14 +78,14 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 |------|------|---------|-------------|
 | `--external-harvest` | bool | `false` | Enable external intelligence gathering phase (Wayback, CT logs, etc.) |
 
-### SPA flags (scan & run)
+### KnownIssueScan flags (scan & run)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--spa-tags` | []string | — | Nuclei template tags to include |
-| `--spa-exclude-tags` | []string | — | Nuclei template tags to exclude |
-| `--spa-severities` | []string | — | Filter by severity (critical,high,medium,low,info) |
-| `--spa-templates-dir` | string | — | Custom Nuclei templates directory |
+| `--known-issue-scan-tags` | []string | — | Nuclei template tags to include |
+| `--known-issue-scan-exclude-tags` | []string | — | Nuclei template tags to exclude |
+| `--known-issue-scan-severities` | []string | — | Filter Nuclei templates by severity (critical,high,medium,low,info) |
+| `--known-issue-scan-templates-dir` | string | — | Custom Nuclei templates directory |
 
 ### SAST flags (scan & run)
 
@@ -74,12 +93,6 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 |------|------|---------|-------------|
 | `--rule` | string | — | Filter SAST rules by fuzzy name match |
 | `--sast-adhoc` | string | — | Ad-hoc SAST scan: local path or git URL (auto-detected, results not saved to database) |
-
-### OAST flags (scan & run)
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--oast-url` | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
 
 ### Examples
 
@@ -123,7 +136,7 @@ vigolium scan -t https://example.com -c 100 --rate-limit 200
 vigolium scan -t https://example.com --source ./src --strategy whitebox
 
 # Whitebox via git clone
-vigolium scan -t https://example.com --source-url https://github.com/org/repo --strategy whitebox
+vigolium scan -t https://example.com --source https://github.com/org/repo --strategy whitebox
 
 # OpenAPI scan
 vigolium scan -I openapi -i openapi.yaml -t https://api.example.com
@@ -154,22 +167,39 @@ Scan a single URL for vulnerabilities. Designed for quick, targeted scans and AI
 
 ### scan-url specific flags
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--method` | — | string | `GET` | HTTP method |
-| `--body` | — | string | — | Request body |
-| `--header` | `-H` | []string | — | Custom header (repeatable) |
-| `--no-passive` | — | bool | `false` | Skip passive modules |
-| `--no-insertion-points` | — | bool | `false` | Skip insertion point testing |
+**Spidering:**
 
-### Phase flags (shared with scan-request)
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--spider` | bool | `false` | Run browser-based spidering before scanning |
+
+**Discovery:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--discover` | bool | `false` | Run content discovery before scanning |
-| `--spider` | bool | `false` | Run browser-based spidering |
-| `--external-harvest` | bool | `false` | Run external intelligence harvesting |
-| `--spa` | bool | `false` | Run security posture assessment |
+
+**Harvest:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--external-harvest` | bool | `false` | Run external intelligence harvesting before scanning |
+
+**Request:**
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--header` | `-H` | []string | — | Custom header (repeatable) |
+
+**Other:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--method` | string | `GET` | HTTP method |
+| `--body` | string | — | Request body |
+| `--known-issue-scan` | bool | `false` | Run known issue scan (Nuclei/Kingfisher) |
+| `--no-passive` | bool | `false` | Skip passive modules |
+| `--no-insertion-points` | bool | `false` | Skip insertion point testing |
 
 ### Examples
 
@@ -199,14 +229,33 @@ Read a raw HTTP request from file or stdin and run scanner modules against it. D
 
 ### scan-request specific flags
 
+**Spidering:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--spider` | bool | `false` | Run browser-based spidering before scanning |
+
+**Discovery:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--discover` | bool | `false` | Run content discovery before scanning |
+
+**Harvest:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--external-harvest` | bool | `false` | Run external intelligence harvesting before scanning |
+
+**Other:**
+
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--input` | `-i` | string | `-` (stdin) | Input file or stdin |
 | `--target` | — | string | — | Override target URL (scheme://host) |
+| `--known-issue-scan` | — | bool | `false` | Run known issue scan |
 | `--no-passive` | — | bool | `false` | Skip passive modules |
 | `--no-insertion-points` | — | bool | `false` | Skip insertion point testing |
-
-Also accepts the same phase flags as scan-url (--discover, --spider, --external-harvest, --spa).
 
 ### Examples
 
@@ -241,13 +290,13 @@ Run a single scan phase directly. Equivalent to `vigolium scan --only <phase>`.
 | `ingestion` | — |
 | `discovery` | `deparos`, `discover` |
 | `external-harvest` | — |
+| `known-issue-scan` | — |
 | `spidering` | `spitolas` |
-| `spa` | — |
 | `sast` | — |
-| `audit` | — |
+| `audit` | `dynamic-assessment` |
 | `extension` | `ext` |
 
-The `run` command accepts the same flags as `scan` (output, discovery, spidering, SPA, SAST, OAST flags).
+The `run` command accepts the same flag groups as `scan`: Spidering, Discovery, Harvest, KnownIssueScan, SAST, Input Format, Request, Output, and Other (--oast-url, --pilot).
 
 ### Examples
 
@@ -257,8 +306,8 @@ vigolium run spidering -t https://example.com
 vigolium run audit -t https://example.com
 vigolium run audit -t https://example.com --module-tag spring
 vigolium run external-harvest -t https://example.com
-vigolium run spa -t https://example.com
-vigolium run spa -t https://example.com --spa-tags cve --spa-severities critical,high
+vigolium run known-issue-scan -t https://example.com
+vigolium run known-issue-scan -t https://example.com --known-issue-scan-tags cve --known-issue-scan-severities critical,high
 vigolium run sast --sast-adhoc /path/to/app
 vigolium run sast --sast-adhoc /path/to/app --rule gin
 vigolium run extension -t https://example.com --ext custom-check.js
@@ -301,6 +350,12 @@ Speed settings have a layered precedence:
 - `--ci-output-format` enables CI-friendly output: JSONL findings only, no color, no banners
 - Equivalent to combining `--format jsonl --silent`
 - Useful for CI/CD pipelines that parse JSON output
+
+### Valid `--only` Phases
+
+The following phases can be used with `--only` and `--skip`:
+
+`ingestion`, `discovery`, `external-harvest`, `known-issue-scan`, `spidering`, `sast`, `audit`, `extension`
 
 ### HTML Format Constraints
 

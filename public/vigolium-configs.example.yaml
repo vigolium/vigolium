@@ -1198,6 +1198,21 @@ agent:
     max_sessions: 2
 
   # --------------------------------------------------------------------------
+  # Browser Automation (agent-browser)
+  # --------------------------------------------------------------------------
+  # When enabled, agents gain access to agent-browser CLI for browser-based
+  # authentication, login capture, and interaction with JavaScript-heavy SPAs.
+  # Requires agent-browser to be installed and in $PATH.
+  # Use --browser CLI flag to override per-run.
+  browser:
+    # Enable agent-browser integration.
+    # Default: false
+    enable: false
+
+    # Path to agent-browser binary (default: "agent-browser" via $PATH).
+    # binary_path: /usr/local/bin/agent-browser
+
+  # --------------------------------------------------------------------------
   # Agent Backend Definitions
   # --------------------------------------------------------------------------
   # Each entry defines an external command that acts as an AI agent.

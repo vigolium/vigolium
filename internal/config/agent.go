@@ -16,6 +16,8 @@ type AgentConfig struct {
 	SwarmTerminal SwarmTerminalConfig `yaml:"swarm_terminal,omitempty"` // terminal config for swarm agent sessions
 	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
 	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
+	Browser       BrowserConfig       `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
+	AuditAgent    AuditAgentConfig    `yaml:"audit_agent,omitempty"`    // optional vig-audit-agent integration for background security audits
 }
 
 // ContextLimits controls how much data is pulled from the DB for agent context enrichment.
@@ -118,6 +120,66 @@ func (c *SwarmTerminalConfig) EffectiveMaxCommands() int {
 		return 50
 	}
 	return c.MaxCommands
+}
+
+// BrowserConfig controls optional agent-browser integration for browser-based auth flows.
+// When enabled, the agent gains access to agent-browser CLI commands via Bash for
+// performing browser-based login, cookie capture, and authenticated exploration.
+type BrowserConfig struct {
+	Enable     *bool  `yaml:"enable,omitempty"`      // default: false
+	BinaryPath string `yaml:"binary_path,omitempty"` // path to agent-browser binary (default: "agent-browser" via $PATH)
+}
+
+// IsEnabled returns whether agent-browser integration is enabled. Defaults to false.
+func (c *BrowserConfig) IsEnabled() bool {
+	return c.Enable != nil && *c.Enable
+}
+
+// EffectiveBinaryPath returns the binary path, defaulting to "agent-browser".
+func (c *BrowserConfig) EffectiveBinaryPath() string {
+	if c.BinaryPath != "" {
+		return c.BinaryPath
+	}
+	return "agent-browser"
+}
+
+// AuditAgentConfig controls the optional vig-audit-agent integration.
+// When enabled and a source path is provided, agent modes (swarm, autopilot) launch
+// vig-audit-agent as a background Claude Code process for parallel security auditing.
+type AuditAgentConfig struct {
+	Enable       *bool  `yaml:"enable,omitempty"`        // default: false
+	PluginDir    string `yaml:"plugin_dir,omitempty"`    // path to vig-auditor-claude plugin dir (default: ~/.vig-audit-agent/plugins/vig-auditor-claude)
+	Mode         string `yaml:"mode,omitempty"`          // "full" (11-phase) or "lite" (6-phase); default: "lite"
+	SyncInterval int    `yaml:"sync_interval,omitempty"` // seconds between state syncs; default: 30
+}
+
+// IsEnabled returns whether vig-audit-agent integration is enabled. Defaults to false.
+func (c *AuditAgentConfig) IsEnabled() bool {
+	return c.Enable != nil && *c.Enable
+}
+
+// EffectivePluginDir returns the plugin directory, defaulting to ~/.vigolium/vig-audit-agent/plugin.
+func (c *AuditAgentConfig) EffectivePluginDir() string {
+	if c.PluginDir != "" {
+		return ExpandPath(c.PluginDir)
+	}
+	return ExpandPath("~/.vigolium/vig-audit-agent/plugin")
+}
+
+// EffectiveMode returns the audit mode, defaulting to "lite".
+func (c *AuditAgentConfig) EffectiveMode() string {
+	if c.Mode == "full" {
+		return "full"
+	}
+	return "lite"
+}
+
+// EffectiveSyncInterval returns the sync interval in seconds, defaulting to 30.
+func (c *AuditAgentConfig) EffectiveSyncInterval() int {
+	if c.SyncInterval > 0 {
+		return c.SyncInterval
+	}
+	return 30
 }
 
 // LLMConfig holds settings for direct LLM API calls (used by JS extension agent API).
