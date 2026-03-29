@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
@@ -98,6 +99,9 @@ func initializeVigolium() error {
 
 	// Bootstrap prompt templates
 	bootstrapPrompts(vigoliumDir)
+
+	// Bootstrap embedded audit agent (plugin + skills)
+	bootstrapAuditAgent()
 
 	// Print success message
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
@@ -246,6 +250,15 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 	}
 }
 
+// bootstrapAuditAgent extracts the embedded vig-audit-agent (plugin + skills) to
+// ~/.vigolium/vig-audit-agent/. Uses version-aware hashing so binary upgrades
+// trigger re-extraction automatically.
+func bootstrapAuditAgent() {
+	if _, err := agent.ExtractAuditAgentPlugin(); err != nil {
+		zap.L().Debug("Failed to extract audit agent plugin", zap.Error(err))
+	}
+}
+
 // ensureInitialized checks if Vigolium is initialized and initializes if needed
 // This is called before any command runs
 func ensureInitialized() error {
@@ -258,6 +271,9 @@ func ensureInitialized() error {
 
 	// Check if already initialized
 	if _, err := os.Stat(settingsPath); err == nil {
+		// Already initialized — still re-extract audit agent on binary upgrades
+		// (version-aware hash makes this a no-op when unchanged)
+		bootstrapAuditAgent()
 		return nil
 	}
 

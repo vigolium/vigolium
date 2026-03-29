@@ -88,7 +88,7 @@ func parseComposePort(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	inPorts := false
@@ -151,7 +151,7 @@ func parseEnvPort(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -225,7 +225,7 @@ func parseServerFilePort(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	buf := make([]byte, maxServerFileReadBytes)
 	n, _ := f.Read(buf)

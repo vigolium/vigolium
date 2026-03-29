@@ -65,6 +65,11 @@ func RunAgenticSDK(ctx context.Context, agentDef config.AgentDef, prompt string,
 		return acpResult{}, fmt.Errorf("%w: %w", errSDKQueryFailed, err)
 	}
 
+	// Signal no more input — the CLI will exit after its response.
+	// This is safe for RunAgenticSDK (one-shot); pool sessions manage
+	// their own stdin lifecycle for multi-turn conversations.
+	client.CloseInput()
+
 	// Collect output
 	output, sessionID, err := collectSDKOutput(ctx, client, cfg.StreamWriter)
 	if err != nil {
@@ -333,6 +338,7 @@ func collectSDKOutputStreaming(ctx context.Context, client *claudesdk.Client, st
 					zap.Int("turns", m.NumTurns),
 					zap.Int("inputTokens", m.Usage.InputTokens),
 					zap.Int("outputTokens", m.Usage.OutputTokens))
+				return outputBuf.String(), sessionID, nil
 			}
 
 		case err := <-errChan:

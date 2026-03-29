@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -182,12 +183,15 @@ func (p *process) close() {
 			}
 		}
 
-		// Wait for exit
+		// Wait for process exit (background goroutine closes p.done after cmd.Wait).
+		// Use a timeout to avoid hanging if the process doesn't exit cleanly.
 		if p.cmd != nil {
 			select {
 			case <-p.done:
-			default:
-				_ = p.cmd.Wait()
+			case <-time.After(5 * time.Second):
+				zap.L().Debug("timed out waiting for claude process exit, force-killing",
+					zap.Int("pid", p.cmd.Process.Pid))
+				_ = p.cmd.Process.Kill()
 			}
 		}
 	})

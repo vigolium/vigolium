@@ -128,10 +128,27 @@ func (c *Client) ReceiveMessages(ctx context.Context) (<-chan Message, <-chan er
 				errCh <- ctx.Err()
 				return
 			}
+
+			// Exit after delivering the final result, matching ReceiveResponse behavior.
+			if _, ok := msg.(*ResultMessage); ok {
+				return
+			}
 		}
 	}()
 
 	return msgCh, errCh
+}
+
+// CloseInput closes the stdin pipe to the CLI subprocess, signaling that no
+// more messages will be sent. This causes the CLI to exit after finishing its
+// current response. Use this for one-shot queries to ensure clean process exit.
+func (c *Client) CloseInput() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.proc != nil {
+		_ = c.proc.stdin.Close()
+	}
 }
 
 // Close shuts down the CLI subprocess and cleans up resources.

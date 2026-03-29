@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
     "dev:clean": "rm -rf .next && NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
-    "build": "NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next build",
-    "build:prod": "rm -rf .next out dist && NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next build && mv out dist",
+    "build": "next build",
+    "build:prod": "rm -rf .next out dist && next build && mv out dist",
     "preview": "bunx serve dist",
     "start": "next start -p 3002",
     "lint": "next lint"

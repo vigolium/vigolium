@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -262,7 +263,7 @@ func TestSyncStateOnce(t *testing.T) {
 
 func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 	cfg := config.AuditAgentConfig{} // disabled by default
-	runner, err := StartAuditAgent(nil, cfg, "/some/source", "/some/session", "proj-1", "scan-1", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "/some/source", "/some/session", "proj-1", "scan-1", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -274,7 +275,7 @@ func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 func TestStartAuditAgent_NoSourceReturnsNil(t *testing.T) {
 	enabled := true
 	cfg := config.AuditAgentConfig{Enable: &enabled}
-	runner, err := StartAuditAgent(nil, cfg, "", "/some/session", "proj-1", "scan-1", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "", "/some/session", "proj-1", "scan-1", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

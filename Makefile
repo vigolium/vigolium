@@ -538,6 +538,13 @@ release:
 	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
 	@echo "$(PREFIX) Release uploaded successfully!"
 
+# Sync scripts to R2 CDN without rebuilding
+cdn-sync:
+	@echo "$(PREFIX) Syncing scripts to R2 CDN..."
+	mc cp build/scripts/install.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	@echo "$(PREFIX) CDN sync complete"
+
 # Clean build artifacts
 clean:
 	@echo "$(PREFIX) Cleaning build artifacts..."
@@ -690,4 +697,5 @@ help:
 	@echo "\033[33m  RELEASE\033[0m"
 	@echo "    make snapshot         Build local snapshot release (no publish)"
 	@echo "    make release          Build and upload to R2 storage"
+	@echo "    make cdn-sync         Sync scripts (install.sh, bootstrap.sh) to R2 CDN"
 	@echo ""

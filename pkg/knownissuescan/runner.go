@@ -3,6 +3,9 @@ package knownissuescan
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,6 +56,11 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 30 * time.Minute
+	}
+
+	// Ensure nuclei templates are available before attempting to scan
+	if err := ensureTemplates(cfg.TemplatesDir); err != nil {
+		return err
 	}
 
 	// Create a properly initialized logger for nuclei to avoid nil pointer
@@ -238,6 +246,42 @@ func convertResult(nr *nucleiOutput.ResultEvent) *output.ResultEvent {
 	}
 
 	return result
+}
+
+// ensureTemplates checks that nuclei templates are available and attempts to
+// download them if missing. When Vigolium embeds nuclei as a library, the
+// automatic template download that the nuclei CLI performs does not run, so
+// fresh environments (Docker, VPS) may not have templates installed.
+func ensureTemplates(customDir string) error {
+	dir := customDir
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("knownissuescan: cannot determine home directory: %w", err)
+		}
+		dir = filepath.Join(home, "nuclei-templates")
+	}
+
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return nil
+	}
+
+	zap.L().Info("KnownIssueScan: nuclei templates not found, attempting to download",
+		zap.String("path", dir))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
+		"https://github.com/projectdiscovery/nuclei-templates.git", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("knownissuescan: nuclei templates not found at %s and auto-download failed: %s\n"+
+			"Install manually: git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git %s",
+			dir, strings.TrimSpace(string(out)), dir)
+	}
+
+	zap.L().Info("KnownIssueScan: nuclei templates downloaded successfully", zap.String("path", dir))
+	return nil
 }
 
 // parseSeverity maps a nuclei severity string to vigolium severity.

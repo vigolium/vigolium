@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/queue"
 )
@@ -31,12 +32,13 @@ type CheckResult struct {
 
 // AgentCheck holds the outcome of the agent backend check.
 type AgentCheck struct {
-	Status   Status   `json:"status"`
-	Name     string   `json:"name"`
-	Binary   string   `json:"binary,omitempty"`
-	Protocol string   `json:"protocol,omitempty"`
-	Message  string   `json:"message,omitempty"`
-	Details  []string `json:"details,omitempty"`
+	Status       Status   `json:"status"`
+	Name         string   `json:"name"`
+	Binary       string   `json:"binary,omitempty"`
+	Protocol     string   `json:"protocol,omitempty"`
+	PingResponse string   `json:"ping_response,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	Details      []string `json:"details,omitempty"`
 }
 
 // ToolCheck holds the outcome of a third-party tool check.
@@ -49,14 +51,15 @@ type ToolCheck struct {
 
 // Report is the complete diagnostic report.
 type Report struct {
-	Status       Status                `json:"status"` // "ready", "degraded", "not_ready"
-	Timestamp    string                `json:"timestamp"`
-	Database     *CheckResult          `json:"database"`
-	Queue        *CheckResult          `json:"queue,omitempty"`
-	Agent        *AgentCheck           `json:"agent"`
-	Browser      *CheckResult          `json:"browser"`
-	Tools        map[string]*ToolCheck `json:"tools"`
-	TemplatesDir *CheckResult          `json:"templates_dir"`
+	Status           Status                `json:"status"` // "ready", "degraded", "not_ready"
+	Timestamp        string                `json:"timestamp"`
+	Database         *CheckResult          `json:"database"`
+	Queue            *CheckResult          `json:"queue,omitempty"`
+	Agent            *AgentCheck           `json:"agent"`
+	Browser          *CheckResult          `json:"browser"`
+	Tools            map[string]*ToolCheck `json:"tools"`
+	TemplatesDir     *CheckResult          `json:"templates_dir"`
+	NucleiTemplates  *CheckResult          `json:"nuclei_templates"`
 }
 
 // Deps provides the dependencies needed to run diagnostics.
@@ -86,6 +89,7 @@ func Run(deps Deps) *Report {
 	r.Tools["ast-grep"] = checkTool("ast-grep", nil)
 	r.Tools["chromium"] = checkTool("chromium", []string{"chromium-browser", "google-chrome", "google-chrome-stable"})
 	r.TemplatesDir = checkTemplatesDir(settings)
+	r.NucleiTemplates = checkNucleiTemplates(settings)
 
 	r.Status = computeOverallStatus(r)
 	return r
@@ -173,12 +177,33 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 	}
 
 	details = append(details, fmt.Sprintf("resolved binary: %s", path))
+
+	// Live ping: send a test prompt and verify the agent responds
+	details = append(details, "sending test prompt to verify agent responsiveness")
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer pingCancel()
+
+	pingResp, pingErr := agent.Ping(pingCtx, def, path)
+	if pingErr != nil {
+		details = append(details, fmt.Sprintf("ping error: %v", pingErr))
+		return &AgentCheck{
+			Status:   StatusWarning,
+			Name:     name,
+			Binary:   path,
+			Protocol: def.EffectiveProtocol(),
+			Message:  fmt.Sprintf("binary found but agent not responding: %v", pingErr),
+			Details:  details,
+		}
+	}
+
+	details = append(details, fmt.Sprintf("ping response: %s", truncate(pingResp, 80)))
 	return &AgentCheck{
-		Status:   StatusOK,
-		Name:     name,
-		Binary:   path,
-		Protocol: def.EffectiveProtocol(),
-		Details:  details,
+		Status:       StatusOK,
+		Name:         name,
+		Binary:       path,
+		Protocol:     def.EffectiveProtocol(),
+		PingResponse: truncate(pingResp, 200),
+		Details:      details,
 	}
 }
 
@@ -244,6 +269,47 @@ func checkTemplatesDir(settings *config.Settings) *CheckResult {
 	}
 }
 
+func checkNucleiTemplates(settings *config.Settings) *CheckResult {
+	dir := settings.KnownIssueScan.TemplatesDir
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("cannot determine home directory: %v", err)}
+		}
+		dir = filepath.Join(home, "nuclei-templates")
+	} else {
+		dir = config.ExpandPath(dir)
+	}
+
+	details := []string{fmt.Sprintf("checking nuclei templates directory: %s", dir)}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		return &CheckResult{
+			Status:  StatusWarning,
+			Message: fmt.Sprintf("nuclei templates not found at %s — KnownIssueScan will fail. Install with: git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git %s", config.ContractPath(dir), config.ContractPath(dir)),
+			Details: details,
+		}
+	}
+	if !info.IsDir() {
+		return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("not a directory: %s", dir), Details: details}
+	}
+
+	return &CheckResult{
+		Status:  StatusOK,
+		Message: fmt.Sprintf("path=%s", config.ContractPath(dir)),
+		Details: details,
+	}
+}
+
+// truncate shortens a string to maxLen, appending "…" if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…"
+}
+
 func computeOverallStatus(r *Report) Status {
 	hasCriticalError := false
 	hasWarningOrNonCritical := false
@@ -261,7 +327,7 @@ func computeOverallStatus(r *Report) Status {
 	}
 
 	// Check all non-critical for warnings/errors
-	checks := []*CheckResult{r.Browser, r.TemplatesDir}
+	checks := []*CheckResult{r.Browser, r.TemplatesDir, r.NucleiTemplates}
 	if r.Queue != nil {
 		checks = append(checks, r.Queue)
 	}

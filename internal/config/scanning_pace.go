@@ -53,7 +53,7 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 	return &ScanningPaceConfig{
 		Concurrency: 50,
 		RateLimit:   100,
-		MaxPerHost:  10,
+		MaxPerHost:  20,
 		MaxDuration: "2h",
 
 		KnownIssueScan:    PhasePace{DurationFactor: 3.0},

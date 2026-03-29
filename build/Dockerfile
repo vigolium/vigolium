@@ -54,6 +54,9 @@ RUN go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest && cp $(g
 
 RUN pip install --break-system-packages --no-cache-dir ast-grep-cli semgrep
 
+# Nuclei templates for KnownIssueScan phase
+RUN git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git /root/nuclei-templates
+
 # Copy binary
 COPY --from=builder /out/vigolium /usr/local/bin/vigolium
 

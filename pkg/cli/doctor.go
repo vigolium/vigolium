@@ -83,6 +83,9 @@ func printDoctorReport(r *diagnostics.Report, verbose bool) {
 	printCheck("Templates Dir", r.TemplatesDir.Status, r.TemplatesDir.Message)
 	printDetails(verbose, r.TemplatesDir.Details)
 
+	printCheck("Nuclei Templates", r.NucleiTemplates.Status, r.NucleiTemplates.Message)
+	printDetails(verbose, r.NucleiTemplates.Details)
+
 	fmt.Println()
 	switch r.Status {
 	case "ready":
@@ -154,5 +157,9 @@ func formatAgentMessage(a *diagnostics.AgentCheck) string {
 	if a.Status != diagnostics.StatusOK {
 		return a.Message
 	}
-	return fmt.Sprintf("name=%s, protocol=%s, binary=%s", a.Name, a.Protocol, a.Binary)
+	msg := fmt.Sprintf("name=%s, protocol=%s, binary=%s", a.Name, a.Protocol, a.Binary)
+	if a.PingResponse != "" {
+		msg += ", ping=ok"
+	}
+	return msg
 }

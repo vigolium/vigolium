@@ -601,5 +601,5 @@ var coloredUsageTemplate = `{{ styleHeading "Usage:" }}{{if .Runnable}}
 
 {{ "Use" | styleGray }} "{{.CommandPath | styleCyan}} [command] --help" {{ "for more information about a command." | styleGray }}{{end}}
 
-{{ "Website: https://www.vigolium.com | Docs: https://docs.vigolium.com" | styleGray }}
+` + terminal.Cyan("🌐") + ` {{ "Website:" | styleGray }} {{ "https://www.vigolium.com" | styleCyan }}  ` + terminal.Cyan("📖") + ` {{ "Docs:" | styleGray }} {{ "https://docs.vigolium.com" | styleCyan }}
 `

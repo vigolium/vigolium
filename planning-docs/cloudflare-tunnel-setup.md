@@ -44,6 +44,28 @@ curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
     --domain vigolium.yourdomain.com
 ```
 
+This is idempotent — safe to re-run if cloudflared or its systemd service already exist. It will stop the existing service, update the config, and restart.
+
+### Update an existing tunnel's domain
+
+Re-run `--cloudflare-only` with the new domain. The script detects the existing tunnel, rewrites `config.yml`, and restarts the service:
+
+```bash
+bash bootstrap.sh --cloudflare-only --domain internal.vigolium.com
+```
+
+### Hardened setup (firewall + SSH lockdown)
+
+Block all incoming ports except SSH and disable password-based SSH login. Requires SSH keys already configured (`~/.ssh/authorized_keys`):
+
+```bash
+curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
+    --domain vigolium.yourdomain.com \
+    --harden
+```
+
+This sets `ufw default deny incoming`, allows only port 22/tcp, and disables `PasswordAuthentication` in sshd. The `--harden` flag works with `--cloudflare-only` too.
+
 ### Multiple VPS instances
 
 A Cloudflare Tunnel is tied to a single `cloudflared` daemon — you cannot reuse one tunnel across multiple VPS instances. Instead, create a separate tunnel on each VPS with a unique name and subdomain:
@@ -287,7 +309,69 @@ Press `Ctrl+C` to stop the manual run once verified.
 
 ---
 
-## Step 7: Run as a systemd Service
+## Step 7: Run Vigolium as a systemd Service
+
+Before daemonizing the tunnel, make sure `vigolium server` itself runs as a service.
+
+```bash
+sudo tee /etc/systemd/system/vigolium.service > /dev/null <<'EOF'
+[Unit]
+Description=Vigolium Scanner Server
+Documentation=https://github.com/vigolium/vigolium
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<your-user>
+Group=<your-user>
+ExecStart=/home/<your-user>/.local/bin/vigolium server
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Environment
+Environment=HOME=/home/<your-user>
+Environment=PATH=/home/<your-user>/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/<your-user>
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/<your-user>/.vigolium
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+Replace `<your-user>` with your actual username. If you installed the binary elsewhere, adjust the `ExecStart` path (check with `which vigolium`).
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vigolium
+```
+
+Verify:
+
+```bash
+sudo systemctl status vigolium
+curl -s http://localhost:9002/api/health | jq .
+```
+
+This is idempotent — if the service file already exists, the commands above safely overwrite and restart it.
+
+---
+
+## Step 8: Run the Cloudflare Tunnel as a systemd Service
 
 Create the service file so the tunnel starts on boot and auto-restarts on failure.
 
@@ -338,7 +422,7 @@ journalctl -u cloudflared-tunnel -f
 
 ---
 
-## Step 8: Lock Down the VPS Firewall
+## Step 9: Lock Down the VPS Firewall
 
 Since all traffic goes through the tunnel, you don't need any ports open except SSH:
 
@@ -362,11 +446,11 @@ Result: the only way to reach Vigolium is through the Cloudflare tunnel. Port 90
 
 ---
 
-## Step 9: Add Cloudflare Access (Zero Trust) — Optional but Recommended
+## Step 10: Add Cloudflare Access (Zero Trust) — Optional but Recommended
 
 Cloudflare Access adds an authentication layer in front of your tunnel. Users must authenticate before reaching Vigolium. Free for up to 50 users.
 
-### 9a: Set up in the dashboard
+### 10a: Set up in the dashboard
 
 1. Go to **Cloudflare Zero Trust** dashboard: https://one.dash.cloudflare.com
 2. Navigate to **Access > Applications > Add an application**
@@ -383,7 +467,7 @@ Cloudflare Access adds an authentication layer in front of your tunnel. Users mu
 
 Now visitors to `https://vigolium.yourdomain.com` see a Cloudflare login page before reaching Vigolium.
 
-### 9b: Bypass Access for API calls
+### 10b: Bypass Access for API calls
 
 If you call the Vigolium API from scripts/CI, you don't want to go through browser-based auth. Create a **Service Token**:
 
@@ -505,7 +589,7 @@ grep credentials-file ~/.cloudflared/config.yml
 
 ### Tunnel works but Cloudflare Access blocks API calls
 
-You need a service token policy. See Step 9b above.
+You need a service token policy. See Step 10b above.
 
 ### Connection drops / instability
 

@@ -248,8 +248,10 @@ install_vigolium_binary() {
 	# Strip 'v' prefix for tarball filename (e.g., v1.0.0 -> 1.0.0)
 	local version_no_v="${VERSION#v}"
 	local tarball_name="vigolium_${version_no_v}_${platform}.tar.gz"
-	local tarball_url="${BASE_URL}/${tarball_name}"
-	local checksum_url="${BASE_URL}/checksums.txt"
+	# Append cache-busting query param to bypass CDN cache
+	local cache_bust="?t=$(date +%s)"
+	local tarball_url="${BASE_URL}/${tarball_name}${cache_bust}"
+	local checksum_url="${BASE_URL}/checksums.txt${cache_bust}"
 
 	local tarball_path="$VIGOLIUM_HOME/vigolium-install-tarball.tar.gz"
 	local checksum_path="$VIGOLIUM_HOME/vigolium-install-checksums.txt"

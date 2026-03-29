@@ -50,6 +50,7 @@ export function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem(URL_KEY);
     if (stored) return stored;
+    return process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
   }
   return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:9002';
 }
