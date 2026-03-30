@@ -160,8 +160,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	if !cfg.NoAgent {
 		operator.Post("/agent/run/query", handlers.HandleAgentQuery)
 		operator.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
-		operator.Post("/agent/run/pipeline", handlers.HandleAgentPipeline)
-		operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
+operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
 		operator.Post("/agent/chat/completions", handlers.HandleChatCompletions)
 	}
 

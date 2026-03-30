@@ -89,12 +89,6 @@ vigolium agent swarm \
   -t https://example.com
 ```
 
-This is equivalent to using the `pipeline` command:
-
-```bash
-vigolium agent pipeline -t https://example.com
-```
-
 ### Source-Aware Scanning
 
 Provide application source code for deeper analysis. The AI agent analyzes routes, auth flows, and generates targeted extensions:
@@ -162,26 +156,6 @@ vigolium agent swarm -t https://example.com --skip source-analysis --skip native
 
 # Resume from the plan phase
 vigolium agent swarm -t https://example.com --start-from plan
-```
-
-## Pipeline: Full-Scope Alias
-
-Pipeline is a backward-compatible alias for `swarm --discover`. Use it when you want a full-scope agentic scan:
-
-```bash
-vigolium agent pipeline -t https://example.com
-```
-
-With source code:
-
-```bash
-vigolium agent pipeline -t https://example.com --source ./app
-```
-
-With a timeout:
-
-```bash
-vigolium agent pipeline -t https://example.com --timeout 2h
 ```
 
 ## Autopilot: Autonomous Multi-Class Assessment

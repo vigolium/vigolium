@@ -75,7 +75,7 @@ type BrowserConfig struct {
 
 ### CLI flags
 
-Applied to `vigolium agent autopilot`, `vigolium agent swarm`, and `vigolium agent pipeline`:
+Applied to `vigolium agent autopilot` and `vigolium agent swarm`:
 
 ```bash
 --browser           # Enable agent-browser (overrides config)

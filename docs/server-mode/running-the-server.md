@@ -93,7 +93,6 @@ All queries (findings, HTTP records, stats, scans) return data scoped to the pro
 | DELETE | `/api/source-repos/:id` | Delete a source repo |
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
-| POST | `/api/agent/run/pipeline` | Multi-phase scanning pipeline |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Get agent run status (includes full result when completed) |
 

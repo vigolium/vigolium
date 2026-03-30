@@ -92,7 +92,7 @@ API key resolution order: `VIGOLIUM_API_KEY` env var > `server.auth_api_key` in 
 | DELETE | `/api/source-repos/:id` | Delete a source repo |
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
-| POST | `/api/agent/run/pipeline` | Multi-phase scanning pipeline |
+| POST | `/api/agent/run/swarm` | AI-guided targeted vulnerability swarm |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Get agent run status (includes full result when completed) |
 
@@ -455,20 +455,21 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   }'
 ```
 
-### Pipeline — Multi-Phase Scanning
+### Swarm — AI-Guided Scanning
 
 ```bash
-curl -s -X POST http://localhost:9002/api/agent/run/pipeline \
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Authorization: Bearer my-secret-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "target": "https://example.com",
+    "input": "https://example.com",
+    "discover": true,
     "profile": "thorough",
     "stream": true
   }'
 ```
 
-SSE events are `data:` lines with JSON payloads: `{"type":"chunk","text":"..."}` for real-time output, `{"type":"phase","phase":"..."}` for pipeline phase transitions, `{"type":"done","result":{...}}` on completion, or `{"type":"error","error":"..."}` on failure.
+SSE events are `data:` lines with JSON payloads: `{"type":"chunk","text":"..."}` for real-time output, `{"type":"phase","phase":"..."}` for swarm phase transitions, `{"type":"done","result":{...}}` on completion, or `{"type":"error","error":"..."}` on failure.
 
 ### List All Agent Runs
 
@@ -486,7 +487,7 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400... \
 
 Once the run completes, the response includes a `result` field with the full agent output (raw text, findings, HTTP records).
 
-See [Agent Mode](agent-mode.md) for the full agent documentation (including autopilot, pipeline, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
+See [Agent Mode](agent-mode.md) for the full agent documentation (including autopilot, swarm, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
 
 ## Input Modes Reference
 

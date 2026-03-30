@@ -1,13 +1,12 @@
 # Agent Commands Reference
 
-Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent pipeline`, `agent swarm`, and `agent session` commands.
+Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent swarm`, and `agent session` commands.
 
 ## Table of Contents
 
 - [agent](#agent)
 - [agent query](#agent-query)
 - [agent autopilot](#agent-autopilot)
-- [agent pipeline](#agent-pipeline)
 - [agent swarm](#agent-swarm)
 - [agent session](#agent-session)
 - [Prompt Templates](#prompt-templates)
@@ -29,7 +28,6 @@ The parent command only supports `--list-templates` and `--list-agents` flags �
 | Subcommand | Description |
 |------------|-------------|
 | `autopilot` | Autonomous scanning with multi-agent specialist pipeline |
-| `pipeline` | Backward-compatible alias for `swarm --discover` |
 | `query` | Single-shot prompt execution with template-based or inline prompts |
 | `session` | List or inspect agent run sessions |
 | `swarm` | AI-guided vulnerability scanning with native scan support |
@@ -209,69 +207,13 @@ vigolium agent autopilot -t https://example.com --agent gemini
 
 ---
 
-## agent pipeline
-
-**Usage:** `vigolium agent pipeline [flags]`
-
-> **Note:** `agent pipeline` is a backward-compatible alias for `agent swarm --discover`. New scripts should use `vigolium agent swarm --discover` directly.
-
-Run a multi-phase scanning pipeline where native Go code handles heavy lifting and AI agents intervene at checkpoints. Discovery and spidering expand the attack surface before the master agent plans the scan.
-
-### agent pipeline flags
-
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
-| `--dry-run` | — | bool | `false` | Render agent prompts without executing (shows plan and triage prompts) |
-| `--files` | — | []string | — | Specific source files to include (relative to --source) |
-| `--focus` | — | string | — | Focus area hint for the planning agent (e.g. 'API injection', 'auth bypass') |
-| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
-| `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompts) |
-| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
-| `--max-rescan-rounds` | — | int | `2` | Maximum number of triage->rescan iterations |
-| `--profile` | — | string | — | Scanning profile to use for scan phases |
-| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
-| `--skip-phase` | — | []string | — | Skip specific phases (source-analysis, discover, plan, scan, triage, rescan, report) |
-| `--source` | — | string | — | Path to application source code for source-aware scanning |
-| `--start-from` | — | string | — | Resume pipeline from a specific phase |
-| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
-| `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
-
-### Examples
-
-```bash
-# Basic pipeline scan (equivalent to: vigolium agent swarm --discover -t ...)
-vigolium agent pipeline -t https://example.com
-
-# With focus and source code
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --source ./src
-
-# Control rescan iterations
-vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
-
-# Skip discovery and start from planning
-vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
-
-# Use a scanning profile
-vigolium agent pipeline -t https://example.com --profile deep
-
-# Preview agent prompts
-vigolium agent pipeline -t https://example.com --dry-run
-
-# With specific agent backend
-vigolium agent pipeline -t https://example.com --agent gemini
-```
-
----
-
 ## agent swarm
 
 **Usage:** `vigolium agent swarm [flags]`
 
 AI-guided targeted vulnerability scanning. A master AI agent analyzes HTTP requests, selects scanner modules, generates custom JavaScript attack extensions, executes the scan, and triages the results.
 
-Supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs content discovery and spidering before planning, providing full-scope coverage (this is what `agent pipeline` maps to).
+Supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs content discovery and spidering before planning, providing full-scope coverage.
 
 When `--source` is provided, swarm runs a **consolidated source analysis** (route extraction, auth flow discovery, custom extension generation), followed by **AI code audit** and **native SAST** (ast-grep + secret detection).
 

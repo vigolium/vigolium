@@ -22,7 +22,7 @@ vigolium agent autopilot -t https://example.com
 # Targeted swarm — AI generates custom payloads for specific endpoints
 vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
 
-# Full-scope swarm with discovery — replaces the old pipeline workflow
+# Full-scope swarm with discovery
 vigolium agent swarm -t https://example.com --discover
 ```
 
@@ -266,9 +266,7 @@ The agent can only execute `vigolium` commands. Shell metacharacters, destructiv
 
 ## Swarm (Agentic Scan)
 
-Multi-phase agentic scan that combines targeted AI-driven testing with optional full-scope discovery. A master AI agent analyzes inputs, selects scanner modules, generates custom attack payloads as JavaScript extensions, runs SAST analysis, and executes focused scans. With `--discover`, it also runs content discovery and spidering before planning, providing the same full-scope coverage that the legacy pipeline mode offered.
-
-> **Note:** `vigolium agent pipeline` is a backward-compatible alias for `vigolium agent swarm --discover`. Existing scripts and CI/CD configurations using the pipeline subcommand will continue to work.
+Multi-phase agentic scan that combines targeted AI-driven testing with optional full-scope discovery. A master AI agent analyzes inputs, selects scanner modules, generates custom attack payloads as JavaScript extensions, runs SAST analysis, and executes focused scans. With `--discover`, it also runs content discovery and spidering before planning.
 
 ### What It Does
 
@@ -287,7 +285,7 @@ Multi-phase agentic scan that combines targeted AI-driven testing with optional 
 # Target a URL
 vigolium agent swarm -t https://example.com/api/users
 
-# Full-scope scan with discovery (replaces pipeline)
+# Full-scope scan with discovery
 vigolium agent swarm -t https://example.com --discover
 
 # Analyze a curl command
@@ -378,7 +376,7 @@ vigolium agent swarm -t https://example.com --start-from plan
 # CI/CD integration — discovery + tight timeout, no rescan overhead
 vigolium agent swarm -t https://staging.example.com --discover --timeout 20m --max-rescan-rounds 0 --profile fast
 
-# Guide the planning agent with custom instructions (pipeline-style)
+# Guide the planning agent with custom instructions
 vigolium agent swarm -t https://example.com --discover --instruction "Prioritize testing authentication and session management endpoints"
 
 # Source-aware full scan with specific files for faster analysis
@@ -400,7 +398,7 @@ vigolium agent swarm -t https://example.com --discover --max-rescan-rounds 5 --p
 | `-m, --modules` | — | Explicit module names to include |
 | `--discover` | false | Run discovery + spidering before planning (enables full-scope scanning) |
 | `--max-iterations` | 3 | Maximum triage-rescan iterations |
-| `--max-rescan-rounds` | — | Hidden alias for `--max-iterations` (backward compat with pipeline) |
+| `--max-rescan-rounds` | — | Hidden alias for `--max-iterations` |
 | `--start-from` | — | Resume from a specific phase |
 | `--source` | — | Path to application source code (enables source analysis + SAST) |
 | `--timeout` | 15m | Maximum swarm duration |
@@ -457,8 +455,6 @@ POST /api/agent/run/swarm
 ```
 
 At least one of `input` or `inputs` is required. Use `inputs` (array) for multi-request flows like login + protected endpoint.
-
-> The `POST /api/agent/run/pipeline` endpoint still works as an alias for backward compatibility. It maps to a swarm run with `discover: true`.
 
 ### Pros and Cons
 
@@ -615,7 +611,7 @@ All three modes share a common execution engine (`pkg/agent/engine.go`). Query i
 
 - **Query** is the primitive — Swarm calls `Engine.Run()` at each AI checkpoint, making Query effectively its building block.
 - **Autopilot** is architecturally separate — it gives the agent terminal access and lets it drive, rather than orchestrating phases programmatically.
-- **Swarm** subsumes the former pipeline mode. With `--discover`, it runs content discovery and spidering before planning, providing the same full-scope coverage. Without `--discover`, it focuses on targeted endpoint testing.
+- **Swarm** supports both targeted and full-scope scanning. With `--discover`, it runs content discovery and spidering before planning. Without `--discover`, it focuses on targeted endpoint testing.
 
 ### Feature Matrix
 

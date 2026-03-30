@@ -118,10 +118,8 @@ func printFullExamples() {
 		"vigolium agent query 'review this code for vulnerabilities'",
 		"vigolium agent query --agent claude --prompt-file custom-prompt.md",
 		"vigolium agent --list-templates",
-		"vigolium agent pipeline -t https://example.com",
-		"vigolium agent pipeline -t https://example.com --focus 'API injection'",
-		"vigolium agent pipeline -t https://example.com --source ./src --max-rescan-rounds 3",
-		"vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan",
+		"vigolium agent swarm -t https://example.com --discover",
+		"vigolium agent swarm -t https://example.com --discover --focus 'API injection'",
 		"vigolium agent autopilot -t https://example.com",
 	})
 

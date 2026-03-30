@@ -765,7 +765,7 @@ func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository
 		fmt.Fprintf(os.Stderr, "%s Discovery & Spidering (expanding attack surface)\n",
 			terminal.Aqua(terminal.SymbolSparkle))
 
-		return runPipelinePhaseRunner(opts, settings, repo)
+		return runPhaseRunner(opts, settings, repo)
 	}
 }
 
@@ -917,7 +917,7 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, so
 		fmt.Fprintf(os.Stderr, "%s SAST analysis (ast-grep + secret detection + third-party tools)\n",
 			terminal.GrbRed(terminal.SymbolSparkle))
 
-		return runPipelinePhaseRunner(opts, settings, repo)
+		return runPhaseRunner(opts, settings, repo)
 	}
 }
 
@@ -969,6 +969,9 @@ func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
 		return err
 	}
 	defer engine.Close()
+	if intent.Cleanup != nil {
+		defer intent.Cleanup.Cleanup()
+	}
 
 	if swarmDryRun {
 		return printIntentDryRun(intent)
@@ -1001,6 +1004,9 @@ func applyIntentToSwarmFlags(app agent.AppIntent) {
 	}
 	if app.Instruction != "" && swarmInstruction == "" {
 		swarmInstruction = app.Instruction
+	}
+	if app.AuditAgent != "" && swarmAuditAgent == "" {
+		swarmAuditAgent = app.AuditAgent
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s discover=%v\n",
 		terminal.SuccessSymbol(),
@@ -1176,6 +1182,109 @@ func buildMultiAppSwarmDiscoverFunc(settings *config.Settings, repo *database.Re
 		fmt.Fprintf(os.Stderr, "%s Discovery+spidering for %s (crawl, JS analysis, external harvesting)\n",
 			terminal.GrbRed(terminal.SymbolSparkle), target)
 
-		return runPipelinePhaseRunner(opts, settings, repo)
+		return runPhaseRunner(opts, settings, repo)
 	}
+}
+
+// runPhaseRunner creates a runner with the given options, executes it, and cleans up.
+func runPhaseRunner(opts *types.Options, settings *config.Settings, repo *database.Repository) error {
+	scanRunner, err := runner.New(opts)
+	if err != nil {
+		return err
+	}
+	defer scanRunner.Close()
+
+	scanRunner.SetSettings(settings)
+	scanRunner.SetRepository(repo)
+	return scanRunner.RunNativeScan()
+}
+
+// summarizeModules returns a human-readable summary of selected modules.
+func summarizeModules(mods []string) string {
+	if len(mods) == 1 && mods[0] == "all" {
+		return "all modules"
+	}
+	if len(mods) <= 5 {
+		return strings.Join(mods, ", ")
+	}
+	return fmt.Sprintf("%d modules", len(mods))
+}
+
+// sessionConfigYAML is the YAML-serializable session config format
+// matching pkg/session.SessionConfig.
+type sessionConfigYAML struct {
+	Sessions []sessionEntryYAML `yaml:"sessions"`
+}
+
+type sessionEntryYAML struct {
+	Name    string            `yaml:"name"`
+	Role    string            `yaml:"role"`
+	Headers map[string]string `yaml:"headers,omitempty"`
+	Login   *loginFlowYAML    `yaml:"login,omitempty"`
+}
+
+type loginFlowYAML struct {
+	URL         string            `yaml:"url"`
+	Method      string            `yaml:"method"`
+	ContentType string            `yaml:"content_type,omitempty"`
+	Body        string            `yaml:"body,omitempty"`
+	Extract     []extractRuleYAML `yaml:"extract,omitempty"`
+	Type        string            `yaml:"type,omitempty"`
+	TokenPath   string            `yaml:"token_path,omitempty"`
+	Expect      *expectYAML       `yaml:"expect,omitempty"`
+}
+
+type expectYAML struct {
+	Status       []int  `yaml:"status,omitempty"`
+	BodyContains string `yaml:"body_contains,omitempty"`
+}
+
+type extractRuleYAML struct {
+	Source  string `yaml:"source"`
+	Name    string `yaml:"name,omitempty"`
+	Path    string `yaml:"path,omitempty"`
+	ApplyAs string `yaml:"apply_as,omitempty"`
+	Pattern string `yaml:"pattern,omitempty"`
+	Group   int    `yaml:"group,omitempty"`
+}
+
+// convertSessionConfig converts agent session config to the YAML format expected by pkg/session.
+func convertSessionConfig(cfg *agent.AgentSessionConfig) sessionConfigYAML {
+	result := sessionConfigYAML{}
+	for _, s := range cfg.Sessions {
+		entry := sessionEntryYAML{
+			Name:    s.Name,
+			Role:    s.Role,
+			Headers: s.Headers,
+		}
+		if s.Login != nil {
+			login := &loginFlowYAML{
+				URL:         s.Login.URL,
+				Method:      s.Login.Method,
+				ContentType: s.Login.ContentType,
+				Body:        s.Login.Body,
+				Type:        s.Login.Type,
+				TokenPath:   s.Login.TokenPath,
+			}
+			if s.Login.Expect != nil {
+				login.Expect = &expectYAML{
+					Status:       s.Login.Expect.Status,
+					BodyContains: s.Login.Expect.BodyContains,
+				}
+			}
+			for _, e := range s.Login.Extract {
+				login.Extract = append(login.Extract, extractRuleYAML{
+					Source:  e.Source,
+					Name:    e.Name,
+					Path:    e.Path,
+					ApplyAs: e.ApplyAs,
+					Pattern: e.Pattern,
+					Group:   e.Group,
+				})
+			}
+			entry.Login = login
+		}
+		result.Sessions = append(result.Sessions, entry)
+	}
+	return result
 }

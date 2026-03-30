@@ -735,8 +735,6 @@ vigolium agent autopilot -t https://example.com --agent gemini
 vigolium agent swarm --discover -t https://example.com
 ```
 
-> **Note:** `vigolium agent pipeline` still works as a backward-compatible alias for `vigolium agent swarm --discover`.
-
 The swarm runs:
 1. **Discover** — Native content discovery + spidering (no AI)
 2. **Plan** — AI analyzes discovery results, produces an attack plan

@@ -473,6 +473,91 @@ curl -N -X POST http://localhost:9002/api/agent/run/swarm \
 
 ---
 
+## Natural Language Prompts
+
+The autopilot and swarm endpoints accept a `prompt` field for natural language scan requests. When `prompt` is provided and no explicit input fields are set (`target`, `input`, `source`), the prompt is parsed by an AI intent extractor that returns structured parameters.
+
+The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and audit agent level (`"lite"` or `"full"`).
+
+**Extracted fields:**
+
+| Intent Field   | Maps To (Autopilot) | Maps To (Swarm)  | Description                                           |
+|----------------|----------------------|-------------------|-------------------------------------------------------|
+| `target`       | `target`             | `input`           | Target URL                                            |
+| `source_path`  | `source`             | `source_path`     | Filesystem path to source code                        |
+| `focus`        | `focus`              | `focus`           | Vulnerability focus area                              |
+| `instruction`  | `instruction`        | `instruction`     | Remaining guidance                                    |
+| `discover`     | —                    | `discover`        | Inferred when both target and source are present      |
+| `code_audit`   | —                    | `code_audit`      | Inferred when source-only (no target)                 |
+| `audit_agent`  | `audit_agent`        | `audit_agent`     | `"lite"` or `"full"` when audit agent is mentioned    |
+
+**Autopilot with natural language prompt:**
+
+```bash
+# Prompt-based autopilot — intent parser extracts target, source, and audit agent
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "scan VAmPI source at ~/src/VAmPI on localhost:3005 with an audit agent"
+  }' | jq .
+
+# Dry run — preview extracted intent without launching a scan
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "scan VAmPI source at ~/src/VAmPI on localhost:3005 with full audit agent",
+    "dry_run": true
+  }' | jq .
+```
+
+**Swarm with natural language prompt:**
+
+```bash
+# Prompt-based swarm — extracts target, source, discover, and audit agent
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "scan source at ~/src/VAmPI on localhost:3005 with audit agent"
+  }' | jq .
+
+# Source-only prompt — triggers code audit mode
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "audit the source code at ~/src/my-app with full audit agent"
+  }' | jq .
+
+# Dry run — verify intent extraction
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "scan source at ~/src/VAmPI on localhost:3005 with audit agent",
+    "dry_run": true
+  }' | jq .
+```
+
+**Dry run response (intent preview):**
+
+```json
+{
+  "intent": {
+    "apps": [
+      {
+        "target": "http://localhost:3005",
+        "source_path": "~/src/VAmPI",
+        "discover": true,
+        "audit_agent": "lite"
+      }
+    ],
+    "raw": "scan source at ~/src/VAmPI on localhost:3005 with audit agent"
+  }
+}
+```
+
+> **Note:** Explicit fields always take precedence. If you pass both `prompt` and `target`/`input`/`source`, the prompt is ignored and explicit fields are used directly. The `audit_agent` field from intent extraction is only applied when `audit_agent` is not already set in the request body.
+
+---
+
 ## SSE Streaming
 
 All run endpoints support `"stream": true`, which returns a `text/event-stream` (Server-Sent Events) response. Each event is a JSON object on a `data:` line.

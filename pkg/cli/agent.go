@@ -48,7 +48,6 @@ var agentCmd = &cobra.Command{
 Use a subcommand to select the agentic scan mode:
   query      Single-shot prompt execution (template-based or inline)
   autopilot  Agentic scan: autonomous AI-driven vulnerability scanning
-  pipeline   Agentic scan: multi-phase pipeline with native scan phases
   swarm      Agentic scan: AI-guided targeted vulnerability swarm
 
 Docs: https://docs.vigolium.com`,

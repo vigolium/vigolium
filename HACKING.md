@@ -267,7 +267,7 @@ The agent system (`pkg/agent/`) integrates with coding agent CLIs via protocol-s
 Operational modes:
 - **Query mode** (`engine.go`): Single-shot prompt execution via any protocol. Renders a template, sends to agent, parses structured JSON output.
 - **Autopilot mode** (`sdk_runner.go`, `acp_runner.go`): Autonomous scanning. SDK mode gives full coding agent tools; ACP mode uses a sandboxed terminal (`acp_terminal.go`) restricted to `vigolium` commands.
-- **Swarm mode** (`swarm.go`): Multi-phase pipeline (normalize → source analysis → code audit → SAST → discover → plan → extension → scan → triage → rescan). Native Go handles scanning; AI agents intervene at strategic checkpoints. `agent pipeline` is a backward-compatible alias for `swarm --discover`.
+- **Swarm mode** (`swarm.go`): Multi-phase pipeline (normalize → source analysis → code audit → SAST → discover → plan → extension → scan → triage → rescan). Native Go handles scanning; AI agents intervene at strategic checkpoints. Use `swarm --discover` for full-scope scanning.
 
 Warm session pooling (`session_pool.go`, `sdk_pool.go`, `acp_pool.go`, `codex_pool.go`, `opencode_pool.go`) reuses agent subprocesses across multiple AI calls within a single run.
 

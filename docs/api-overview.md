@@ -114,7 +114,7 @@ Server startup, authentication, and general endpoints.
 |--------|----------|-------------|
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
-| POST | `/api/agent/run/pipeline` | Multi-phase scanning pipeline |
+| POST | `/api/agent/run/swarm` | AI-guided targeted vulnerability swarm |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Agent run status |
 | POST | `/api/agent/chat/completions` | OpenAI-compatible chat completions |

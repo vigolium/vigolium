@@ -257,29 +257,6 @@ Flags specific to `vigolium agent autopilot`.
 
 ---
 
-## Agent Pipeline Flags
-
-Flags specific to `vigolium agent pipeline` (backward-compatible alias for `vigolium agent swarm --discover`).
-
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command |
-| `--dry-run` | — | bool | `false` | Render agent prompts without executing |
-| `--files` | — | []string | — | Specific source files to include |
-| `--focus` | — | string | — | Focus area hint for the planning agent |
-| `--input` | — | string | — | Raw input |
-| `--instruction` | — | string | — | Custom instruction to guide the agent |
-| `--instruction-file` | — | string | — | Path to a file containing custom instructions |
-| `--max-rescan-rounds` | — | int | `2` | Maximum triage->rescan iterations |
-| `--profile` | — | string | — | Scanning profile to use |
-| `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr |
-| `--skip-phase` | — | []string | — | Skip specific phases |
-| `--source` | — | string | — | Path to application source code |
-| `--start-from` | — | string | — | Resume pipeline from a specific phase |
-| `--target` | `-t` | string | — | Target URL |
-| `--timeout` | — | duration | `1h` | Maximum total pipeline duration |
-
 ---
 
 ## Agent Swarm Flags

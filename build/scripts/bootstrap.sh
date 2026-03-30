@@ -28,6 +28,7 @@ set -euo pipefail
 #   --with-browser            Install agent-browser (headless browser for agent mode)
 #   --port <port>             Vigolium server port (default: 9002)
 #   --cloudflare-only          Only set up Cloudflare Tunnel (skip Vigolium install)
+#   --systemd-only            Only create/update the vigolium systemd service
 #   --harden                  Block all ports except SSH (22), disable SSH password login
 #   --help                    Show this help message
 # =============================================================================
@@ -42,6 +43,7 @@ INSTALL_FULL=false
 INSTALL_AGENT=false
 INSTALL_BROWSER=false
 CLOUDFLARE_ONLY=false
+SYSTEMD_ONLY=false
 HARDEN=false
 INSTALL_WARNINGS=()  # Collect non-fatal install warnings for summary
 
@@ -87,6 +89,8 @@ parse_args() {
                 SKIP_CLOUDFLARE=true; shift ;;
             --cloudflare-only)
                 CLOUDFLARE_ONLY=true; shift ;;
+            --systemd-only)
+                SYSTEMD_ONLY=true; shift ;;
             --full)
                 INSTALL_FULL=true; shift ;;
             --with-agent)
@@ -653,37 +657,56 @@ install_agent_browser() {
 configure_firewall() {
     step "Configuring firewall"
 
-    if command_exists ufw; then
-        if [[ "$HARDEN" == true ]]; then
-            # Hardened mode — deny all incoming, allow only SSH
-            $SUDO ufw default deny incoming 2>/dev/null || true
-            $SUDO ufw default allow outgoing 2>/dev/null || true
-            $SUDO ufw allow 22/tcp comment "SSH" 2>/dev/null || true
-            log "All incoming ports blocked except SSH (22)"
-        else
-            # Allow SSH (always)
-            $SUDO ufw allow 22/tcp comment "SSH" 2>/dev/null || true
-
-            if [[ "$SKIP_CLOUDFLARE" == true ]]; then
-                # Direct access mode — open Vigolium port
-                $SUDO ufw allow "${VIGOLIUM_PORT}/tcp" comment "Vigolium API" 2>/dev/null || true
-                log "Port ${VIGOLIUM_PORT} opened for direct access"
-            else
-                # Cloudflare tunnel mode — only allow localhost access to Vigolium
-                # The tunnel connects locally, no need to expose the port
-                $SUDO ufw deny "${VIGOLIUM_PORT}/tcp" comment "Vigolium - tunnel only" 2>/dev/null || true
-                log "Port ${VIGOLIUM_PORT} blocked externally (Cloudflare tunnel handles access)"
-            fi
-        fi
-
-        # Enable if not already
-        if ! $SUDO ufw status | grep -q "Status: active"; then
-            $SUDO ufw --force enable
-        fi
-
-        success "Firewall configured"
-    else
+    if ! command_exists ufw; then
         warn "ufw not found — configure your firewall manually"
+        return
+    fi
+
+    if [[ "$HARDEN" == true ]]; then
+        log "Hardened mode — locking down all incoming traffic"
+
+        log "Setting default policy: deny incoming, allow outgoing"
+        $SUDO ufw default deny incoming 2>/dev/null || true
+        $SUDO ufw default allow outgoing 2>/dev/null || true
+
+        log "Allowing SSH (port 22/tcp)"
+        $SUDO ufw allow 22/tcp comment "SSH" 2>/dev/null || true
+
+        # Explicitly deny the Vigolium port from outside
+        $SUDO ufw deny "${VIGOLIUM_PORT}/tcp" comment "Vigolium - tunnel only" 2>/dev/null || true
+        log "Port ${VIGOLIUM_PORT} blocked externally (tunnel handles access)"
+
+        # Delete any stale allow rules for the Vigolium port
+        $SUDO ufw delete allow "${VIGOLIUM_PORT}/tcp" 2>/dev/null || true
+    else
+        # Allow SSH (always)
+        $SUDO ufw allow 22/tcp comment "SSH" 2>/dev/null || true
+
+        if [[ "$SKIP_CLOUDFLARE" == true ]]; then
+            # Direct access mode — open Vigolium port
+            $SUDO ufw allow "${VIGOLIUM_PORT}/tcp" comment "Vigolium API" 2>/dev/null || true
+            log "Port ${VIGOLIUM_PORT} opened for direct access"
+        else
+            # Cloudflare tunnel mode — only allow localhost access to Vigolium
+            $SUDO ufw deny "${VIGOLIUM_PORT}/tcp" comment "Vigolium - tunnel only" 2>/dev/null || true
+            log "Port ${VIGOLIUM_PORT} blocked externally (Cloudflare tunnel handles access)"
+        fi
+    fi
+
+    # Enable if not already
+    if ! $SUDO ufw status | grep -q "Status: active"; then
+        log "Enabling ufw firewall"
+        $SUDO ufw --force enable
+    fi
+
+    success "Firewall configured"
+
+    # Show current rules for visibility
+    if [[ "$HARDEN" == true ]]; then
+        log "Current firewall rules:"
+        $SUDO ufw status numbered 2>/dev/null | while IFS= read -r line; do
+            log "  $line"
+        done
     fi
 }
 
@@ -702,19 +725,31 @@ harden_ssh() {
 
     # Check that at least one authorized_keys file exists to avoid lockout
     local has_keys=false
+    local key_count=0
     if [[ -f "$HOME/.ssh/authorized_keys" ]] && [[ -s "$HOME/.ssh/authorized_keys" ]]; then
         has_keys=true
+        key_count=$(grep -c '^ssh-\|^ecdsa-\|^sk-' "$HOME/.ssh/authorized_keys" 2>/dev/null || echo 0)
     fi
 
     if [[ "$has_keys" != true ]]; then
         warn "No SSH authorized_keys found for user ${USER}."
         warn "Skipping SSH hardening to avoid lockout. Add your public key first:"
         log "  ssh-copy-id ${USER}@<this-server>"
+        log ""
+        log "Then re-run with --harden to disable password login."
         return
     fi
 
+    success "Found ${key_count} SSH key(s) in ~/.ssh/authorized_keys"
+
+    # Show current state before changes
+    local current_pw_auth
+    current_pw_auth=$(grep -E '^PasswordAuthentication' "$sshd_config" 2>/dev/null | head -1 || echo "(not set)")
+    log "Current PasswordAuthentication: ${current_pw_auth}"
+
     # Use a drop-in config if sshd_config.d is supported, otherwise patch main config
     if [[ -d /etc/ssh/sshd_config.d ]]; then
+        log "Using drop-in config: $sshd_drop"
         $SUDO tee "$sshd_drop" > /dev/null <<'EOF'
 # Vigolium SSH hardening — generated by bootstrap.sh
 PasswordAuthentication no
@@ -722,8 +757,13 @@ KbdInteractiveAuthentication no
 ChallengeResponseAuthentication no
 PermitRootLogin prohibit-password
 EOF
+        log "  PasswordAuthentication no"
+        log "  KbdInteractiveAuthentication no"
+        log "  ChallengeResponseAuthentication no"
+        log "  PermitRootLogin prohibit-password"
         success "SSH drop-in config written to $sshd_drop"
     else
+        log "Patching $sshd_config directly (no sshd_config.d support)"
         # Patch main sshd_config in place
         for directive in PasswordAuthentication KbdInteractiveAuthentication ChallengeResponseAuthentication; do
             if grep -qE "^#?${directive}" "$sshd_config"; then
@@ -731,21 +771,28 @@ EOF
             else
                 echo "${directive} no" | $SUDO tee -a "$sshd_config" > /dev/null
             fi
+            log "  ${directive} no"
         done
         if grep -qE "^#?PermitRootLogin" "$sshd_config"; then
             $SUDO sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' "$sshd_config"
         else
             echo "PermitRootLogin prohibit-password" | $SUDO tee -a "$sshd_config" > /dev/null
         fi
+        log "  PermitRootLogin prohibit-password"
         success "SSH config updated in $sshd_config"
     fi
 
     # Validate config before restarting
+    log "Validating sshd config..."
     if $SUDO sshd -t 2>/dev/null; then
+        success "sshd config is valid"
+        log "Restarting SSH service..."
         $SUDO systemctl restart sshd 2>/dev/null || $SUDO systemctl restart ssh 2>/dev/null || true
         success "SSH service restarted — password login disabled"
     else
-        warn "sshd config validation failed — SSH was NOT restarted. Check config manually."
+        warn "sshd config validation failed — SSH was NOT restarted. Check config manually:"
+        log "  sudo sshd -t"
+        log "  sudo journalctl -u sshd --since '1 min ago'"
     fi
 }
 
@@ -784,8 +831,25 @@ print_summary() {
     if [[ "$HARDEN" == true ]]; then
         echo ""
         echo -e "  ${BOLD}Hardening${NC}"
-        echo -e "    Firewall:       deny all incoming except SSH (22)"
-        echo -e "    SSH password:   disabled"
+        # Show actual firewall state
+        local ufw_status
+        ufw_status=$($SUDO ufw status 2>/dev/null | head -1 || echo "unknown")
+        echo -e "    Firewall:         ${CYAN}${ufw_status}${NC}"
+        echo -e "    Default incoming: ${CYAN}deny${NC}"
+        echo -e "    Allowed ports:    ${CYAN}22/tcp (SSH only)${NC}"
+        # Show actual SSH state
+        local pw_auth="unknown"
+        if [[ -f /etc/ssh/sshd_config.d/99-vigolium-harden.conf ]]; then
+            pw_auth="disabled (via drop-in: /etc/ssh/sshd_config.d/99-vigolium-harden.conf)"
+        elif grep -qE '^PasswordAuthentication no' /etc/ssh/sshd_config 2>/dev/null; then
+            pw_auth="disabled (via /etc/ssh/sshd_config)"
+        elif grep -qE '^PasswordAuthentication yes' /etc/ssh/sshd_config 2>/dev/null; then
+            pw_auth="${RED}still enabled — check config${NC}"
+        fi
+        echo -e "    SSH password:     ${CYAN}${pw_auth}${NC}"
+        local root_login
+        root_login=$(grep -E '^PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | tail -1 | awk '{print $2}' || echo "unknown")
+        echo -e "    Root login:       ${CYAN}${root_login}${NC}"
     fi
     echo ""
     echo -e "  ${BOLD}Access${NC}"
@@ -819,31 +883,8 @@ print_summary() {
         echo -e "    journalctl -u cloudflared-tunnel -f"
     fi
     echo ""
-    echo -e "  ${BOLD}Manual systemd Setup${NC} (if not using this script)"
-    echo -e "    # Create the service file:"
-    echo -e "    sudo tee /etc/systemd/system/vigolium.service > /dev/null <<'SVC'"
-    echo -e "    [Unit]"
-    echo -e "    Description=Vigolium Scanner Server"
-    echo -e "    After=network-online.target"
-    echo -e "    Wants=network-online.target"
-    echo -e ""
-    echo -e "    [Service]"
-    echo -e "    Type=simple"
-    echo -e "    User=${USER}"
-    echo -e "    ExecStart=$(command -v vigolium 2>/dev/null || echo '/usr/local/bin/vigolium') server"
-    echo -e "    Restart=on-failure"
-    echo -e "    RestartSec=5"
-    echo -e "    Environment=HOME=${HOME}"
-    echo -e "    Environment=PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
-    echo -e "    WorkingDirectory=${HOME}"
-    echo -e "    LimitNOFILE=65535"
-    echo -e ""
-    echo -e "    [Install]"
-    echo -e "    WantedBy=multi-user.target"
-    echo -e "    SVC"
-    echo -e ""
-    echo -e "    sudo systemctl daemon-reload"
-    echo -e "    sudo systemctl enable --now vigolium"
+    echo -e "  ${BOLD}systemd Setup${NC} (standalone)"
+    echo -e "    bash bootstrap.sh --systemd-only     # Create/update vigolium.service"
     echo ""
     echo -e "  ${BOLD}Quick Test${NC}"
     echo -e "    curl -s -H 'Authorization: Bearer ${api_key}' http://localhost:${VIGOLIUM_PORT}/api/health | jq ."
@@ -868,17 +909,69 @@ main() {
     echo -e "  VPS Initialization Script"
     echo ""
 
+    # Show active flags
+    local flags=""
+    [[ "$INSTALL_FULL" == true ]] && flags+=" --full"
+    [[ "$INSTALL_AGENT" == true ]] && flags+=" --with-agent"
+    [[ "$INSTALL_BROWSER" == true ]] && flags+=" --with-browser"
+    [[ "$CLOUDFLARE_ONLY" == true ]] && flags+=" --cloudflare-only"
+    [[ "$SYSTEMD_ONLY" == true ]] && flags+=" --systemd-only"
+    [[ "$SKIP_CLOUDFLARE" == true ]] && flags+=" --skip-cloudflare"
+    [[ "$HARDEN" == true ]] && flags+=" --harden"
+    [[ -n "$TUNNEL_DOMAIN" ]] && flags+=" --domain ${TUNNEL_DOMAIN}"
+    if [[ -n "$flags" ]]; then
+        echo -e "  ${BOLD}Flags:${NC}${flags}"
+        echo ""
+    fi
+
     need_root
 
-    if [[ "$CLOUDFLARE_ONLY" == true ]]; then
+    if [[ "$SYSTEMD_ONLY" == true ]]; then
+        # Standalone systemd service setup
+        step "systemd-only mode — creating/updating vigolium service"
+
+        if ! command_exists vigolium; then
+            error "Vigolium binary not found in PATH. Install it first or use the full setup."
+        fi
+
+        create_systemd_service
+        print_summary
+
+    elif [[ "$CLOUDFLARE_ONLY" == true ]]; then
         # Standalone Cloudflare Tunnel setup for existing VPS
         step "Cloudflare-only mode — skipping Vigolium installation"
 
-        # Verify Vigolium is already running
+        # Verify Vigolium binary exists
         if ! command_exists vigolium; then
             warn "Vigolium binary not found in PATH"
             log "Make sure Vigolium is installed and 'vigolium server' is running on port ${VIGOLIUM_PORT}"
         fi
+
+        # Create vigolium systemd service if it doesn't exist yet
+        if [[ ! -f /etc/systemd/system/vigolium.service ]]; then
+            if command_exists vigolium; then
+                log "No vigolium.service found — creating it"
+                create_systemd_service
+            else
+                warn "Skipping vigolium.service creation (binary not found)"
+            fi
+        else
+            if $SUDO systemctl is-active --quiet vigolium; then
+                success "vigolium.service already running"
+            else
+                log "vigolium.service exists but is not running — starting it"
+                $SUDO systemctl daemon-reload
+                $SUDO systemctl start vigolium
+                sleep 2
+                if $SUDO systemctl is-active --quiet vigolium; then
+                    success "Vigolium service started"
+                else
+                    warn "Failed to start vigolium.service. Check: systemctl status vigolium"
+                fi
+            fi
+        fi
+
+        # Verify server is responding
         if curl -sf "http://localhost:${VIGOLIUM_PORT}/api/health" >/dev/null 2>&1; then
             success "Vigolium server detected on port ${VIGOLIUM_PORT}"
         else

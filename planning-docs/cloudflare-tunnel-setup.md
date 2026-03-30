@@ -36,6 +36,16 @@ curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- \
 curl -fsSL https://www.vigolium.com/bootstrap.sh | bash -s -- --skip-cloudflare
 ```
 
+### Create/update the vigolium systemd service only
+
+If Vigolium is already installed and you just need to set up (or fix) the systemd service:
+
+```bash
+bash bootstrap.sh --systemd-only
+```
+
+This creates `/etc/systemd/system/vigolium.service`, enables it, and starts it. Safe to re-run — it stops the existing service before overwriting.
+
 ### Add Cloudflare Tunnel to an existing Vigolium VPS
 
 ```bash

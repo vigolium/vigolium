@@ -243,9 +243,9 @@ vigolium scan https://app.com --auth-config ./auth-config.json
 
 JSON is a good choice when:
 
-- **AI agents generate session configs** — most LLMs produce cleaner JSON than YAML, and agent modes (pipeline, swarm) already output session config as JSON natively.
+- **AI agents generate session configs** — most LLMs produce cleaner JSON than YAML, and agent modes (swarm, autopilot) already output session config as JSON natively.
 - **Programmatic generation** — scripts, CI pipelines, or tools that build session configs are often simpler in JSON.
-- **Embedding in other JSON payloads** — e.g., the REST API `POST /api/agent/run/pipeline` body includes session config as a nested JSON object.
+- **Embedding in other JSON payloads** — e.g., the REST API `POST /api/agent/run/autopilot` body includes session config as a nested JSON object.
 
 YAML remains convenient for hand-written configs where comments and multi-line strings help readability.
 
@@ -501,18 +501,13 @@ Scanning profiles (`~/.vigolium/profiles/`) can also override session strategy v
 
 ## Using Session Config with Agent Modes
 
-Agent modes (`pipeline`, `swarm`, `autopilot`) can auto-generate session configs from source code analysis. The generated configs are always written as JSON to the session directory.
+Agent modes (`swarm`, `autopilot`) can auto-generate session configs from source code analysis. The generated configs are always written as JSON to the session directory.
 
-When running agent pipeline or swarm with `--source`, the source analysis phase discovers authentication flows in the codebase and produces a `session-config.json` (or `auth-config.yaml` in pipeline mode) in the session directory. This config is then fed into subsequent scan phases automatically.
+When running agent swarm with `--source`, the source analysis phase discovers authentication flows in the codebase and produces a `session-config.json` in the session directory. This config is then fed into subsequent scan phases automatically.
 
 You can also pass a pre-built session config to agent modes the same way as regular scans:
 
 ```bash
-# Pipeline with pre-configured auth
-vigolium agent pipeline \
-  --target https://app.com \
-  --auth-config ./auth-config.json
-
 # Swarm with pre-configured auth
 vigolium agent swarm \
   --target https://app.com \

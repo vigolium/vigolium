@@ -1463,7 +1463,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			FoundAt:     now.Add(-2*time.Hour - 28*time.Minute),
 			CreatedAt:   now.Add(-2*time.Hour - 28*time.Minute),
 		},
-		// Agent: Mass assignment found by pipeline agent
+		// Agent: Mass assignment found by swarm agent
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/users/me")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
@@ -2380,11 +2380,11 @@ Confirmed blind SQL injection via time delay: id=1'+AND+pg_sleep(5)--
 			DurationMs:  180000,
 			CreatedAt:   now.Add(-2*time.Hour - 30*time.Minute),
 		},
-		// 3. Completed pipeline — full 7-phase scan
+		// 3. Completed swarm — full 7-phase scan
 		{
 			UUID:         "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
 			ScanUUID:     scans[1].UUID,
-			Mode:         "pipeline",
+			Mode:         "swarm",
 			AgentName:    "claude",
 			TargetURL:    "https://api.shop.local",
 			Status:       "completed",
@@ -2401,10 +2401,10 @@ Confirmed blind SQL injection via time delay: id=1'+AND+pg_sleep(5)--
 			DurationMs:   1800000,
 			CreatedAt:    now.Add(-1*time.Hour - 30*time.Minute),
 		},
-		// 4. Running pipeline — in scan phase
+		// 4. Running swarm — in scan phase
 		{
 			UUID:         "agent-0004-aaaa-bbbb-cccc-ddddeeee0004",
-			Mode:         "pipeline",
+			Mode:         "swarm",
 			AgentName:    "claude",
 			TargetURL:    "https://blog.test",
 			Status:       "running",
@@ -2521,10 +2521,10 @@ JWT token uses HS256 with weak secret. Token can be forged.
 			DurationMs:   180000,
 			CreatedAt:    now.Add(-1*time.Hour - 15*time.Minute),
 		},
-		// 9. Cancelled pipeline
+		// 9. Cancelled swarm
 		{
 			UUID:         "agent-0009-aaaa-bbbb-cccc-ddddeeee0009",
-			Mode:         "pipeline",
+			Mode:         "swarm",
 			AgentName:    "claude",
 			TargetURL:    "https://example.com",
 			Status:       "cancelled",

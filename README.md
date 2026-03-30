@@ -61,7 +61,7 @@ It also operates as an API server with traffic ingestion, or a standalone ingest
 ### Agentic Scan
 
 - **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal with command allowlisting. Supports multi-agent specialist pipeline and session resume
-- **AI-guided swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results. Supports both targeted single-request scanning and full-scope scanning with `--discover`. Includes AI code audit, native SAST (ast-grep), and batched execution for large input sets. `agent pipeline` is a backward-compatible alias for `swarm --discover`
+- **AI-guided swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results. Supports both targeted single-request scanning and full-scope scanning with `--discover`. Includes AI code audit, native SAST (ast-grep), and batched execution for large input sets
 - **Query mode** — single-shot prompt execution for code review, endpoint discovery, and secret detection (not a scan — simple Q&A utility)
 - **Source-aware intelligence** — when `--source` is provided, agents run consolidated source analysis (route extraction, auth flow discovery, custom extension generation), AI code audit, and native SAST before scanning
 - **Multiple AI backends** — Claude (SDK/ACP/pipe), Codex (native/ACP), OpenCode (native/ACP), Gemini (ACP), Cursor (ACP), or custom agents via CLI or REST API (with SSE streaming)
@@ -169,13 +169,11 @@ vigolium agent swarm -t https://example.com --discover  # full-scope (replaces p
 vigolium agent swarm -t https://example.com --source ./src --discover  # source-aware full-scope
 vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
 
-# Pipeline: backward-compatible alias for swarm --discover
-vigolium agent pipeline -t https://example.com
 ```
 
 Two agentic scan modes:
 - **Autopilot** — autonomous scanning with multi-agent specialist pipeline. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal restricted to `vigolium` commands
-- **Swarm** — AI-guided vulnerability scanning supporting both targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results. `agent pipeline` is a backward-compatible alias for `swarm --discover`
+- **Swarm** — AI-guided vulnerability scanning supporting both targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results
 
 ### Agent Query (Utility)
 
@@ -318,7 +316,6 @@ vigolium scan-request        Native scan from a raw HTTP request
 
 vigolium agent autopilot     Agentic scan: autonomous AI-driven vulnerability scanning
 vigolium agent swarm         Agentic scan: AI-guided targeted or full-scope vulnerability scanning
-vigolium agent pipeline      Agentic scan: alias for swarm --discover (backward compat)
 vigolium agent query         Send a prompt to an AI agent and get a response
 
 vigolium server              Start the API server with traffic ingestion

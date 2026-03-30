@@ -13,7 +13,7 @@ metadata:
   domain: security-tooling
   triggers: >-
     vigolium, scan, scan-url, scan-request, run, ingest, server, agent, agent query,
-    agent autopilot, agent pipeline, agent swarm, traffic, db, module, extensions, js, export, strategy,
+    agent autopilot, agent swarm, traffic, db, module, extensions, js, export, strategy,
     scope, source, config, project, vulnerability scanner, security scan, DAST,
     audit, openapi scan, burp import, HAR import, whitebox scanning, SAST,
     javascript extension, custom scanner, module-tag, run extension, vigolium js
@@ -31,7 +31,7 @@ Operator's guide for the [Vigolium](https://www.vigolium.com/) high-fidelity web
 Vigolium is a CLI-first vulnerability scanner that operates in multiple modes:
 - **Standalone scanner**: `scan`, `scan-url`, `scan-request`, `run`
 - **REST API server with traffic ingestion**: `server`, `ingest`
-- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous via SDK/ACP), `agent swarm` (targeted or full-scope with `--discover`), `agent pipeline` (alias for `swarm --discover`)
+- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous via SDK/ACP), `agent swarm` (targeted or full-scope with `--discover`)
 - **Extension runner**: `run extension --ext custom-check.js` for custom JS scanning logic
 - **JavaScript executor**: `js` for ad-hoc scripting with full `vigolium.*` API access
 
@@ -103,7 +103,7 @@ Load detailed reference based on what you need:
 |-------|-----------|-----------|
 | Scanning commands | `references/scanning-commands.md` | scan, scan-url, scan-request, run flags and options |
 | Server & ingestion | `references/server-and-ingestion.md` | server, ingest, traffic command flags |
-| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent pipeline, agent swarm flags and templates |
+| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent swarm flags and templates |
 | Session / auth config | `references/session-auth-config.md` | --auth-config YAML format, extract rules, authenticated scanning setup |
 | Data & management | `references/data-and-management.md` | db, module, extensions, js, config, scope, source, strategy, export, project |
 | Complete flag index | `references/flags-reference.md` | Looking up any specific flag by name |
@@ -410,28 +410,7 @@ vigolium agent swarm -t https://example.com \
   --custom-agent @my-sqli-specialist
 ```
 
-### 14. AI Agent Pipeline (Backward-Compatible Alias)
-```bash
-# Equivalent to: vigolium agent swarm --discover -t ...
-vigolium agent pipeline -t https://example.com
-
-# With focus and source code
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --source ./src
-
-# Control rescan iterations
-vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
-
-# Skip discovery and start from planning
-vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
-
-# Use a scanning profile
-vigolium agent pipeline -t https://example.com --profile deep
-
-# Preview agent prompts
-vigolium agent pipeline -t https://example.com --dry-run
-```
-
-### 15. Results Inspection
+### 14. Results Inspection
 ```bash
 # Browse HTTP traffic
 vigolium traffic
@@ -675,7 +654,7 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 - Phase aliases: `deparos`/`discover` = `discovery`, `spitolas` = `spidering`, `ext` = `extension`. The legacy alias `dynamic-assessment` is accepted for `audit`
 - `--module-tag` uses OR logic: modules matching any specified tag are included
 - `-m` and `--module-tag` merge results (union)
-- `agent pipeline` is a backward-compatible alias for `agent swarm --discover`
+- Use `agent swarm --discover` for full-scope AI-guided scanning
 
 ## Resources
 

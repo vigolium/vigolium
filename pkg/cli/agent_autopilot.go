@@ -395,6 +395,9 @@ func runAutopilotFromPrompt(prompt string) error {
 		return err
 	}
 	defer engine.Close()
+	if intent.Cleanup != nil {
+		defer intent.Cleanup.Cleanup()
+	}
 
 	if autopilotDryRun {
 		return printIntentDryRun(intent)
@@ -423,6 +426,9 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	}
 	if app.Instruction != "" && autopilotInstruction == "" {
 		autopilotInstruction = app.Instruction
+	}
+	if app.AuditAgent != "" && autopilotAuditAgent == "" {
+		autopilotAuditAgent = app.AuditAgent
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
 		terminal.SuccessSymbol(),

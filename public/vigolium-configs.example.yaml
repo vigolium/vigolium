@@ -1074,7 +1074,6 @@ external_harvester:
 # Manage agent runs at runtime:
 #   POST /api/agent/run/query      — single-shot prompt execution
 #   POST /api/agent/run/autopilot  — autonomous scanning session
-#   POST /api/agent/run/pipeline   — multi-phase scanning pipeline
 #   GET  /api/agent/status/list    — list all runs
 #   GET  /api/agent/status/:id     — check a specific run
 agent:

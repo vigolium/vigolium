@@ -469,37 +469,6 @@ func (r AgentAutopilotRequest) EffectiveSourcePath() string {
 	return r.RepoPath
 }
 
-// AgentPipelineRequest is the request body for POST /api/agent/run/pipeline.
-type AgentPipelineRequest struct {
-	Prompt          string   `json:"prompt,omitempty"`                // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
-	Target          string   `json:"target,omitempty"`                // target URL (derived from input if not set)
-	Input           string   `json:"input,omitempty"`                 // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
-	Agent           string   `json:"agent,omitempty"`                 // agent backend name
-	SourcePath      string   `json:"source,omitempty"`                // path to application source code
-	RepoPath        string   `json:"repo_path,omitempty"`             // deprecated: use source
-	Files           []string `json:"files,omitempty"`                 // specific files to include
-	Focus           string   `json:"focus,omitempty"`                 // focus area hint for planning agent
-	Instruction     string   `json:"instruction,omitempty"`           // custom instruction appended to agent prompts
-	Profile         string   `json:"profile,omitempty"`               // scanning profile name
-	Timeout         string   `json:"timeout,omitempty"`               // Go duration string, default "1h"
-	MaxRescanRounds int      `json:"max_rescan_rounds,omitempty"`     // max triage->rescan iterations, default 2
-	Triage          bool     `json:"triage,omitempty"`                // enable AI triage and rescan phases (disabled by default)
-	SkipPhases      []string `json:"skip_phases,omitempty"`           // phases to skip
-	StartFrom       string   `json:"start_from,omitempty"`            // resume from a specific phase
-	DryRun          bool     `json:"dry_run,omitempty"`               // render prompts without executing
-	Stream          bool     `json:"stream,omitempty"`                // enable SSE streaming
-	ScanUUID        string   `json:"scan_uuid,omitempty"`             // optional scan UUID
-	ProjectUUID     string   `json:"project_uuid,omitempty"`          // optional project UUID
-}
-
-// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
-func (r AgentPipelineRequest) EffectiveSourcePath() string {
-	if r.SourcePath != "" {
-		return r.SourcePath
-	}
-	return r.RepoPath
-}
-
 // AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
 type AgentSwarmRequest struct {
 	// Natural language prompt (parsed into structured fields when explicit fields are empty)

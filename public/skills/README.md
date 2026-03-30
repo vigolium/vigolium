@@ -758,90 +758,7 @@ vigolium agent autopilot -t https://example.com --agent gemini
 - Max 100 commands by default (configurable)
 - Output capped at 256KB per command
 
-#### Agent Pipeline (Multi-Phase AI-Guided Scan)
-
-**Basic pipeline scan (all 6 phases):**
-```
-> Run the full AI pipeline scan
-```
-```bash
-vigolium agent pipeline -t https://example.com
-```
-
-The pipeline runs:
-1. **Discover** — Native content discovery + spidering (no AI)
-2. **Plan** — AI analyzes discovery results, produces an attack plan
-3. **Scan** — Native executor with agent-selected modules (no AI)
-4. **Triage** — AI reviews findings, confirms/dismisses, suggests follow-ups
-5. **Rescan** — Targeted re-scanning from triage recommendations (no AI)
-6. **Report** — Structured output from database (no AI)
-
-**Pipeline with focus area and source code:**
-```
-> Pipeline scan focused on SQL injection, with source code
-```
-```bash
-vigolium agent pipeline -t https://example.com --focus "SQL injection" --source ./src
-```
-
-**Control rescan iterations:**
-```
-> Allow up to 3 triage→rescan iterations
-```
-```bash
-vigolium agent pipeline -t https://example.com --max-rescan-rounds 3
-```
-
-**Skip discovery and start from planning (use existing DB data):**
-```
-> I already have traffic in the database, start from planning
-```
-```bash
-vigolium agent pipeline -t https://example.com --skip-phase discover --start-from plan
-```
-
-**Skip triage (just discover → plan → scan):**
-```
-> Run pipeline but skip triage and rescan
-```
-```bash
-vigolium agent pipeline -t https://example.com --skip-phase triage --skip-phase rescan
-```
-
-**Use a scanning profile:**
-```
-> Run pipeline with the deep scanning profile
-```
-```bash
-vigolium agent pipeline -t https://example.com --profile deep
-```
-
-**Preview agent prompts (dry run):**
-```
-> Show me the prompts without executing
-```
-```bash
-vigolium agent pipeline -t https://example.com --dry-run
-```
-
-**Specific source files for agent context:**
-```
-> Only include routes.go and handlers.go as context
-```
-```bash
-vigolium agent pipeline -t https://example.com --source ./src \
-  --files "routes.go,handlers.go"
-```
-
-**Use a different agent backend:**
-```
-> Run pipeline with Gemini
-```
-```bash
-vigolium agent pipeline -t https://example.com --agent gemini
-```
-
-#### Agent Swarm (Targeted Single-Request)
+#### Agent Swarm (Full-Scope and Targeted)
 
 **Deep analysis of a single endpoint:**
 ```
@@ -1697,7 +1614,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Only run XSS modules" | `vigolium scan -t <url> --module-tag xss` |
 | "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --source ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
-| "Run the full AI pipeline" | `vigolium agent pipeline -t <url>` |
+| "Run the full AI scan" | `vigolium agent swarm --discover -t <url>` |
 | "Deep scan this endpoint for SQLi" | `vigolium agent swarm -t <url> --vuln-type sqli` |
 | "Scan with source code context" | `vigolium agent swarm -t <url> --source ./src` |
 | "Run this JS script against the API" | `vigolium js --code-file script.js --target <url>` |
@@ -1729,7 +1646,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 4. **Module tags** — Filter modules by technology (`spring`, `nodejs`) or vulnerability class (`xss`, `injection`) to reduce noise.
 5. **Watch mode** — Add `--watch 5s` to `traffic`, `finding`, or `db stats` for real-time monitoring during long scans.
 6. **Dry-run agents** — Always `--dry-run` first for agent commands to preview prompts before spending AI tokens.
-7. **Pipeline over autopilot** — Use `agent pipeline` for structured scans (lower cost, reproducible). Use `agent autopilot` for exploratory, creative scanning.
+7. **Swarm over autopilot** — Use `agent swarm --discover` for structured scans (lower cost, reproducible). Use `agent autopilot` for exploratory, creative scanning.
 8. **Extensions for custom logic** — Write JS extensions instead of modifying core modules. They run alongside built-in modules with `--ext`.
 9. **Projects for isolation** — Use `vigolium project create` to keep scan data separate across engagements.
 10. **Export early** — Run `vigolium export --format html -o report.html` to share results as interactive reports.

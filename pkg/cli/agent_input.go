@@ -145,7 +145,9 @@ func parsePromptIntent(prompt string) (*agent.ScanIntent, *agent.Engine, *config
 
 	fmt.Fprintf(os.Stderr, "%s Parsing natural language prompt...\n", terminal.InfoSymbol())
 
-	intent, err := agent.ParseAndResolveIntent(context.Background(), engine, prompt)
+	sessionsDir := settings.Agent.EffectiveSessionsDir()
+	intent, err := agent.ParseAndResolveIntent(context.Background(), engine, prompt,
+		agent.WithSessionsDir(sessionsDir))
 	if err != nil {
 		engine.Close()
 		return nil, nil, nil, nil, fmt.Errorf("failed to parse scan prompt: %w", err)

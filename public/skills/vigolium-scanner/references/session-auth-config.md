@@ -133,11 +133,11 @@ vigolium session totp --secret JBSWY3DPEHPK3PXP
 
 ## Usage
 
-### Auto-Generated from Source Analysis (Pipeline Phase 0)
+### Auto-Generated from Source Analysis
 
 ```bash
 # Provide source code — the agent analyzes auth code and generates session config automatically
-vigolium agent pipeline -t http://localhost:3000 --source ~/projects/my-app
+vigolium agent swarm --discover -t http://localhost:3000 --source ~/projects/my-app
 
 # Session config is written to a temp file and applied to all subsequent phases
 # (discovery, scanning, triage all use authenticated requests)

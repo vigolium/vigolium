@@ -79,7 +79,6 @@ vigolium server -c 200 --mem-buffer 50000
 | `POST` | `/api/ingest` | Submit HTTP records for ingestion |
 | `POST` | `/api/agent/run/query` | Single-shot agent prompt execution |
 | `POST` | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
-| `POST` | `/api/agent/run/pipeline` | Multi-phase scanning pipeline |
 | `GET` | `/api/agent/status/list` | List agent runs |
 | `GET` | `/api/agent/status/:id` | Check agent run status |
 | `GET` | `/` | Swagger UI dashboard |

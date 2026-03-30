@@ -2,9 +2,7 @@
 
 Swarm is the **primary agentic scan mode** in Vigolium (alongside autopilot). A master AI agent analyzes HTTP requests, selects scanner modules, generates custom attack payloads as JavaScript extensions, executes the scan, and triages the results — all in a single command.
 
-Swarm supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs the complete pipeline: source analysis, SAST, discovery/spidering, AI planning, native scanning, and triage — making it the unified replacement for the former `agent pipeline` command.
-
-> **Note:** `vigolium agent pipeline` is now an alias for `vigolium agent swarm --discover`. Existing pipeline invocations continue to work unchanged.
+Swarm supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs the complete sequence: source analysis, SAST, discovery/spidering, AI planning, native scanning, and triage.
 
 Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
 
@@ -425,7 +423,7 @@ vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --skip-
 vigolium agent swarm -t https://staging.example.com \
   --source https://github.com/org/repo.git --discover --vuln-type sqli
 
-# Full-scope scanning with focus area (equivalent to the old pipeline mode)
+# Full-scope scanning with focus area
 vigolium agent swarm -t https://example.com --discover --focus "API injection"
 
 # Skip specific scan phases
@@ -436,9 +434,6 @@ vigolium agent swarm -t https://example.com --start-from plan
 
 # Resume from discovery phase (useful after editing source analysis artifacts)
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start-from native-discover
-
-# Using the pipeline alias — equivalent to: vigolium agent swarm --discover -t ...
-vigolium agent pipeline -t https://example.com --source ~/projects/my-app
 
 # Slash commands: make a Claude Code slash command available inside the ACP session
 vigolium agent swarm -t https://example.com --custom-slash-command /security-review
