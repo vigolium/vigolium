@@ -582,11 +582,27 @@ func (r *Repository) IncrementProcessedCount(ctx context.Context, scanUUID strin
 
 // AdvanceScanCursor updates the cursor position and increments ProcessedCount.
 func (r *Repository) AdvanceScanCursor(ctx context.Context, scanUUID string, recordCreatedAt time.Time, recordUUID string) error {
+	// Format cursor_at to match SQLite's CURRENT_TIMESTAMP format (no timezone suffix).
+	// Go's time.Time serialization adds timezone info that breaks SQLite text comparison.
+	cursorAt := recordCreatedAt.UTC().Format("2006-01-02 15:04:05")
 	_, err := r.db.NewUpdate().
 		Model((*Scan)(nil)).
-		Set("cursor_at = ?", recordCreatedAt).
+		Set("cursor_at = ?", cursorAt).
 		Set("cursor_uuid = ?", recordUUID).
 		Set("processed_count = processed_count + 1").
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("uuid = ?", scanUUID).
+		Exec(ctx)
+	return err
+}
+
+// ResetScanCursor resets the scan cursor to the beginning so all records
+// are re-read on the next iteration (e.g., between seed and audit phases).
+func (r *Repository) ResetScanCursor(ctx context.Context, scanUUID string) error {
+	_, err := r.db.NewUpdate().
+		Model((*Scan)(nil)).
+		Set("cursor_at = ?", time.Time{}).
+		Set("cursor_uuid = ?", "").
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Where("uuid = ?", scanUUID).
 		Exec(ctx)

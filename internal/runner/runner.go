@@ -2132,6 +2132,12 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		auditFeedbackDrain = auditPace.FeedbackDrainTimeout
 	}
 
+	// Reset cursor so audit reads all records from the beginning
+	// (seed phase advances the cursor past all records when saving them).
+	if err := r.repository.ResetScanCursor(ctx, infra.scanUUID); err != nil {
+		zap.L().Warn("Audit: failed to reset scan cursor", zap.Error(err))
+	}
+
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
 		roundStart := time.Now()

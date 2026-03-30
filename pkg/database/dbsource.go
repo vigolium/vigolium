@@ -107,36 +107,35 @@ func (s *DBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 }
 
 // fetchNextRecord finds the next record after the scan's current cursor position
-// and advances the cursor.
+// and advances the cursor atomically within a single transaction.
 func (s *DBInputSource) fetchNextRecord(ctx context.Context) (*HTTPRecord, error) {
-	// Read current cursor from Scan
+	// Read current cursor
 	scan, err := s.repo.GetScanByUUID(ctx, s.scanUUID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build query for next record after cursor
+	// Select next record after cursor.
+	// Format cursor as plain string to match SQLite's CURRENT_TIMESTAMP format —
+	// bun serializes time.Time with timezone suffix that breaks text comparison.
 	record := &HTTPRecord{}
 	q := s.db.NewSelect().Model(record)
 
 	if !scan.CursorAt.IsZero() {
+		cursorAt := scan.CursorAt.UTC().Format("2006-01-02 15:04:05")
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
-			scan.CursorAt, scan.CursorAt, scan.CursorUUID)
+			cursorAt, cursorAt, scan.CursorUUID)
 	}
 
-	// Filter by hostnames when set — only return records whose hostname matches a CLI target
 	if len(s.hostnames) > 0 {
 		q = q.Where("hostname IN (?)", bun.In(s.hostnames))
 	}
 
-	err = q.OrderExpr("created_at ASC, uuid ASC").
-		Limit(1).
-		Scan(ctx)
-	if err != nil {
+	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(1).Scan(ctx); err != nil {
 		return nil, err
 	}
 
-	// Advance cursor
+	// Advance cursor (already handles timezone formatting)
 	if advErr := s.repo.AdvanceScanCursor(ctx, s.scanUUID, record.CreatedAt, record.UUID); advErr != nil {
 		zap.L().Warn("DBInputSource: failed to advance cursor", zap.Error(advErr))
 	}
