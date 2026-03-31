@@ -8,8 +8,18 @@ import { resolve } from "path";
 function renameOutput(from: string, to: string): Plugin {
   return {
     name: "rename-output",
+    enforce: "post",
     closeBundle: async () => {
-      await rename(from, to);
+      // Wait briefly for singlefile plugin to finish writing
+      for (let i = 0; i < 10; i++) {
+        try {
+          await rename(from, to);
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      throw new Error(`Failed to rename ${from} → ${to} after 10 attempts`);
     },
   };
 }

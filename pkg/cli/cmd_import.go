@@ -112,9 +112,13 @@ func runImport(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s Imported archon audit: %d findings (%d new, %d duplicates skipped)\n",
 		terminal.SuccessSymbol(), len(findings), saved, skipped)
 	fmt.Printf("  Agent run: %s (mode=%s, status=%s)\n", agentRun.UUID, agentRun.Mode, agentRun.Status)
-	if sevCounts["high"] > 0 || sevCounts["critical"] > 0 {
-		fmt.Printf("  Severity: %d critical, %d high, %d medium, %d low\n",
-			sevCounts["critical"], sevCounts["high"], sevCounts["medium"], sevCounts["low"])
+	if sevCounts["high"] > 0 || sevCounts["critical"] > 0 || sevCounts["medium"] > 0 || sevCounts["low"] > 0 {
+		fmt.Printf("  Severity: %s, %s, %s, %s\n",
+			terminal.BoldMagenta(fmt.Sprintf("%d critical", sevCounts["critical"])),
+			terminal.BoldRed(fmt.Sprintf("%d high", sevCounts["high"])),
+			terminal.BoldYellow(fmt.Sprintf("%d medium", sevCounts["medium"])),
+			terminal.BoldGreen(fmt.Sprintf("%d low", sevCounts["low"])),
+		)
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 import { BarChart3, Globe, Shield, ExternalLink, BookOpen } from "lucide-react";
 import ThemeSwitcher from "./ThemeSwitcher";
-import logoUrl from "/logo.png?url";
+import logoUrl from "../assets/logo.png";
 
 export type TabId = "statistics" | "traffic" | "findings";
 

@@ -124,7 +124,7 @@ func runExportHTML() error {
 	}
 
 	meta := output.HTMLReportMeta{
-		Title:        "Vigolium Export",
+		Title:        "Vigolium Static Report",
 		Version:      getVersion(),
 		ScanDuration: computeScanDuration(ctx, db),
 	}
