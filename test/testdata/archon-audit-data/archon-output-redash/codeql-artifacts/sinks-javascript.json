@@ -1,0 +1,14 @@
+{"#select":{"columns":[
+   {"name":"sink","kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"\"cypress.json\""},"file-access | client/cypress/cypress.js:11"]
+  ,[{"label":"\"docker ...  build\""},"command-execution | client/cypress/cypress.js:46"]
+  ,[{"label":"\"docker ...  up -d\""},"command-execution | client/cypress/cypress.js:51"]
+  ,[{"label":"\"docker ... ate_db\""},"command-execution | client/cypress/cypress.js:52"]
+  ,[{"label":"\"docker ... s down\""},"command-execution | client/cypress/cypress.js:57"]
+  ,[{"label":"\"COMMIT ... PTIONS\""},"command-execution | client/cypress/cypress.js:71"]
+  ,[{"label":"\"cypress run\""},"command-execution | client/cypress/cypress.js:92"]
+  ,[{"label":"\"cypress open\""},"command-execution | client/cypress/cypress.js:95"]
+  ,[{"label":"\"cypress run\""},"command-execution | client/cypress/cypress.js:106"]]
+ }}

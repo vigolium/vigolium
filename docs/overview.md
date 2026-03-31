@@ -46,12 +46,12 @@ Heuristics -> External Harvesting -> Spidering -> SAST -> Discovery -> KnownIssu
 
 ### Agentic Scan
 
-Agentic scanning uses AI agents to drive or augment the scanning process. Invoked via `vigolium agent <mode>`. Supports Claude, Codex, Gemini, and OpenCode backends.
+Agentic scanning uses AI agents to drive or augment the scanning process. Invoked via `vigolium agent <mode>`. Supports Claude, Codex, and OpenCode backends.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Query** | `vigolium agent query` | Single-shot prompt execution. Good for code review, endpoint discovery, secret detection. No network scanning. |
-| **Autopilot** | `vigolium agent autopilot` | The AI agent drives the CLI autonomously through a sandboxed terminal (ACP protocol). It can run scans, inspect results, and iterate. |
+| **Autopilot** | `vigolium agent autopilot` | The AI agent drives the CLI autonomously. With SDK protocol (default), the agent gets full coding agent tools. It can run scans, inspect results, and iterate. |
 | **Swarm** | `vigolium agent swarm` | Multi-phase pipeline where native Go handles heavy lifting and AI intervenes at checkpoints -- planning attacks, triaging results, and generating custom JS scanner extensions. |
 
 All agent modes support `--source` for source-aware analysis and store session artifacts (plans, extensions, output) in a configurable sessions directory.
@@ -82,14 +82,14 @@ All agent modes support `--source` for source-aware analysis and store session a
                     |                           |
          +----------+----------+      +---------+---------+
          |  Executor (Workers) |      |   Agent Engine    |
-         |  Rate Limiter       |      |   ACP / Terminal  |
-         +----------+----------+      |   Prompt Templates|
+         |  Rate Limiter       |      |   Prompt Templates|
+         +----------+----------+      |                   |
                     |                 +---------+---------+
          +----------+----------+                |
          |  Module Registry    |      +---------+---------+
          |  127 Active Modules |      | AI Backend        |
          |   83 Passive Modules|      | Claude/Codex/     |
-         +----------+----------+      | Gemini/OpenCode   |
+         +----------+----------+      | OpenCode          |
                     |                 +---------+---------+
                     +-------------+---------------+
                                   |

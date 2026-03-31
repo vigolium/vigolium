@@ -37,7 +37,7 @@ export default function FilterDropdown({ value, onChange, options, placeholder }
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 bg-cream border border-warm-border text-charcoal text-sm font-sans px-3 py-2 rounded-md hover:border-terracotta/40 transition-colors min-w-[120px] text-left"
+        className="flex items-center gap-1.5 bg-cream border border-warm-border text-charcoal text-xs font-sans px-2.5 py-1.5 rounded-md hover:border-terracotta/40 transition-colors min-w-[100px] text-left"
       >
         <span className="flex-1 truncate">{selectedLabel}</span>
         <ChevronDown size={14} className={`text-text-muted shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -49,7 +49,7 @@ export default function FilterDropdown({ value, onChange, options, placeholder }
               key={opt.value}
               type="button"
               onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-3 py-2 text-sm font-sans transition-colors ${
+              className={`w-full text-left px-2.5 py-1.5 text-xs font-sans transition-colors ${
                 opt.value === value
                   ? "bg-terracotta/10 text-terracotta font-semibold"
                   : "text-charcoal hover:bg-cream-dark"

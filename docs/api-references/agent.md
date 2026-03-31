@@ -26,7 +26,7 @@ Starts an AI agent run with a prompt template, file, or inline prompt. Returns `
 
 | Field              | Type     | Required | Description                                                    |
 |--------------------|----------|----------|----------------------------------------------------------------|
-| `agent`            | string   | No       | Agent backend name (e.g. `claude`, `opencode`, `gemini`)       |
+| `agent`            | string   | No       | Agent backend name (e.g. `claude`, `opencode`, `codex`)        |
 | `prompt_template`  | string   | No*      | Name of a prompt template (from `~/.vigolium/prompts/`)        |
 | `prompt_file`      | string   | No*      | Path to a prompt file on disk                                  |
 | `prompt`           | string   | No*      | Inline prompt text                                             |
@@ -73,7 +73,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
 
 ## POST /api/agent/run/autopilot — Autonomous Scanning Session
 
-Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands via a sandboxed terminal.
+Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands.
 
 **Request body:**
 
@@ -197,7 +197,6 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `agent`                | string   | No       | Agent backend name (default from config)                              |
-| `agent_acp_cmd`        | string   | No       | Custom ACP agent command override (e.g. `"traecli acp"`)              |
 
 *Concurrency tuning:*
 
@@ -211,7 +210,6 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
-| `slash_commands`       | string[] | No       | Custom slash commands for the ACP session                             |
 | `custom_agents`        | string[] | No       | Custom agent names for sub-agent invocation                           |
 | `max_commands`         | int      | No       | Max terminal commands per session (default `50`)                      |
 
@@ -420,24 +418,6 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "batch_concurrency": 4,
     "max_master_retries": 5,
     "max_iterations": 2
-  }' | jq .
-
-# Use a custom ACP agent command
-curl -s -X POST http://localhost:9002/api/agent/run/swarm \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "https://example.com",
-    "agent_acp_cmd": "traecli acp"
-  }' | jq .
-
-# Terminal capability: custom slash commands and sub-agents
-curl -s -X POST http://localhost:9002/api/agent/run/swarm \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "https://example.com",
-    "slash_commands": ["/security-review", "/auth-check"],
-    "custom_agents": ["sqli-specialist", "xss-expert"],
-    "max_commands": 100
   }' | jq .
 
 # Dry run — render all prompts without executing agents
@@ -822,7 +802,7 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 |--------------------|----------|--------------------------------------------------------|
 | `input_raw`        | string   | Raw input provided to the agent run                    |
 | `module_names`     | string[] | Scanner modules used or selected                       |
-| `session_id`       | string   | ACP session ID (for autopilot resume)                  |
+| `session_id`       | string   | Session ID (for autopilot resume)                      |
 | `prompt_sent`      | string   | Full prompt text sent to the agent                     |
 | `agent_raw_output` | string   | Complete raw output from the agent                     |
 | `attack_plan`      | string   | JSON attack plan (swarm mode)                          |
@@ -873,7 +853,7 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 
 Accepts an OpenAI-compatible Chat Completions request and returns an OpenAI-compatible response. This allows any OpenAI-compatible client or tool to use Vigolium agents by changing the base URL.
 
-The `model` field maps to agent names in config. If `model` matches a configured agent name (e.g. `"claude"`, `"opencode"`, `"gemini"`), that agent is used. Unrecognized model names fall back to the default agent.
+The `model` field maps to agent names in config. If `model` matches a configured agent name (e.g. `"claude"`, `"opencode"`, `"codex"`), that agent is used. Unrecognized model names fall back to the default agent.
 
 This endpoint is **synchronous** — it blocks until the agent completes. It shares the concurrency lock with the run endpoints (returns `409 Conflict` if an agent is already running).
 

@@ -1,0 +1,257 @@
+{
+  "meta": {
+    "phase": "4",
+    "generated": "2026-03-27",
+    "repository": "goharbor/harbor",
+    "commit": "1c7d83141911da74d57dcd51bb708eb7b17a7980",
+    "tools": {
+      "codeql": "2.25.0",
+      "codeql_db": "security/codeql-artifacts/db",
+      "semgrep": "1.156.0",
+      "semgrep_mode": "pro"
+    },
+    "coverage": {
+      "go_files_analyzed": 1006,
+      "go_files_total": 1563,
+      "missing_packages": 40,
+      "note": "40 generated go-swagger packages (server/v2.0/models, server/v2.0/restapi/*) not analyzable because they are code-generated and not committed. Coverage of hand-written handlers is complete."
+    }
+  },
+  "findings": [
+    {
+      "id": "SAST-001",
+      "title": "Open redirect via unvalidated postURI in auth-proxy controller",
+      "severity": "HIGH",
+      "confidence": "HIGH",
+      "cwe": ["CWE-601"],
+      "tool": "CodeQL go/unvalidated-url-redirection",
+      "file": "src/core/controllers/authproxy_redirect.go",
+      "line": 77,
+      "description": "AuthProxyController.HandleRedirect() reads the 'post_uri' query parameter and redirects to it without any validation. Unlike the OIDC RedirectLogin handler (which calls utils.IsLocalPath), this handler performs no local-path check. An attacker who can craft the auth-proxy redirect URL can redirect the victim to an arbitrary external URL after authentication.",
+      "code_snippet": "uri := apc.Ctx.Request.URL.Query().Get(postURIKey)\nif uri == \"\" { uri = \"/\" }\napc.Ctx.Redirect(http.StatusMovedPermanently, uri)",
+      "dfd_slice": "CFD-1",
+      "fix": "Apply utils.IsLocalPath(uri) check before redirecting, identical to the pattern in OIDCController.RedirectLogin().",
+      "references": ["CVE-related commit b6c083d73 (incomplete fix for open redirect)"]
+    },
+    {
+      "id": "SAST-002",
+      "title": "SSRF via user-controlled webhook/slack job address parameter",
+      "severity": "HIGH",
+      "confidence": "HIGH",
+      "cwe": ["CWE-918"],
+      "tool": "Semgrep harbor-ssrf-job-http-client + manual analysis",
+      "files": [
+        "src/jobservice/job/impl/notification/webhook_job.go:103-120",
+        "src/jobservice/job/impl/notification/slack_job.go:120-136"
+      ],
+      "description": "WebhookJob.execute() and SlackJob.execute() construct HTTP requests using an 'address' parameter taken directly from the job parameter map. This address originates from user-controlled webhook/preheat policy target URLs stored in the database. No private IP filtering, no URL scheme allowlist, and no DNS pinning exist. The 'skip_cert_verify' flag is also user-controllable. Any user with project-admin privileges can trigger HTTP requests to arbitrary internal or external endpoints, including cloud metadata services (169.254.169.254).",
+      "code_snippet": "address := params[\"address\"].(string)\nreq, err := http.NewRequest(http.MethodPost, address, bytes.NewReader([]byte(payload)))\n...\nresp, err := wj.client.Do(req)",
+      "dfd_slice": "DFD-2",
+      "fix": "Implement a URL validation layer before job dispatch: deny private RFC1918 ranges (10.x, 172.16-31.x, 192.168.x), link-local (169.254.x.x), localhost, and non-HTTP(S) schemes.",
+      "references": ["TB-8 in KB report", "Harbor SSRF advisory 2020"]
+    },
+    {
+      "id": "SAST-003",
+      "title": "fmt.Sprintf SQL construction in artifactrash DAO (44 confirmed flows)",
+      "severity": "HIGH",
+      "confidence": "MEDIUM",
+      "cwe": ["CWE-89"],
+      "tool": "CodeQL harbor/raw-sql-fmt-sprintf (44 flows confirmed) + grep",
+      "files": [
+        "src/pkg/artifactrash/dao/dao.go:89",
+        "src/pkg/artifactrash/dao/dao.go:106",
+        "src/pkg/securityhub/dao/security.go:135",
+        "src/pkg/securityhub/dao/security.go:148",
+        "src/pkg/securityhub/dao/security.go:267",
+        "src/pkg/securityhub/dao/security.go:302",
+        "src/pkg/quota/dao/dao.go:68",
+        "src/pkg/quota/dao/dao.go:237",
+        "src/pkg/task/dao/execution.go:321",
+        "src/pkg/task/dao/execution.go:341",
+        "src/pkg/project/dao/dao.go:223",
+        "src/pkg/member/dao/dao.go:248"
+      ],
+      "description": "44 CodeQL-confirmed data flows from fmt.Sprintf into Raw()/Exec() calls. The most critical are in artifactrash/dao/dao.go where cutOff (a time.Time value) is interpolated directly into SQL without parameterization. While currently not user-controlled, this is a fragile pattern—if the time value source changes, it becomes a full SQL injection. The securityhub exactMatchFilter and rangeFilter functions use fmt.Sprintf to compose SQL column names from a map key; these keys come from an internal allowlist (filterMap) but the pattern is structurally fragile. Any new key added to filterMap without proper escaping introduces injection.",
+      "code_snippet": "// artifactrash/dao/dao.go:89\nsql := fmt.Sprintf(`SELECT aft.* FROM artifact_trash ... WHERE ... aft.creation_time <= TO_TIMESTAMP('%f')`, float64(cutOff.UnixNano())/float64((time.Second)))\n// securityhub/dao/security.go:135\nsqlStr = fmt.Sprintf(\" and %v = ?\", col)",
+      "dfd_slice": "DFD-1",
+      "fix": "Replace fmt.Sprintf SQL construction with parameterized queries. For artifactrash, use a time parameter placeholder. For securityhub filterMap, validate col against the allowlist before interpolation.",
+      "references": ["TB-3 in KB report", "CVE-2019-19029", "CVE-2019-19026", "CVE-2024-22261"]
+    },
+    {
+      "id": "SAST-004",
+      "title": "Decompression bomb via io.Copy from tar.Reader without size limit",
+      "severity": "MEDIUM",
+      "confidence": "HIGH",
+      "cwe": ["CWE-400"],
+      "tool": "Semgrep go.lang.security.decompression_bomb + harbor-decompression-bomb-tar",
+      "files": [
+        "src/controller/artifact/processor/cnai/parser/util.go:45",
+        "src/pkg/scan/export/digest_calculator.go:40"
+      ],
+      "description": "io.Copy is called on a tar.Reader without io.LimitReader or an equivalent size cap. A malicious actor with push access to the Harbor registry could upload a CNAI model artifact layer containing a tar bomb (e.g., a compressed file that expands to hundreds of GB). When Harbor processes the artifact for display or export, it would exhaust memory or disk on the core container.",
+      "code_snippet": "if _, err := io.Copy(&buf, tr); err != nil {\n    return nil, fmt.Errorf(\"failed to copy content to buffer: %w\", err)\n}",
+      "dfd_slice": "Manifest push",
+      "fix": "Wrap the tar.Reader with io.LimitReader(tr, maxSafeSize) before calling io.Copy. Establish a reasonable maximum size constant (e.g., 50 MB for CNAI model metadata)."
+    },
+    {
+      "id": "SAST-005",
+      "title": "TLS MinVersion not set in multiple HTTP transports",
+      "severity": "MEDIUM",
+      "confidence": "HIGH",
+      "cwe": ["CWE-326"],
+      "tool": "Semgrep go.lang.security.audit.crypto.missing-ssl-minversion",
+      "files": [
+        "src/common/http/tls.go:57",
+        "src/common/http/transport.go:70",
+        "src/common/http/transport.go:185",
+        "src/common/utils/email/mail.go:105",
+        "src/common/utils/email/mail.go:126",
+        "src/common/utils/uaa/client.go:184",
+        "src/core/auth/authproxy/auth.go:252",
+        "src/core/auth/authproxy/auth.go:254",
+        "src/pkg/ldap/ldap.go:219",
+        "src/pkg/oidc/helper.go:109",
+        "src/pkg/p2p/preheat/provider/client/http_client.go:73",
+        "src/pkg/scan/rest/v1/client.go:86"
+      ],
+      "description": "12 locations construct tls.Config{} without setting MinVersion. Starting with Go 1.22 the default minimum is TLS 1.2, but Harbor's go.mod targets an older baseline. Explicit MinVersion: tls.VersionTLS12 (or 1.3) should be set to prevent downgrade attacks to TLS 1.0/1.1.",
+      "fix": "Set tls.Config{MinVersion: tls.VersionTLS12} in all TLS configurations."
+    },
+    {
+      "id": "SAST-006",
+      "title": "math/rand used in security-sensitive components",
+      "severity": "MEDIUM",
+      "confidence": "MEDIUM",
+      "cwe": ["CWE-330"],
+      "tool": "Semgrep go.lang.security.audit.crypto.math_random-used",
+      "files": [
+        "src/controller/registry/controller.go:19",
+        "src/jobservice/lcm/controller.go:19",
+        "src/jobservice/period/basic_scheduler.go:19",
+        "src/jobservice/period/enqueuer.go:21",
+        "src/lib/retry/retry.go:19",
+        "src/lib/shuffle.go:18",
+        "src/pkg/permission/evaluator/rbac/casbin_match.go:18"
+      ],
+      "description": "math/rand is imported in multiple files. If these packages use rand for jitter, scheduling, or permutation of security-relevant data (e.g., shuffle of permission evaluation order in casbin_match.go), the predictable PRNG could be exploited. The retry jitter case is low risk; casbin_match.go and jobservice scheduling warrant individual review.",
+      "fix": "Audit each usage. Replace security-sensitive random values with crypto/rand. Jitter for retries/scheduling may remain as math/rand."
+    },
+    {
+      "id": "SAST-007",
+      "title": "Reflected XSS via direct write to ResponseWriter (jobservice API handler)",
+      "severity": "MEDIUM",
+      "confidence": "MEDIUM",
+      "cwe": ["CWE-79"],
+      "tool": "Semgrep go.net.xss.no-direct-write-to-responsewriter-taint",
+      "file": "src/jobservice/api/handler.go:367",
+      "description": "Semgrep detected untrusted input flowing to a direct ResponseWriter write in the jobservice API handler. The jobservice API is authenticated via shared secret, but if the secret is leaked or the endpoint is reachable from a lower-trust boundary, this could enable reflected XSS.",
+      "fix": "Audit the handler at line 367 to ensure all user-controlled values are HTML-escaped before being written to the response."
+    },
+    {
+      "id": "SAST-008",
+      "title": "filepath.Clean misuse for path sanitization (3 locations)",
+      "severity": "MEDIUM",
+      "confidence": "MEDIUM",
+      "cwe": ["CWE-22"],
+      "tool": "Semgrep go.lang.security.filepath-clean-misuse",
+      "files": [
+        "src/server/middleware/quota/copy_artifact.go:59",
+        "src/server/middleware/skipper.go:32",
+        "src/server/middleware/util/util.go:35"
+      ],
+      "description": "filepath.Clean is used as a sanitization step but does not protect against path traversal attacks when the cleaned path is used in URL routing or file access. In the middleware context, this could allow path traversal if the cleaned path is compared for access control decisions.",
+      "fix": "Use filepath.Abs and verify the result has the expected prefix, or switch to path.Clean for URL paths."
+    },
+    {
+      "id": "SAST-009",
+      "title": "ReverseProxy Director pattern removes headers added by middleware",
+      "severity": "LOW",
+      "confidence": "MEDIUM",
+      "cwe": ["CWE-284"],
+      "tool": "Semgrep go.lang.security.reverseproxy-director",
+      "file": "src/server/registry/proxy.go:40",
+      "description": "The registry reverse proxy uses the Director field which can strip headers added by earlier middleware (e.g., authentication context headers). Consider switching to Rewrite (available since Go 1.20) to avoid inadvertent header removal.",
+      "fix": "Migrate from ReverseProxy.Director to ReverseProxy.Rewrite for the registry proxy."
+    },
+    {
+      "id": "SAST-010",
+      "title": "pprof debug endpoint exposed on HTTP server",
+      "severity": "LOW",
+      "confidence": "HIGH",
+      "cwe": ["CWE-200"],
+      "tool": "Semgrep go.lang.security.audit.net.pprof",
+      "file": "src/lib/pprof.go:41",
+      "description": "The pprof profiling endpoint is registered on a non-TLS HTTP server. This endpoint exposes heap dumps, goroutine stacks, and CPU profiles. If the internal metrics port is reachable from the network (e.g., via misconfigured firewall), an attacker could extract sensitive data from memory.",
+      "fix": "Bind the pprof listener to localhost only (127.0.0.1) and ensure it is not exposed on the same port as the public API."
+    },
+    {
+      "id": "SAST-011",
+      "title": "GetRentenitionMetadata handler returns internal metadata without authentication",
+      "severity": "LOW",
+      "confidence": "HIGH",
+      "cwe": ["CWE-284"],
+      "tool": "CodeQL harbor/missing-require-project-access (confirmed by grep)",
+      "file": "src/server/v2.0/handler/retention.go:144",
+      "description": "GetRentenitionMetadata returns the global retention policy metadata payload without any authentication check. The Prepare() method only checks RequireAuthenticated at the outer level via the retentionAPI struct, but this specific method bypasses it and returns a static payload. This discloses the list of available retention policy parameters to unauthenticated users.",
+      "code_snippet": "func (r *retentionAPI) GetRentenitionMetadata(_ context.Context, _ operation.GetRentenitionMetadataParams) middleware.Responder {\n    return operation.NewGetRentenitionMetadataOK().WithPayload(rentenitionMetadataPayload)\n}",
+      "fix": "If the metadata payload is not intended to be public, add a RequireAuthenticated check. Review the Prepare() lifecycle to understand if it actually gates this method.",
+      "note": "Requires manual verification: the Prepare() method adds RequireAuthenticated but needs to confirm go-swagger invokes Prepare before GetRentenitionMetadata."
+    },
+    {
+      "id": "SAST-012",
+      "title": "Insecure webhook HTTP transport user-controlled (skip_cert_verify)",
+      "severity": "MEDIUM",
+      "confidence": "HIGH",
+      "cwe": ["CWE-295"],
+      "tool": "Manual code review",
+      "file": "src/jobservice/job/impl/notification/webhook_job.go:91-96",
+      "description": "The webhook job respects a user-controlled 'skip_cert_verify' boolean parameter which switches the HTTP client to an insecure transport (TLS certificate verification disabled). This allows a project admin to configure webhooks that bypass TLS certificate verification, enabling MitM attacks against the webhook delivery path.",
+      "code_snippet": "if v, ok := params[\"skip_cert_verify\"]; ok {\n    if skipCertVerify, ok := v.(bool); ok && skipCertVerify {\n        wj.client = httpHelper.clients[insecure]\n    }\n}",
+      "fix": "Document the risk clearly in the UI. Consider restricting this option to system admins only, or logging a warning when used."
+    }
+  ],
+  "structural_extraction_summary": {
+    "entry_points_count": 180,
+    "sinks_count": 206,
+    "reachable_slices_count": 4,
+    "codeql_raw_sql_flows": 44,
+    "codeql_missing_authz_methods": "Multiple model/helper methods flagged (false positives); real handler gaps are GetRentenitionMetadata and ListAllRepositories (both by design)",
+    "dfd_slices_analyzed": ["DFD-1", "DFD-2", "DFD-3", "CFD-1"],
+    "blind_spots": "40 go-swagger generated packages not in CodeQL database; these contain route registration but no business logic"
+  },
+  "tool_runs": {
+    "codeql_builtin": {
+      "suite": "codeql/go-queries:codeql-suites/go-security-extended.qls",
+      "output": "security/codeql-res/go-security-suite.sarif",
+      "findings_count": 2,
+      "findings": [
+        {"rule": "go/unvalidated-url-redirection", "location": "core/controllers/authproxy_redirect.go:77"},
+        {"rule": "go/reflected-xss", "location": "lib/response_recorder.go:38"}
+      ]
+    },
+    "semgrep_builtin": {
+      "rulesets": ["p/golang", "p/security-audit"],
+      "mode": "pro",
+      "output": "security/codeql-res/semgrep-go.sarif",
+      "findings_count": 51
+    },
+    "semgrep_custom": {
+      "rules": "security/semgrep-rules/harbor-custom.yaml",
+      "output": "security/codeql-res/semgrep-custom.sarif",
+      "findings_count": 14
+    },
+    "codeql_custom_missing_authz": {
+      "query": "security/codeql-queries/MissingRequireProjectAccess.ql",
+      "output": "security/codeql-artifacts/missing-authz.bqrs",
+      "raw_findings": 75,
+      "true_positives_after_triage": 2,
+      "note": "Most findings are model ToSwagger() methods, base helper methods, and test harness methods — not API handler entry points. Real gaps: GetRentenitionMetadata (intentional static response), ListAllRepositories (scoped to authorized projects by security context)"
+    },
+    "codeql_custom_raw_sql": {
+      "query": "security/codeql-queries/RawSqlFmtSprintf.ql",
+      "output": "security/codeql-artifacts/raw-sql.bqrs",
+      "raw_findings": 44,
+      "note": "All 44 flows confirmed. None are directly user-controlled at this commit but the pattern is structurally fragile (prior CVE pattern)."
+    }
+  }
+}

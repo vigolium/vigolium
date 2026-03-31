@@ -1,0 +1,62 @@
+{
+  "component": "auth-chain",
+  "loop": 1,
+  "total_validated": 11,
+  "total_needs_deeper": 5,
+  "loop": 2,
+  "total_validated": 14,
+  "total_needs_deeper": 3,
+  "loops": [
+    {
+      "loop": 2,
+      "Q1_coverage_gaps": [
+        "All major entry points now covered. Minor gaps: session.Generate direct injection (covered by PH-07/PH-19 chains), UAA authenticator (not a current Harbor feature)"
+      ],
+      "Q2_chain_seeds": [
+        "PH-25 (Nginx does not strip Harbor-Secret) -> if exploitable: unauthenticated full-trust access to all endpoints",
+        "PH-26 (LDAP null bind) -> authentication bypass for LDAP users with empty password acceptance by LDAP server"
+      ],
+      "Q3_fragile_items": [
+        "PH-16, PH-18, PH-20 remain fragile — no new evidence changes their status"
+      ],
+      "Q4_model_coverage_gaps": [
+        "UAA auth mode (uaa.go) — not current production feature, low priority",
+        "DB auth password hashing algorithm — not yet confirmed"
+      ],
+      "Q5_impact_multiplication": [],
+      "decision": "proceed_to_summary",
+      "reason": "All high-priority entry points covered. New HIGH findings from loop 2: Nginx does not strip Harbor-Secret header, LDAP null bind. Remaining gaps are low priority (UAA) or low severity fragile items. Proceeding to summary."
+    },
+    {
+      "loop": 1,
+      "Q1_coverage_gaps": [
+        "proxyCacheSecret generator (low priority internal path — no attacker input)",
+        "session.Generate race condition with Redis data injection (partially covered by PH-07/PH-19 but direct session.Generate attack path not formally hypothesized)",
+        "LDAP null bind attack (ldap.go Bind with empty password) — entry point SearchUser -> Bind sequence not covered"
+      ],
+      "Q2_chain_seeds": [
+        "PH-01 (Admin DBAuth bypass) chains into PH-06 (no distributed lockout) -> complete admin brute force chain",
+        "PH-07 (Redis session token leak) chains into PH-19 (OIDC onboard session trust) -> Redis write -> admin account creation",
+        "PH-04 (OIDC admin group injection) chains with OIDC CLI path -> persistent admin access on every CLI request",
+        "PH-02 (PKCE bypass) chains with open redirect in onboard URL (PH-09) -> possible CSRF/phishing amplification"
+      ],
+      "Q3_fragile_items": [
+        "PH-16 (idToken dual parse): fragile finding — requires provider key rotation timing exploitation, LOW severity",
+        "PH-18 (auth proxy web vs CLI path): fragile — requires deep TokenReview implementation analysis",
+        "PH-20 (providerHelper refresh race): fragile — availability concern, not security vulnerability"
+      ],
+      "Q4_model_coverage_gaps": [
+        "LDAP authentication path (ldap.go) not covered by either reasoner — specifically null bind bypass and DN injection",
+        "Trust chain gap: Nginx header stripping of Harbor-Secret (Gap 1 in attack surface map) not hypothesized as a specific finding",
+        "Trust chain gap: v2auth middleware security context check not covered (what happens if security context is nil?)"
+      ],
+      "Q5_impact_multiplication": [
+        "PH-07 (Redis session leak) validated -> amplifies PH-19 from MEDIUM to HIGH (CROSS-04 chain)",
+        "PH-06 (lockout bypass) validated -> amplifies PH-01 from MEDIUM to HIGH (CROSS-01 chain)",
+        "If LDAP null bind is confirmed -> would add new HIGH finding for LDAP auth mode"
+      ],
+      "decision": "run_loop_2",
+      "reason": "Q1 has LDAP null bind uncovered. Q3 has PH-16/PH-18/PH-20 fragile items that could be re-investigated. Q4 has LDAP path entirely uncovered and Nginx secret header stripping gap not investigated. Loop 2 will focus: (1) LDAP null bind attack in ldap.go, (2) Nginx secret header stripping gap, (3) v2auth nil security context behavior."
+    }
+  ]
+}

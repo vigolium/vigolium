@@ -1741,34 +1741,6 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			NoCDP:               settingsCfg.NoCDP,
 			NoForms:             settingsCfg.NoForms,
 			ProxyURL:            r.options.ProxyURL,
-			PilotMode:           settingsCfg.PilotMode,
-		}
-
-		// Wire pilot mode config
-		if settingsCfg.PilotMode {
-			cfg.PilotAuth = spitolas.PilotAuthConfig{
-				Enabled:      settingsCfg.PilotUsername != "" || settingsCfg.PilotAutoRegister,
-				AutoRegister: settingsCfg.PilotAutoRegister,
-				Username:     settingsCfg.PilotUsername,
-				Password:     settingsCfg.PilotPassword,
-			}
-
-			// Use the default agent from vigolium config
-			if r.settings.Agent.DefaultAgent != "" {
-				if agentDef, ok := r.settings.Agent.Backends[r.settings.Agent.DefaultAgent]; ok {
-					cfg.PilotAgent = agentDef
-				}
-			}
-			if cfg.PilotAgent.Command == "" {
-				// Fallback: try "claude" backend (SDK protocol)
-				if agentDef, ok := r.settings.Agent.Backends["claude"]; ok {
-					cfg.PilotAgent = agentDef
-				}
-			}
-			cfg.PilotSessions = r.settings.Agent.EffectiveSessionsDir()
-			cfg.PilotScreenshot = settingsCfg.PilotScreenshot
-			cfg.PilotMaxRetries = settingsCfg.PilotMaxRetries
-			cfg.PilotStallTimeout = settingsCfg.PilotStallTimeoutParsed()
 		}
 
 		// Apply scope filter to skip out-of-scope traffic before saving to DB

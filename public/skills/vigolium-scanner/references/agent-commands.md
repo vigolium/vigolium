@@ -19,7 +19,7 @@ Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent sw
 
 **Usage:** `vigolium agent [flags]`
 
-Run an agentic scan using AI agents (Claude, OpenCode, Gemini) for intelligent vulnerability scanning with native scan support.
+Run an agentic scan using AI agents (Claude, Codex, OpenCode) for intelligent vulnerability scanning with native scan support.
 
 The parent command only supports `--list-templates` and `--list-agents` flags — all execution requires a subcommand.
 
@@ -62,7 +62,6 @@ Send a freeform prompt to an AI agent without templates or structured output. Pr
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
 | `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution (0 = no limit) |
 | `--append` | — | string | — | Append extra text to the rendered prompt |
 | `--dry-run` | — | bool | `false` | Print the rendered prompt without executing |
@@ -130,7 +129,7 @@ vigolium agent query --prompt-template security-code-review --source ./src \
 
 **Usage:** `vigolium agent autopilot [flags]`
 
-Launch an AI agent that autonomously discovers, scans, and triages vulnerabilities by driving the vigolium CLI. With SDK protocol (default), the agent gets full coding agent tools (Read, Grep, Glob, Bash, Edit, Write). With ACP protocol, the agent uses a sandboxed terminal restricted to `vigolium` commands.
+Launch an AI agent that autonomously discovers, scans, and triages vulnerabilities by driving the vigolium CLI. With SDK protocol (default), the agent gets full coding agent tools (Read, Grep, Glob, Bash, Edit, Write).
 
 Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists handle recon, per-vulnerability-class code analysis, native scanning, and exploit verification in parallel.
 
@@ -139,7 +138,6 @@ Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists hand
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
 | `--files` | — | []string | — | Specific files to include (relative to --source) |
 | `--focus` | — | string | — | Focus area hint (e.g. 'API injection', 'auth bypass') |
@@ -147,7 +145,7 @@ Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists hand
 | `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompt) |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
 | `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
-| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough to ACP sessions |
+| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough |
 | `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
@@ -155,20 +153,6 @@ Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists hand
 | `--specialists` | — | []string | — | Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz) |
 | `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
 | `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
-
-### Terminal Security Model (ACP mode)
-
-When using ACP protocol (`--agent claude-acp`), the agent executes commands within a strict sandbox:
-
-- **Allowlist**: Only `vigolium` commands are permitted
-- **Blocklist**: Destructive subcommands blocked (`db clean`, `db seed`, `db drop`)
-- **Shell injection prevention**: Shell metacharacters (`;|&\`$(){}!><`) rejected; commands executed directly via `exec`, not through a shell
-- **Per-command timeout**: 5 minutes per command
-- **Call limit**: Enforced by `--max-commands` (default 100)
-- **Output cap**: 256KB per command session
-- **Process isolation**: Terminal child processes run in their own process group
-
-When using SDK protocol (default `--agent claude`), the agent has full Claude Code CLI tool access — no terminal sandbox is used.
 
 ### Examples
 
@@ -197,12 +181,6 @@ vigolium agent autopilot --resume ~/.vigolium/agent-sessions/agt-abc123
 # With MCP servers
 vigolium agent autopilot -t https://example.com --mcp-enabled \
   --mcp-server "playwright=npx,-y,@anthropic-ai/mcp-server-playwright"
-
-# Use ACP backend (sandboxed terminal mode)
-vigolium agent autopilot -t https://example.com --agent claude-acp
-
-# With specific agent backend
-vigolium agent autopilot -t https://example.com --agent gemini
 ```
 
 ---
@@ -234,11 +212,9 @@ Inputs are auto-detected from their content:
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command (e.g. 'traecli acp'), overrides --agent |
 | `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto, scales with CPU count) |
 | `--code-audit` | — | bool | auto | Enable AI security code audit phase (on by default when --source is provided, use `--code-audit=false` to disable) |
 | `--custom-agent` | — | []string | — | Custom agents the swarm can invoke via 'vigolium agent query --agent=X' (repeatable) |
-| `--custom-slash-command` | — | []string | — | Slash commands available inside the ACP session (repeatable) |
 | `--discover` | — | bool | `false` | Run discovery+spidering before master agent planning to expand attack surface |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
 | `--files` | — | []string | — | Specific source files to include (relative to --source) |
@@ -247,7 +223,7 @@ Inputs are auto-detected from their content:
 | `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompts) |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
 | `--master-batch-size` | — | int | `0` | Max records per master agent batch (0 = default 5) |
-| `--max-commands` | — | int | `0` | Max terminal commands per session (default: 50, only applies when --custom-slash-command or --custom-agent is set) |
+| `--max-commands` | — | int | `0` | Max terminal commands per session (default: 50, only applies when --custom-agent is set) |
 | `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
 | `--max-master-retries` | — | int | `3` | Max master agent retries on parse failure |
 | `--max-plan-records` | — | int | `10` | Max records sent to plan agent (selects most interesting; 0 = no limit) |
@@ -422,15 +398,7 @@ vigolium agent swarm -t https://example.com --skip discovery,spidering
 vigolium agent swarm -t https://example.com/api/users --dry-run
 
 # With specific agent backend
-vigolium agent swarm -t https://example.com/api/users --agent gemini
-
-# Custom ACP agent command
-vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli acp"
-
-# With custom slash commands and agents
-vigolium agent swarm -t https://example.com \
-  --custom-slash-command /security-review \
-  --custom-agent @my-sqli-specialist
+vigolium agent swarm -t https://example.com/api/users --agent codex
 ```
 
 ---
@@ -546,14 +514,6 @@ agent:
       protocol: sdk
       model: sonnet
 
-    # Claude Code (ACP — for sandboxed terminal mode)
-    # Limited to ReadTextFile tool access
-    claude-acp:
-      command: npx
-      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
-      protocol: acp
-      model: sonnet
-
     # Claude Code (pipe mode — simple stdin/stdout)
     claude-cli:
       command: claude
@@ -564,34 +524,10 @@ agent:
       command: codex
       protocol: codex-sdk
 
-    # Codex (ACP, legacy)
-    codex-acp:
-      command: codex
-      args: ["app-server"]
-      protocol: acp
-
     # OpenCode (native SDK — REST + SSE streaming)
     opencode:
       command: opencode
       protocol: opencode-sdk
-
-    # OpenCode (ACP)
-    opencode-acp:
-      command: opencode
-      args: ["acp"]
-      protocol: acp
-
-    # Google Gemini (ACP)
-    gemini:
-      command: gemini
-      args: ["--experimental-acp"]
-      protocol: acp
-
-    # Cursor (ACP)
-    cursor:
-      command: cursor
-      args: ["acp"]
-      protocol: acp
 ```
 
 ### Protocols
@@ -599,7 +535,6 @@ agent:
 | Protocol | Tool Access | Description |
 |----------|-------------|-------------|
 | `sdk` | Full (Read, Grep, Glob, Bash, Edit, Write) | Claude Agent SDK — JSON-lines protocol. **Default and recommended.** Highest output quality. |
-| `acp` | ReadTextFile only | Agent Communication Protocol — structured bidirectional, supports terminal execution. |
 | `codex-sdk` | Full tools | Codex native JSON-RPC v2 protocol. |
 | `opencode-sdk` | Full tools | OpenCode native REST + SSE streaming protocol. |
 | `pipe` | None (text only) | stdin/stdout — prompt piped to stdin, output from stdout. Legacy fallback. |
@@ -610,13 +545,13 @@ agent:
 |-------|------|-------------|
 | `command` | string | CLI command to launch the agent |
 | `args` | []string | Arguments passed to the command |
-| `protocol` | string | `sdk`, `acp`, `codex-sdk`, `opencode-sdk`, or `pipe` |
+| `protocol` | string | `sdk`, `codex-sdk`, `opencode-sdk`, or `pipe` |
 | `model` | string | Model override (e.g. `sonnet`, `opus`, `haiku`, or full model ID) |
 | `description` | string | Human-readable description |
 | `env` | map | Environment variables to set |
 | `enable` | bool | Enable/disable this backend |
 | `mcp_servers` | list | Per-backend MCP server attachments |
-| `session_meta` | object | ACP _meta passthrough for Claude (thinking, effort, tools) |
+| `session_meta` | object | Session metadata for Claude (thinking, effort, tools) |
 | `provider_config` | object | Provider-specific config for OpenCode (thinking, permissions) |
 
 ### Listing Agents

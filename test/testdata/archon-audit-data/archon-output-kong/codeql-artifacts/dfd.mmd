@@ -1,0 +1,14 @@
+flowchart LR
+  src0["Serverless event | fixtures/sam-app/hello_world/app.py:6"]
+  sink0["file-access | helpers/perf/charts/charts.py:20"]
+  sink1["decoding | helpers/perf/charts/charts.py:21"]
+  sink2["file-access | helpers/perf/charts/charts.py:112"]
+  sink3["file-access | helpers/perf/charts/charts.py:112"]
+  sink4["file-access | helpers/perf/charts/charts.py:112"]
+  sink5["file-access | helpers/perf/charts/charts.py:112"]
+  sink6["http-request | fixtures/sam-app/tests/integration/test_api_gateway.py:42"]
+  sink7["decoding | fixtures/sam-app/tests/unit/test_handler.py:68"]
+  src0 -. "no path (CodeQL): python-http" .-> sink0
+  src0 -. "no path (CodeQL): python-file" .-> sink0
+  src0 -. "no path (CodeQL): go-file" .-> sink0
+  src0 -. "no path (CodeQL): js-file" .-> sink0

@@ -69,7 +69,7 @@ func GenerateHTMLReport(items []any, outputPath string, meta HTMLReportMeta) err
 	// substitution. We avoid template.Parse because the bundled JS in the
 	// template contains sequences (e.g. "{{") that break both html/template
 	// and text/template parsers.
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	before := strings.Replace(parts[0], "{{.Title}}", title, 1)
 	before = strings.Replace(before, "{{.GeneratedAt}}", now, 1)
 	before = strings.Replace(before, "{{.ScanDuration}}", meta.ScanDuration, 1)
@@ -134,7 +134,7 @@ func generateHTMLReportLegacy(items []any, outputPath string, meta HTMLReportMet
 
 	return tmpl.Execute(f, HTMLReportData{
 		Title:           title,
-		GeneratedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		GeneratedAt:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		ScanDuration:    meta.ScanDuration,
 		VigoliumVersion: meta.Version,
 		ResultsJSON:     template.JS(rowsJSON),

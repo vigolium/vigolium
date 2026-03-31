@@ -1,0 +1,48 @@
+rules:
+  - id: grafana-ts-dangerouslysetinnerhtml-no-dompurify
+    severity: ERROR
+    languages: [typescript, tsx]
+    message: >
+      dangerouslySetInnerHTML is used without DOMPurify sanitization. In Grafana's
+      React frontend, datasource data can flow into rendered HTML via panel plugins,
+      dashboard variables, and trace view components. Setting innerHTML without
+      sanitization enables stored XSS if an attacker can inject HTML through a
+      datasource, dashboard JSON, or alert annotations. All dangerouslySetInnerHTML
+      usages must use DOMPurify.sanitize() or an equivalent allow-listed sanitizer.
+    metadata:
+      cwe: CWE-79
+      attack_vector: authenticated-datasource-write
+      dfd_slice: DFD-1
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          dangerouslySetInnerHTML={{__html: $EXPR}}
+      - pattern-not: |
+          dangerouslySetInnerHTML={{__html: DOMPurify.sanitize($EXPR, ...)}}
+      - pattern-not: |
+          dangerouslySetInnerHTML={{__html: sanitize($EXPR, ...)}}
+      - pattern-not: |
+          dangerouslySetInnerHTML={{__html: sanitizeHtml($EXPR, ...)}}
+    paths:
+      include:
+        - "public/app/"
+        - "packages/"
+
+  - id: grafana-ts-dangerouslysetinnerhtml-empty-config
+    severity: WARNING
+    languages: [typescript, tsx]
+    message: >
+      dangerouslySetInnerHTML uses DOMPurify.sanitize but with a potentially
+      permissive configuration. Ensure ALLOWED_TAGS and ALLOWED_ATTR are
+      explicitly specified (allowlist-only). SVG and math namespace elements
+      should be excluded unless required, as they can be used for mXSS attacks
+      against older DOMPurify versions.
+    metadata:
+      cwe: CWE-79
+      attack_vector: authenticated-datasource-write
+      confidence: LOW
+    pattern: |
+      dangerouslySetInnerHTML={{__html: DOMPurify.sanitize($EXPR)}}
+    paths:
+      include:
+        - "public/app/"

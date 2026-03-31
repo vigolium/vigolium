@@ -13,41 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
-
-// AutopilotPhase identifies a phase in the autopilot pipeline.
-type AutopilotPhase string
-
-const (
-	AutopilotPhaseRecon         AutopilotPhase = "recon"
-	AutopilotPhaseVulnAnalysis  AutopilotPhase = "vuln-analysis"
-	AutopilotPhaseNativeScan    AutopilotPhase = "native-scan"
-	AutopilotPhaseExploitVerify AutopilotPhase = "exploit-verify"
-	AutopilotPhaseReport        AutopilotPhase = "report"
-)
-
-// VulnClass identifies a vulnerability class for specialist agents.
-type VulnClass string
-
-const (
-	VulnClassInjection VulnClass = "injection"
-	VulnClassXSS       VulnClass = "xss"
-	VulnClassAuth      VulnClass = "auth"
-	VulnClassSSRF      VulnClass = "ssrf"
-	VulnClassAuthz     VulnClass = "authz"
-)
-
-// ToVulnClasses converts string slice to VulnClass slice.
-func ToVulnClasses(ss []string) []VulnClass {
-	result := make([]VulnClass, len(ss))
-	for i, s := range ss {
-		result[i] = VulnClass(s)
-	}
-	return result
-}
 
 // AutopilotPipelineConfig configures the v2 autopilot pipeline.
 type AutopilotPipelineConfig struct {
@@ -60,7 +30,6 @@ type AutopilotPipelineConfig struct {
 	Specialists          []VulnClass
 	NoFilterSpecialists  bool // when true, skip smart specialist filtering based on recon
 	AgentName            string
-	AgentACPCmd          string
 	MaxCommands          int
 
 	DryRun     bool
@@ -81,41 +50,9 @@ type AutopilotPipelineConfig struct {
 	PhaseCallback           func(AutopilotPhase)
 	ProgressCallback        func(phase string, message string)
 
-	// AuditAgent enables the background vig-audit-agent when set.
-	AuditAgent *config.AuditAgentConfig
-}
-
-// AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
-type AutopilotPipelineResult struct {
-	VulnQueues     map[VulnClass]*VulnQueue
-	Evidence       map[VulnClass][]ExploitationEvidence
-	TotalFindings  int
-	Confirmed      int
-	FalsePositives int
-	PhasesRun      []AutopilotPhase
-	PhaseTimings   map[AutopilotPhase]time.Duration
-	PhaseFailed    map[AutopilotPhase]bool // tracks which phases failed
-	Duration       time.Duration
-	SessionDir     string
-}
-
-// AutopilotCheckpoint captures autopilot pipeline state for checkpoint/resume.
-type AutopilotCheckpoint struct {
-	CompletedPhases            []AutopilotPhase          `json:"completed_phases"`
-	TargetURL                  string                    `json:"target_url"`
-	VulnQueues                 map[VulnClass]*VulnQueue  `json:"vuln_queues,omitempty"`
-	ExtensionDir               string                    `json:"extension_dir,omitempty"`
-	Timestamp                  time.Time                 `json:"timestamp"`
-	CompletedSpecialists       map[VulnClass]bool        `json:"completed_specialists,omitempty"`
-	CompletedExploitSpecialists map[VulnClass]bool       `json:"completed_exploit_specialists,omitempty"`
-}
-
-// LastPhase returns the last completed phase, or "" if none.
-func (cp *AutopilotCheckpoint) LastPhase() AutopilotPhase {
-	if cp == nil || len(cp.CompletedPhases) == 0 {
-		return ""
-	}
-	return cp.CompletedPhases[len(cp.CompletedPhases)-1]
+	// Archon enables the background archon-audit when set.
+	Archon         *config.AuditAgentConfig
+	ArchonParallel bool // run archon in parallel with autopilot instead of waiting
 }
 
 // AutopilotPipelineRunner orchestrates the autopilot multi-agent pipeline.
@@ -148,11 +85,18 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		SessionDir:   cfg.SessionDir,
 	}
 
-	// Start background audit agent when configured and source is available
-	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, r.repo, func(msg string) {
-		printPhaseLine("audit-agent", msg)
-	}); cleanup != nil {
-		defer cleanup()
+	// Start archon-audit when configured and source is available
+	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
+	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
+	if archonCleanup != nil {
+		defer archonCleanup()
+	}
+	if archonRunner != nil && !cfg.ArchonParallel {
+		archonLogFn("waiting for archon-audit to finish before starting autopilot")
+		_ = archonRunner.Wait()
+		if status := archonRunner.Status(); status != nil {
+			archonLogFn(fmt.Sprintf("finished  %d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
+		}
 	}
 
 	prompt := buildAutonomousPrompt(cfg)
@@ -306,11 +250,18 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 		SessionDir:   cfg.SessionDir,
 	}
 
-	// Start background audit agent when configured and source is available
-	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, r.repo, func(msg string) {
-		printPhaseLine("audit-agent", msg)
-	}); cleanup != nil {
-		defer cleanup()
+	// Start archon-audit when configured and source is available
+	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
+	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
+	if archonCleanup != nil {
+		defer archonCleanup()
+	}
+	if archonRunner != nil && !cfg.ArchonParallel {
+		archonLogFn("waiting for archon-audit to finish before starting autopilot")
+		_ = archonRunner.Wait()
+		if status := archonRunner.Status(); status != nil {
+			archonLogFn(fmt.Sprintf("finished  %d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
+		}
 	}
 
 	// Load checkpoint for resume
@@ -366,7 +317,6 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 			g.Go(func() error {
 				saCfg := SourceAnalysisConfig{
 					AgentName:   cfg.AgentName,
-					AgentACPCmd: cfg.AgentACPCmd,
 					TargetURL:   cfg.TargetURL,
 					SourcePath:  cfg.SourcePath,
 					Files:       cfg.Files,
@@ -574,7 +524,6 @@ func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipeline
 func (r *AutopilotPipelineRunner) runRecon(ctx context.Context, cfg AutopilotPipelineConfig) (*ReconDeliverable, error) {
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: "autopilot-recon",
 		SourcePath:     cfg.SourcePath,
 		TargetURL:      cfg.TargetURL,
@@ -597,7 +546,7 @@ func (r *AutopilotPipelineRunner) runRecon(ctx context.Context, cfg AutopilotPip
 		return nil, fmt.Errorf("recon agent failed: %w", err)
 	}
 
-	recon, parseErr := ParseReconDeliverable(result.RawOutput)
+	recon, parseErr := parsing.ParseReconDeliverable(result.RawOutput)
 	if parseErr != nil {
 		zap.L().Warn("Failed to parse recon deliverable", zap.Error(parseErr))
 		return nil, nil
@@ -629,7 +578,6 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 
 			opts := Options{
 				AgentName:      cfg.AgentName,
-				AgentACPCmd:    cfg.AgentACPCmd,
 				PromptTemplate: templateID,
 				SourcePath:     cfg.SourcePath,
 				TargetURL:      cfg.TargetURL,
@@ -653,7 +601,7 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 				return nil // don't fail the group
 			}
 
-			queue, parseErr := ParseVulnQueue(result.RawOutput)
+			queue, parseErr := parsing.ParseVulnQueue(result.RawOutput)
 			if parseErr != nil {
 				zap.L().Warn("Failed to parse vuln queue",
 					zap.String("class", string(class)), zap.Error(parseErr))
@@ -661,9 +609,9 @@ func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg Autop
 			}
 
 			// Extract extensions: try structured JSON first, fall back to code blocks
-			extensions := ParseExtensionsFromJSON(result.RawOutput)
+			extensions := parsing.ParseExtensionsFromJSON(result.RawOutput)
 			if len(extensions) == 0 {
-				extensions = extractCodeBlockExtensions(result.RawOutput)
+				extensions = parsing.ExtractCodeBlockExtensions(result.RawOutput)
 			}
 
 			mu.Lock()
@@ -715,7 +663,6 @@ func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg Auto
 
 			opts := Options{
 				AgentName:      cfg.AgentName,
-				AgentACPCmd:    cfg.AgentACPCmd,
 				PromptTemplate: templateID,
 				SourcePath:     cfg.SourcePath,
 				TargetURL:      cfg.TargetURL,
@@ -739,7 +686,7 @@ func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg Auto
 				return nil
 			}
 
-			ev, parseErr := ParseExploitationEvidence(result.RawOutput)
+			ev, parseErr := parsing.ParseExploitationEvidence(result.RawOutput)
 			if parseErr != nil {
 				zap.L().Warn("Failed to parse exploitation evidence",
 					zap.String("class", string(class)), zap.Error(parseErr))
@@ -769,7 +716,6 @@ func (r *AutopilotPipelineRunner) runReport(ctx context.Context, cfg AutopilotPi
 
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: "autopilot-report",
 		TargetURL:      cfg.TargetURL,
 		Source:         "autopilot-v2",

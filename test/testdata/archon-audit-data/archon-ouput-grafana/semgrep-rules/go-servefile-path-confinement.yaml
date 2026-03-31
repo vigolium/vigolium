@@ -1,0 +1,49 @@
+rules:
+  - id: grafana-servefile-no-directory-confinement
+    severity: ERROR
+    languages: [go]
+    message: >
+      http.ServeFile is called with a file path derived from rendering output
+      (result.FilePath) without verifying the path is confined to an expected
+      directory (e.g., a temp dir). If the image renderer can be manipulated to
+      return an arbitrary FilePath value (e.g., by forging the renderer JWT with
+      the default token '-'), an attacker could cause ServeFile to serve arbitrary
+      files from the server filesystem. The path must be validated against a
+      trusted directory prefix before calling ServeFile.
+    metadata:
+      cwe: CWE-22
+      attack_vector: authenticated-with-renderer-jwt-forge
+      dfd_slice: DFD-5
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          http.ServeFile($RESP, $REQ, $RESULT.FilePath)
+      - pattern-not-inside: |
+          if !strings.HasPrefix($RESULT.FilePath, ...) {
+              ...
+          }
+          ...
+          http.ServeFile($RESP, $REQ, $RESULT.FilePath)
+    paths:
+      include:
+        - "pkg/api/render.go"
+
+  - id: grafana-render-os-create-nosec
+    severity: WARNING
+    languages: [go]
+    message: >
+      os.Create is called in the HTTP-mode renderer code path with a nolint:gosec
+      suppression comment. The file path in this context originates from renderer
+      configuration/request parameters. Verify the path is confined to a designated
+      temp directory and cannot be influenced by attacker-controlled input.
+    metadata:
+      cwe: CWE-73
+      attack_vector: authenticated-renderer
+      dfd_slice: DFD-5
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          os.Create(...)  // nolint:gosec
+    paths:
+      include:
+        - "pkg/services/rendering/"

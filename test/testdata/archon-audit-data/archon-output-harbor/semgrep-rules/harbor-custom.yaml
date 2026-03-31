@@ -1,0 +1,187 @@
+rules:
+  # Rule 1: Missing RequireProjectAccess / RequireSystemAccess / RequireAuthenticated
+  # Targets handler methods in v2.0 API that operate on project or system resources
+  # without performing authorization checks.
+  - id: harbor-missing-auth-check
+    languages: [go]
+    message: >
+      Handler method '$FUNC' in '$FILE' has no call to RequireProjectAccess,
+      RequireSystemAccess, or RequireAuthenticated. This is the root cause pattern
+      behind CVE-2022-31666/667/669/670/671 (authorization bypass).
+    severity: ERROR
+    patterns:
+      - pattern: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.RequireProjectAccess(...)
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.RequireSystemAccess(...)
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.RequireAuthenticated(...)
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.RequireSolutionUserAccess(...)
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.requireAccess(...)
+            ...
+          }
+      - pattern-not: |
+          func ($R *$T) $FUNC(ctx context.Context, $PARAMS) middleware.Responder {
+            ...
+            $R.requirePolicyAccess(...)
+            ...
+          }
+    paths:
+      include:
+        - "src/server/v2.0/handler/**/*.go"
+
+  # Rule 2: Raw fmt.Sprintf building SQL strings
+  # Identifies fmt.Sprintf calls whose result flows into orm.Raw(), o.Raw(), or similar
+  # raw SQL execution methods.
+  - id: harbor-raw-sql-fmt-sprintf
+    languages: [go]
+    message: >
+      fmt.Sprintf is used to construct a SQL string at '$FILE:$LINE'. If any
+      interpolated value is even partially user-influenced, this is a SQL injection
+      vector. Prefer parameterized queries exclusively.
+    severity: WARNING
+    patterns:
+      - pattern: |
+          $SQL = fmt.Sprintf($TEMPLATE, ...)
+          ...
+          $ORM.Raw($SQL, ...)
+      - pattern: |
+          $ORM.Raw(fmt.Sprintf($TEMPLATE, ...), ...)
+    paths:
+      include:
+        - "src/pkg/**/*.go"
+
+  # Rule 3: HTTP client DO with user-controlled URL in jobservice
+  # Tracks the direct use of an address parameter (from job params map) in http.NewRequest.
+  - id: harbor-ssrf-job-http-client
+    languages: [go]
+    message: >
+      HTTP request is constructed using 'address' extracted directly from job
+      parameters at '$FILE:$LINE'. No URL validation, private-IP filtering, or
+      allowlist check is performed before the request is issued. This enables SSRF
+      from any user who can create webhook, replication, or preheat policies.
+    severity: ERROR
+    pattern: |
+      $ADDR := $PARAMS[$KEY].(string)
+      ...
+      http.NewRequest($METHOD, $ADDR, ...)
+    paths:
+      include:
+        - "src/jobservice/**/*.go"
+
+  # Rule 4: FilterFunc string interpolation with column name from map key
+  # Detects the securityhub exactMatchFilter / rangeFilter pattern where a column
+  # name is derived from the query key and formatted into a SQL fragment.
+  - id: harbor-filterfunc-sql-sprintf
+    languages: [go]
+    message: >
+      A FilterFunc at '$FILE:$LINE' uses fmt.Sprintf to interpolate a column name
+      into a SQL fragment. If the filterMap key is ever derived from user input
+      rather than a static allowlist, this becomes a SQL injection vector.
+    severity: WARNING
+    patterns:
+      - pattern: |
+          $SQL = fmt.Sprintf(" and %v = ?", $COL)
+      - pattern: |
+          $SQL = fmt.Sprintf(" and %v between ? and ?", $KEY)
+    paths:
+      include:
+        - "src/pkg/**/*.go"
+
+  # Rule 5: Unvalidated redirect URL from query parameter
+  # Detects redirect to a URL taken from query parameters without calling IsLocalPath
+  # or equivalent validation.
+  - id: harbor-unvalidated-redirect
+    languages: [go]
+    message: >
+      A redirect at '$FILE:$LINE' uses a URL value extracted from the HTTP request
+      without going through utils.IsLocalPath() validation. This is the pattern
+      behind the open redirect in CVE-related commit b6c083d73.
+    severity: ERROR
+    patterns:
+      - pattern: |
+          $URI = $CTX.Request.URL.Query().Get($PARAM)
+          ...
+          $CTX.Redirect($CODE, $URI)
+      - pattern-not: |
+          $URI = $CTX.Request.URL.Query().Get($PARAM)
+          ...
+          utils.IsLocalPath($URI)
+          ...
+          $CTX.Redirect($CODE, $URI)
+    paths:
+      include:
+        - "src/core/controllers/**/*.go"
+        - "src/server/**/*.go"
+
+  # Rule 6: Sensitive fields logged via log.Debugf / log.Infof containing secret-like variable names
+  - id: harbor-sensitive-data-in-logs
+    languages: [go]
+    message: >
+      Logging statement at '$FILE:$LINE' references a variable whose name suggests
+      sensitive data (password, secret, token, credential). Ensure no credential
+      value is logged in plaintext.
+    severity: WARNING
+    patterns:
+      - pattern: log.Debugf($FMT, ..., $PASS, ...)
+      - pattern: log.Infof($FMT, ..., $PASS, ...)
+      - metavariable-regex:
+          metavariable: $PASS
+          regex: (?i)(password|passwd|secret|token|credential|cred|key|pwd)
+    paths:
+      include:
+        - "src/**/*.go"
+
+  # Rule 7: io.Copy without size limit on tar reader (decompression bomb)
+  - id: harbor-decompression-bomb-tar
+    languages: [go]
+    message: >
+      io.Copy from a tar.Reader at '$FILE:$LINE' has no size limit. A malicious
+      OCI layer containing a tar bomb could exhaust memory/disk on the Harbor core
+      or jobservice container.
+    severity: WARNING
+    pattern: |
+      io.Copy($DST, $TR)
+    paths:
+      include:
+        - "src/controller/artifact/**/*.go"
+        - "src/server/registry/**/*.go"
+        - "src/pkg/**/*.go"
+
+  # Rule 8: math/rand used for security-sensitive context
+  - id: harbor-math-rand-crypto
+    languages: [go]
+    message: >
+      math/rand is imported at '$FILE'. If this package is used to generate tokens,
+      nonces, IDs, or any value with security implications, replace it with
+      crypto/rand.
+    severity: WARNING
+    pattern: |
+      import "math/rand"
+    paths:
+      include:
+        - "src/**/*.go"

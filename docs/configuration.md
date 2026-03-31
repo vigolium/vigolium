@@ -192,15 +192,6 @@ spidering:
   browser_engine: chromium   # chromium | ungoogled | fingerprint
   no_cdp: false              # disable CDP event listener detection
   no_forms: false            # disable automatic form filling
-
-  # AI pilot mode (agent-controlled browser):
-  pilot_mode: false
-  pilot_auto_register: true
-  pilot_username: ""
-  pilot_password: ""
-  pilot_screenshot: true
-  pilot_max_retries: 2
-  pilot_stall_timeout: 7m
 ```
 
 ### `audit`
@@ -299,7 +290,7 @@ agent:
     cache_size: 256                # LRU entries (0 = disabled)
     cache_ttl: 300                 # seconds
 
-  # Warm session pooling for ACP subprocess reuse:
+  # Warm session pooling for subprocess reuse:
   warm_session:
     enable: false
     idle_timeout: 300              # seconds
@@ -330,23 +321,15 @@ agent:
       command: claude
       description: "Anthropic Claude Code (SDK protocol)"
       protocol: sdk
-    claude-acp:
-      command: npx
-      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
-      protocol: acp
     codex:
       command: codex
       protocol: codex-sdk
     opencode:
       command: opencode
       protocol: opencode-sdk
-    gemini:
-      command: gemini
-      args: ["--experimental-acp"]
-      protocol: acp
 ```
 
-Valid protocols: `pipe`, `acp`, `sdk`, `codex-sdk`, `opencode-sdk`.
+Valid protocols: `pipe`, `sdk`, `codex-sdk`, `opencode-sdk`.
 
 ### `database`
 

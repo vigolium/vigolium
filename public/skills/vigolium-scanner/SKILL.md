@@ -31,13 +31,12 @@ Operator's guide for the [Vigolium](https://www.vigolium.com/) high-fidelity web
 Vigolium is a CLI-first vulnerability scanner that operates in multiple modes:
 - **Standalone scanner**: `scan`, `scan-url`, `scan-request`, `run`
 - **REST API server with traffic ingestion**: `server`, `ingest`
-- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous via SDK/ACP), `agent swarm` (targeted or full-scope with `--discover`)
+- **AI agent integration**: `agent` (template-based), `agent query` (inline prompt), `agent autopilot` (autonomous via SDK), `agent swarm` (targeted or full-scope with `--discover`)
 - **Extension runner**: `run extension --ext custom-check.js` for custom JS scanning logic
 - **JavaScript executor**: `js` for ad-hoc scripting with full `vigolium.*` API access
 
 Agent backends integrate with coding agent CLIs via protocol-specific communication:
 - **SDK** (default): Claude Agent SDK — full CLI tool access (Read, Grep, Glob, Bash, Edit, Write)
-- **ACP**: Agent Communication Protocol — sandboxed terminal or ReadTextFile only
 - **Codex-SDK**: OpenAI Codex native JSON-RPC v2
 - **OpenCode-SDK**: OpenCode native REST + SSE streaming
 - **Pipe**: Legacy stdin/stdout fallback
@@ -332,9 +331,6 @@ vigolium agent autopilot --resume ~/.vigolium/agent-sessions/agt-abc123
 # With MCP servers
 vigolium agent autopilot -t https://example.com --mcp-enabled \
   --mcp-server "playwright=npx,-y,@anthropic-ai/mcp-server-playwright"
-
-# Use ACP backend (sandboxed terminal mode)
-vigolium agent autopilot -t https://example.com --agent claude-acp
 ```
 
 ### 13. AI Agent Swarm (Targeted or Full-Scope)
@@ -388,9 +384,6 @@ vigolium agent swarm -t https://example.com/api/users --instruction-file hints.t
 # Resume from a specific phase
 vigolium agent swarm -t https://example.com --start-from plan
 
-# Custom ACP agent command
-vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli acp"
-
 # Specify modules explicitly
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
 
@@ -404,10 +397,6 @@ vigolium agent swarm -t https://example.com/api/users --dry-run
 # Show rendered prompts during execution
 vigolium agent swarm -t https://example.com/api/users --show-prompt
 
-# With custom slash commands and agents
-vigolium agent swarm -t https://example.com \
-  --custom-slash-command /security-review \
-  --custom-agent @my-sqli-specialist
 ```
 
 ### 14. Results Inspection
@@ -629,7 +618,6 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 | `--auth-config` | — | Path to auth-config file with session definitions |
 | `--session` | — | Inline session for IDOR/BOLA testing (format: `name:Header:value`, repeatable) |
 | `--session-file` | — | Path to individual session file (YAML or JSON, repeatable) |
-| `--pilot` | `false` | Enable AI pilot-driven crawling |
 | `--oast-url` | — | Fixed out-of-band callback URL |
 | `--known-issue-scan-tags` | — | Nuclei template tags to include (repeatable) |
 | `--known-issue-scan-severities` | — | Filter Nuclei templates by severity (repeatable) |

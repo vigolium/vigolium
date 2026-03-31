@@ -9,7 +9,7 @@ const (
 	SymbolFailed  = "⏹" // Stopped (stop square; distinct from ✖ error)
 	SymbolSkipped = "◌" // Skipped / not applicable
 	SymbolInfo    = "◆" // Informational notice
-	SymbolWarning = "⚠" // Warning / caution
+	SymbolWarning = "▼" // Warning / caution
 	SymbolError   = "✖" // Error / critical failure
 
 	// Navigation and flow

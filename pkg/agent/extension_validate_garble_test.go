@@ -166,7 +166,7 @@ func TestBuildRegeneratePrompt_HasContext(t *testing.T) {
 			Reason:   "Detect SQL injection",
 		},
 	}
-	cfg := repairConfig{
+	cfg := RepairConfig{
 		TargetURL:  "http://localhost:3000",
 		FocusAreas: []string{"SQL injection", "auth bypass"},
 		ModuleTags: []string{"sqli", "auth"},

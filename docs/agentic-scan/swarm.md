@@ -4,7 +4,7 @@ Swarm is the **primary agentic scan mode** in Vigolium (alongside autopilot). A 
 
 Swarm supports both **targeted single-request scanning** and **full-scope scanning** with `--discover`. When `--discover` is enabled, swarm runs the complete sequence: source analysis, SAST, discovery/spidering, AI planning, native scanning, and triage.
 
-Swarm automatically enables **warm session pooling** for ACP agent backends, reusing subprocesses across the plan and triage phases for faster execution.
+Swarm automatically enables **warm session pooling**, reusing agent subprocesses across the plan and triage phases for faster execution.
 
 When `--source` is provided, swarm runs a **consolidated 4-call source analysis** in 2 waves: a single explore call reads the codebase and documents routes, auth flows, and vulnerability sinks, then three calls run in parallel — format-routes, format-session, and extensions — to produce structured output. When `--code-audit` is enabled (on by default when `--source` is provided), a **deep AI security code audit** identifies business logic flaws, data flow vulnerabilities, and framework misconfigurations that static analysis misses. This is followed by a **native SAST phase** (ast-grep + secret detection) and a **SAST review sub-agent** to validate all findings — before the master agent plans the attack. When `--discover` is enabled, native discovery+spidering expands the attack surface further.
 
@@ -20,7 +20,7 @@ When `--source` is provided, swarm runs a **consolidated 4-call source analysis*
               |  - Resolve --instruction / --instruction-file   |
               |  - Build SwarmConfig with callbacks             |
               |    (ScanFunc, DiscoverFunc, SASTFunc)           |
-              |  - Enable warm ACP session pooling              |
+              |  - Enable warm session pooling                   |
               +------------------------------------------------+
                                        |
                                        v
@@ -297,13 +297,13 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
 |                   |     |                   |     |                   |
 | - Parse input     |---->| - Orchestrate     |---->| - Load templates  |
 | - Build config    |     |   phases          |     | - Render prompts  |
-| - Wire callbacks  |     | - Track state     |     | - Spawn ACP agent |
+| - Wire callbacks  |     | - Track state     |     | - Spawn agent     |
 |                   |     | - Save artifacts  |     | - Parse output    |
 +-------------------+     +-------------------+     +-------------------+
                                 |       |                    |
                                 |       |                    v
                                 |       |           +-------------------+
-                                |       |           |   ACP Session     |
+                                |       |           |   Agent Session   |
                                 |       |           |                   |
                                 |       |           | - Warm pool reuse |
                                 |       |           | - stdin/stdout    |
@@ -398,9 +398,6 @@ vigolium agent swarm -t https://example.com/api/users --focus "auth bypass"
 # Specify modules explicitly
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
 
-# Use a custom ACP agent command (overrides --agent)
-vigolium agent swarm -t https://example.com/api/users --agent-acp-cmd "traecli acp"
-
 # Preview what the master agent would receive
 vigolium agent swarm -t https://example.com/api/users --dry-run
 
@@ -435,19 +432,6 @@ vigolium agent swarm -t https://example.com --start-from plan
 # Resume from discovery phase (useful after editing source analysis artifacts)
 vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start-from native-discover
 
-# Slash commands: make a Claude Code slash command available inside the ACP session
-vigolium agent swarm -t https://example.com --custom-slash-command /security-review
-
-# Multiple slash commands
-vigolium agent swarm -t https://example.com \
-  --custom-slash-command /security-review --custom-slash-command /api-audit
-
-# Custom agents: invoke a sub-agent during the swarm via terminal
-vigolium agent swarm -t https://example.com --custom-agent '@my-sqli-specialist'
-
-# Combine slash commands, custom agents, and source analysis
-vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app \
-  --custom-slash-command /security-review --custom-agent '@auth-checker'
 ```
 
 ### Supported Input Types
@@ -480,7 +464,6 @@ Inputs are auto-detected from their content:
 | `--start-from` | — | Resume from a specific phase (`native-normalize`, `source-analysis`, `code-audit`, `native-sast`, `native-discover`, `plan`, `native-extension`, `native-scan`, `triage`). Legacy names without `native-` prefix are also accepted |
 | `--skip` | — | Skip specific phases (repeatable, e.g., `--skip discovery --skip spidering`) |
 | `--agent` | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | Custom ACP agent command (e.g., `traecli acp`), overrides `--agent` |
 | `--swarm-duration` | 12h | Maximum swarm duration |
 | `--profile` | — | Scanning profile to use |
 | `--dry-run` | false | Render prompts without executing |
@@ -492,97 +475,10 @@ Inputs are auto-detected from their content:
 | `--batch-concurrency` | 0 (auto) | Max parallel master agent batches (0 = scales with CPU count) |
 | `--max-master-retries` | 3 | Max master agent retries on JSON parse failure |
 | `--sub-agent-concurrency` | 3 | Max parallel source analysis sub-agents |
-| `--custom-slash-command` | — | Slash command available inside the ACP session (repeatable, e.g. `/security-review`). Auto-detected from the agent's global config (e.g. `~/.claude/commands/`) |
-| `--custom-agent` | — | Custom agent the swarm can invoke via `vigolium agent query --agent=X` (repeatable, e.g. `@my-sqli-specialist`) |
-| `--max-commands` | 50 | Max terminal commands per ACP session (only applies when `--custom-slash-command` or `--custom-agent` is set) |
 
 At least one input is required: `--target`, `--input`, `--record-uuid`, or `--source`. Multiple inputs can be combined (e.g., `--target` + `--input`) for flows that require multiple requests (like login + protected endpoint).
 
 When `--source` is provided, SAST analysis is automatically enabled (no extra flag needed). The SAST phase runs ast-grep route extraction and secret detection, then a SAST review sub-agent validates findings and generates targeted extensions.
-
-## Custom Slash Commands & Custom Agents
-
-Swarm supports two mechanisms for extending the ACP agent's capabilities during a run: **custom slash commands** (`/command`) and **custom agents** (`@agent`). Both enable terminal capability in the ACP session (via `CreateTerminal`), allowing the agent to execute commands mid-response.
-
-### Custom Slash Commands
-
-Custom slash commands make Claude Code-native `/` commands available inside the ACP session. These are prompt files that the agent can invoke by name (e.g., `/security-review`).
-
-**How it works:**
-
-1. You specify `--custom-slash-command /security-review` on the CLI
-2. Vigolium auto-detects the agent type (e.g., Claude Code) and finds the command file in the agent's global config directory (e.g., `~/.claude/commands/security-review.md`)
-3. Before the ACP session starts, vigolium symlinks the command file into the session CWD's `.claude/commands/` directory
-4. `SettingSources` is adjusted so Claude Code loads the commands
-5. The agent sees `/security-review` as a native slash command
-6. After the swarm run, symlinks and created directories are cleaned up
-
-**Setting up slash commands:**
-
-Create markdown files in your Claude Code commands directory:
-
-```bash
-mkdir -p ~/.claude/commands
-cat > ~/.claude/commands/security-review.md << 'EOF'
-Review the source code for security vulnerabilities. Focus on:
-- SQL injection, XSS, SSRF, and path traversal
-- Authentication and authorization flaws
-- Hardcoded secrets and insecure defaults
-
-Output findings in the standard vigolium findings JSON format.
-EOF
-```
-
-Then use them in swarm:
-
-```bash
-vigolium agent swarm -t https://example.com --custom-slash-command /security-review
-```
-
-**Config file:** Default slash commands can be set in `vigolium-configs.yaml`:
-
-```yaml
-agent:
-  swarm_terminal:
-    slash_commands:
-      - /security-review
-      - /api-audit
-```
-
-### Custom Agents
-
-Custom agents (`@agent`) allow the ACP agent to invoke other agent backends (defined in `agent.backends`) via the terminal during a swarm session. The agent runs them as `vigolium agent query --agent=<name> --prompt "..."`.
-
-```yaml
-# Define a custom agent backend in vigolium-configs.yaml
-agent:
-  backends:
-    my-sqli-specialist:
-      command: claude
-      args: ["--dangerously-skip-permissions", "-p"]
-      description: "SQL injection specialist agent"
-
-  swarm_terminal:
-    custom_agents:
-      - "@my-sqli-specialist"
-```
-
-Then invoke:
-
-```bash
-vigolium agent swarm -t https://example.com --custom-agent '@my-sqli-specialist'
-```
-
-The `@` prefix is stripped when resolving the agent backend name. The agent receives prompt context about available custom agents and can invoke them via terminal during the plan and triage phases.
-
-### Terminal Capability
-
-When either `--custom-slash-command` or `--custom-agent` is specified, swarm enables terminal capability in ACP sessions:
-
-- The `CreateTerminal` ACP method becomes active (normally stubbed in swarm mode)
-- `vigolium` is always in the terminal allowlist (so custom agents can be invoked via `vigolium agent query`)
-- A `--max-commands` limit (default: 50) prevents runaway terminal usage
-- Terminal is enabled for all AI phases (plan, triage, source analysis, code audit, SAST review)
 
 ## Phase Overview
 
@@ -633,7 +529,7 @@ When `--source` is provided, source analysis runs in **4 LLM calls** across 2 wa
 
 1. **Wave 1 — Explore:** A single agent reads the entire codebase once and documents all HTTP routes, authentication flows, and vulnerability sinks as plain-text notes with labeled sections (routes + auth/session).
 2. **Wave 2 — Format + Extensions (3 calls in parallel):**
-   - **Format Routes** converts the route notes into structured JSONL http_records. It reuses the warm ACP session from explore (retains codebase context).
+   - **Format Routes** converts the route notes into structured JSONL http_records. It reuses the warm session from explore (retains codebase context).
    - **Format Session** converts the auth/session notes into a session_config JSON with login flows and token extraction rules.
    - **Extensions** generates targeted JS scanner extensions from the explore notes. It receives the notes via prompt append (no source code access needed — the explore notes contain all the sink details).
 
@@ -1092,8 +988,8 @@ type SwarmResult struct {
     Iterations      int                      // triage rounds completed
     Duration        time.Duration
     AgentRunUUID    string                   // DB tracking UUID
-    SessionID       string                   // last ACP session ID (single/last batch)
-    SessionIDs      []string                 // all ACP session IDs when batched (>5 records)
+    SessionID       string                   // last agent session ID (single/last batch)
+    SessionIDs      []string                 // all agent session IDs when batched (>5 records)
     SessionDir      string                   // path to session artifacts
     PhaseTimings    map[string]time.Duration // per-phase execution times
     TokenUsage      TokenUsage               // total input/output tokens consumed

@@ -11,7 +11,7 @@ Agentic scanning uses AI agents to assist or drive the vulnerability scanning pr
 - **Generate custom payloads** as JavaScript extensions tailored to specific endpoints
 - **Triage results** to separate true positives from false positives
 
-Native scanning and agentic scanning are complementary. In swarm mode, for example, AI handles the strategic decisions (planning, extension generation, triage) while native Go code handles the heavy lifting (discovery, spidering, HTTP scanning). In autopilot mode, the AI agent drives the entire workflow by issuing CLI commands through a sandboxed terminal.
+Native scanning and agentic scanning are complementary. In swarm mode, for example, AI handles the strategic decisions (planning, extension generation, triage) while native Go code handles the heavy lifting (discovery, spidering, HTTP scanning). In autopilot mode, the AI agent drives the entire workflow through a multi-agent specialist pipeline.
 
 ## Communication Protocols
 
@@ -20,18 +20,13 @@ Vigolium integrates with coding agents through protocol-specific backends. Each 
 | Protocol | Tool Access | Best For |
 |----------|-------------|----------|
 | **`sdk`** | Full CLI tools (Read, Grep, Glob, Bash, Edit, Write) | Default; highest output quality |
-| **`acp`** | ReadTextFile only | Terminal/autopilot modes; warm sessions |
 | **`codex-sdk`** | Full tools (JSON-RPC v2) | OpenAI Codex CLI |
 | **`opencode-sdk`** | Full tools (REST API + SSE streaming) | OpenCode agent |
 | **`pipe`** | None (text only) | Legacy fallback; any CLI tool |
 
-**SDK (Claude Agent SDK)** is the recommended default. It launches the `claude` CLI as a subprocess and communicates via JSON-lines, giving the agent access to all standard Claude Code tools. This produces significantly higher output quality than ACP, which only exposes `ReadTextFile`.
+**SDK (Claude Agent SDK)** is the recommended default. It launches the `claude` CLI as a subprocess and communicates via JSON-lines, giving the agent access to all standard Claude Code tools.
 
-**ACP (Agent Communication Protocol)** provides bidirectional structured communication with two interaction patterns:
-- **Terminal execution** (autopilot): The agent receives a sandboxed terminal and autonomously runs `vigolium` commands.
-- **Prompt/response** (query, swarm checkpoints): Vigolium sends a rendered prompt and receives structured JSON output.
-
-**Codex-SDK** and **OpenCode-SDK** are native protocol integrations for their respective coding agent CLIs, providing full tool access without going through ACP.
+**Codex-SDK** and **OpenCode-SDK** are native protocol integrations for their respective coding agent CLIs, providing full tool access.
 
 **Pipe** is the simplest fallback — prompt piped to stdin, output read from stdout. Works with any CLI tool but provides no tool access.
 
@@ -49,13 +44,6 @@ agent:
       protocol: sdk
       model: sonnet
 
-    # Claude Code (ACP — for autopilot terminal mode)
-    claude-acp:
-      command: npx
-      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
-      protocol: acp
-      model: sonnet
-
     # OpenAI Codex (native JSON-RPC v2)
     codex:
       command: codex
@@ -65,18 +53,6 @@ agent:
     opencode:
       command: opencode
       protocol: opencode-sdk
-
-    # Google Gemini (ACP)
-    gemini:
-      command: gemini
-      args: ["--experimental-acp"]
-      protocol: acp
-
-    # Cursor (ACP)
-    cursor:
-      command: cursor
-      args: ["acp"]
-      protocol: acp
 ```
 
 Each backend entry has:
@@ -85,7 +61,7 @@ Each backend entry has:
 |-------|-------------|
 | `command` | CLI command to launch the agent |
 | `args` | Arguments passed to the command |
-| `protocol` | `sdk`, `acp`, `codex-sdk`, `opencode-sdk`, or `pipe` |
+| `protocol` | `sdk`, `codex-sdk`, `opencode-sdk`, or `pipe` |
 | `model` | Model override (e.g., `sonnet`, `opus`, `haiku`, or full model ID) |
 | `description` | Human-readable description |
 | `mcp_servers` | Per-backend MCP server attachments |
@@ -95,16 +71,11 @@ Each backend entry has:
 | Backend | Command | Protocol | Notes |
 |---------|---------|----------|-------|
 | `claude` | `claude` | `sdk` | **Default.** Full tool access. Requires `claude` CLI in PATH |
-| `claude-acp` | `npx @zed-industries/claude-agent-acp` | `acp` | Limited to ReadTextFile. Supports terminal mode |
 | `claude-cli` | `claude -p` | `pipe` | Simple pipe mode fallback |
 | `codex` | `codex` | `codex-sdk` | Native JSON-RPC v2 protocol |
-| `codex-acp` | `codex app-server` | `acp` | Legacy ACP mode |
 | `opencode` | `opencode` | `opencode-sdk` | Native REST + SSE streaming |
-| `opencode-acp` | `opencode acp` | `acp` | ACP mode |
-| `gemini` | `gemini --experimental-acp` | `acp` | Google Gemini CLI |
-| `cursor` | `cursor acp` | `acp` | Cursor AI editor |
 
-The `--agent` flag overrides the default backend per-invocation. The `--agent-acp-cmd` flag provides an ad-hoc ACP backend without config.
+The `--agent` flag overrides the default backend per-invocation.
 
 ## Prompt Templates
 
@@ -131,7 +102,7 @@ vigolium agent --list-templates
 
 ## Warm Session Pooling
 
-Agent backends can reuse subprocesses across multiple AI calls within a single run, eliminating the startup latency of launching a new agent process for each call. All protocol types (SDK, ACP, Codex-SDK, OpenCode-SDK) support warm session pooling via dedicated pool implementations.
+Agent backends can reuse subprocesses across multiple AI calls within a single run, eliminating the startup latency of launching a new agent process for each call. All protocol types (SDK, Codex-SDK, OpenCode-SDK) support warm session pooling via dedicated pool implementations.
 
 Configured in `vigolium-configs.yaml`:
 

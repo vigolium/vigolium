@@ -18,6 +18,9 @@ func TestAuditAgentConfig_Defaults(t *testing.T) {
 	if got := cfg.EffectiveMode(); got != "lite" {
 		t.Errorf("expected mode 'lite', got %q", got)
 	}
+	if got := cfg.EffectivePlatform(); got != "claude" {
+		t.Errorf("expected platform 'claude', got %q", got)
+	}
 	if got := cfg.EffectiveSyncInterval(); got != 30 {
 		t.Errorf("expected sync interval 30, got %d", got)
 	}
@@ -27,14 +30,28 @@ func TestAuditAgentConfig_Enabled(t *testing.T) {
 	enabled := true
 	cfg := config.AuditAgentConfig{
 		Enable: &enabled,
-		Mode:   "full",
+		Mode:   "deep",
 	}
 
 	if !cfg.IsEnabled() {
 		t.Error("expected enabled")
 	}
-	if got := cfg.EffectiveMode(); got != "full" {
-		t.Errorf("expected mode 'full', got %q", got)
+	if got := cfg.EffectiveMode(); got != "deep" {
+		t.Errorf("expected mode 'deep', got %q", got)
+	}
+}
+
+func TestAuditAgentConfig_LegacyFullMode(t *testing.T) {
+	cfg := config.AuditAgentConfig{Mode: "full"}
+	if got := cfg.EffectiveMode(); got != "deep" {
+		t.Errorf("expected legacy 'full' to map to 'deep', got %q", got)
+	}
+}
+
+func TestAuditAgentConfig_ScanMode(t *testing.T) {
+	cfg := config.AuditAgentConfig{Mode: "scan"}
+	if got := cfg.EffectiveMode(); got != "scan" {
+		t.Errorf("expected mode 'scan', got %q", got)
 	}
 }
 
@@ -45,106 +62,6 @@ func TestAuditAgentConfig_PluginDir(t *testing.T) {
 
 	if got := cfg.EffectivePluginDir(); got != "/custom/path/to/plugin" {
 		t.Errorf("expected custom plugin dir, got %q", got)
-	}
-}
-
-func TestParseAuditFinding(t *testing.T) {
-	// Create a temp finding file
-	dir := t.TempDir()
-	content := `# SQL Injection in User Login
-
-## Description
-
-The login endpoint at /api/auth/login is vulnerable to SQL injection
-via the username parameter. An attacker can bypass authentication.
-
-## Evidence
-
-` + "```" + `
-POST /api/auth/login HTTP/1.1
-Content-Type: application/json
-
-{"username": "admin' OR 1=1--", "password": "anything"}
-` + "```" + `
-
-## Remediation
-
-Use parameterized queries instead of string concatenation.
-`
-
-	findingPath := filepath.Join(dir, "C-001.md")
-	if err := os.WriteFile(findingPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	finding, err := ParseAuditFinding(findingPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if finding.ID != "C-001" {
-		t.Errorf("expected ID 'C-001', got %q", finding.ID)
-	}
-	if finding.Severity != "critical" {
-		t.Errorf("expected severity 'critical', got %q", finding.Severity)
-	}
-	if finding.Title != "SQL Injection in User Login" {
-		t.Errorf("expected title 'SQL Injection in User Login', got %q", finding.Title)
-	}
-}
-
-func TestParseAuditFinding_SeverityPrefix(t *testing.T) {
-	dir := t.TempDir()
-
-	tests := []struct {
-		filename string
-		severity string
-	}{
-		{"C-001.md", "critical"},
-		{"H-001.md", "high"},
-		{"M-001.md", "medium"},
-		{"L-001.md", "low"},
-		{"I-001.md", "info"},
-		{"X-001.md", "medium"}, // unknown prefix defaults to medium
-	}
-
-	for _, tt := range tests {
-		path := filepath.Join(dir, tt.filename)
-		if err := os.WriteFile(path, []byte("# Test Finding\n\nDescription"), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		finding, err := ParseAuditFinding(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if finding.Severity != tt.severity {
-			t.Errorf("file %s: expected severity %q, got %q", tt.filename, tt.severity, finding.Severity)
-		}
-	}
-}
-
-func TestNormalizeSeverity(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"critical", "critical"},
-		{"CRITICAL", "critical"},
-		{"High", "high"},
-		{"medium", "medium"},
-		{"low", "low"},
-		{"info", "info"},
-		{"informational", "info"},
-		{"unknown", "medium"},
-		{"", "medium"},
-	}
-
-	for _, tt := range tests {
-		if got := normalizeSeverity(tt.input); got != tt.expected {
-			t.Errorf("normalizeSeverity(%q) = %q, want %q", tt.input, got, tt.expected)
-		}
 	}
 }
 
@@ -177,9 +94,8 @@ func TestAuditState_Parse(t *testing.T) {
       "commit": "abc123",
       "branch": "main",
       "started_at": "2026-03-29T10:00:00Z",
-      "completed_at": null,
+      "completed_at": "2026-03-29T10:30:00Z",
       "status": "in_progress",
-      "mode": "lite",
       "phases": {
         "1": {"status": "complete", "completed_at": "2026-03-29T10:05:00Z"},
         "2": {"status": "in_progress"},
@@ -192,16 +108,15 @@ func TestAuditState_Parse(t *testing.T) {
   ]
 }`
 
-	// Write state file to simulate source dir
-	secDir := filepath.Join(dir, "security")
-	if err := os.MkdirAll(secDir, 0755); err != nil {
+	// Write state file to simulate archon/ dir in source
+	archonDir := filepath.Join(dir, "archon")
+	if err := os.MkdirAll(archonDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(secDir, "audit-state.json"), []byte(stateJSON), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a runner with the temp dir as source
 	runner := &AuditAgentRunner{
 		cfg:  AuditAgentConfig{SourcePath: dir},
 		done: make(chan struct{}),
@@ -219,14 +134,8 @@ func TestAuditState_Parse(t *testing.T) {
 	if entry.Status != "in_progress" {
 		t.Errorf("expected status 'in_progress', got %q", entry.Status)
 	}
-	if entry.Mode != "lite" {
-		t.Errorf("expected mode 'lite', got %q", entry.Mode)
-	}
 	if len(entry.Phases) != 6 {
 		t.Errorf("expected 6 phases, got %d", len(entry.Phases))
-	}
-	if entry.Phases["1"].Status != "complete" {
-		t.Errorf("expected phase 1 complete, got %q", entry.Phases["1"].Status)
 	}
 }
 
@@ -234,13 +143,13 @@ func TestSyncStateOnce(t *testing.T) {
 	sourceDir := t.TempDir()
 	sessionDir := t.TempDir()
 
-	// Write state file in source dir
-	secDir := filepath.Join(sourceDir, "security")
-	if err := os.MkdirAll(secDir, 0755); err != nil {
+	// Write state file in source archon/ dir
+	archonDir := filepath.Join(sourceDir, "archon")
+	if err := os.MkdirAll(archonDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	stateContent := `{"audits": [{"status": "in_progress"}]}`
-	if err := os.WriteFile(filepath.Join(secDir, "audit-state.json"), []byte(stateContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -252,7 +161,7 @@ func TestSyncStateOnce(t *testing.T) {
 	runner.syncStateOnce()
 
 	// Verify the state was synced to session dir
-	synced, err := os.ReadFile(filepath.Join(sessionDir, "audit-agent", "audit-state.json"))
+	synced, err := os.ReadFile(filepath.Join(sessionDir, "archon-audit", "audit-state.json"))
 	if err != nil {
 		t.Fatalf("expected synced state file, got error: %v", err)
 	}
@@ -261,9 +170,43 @@ func TestSyncStateOnce(t *testing.T) {
 	}
 }
 
+func TestCopyDir(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	// Create test structure
+	if err := os.MkdirAll(filepath.Join(srcDir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "file1.md"), []byte("content1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "sub", "file2.md"), []byte("content2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	copyDir(srcDir, destDir)
+
+	// Verify
+	data1, err := os.ReadFile(filepath.Join(destDir, "file1.md"))
+	if err != nil {
+		t.Fatalf("expected file1.md, got error: %v", err)
+	}
+	if string(data1) != "content1" {
+		t.Errorf("expected 'content1', got %q", string(data1))
+	}
+	data2, err := os.ReadFile(filepath.Join(destDir, "sub", "file2.md"))
+	if err != nil {
+		t.Fatalf("expected sub/file2.md, got error: %v", err)
+	}
+	if string(data2) != "content2" {
+		t.Errorf("expected 'content2', got %q", string(data2))
+	}
+}
+
 func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 	cfg := config.AuditAgentConfig{} // disabled by default
-	runner, err := StartAuditAgent(context.TODO(), cfg, "/some/source", "/some/session", "proj-1", "scan-1", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "/some/source", "/some/session", "proj-1", "scan-1", "", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -275,11 +218,102 @@ func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 func TestStartAuditAgent_NoSourceReturnsNil(t *testing.T) {
 	enabled := true
 	cfg := config.AuditAgentConfig{Enable: &enabled}
-	runner, err := StartAuditAgent(context.TODO(), cfg, "", "/some/session", "proj-1", "scan-1", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "", "/some/session", "proj-1", "scan-1", "", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if runner != nil {
 		t.Error("expected nil runner when no source path")
+	}
+}
+
+func TestAuditAgentConfig_Platform(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", "claude"},
+		{"claude", "claude"},
+		{"codex", "codex"},
+		{"opencode", "opencode"},
+		{"unknown", "claude"},
+	}
+
+	for _, tt := range tests {
+		cfg := config.AuditAgentConfig{Platform: tt.input}
+		if got := cfg.EffectivePlatform(); got != tt.expected {
+			t.Errorf("Platform(%q): expected %q, got %q", tt.input, tt.expected, got)
+		}
+	}
+}
+
+func TestBuildAuditAgentCommand_Claude(t *testing.T) {
+	// This test only verifies the args structure, not that the binary exists.
+	// We skip if claude is not in PATH.
+	binary, args, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source")
+	if err != nil {
+		t.Skipf("claude not in PATH: %v", err)
+	}
+	if binary == "" {
+		t.Error("expected non-empty binary")
+	}
+	// Check key args are present
+	found := false
+	for _, a := range args {
+		if a == "--plugin-dir" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected --plugin-dir in claude args")
+	}
+}
+
+func TestBuildAuditAgentCommand_Codex(t *testing.T) {
+	binary, args, err := buildAuditAgentCommand("codex", "/tmp/plugin", "lite", "/tmp/source")
+	if err != nil {
+		t.Skipf("codex not in PATH: %v", err)
+	}
+	if binary == "" {
+		t.Error("expected non-empty binary")
+	}
+	found := false
+	for _, a := range args {
+		if a == "--full-auto" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected --full-auto in codex args")
+	}
+}
+
+func TestBuildAuditAgentCommand_OpenCode(t *testing.T) {
+	binary, args, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source")
+	if err != nil {
+		t.Skipf("opencode not in PATH: %v", err)
+	}
+	if binary == "" {
+		t.Error("expected non-empty binary")
+	}
+	found := false
+	for _, a := range args {
+		if a == "--agents-dir" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected --agents-dir in opencode args")
+	}
+}
+
+func TestResolveAuditAgentConfig_PreservesPlatform(t *testing.T) {
+	base := config.AuditAgentConfig{Platform: "codex"}
+	result := ResolveAuditAgentConfig("deep", base)
+	if result == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if result.Platform != "codex" {
+		t.Errorf("expected platform 'codex' to be preserved, got %q", result.Platform)
 	}
 }

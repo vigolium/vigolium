@@ -27,7 +27,6 @@ var (
 	autopilotFiles           []string
 	autopilotFocus           string
 	autopilotTimeout         time.Duration
-	autopilotACPCmd          string
 	autopilotDryRun          bool
 	autopilotShowPrompt      bool
 	autopilotMaxCommands     int
@@ -38,7 +37,8 @@ var (
 	autopilotSpecialists []string
 	autopilotResume      string
 	autopilotBrowser     bool
-	autopilotAuditAgent  string
+	autopilotArchon         string
+	autopilotArchonParallel bool
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -82,7 +82,6 @@ func init() {
 	f.StringVarP(&autopilotTarget, "target", "t", "", "Target URL (derived from --input if not set)")
 	f.StringVar(&autopilotInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
 	f.StringVar(&autopilotAgent, "agent", "", "Agent backend to use (default from config)")
-	f.StringVar(&autopilotACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	f.StringVar(&autopilotSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --source)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
@@ -93,12 +92,13 @@ func init() {
 	f.StringVar(&autopilotInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
 	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.StringSliceVar(&autopilotMcpServers, "mcp-server", nil, "MCP servers to attach (format: name=command,arg1,arg2 or name=http://url)")
-	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to ACP sessions")
+	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to agent sessions")
 	f.StringSliceVar(&autopilotSpecialists, "specialists", nil, "Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz)")
 	f.StringVar(&autopilotResume, "resume", "", "Resume from a previous session directory")
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
-	f.StringVar(&autopilotAuditAgent, "audit-agent", "", "Run background vig-audit-agent for parallel security auditing: 'lite' (6-phase, default) or 'full' (11-phase). Requires --source")
-	agentAutopilotCmd.Flag("audit-agent").NoOptDefVal = "lite" // bare --audit-agent defaults to lite
+	f.StringVar(&autopilotArchon, "archon", "", "Run archon-audit for security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
+	agentAutopilotCmd.Flag("archon").NoOptDefVal = "lite" // bare --archon defaults to lite
+	f.BoolVar(&autopilotArchonParallel, "parallel", false, "Run archon-audit in parallel with autopilot instead of waiting for it to finish")
 }
 
 func runAgentAutopilot(_ *cobra.Command, args []string) error {
@@ -121,10 +121,7 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	if autopilotTarget == "" && autopilotSource == "" {
 		return fmt.Errorf("target is required: use --target, --input, --source, or pipe via stdin\n\nOr use a natural language prompt:\n  vigolium agent autopilot \"scan source at ~/src/app on localhost:3005\"")
 	}
-	if autopilotTarget == "" {
-		fmt.Fprintf(os.Stderr, "%s No --target specified. Running source-only analysis; dynamic testing will be skipped.\n",
-			terminal.WarningSymbol())
-	}
+	sourceOnly := autopilotTarget == ""
 
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
@@ -163,6 +160,12 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	// Parse --mcp-server flags into config and merge with YAML-defined servers
 	cliMcpServers := parseMcpServerFlags(autopilotMcpServers)
 
+	// Resolve effective agent name
+	effectiveAgent := autopilotAgent
+	if effectiveAgent == "" {
+		effectiveAgent = settings.Agent.DefaultAgent
+	}
+
 	engine := agent.NewEngine(settings, repo)
 	defer engine.Close()
 
@@ -180,20 +183,66 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
 	}
 
+	// Print startup summary (matches swarm format)
+	fmt.Fprint(os.Stderr, GetBanner())
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
+
+	// Mode + Agent + Model
+	mode := "autopilot"
+	if sourceOnly {
+		mode = "autopilot (source-only)"
+	}
+	effectiveModel := ""
+	if def, ok := settings.Agent.Backends[effectiveAgent]; ok && def.Model != "" {
+		effectiveModel = def.Model
+	}
+	modeLine := fmt.Sprintf("  %s Mode: %s | Agent: %s",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiTeal(mode),
+		terminal.HiTeal(effectiveAgent))
+	if effectiveModel != "" {
+		modeLine += fmt.Sprintf(" | Model: %s", terminal.HiTeal(effectiveModel))
+	}
+	fmt.Fprintln(os.Stderr, modeLine)
+
+	// Target
 	if autopilotTarget != "" {
-		fmt.Fprintf(os.Stderr, "%s Starting agentic scan (autopilot) against %s\n",
-			terminal.InfoSymbol(), terminal.Cyan(autopilotTarget))
+		fmt.Fprintf(os.Stderr, "  %s Target: %s\n", terminal.Purple(terminal.SymbolTarget), terminal.Orange(autopilotTarget))
 	} else {
-		fmt.Fprintf(os.Stderr, "%s Starting source-only agentic scan (autopilot)\n",
-			terminal.InfoSymbol())
+		fmt.Fprintf(os.Stderr, "  %s Target: %s\n", terminal.Purple(terminal.SymbolTarget),
+			terminal.Red("none (no dynamic testing)"))
 	}
+
+	// Source
 	if autopilotSource != "" {
-		fmt.Fprintf(os.Stderr, "%s Source code: %s\n",
-			terminal.InfoSymbol(), terminal.ShortenHome(autopilotSource))
+		fmt.Fprintf(os.Stderr, "  %s Source: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(terminal.ShortenHome(autopilotSource)))
 	}
+
+	// Archon
+	if autopilotArchon != "" {
+		fmt.Fprintf(os.Stderr, "  %s Archon: %s %s\n", terminal.Purple(terminal.SymbolInfo),
+			terminal.HiGreen(autopilotArchon+" mode"), terminal.Muted("(background whitebox audit)"))
+	}
+
+	// Focus / instruction
+	if autopilotFocus != "" {
+		fmt.Fprintf(os.Stderr, "  %s Focus: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.Orange(autopilotFocus))
+	}
+
+	// Limits
+	durationStr := "unlimited"
+	if autopilotTimeout > 0 {
+		durationStr = autopilotTimeout.String()
+	}
+	fmt.Fprintf(os.Stderr, "  %s Limits: max-commands=%s | duration=%s\n",
+		terminal.Purple(terminal.SymbolInfo),
+		terminal.HiBlue(fmt.Sprintf("%d", autopilotMaxCommands)),
+		terminal.HiBlue(durationStr))
+
+	// Session
 	if sessionDir != "" {
-		fmt.Fprintf(os.Stderr, "%s Session: %s\n",
-			terminal.InfoSymbol(), terminal.Gray(terminal.ShortenHome(sessionDir)))
+		fmt.Fprintf(os.Stderr, "  %s Session: %s\n", terminal.Purple(terminal.SymbolInfo),
+			terminal.Muted(terminal.ShortenHome(sessionDir)))
 	}
 
 	// Merge CLI MCP servers onto the resolved agent definition
@@ -309,9 +358,10 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		StreamWriter: streamWriter,
 	}
 
-	// Wire audit agent
-	if auditCfg := agent.ResolveAuditAgentConfig(autopilotAuditAgent, settings.Agent.AuditAgent); auditCfg != nil {
-		cfg.AuditAgent = auditCfg
+	// Wire archon
+	if auditCfg := agent.ResolveAuditAgentConfig(autopilotArchon, settings.Agent.Archon); auditCfg != nil {
+		cfg.Archon = auditCfg
+		cfg.ArchonParallel = autopilotArchonParallel
 	}
 
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
@@ -353,7 +403,6 @@ func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *c
 		Focus:       autopilotFocus,
 		Specialists: agent.ToVulnClasses(specialists),
 		AgentName:   autopilotAgent,
-		AgentACPCmd: autopilotACPCmd,
 		MaxCommands: autopilotMaxCommands,
 		DryRun:      autopilotDryRun,
 		ShowPrompt:  autopilotShowPrompt,
@@ -366,9 +415,10 @@ func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *c
 		ScanFunc:    buildAgentSwarmScanFunc(settings, repo, "", nil, new(string)),
 	}
 
-	// Wire audit agent
-	if auditCfg := agent.ResolveAuditAgentConfig(autopilotAuditAgent, settings.Agent.AuditAgent); auditCfg != nil {
-		cfg.AuditAgent = auditCfg
+	// Wire archon
+	if auditCfg := agent.ResolveAuditAgentConfig(autopilotArchon, settings.Agent.Archon); auditCfg != nil {
+		cfg.Archon = auditCfg
+		cfg.ArchonParallel = autopilotArchonParallel
 	}
 
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
@@ -427,8 +477,8 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	if app.Instruction != "" && autopilotInstruction == "" {
 		autopilotInstruction = app.Instruction
 	}
-	if app.AuditAgent != "" && autopilotAuditAgent == "" {
-		autopilotAuditAgent = app.AuditAgent
+	if app.Archon != "" && autopilotArchon == "" {
+		autopilotArchon = app.Archon
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
 		terminal.SuccessSymbol(),

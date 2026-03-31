@@ -92,7 +92,7 @@ export default function App() {
       <Layout>
         <Header reportTitle={initial.title} generatedAt={initial.generatedAt} />
         <FileDropZone onDataLoad={handleDataLoad} />
-        <Footer vigoliumVersion={initial.vigoliumVersion} />
+        <Footer vigoliumVersion={initial.vigoliumVersion} generatedAt={initial.generatedAt} />
       </Layout>
     );
   }
@@ -130,7 +130,7 @@ export default function App() {
           )}
         </div>
       </main>
-      <Footer vigoliumVersion={initial.vigoliumVersion} />
+      <Footer vigoliumVersion={initial.vigoliumVersion} generatedAt={initial.generatedAt} />
     </Layout>
   );
 }

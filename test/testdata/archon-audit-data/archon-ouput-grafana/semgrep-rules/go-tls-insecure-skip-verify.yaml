@@ -1,0 +1,29 @@
+rules:
+  - id: grafana-tls-insecure-skip-verify-production
+    languages: [go]
+    message: >
+      InsecureSkipVerify: true in TLS configuration in non-test production code.
+      In pkg/storage/unified/resource/tenant_watcher.go:102, InsecureSkipVerify is
+      used with a nolint:gosec suppression when AllowInsecure config flag is set.
+      While guarded by a config flag, enabling InsecureSkipVerify disables all TLS
+      certificate validation, making the connection vulnerable to MITM attacks.
+      Verify that the AllowInsecure flag is not enabled by default and is documented
+      as a security risk.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-295
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          &tls.Config{InsecureSkipVerify: true}
+      - pattern: |
+          tls.Config{InsecureSkipVerify: true}
+      - pattern: |
+          TLSClientConfig: &tls.Config{InsecureSkipVerify: true}
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"

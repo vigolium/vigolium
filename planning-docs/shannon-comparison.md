@@ -39,7 +39,7 @@ Phase 5: Reporting (assembles exploitation evidence into final report)
 |---|---|---|
 | **Language** | TypeScript / Node.js | Go |
 | **Orchestration** | Temporal (durable workflows) | Custom phase runner with JSON checkpoints |
-| **Agent SDK** | Claude Agent SDK (locked to Anthropic) | ACP — backend-agnostic (Claude, Gemini, OpenCode, custom CLI) |
+| **Agent SDK** | Claude Agent SDK (locked to Anthropic) | SDK/codex-sdk/opencode-sdk — backend-agnostic (Claude, Codex, OpenCode, custom CLI) |
 | **Resume** | Git checkpoints + Temporal workflow resume + named workspaces | JSON checkpoint files + `--start-from <phase>` flag |
 | **Parallelism** | 5 fixed parallel vuln→exploit pipelines | Batched master agent calls (>5 records), parallel source analysis sub-calls |
 
@@ -92,7 +92,7 @@ Phase 5: Reporting (assembles exploitation evidence into final report)
 
 1. **Speed & cost** — native Go modules are orders of magnitude faster/cheaper than LLM-driven scanning
 2. **Determinism** — Go modules produce repeatable results; LLM-only scanning varies between runs
-3. **Backend agnostic** — works with Claude, Gemini, OpenCode; not locked to Anthropic
+3. **Backend agnostic** — works with Claude, Codex, OpenCode; not locked to Anthropic
 4. **Autonomous credential discovery** — mines source code for credentials instead of requiring user config
 5. **Batched parallel planning** — handles large attack surfaces (>5 endpoints) with provenance tracking
 6. **Extension ecosystem** — declarative quick_checks → snippets → full JS provide graduated complexity
@@ -174,7 +174,7 @@ Implication: Shannon agents can craft novel one-off payloads tailored to exact c
 | **Durability** | Temporal workflows + git checkpoints | Session dir only, no resume |
 | **Cost per scan** | High (all scanning is LLM inference) | Lower (LLM for orchestration, Go for scanning) |
 | **Novel payload generation** | Yes (agent crafts payloads) | No (relies on module payloads) |
-| **Backend lock-in** | Claude SDK only | Any ACP-compatible agent |
+| **Backend lock-in** | Claude SDK only | Any compatible agent (SDK, codex-sdk, opencode-sdk, pipe) |
 
 ---
 

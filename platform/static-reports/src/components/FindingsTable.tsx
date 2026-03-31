@@ -7,8 +7,11 @@ import {
   type GridReadyEvent,
   type GridApi,
 } from "ag-grid-community";
-import { Download, Search, ChevronDown, ChevronRight, X, Copy, Check, Terminal } from "lucide-react";
+import { marked } from "marked";
+import { Download, Search, ChevronDown, ChevronRight, X, Copy, Check, Terminal, Eye, FileCode } from "lucide-react";
 import type { Finding, HttpRecord } from "../types";
+
+marked.setOptions({ breaks: false, gfm: true });
 import { useTheme } from "../utils/theme";
 import { getSeverityColors, getConfidenceColors, getChartColors } from "../utils/chartTheme";
 import FilterDropdown from "./FilterDropdown";
@@ -36,12 +39,40 @@ function stripMarkdownHeading(s: string): string {
   return s.replace(/^#{1,6}\s*/, "");
 }
 
+// Syntax-highlight raw markdown for display
+function highlightMarkdown(md: string): string {
+  return md
+    // code blocks (``` ... ```) — must come before inline rules
+    .replace(/(```[\s\S]*?```)/g, '<span class="md-hl-code">$1</span>')
+    // headings
+    .replace(/^(#{1,6}\s+.*)$/gm, '<span class="md-hl-heading">$1</span>')
+    // bold
+    .replace(/(\*\*[^*]+\*\*)/g, '<span class="md-hl-bold">$1</span>')
+    // inline code
+    .replace(/(`[^`\n]+`)/g, '<span class="md-hl-inline-code">$1</span>')
+    // list markers
+    .replace(/^(\s*[-*]\s)/gm, '<span class="md-hl-list">$1</span>')
+    .replace(/^(\s*\d+\.\s)/gm, '<span class="md-hl-list">$1</span>');
+}
+
+// Extract a plain-text summary from a markdown description for table display
+function extractSummary(s: string): string {
+  const stripped = s
+    .replace(/^#{1,6}\s+.*\n+/, "") // remove leading heading
+    .replace(/```[\s\S]*?```/g, "") // remove code blocks
+    .replace(/[*_`~\[\]]/g, "")    // remove inline formatting
+    .trim();
+  const firstPara = stripped.split(/\n\n/)[0]?.replace(/\n/g, " ").trim() || "";
+  return firstPara.length > 150 ? firstPara.slice(0, 150) + "..." : firstPara;
+}
+
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 0,
   high: 1,
   medium: 2,
   low: 3,
   info: 4,
+  "n/a": 5,
 };
 
 // Convert a raw HTTP request string to a curl command
@@ -165,6 +196,7 @@ function FindingDetail({ finding }: { finding: Finding }) {
   const confidenceColors = getConfidenceColors(theme);
   const sevColor = severityColors[finding.severity] || "#888";
   const confColor = confidenceColors[finding.confidence] || "#888";
+  const [descTab, setDescTab] = useState<"rendered" | "raw">("rendered");
 
   const foundDate = (() => {
     try {
@@ -190,19 +222,68 @@ function FindingDetail({ finding }: { finding: Finding }) {
             <span className="text-[10px] px-1.5 py-0.5 rounded border border-warm-border text-text-muted capitalize">{finding.status}</span>
           )}
         </div>
-        <p className="text-xs text-charcoal-light font-semibold">{finding.module_name}</p>
-        {finding.module_short && (
-          <p className="text-[11px] text-text-muted">{finding.module_short}</p>
+        <p className="text-xs text-charcoal-light font-semibold">{finding.module_short || finding.module_name}</p>
+        {finding.module_short && finding.module_short !== finding.module_name && (
+          <p className="text-[11px] text-text-muted line-clamp-2">{finding.module_name}</p>
         )}
       </div>
 
-      {/* Description */}
+      {/* Description with Rendered / Raw tabs */}
       {finding.description && (
-        <p className="text-xs text-charcoal-light">{stripMarkdownHeading(finding.description)}</p>
+        <div>
+          <div className="flex items-center gap-1 mb-1.5">
+            <button
+              onClick={() => setDescTab("rendered")}
+              className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                descTab === "rendered"
+                  ? "border-terracotta text-terracotta bg-terracotta/5"
+                  : "border-warm-border text-text-muted hover:border-terracotta/30"
+              }`}
+            >
+              <Eye size={10} />
+              Rendered
+            </button>
+            <button
+              onClick={() => setDescTab("raw")}
+              className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                descTab === "raw"
+                  ? "border-terracotta text-terracotta bg-terracotta/5"
+                  : "border-warm-border text-text-muted hover:border-terracotta/30"
+              }`}
+            >
+              <FileCode size={10} />
+              Raw
+            </button>
+            <CopyButton text={finding.description} label="Copy" icon={Copy} />
+          </div>
+          {descTab === "rendered" ? (
+            <div
+              className="prose-finding text-xs text-charcoal-light"
+              dangerouslySetInnerHTML={{ __html: marked.parse(finding.description) as string }}
+            />
+          ) : (
+            <pre
+              className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto max-h-[500px]"
+              dangerouslySetInnerHTML={{ __html: highlightMarkdown(finding.description) }}
+            />
+          )}
+        </div>
       )}
 
       {/* Metadata rows */}
       <div className="space-y-1">
+        {finding.module_id && (
+          <div className="flex gap-2">
+            <DetailLabel>module_id:</DetailLabel>
+            <DetailValue mono>{finding.module_id}</DetailValue>
+          </div>
+        )}
+        {finding.module_type && (
+          <div className="flex gap-2">
+            <DetailLabel>module_type:</DetailLabel>
+            <DetailValue>{finding.module_type}</DetailValue>
+          </div>
+        )}
         {finding.finding_source && (
           <div className="flex gap-2">
             <DetailLabel>source:</DetailLabel>
@@ -382,7 +463,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   }, [httpRecords]);
 
   const modules = useMemo(() => {
-    const s = new Set(data.map((f) => f.module_name));
+    const s = new Set(data.map((f) => f.module_short || f.module_name));
     return Array.from(s).sort();
   }, [data]);
 
@@ -427,7 +508,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
       result = result.filter((f) => f.confidence === confidenceFilter);
     }
     if (moduleFilter !== "all") {
-      result = result.filter((f) => f.module_name === moduleFilter);
+      result = result.filter((f) => (f.module_short || f.module_name) === moduleFilter);
     }
     if (sourceFilter !== "all") {
       result = result.filter((f) => f.finding_source === sourceFilter);
@@ -455,7 +536,13 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         },
         comparator: (a: string, b: string) => (SEVERITY_ORDER[a] ?? 99) - (SEVERITY_ORDER[b] ?? 99),
       },
-      { field: "module_name", headerName: "Module", width: 200 },
+      {
+        headerName: "Module",
+        width: 200,
+        valueGetter: ({ data }: { data: Finding | undefined }) =>
+          data?.module_short || data?.module_name || "",
+        cellClass: "text-xs",
+      },
       {
         field: "description",
         headerName: "Description",
@@ -463,7 +550,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         minWidth: 250,
         cellClass: "text-xs",
         valueFormatter: ({ value }: { value: string | null }) =>
-          value ? stripMarkdownHeading(value) : "",
+          value ? extractSummary(value) : "",
       },
       {
         field: "confidence",
@@ -529,6 +616,17 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   const onExport = useCallback(() => {
     gridApi?.exportDataAsCsv({ fileName: "vigolium-findings.csv" });
   }, [gridApi]);
+
+  const onExportJsonl = useCallback(() => {
+    const jsonl = filteredData.map((f) => JSON.stringify(f)).join("\n");
+    const blob = new Blob([jsonl], { type: "application/x-ndjson" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "vigolium-findings.jsonl";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredData]);
 
   const onToggleHost = useCallback((host: string) => {
     setSelectedHosts((prev) => {
@@ -602,8 +700,15 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           <Download size={13} />
           CSV
         </button>
+        <button
+          onClick={onExportJsonl}
+          className="flex items-center gap-1.5 text-xs font-sans font-semibold text-terracotta hover:text-charcoal transition-colors px-2.5 py-1.5 border border-warm-border rounded-md hover:border-terracotta/30"
+        >
+          <Download size={13} />
+          JSONL
+        </button>
       </div>
-      <div className="flex flex-row gap-1" style={{ height: "calc(100vh - 260px)", minHeight: 400 }}>
+      <div className="flex flex-row gap-1" style={{ height: "calc(100vh - 180px)", minHeight: 400 }}>
         <div className="ag-theme-quartz border border-warm-border rounded-md overflow-hidden" style={{ width: selectedFinding ? "50%" : "100%", height: "100%" }}>
           <AgGridReact<Finding>
             rowData={filteredData}

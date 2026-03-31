@@ -1,0 +1,64 @@
+rules:
+  - id: grafana-backendSrv-get-no-validatepath
+    languages: [typescript, javascript]
+    message: >
+      getBackendSrv().get() call without validatePath:true option. In DFD-4
+      (Plugin Loading/XSS), BackendSrv requests that include user-controlled or
+      plugin-controlled URL paths without validatePath:true allow open redirect via
+      crafted plugin IDs (CVE-2025-4123 pattern). The validatePath option validates
+      the URL against a whitelist of allowed Grafana API paths before sending the
+      request. Plugin-related API calls should always pass { validatePath: true }.
+      Note: pluginSettings.ts already uses validatePath:true as the correct pattern.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-601
+      cve-context: CVE-2025-4123 (open redirect via plugin ID)
+      dfd-slice: DFD-4
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          getBackendSrv().get(`/api/plugins/${$ID}/...`, ...)
+      - pattern-not: |
+          getBackendSrv().get(`/api/plugins/${$ID}/...`, ..., ..., { ..., validatePath: true, ... })
+      - pattern-not: |
+          getBackendSrv().get(`/api/plugins/${$ID}/...`, ..., { validatePath: true })
+    paths:
+      include:
+        - "public/app/**/*.ts"
+        - "public/app/**/*.tsx"
+        - "packages/**/*.ts"
+        - "packages/**/*.tsx"
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "**/*.spec.ts"
+        - "**/*.spec.tsx"
+        - "**/mocks/**"
+
+  - id: grafana-backendSrv-fetch-no-validatepath-plugin-param
+    languages: [typescript, javascript]
+    message: >
+      getBackendSrv().fetch() or .get()/.post() called with a URL derived from
+      a plugin ID variable without validatePath option. Plugin IDs may be
+      attacker-controlled and could redirect to an external URL, enabling SSRF
+      or credential leakage.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-601
+      dfd-slice: DFD-4
+      confidence: LOW
+    patterns:
+      - pattern: |
+          getBackendSrv().$METHOD($URL + $PLUGIN_ID + ...)
+      - pattern-not: |
+          getBackendSrv().$METHOD($URL + $PLUGIN_ID + ..., ..., ..., { validatePath: true })
+    paths:
+      include:
+        - "public/app/features/plugins/**/*.ts"
+        - "public/app/features/plugins/**/*.tsx"
+      exclude:
+        - "**/*.test.*"
+        - "**/*.spec.*"
+        - "**/mocks/**"

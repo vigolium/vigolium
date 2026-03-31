@@ -1,0 +1,27 @@
+{"#select":{"columns":[
+   {"name":"src","kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"window.location"},"client/app/components/ApplicationArea/navigateTo.js:12"]
+  ,[{"label":"event"},"client/app/components/HelpTrigger.jsx:119"]
+  ,[{"label":"window. ... .search"},"client/app/components/Parameters.jsx:61"]
+  ,[{"label":"window.location"},"client/app/components/Parameters.jsx:61"]
+  ,[{"label":"window.location"},"client/app/pages/alert/components/NotificationTemplate.jsx:24"]
+  ,[{"label":"window.location"},"client/app/pages/alert/components/NotificationTemplate.jsx:26"]
+  ,[{"label":"window. ... .search"},"client/app/pages/dashboards/hooks/useDuplicateDashboard.js:8"]
+  ,[{"label":"window.location"},"client/app/pages/dashboards/hooks/useDuplicateDashboard.js:8"]
+  ,[{"label":"window. ... .search"},"client/app/pages/queries/hooks/useDuplicateQuery.js:8"]
+  ,[{"label":"window.location"},"client/app/pages/queries/hooks/useDuplicateQuery.js:8"]
+  ,[{"label":"window.location"},"client/app/services/auth.js:72"]
+  ,[{"label":"window.location"},"client/app/services/auth.js:76"]
+  ,[{"label":"window.location"},"client/app/services/utils.js:3"]
+  ,[{"label":"window.location"},"client/app/services/utils.js:4"]
+  ,[{"label":"window.location"},"client/app/services/utils.js:5"]
+  ,[{"label":"window.location"},"client/app/services/restoreSession.jsx:10"]
+  ,[{"label":"event"},"client/app/services/restoreSession.jsx:61"]
+  ,[{"label":"window.location"},"client/app/unsupportedRedirect.js:5"]
+  ,[{"label":"window.location"},"viz-lib/src/visualizations/chart/Renderer/initChart.ts:9"]
+  ,[{"label":"pathname"},"client/app/services/location.js:8"]
+  ,[{"label":"search"},"client/app/services/location.js:8"]
+  ,[{"label":"hash"},"client/app/services/location.js:8"]]
+ }}

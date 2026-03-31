@@ -940,7 +940,7 @@ Session objects expose: `get()`, `post()`, `request()`, `send()`, `setHeader()`,
 | `generatePayloads(opts)` | Generate context-aware security payloads by type, context, technology, WAF |
 | `analyzeResponse(opts)` | Analyze HTTP exchange for vulnerability → `{vulnerable, confidence, evidence, details}` |
 | `confirmFinding(opts)` | Verify true positive → `{confirmed, confidence, reasoning, false_positive_indicators}` |
-| `run(opts)` | Run full agent backend subprocess (claude, opencode, gemini, etc.) |
+| `run(opts)` | Run full agent backend subprocess (claude, opencode, codex, etc.) |
 
 ### vigolium.oast (Out-of-Band Testing)
 

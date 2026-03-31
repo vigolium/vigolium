@@ -15,24 +15,25 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// fakeAuditAgentScript returns a shell script that mimics a vig-audit-agent
+// fakeAuditAgentScript returns a shell script that mimics an archon-audit
 // Claude Code process. It writes audit-state.json and finding files to the
-// security/ directory in CWD (which is the source path).
+// archon/ directory in CWD (which is the source path).
 func fakeAuditAgentScript(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-claude.sh")
 	content := `#!/bin/sh
-# Fake claude CLI that simulates vig-audit-agent behavior.
-# It writes audit state and findings to security/ in CWD.
+# Fake claude CLI that simulates archon-audit behavior.
+# It writes audit state and findings to archon/ in CWD.
 
-mkdir -p security/findings
+mkdir -p archon/findings-draft
 
 # Write audit state
-cat > security/audit-state.json <<'STATE'
+cat > archon/audit-state.json <<'STATE'
 {
   "audits": [
     {
@@ -41,7 +42,7 @@ cat > security/audit-state.json <<'STATE'
       "branch": "main",
       "started_at": "2026-03-29T10:00:00Z",
       "completed_at": "2026-03-29T10:30:00Z",
-      "status": "completed",
+      "status": "complete",
       "mode": "lite",
       "phases": {
         "1": {"status": "complete"},
@@ -56,35 +57,60 @@ cat > security/audit-state.json <<'STATE'
 }
 STATE
 
-# Write a critical finding
-cat > security/findings/C-001.md <<'FINDING'
-# SQL Injection in User Login
+# Write a high finding (phase 8 frontmatter format)
+cat > archon/findings-draft/p8-001-sql-injection-login.md <<'FINDING'
+Phase: 8
+Sequence: 001
+Slug: sql-injection-login
+Verdict: VALID
+Severity-Original: HIGH
+Severity-Final: HIGH
+PoC-Status: theoretical
+Adversarial-Verdict: CONFIRMED
 
-## Description
+## Summary
 
 The login endpoint at /api/auth/login is vulnerable to SQL injection
 via the username parameter.
+
+## Location
+
+- ` + "`" + `src/auth/login.go:42` + "`" + ` -- username parameter handling
 
 ## Evidence
 
 POST /api/auth/login with username=' OR 1=1--
 
-## Remediation
+## Reproduction Steps
 
-Use parameterized queries.
+1. Send POST request with malicious username
+2. Observe SQL error in response
 FINDING
 
-# Write a high finding
-cat > security/findings/H-001.md <<'FINDING'
-# Insecure Direct Object Reference in Profile API
+# Write a medium finding
+cat > archon/findings-draft/p8-002-idor-profile-api.md <<'FINDING'
+Phase: 8
+Sequence: 002
+Slug: idor-profile-api
+Verdict: VALID
+Severity-Original: MEDIUM
+Severity-Final: MEDIUM
+PoC-Status: pending
+Adversarial-Verdict: CONFIRMED
 
-## Description
+## Summary
 
 The /api/users/:id endpoint does not verify ownership.
 
-## Remediation
+## Location
 
-Add authorization checks.
+- ` + "`" + `src/api/users.go:88` + "`" + ` -- missing authorization check
+
+## Reproduction Steps
+
+1. Authenticate as user A
+2. Access /api/users/B
+3. Observe user B profile is returned
 FINDING
 
 echo "Audit complete."
@@ -100,9 +126,9 @@ func fakeSlowAuditAgentScript(t *testing.T) string {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-claude-slow.sh")
 	content := `#!/bin/sh
-mkdir -p security
-cat > security/audit-state.json <<'STATE'
-{"audits": [{"status": "in_progress", "mode": "lite", "phases": {"1": {"status": "complete"}, "2": {"status": "in_progress"}}}]}
+mkdir -p archon
+cat > archon/audit-state.json <<'STATE'
+{"audits": [{"audit_id": "2026-03-29T10:00:00Z", "commit": "abc123", "branch": "main", "started_at": "2026-03-29T10:00:00Z", "status": "in_progress", "mode": "lite", "phases": {"1": {"status": "complete"}, "2": {"status": "in_progress"}}}]}
 STATE
 # Sleep long enough that the test will cancel us
 sleep 30
@@ -111,32 +137,7 @@ sleep 30
 	return script
 }
 
-func newAuditTestSettings(t *testing.T, agentName, agentScript, claudeScript string) *config.Settings {
-	t.Helper()
-
-	enabled := true
-	backends := map[string]config.AgentDef{
-		agentName: {
-			Command:     agentScript,
-			Description: "Fake agent for audit e2e testing",
-		},
-	}
-
-	return &config.Settings{
-		Agent: config.AgentConfig{
-			DefaultAgent: agentName,
-			Backends:     backends,
-			AuditAgent: config.AuditAgentConfig{
-				Enable:       &enabled,
-				PluginDir:    filepath.Dir(claudeScript), // doesn't matter, we override claude binary
-				Mode:         "lite",
-				SyncInterval: 1, // 1 second for fast test
-			},
-		},
-	}
-}
-
-// TestAuditAgent_SwarmWithAuditAgent verifies that the audit agent runs in the
+// TestAuditAgent_SwarmWithAuditAgent verifies that the archon-audit runs in the
 // background during a swarm pipeline and ingests findings into the database.
 func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 	if testing.Short() {
@@ -148,13 +149,9 @@ func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 
 	_, repo := setupTestDB(t)
 
-	// Create a fake source directory for the audit agent to work in
 	sourceDir := t.TempDir()
 
-	// Create a fake claude script that writes findings
 	claudeScript := fakeAuditAgentScript(t)
-
-	// The swarm agent (pipe protocol) for the main pipeline
 	swarmScript := fakeSwarmAgentScript(t)
 
 	agentName := "fake-audit-swarm"
@@ -168,7 +165,7 @@ func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 					Description: "Fake swarm agent",
 				},
 			},
-			AuditAgent: config.AuditAgentConfig{
+			Archon: config.AuditAgentConfig{
 				Enable:       &enabled,
 				Mode:         "lite",
 				SyncInterval: 1,
@@ -188,19 +185,18 @@ func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 	os.Setenv("PATH", filepath.Dir(claudeScript)+":"+origPath)
 	t.Cleanup(func() { os.Setenv("PATH", origPath) })
 
-	// Rename the fake script to "claude" so exec.LookPath finds it
 	claudeDir := filepath.Dir(claudeScript)
 	claudeLink := filepath.Join(claudeDir, "claude")
 	require.NoError(t, os.Rename(claudeScript, claudeLink))
 
-	auditCfg := &settings.Agent.AuditAgent
+	auditCfg := &settings.Agent.Archon
 	cfg := agent.SwarmConfig{
 		Inputs:      []string{"http://localhost:12345/"},
 		SourcePath:  sourceDir,
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		AuditAgent:  auditCfg,
+		Archon:  auditCfg,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -208,25 +204,24 @@ func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Wait a moment for the audit agent to finish (it runs in background)
+	// Wait a moment for the archon-audit to finish (it runs in background)
 	time.Sleep(2 * time.Second)
 
 	// Verify: audit-state.json was synced to session dir
-	auditStatePath := filepath.Join(sessionDir, "audit-agent", "audit-state.json")
+	auditStatePath := filepath.Join(sessionDir, "archon-audit", "audit-state.json")
 	assert.FileExists(t, auditStatePath, "audit-state.json should be synced to session dir")
 
 	// Verify: findings were copied to session dir
-	findingsDir := filepath.Join(sessionDir, "audit-agent", "findings")
+	findingsDir := filepath.Join(sessionDir, "archon-audit", "findings-draft")
 	if _, err := os.Stat(findingsDir); err == nil {
 		entries, _ := os.ReadDir(findingsDir)
 		assert.GreaterOrEqual(t, len(entries), 2, "should have at least 2 finding files copied")
 	}
 
-	// Verify: findings were written to the source directory
-	srcFindingsDir := filepath.Join(sourceDir, "security", "findings")
-	entries, err := os.ReadDir(srcFindingsDir)
-	require.NoError(t, err)
-	assert.Equal(t, 2, len(entries), "should have C-001.md and H-001.md")
+	// Verify: archon/ dir was cleaned up from source (removed after import)
+	archonSrcDir := filepath.Join(sourceDir, "archon")
+	_, err = os.Stat(archonSrcDir)
+	assert.True(t, os.IsNotExist(err), "archon dir should be cleaned up from source after import")
 }
 
 // TestAuditAgent_SkippedWhenNoSource verifies that the audit agent is NOT started
@@ -253,7 +248,7 @@ func TestAuditAgent_SkippedWhenNoSource(t *testing.T) {
 					Description: "Fake swarm agent",
 				},
 			},
-			AuditAgent: config.AuditAgentConfig{
+			Archon: config.AuditAgentConfig{
 				Enable: &enabled,
 				Mode:   "lite",
 			},
@@ -273,7 +268,7 @@ func TestAuditAgent_SkippedWhenNoSource(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		AuditAgent:  &settings.Agent.AuditAgent,
+		Archon:  &settings.Agent.Archon,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -282,9 +277,9 @@ func TestAuditAgent_SkippedWhenNoSource(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Audit agent artifacts should NOT exist
-	auditDir := filepath.Join(sessionDir, "audit-agent")
+	auditDir := filepath.Join(sessionDir, "archon-audit")
 	_, err = os.Stat(auditDir)
-	assert.True(t, os.IsNotExist(err), "audit-agent dir should not exist without source")
+	assert.True(t, os.IsNotExist(err), "archon-audit dir should not exist without source")
 }
 
 // TestAuditAgent_SkippedWhenDisabled verifies that the audit agent is NOT started
@@ -328,7 +323,7 @@ func TestAuditAgent_SkippedWhenDisabled(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		AuditAgent:  nil, // explicitly nil
+		Archon:  nil, // explicitly nil
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -337,16 +332,16 @@ func TestAuditAgent_SkippedWhenDisabled(t *testing.T) {
 	require.NotNil(t, result)
 
 	// Audit agent artifacts should NOT exist
-	auditDir := filepath.Join(sessionDir, "audit-agent")
+	auditDir := filepath.Join(sessionDir, "archon-audit")
 	_, err = os.Stat(auditDir)
-	assert.True(t, os.IsNotExist(err), "audit-agent dir should not exist when disabled")
+	assert.True(t, os.IsNotExist(err), "archon-audit dir should not exist when disabled")
 }
 
 // TestAuditAgent_ResolveConfig verifies the shared config resolution logic.
 func TestAuditAgent_ResolveConfig(t *testing.T) {
 	baseCfg := config.AuditAgentConfig{
 		PluginDir:    "/custom/path",
-		Mode:         "full",
+		Mode:         "deep",
 		SyncInterval: 60,
 	}
 	enabledCfg := baseCfg
@@ -361,9 +356,11 @@ func TestAuditAgent_ResolveConfig(t *testing.T) {
 		wantMode string
 	}{
 		{"empty flag, disabled config", "", baseCfg, true, ""},
-		{"empty flag, enabled config", "", enabledCfg, false, "full"},
+		{"empty flag, enabled config", "", enabledCfg, false, "deep"},
 		{"flag=lite overrides config", "lite", baseCfg, false, "lite"},
-		{"flag=full overrides config", "full", baseCfg, false, "full"},
+		{"flag=deep overrides config", "deep", baseCfg, false, "deep"},
+		{"flag=scan overrides config", "scan", baseCfg, false, "scan"},
+		{"flag=full maps to deep", "full", baseCfg, false, "deep"},
 		{"flag=off disables even enabled config", "off", enabledCfg, true, ""},
 		{"flag preserves SyncInterval", "lite", enabledCfg, false, "lite"},
 	}
@@ -379,12 +376,10 @@ func TestAuditAgent_ResolveConfig(t *testing.T) {
 			assert.Equal(t, tt.wantMode, result.Mode)
 			assert.True(t, result.IsEnabled())
 
-			// Verify SyncInterval is preserved from base config
 			if tt.flag != "" && tt.cfg.SyncInterval > 0 {
 				assert.Equal(t, tt.cfg.SyncInterval, result.SyncInterval,
 					"SyncInterval from config should be preserved")
 			}
-			// Verify PluginDir is preserved
 			if tt.cfg.PluginDir != "" {
 				assert.Equal(t, tt.cfg.PluginDir, result.PluginDir,
 					"PluginDir from config should be preserved")
@@ -393,50 +388,42 @@ func TestAuditAgent_ResolveConfig(t *testing.T) {
 	}
 }
 
-// TestAuditAgent_EmbeddedPluginExtraction verifies that the embedded audit agent
-// plugin is extracted to the session dir and contains expected files.
+// TestAuditAgent_EmbeddedPluginExtraction verifies that the embedded archon-audit
+// harness is extracted and contains expected files.
 func TestAuditAgent_EmbeddedPluginExtraction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
 	}
 
-	baseDir := filepath.Join(t.TempDir(), "vig-audit-agent")
+	baseDir := filepath.Join(t.TempDir(), "archon-audit")
 
-	// Use the internal extraction function (via exported wrapper)
-	// We call extractAuditAgentTo indirectly — construct the default dir path
-	// and verify the extraction works.
-	pluginDir, err := agent.ExtractAuditAgentPlugin()
-	if err != nil {
-		// If home dir resolution fails in CI, skip
-		t.Skipf("Skipping: %v", err)
-	}
+	pluginDir, err := archon.ExtractArchonHarness(baseDir)
+	require.NoError(t, err)
 	require.NotEmpty(t, pluginDir)
 
 	// Verify key files exist
-	assert.FileExists(t, filepath.Join(pluginDir, "commands", "vig-run", "run.md"))
-	assert.FileExists(t, filepath.Join(pluginDir, "commands", "vig-run", "lite.md"))
+	assert.FileExists(t, filepath.Join(pluginDir, "commands", "archon", "deep.md"))
+	assert.FileExists(t, filepath.Join(pluginDir, "commands", "archon", "lite.md"))
+	assert.FileExists(t, filepath.Join(pluginDir, ".claude-plugin", "plugin.json"))
 
 	agentsDir := filepath.Join(pluginDir, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(entries), 20, "should have 20+ agent definition files")
 
-	// Verify audit skill is also extracted
-	auditAgentDir := agent.DefaultAuditAgentDir()
-	skillPath := filepath.Join(auditAgentDir, "skills", "audit", "SKILL.md")
-	assert.FileExists(t, skillPath, "audit SKILL.md should be extracted")
+	// Verify skills are extracted
+	skillsDir := filepath.Join(pluginDir, "skills")
+	_, err = os.Stat(skillsDir)
+	assert.NoError(t, err, "skills directory should exist")
 
 	// Verify idempotency — second call should be fast (marker hit)
-	pluginDir2, err := agent.ExtractAuditAgentPlugin()
+	pluginDir2, err := archon.ExtractArchonHarness(baseDir)
 	require.NoError(t, err)
 	assert.Equal(t, pluginDir, pluginDir2)
-
-	// Cleanup the extraction (it goes to ~/.vigolium/vig-audit-agent/)
-	_ = os.RemoveAll(baseDir)
 }
 
 // TestAuditAgent_CancelledMidRun verifies that when the swarm completes before
-// the audit agent, the audit agent is gracefully cancelled.
+// the archon-audit, the audit is gracefully cancelled.
 func TestAuditAgent_CancelledMidRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
@@ -449,7 +436,6 @@ func TestAuditAgent_CancelledMidRun(t *testing.T) {
 
 	sourceDir := t.TempDir()
 
-	// Slow audit script that sleeps 30s (will be cancelled)
 	claudeScript := fakeSlowAuditAgentScript(t)
 	claudeDir := filepath.Dir(claudeScript)
 	claudeLink := filepath.Join(claudeDir, "claude")
@@ -471,7 +457,7 @@ func TestAuditAgent_CancelledMidRun(t *testing.T) {
 					Description: "Fake swarm agent",
 				},
 			},
-			AuditAgent: config.AuditAgentConfig{
+			Archon: config.AuditAgentConfig{
 				Enable:       &enabled,
 				Mode:         "lite",
 				SyncInterval: 1,
@@ -493,60 +479,22 @@ func TestAuditAgent_CancelledMidRun(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		AuditAgent:  &settings.Agent.AuditAgent,
+		Archon:  &settings.Agent.Archon,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 		PhaseCallback: func(phase string) {
 			atomic.AddInt32(&auditPhaseLogged, 1)
 		},
 	}
 
-	// Swarm should complete quickly (fake agent is instant).
-	// The audit agent will be cancelled in the defer.
 	result, err := swarmRunner.Run(ctx, cfg)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// The audit agent should have had time to write initial state before being killed
-	auditStateSrc := filepath.Join(sourceDir, "security", "audit-state.json")
+	// The archon-audit should have had time to write initial state before being killed
+	auditStateSrc := filepath.Join(sourceDir, "archon", "audit-state.json")
 	if _, err := os.Stat(auditStateSrc); err == nil {
 		data, readErr := os.ReadFile(auditStateSrc)
 		assert.NoError(t, readErr)
 		assert.Contains(t, string(data), "in_progress", "slow audit should show in_progress state")
-	}
-}
-
-// TestAuditAgent_ParseFinding verifies finding parsing from markdown files.
-func TestAuditAgent_ParseFinding(t *testing.T) {
-	dir := t.TempDir()
-
-	// Write test finding files
-	criticalContent := "# SQL Injection in Login\n\nDescription of the finding.\n\n## Remediation\n\nUse parameterized queries."
-	highContent := "# IDOR in Profile API\n\nAnother finding."
-	noTitleContent := "Just some text without a heading."
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "C-001.md"), []byte(criticalContent), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "H-001.md"), []byte(highContent), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "X-999.md"), []byte(noTitleContent), 0644))
-
-	tests := []struct {
-		file     string
-		wantID   string
-		wantSev  string
-		wantTitle string
-	}{
-		{"C-001.md", "C-001", "critical", "SQL Injection in Login"},
-		{"H-001.md", "H-001", "high", "IDOR in Profile API"},
-		{"X-999.md", "X-999", "medium", "X-999"}, // unknown prefix defaults to medium, no title defaults to ID
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.file, func(t *testing.T) {
-			finding, err := agent.ParseAuditFinding(filepath.Join(dir, tt.file))
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantID, finding.ID)
-			assert.Equal(t, tt.wantSev, finding.Severity)
-			assert.Equal(t, tt.wantTitle, finding.Title)
-			assert.NotEmpty(t, finding.Description)
-		})
 	}
 }

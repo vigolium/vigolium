@@ -101,7 +101,7 @@ pkg/
     passive/            Passive analyzers (DOM XSS, secrets, headers, cookies, ...)
     shared/diffscan/    Differential response analysis engine
     infra/              WAF/block detection, request filtering
-  agent/                AI agent engine — SDK/ACP/Codex/OpenCode runners, terminal sandbox, swarm runner, warm session pooling, prompt templates
+  agent/                AI agent engine — SDK/Codex/OpenCode runners, swarm runner, warm session pooling, prompt templates
   deparos/              Content discovery engine (Deparos)
   spitolas/             Browser spider (Spitolas) — Chromium, state machine, forms
   spa/                  Nuclei + Kingfisher integration
@@ -259,17 +259,16 @@ See [docs/customization/writing-extensions.md](docs/customization/writing-extens
 The agent system (`pkg/agent/`) integrates with coding agent CLIs via protocol-specific backends:
 
 - **SDK protocol** (`claudesdk/`, `sdk_runner.go`): Claude Agent SDK — JSON-lines communication with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write). Default and recommended.
-- **ACP protocol** (`acp_runner.go`, `acp_terminal.go`): Agent Communication Protocol — bidirectional structured communication. Supports sandboxed terminal execution (autopilot mode) with command allowlisting.
 - **Codex-SDK** (`codex_runner.go`): OpenAI Codex native JSON-RPC v2 protocol.
 - **OpenCode-SDK** (`opencode_runner.go`): OpenCode native REST + SSE streaming protocol.
 - **Pipe** (`runner.go`): Legacy stdin/stdout fallback for any CLI tool.
 
 Operational modes:
 - **Query mode** (`engine.go`): Single-shot prompt execution via any protocol. Renders a template, sends to agent, parses structured JSON output.
-- **Autopilot mode** (`sdk_runner.go`, `acp_runner.go`): Autonomous scanning. SDK mode gives full coding agent tools; ACP mode uses a sandboxed terminal (`acp_terminal.go`) restricted to `vigolium` commands.
+- **Autopilot mode** (`sdk_runner.go`): Autonomous scanning. SDK mode gives full coding agent tools.
 - **Swarm mode** (`swarm.go`): Multi-phase pipeline (normalize → source analysis → code audit → SAST → discover → plan → extension → scan → triage → rescan). Native Go handles scanning; AI agents intervene at strategic checkpoints. Use `swarm --discover` for full-scope scanning.
 
-Warm session pooling (`session_pool.go`, `sdk_pool.go`, `acp_pool.go`, `codex_pool.go`, `opencode_pool.go`) reuses agent subprocesses across multiple AI calls within a single run.
+Warm session pooling (`session_pool.go`, `sdk_pool.go`, `codex_pool.go`, `opencode_pool.go`) reuses agent subprocesses across multiple AI calls within a single run.
 
 Prompt templates are Markdown with YAML frontmatter in `public/presets/prompts/`. Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`. See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
 

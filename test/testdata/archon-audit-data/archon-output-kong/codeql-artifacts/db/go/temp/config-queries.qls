@@ -1,0 +1,73 @@
+---
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-209/StackTraceExposure.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-601/OpenUrlRedirect.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-601/BadRedirectCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-326/InsufficientKeySize.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-327/BrokenCryptoAlgorithm.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-327/WeakSensitiveDataHashing.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-327/InsecureTLS.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-918/RequestForgery.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-190/AllocationSizeOverflow.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-614/CookieWithoutSecure.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-089/SqlInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-089/StringBreak.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-020/MissingRegexpAnchor.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-020/IncompleteUrlSchemeCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-020/IncompleteHostnameRegexp.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-020/SuspiciousCharacterInRegexp.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-640/EmailInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-295/DisabledCertificateCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-347/MissingJwtSignatureCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-770/UncontrolledAllocationSize.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-322/InsecureHostKeyCallback.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-312/CleartextLogging.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-352/ConstantOauth2State.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-338/InsecureRandomness.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-1004/CookieWithoutHttpOnly.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-022/UnsafeUnzipSymlink.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-022/ZipSlip.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-022/TaintedPath.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-078/CommandInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-681/IncorrectIntegerConversionQuery.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-643/XPathInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-079/ReflectedXss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Security/CWE-079/HtmlTemplateEscapingBypassXss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Diagnostics/ExtractionErrors.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Diagnostics/SuccessfullyExtractedFiles.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/go-queries/1.5.10/Summary/LinesOfCode.ql

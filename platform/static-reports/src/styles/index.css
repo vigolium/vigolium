@@ -12,6 +12,8 @@
   --color-warm-border: #bbc3c4;
   --color-warm-border-light: #d4e8e2;
   --color-text-muted: #5c6166;
+  --color-code-bg: #e8dcc6;
+  --color-code-fg: #8b3a0e;
 
   --font-serif: "IBM Plex Mono", monospace;
   --font-sans: "IBM Plex Mono", monospace;
@@ -35,6 +37,11 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 0;
+}
+
+/* Logo glow */
+.logo-glow {
+  filter: drop-shadow(0 0 4px var(--color-terracotta));
 }
 
 /* Small caps */
@@ -116,6 +123,133 @@ body {
   border-top: 1px solid var(--color-warm-border);
 }
 
+/* ============================================================
+   Markdown prose styles for finding descriptions
+   ============================================================ */
+
+.prose-finding {
+  line-height: 1.6;
+}
+
+.prose-finding h2 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-charcoal);
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--color-warm-border);
+}
+
+.prose-finding h2:first-child {
+  margin-top: 0;
+}
+
+.prose-finding h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-charcoal);
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+}
+
+.prose-finding p {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
+.prose-finding ul,
+.prose-finding ol {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+  padding-left: 1.5em;
+}
+
+.prose-finding ul {
+  list-style-type: disc;
+}
+
+.prose-finding ol {
+  list-style-type: decimal;
+}
+
+.prose-finding li {
+  margin-top: 0.15em;
+  margin-bottom: 0.15em;
+}
+
+.prose-finding code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-warm-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--color-code-fg);
+}
+
+.prose-finding pre {
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-warm-border);
+  border-radius: 4px;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose-finding pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+}
+
+.prose-finding strong {
+  font-weight: 700;
+  color: var(--color-charcoal);
+}
+
+.prose-finding a {
+  color: var(--color-terracotta);
+  text-decoration: underline;
+}
+
+/* ============================================================
+   Markdown syntax highlighting (raw view)
+   ============================================================ */
+
+.md-hl-heading {
+  color: var(--color-charcoal);
+  font-weight: 700;
+}
+
+.md-hl-bold {
+  color: var(--color-charcoal);
+  font-weight: 700;
+}
+
+.md-hl-code {
+  color: var(--color-code-fg);
+}
+
+.md-hl-inline-code {
+  color: var(--color-code-fg);
+  background: var(--color-code-bg);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.md-hl-list {
+  color: var(--color-terracotta);
+  font-weight: 700;
+}
+
 /* Print styles */
 @media print {
   .no-print {
@@ -156,6 +290,8 @@ body {
   --color-warm-border: #383530;
   --color-warm-border-light: #4a4641;
   --color-text-muted: #918175;
+  --color-code-bg: #2a2825;
+  --color-code-fg: #7fd962;
 }
 
 /* Subtle noise texture for dark */

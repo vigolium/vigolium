@@ -1,6 +1,6 @@
 # Agent Mode
 
-Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, Gemini, or any custom CLI tool) into the vulnerability scanning workflow. One query mode and two **agentic scan** modes are available, each with different levels of AI involvement and scope.
+Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, or any custom CLI tool) into the vulnerability scanning workflow. One query mode and two **agentic scan** modes are available, each with different levels of AI involvement and scope.
 
 ## Mode Overview
 
@@ -77,9 +77,6 @@ vigolium agent --prompt-template endpoint-discovery --source ~/projects/django-a
 # Code review with additional focus instructions
 vigolium agent --prompt-template security-code-review --source ./src --append "Pay special attention to deserialization and file upload handling"
 
-# Use a specific agent backend (e.g., Gemini)
-vigolium agent --prompt-template injection-sinks --source ./src --agent gemini
-
 # Save agent output to a file for later review
 vigolium agent --prompt-template security-code-review --source ./src --output review-results.json
 
@@ -148,14 +145,14 @@ At least one of `prompt_template`, `prompt_file`, or `prompt` is required.
 
 ## Autopilot (Agentic Scan)
 
-Full autonomous control. The AI agent drives the vigolium CLI through a sandboxed terminal, deciding what to scan, interpreting results, and iterating.
+Full autonomous control. The AI agent drives the vulnerability scanning workflow, deciding what to scan, interpreting results, and iterating. When `--source` is provided, a background **archon-audit** agent runs in parallel — performing deep multi-phase whitebox security auditing of the source code (commit archaeology, SAST, adversarial debate, cold verification) while the main agent handles dynamic scanning.
 
 ### What It Does
 
-- Spawns an AI agent with terminal execution capability via ACP (Agent Communication Protocol)
-- Agent autonomously runs vigolium commands: discovery, targeted scans, traffic browsing, finding review
-- All commands execute inside a strict security sandbox (only `vigolium` commands, no shell, no destructive ops)
+- Spawns an AI agent with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write)
+- Agent autonomously handles recon, vulnerability analysis, native scanning, exploit verification, and reporting
 - Agent decides its own workflow — discover, scan, review, iterate, report
+- **Background archon-audit** (optional, with `--archon`): runs a parallel multi-phase source code audit producing rich whitebox findings with adversarial verification, then imports them into the database
 
 ### CLI
 
@@ -165,6 +162,12 @@ vigolium agent autopilot -t https://example.com
 
 # With source code context
 vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
+
+# With background archon-audit (deep 11-phase whitebox audit)
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon deep
+
+# Quick 3-phase archon audit alongside dynamic scanning
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon lite
 
 # With focus area
 vigolium agent autopilot -t https://api.example.com --focus "auth bypass"
@@ -188,6 +191,9 @@ vigolium agent autopilot --input "POST /api/search HTTP/1.1\r\nHost: example.com
 # Source-aware scan of specific files in a large codebase
 vigolium agent autopilot -t http://localhost:8080 --source ~/projects/spring-app --files src/main/java/auth/,src/main/java/api/
 
+# Source-aware with deep archon-audit for comprehensive whitebox + dynamic coverage
+vigolium agent autopilot -t http://localhost:8080 --source ~/projects/spring-app --archon deep
+
 # Guide the agent with custom instructions
 vigolium agent autopilot -t https://staging.example.com --instruction "Test only the /admin and /api/v2 endpoints. Check for IDOR and privilege escalation."
 
@@ -196,15 +202,6 @@ vigolium agent autopilot -t https://example.com --instruction-file scope.txt
 
 # Quick scan with tight limits for a CI job
 vigolium agent autopilot -t https://example.com --max-commands 20 --timeout 5m
-
-# Use a different agent backend
-vigolium agent autopilot -t https://example.com --agent gemini --focus "file upload vulnerabilities"
-
-# Use a custom ACP command for a third-party agent
-vigolium agent autopilot -t https://example.com --agent-acp-cmd "my-agent acp-serve"
-
-# Override the system prompt entirely
-vigolium agent autopilot -t https://example.com --system-prompt custom-autopilot.md
 
 # Show the rendered prompt before execution for debugging
 vigolium agent autopilot -t https://example.com --show-prompt --focus "SSRF via URL parameters"
@@ -222,7 +219,31 @@ vigolium agent autopilot -t http://localhost:3000 --source ./src --focus "SQL in
 | `--focus` | — | Focus area hint (e.g., "API injection") |
 | `--timeout` | 30m | Overall timeout |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
+| `--archon` | — | Run background archon-audit: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Requires `--source` |
 | `--dry-run` | false | Render system prompt without launching |
+
+### Background Archon-Audit
+
+When `--archon` is provided alongside `--source`, vigolium launches a parallel archon-audit process that performs deep whitebox security auditing of the source code. This runs independently of the main autopilot agent.
+
+**Archon-audit modes:**
+
+| Mode | Phases | Duration | Description |
+|------|--------|----------|-------------|
+| `lite` | 3 | Minutes | Quick code review — commit archaeology, knowledge base, basic findings |
+| `scan` | 6 | ~1 hour | Standard audit — adds SAST, enrichment, finding validation |
+| `deep` | 11 | Hours | Full audit — adds adversarial debate chambers, cold verification, variant hunting, bypass analysis |
+
+**What happens:**
+
+1. Archon-audit launches as a background Claude Code process in the source directory
+2. It writes output to `<source>/archon/` (audit-state.json, findings-draft/, reports)
+3. Vigolium syncs `audit-state.json` and findings to `~/.vigolium/agent-sessions/<session>/archon-audit/` every 30 seconds
+4. Phase progress is tracked in a child `AgentRun` record (mode=`archon`, linked to parent autopilot run)
+5. On completion, all findings are imported into the database via the archon parser (rich structured data with CWE, adversarial verdicts, PoC status)
+6. The `<source>/archon/` directory is cleaned up (the copy lives in the session dir)
+
+Archon findings appear in the database with `finding_source=archon` and `module_type=whitebox`, distinguishable from the main autopilot's dynamic findings.
 
 ### API
 
@@ -238,13 +259,10 @@ POST /api/agent/run/autopilot
   "focus": "API injection",
   "max_commands": 50,
   "timeout": "30m",
+  "archon": "deep",
   "stream": true
 }
 ```
-
-### Security Sandbox
-
-The agent can only execute `vigolium` commands. Shell metacharacters, destructive subcommands (`db clean`, `db drop`), and non-vigolium binaries are blocked. Each command has a 5-minute timeout and 256KB output cap.
 
 ### Pros and Cons
 
@@ -254,6 +272,7 @@ The agent can only execute `vigolium` commands. Shell metacharacters, destructiv
 | Can discover unexpected attack vectors | Unpredictable runtime and coverage |
 | Source-aware workflow when `--source` provided | Results depend heavily on agent quality |
 | No prior knowledge of target needed | Harder to reproduce — agent may take different paths |
+| Background archon-audit adds deep whitebox findings in parallel | Archon-audit requires `--source` and adds AI cost |
 
 ### When to Use
 
@@ -261,6 +280,7 @@ The agent can only execute `vigolium` commands. Shell metacharacters, destructiv
 - **Research and experimentation** — trying creative attack strategies
 - You want **hands-off scanning** and don't mind variable runtime
 - **Source-aware scanning** — agent reads code, identifies sinks, crafts targeted attacks
+- **Deep whitebox + dynamic combo** — use `--archon deep --source` for comprehensive coverage from both code analysis and runtime testing
 
 ---
 
@@ -346,9 +366,6 @@ vigolium agent swarm -t http://localhost:8080 --source ./src --instruction "Focu
 # Load instructions from a file
 vigolium agent swarm -t https://example.com/api --instruction-file pentest-scope.txt
 
-# Use a different agent backend
-vigolium agent swarm -t https://example.com/api/search --agent gemini --vuln-type xss
-
 # Scan only the audit phase (skip discovery/spidering)
 vigolium agent swarm -t https://example.com/api/users --only audit
 
@@ -363,9 +380,6 @@ vigolium agent swarm -t https://example.com/api/v2/orders -m xss-reflected,xss-d
 
 # Base64-encoded Burp request (common when copying from Burp)
 vigolium agent swarm --input "UE9TVCAvYXBpL2xvZ2luIEhUVFAvMS4xDQpIb3N0OiBleGFtcGxlLmNvbQ0K..."
-
-# Use a custom ACP command for a third-party agent
-vigolium agent swarm -t https://example.com/api --agent-acp-cmd "my-agent acp-serve"
 
 # Show rendered prompts before execution for debugging
 vigolium agent swarm -t https://example.com/api/users --show-prompt --vuln-type sqli
@@ -624,17 +638,16 @@ All three modes share a common execution engine (`pkg/agent/engine.go`). Query i
 | Discovery/spidering | — | Agent decides | Optional (`--discover`) |
 | Triage + rescan loop | — | Agent decides | Phases 9-10 |
 | Input batching | — | — | >5 records batched |
-| Terminal access | No | Yes (sandboxed via ACP) | No |
-| Full CLI tool access (SDK) | Yes | Yes (SDK) or sandboxed (ACP) | Yes |
+| Full CLI tool access | Yes | Yes | Yes |
 | Structured output schema | findings, http_records | Unstructured | SwarmPlan, TriageResult |
 | Warm session pooling | Optional | Enabled | Forced |
 | Resumable phases | — | — | `--start-from`, `--source-analysis-only` |
 
 ### Autopilot vs Swarm (Agentic Scan Tradeoffs)
 
-Both are agentic scan modes. With SDK protocol, autopilot agents get full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) for unrestricted autonomous workflows. With ACP protocol, autopilot uses a sandboxed terminal that only allows `vigolium` commands. The tradeoff:
+Both are agentic scan modes. Autopilot agents get full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) for autonomous workflows. The tradeoff:
 
-- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and handle unexpected findings. SDK mode provides full coding agent capability.
+- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and handle unexpected findings with full coding agent capability.
 - **Swarm advantage:** Agentic scan with native Go handling the scanning phases (faster, cheaper), AI only called at strategic points
 
 ### When Modes Genuinely Differ
@@ -670,13 +683,6 @@ agent:
       protocol: sdk
       model: sonnet
 
-    # Claude Code (ACP — for autopilot terminal mode)
-    claude-acp:
-      command: npx
-      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
-      protocol: acp
-      model: sonnet
-
     # OpenAI Codex (native JSON-RPC v2)
     codex:
       command: codex
@@ -686,26 +692,13 @@ agent:
     opencode:
       command: opencode
       protocol: opencode-sdk
-
-    # Google Gemini (ACP)
-    gemini:
-      command: gemini
-      args: ["--experimental-acp"]
-      protocol: acp
-
-    # Cursor (ACP)
-    cursor:
-      command: cursor
-      args: ["acp"]
-      protocol: acp
 ```
 
-Five protocols are supported:
+Four protocols are supported:
 
 | Protocol | Tool Access | Description |
 |----------|-------------|-------------|
 | `sdk` | Full (Read, Grep, Glob, Bash, Edit, Write) | Claude Agent SDK — JSON-lines protocol. **Default and recommended.** Highest output quality. |
-| `acp` | ReadTextFile only | Agent Communication Protocol — structured bidirectional communication, supports terminal execution. |
 | `codex-sdk` | Full tools | Codex native JSON-RPC v2 protocol. |
 | `opencode-sdk` | Full tools | OpenCode native REST + SSE streaming protocol. |
 | `pipe` | None (text only) | Classic stdin/stdout — prompt piped to stdin, output read from stdout. Legacy fallback. |

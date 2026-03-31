@@ -103,8 +103,8 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 			if req.Instruction == "" {
 				req.Instruction = app.Instruction
 			}
-			if req.AuditAgent == "" {
-				req.AuditAgent = app.AuditAgent
+			if req.Archon == "" {
+				req.Archon = app.Archon
 			}
 		}
 	}
@@ -203,8 +203,8 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent
 		ScanUUID:    req.ScanUUID,
 	}
 
-	if auditCfg := agent.ResolveAuditAgentConfig(req.AuditAgent, h.settings.Agent.AuditAgent); auditCfg != nil {
-		cfg.AuditAgent = auditCfg
+	if auditCfg := agent.ResolveAuditAgentConfig(req.Archon, h.settings.Agent.Archon); auditCfg != nil {
+		cfg.Archon = auditCfg
 	}
 
 	return cfg
@@ -391,8 +391,8 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			if app.CodeAudit {
 				req.CodeAudit = true
 			}
-			if req.AuditAgent == "" {
-				req.AuditAgent = app.AuditAgent
+			if req.Archon == "" {
+				req.Archon = app.Archon
 			}
 		}
 	}
@@ -540,20 +540,6 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		normalizedSkip = append(normalizedSkip, agent.SwarmPhaseTriage)
 	}
 
-	// Merge terminal config: request fields take precedence over config file
-	slashCmds := req.SlashCommands
-	customAgents := req.CustomAgents
-	maxCommands := req.MaxCommands
-	if len(slashCmds) == 0 {
-		slashCmds = h.settings.Agent.SwarmTerminal.SlashCommands
-	}
-	if len(customAgents) == 0 {
-		customAgents = h.settings.Agent.SwarmTerminal.CustomAgents
-	}
-	if maxCommands <= 0 {
-		maxCommands = h.settings.Agent.SwarmTerminal.EffectiveMaxCommands()
-	}
-
 	// Apply scanning profile if specified
 	settings := h.settings
 	if req.Profile != "" {
@@ -583,10 +569,6 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		SAMaxConcurrency:   req.SAMaxConcurrency,
 		MaxPlanRecords:     req.MaxPlanRecords,
 		AgentName:          agentName,
-		AgentACPCmd:        req.AgentACPCmd,
-		SlashCommands:      slashCmds,
-		CustomAgents:       customAgents,
-		MaxCommands:        maxCommands,
 		DryRun:             req.DryRun,
 		ShowPrompt:         req.ShowPrompt,
 		SourceAnalysisOnly: req.SourceAnalysisOnly,
@@ -623,9 +605,9 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		}
 	}
 
-	// Wire audit agent
-	if auditCfg := agent.ResolveAuditAgentConfig(req.AuditAgent, h.settings.Agent.AuditAgent); auditCfg != nil {
-		cfg.AuditAgent = auditCfg
+	// Wire archon
+	if auditCfg := agent.ResolveAuditAgentConfig(req.Archon, h.settings.Agent.Archon); auditCfg != nil {
+		cfg.Archon = auditCfg
 	}
 
 	return cfg

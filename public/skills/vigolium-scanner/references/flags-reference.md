@@ -112,7 +112,6 @@ Flags specific to `vigolium scan` and `vigolium run`.
 | `--no-forms` | — | bool | `false` | Disable automatic form detection and filling during spidering |
 | `--oast-url` | — | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
 | `--output` | `-o` | string | — | Output file path |
-| `--pilot` | — | bool | `false` | Enable AI pilot-driven crawling (ACP agent controls browser) |
 | `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--retries` | — | int | `1` | Number of retry attempts for failed requests |
 | `--rule` | — | string | — | Filter SAST rules by fuzzy name match (e.g. 'gin', 'route') |
@@ -169,11 +168,10 @@ Flags specific to `vigolium server`.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command for all agent runs |
 | `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
 | `--catchup-threads` | — | int | `4` | Workers for background scanning of unscanned records |
 | `--disable-catchup` | — | bool | `false` | Disable automatic background scanning of unscanned records |
-| `--disable-warm-session` | — | bool | `false` | Disable agent subprocess warm session pooling |
+| `--disable-warm-session` | — | bool | `false` | Disable agent warm session pooling |
 | `--host` | — | string | `0.0.0.0` | Bind address for the API server |
 | `--ingest-proxy-port` | — | int | `0` | Transparent HTTP proxy port for recording traffic (0 = disabled) |
 | `--mem-buffer` | — | int | `10000` | In-memory queue capacity before spilling to disk |
@@ -213,7 +211,6 @@ Flags specific to `vigolium agent query`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command |
 | `--agent-timeout` | — | duration | `5m` | Maximum time for agent execution |
 | `--append` | — | string | — | Append extra text to the rendered prompt |
 | `--dry-run` | — | bool | `false` | Print the rendered prompt without executing |
@@ -238,7 +235,6 @@ Flags specific to `vigolium agent autopilot`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
 | `--files` | — | []string | — | Specific files to include (relative to --source) |
 | `--focus` | — | string | — | Focus area hint |
@@ -246,7 +242,7 @@ Flags specific to `vigolium agent autopilot`.
 | `--instruction` | — | string | — | Custom instruction to guide the agent |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
 | `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
-| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough to ACP sessions |
+| `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough |
 | `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
@@ -266,11 +262,9 @@ Flags specific to `vigolium agent swarm`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command |
 | `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto) |
 | `--code-audit` | — | bool | `false` | Enable AI security code audit phase |
 | `--custom-agent` | — | []string | — | Custom agents the swarm can invoke (repeatable) |
-| `--custom-slash-command` | — | []string | — | Slash commands available inside the ACP session (repeatable) |
 | `--discover` | — | bool | `false` | Run discovery+spidering before master agent planning |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
 | `--files` | — | []string | — | Specific source files to include |

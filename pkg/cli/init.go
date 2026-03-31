@@ -100,8 +100,8 @@ func initializeVigolium() error {
 	// Bootstrap prompt templates
 	bootstrapPrompts(vigoliumDir)
 
-	// Bootstrap embedded audit agent (plugin + skills)
-	bootstrapAuditAgent()
+	// Bootstrap embedded archon-audit harness
+	bootstrapArchonAudit()
 
 	// Print success message
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
@@ -250,12 +250,12 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 	}
 }
 
-// bootstrapAuditAgent extracts the embedded vig-audit-agent (plugin + skills) to
-// ~/.vigolium/vig-audit-agent/. Uses version-aware hashing so binary upgrades
+// bootstrapArchonAudit extracts the embedded archon-audit harness (agents, commands,
+// skills) to ~/.vigolium/archon-audit/. Uses version-aware hashing so binary upgrades
 // trigger re-extraction automatically.
-func bootstrapAuditAgent() {
-	if _, err := agent.ExtractAuditAgentPlugin(); err != nil {
-		zap.L().Debug("Failed to extract audit agent plugin", zap.Error(err))
+func bootstrapArchonAudit() {
+	if _, err := agent.ExtractArchonPlugin(); err != nil {
+		zap.L().Debug("Failed to extract archon-audit harness", zap.Error(err))
 	}
 }
 
@@ -271,9 +271,9 @@ func ensureInitialized() error {
 
 	// Check if already initialized
 	if _, err := os.Stat(settingsPath); err == nil {
-		// Already initialized — still re-extract audit agent on binary upgrades
+		// Already initialized — still re-extract archon harness on binary upgrades
 		// (version-aware hash makes this a no-op when unchanged)
-		bootstrapAuditAgent()
+		bootstrapArchonAudit()
 		return nil
 	}
 

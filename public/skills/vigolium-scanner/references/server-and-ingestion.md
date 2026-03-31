@@ -21,11 +21,10 @@ Start the API server with Swagger UI, ingestion endpoints, and optional scan-on-
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--agent-acp-cmd` | — | string | — | Custom ACP agent command for all agent runs (e.g. 'traecli acp') |
 | `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
 | `--catchup-threads` | — | int | `4` | Workers for background scanning of unscanned records |
 | `--disable-catchup` | — | bool | `false` | Disable automatic background scanning of unscanned records |
-| `--disable-warm-session` | — | bool | `false` | Disable agent subprocess warm session pooling |
+| `--disable-warm-session` | — | bool | `false` | Disable agent warm session pooling |
 | `--host` | — | string | `0.0.0.0` | Bind address for the API server |
 | `--ingest-proxy-port` | — | int | `0` (disabled) | Transparent HTTP proxy port for recording traffic |
 | `--mem-buffer` | — | int | `10000` | In-memory queue capacity before spilling to disk |

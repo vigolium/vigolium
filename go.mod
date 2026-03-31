@@ -27,7 +27,6 @@ require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/andybalholm/cascadia v1.3.3
 	github.com/antchfx/htmlquery v1.3.5
-	github.com/coder/acp-go-sdk v0.6.3
 	github.com/docker/go-connections v0.6.0
 	github.com/evanw/esbuild v0.27.3
 	github.com/fsnotify/fsnotify v1.9.0

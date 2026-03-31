@@ -53,7 +53,6 @@ func init() {
 	flags.BoolVar(&scanOpts.SpideringHeadless, "headless", true, "Run browser in headless mode")
 	flags.BoolVar(&scanOpts.SpideringNoCDP, "no-cdp", false, "Disable CDP event listener detection")
 	flags.BoolVar(&scanOpts.SpideringNoForms, "no-forms", false, "Disable automatic form filling")
-	flags.BoolVar(&scanOpts.SpideringPilotMode, "pilot", false, "Enable AI pilot-driven crawling")
 
 	// External intelligence harvesting flags
 	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Run pre-scan external intelligence harvesting from external sources")

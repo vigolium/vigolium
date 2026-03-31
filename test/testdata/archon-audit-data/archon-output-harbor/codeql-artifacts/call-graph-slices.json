@@ -1,0 +1,64 @@
+{
+  "count": 4,
+  "slices": [
+    {
+      "slice_id": "DFD-1",
+      "name": "API query parameter to SQL (ORM filter injection)",
+      "path": [
+        "HTTP GET /api/v2.0/* ?q=field~value",
+        "go-swagger param binding -> params.Q (*string)",
+        "handler.BuildQuery(ctx, params.Q, ...) -> lib/q.Build()",
+        "lib/q/query.go:Build() -> parse q param into q.Query",
+        "lib/orm/query.go:QuerySetter.FilterFunc()",
+        "pkg/securityhub/dao/security.go:exactMatchFilter() [fmt.Sprintf AND %v = ?]",
+        "beego ORM -> PostgreSQL"
+      ],
+      "risk": "HIGH",
+      "codeql_flows_confirmed": 44
+    },
+    {
+      "slice_id": "DFD-2",
+      "name": "Webhook/Replication/Preheat SSRF",
+      "path": [
+        "POST /api/v2.0/projects/{id}/webhook/policies -> address field",
+        "handler.CreateWebhookPolicyOfProject -> RequireProjectAccess (present)",
+        "notificationController.CreatePolicy() -> DB store with target URL",
+        "Event trigger -> Redis job queue",
+        "jobservice picks up job -> WebhookJob.execute()",
+        "params[address].(string) -> http.NewRequest(POST, address, payload)",
+        "httpHelper.clients[insecure/secure].Do(req) -> external/internal endpoint"
+      ],
+      "risk": "HIGH",
+      "ssrf_controls": "None: no private-IP filter, no scheme allowlist, no DNS pinning"
+    },
+    {
+      "slice_id": "DFD-3",
+      "name": "OIDC callback open redirect",
+      "path": [
+        "GET /c/oidc/login?redirect_url=<value>",
+        "OIDCController.RedirectLogin() -> utils.IsLocalPath(redirect_url) CHECK PRESENT",
+        "Stored in session under redirectURLKey",
+        "GET /c/oidc/callback?code=X&state=Y",
+        "OIDCController.Callback() -> retrieve redirectURLStr from session",
+        "Redirect to /oidc-onboard?username=X&redirect_url=<unencoded redirectURLStr>",
+        "Angular oidc-onboard.component.ts -> router.navigateByUrl(redirectUrl) NO RE-VALIDATION"
+      ],
+      "risk": "MEDIUM",
+      "note": "Initial validation exists at /c/oidc/login but redirect_url is passed as URL param to /oidc-onboard without re-encoding or re-validation. Angular router.navigateByUrl accepts relative paths so external redirect is limited, but XSS via javascript: URIs possible in some router versions."
+    },
+    {
+      "slice_id": "CFD-1",
+      "name": "Auth proxy redirect SSRF/open redirect",
+      "path": [
+        "GET /c/login with auth-proxy token",
+        "AuthProxyController.HandleRedirect()",
+        "uri := r.URL.Query().Get(postURIKey)",
+        "No IsLocalPath validation performed",
+        "apc.Ctx.Redirect(301, uri)"
+      ],
+      "risk": "HIGH",
+      "codeql_confirmed": true,
+      "note": "CodeQL go/unvalidated-url-redirection confirmed this path at authproxy_redirect.go:77"
+    }
+  ]
+}

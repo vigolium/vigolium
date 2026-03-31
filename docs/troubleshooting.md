@@ -193,12 +193,9 @@ agent:
 ```bash
 # Verify Claude CLI is available
 claude --version
-
-# For ACP backend (alternative)
-npx @zed-industries/claude-agent-acp@latest
 ```
 
-3. **Check API keys.** Ensure the required API keys are set as environment variables (e.g., `ANTHROPIC_API_KEY` for Claude, `GEMINI_API_KEY` for Gemini, `OPENAI_API_KEY` for Codex).
+3. **Check API keys.** Ensure the required API keys are set as environment variables (e.g., `ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex).
 
 4. **Verify session directory permissions.** Agent sessions are stored under `~/.vigolium/agent-sessions/` by default (configurable via `agent.sessions_dir` in `vigolium-configs.yaml`). Ensure this directory is writable.
 

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 )
 
 func TestTryStructuredFallback_URL(t *testing.T) {
@@ -123,12 +125,12 @@ func TestExpandHome(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := expandHome(tt.input)
+		result := agenttypes.ExpandHome(tt.input)
 		if tt.home && tt.input != "" && result[0] != '/' {
-			t.Errorf("expandHome(%q) = %q, expected absolute path", tt.input, result)
+			t.Errorf("ExpandHome(%q) = %q, expected absolute path", tt.input, result)
 		}
 		if tt.input == "" && result != "" {
-			t.Errorf("expandHome(\"\") = %q, expected empty", result)
+			t.Errorf("ExpandHome(\"\") = %q, expected empty", result)
 		}
 	}
 }

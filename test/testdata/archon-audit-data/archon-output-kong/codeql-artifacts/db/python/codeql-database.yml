@@ -1,0 +1,12 @@
+---
+sourceLocationPrefix: /Users/bytedance/Desktop/demo/kong/spec
+baselineLinesOfCode: 213
+unicodeNewlines: false
+columnKind: utf32
+primaryLanguage: python
+creationMetadata:
+  cliVersion: 2.24.2
+  creationTime: 2026-03-30T08:09:49.606727Z
+overlayBaseDatabase: false
+overlayDatabase: false
+finalised: true

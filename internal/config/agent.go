@@ -11,13 +11,12 @@ type AgentConfig struct {
 	Stream       *bool               `yaml:"stream,omitempty"`
 	LLM          LLMConfig           `yaml:"llm"`
 	WarmSession  WarmSessionConfig   `yaml:"warm_session"`
-	McpEnabled    *bool               `yaml:"mcp_enabled,omitempty"`    // enable MCP server passthrough to ACP sessions (default: false)
-	McpServers    []McpServerConfig   `yaml:"mcp_servers,omitempty"`    // global MCP servers attached to all ACP sessions when mcp_enabled is true
-	SwarmTerminal SwarmTerminalConfig `yaml:"swarm_terminal,omitempty"` // terminal config for swarm agent sessions
+	McpEnabled    *bool               `yaml:"mcp_enabled,omitempty"`    // enable MCP server passthrough to agent sessions (default: false)
+	McpServers    []McpServerConfig   `yaml:"mcp_servers,omitempty"`    // global MCP servers attached to all agent sessions when mcp_enabled is true
 	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
 	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
 	Browser       BrowserConfig       `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
-	AuditAgent    AuditAgentConfig    `yaml:"audit_agent,omitempty"`    // optional vig-audit-agent integration for background security audits
+	Archon        AuditAgentConfig    `yaml:"archon,omitempty"`         // optional archon-audit integration for background security audits
 }
 
 // ContextLimits controls how much data is pulled from the DB for agent context enrichment.
@@ -72,7 +71,7 @@ func (c *AgentConfig) IsMcpEnabled() bool {
 	return c.McpEnabled != nil && *c.McpEnabled
 }
 
-// WarmSessionConfig controls ACP subprocess pooling for session reuse.
+// WarmSessionConfig controls agent subprocess pooling for session reuse.
 type WarmSessionConfig struct {
 	Enable      *bool `yaml:"enable,omitempty"`      // default: false
 	IdleTimeout int   `yaml:"idle_timeout,omitempty"` // seconds, default: 300
@@ -100,28 +99,6 @@ func (c *WarmSessionConfig) EffectiveMaxSessions() int {
 	return c.MaxSessions
 }
 
-// SwarmTerminalConfig configures terminal capability for swarm agent sessions.
-// When SlashCommands or CustomAgents are set, the swarm enables CreateTerminal
-// in ACP sessions so the agent can invoke slash commands and sub-agents.
-type SwarmTerminalConfig struct {
-	SlashCommands []string `yaml:"slash_commands,omitempty"`  // custom slash commands available inside the ACP session (e.g. /security-review)
-	CustomAgents  []string `yaml:"custom_agents,omitempty"`   // agent backend names the agent can invoke via "vigolium agent query --agent=X"
-	MaxCommands   int      `yaml:"max_commands,omitempty"`    // max terminal commands per session (default: 50)
-}
-
-// HasTerminal returns true if any terminal capability is configured.
-func (c *SwarmTerminalConfig) HasTerminal() bool {
-	return len(c.SlashCommands) > 0 || len(c.CustomAgents) > 0
-}
-
-// EffectiveMaxCommands returns the max commands, defaulting to 50.
-func (c *SwarmTerminalConfig) EffectiveMaxCommands() int {
-	if c.MaxCommands <= 0 {
-		return 50
-	}
-	return c.MaxCommands
-}
-
 // BrowserConfig controls optional agent-browser integration for browser-based auth flows.
 // When enabled, the agent gains access to agent-browser CLI commands via Bash for
 // performing browser-based login, cookie capture, and authenticated exploration.
@@ -143,35 +120,55 @@ func (c *BrowserConfig) EffectiveBinaryPath() string {
 	return "agent-browser"
 }
 
-// AuditAgentConfig controls the optional vig-audit-agent integration.
+// AuditAgentConfig controls the optional archon-audit integration.
 // When enabled and a source path is provided, agent modes (swarm, autopilot) launch
-// vig-audit-agent as a background Claude Code process for parallel security auditing.
+// archon-audit as a background agent process for parallel security auditing.
+// The Platform field selects which agent CLI to use: "claude" (default), "codex", or "opencode".
 type AuditAgentConfig struct {
 	Enable       *bool  `yaml:"enable,omitempty"`        // default: false
-	PluginDir    string `yaml:"plugin_dir,omitempty"`    // path to vig-auditor-claude plugin dir (default: ~/.vig-audit-agent/plugins/vig-auditor-claude)
-	Mode         string `yaml:"mode,omitempty"`          // "full" (11-phase) or "lite" (6-phase); default: "lite"
+	PluginDir    string `yaml:"plugin_dir,omitempty"`    // path to archon-audit harness dir (default: ~/.vigolium/archon-audit/)
+	Mode         string `yaml:"mode,omitempty"`          // "deep" (11-phase), "scan" (6-phase), or "lite" (3-phase); default: "lite"
+	Platform     string `yaml:"platform,omitempty"`      // "claude" (default), "codex", or "opencode"
 	SyncInterval int    `yaml:"sync_interval,omitempty"` // seconds between state syncs; default: 30
 }
 
-// IsEnabled returns whether vig-audit-agent integration is enabled. Defaults to false.
+// IsEnabled returns whether archon-audit integration is enabled. Defaults to false.
 func (c *AuditAgentConfig) IsEnabled() bool {
 	return c.Enable != nil && *c.Enable
 }
 
-// EffectivePluginDir returns the plugin directory, defaulting to ~/.vigolium/vig-audit-agent/plugin.
+// EffectivePlatform returns the archon platform, defaulting to "claude".
+// Accepts "claude", "codex", "opencode".
+func (c *AuditAgentConfig) EffectivePlatform() string {
+	switch c.Platform {
+	case "codex":
+		return "codex"
+	case "opencode":
+		return "opencode"
+	default:
+		return "claude"
+	}
+}
+
+// EffectivePluginDir returns the plugin directory, defaulting to ~/.vigolium/archon-audit/.
 func (c *AuditAgentConfig) EffectivePluginDir() string {
 	if c.PluginDir != "" {
 		return ExpandPath(c.PluginDir)
 	}
-	return ExpandPath("~/.vigolium/vig-audit-agent/plugin")
+	return ExpandPath("~/.vigolium/archon-audit/")
 }
 
-// EffectiveMode returns the audit mode, defaulting to "lite".
+// EffectiveMode returns the archon audit mode, defaulting to "lite".
+// Accepts "deep", "scan", "lite". Maps legacy "full" to "deep".
 func (c *AuditAgentConfig) EffectiveMode() string {
-	if c.Mode == "full" {
-		return "full"
+	switch c.Mode {
+	case "deep", "full":
+		return "deep"
+	case "scan":
+		return "scan"
+	default:
+		return "lite"
 	}
-	return "lite"
 }
 
 // EffectiveSyncInterval returns the sync interval in seconds, defaulting to 30.
@@ -212,41 +209,8 @@ func (c *AgentConfig) StreamEnabled() bool {
 	return *c.Stream
 }
 
-// ACPSessionMeta holds agent-specific session metadata passed via the _meta
-// extension point in NewSessionRequest. This allows configuring agent behavior
-// (system prompts, thinking mode, disallowed tools, etc.) at session creation.
-type ACPSessionMeta struct {
-	SystemPrompt *ACPSystemPrompt `yaml:"system_prompt,omitempty" json:"systemPrompt,omitempty"`
-	ClaudeCode   *ClaudeCodeMeta  `yaml:"claude_code,omitempty" json:"claudeCode,omitempty"`
-}
-
-// ACPSystemPrompt configures system prompt modifications for the session.
-type ACPSystemPrompt struct {
-	Append string `yaml:"append,omitempty" json:"append,omitempty"`
-}
-
-// ClaudeCodeMeta holds Claude Code-specific session options.
-type ClaudeCodeMeta struct {
-	Options *ClaudeCodeOptions `yaml:"options,omitempty" json:"options,omitempty"`
-}
-
-// ClaudeCodeOptions configures Claude Code agent behavior.
-type ClaudeCodeOptions struct {
-	SettingSources    *[]string         `yaml:"setting_sources,omitempty" json:"settingSources,omitempty"`
-	PromptSuggestions *bool             `yaml:"prompt_suggestions,omitempty" json:"promptSuggestions,omitempty"`
-	Thinking          *ClaudeThinking   `yaml:"thinking,omitempty" json:"thinking,omitempty"`
-	Effort            string            `yaml:"effort,omitempty" json:"effort,omitempty"`
-	DisallowedTools   []string          `yaml:"disallowed_tools,omitempty" json:"disallowedTools,omitempty"`
-	ExtraArgs         map[string]string `yaml:"extra_args,omitempty" json:"extraArgs,omitempty"`
-}
-
-// ClaudeThinking configures the thinking mode for Claude Code.
-type ClaudeThinking struct {
-	Type string `yaml:"type" json:"type"` // "adaptive" or "disabled"
-}
-
 // ProviderConfig holds provider-specific options injected at spawn time
-// via CLI args or environment variables (not ACP _meta).
+// via CLI args or environment variables.
 // Currently used by OpenCode; ignored for providers that don't support these options.
 type ProviderConfig struct {
 	Thinking   *ThinkingConfig   `yaml:"thinking,omitempty"`
@@ -296,7 +260,7 @@ func DefaultProviderConfig() *ProviderConfig {
 	}
 }
 
-// McpServerConfig defines an MCP server to attach to ACP sessions.
+// McpServerConfig defines an MCP server to attach to agent sessions.
 // Stdio mode: set Command (and optionally Args, Env).
 // HTTP mode: set URL instead.
 type McpServerConfig struct {
@@ -316,9 +280,8 @@ type AgentDef struct {
 	Protocol       string            `yaml:"protocol,omitempty"`
 	Enable         *bool             `yaml:"enable,omitempty"`
 	Model          string            `yaml:"model,omitempty"`           // universal model override
-	SessionMeta    *ACPSessionMeta   `yaml:"session_meta,omitempty"`    // ACP _meta passthrough (Claude)
 	ProviderConfig *ProviderConfig   `yaml:"provider_config,omitempty"` // spawn-time injection (OpenCode)
-	McpServers     []McpServerConfig `yaml:"mcp_servers,omitempty"`     // MCP servers to attach to ACP sessions
+	McpServers     []McpServerConfig `yaml:"mcp_servers,omitempty"`     // MCP servers to attach to agent sessions
 }
 
 // IsEnabled returns whether this agent is enabled. Defaults to true when nil.
@@ -351,10 +314,10 @@ func (c *AgentConfig) Validate() error {
 			return fmt.Errorf("agent.backends[%q].command must not be empty", name)
 		}
 		switch d.Protocol {
-		case "", "pipe", "acp", "sdk", "codex-sdk", "opencode-sdk":
+		case "", "pipe", "sdk", "codex-sdk", "opencode-sdk":
 			// valid
 		default:
-			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\", \"acp\", \"sdk\", \"codex-sdk\", or \"opencode-sdk\")", name, d.Protocol)
+			return fmt.Errorf("agent.backends[%q].protocol %q is invalid (must be \"pipe\", \"sdk\", \"codex-sdk\", or \"opencode-sdk\")", name, d.Protocol)
 		}
 	}
 	if ws := &c.WarmSession; ws.IsEnabled() {
@@ -379,35 +342,6 @@ func DefaultLLMConfig() LLMConfig {
 	}
 }
 
-// DefaultClaudeSessionMeta returns the default ACP session metadata for Claude Code.
-// This configures the agent for autonomous scanner operation: no interactive prompts,
-// adaptive thinking, and restricted tool access.
-func DefaultClaudeSessionMeta() *ACPSessionMeta {
-	noPromptSuggestions := false
-	emptySettings := []string{}
-	return &ACPSessionMeta{
-		ClaudeCode: &ClaudeCodeMeta{
-			Options: &ClaudeCodeOptions{
-				SettingSources:    &emptySettings,
-				PromptSuggestions: &noPromptSuggestions,
-				Thinking:          &ClaudeThinking{Type: "adaptive"},
-				Effort:            "medium",
-				DisallowedTools: []string{
-					"AskUserQuestion",
-					"EnterWorktree",
-					"EnterPlanMode",
-					"ExitPlanMode",
-					"Bash(curl:*)",
-				},
-				ExtraArgs: map[string]string{
-					"permission-mode":              "bypassPermissions",
-					"dangerously-skip-permissions": "",
-				},
-			},
-		},
-	}
-}
-
 // DefaultAgentConfig returns sensible defaults for all supported agent backends.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
@@ -417,13 +351,6 @@ func DefaultAgentConfig() *AgentConfig {
 				Command:     "claude",
 				Description: "Anthropic Claude Code (SDK protocol)",
 				Protocol:    "sdk",
-			},
-			"claude-acp": {
-				Command:     "npx",
-				Args:        []string{"-y", "@zed-industries/claude-agent-acp@latest"},
-				Description: "Anthropic Claude Code (ACP)",
-				Protocol:    "acp",
-				SessionMeta: DefaultClaudeSessionMeta(),
 			},
 			"claude-cli": {
 				Command:     "claude",
@@ -435,19 +362,6 @@ func DefaultAgentConfig() *AgentConfig {
 				Description: "OpenAI Codex CLI (native JSON-RPC v2)",
 				Protocol:    "codex-sdk",
 			},
-			"codex-acp": {
-				Command:     "codex",
-				Args:        []string{"app-server"},
-				Description: "OpenAI Codex CLI (ACP, legacy)",
-				Protocol:    "acp",
-			},
-			"opencode-acp": {
-				Command:        "opencode",
-				Args:           []string{"acp"},
-				Description:    "OpenCode agent (ACP)",
-				Protocol:       "acp",
-				ProviderConfig: DefaultProviderConfig(),
-			},
 			"opencode": {
 				Command:        "opencode",
 				Description:    "OpenCode agent (native SDK)",
@@ -458,23 +372,6 @@ func DefaultAgentConfig() *AgentConfig {
 				Command:     "opencode",
 				Args:        []string{"run"},
 				Description: "OpenCode agent (pipe mode)",
-			},
-			"gemini": {
-				Command:     "gemini",
-				Args:        []string{"--experimental-acp"},
-				Description: "Google Gemini CLI (ACP)",
-				Protocol:    "acp",
-			},
-			"gemini-cli": {
-				Command:     "gemini",
-				Args:        []string{"-p"},
-				Description: "Google Gemini CLI (pipe mode)",
-			},
-			"cursor": {
-				Command:     "cursor",
-				Args:        []string{"acp"},
-				Description: "Cursor AI editor (ACP)",
-				Protocol:    "acp",
 			},
 		},
 		TemplatesDir: "~/.vigolium/prompts/",

@@ -1,0 +1,30 @@
+[
+  {
+    "slice": "python-http",
+    "reachable": false,
+    "path_count": 0,
+    "shortest_paths": [],
+    "note": "slice query failed or not executed"
+  },
+  {
+    "slice": "python-file",
+    "reachable": false,
+    "path_count": 0,
+    "shortest_paths": [],
+    "note": "slice query failed or not executed"
+  },
+  {
+    "slice": "go-file",
+    "reachable": false,
+    "path_count": 0,
+    "shortest_paths": [],
+    "note": "slice query failed or not executed"
+  },
+  {
+    "slice": "js-file",
+    "reachable": false,
+    "path_count": 0,
+    "shortest_paths": [],
+    "note": "slice query failed or not executed"
+  }
+]

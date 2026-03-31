@@ -71,7 +71,6 @@ func init() {
 	flags.BoolVar(&scanOpts.SpideringHeadless, "headless", true, "Run browser in headless mode")
 	flags.BoolVar(&scanOpts.SpideringNoCDP, "no-cdp", false, "Disable Chrome DevTools Protocol event listener detection")
 	flags.BoolVar(&scanOpts.SpideringNoForms, "no-forms", false, "Disable automatic form detection and filling during spidering")
-	flags.BoolVar(&scanOpts.SpideringPilotMode, "pilot", false, "Enable AI pilot-driven crawling (ACP agent controls browser)")
 
 	// External intelligence harvesting flags
 	flags.BoolVar(&scanOpts.ExternalHarvestEnabled, "external-harvest", false, "Enable external intelligence gathering phase (Wayback, CT logs, etc.)")
@@ -497,9 +496,6 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		}
 		if cmd.Flags().Changed("no-forms") {
 			settings.Spidering.NoForms = scanOpts.SpideringNoForms
-		}
-		if cmd.Flags().Changed("pilot") {
-			settings.Spidering.PilotMode = scanOpts.SpideringPilotMode
 		}
 		if err := settings.Spidering.Validate(); err != nil {
 			return fmt.Errorf("invalid spidering configuration: %w", err)

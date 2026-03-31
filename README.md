@@ -20,7 +20,7 @@ Vigolium provides two complementary scanning modes:
   - **Cloud & Infra** — Firebase (RTDB, storage, auth, functions), cloud storage listing/takeover, default credentials, web cache poisoning, CORS misconfiguration
   - **Out-of-Band** — Blind vulnerabilities via OAST callbacks (blind SSRF, blind SSTI, OAST probes)
 
-- **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Codex, Gemini, OpenCode, or Cursor via protocol-specific SDK integration. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Two agentic scan modes: autopilot (autonomous) and swarm (targeted or full-scope with `--discover`), plus query mode for single-shot code review.
+- **Agentic Scan** (`vigolium agent`) — AI-driven scanning powered by Claude, Codex, or OpenCode via protocol-specific SDK integration. The agent autonomously plans attack strategies, selects modules, generates custom payloads, and triages results — with the native scan engine handling heavy lifting underneath. Two agentic scan modes: autopilot (autonomous) and swarm (targeted or full-scope with `--discover`), plus query mode for single-shot code review.
 
 It also operates as an API server with traffic ingestion, or a standalone ingestor client.
 
@@ -60,11 +60,11 @@ It also operates as an API server with traffic ingestion, or a standalone ingest
 
 ### Agentic Scan
 
-- **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal with command allowlisting. Supports multi-agent specialist pipeline and session resume
+- **Autonomous scanning (Autopilot)** — AI agent autonomously discovers endpoints, runs scans, and triages findings. SDK protocol (default) provides full coding agent tools. Supports multi-agent specialist pipeline and session resume
 - **AI-guided swarm (Swarm)** — master agent analyzes inputs, selects scanner modules, generates custom JS attack extensions, executes scans, and triages results. Supports both targeted single-request scanning and full-scope scanning with `--discover`. Includes AI code audit, native SAST (ast-grep), and batched execution for large input sets
 - **Query mode** — single-shot prompt execution for code review, endpoint discovery, and secret detection (not a scan — simple Q&A utility)
 - **Source-aware intelligence** — when `--source` is provided, agents run consolidated source analysis (route extraction, auth flow discovery, custom extension generation), AI code audit, and native SAST before scanning
-- **Multiple AI backends** — Claude (SDK/ACP/pipe), Codex (native/ACP), OpenCode (native/ACP), Gemini (ACP), Cursor (ACP), or custom agents via CLI or REST API (with SSE streaming)
+- **Multiple AI backends** — Claude (SDK/pipe), Codex (native), OpenCode (native), or custom agents via CLI or REST API (with SSE streaming)
 
 ### Platform
 
@@ -172,7 +172,7 @@ vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"
 ```
 
 Two agentic scan modes:
-- **Autopilot** — autonomous scanning with multi-agent specialist pipeline. SDK protocol (default) provides full coding agent tools; ACP protocol uses a sandboxed terminal restricted to `vigolium` commands
+- **Autopilot** — autonomous scanning with multi-agent specialist pipeline. SDK protocol (default) provides full coding agent tools
 - **Swarm** — AI-guided vulnerability scanning supporting both targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results
 
 ### Agent Query (Utility)
@@ -360,7 +360,6 @@ Agentic Scan (vigolium agent autopilot / pipeline / swarm):
       --source             Path to source code for source-aware scanning
       --source-label       Label for source code ingestion
       --agent              Agent backend name (default: from config)
-      --agent-acp-cmd      Custom ACP agent command (overrides --agent)
       --agent-timeout      Max agent execution time (default: 5m, 0 = no limit)
       --vuln-type          Vulnerability type focus (sqli, xss, ssrf, etc.)
       --focus              Focus area for the agentic scan (e.g. 'API injection')

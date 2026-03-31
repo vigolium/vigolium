@@ -1,0 +1,5 @@
+{
+  "name": "archon-audit",
+  "description": "Deep-sweep security audit orchestration — /archon:* commands and specialized agents",
+  "version": "1.0.0"
+}

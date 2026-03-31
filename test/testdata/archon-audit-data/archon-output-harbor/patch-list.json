@@ -1,0 +1,71 @@
+[
+  {
+    "sha": "89e1c4baa",
+    "cve_or_ghsa": "CVE-2024-22278",
+    "description": "fix(security): reject bearer tokens issued before project creation",
+    "file_paths_affected": [
+      "src/core/token",
+      "src/common/security"
+    ]
+  },
+  {
+    "sha": "6ec47a20f",
+    "cve_or_ghsa": "CVE-2024-22278",
+    "description": "fix(security): reject bearer tokens issued before project creation",
+    "file_paths_affected": [
+      "src/core/token"
+    ]
+  },
+  {
+    "sha": "ec9d13d10",
+    "cve_or_ghsa": "GHSA-related",
+    "description": "fix: CVE Allowlist Validation",
+    "file_paths_affected": [
+      "src/pkg/allowlist"
+    ]
+  },
+  {
+    "sha": "b6c083d73",
+    "cve_or_ghsa": "CVE-2024-22244",
+    "description": "fix logout redirect",
+    "file_paths_affected": [
+      "src/portal",
+      "src/common/http"
+    ]
+  },
+  {
+    "sha": "ebc340a8f",
+    "cve_or_ghsa": "CVE-2022-31666",
+    "description": "fix: correct the permission of project maintainer role for webhook policy",
+    "file_paths_affected": [
+      "src/core/api/webhook"
+    ]
+  },
+  {
+    "sha": "3b4e55c09",
+    "cve_or_ghsa": "CVE-2024-GOLANG",
+    "description": "Fix Golang CVEs for release-2.14.0: upgrade docker/cli, gorilla/csrf, otel/sdk, x/crypto and Go 1.24.13\u21921.25.8",
+    "file_paths_affected": [
+      "src/go.mod",
+      "src/go.sum",
+      ".github/workflows"
+    ]
+  },
+  {
+    "sha": "a14a4d246",
+    "cve_or_ghsa": "CVE-2019-19023",
+    "description": "fix: unify the auth data handle to the decode method",
+    "file_paths_affected": [
+      "src/core/auth"
+    ]
+  },
+  {
+    "sha": "8254c0260",
+    "cve_or_ghsa": "CVE-2023-20902",
+    "description": "Fix auth config oidc scope regex",
+    "file_paths_affected": [
+      "src/pkg/ldap",
+      "src/core/auth"
+    ]
+  }
+]

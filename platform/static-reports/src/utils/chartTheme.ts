@@ -36,6 +36,7 @@ const SEVERITY_LIGHT: Record<string, string> = {
   medium: "#ff8c00",
   low: "#0094f0",
   info: "#8ca6a6",
+  "n/a": "#aab4b4",
 };
 
 const SEVERITY_DARK: Record<string, string> = {
@@ -44,6 +45,7 @@ const SEVERITY_DARK: Record<string, string> = {
   medium: "#fed06e",
   low: "#68a8e4",
   info: "#918175",
+  "n/a": "#6a6156",
 };
 
 export function getSeverityColors(theme: Theme): Record<string, string> {
@@ -85,6 +87,7 @@ export function getConfidenceColors(theme: Theme): Record<string, string> {
   const c = getColors(theme);
   return {
     firm: c.terracotta,
+    tentative: c.muted,
     uncertain: c.gold,
   };
 }

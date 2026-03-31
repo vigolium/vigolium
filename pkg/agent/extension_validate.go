@@ -3,156 +3,14 @@ package agent
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/grafana/sobek"
+	"github.com/vigolium/vigolium/pkg/agent/extensions"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	"go.uber.org/zap"
 )
-
-// ValidateExtensionSyntax compiles each extension's JavaScript code for
-// parse-only validation and returns only the extensions that parse
-// successfully. Invalid or empty extensions are logged and dropped.
-// For multiple extensions, validation runs in parallel with bounded
-// concurrency (runtime.NumCPU goroutines).
-func ValidateExtensionSyntax(extensions []GeneratedExtension) (valid []GeneratedExtension, invalid []InvalidExtension) {
-	if len(extensions) <= 1 {
-		// Fast path: no parallelism needed.
-		valid = make([]GeneratedExtension, 0, len(extensions))
-		for _, ext := range extensions {
-			if strings.TrimSpace(ext.Code) == "" {
-				logDroppedExtension(ext, fmt.Errorf("empty code"))
-				invalid = append(invalid, InvalidExtension{Extension: ext, Err: fmt.Errorf("empty code")})
-				continue
-			}
-			_, err := sobek.Compile(ext.Filename, ext.Code, false)
-			if err != nil {
-				logDroppedExtension(ext, err)
-				invalid = append(invalid, InvalidExtension{Extension: ext, Err: err})
-				continue
-			}
-			valid = append(valid, ext)
-		}
-		return valid, invalid
-	}
-
-	// Parallel path: validate concurrently with a semaphore.
-	type result struct {
-		ok  bool
-		err error
-	}
-	results := make([]result, len(extensions))
-
-	sem := make(chan struct{}, runtime.NumCPU())
-	var wg sync.WaitGroup
-
-	for i, ext := range extensions {
-		wg.Add(1)
-		go func(idx int, e GeneratedExtension) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if strings.TrimSpace(e.Code) == "" {
-				results[idx] = result{ok: false, err: fmt.Errorf("empty code")}
-				return
-			}
-			_, compileErr := sobek.Compile(e.Filename, e.Code, false)
-			if compileErr != nil {
-				results[idx] = result{ok: false, err: compileErr}
-				return
-			}
-			results[idx] = result{ok: true}
-		}(i, ext)
-	}
-	wg.Wait()
-
-	// Collect valid extensions preserving original order.
-	valid = make([]GeneratedExtension, 0, len(extensions))
-	for i, r := range results {
-		if !r.ok {
-			logDroppedExtension(extensions[i], r.err)
-			invalid = append(invalid, InvalidExtension{Extension: extensions[i], Err: r.err})
-			continue
-		}
-		valid = append(valid, extensions[i])
-	}
-	return valid, invalid
-}
-
-// InvalidExtension holds an extension that failed syntax validation along with
-// the compile error, so it can be passed to the LLM for repair.
-type InvalidExtension struct {
-	Extension GeneratedExtension
-	Err       error
-}
-
-// logDroppedExtension logs a warning with the error and source context around the
-// error line so it's easier to diagnose in logs.
-func logDroppedExtension(ext GeneratedExtension, err error) {
-	fields := []zap.Field{
-		zap.String("filename", ext.Filename),
-		zap.Error(err),
-	}
-
-	// Extract source context around the error line for better diagnostics
-	if ctx := extractErrorContext(ext.Code, err); ctx != "" {
-		fields = append(fields, zap.String("context", ctx))
-	}
-
-	zap.L().Warn("Dropping invalid extension", fields...)
-}
-
-// extractErrorContext parses a sobek compile error for a line number and returns
-// the offending line with 2 lines of surrounding context.
-func extractErrorContext(code string, err error) string {
-	if code == "" || err == nil {
-		return ""
-	}
-
-	// sobek errors look like: "filename: Line 5:12 Unexpected token )"
-	msg := err.Error()
-	lineNum := 0
-	// Find "Line N:" pattern
-	if idx := strings.Index(msg, "Line "); idx >= 0 {
-		rest := msg[idx+5:]
-		for i, ch := range rest {
-			if ch >= '0' && ch <= '9' {
-				lineNum = lineNum*10 + int(ch-'0')
-			} else {
-				_ = i
-				break
-			}
-		}
-	}
-	if lineNum <= 0 {
-		return ""
-	}
-
-	lines := strings.Split(code, "\n")
-	total := len(lines)
-	const contextSize = 2
-	start := lineNum - contextSize
-	if start < 1 {
-		start = 1
-	}
-	end := lineNum + contextSize
-	if end > total {
-		end = total
-	}
-
-	var sb strings.Builder
-	gutterWidth := len(fmt.Sprintf("%d", end))
-	for ln := start; ln <= end; ln++ {
-		marker := " "
-		if ln == lineNum {
-			marker = ">"
-		}
-		fmt.Fprintf(&sb, "  %s %*d │ %s\n", marker, gutterWidth, ln, lines[ln-1])
-	}
-	return sb.String()
-}
 
 // maxRepairConcurrency is the maximum number of parallel LLM repair calls.
 // Each call is an independent API request, so we bound concurrency to avoid
@@ -163,7 +21,7 @@ const maxRepairConcurrency = 5
 // to the configured LLM agent with the error context. Repairs run in parallel
 // with bounded concurrency. Extensions that compile after repair are returned;
 // those that still fail are dropped.
-func RepairExtensionsWithLLM(ctx context.Context, engine *Engine, invalids []InvalidExtension, cfg repairConfig) []GeneratedExtension {
+func RepairExtensionsWithLLM(ctx context.Context, engine *Engine, invalids []InvalidExtension, cfg RepairConfig) []GeneratedExtension {
 	if len(invalids) == 0 || engine == nil {
 		return nil
 	}
@@ -223,21 +81,13 @@ func RepairExtensionsWithLLM(ctx context.Context, engine *Engine, invalids []Inv
 	return repaired
 }
 
-// repairConfig holds agent settings for the repair LLM call.
-type repairConfig struct {
-	AgentName    string
-	AgentACPCmd  string
-	ShowPrompt   bool
-	TargetURL    string   // target URL for regeneration context
-	FocusAreas   []string // focus areas from the swarm plan
-	ModuleTags   []string // module tags from the swarm plan
-	ExploreNotes string   // session explore notes for context-aware session repair (optional)
-}
+// repairConfig is a package-level alias for the exported RepairConfig type (defined in agenttypes).
+// Kept as a comment for historical reference — all usages now reference RepairConfig directly.
 
 // repairSingleExtension sends the broken extension code and its error to the LLM
 // and extracts the fixed JavaScript from the response. For severely garbled code
 // it uses a regeneration prompt with plan context instead of trying to fix syntax.
-func repairSingleExtension(ctx context.Context, engine *Engine, inv InvalidExtension, cfg repairConfig) (string, error) {
+func repairSingleExtension(ctx context.Context, engine *Engine, inv InvalidExtension, cfg RepairConfig) (string, error) {
 	var prompt string
 	if isGarbled(inv.Extension.Code) {
 		prompt = buildRegeneratePrompt(inv, cfg)
@@ -249,7 +99,6 @@ func repairSingleExtension(ctx context.Context, engine *Engine, inv InvalidExten
 
 	result, err := engine.Run(ctx, Options{
 		AgentName:    cfg.AgentName,
-		AgentACPCmd:  cfg.AgentACPCmd,
 		PromptInline: prompt,
 		ShowPrompt:   cfg.ShowPrompt,
 		SessionKey:   "ext-repair-" + inv.Extension.Filename,
@@ -280,7 +129,7 @@ func buildRepairPrompt(inv InvalidExtension) string {
 	sb.WriteString("\n```\n\n")
 
 	// Add source context around the error
-	if ctx := extractErrorContext(inv.Extension.Code, inv.Err); ctx != "" {
+	if ctx := extensions.ExtractErrorContext(inv.Extension.Code, inv.Err); ctx != "" {
 		sb.WriteString("## Error Context\n\n")
 		sb.WriteString("```\n")
 		sb.WriteString(ctx)
@@ -461,7 +310,7 @@ func isSimpleJSIdentifier(s string) bool {
 
 // buildRegeneratePrompt constructs a prompt for regenerating a garbled extension
 // from scratch, using intent extracted from the garbled code and plan context.
-func buildRegeneratePrompt(inv InvalidExtension, cfg repairConfig) string {
+func buildRegeneratePrompt(inv InvalidExtension, cfg RepairConfig) string {
 	var sb strings.Builder
 	sb.WriteString("The following vigolium JavaScript scanner extension was severely corrupted during generation.\n")
 	sb.WriteString("The code is garbled beyond repair — fields are interleaved and text is mixed together.\n")
@@ -599,7 +448,7 @@ func extractGarbledField(code, field string) string {
 // extractCodeFromResponse pulls JavaScript code from the agent's response.
 // It looks for fenced code blocks first, then falls back to the raw response.
 func extractCodeFromResponse(output string) string {
-	blocks := extractFencedBlocks(output)
+	blocks := parsing.ExtractFencedBlocks(output)
 	if len(blocks) > 0 {
 		// Return the first non-empty block (typically the JS code)
 		for _, b := range blocks {

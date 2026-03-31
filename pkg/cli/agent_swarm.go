@@ -34,7 +34,6 @@ var (
 	swarmModules             []string
 	swarmMaxIterations       int
 	swarmAgentName           string
-	swarmAgentACPCmd         string
 	swarmDryRun              bool
 	swarmShowPrompt          bool
 	swarmSourceAnalysisOnly  bool
@@ -52,9 +51,6 @@ var (
 	swarmSkipSAST            bool
 	swarmCodeAudit           bool
 	swarmTriage              bool
-	swarmSlashCmds           []string
-	swarmCustomAgents        []string
-	swarmMaxCommands         int
 	swarmMaxPlanRecords      int
 	swarmMasterBatchSize     int
 	swarmProbeConcurrency    int
@@ -63,7 +59,7 @@ var (
 	swarmBrowser             bool
 	swarmAuth                bool
 	swarmCredentials         string
-	swarmAuditAgent          string
+	swarmArchon          string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -122,9 +118,6 @@ When input is piped via stdin, it is automatically read (no --input needed).`,
   # Use a custom agent backend
   vigolium agent swarm --input "https://example.com" --agent gemini
 
-  # Custom ACP command
-  vigolium agent swarm --input "https://example.com" --agent-acp-cmd "traecli acp"
-
   # Swarm a database record
   vigolium agent swarm --record-uuid abc123-def456
 
@@ -162,7 +155,6 @@ func init() {
 	f.StringSliceVarP(&swarmModules, "modules", "m", nil, "Explicit module names to include")
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentName, "agent", "", "Agent backend to use (default from config)")
-	f.StringVar(&swarmAgentACPCmd, "agent-acp-cmd", "", "Custom ACP agent command (e.g. 'traecli acp'), overrides --agent")
 	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing")
 	f.BoolVar(&swarmShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
@@ -195,14 +187,10 @@ func init() {
 	f.BoolVar(&swarmAuth, "auth", false, "Run browser-based auth phase before discovery (requires --browser)")
 	f.StringVar(&swarmCredentials, "credentials", "", "Credentials for browser auth phase (e.g. 'username=admin,password=secret')")
 
-	// Background audit agent
-	f.StringVar(&swarmAuditAgent, "audit-agent", "", "Run background vig-audit-agent for parallel security auditing: 'lite' (6-phase, default) or 'full' (11-phase). Requires --source")
-	agentSwarmCmd.Flag("audit-agent").NoOptDefVal = "lite" // bare --audit-agent defaults to lite
+	// Background archon-audit
+	f.StringVar(&swarmArchon, "archon", "", "Run background archon-audit for parallel security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
+	agentSwarmCmd.Flag("archon").NoOptDefVal = "lite" // bare --archon defaults to lite
 
-	// Terminal capability: custom slash commands and sub-agents
-	f.StringSliceVar(&swarmSlashCmds, "custom-slash-command", nil, "Slash commands available inside the ACP session (repeatable, e.g. --custom-slash-command /security-review)")
-	f.StringSliceVar(&swarmCustomAgents, "custom-agent", nil, "Custom agents the swarm can invoke via 'vigolium agent query --agent=X' (repeatable, e.g. --custom-agent @my-sqli-specialist)")
-	f.IntVar(&swarmMaxCommands, "max-commands", 0, "Max terminal commands per session (default: 50, only applies when --custom-slash-command or --custom-agent is set)")
 }
 
 func runAgentSwarm(cmd *cobra.Command, args []string) error {
@@ -339,20 +327,6 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		swarmSkipPhases = append(swarmSkipPhases, agent.SwarmPhaseTriage)
 	}
 
-	// Merge terminal config: CLI flags take precedence over config file
-	slashCmds := swarmSlashCmds
-	customAgents := swarmCustomAgents
-	maxCommands := swarmMaxCommands
-	if len(slashCmds) == 0 {
-		slashCmds = settings.Agent.SwarmTerminal.SlashCommands
-	}
-	if len(customAgents) == 0 {
-		customAgents = settings.Agent.SwarmTerminal.CustomAgents
-	}
-	if maxCommands <= 0 {
-		maxCommands = settings.Agent.SwarmTerminal.EffectiveMaxCommands()
-	}
-
 	// Build swarm config
 	cfg := agent.SwarmConfig{
 		Inputs:             inputs,
@@ -370,10 +344,6 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		SAMaxConcurrency:   swarmSubAgentConcurrency,
 		MaxPlanRecords:     swarmMaxPlanRecords,
 		AgentName:          swarmAgentName,
-		AgentACPCmd:        swarmAgentACPCmd,
-		SlashCommands:      slashCmds,
-		CustomAgents:       customAgents,
-		MaxCommands:        maxCommands,
 		DryRun:             swarmDryRun,
 		ShowPrompt:         swarmShowPrompt,
 		SourceAnalysisOnly: swarmSourceAnalysisOnly,
@@ -392,9 +362,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		MaxProbeBodySize:   swarmMaxProbeBody,
 	}
 
-	// Wire audit agent: --audit-agent flag overrides config
-	if auditCfg := agent.ResolveAuditAgentConfig(swarmAuditAgent, settings.Agent.AuditAgent); auditCfg != nil {
-		cfg.AuditAgent = auditCfg
+	// Wire archon: --archon flag overrides config
+	if auditCfg := agent.ResolveAuditAgentConfig(swarmArchon, settings.Agent.Archon); auditCfg != nil {
+		cfg.Archon = auditCfg
 	}
 
 	// --start-from: build a synthetic checkpoint with all prior phases marked completed
@@ -455,9 +425,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 
 	// Resolve effective agent name for display
 	effectiveAgent := cfg.AgentName
-	if cfg.AgentACPCmd != "" {
-		effectiveAgent = cfg.AgentACPCmd
-	} else if effectiveAgent == "" {
+	if effectiveAgent == "" {
 		effectiveAgent = settings.Agent.DefaultAgent
 	}
 
@@ -563,18 +531,6 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			terminal.HiGreen("enabled"), terminal.Muted("("+sastTools+")"))
 	}
 
-	// Terminal capability
-	if len(slashCmds) > 0 || len(customAgents) > 0 {
-		fmt.Fprintf(os.Stderr, "  %s Terminal: %s", terminal.Purple(terminal.SymbolInfo), terminal.HiGreen("enabled"))
-		if len(slashCmds) > 0 {
-			fmt.Fprintf(os.Stderr, " | slash-cmds: %s", terminal.Cyan(strings.Join(slashCmds, ", ")))
-		}
-		if len(customAgents) > 0 {
-			fmt.Fprintf(os.Stderr, " | agents: %s", terminal.Cyan(strings.Join(customAgents, ", ")))
-		}
-		fmt.Fprintf(os.Stderr, " | max: %s\n", terminal.HiBlue(fmt.Sprintf("%d", maxCommands)))
-	}
-
 	// Iteration limits
 	durationStr := "unlimited"
 	if swarmTimeout > 0 {
@@ -597,10 +553,6 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		terminal.TipPrefix(), terminal.Cyan("--instruction \"focus on ...\""))
 	fmt.Fprintf(os.Stderr, "  %s Use %s to run discovery+spidering before planning to expand the attack surface\n",
 		terminal.TipPrefix(), terminal.Cyan("--discover"))
-	fmt.Fprintf(os.Stderr, "  %s Use %s to add a specialist agent (e.g. %s)\n",
-		terminal.TipPrefix(), terminal.Cyan("--custom-agent"), terminal.Muted("@my-sqli-specialist"))
-	fmt.Fprintf(os.Stderr, "  %s Use %s to expose slash commands inside the ACP session\n",
-		terminal.TipPrefix(), terminal.Cyan("--custom-slash-command /security-review"))
 	fmt.Fprintln(os.Stderr)
 
 	// Wire phase callback for verbose output
@@ -1005,8 +957,8 @@ func applyIntentToSwarmFlags(app agent.AppIntent) {
 	if app.Instruction != "" && swarmInstruction == "" {
 		swarmInstruction = app.Instruction
 	}
-	if app.AuditAgent != "" && swarmAuditAgent == "" {
-		swarmAuditAgent = app.AuditAgent
+	if app.Archon != "" && swarmArchon == "" {
+		swarmArchon = app.Archon
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s discover=%v\n",
 		terminal.SuccessSymbol(),
@@ -1069,7 +1021,6 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 			Focus:        focus,
 			MaxIterations: swarmMaxIterations,
 			AgentName:    swarmAgentName,
-			AgentACPCmd:  swarmAgentACPCmd,
 			ShowPrompt:   swarmShowPrompt,
 			CodeAudit:    codeAudit,
 			SkipPhases:   skipPhases,

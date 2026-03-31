@@ -487,7 +487,7 @@ vigolium agent --prompt-template my-custom-review --repo /path/to/source --dry-r
 
 - **No code** — Markdown files with template syntax.
 - **Context-aware** — automatic enrichment with database findings, endpoints, scan stats.
-- **Multiple AI backends** — works with Claude, Codex, OpenCode, Gemini, or any custom agent.
+- **Multiple AI backends** — works with Claude, Codex, OpenCode, or any custom agent.
 - **Iterative refinement** — autopilot and pipeline modes pass prior findings back for verification.
 - **Two output modes** — emit findings for code review or HTTP records for endpoint discovery.
 
@@ -754,10 +754,9 @@ Agent backends are external processes that Vigolium invokes for AI-driven analys
 
 | Backend | Protocol | Command |
 |---|---|---|
-| Claude Code (ACP) | `acp` | `npx -y @zed-industries/claude-agent-acp@latest` |
-| Codex (ACP) | `acp` | `codex app-server` |
-| OpenCode (ACP) | `acp` | `npx -y opencode-acp` |
-| Gemini (ACP) | `acp` | `gemini --experimental-acp` |
+| Claude Code (SDK) | `sdk` | `claude` |
+| Codex (codex-sdk) | `codex-sdk` | `codex` |
+| OpenCode (opencode-sdk) | `opencode-sdk` | `opencode` |
 | Claude CLI (pipe) | `pipe` | `claude --dangerously-skip-permissions -p` |
 
 ### Adding a custom backend
@@ -785,11 +784,13 @@ vigolium agent --agent my-agent --prompt-template security-code-review --repo /p
 | Protocol | How it works | Agent capabilities |
 |---|---|---|
 | `pipe` | Prompt piped to stdin, output read from stdout | Simple: no tool use, no file access |
-| `acp` | Bidirectional JSON-RPC over stdio | Full: file reading, tool invocation, streaming |
+| `sdk` | Claude Agent SDK — JSON-lines protocol | Full: file reading, tool invocation, streaming |
+| `codex-sdk` | Codex native JSON-RPC v2 | Full tools |
+| `opencode-sdk` | OpenCode native REST + SSE streaming | Full tools |
 
 ### Warm sessions
 
-For iterative workflows (autopilot), ACP backends support session pooling to avoid subprocess startup overhead:
+For iterative workflows (autopilot), backends support session pooling to avoid subprocess startup overhead:
 
 ```yaml
 agent:
@@ -818,7 +819,7 @@ agent:
 ### Pros
 
 - **Any AI model** — plug in any CLI tool as a backend.
-- **Two protocols** — simple pipe for basic tools, ACP for full agent capabilities.
+- **Multiple protocols** — SDK for full tool access, codex-sdk/opencode-sdk for native integration, pipe for simple tools.
 - **Session pooling** — warm sessions reduce latency for iterative analysis.
 - **Environment isolation** — per-agent env vars, scoped file access.
 

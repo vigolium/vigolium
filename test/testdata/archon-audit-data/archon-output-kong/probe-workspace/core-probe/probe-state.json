@@ -1,0 +1,85 @@
+{
+  "component": "core-probe",
+  "loop": 3,
+  "total_validated": 12,
+  "total_needs_deeper": 6,
+  "loops": [
+    {
+      "q1_coverage_gap": [
+        "kong/router/init.lua (router flavor selection; no validated/needs-deeper hypothesis targeting init path)",
+        "kong/plugins/jwt/handler.lua:154-250 (do_authentication) — no VALIDATED/NEEDS-DEEPER item; only JWT-in-query leakage validated, not auth logic",
+        "kong/plugins/oauth2/access.lua:533-812 (issue_token) — no validated/needs-deeper hypothesis after invalidation of scope-merge",
+        "kong/clustering/rpc/manager.lua:507-562 (cluster RPC WebSocket) — no validated/needs-deeper hypothesis",
+        "kong/resty/dns/client.lua (sync/async query paths beyond parseAnswer not covered)"
+      ],
+      "q2_chain_seeding": [
+        "PH-03 (External plugin RPC PDK calls) — enables downstream auth bypass or request mutation chains",
+        "PH-05 (CP/DP sync config exfiltration) — can chain into wider compromise by leaking secrets/routes",
+        "PH-06 (DNS cache poisoning) — can chain into upstream traffic hijack and credential capture"
+      ],
+      "q3_fragile_safety": [
+        "PH-08 (OAuth2 parameter merge) — INVALIDATED with Fragile score"
+      ],
+      "q4_model_coverage": [
+        "OAuth2 token issuance logic (issue_token) not reached by backward/contradiction hypotheses after invalidation",
+        "JWT auth decision points beyond token source acceptance not reached",
+        "Cluster RPC WebSocket handler path not covered"
+      ],
+      "q5_impact_multiplication": [
+        "PH-01 (HTTP/2 normalization mismatch) — if validated, could convert route selection into auth bypass across multiple services",
+        "PH-07 (HTTP/2 h2c vs ALPN limit divergence) — if validated, would amplify DoS risks across all HTTP/2 listeners"
+      ],
+      "decision": "run another loop",
+      "reason": "Coverage gaps and Fragile invalidation remain"
+    },
+    {
+      "q1_coverage_gap": [
+        "Router flavor selection/init path (kong/router/init.lua) — still NEEDS-DEEPER; no validated/needs-deeper resolution",
+        "Cluster RPC WebSocket handler — validated DoS/impersonation but no authz binding check in evidence beyond node_id trust",
+        "OAuth2 issue_token path — covered; no gaps",
+        "JWT do_authentication — covered; no gaps"
+      ],
+      "q2_chain_seeding": [
+        "Loop2 PH-02 (password grant with leaked provision key) — chains to full user impersonation",
+        "Loop2 PH-03 (refresh token reuse with global_credentials) — chains to lateral service access",
+        "Loop2 PH-06 (RPC node_id impersonation) — chains into cluster-level privilege escalation",
+        "Loop2 PH-03 (JWT key existence oracle) — chains into targeted key compromise/brute forcing"
+      ],
+      "q3_fragile_safety": [
+        "PH-08 (OAuth2 parameter merge) — INVALIDATED with Fragile score (from loop 1)"
+      ],
+      "q4_model_coverage": [
+        "Router flavor selection/init path remains partially unaddressed (NEEDS-DEEPER)."
+      ],
+      "q5_impact_multiplication": [
+        "PH-07 (router flavor transition cache mismatch) — if validated, could enable bypass during reload windows",
+        "PH-01/PH-01 (OAuth2 parameter source confusion) — if validated at policy layer, could amplify WAF/proxy bypass risks"
+      ],
+      "decision": "run another loop",
+      "reason": "NEEDS-DEEPER remains (router flavor transition); fragile invalidation persists"
+    },
+    {
+      "q1_coverage_gap": [
+        "Router flavor transition cache reuse relies on reload handler (NEEDS-DEEPER)",
+        "Traditional_compatible expression-only route handling depends on transform.get_expression behavior (NEEDS-DEEPER)",
+        "Header predicate cache key inclusion for expressions router not resolved (NEEDS-DEEPER)"
+      ],
+      "q2_chain_seeding": [
+        "Loop3 PH-03 (expressions cache key lacks scheme) — enables protocol constraint bypass chaining into auth bypass",
+        "Loop2 PH-06 (RPC node_id impersonation) — cluster-level privilege escalation"
+      ],
+      "q3_fragile_safety": [
+        "PH-08 (OAuth2 parameter merge) — INVALIDATED with Fragile score (loop 1)"
+      ],
+      "q4_model_coverage": [
+        "Reload handler not traced; cache reuse across flavor transitions remains unverified"
+      ],
+      "q5_impact_multiplication": [
+        "Router cache reuse across reload (PH-01/PH-02 loop3) — if validated could open bypass window",
+        "Traditional_compatible route drop (PH-04 loop3) — if validated can remove protected routes"
+      ],
+      "decision": "proceed to summary",
+      "reason": "max loops reached (3)"
+    }
+  ]
+}

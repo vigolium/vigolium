@@ -13,7 +13,6 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
-	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
@@ -51,9 +50,6 @@ type serverOptions struct {
 
 	// Agent warm session
 	DisableWarmSession bool
-
-	// Agent ACP command override
-	AgentACPCmd string
 
 	// Disable agent endpoints entirely
 	NoAgent bool
@@ -100,10 +96,6 @@ func init() {
 	flags.BoolVar(&serverOpts.DisableWarmSession, "disable-warm-session", false,
 		"Disable agent subprocess warm session pooling")
 
-	// Agent ACP command override
-	flags.StringVar(&serverOpts.AgentACPCmd, "agent-acp-cmd", "",
-		"Custom ACP agent command for all agent runs (e.g. 'traecli acp')")
-
 	// Disable agent
 	flags.BoolVar(&serverOpts.NoAgent, "no-agent", false,
 		"Disable all agent endpoints and warm session pooling")
@@ -123,7 +115,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		settings = config.DefaultSettings()
 	}
 
-	// When --no-agent is set, force-disable warm sessions and skip ACP command registration.
+	// When --no-agent is set, force-disable warm sessions.
 	if serverOpts.NoAgent {
 		f := false
 		settings.Agent.WarmSession.Enable = &f
@@ -136,19 +128,6 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		} else if !settings.Agent.WarmSession.IsEnabled() {
 			t := true
 			settings.Agent.WarmSession.Enable = &t
-		}
-	}
-
-	// Register ad-hoc ACP agent command and set it as default when --agent-acp-cmd is provided.
-	// This makes all API agent requests use the custom command by default, including warm sessions.
-	if serverOpts.AgentACPCmd != "" && !serverOpts.NoAgent {
-		if def := agent.ParseACPCmd(serverOpts.AgentACPCmd); def != nil {
-			def.Description = "Custom ACP agent from --agent-acp-cmd"
-			if settings.Agent.Backends == nil {
-				settings.Agent.Backends = make(map[string]config.AgentDef)
-			}
-			settings.Agent.Backends["custom-acp"] = *def
-			settings.Agent.DefaultAgent = "custom-acp"
 		}
 	}
 

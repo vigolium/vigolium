@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
@@ -21,129 +25,86 @@ import (
 // cancelGracePeriod is how long Cancel waits for SIGTERM before escalating to SIGKILL.
 const cancelGracePeriod = 10 * time.Second
 
-// AuditAgentRunner manages a vig-audit-agent running as a background Claude Code process.
-// It launches the agent, periodically syncs audit-state.json to the vigolium session dir,
-// and ingests findings into the database when complete.
+// AuditAgentRunner manages an archon-audit running as a background agent process.
+// It launches the agent (Claude, Codex, or OpenCode), periodically syncs audit-state.json
+// and findings to the vigolium session dir, and imports findings into the database when complete.
 type AuditAgentRunner struct {
 	cfg  AuditAgentConfig
 	repo *database.Repository
+
+	agentRunUUID string // UUID of the child AgentRun record tracking this audit
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
 	done      chan struct{}
 	err       error
 	cancelled bool
+
+	lastStateHash string // cached hash for change detection in syncLoop
+	syncedFiles   map[string]int64 // filename → size, for incremental sync
 }
 
-// AuditAgentConfig configures a background audit agent run.
-type AuditAgentConfig struct {
-	PluginDir   string
-	Mode        string // "full" or "lite"
-	SourcePath  string
-	SessionDir  string
-	ProjectUUID string
-	ScanUUID    string
-
-	SyncInterval time.Duration // how often to sync audit-state.json (default: 30s)
-	StreamWriter io.Writer     // optional: stream audit output in real-time
-}
-
-// AuditState represents the vig-audit-agent's audit-state.json structure.
-type AuditState struct {
-	Audits []AuditEntry `json:"audits"`
-}
-
-type AuditEntry struct {
-	AuditID     string                    `json:"audit_id"`
-	Commit      string                    `json:"commit"`
-	Branch      string                    `json:"branch"`
-	StartedAt   string                    `json:"started_at"`
-	CompletedAt *string                   `json:"completed_at"`
-	Status      string                    `json:"status"`
-	Mode        string                    `json:"mode"`
-	Phases      map[string]AuditPhaseInfo `json:"phases"`
-}
-
-type AuditPhaseInfo struct {
-	Status      string  `json:"status"`
-	CompletedAt *string `json:"completed_at,omitempty"`
-}
-
-// AuditFinding represents a parsed finding from a markdown file.
-type AuditFinding struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Severity    string `json:"severity"`
-	Description string `json:"description"`
-	File        string `json:"file,omitempty"`
-	Line        int    `json:"line,omitempty"`
-	CWE         string `json:"cwe,omitempty"`
-	Evidence    string `json:"evidence,omitempty"`
-	Remediation string `json:"remediation,omitempty"`
-}
-
-// AuditAgentStatus summarizes the current state of the background audit.
-type AuditAgentStatus struct {
-	Running         bool   `json:"running"`
-	Status          string `json:"status"`
-	Mode            string `json:"mode"`
-	Phase           string `json:"current_phase"`
-	CompletedPhases int    `json:"completed_phases"`
-	TotalPhases     int    `json:"total_phases"`
-}
-
-// NewAuditAgentRunner creates a new runner for the background audit agent.
+// NewAuditAgentRunner creates a new runner for the background archon-audit.
 func NewAuditAgentRunner(cfg AuditAgentConfig, repo *database.Repository) *AuditAgentRunner {
 	if cfg.SyncInterval <= 0 {
 		cfg.SyncInterval = 30 * time.Second
 	}
 	return &AuditAgentRunner{
-		cfg:  cfg,
-		repo: repo,
-		done: make(chan struct{}),
+		cfg:          cfg,
+		repo:         repo,
+		agentRunUUID: uuid.New().String(),
+		done:         make(chan struct{}),
+		syncedFiles:  make(map[string]int64),
 	}
 }
 
-// Start launches the vig-audit-agent as a background Claude Code process.
+// Start launches archon-audit as a background agent process.
+// The platform field determines which CLI binary and args are used.
 func (r *AuditAgentRunner) Start(ctx context.Context) error {
+	platform := r.cfg.Platform
+	if platform == "" {
+		platform = archon.PlatformClaude
+	}
+
 	pluginDir := r.cfg.PluginDir
 	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
-		extracted, extractErr := ExtractAuditAgentPlugin()
+		extracted, extractErr := ExtractArchonPluginForPlatform(platform)
 		if extractErr != nil {
-			return fmt.Errorf("audit agent plugin not found at %s and extraction failed: %w", pluginDir, extractErr)
+			return fmt.Errorf("archon harness not found at %s and extraction failed: %w", pluginDir, extractErr)
 		}
 		if extracted != "" {
 			pluginDir = extracted
 		}
 		if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
-			return fmt.Errorf("audit agent plugin directory not found: %s (set agent.audit_agent.plugin_dir)", pluginDir)
+			return fmt.Errorf("archon harness directory not found: %s (set agent.archon.plugin_dir)", pluginDir)
 		}
 	}
 
-	claudePath, err := exec.LookPath("claude")
+	binary, args, err := buildAuditAgentCommand(platform, pluginDir, r.cfg.Mode, r.cfg.SourcePath)
 	if err != nil {
-		return fmt.Errorf("claude CLI not found in PATH: %w", err)
+		return err
 	}
 
-	command := "/vig-run:lite"
-	if r.cfg.Mode == "full" {
-		command = "/vig-run:run"
+	// Build readable command line for console output
+	var cmdLine strings.Builder
+	cmdLine.WriteString(binary)
+	for _, a := range args {
+		cmdLine.WriteByte(' ')
+		if strings.ContainsAny(a, " \t\n'\"\\") {
+			cmdLine.WriteString("'" + strings.ReplaceAll(a, "'", "'\\''") + "'")
+		} else {
+			cmdLine.WriteString(a)
+		}
 	}
+	printPhaseLine("archon", "cmd: "+cmdLine.String())
 
-	args := []string{
-		"--print",
-		"--dangerously-skip-permissions",
-		"--plugin-dir", pluginDir,
-		"-p", command,
-	}
-
-	zap.L().Info("Starting background audit agent",
+	zap.L().Debug("starting background archon-audit",
+		zap.String("platform", platform),
 		zap.String("plugin_dir", pluginDir),
 		zap.String("mode", r.cfg.Mode),
-		zap.String("source", r.cfg.SourcePath),
-		zap.String("command", command))
+		zap.String("source", r.cfg.SourcePath))
 
-	cmd := exec.CommandContext(ctx, claudePath, args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -156,17 +117,42 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd.Stderr = &outputBuf
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start audit agent: %w", err)
+		return fmt.Errorf("failed to start archon-audit: %w", err)
 	}
 
 	r.mu.Lock()
 	r.cmd = cmd
 	r.mu.Unlock()
 
+	// Create child AgentRun record
+	r.createAgentRun(ctx)
+
 	go r.monitor(ctx, cmd, &outputBuf)
 	go r.syncLoop(ctx)
 
 	return nil
+}
+
+func (r *AuditAgentRunner) createAgentRun(ctx context.Context) {
+	if r.repo == nil {
+		return
+	}
+	run := &database.AgentRun{
+		UUID:          r.agentRunUUID,
+		ProjectUUID:   r.cfg.ProjectUUID,
+		ScanUUID:      r.cfg.ScanUUID,
+		Mode:          "archon",
+		AgentName:     "archon-audit",
+		InputType:     "archon",
+		Status:        "running",
+		CurrentPhase:  "initializing",
+		SourcePath:    r.cfg.SourcePath,
+		ParentRunUUID: r.cfg.ParentRunUUID,
+		StartedAt:     time.Now(),
+	}
+	if err := r.repo.CreateAgentRun(ctx, run); err != nil {
+		zap.L().Debug("Failed to create archon AgentRun", zap.Error(err))
+	}
 }
 
 func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *syncBuffer) {
@@ -180,23 +166,38 @@ func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *s
 
 	if err != nil {
 		if r.cancelled {
-			zap.L().Info("Audit agent cancelled")
+			zap.L().Info("Archon audit cancelled")
 		} else {
-			zap.L().Warn("Audit agent process exited with error", zap.Error(err))
+			zap.L().Warn("Archon audit process exited with error", zap.Error(err))
 		}
 	} else {
-		zap.L().Info("Audit agent completed successfully")
+		zap.L().Info("Archon audit completed successfully")
 	}
 
-	r.syncStateOnce()
-	r.ingestFindings(ctx)
+	// Final sync and import
+	r.syncFolderFull()
+	r.importArchonFindings(ctx)
 
-	if r.cfg.SessionDir != "" {
-		outputPath := filepath.Join(r.cfg.SessionDir, "audit-agent-output.txt")
-		if writeErr := os.WriteFile(outputPath, output.Bytes(), 0o644); writeErr != nil {
-			zap.L().Debug("Failed to save audit agent output", zap.Error(writeErr))
+	// Cleanup: remove archon/ dir from source since we have a copy in session
+	archonDir := filepath.Join(r.cfg.SourcePath, "archon")
+	if _, statErr := os.Stat(archonDir); statErr == nil {
+		if rmErr := os.RemoveAll(archonDir); rmErr != nil {
+			zap.L().Debug("Failed to cleanup archon dir from source", zap.Error(rmErr))
+		} else {
+			zap.L().Info("Cleaned up archon dir from source", zap.String("path", archonDir))
 		}
 	}
+
+	// Save raw output
+	if r.cfg.SessionDir != "" {
+		outputPath := filepath.Join(r.cfg.SessionDir, "archon-audit-output.txt")
+		if writeErr := os.WriteFile(outputPath, output.Bytes(), 0o644); writeErr != nil {
+			zap.L().Debug("Failed to save archon audit output", zap.Error(writeErr))
+		}
+	}
+
+	// Update AgentRun as completed/failed
+	r.finalizeAgentRun(ctx, err)
 }
 
 func (r *AuditAgentRunner) syncLoop(ctx context.Context) {
@@ -211,100 +212,214 @@ func (r *AuditAgentRunner) syncLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			r.syncStateOnce()
+			r.syncFindingsIncremental()
 		}
 	}
 }
 
+// syncStateOnce copies audit-state.json from source to session dir
+// and updates the child AgentRun with current phase info.
+// Skips DB updates when the state hasn't changed since last tick.
 func (r *AuditAgentRunner) syncStateOnce() {
 	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
 
-	src := filepath.Join(r.cfg.SourcePath, "security", "audit-state.json")
+	src := filepath.Join(r.cfg.SourcePath, "archon", "audit-state.json")
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return // file may not exist yet
 	}
 
-	destDir := filepath.Join(r.cfg.SessionDir, "audit-agent")
+	destDir := filepath.Join(r.cfg.SessionDir, "archon-audit")
 	_ = os.MkdirAll(destDir, 0o755)
 	dest := filepath.Join(destDir, "audit-state.json")
 	if writeErr := os.WriteFile(dest, data, 0o644); writeErr != nil {
-		zap.L().Debug("Failed to sync audit state", zap.Error(writeErr))
+		zap.L().Debug("Failed to sync archon audit state", zap.Error(writeErr))
+	}
+
+	// Only update DB when state has changed
+	hash := fmt.Sprintf("%x", md5.Sum(data))
+	if hash != r.lastStateHash {
+		r.lastStateHash = hash
+		r.updateAgentRunProgress(data)
 	}
 }
 
-// ingestFindings reads findings from the security/findings/ directory, stores them in the
-// database, and copies them to the session dir. Each file is read once and reused for both.
-func (r *AuditAgentRunner) ingestFindings(ctx context.Context) {
-	findingsDir := filepath.Join(r.cfg.SourcePath, "security", "findings")
-	entries, err := os.ReadDir(findingsDir)
-	if err != nil {
-		zap.L().Debug("No audit findings directory found", zap.String("path", findingsDir))
+// syncFindingsIncremental copies new/changed files from findings-draft/ to session dir.
+// Tracks synced files by size to avoid re-copying unchanged files.
+func (r *AuditAgentRunner) syncFindingsIncremental() {
+	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
 
-	// Prepare session dir for copies
-	var destDir string
-	if r.cfg.SessionDir != "" {
-		destDir = filepath.Join(r.cfg.SessionDir, "audit-agent", "findings")
-		_ = os.MkdirAll(destDir, 0o755)
+	srcDir := filepath.Join(r.cfg.SourcePath, "archon", "findings-draft")
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return
 	}
 
-	var ingested int
+	destDir := filepath.Join(r.cfg.SessionDir, "archon-audit", "findings-draft")
+	_ = os.MkdirAll(destDir, 0o755)
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-
-		srcPath := filepath.Join(findingsDir, entry.Name())
-		data, readErr := os.ReadFile(srcPath)
-		if readErr != nil {
+		info, err := entry.Info()
+		if err != nil {
 			continue
 		}
-
-		// Copy to session dir (all files, not just .md)
-		if destDir != "" {
-			_ = os.WriteFile(filepath.Join(destDir, entry.Name()), data, 0o644)
-		}
-
-		// Only parse and ingest .md files
-		if !strings.HasSuffix(entry.Name(), ".md") || r.repo == nil {
+		// Skip if already synced with same size
+		if prevSize, ok := r.syncedFiles[entry.Name()]; ok && prevSize == info.Size() {
 			continue
 		}
-
-		finding, parseErr := parseAuditFindingContent(entry.Name(), data)
-		if parseErr != nil {
-			zap.L().Debug("Failed to parse audit finding", zap.String("file", entry.Name()), zap.Error(parseErr))
+		data, err := os.ReadFile(filepath.Join(srcDir, entry.Name()))
+		if err != nil {
 			continue
 		}
-
-		dbFinding := &database.Finding{
-			ProjectUUID:   r.cfg.ProjectUUID,
-			ScanUUID:      r.cfg.ScanUUID,
-			ModuleID:      "audit-agent",
-			ModuleName:    finding.Title,
-			FindingSource: "audit-agent",
-			Severity:      normalizeSeverity(finding.Severity),
-			Confidence:    "high",
-			Description:   finding.Description,
-			Remediation:   finding.Remediation,
-			Tags:          []string{"audit-agent", finding.CWE},
+		if writeErr := os.WriteFile(filepath.Join(destDir, entry.Name()), data, 0o644); writeErr == nil {
+			r.syncedFiles[entry.Name()] = info.Size()
 		}
-
-		if err := r.repo.SaveFindingDirect(ctx, dbFinding); err != nil {
-			zap.L().Debug("Failed to save audit finding", zap.String("title", finding.Title), zap.Error(err))
-			continue
-		}
-		ingested++
-	}
-
-	if ingested > 0 {
-		zap.L().Info("Ingested audit agent findings", zap.Int("count", ingested))
 	}
 }
 
-// Wait blocks until the audit agent finishes.
+// syncFolderFull copies the entire archon/ folder to session dir.
+func (r *AuditAgentRunner) syncFolderFull() {
+	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
+		return
+	}
+
+	srcDir := filepath.Join(r.cfg.SourcePath, "archon")
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return
+	}
+
+	destDir := filepath.Join(r.cfg.SessionDir, "archon-audit")
+	_ = os.MkdirAll(destDir, 0o755)
+
+	copyDir(srcDir, destDir)
+}
+
+// importArchonFindings parses the archon output from session dir and imports findings.
+func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
+	if r.repo == nil {
+		return
+	}
+
+	// Parse from session dir (synced copy) or fall back to source dir
+	var archonDir string
+	if r.cfg.SessionDir != "" {
+		archonDir = filepath.Join(r.cfg.SessionDir, "archon-audit")
+	} else {
+		archonDir = filepath.Join(r.cfg.SourcePath, "archon")
+	}
+
+	result, err := archon.ParseAuditFolder(archonDir)
+	if err != nil {
+		zap.L().Debug("Failed to parse archon output for import", zap.Error(err))
+		return
+	}
+
+	auditID := ""
+	if len(result.State.Audits) > 0 {
+		auditID = result.State.Audits[0].AuditID
+	}
+
+	findings := archon.BuildFindings(result.RawFindings, auditID, r.agentRunUUID, r.cfg.ProjectUUID)
+
+	var saved int
+	for _, f := range findings {
+		f.ScanUUID = r.cfg.ScanUUID
+		if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
+			continue
+		}
+		if f.ID > 0 {
+			saved++
+		}
+	}
+
+	if saved > 0 {
+		zap.L().Info("Imported archon audit findings",
+			zap.Int("parsed", len(findings)),
+			zap.Int("saved", saved))
+	}
+}
+
+func (r *AuditAgentRunner) updateAgentRunProgress(stateData []byte) {
+	if r.repo == nil {
+		return
+	}
+
+	var state archon.AuditState
+	if err := json.Unmarshal(stateData, &state); err != nil || len(state.Audits) == 0 {
+		return
+	}
+
+	latest := state.Audits[len(state.Audits)-1]
+
+	var phases []string
+	currentPhase := ""
+	for id, phase := range latest.Phases {
+		if phase.Status == "complete" {
+			phases = append(phases, id)
+		}
+		if phase.Status == "in_progress" {
+			currentPhase = id
+		}
+	}
+
+	ctx := context.Background()
+	run, err := r.repo.GetAgentRun(ctx, r.agentRunUUID)
+	if err != nil {
+		return
+	}
+
+	run.PhasesRun = phases
+	run.CurrentPhase = currentPhase
+	if latest.Status != "" {
+		if latest.Status == "complete" {
+			run.Status = "completed"
+		} else {
+			run.Status = "running"
+		}
+	}
+
+	_ = r.repo.UpdateAgentRun(ctx, run)
+}
+
+func (r *AuditAgentRunner) finalizeAgentRun(ctx context.Context, processErr error) {
+	if r.repo == nil {
+		return
+	}
+
+	run, err := r.repo.GetAgentRun(ctx, r.agentRunUUID)
+	if err != nil {
+		return
+	}
+
+	run.CompletedAt = time.Now()
+	run.DurationMs = run.CompletedAt.Sub(run.StartedAt).Milliseconds()
+
+	if processErr != nil && !r.cancelled {
+		run.Status = "failed"
+		run.ErrorMessage = processErr.Error()
+	} else if r.cancelled {
+		run.Status = "cancelled"
+	} else {
+		run.Status = "completed"
+	}
+
+	// Load final state for result_json
+	stateFile := filepath.Join(r.cfg.SessionDir, "archon-audit", "audit-state.json")
+	if data, readErr := os.ReadFile(stateFile); readErr == nil {
+		run.ResultJSON = string(data)
+	}
+
+	_ = r.repo.UpdateAgentRun(ctx, run)
+}
+
+// Wait blocks until the archon audit finishes.
 func (r *AuditAgentRunner) Wait() error {
 	<-r.done
 	r.mu.Lock()
@@ -312,12 +427,12 @@ func (r *AuditAgentRunner) Wait() error {
 	return r.err
 }
 
-// Done returns a channel that closes when the audit agent finishes.
+// Done returns a channel that closes when the archon audit finishes.
 func (r *AuditAgentRunner) Done() <-chan struct{} {
 	return r.done
 }
 
-// Cancel stops the audit agent process. Sends SIGTERM first, then SIGKILL after a grace period.
+// Cancel stops the archon audit process. Sends SIGTERM first, then SIGKILL after a grace period.
 func (r *AuditAgentRunner) Cancel() {
 	r.mu.Lock()
 	r.cancelled = true
@@ -330,7 +445,6 @@ func (r *AuditAgentRunner) Cancel() {
 
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 
-	// Wait for graceful exit or escalate to SIGKILL
 	select {
 	case <-r.done:
 		return
@@ -363,7 +477,7 @@ func (r *AuditAgentRunner) Status() *AuditAgentStatus {
 	return &AuditAgentStatus{
 		Running:         r.isRunning(),
 		Status:          latest.Status,
-		Mode:            latest.Mode,
+		Mode:            r.cfg.Mode,
 		Phase:           currentPhase,
 		CompletedPhases: completedPhases,
 		TotalPhases:     totalPhases,
@@ -379,90 +493,20 @@ func (r *AuditAgentRunner) isRunning() bool {
 	}
 }
 
-func (r *AuditAgentRunner) readCurrentState() *AuditState {
-	src := filepath.Join(r.cfg.SourcePath, "security", "audit-state.json")
+func (r *AuditAgentRunner) readCurrentState() *archon.AuditState {
+	src := filepath.Join(r.cfg.SourcePath, "archon", "audit-state.json")
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return nil
 	}
-	var state AuditState
+	var state archon.AuditState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil
 	}
 	return &state
 }
 
-// ParseAuditFinding reads and parses a finding file from disk.
-func ParseAuditFinding(path string) (*AuditFinding, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseAuditFindingContent(filepath.Base(path), data)
-}
-
-// parseAuditFindingContent parses finding metadata from markdown content.
-// Severity is derived from the filename prefix (C-, H-, M-, L-, I-).
-func parseAuditFindingContent(filename string, data []byte) (*AuditFinding, error) {
-	content := string(data)
-	finding := &AuditFinding{
-		ID: strings.TrimSuffix(filename, filepath.Ext(filename)),
-	}
-
-	switch {
-	case strings.HasPrefix(filename, "C-"):
-		finding.Severity = "critical"
-	case strings.HasPrefix(filename, "H-"):
-		finding.Severity = "high"
-	case strings.HasPrefix(filename, "M-"):
-		finding.Severity = "medium"
-	case strings.HasPrefix(filename, "L-"):
-		finding.Severity = "low"
-	case strings.HasPrefix(filename, "I-"):
-		finding.Severity = "info"
-	default:
-		finding.Severity = "medium"
-	}
-
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "# ") {
-			finding.Title = strings.TrimPrefix(line, "# ")
-			break
-		}
-		if strings.HasPrefix(line, "## ") && finding.Title == "" {
-			finding.Title = strings.TrimPrefix(line, "## ")
-		}
-	}
-
-	if finding.Title == "" {
-		finding.Title = finding.ID
-	}
-
-	finding.Description = content
-	if len(finding.Description) > 10000 {
-		finding.Description = finding.Description[:10000] + "\n\n[truncated]"
-	}
-
-	return finding, nil
-}
-
-func normalizeSeverity(s string) string {
-	switch strings.ToLower(s) {
-	case "critical":
-		return "critical"
-	case "high":
-		return "high"
-	case "medium":
-		return "medium"
-	case "low":
-		return "low"
-	case "info", "informational":
-		return "info"
-	default:
-		return "medium"
-	}
-}
+// --- Process management helpers ---
 
 // syncBuffer is a thread-safe buffer for capturing process output.
 type syncBuffer struct {
@@ -485,56 +529,136 @@ func (b *syncBuffer) Bytes() []byte {
 	return cp
 }
 
-// StartAuditAgent creates and starts a background audit agent.
+// copyDir recursively copies a directory's contents. Silently skips errors.
+func copyDir(src, dest string) {
+	_ = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(src, path)
+		if relErr != nil {
+			return nil
+		}
+		destPath := filepath.Join(dest, rel)
+
+		if d.IsDir() {
+			_ = os.MkdirAll(destPath, 0o755)
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
+		_ = os.WriteFile(destPath, data, 0o644)
+		return nil
+	})
+}
+
+// --- Platform command builders ---
+
+// buildAuditAgentCommand resolves the CLI binary and builds the argument list
+// for launching archon-audit on the given platform.
+func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binary string, args []string, err error) {
+	switch platform {
+	case archon.PlatformCodex:
+		binary, err = exec.LookPath("codex")
+		if err != nil {
+			return "", nil, fmt.Errorf("codex CLI not found in PATH: %w", err)
+		}
+		// Codex uses AGENTS.md dispatch — run with the audit skill prompt.
+		// The agents-dispatch.md is installed as AGENTS.md in pluginDir.
+		args = []string{
+			"--full-auto",
+			"-C", pluginDir,
+			"Run a " + mode + " security audit using the archon-audit methodology. " +
+				"Follow the AGENTS.md dispatch table to spawn the correct subagents for each phase.",
+		}
+
+	case archon.PlatformOpenCode:
+		binary, err = exec.LookPath("opencode")
+		if err != nil {
+			return "", nil, fmt.Errorf("opencode CLI not found in PATH: %w", err)
+		}
+		// OpenCode uses the same plugin structure as Claude but with its own agent format.
+		command := "/archon-audit:archon:" + mode
+		args = []string{
+			"run",
+			"--agents-dir", filepath.Join(pluginDir, "agents"),
+			"-p", command,
+		}
+
+	default: // PlatformClaude
+		binary, err = exec.LookPath("claude")
+		if err != nil {
+			return "", nil, fmt.Errorf("claude CLI not found in PATH: %w", err)
+		}
+		command := "/archon-audit:archon:" + mode
+		args = []string{
+			"--print",
+			"--dangerously-skip-permissions",
+			"--plugin-dir", pluginDir,
+			"-p", command,
+		}
+	}
+
+	return binary, args, nil
+}
+
+// --- Public API ---
+
+// StartAuditAgent creates and starts a background archon-audit.
 // Returns nil runner when disabled or no source path.
-func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID string, repo *database.Repository) (*AuditAgentRunner, error) {
+func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository) (*AuditAgentRunner, error) {
 	if !agentCfg.IsEnabled() || sourcePath == "" {
 		return nil, nil
 	}
 
 	cfg := AuditAgentConfig{
-		PluginDir:    agentCfg.EffectivePluginDir(),
-		Mode:         agentCfg.EffectiveMode(),
-		SourcePath:   sourcePath,
-		SessionDir:   sessionDir,
-		ProjectUUID:  projectUUID,
-		ScanUUID:     scanUUID,
-		SyncInterval: time.Duration(agentCfg.EffectiveSyncInterval()) * time.Second,
+		PluginDir:     agentCfg.EffectivePluginDir(),
+		Mode:          agentCfg.EffectiveMode(),
+		Platform:      agentCfg.EffectivePlatform(),
+		SourcePath:    sourcePath,
+		SessionDir:    sessionDir,
+		ProjectUUID:   projectUUID,
+		ScanUUID:      scanUUID,
+		ParentRunUUID: parentRunUUID,
+		SyncInterval:  time.Duration(agentCfg.EffectiveSyncInterval()) * time.Second,
 	}
 
 	runner := NewAuditAgentRunner(cfg, repo)
 	if err := runner.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start audit agent: %w", err)
+		return nil, fmt.Errorf("failed to start archon-audit: %w", err)
 	}
 
 	return runner, nil
 }
 
-// startAuditAgentBackground is a shared helper that starts the audit agent and returns
-// a cleanup function to defer. Logs startup success/failure via the provided logFn.
-// Returns nil cleanup when the audit agent is not started.
-func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID string, repo *database.Repository, logFn func(msg string)) func() {
+// startAuditAgentBackground is a shared helper that starts the archon-audit and returns
+// the runner and a cleanup function. Logs startup success/failure via the provided logFn.
+// Returns nil runner and nil cleanup when the audit agent is not started.
+func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, logFn func(msg string)) (*AuditAgentRunner, func()) {
 	if auditCfg == nil || !auditCfg.IsEnabled() || sourcePath == "" {
-		return nil
+		return nil, nil
 	}
 
-	runner, err := StartAuditAgent(ctx, *auditCfg, sourcePath, sessionDir, projectUUID, scanUUID, repo)
+	runner, err := StartAuditAgent(ctx, *auditCfg, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID, repo)
 	if err != nil {
-		zap.L().Warn("Failed to start background audit agent, continuing without it", zap.Error(err))
+		zap.L().Warn("Failed to start background archon-audit, continuing without it", zap.Error(err))
 		if logFn != nil {
-			logFn(fmt.Sprintf("audit agent failed to start: %v", err))
+			logFn(fmt.Sprintf("archon-audit failed to start: %v", err))
 		}
-		return nil
+		return nil, nil
 	}
 	if runner == nil {
-		return nil
+		return nil, nil
 	}
 
 	if logFn != nil {
-		logFn(fmt.Sprintf("background audit started (%s mode)", auditCfg.EffectiveMode()))
+		logFn(fmt.Sprintf("started (%s mode)", auditCfg.EffectiveMode()))
 	}
 
-	return func() {
+	cleanup := func() {
 		if runner.isRunning() {
 			runner.Cancel()
 			<-runner.Done()
@@ -543,23 +667,31 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 			logFn(fmt.Sprintf("%d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
 		}
 	}
+	return runner, cleanup
 }
 
 // ResolveAuditAgentConfig merges a CLI/API flag value with the YAML config.
 // Returns nil when the audit agent should not run.
 //
-// Flag values: "" (use config default), "lite", "full", "off" (force disable).
+// Flag values: "" (use config default), "lite", "scan", "deep", "off" (force disable).
+// Legacy "full" maps to "deep".
 func ResolveAuditAgentConfig(flag string, agentCfg config.AuditAgentConfig) *config.AuditAgentConfig {
 	if flag == "off" {
 		return nil
 	}
 	if flag != "" {
+		// Map legacy "full" to "deep"
+		mode := flag
+		if mode == "full" {
+			mode = "deep"
+		}
 		enabled := true
 		return &config.AuditAgentConfig{
 			Enable:       &enabled,
 			PluginDir:    agentCfg.PluginDir,
-			Mode:         flag,
-			SyncInterval: agentCfg.SyncInterval, // preserve YAML sync_interval
+			Mode:         mode,
+			Platform:     agentCfg.Platform,
+			SyncInterval: agentCfg.SyncInterval,
 		}
 	}
 	if agentCfg.IsEnabled() {

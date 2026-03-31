@@ -77,9 +77,6 @@ vigolium agent --list-agents
 vigolium agent --prompt-template security-code-review --source ./src \
   --append "Pay special attention to deserialization and file upload handling"
 
-# Use a specific agent backend
-vigolium agent --prompt-template injection-sinks --source ./src --agent gemini
-
 # Save agent output to a file
 vigolium agent --prompt-template security-code-review --source ./src --output review-results.json
 

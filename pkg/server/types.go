@@ -458,7 +458,7 @@ type AgentAutopilotRequest struct {
 	ScanUUID    string   `json:"scan_uuid,omitempty"`           // optional scan UUID
 	ResumeDir   string   `json:"resume_dir,omitempty"`          // resume from a previous session directory
 	ProjectUUID string   `json:"project_uuid,omitempty"`        // project UUID for data scoping
-	AuditAgent  string   `json:"audit_agent,omitempty"`         // run background audit agent: "lite" (6-phase), "full" (11-phase), "off" to disable
+	Archon      string   `json:"archon,omitempty"`              // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
 }
 
 // EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
@@ -503,18 +503,12 @@ type AgentSwarmRequest struct {
 
 	// Agent selection
 	Agent              string   `json:"agent,omitempty"`                // agent backend name
-	AgentACPCmd        string   `json:"agent_acp_cmd,omitempty"`        // custom ACP agent command override (e.g. "traecli acp")
 
 	// Concurrency tuning
 	BatchConcurrency    int `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
 	MaxMasterRetries    int `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
 	SAMaxConcurrency    int `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
 	MaxPlanRecords      int `json:"max_plan_records,omitempty"`      // max records sent to plan agent (0 = default 10)
-
-	// Terminal capability
-	SlashCommands []string `json:"slash_commands,omitempty"` // custom slash commands for ACP session
-	CustomAgents  []string `json:"custom_agents,omitempty"`  // custom agent names for sub-agent invocation
-	MaxCommands   int      `json:"max_commands,omitempty"`   // max terminal commands per session (0 = default 50)
 
 	// Output control
 	DryRun      bool   `json:"dry_run,omitempty"`      // render prompts without executing
@@ -526,8 +520,8 @@ type AgentSwarmRequest struct {
 	ProjectUUID string `json:"project_uuid,omitempty"` // optional project UUID
 	ScanUUID    string `json:"scan_uuid,omitempty"`    // optional scan UUID
 
-	// Background audit agent
-	AuditAgent string `json:"audit_agent,omitempty"` // run background audit agent: "lite" (6-phase), "full" (11-phase), "off" to disable
+	// Background archon-audit
+	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

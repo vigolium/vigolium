@@ -1,0 +1,62 @@
+rules:
+  - id: grafana-cache-delete-without-invalidation
+    languages: [go]
+    message: >
+      Cache.Delete or CacheService operation is absent after a datasource deletion or
+      permission-changing operation. In DFD-5, after DeleteDataSource(), the datasource
+      local cache (5s TTL, pkg/infra/localcache) is NOT explicitly invalidated. Clients
+      holding a cached reference may access the just-deleted datasource for up to 5 seconds.
+      In HA deployments, each pod's process-local cache creates independent stale windows.
+      Pattern to detect: DeleteDataSource call that is NOT immediately followed by
+      a cache Delete/Invalidate call for the same UID.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-362
+      cve-context: CVE-2026-21725 (stale cache after deletion)
+      dfd-slice: DFD-5
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          $SVC.DeleteDataSource($CTX, $CMD)
+    path-not-contains:
+      - "cache.Delete"
+      - "CacheService.Delete"
+      - "InvalidateCache"
+      - "cache.Remove"
+    paths:
+      include:
+        - "pkg/services/datasources/**/*.go"
+        - "pkg/api/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"
+
+  - id: grafana-rbac-permission-change-without-cache-invalidate
+    languages: [go]
+    message: >
+      RBAC permission grant/revoke operation without a following InvalidateResolverCache call.
+      In CFD-2, the RBAC permission cache is TTL-based with no event-driven invalidation.
+      After role assignments change, the cache continues to serve the old permissions until TTL
+      expires. Missing InvalidateResolverCache calls after SaveUserPermissions, GrantPermission,
+      RevokePermission, or SetPermissions allow the stale permissions window (AS-9 pattern).
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-613
+      cfd-slice: CFD-2
+      confidence: LOW
+    patterns:
+      - pattern: |
+          $SVC.SavePermissions($CTX, ...)
+      - pattern: |
+          $SVC.SetPermissions($CTX, ...)
+      - pattern: |
+          $SVC.GrantPermission($CTX, ...)
+    paths:
+      include:
+        - "pkg/services/accesscontrol/**/*.go"
+        - "pkg/services/dashboards/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"

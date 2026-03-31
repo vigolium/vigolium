@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
+	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
@@ -59,7 +61,7 @@ func buildSwarmPromptContext(records []*httpmsg.HttpRequestResponse, targetURL s
 func TestSwarmPrompt_RawHTTPInput(t *testing.T) {
 	raw := "GET /rest/products/search?q=apple HTTP/1.1\r\nHost: localhost:3000\r\nAuthorization: Bearer eyJtoken\r\nAccept: application/json\r\n\r\n"
 
-	records, err := NormalizeInput(context.Background(), raw, "", nil)
+	records, err := agentinput.NormalizeInput(context.Background(), raw, "", nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -109,7 +111,7 @@ func TestSwarmPrompt_RawHTTPInput(t *testing.T) {
 func TestSwarmPrompt_URLInput(t *testing.T) {
 	input := "https://example.com/api/v1/users?role=admin"
 
-	records, err := NormalizeInput(context.Background(), input, "", nil)
+	records, err := agentinput.NormalizeInput(context.Background(), input, "", nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -140,7 +142,7 @@ func TestSwarmPrompt_URLInput(t *testing.T) {
 func TestSwarmPrompt_CurlInput(t *testing.T) {
 	input := `curl -X POST https://example.com/api/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"secret"}'`
 
-	records, err := NormalizeInput(context.Background(), input, "", nil)
+	records, err := agentinput.NormalizeInput(context.Background(), input, "", nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -179,7 +181,7 @@ func TestSwarmPrompt_Base64Input(t *testing.T) {
 	rawHTTP := "GET /rest/products/search?q=apple HTTP/1.1\r\nHost: localhost:3000\r\nAuthorization: Bearer eyJtoken123\r\nAccept: application/json\r\n\r\n"
 	input := base64.StdEncoding.EncodeToString([]byte(rawHTTP))
 
-	records, err := NormalizeInput(context.Background(), input, "", nil)
+	records, err := agentinput.NormalizeInput(context.Background(), input, "", nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -220,7 +222,7 @@ func TestSwarmPrompt_Base64Input(t *testing.T) {
 func TestSwarmPrompt_VulnTypeFocus(t *testing.T) {
 	raw := "GET /api/search?q=test HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
-	records, err := NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
+	records, err := agentinput.NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -247,7 +249,7 @@ func TestSwarmPrompt_VulnTypeFocus(t *testing.T) {
 func TestSwarmPrompt_NoVulnType(t *testing.T) {
 	raw := "GET /api/test HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
-	records, err := NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
+	records, err := agentinput.NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -271,7 +273,7 @@ func TestSwarmPrompt_NoVulnType(t *testing.T) {
 func TestSwarmPrompt_POSTWithJSONBody(t *testing.T) {
 	raw := "POST /api/v2/orders HTTP/1.1\r\nHost: shop.example.com\r\nContent-Type: application/json\r\nAuthorization: Bearer tok123\r\n\r\n{\"item_id\":42,\"quantity\":1,\"coupon\":\"SAVE10\"}"
 
-	records, err := NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
+	records, err := agentinput.NormalizeInput(context.Background(), raw, InputTypeRaw, nil)
 	if err != nil {
 		t.Fatalf("NormalizeInput failed: %v", err)
 	}
@@ -370,7 +372,7 @@ func TestSwarmPrompt_MultipleRawRequests(t *testing.T) {
 
 	var allRecords []*httpmsg.HttpRequestResponse
 	for _, input := range inputs {
-		records, err := NormalizeInput(context.Background(), input, InputTypeRaw, nil)
+		records, err := agentinput.NormalizeInput(context.Background(), input, InputTypeRaw, nil)
 		if err != nil {
 			t.Fatalf("NormalizeInput failed: %v", err)
 		}
@@ -421,14 +423,14 @@ func renderSwarmTemplate(t *testing.T, opts Options) string {
 	t.Helper()
 
 	// Clear cache to avoid cross-test interference
-	tmplCacheMu.Lock()
-	clear(tmplCache)
-	tmplCacheMu.Unlock()
+	agentprompt.TmplCacheMu.Lock()
+	clear(agentprompt.TmplCache)
+	agentprompt.TmplCacheMu.Unlock()
 
 	// Point HOME away so only embedded templates are found
 	t.Setenv("HOME", t.TempDir())
 
-	tmpl, err := LoadTemplate("agent-swarm-plan", "")
+	tmpl, err := agentprompt.LoadTemplate("agent-swarm-plan", "")
 	if err != nil {
 		t.Fatalf("LoadTemplate(agent-swarm-plan) failed: %v", err)
 	}
@@ -440,7 +442,7 @@ func renderSwarmTemplate(t *testing.T, opts Options) string {
 		t.Fatalf("gatherContext failed: %v", err)
 	}
 
-	rendered, err := RenderTemplate(tmpl, data)
+	rendered, err := agentprompt.RenderTemplate(tmpl, data)
 	if err != nil {
 		t.Fatalf("RenderTemplate failed: %v", err)
 	}

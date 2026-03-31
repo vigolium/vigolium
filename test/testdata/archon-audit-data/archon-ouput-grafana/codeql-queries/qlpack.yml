@@ -1,0 +1,4 @@
+name: grafana-security-queries
+version: 0.1.0
+dependencies:
+  codeql/go-all: "*"

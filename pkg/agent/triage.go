@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
@@ -20,7 +21,6 @@ type TriageLoopConfig struct {
 
 	// Agent options for triage calls
 	AgentName      string
-	AgentACPCmd    string
 	PromptTemplate string // e.g. "pipeline-triage" or "agent-swarm-triage"
 	TargetURL      string
 	Hostname       string
@@ -33,11 +33,6 @@ type TriageLoopConfig struct {
 	ScanUUID       string
 	ProjectUUID    string
 	StreamWriter   io.Writer
-
-	// Terminal capability (custom slash commands / sub-agents)
-	SlashCommands []string
-	CustomAgents  []string
-	MaxCommands   int
 
 	// Loop control
 	MaxRounds                 int
@@ -164,7 +159,6 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			triageSessionID := uuid.New().String()
 			opts := Options{
 				AgentName:      cfg.AgentName,
-				AgentACPCmd:    cfg.AgentACPCmd,
 				PromptTemplate: cfg.PromptTemplate,
 				TargetURL:      cfg.TargetURL,
 				Hostname:       cfg.Hostname,
@@ -179,9 +173,6 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				ProjectUUID:    cfg.ProjectUUID,
 				Source:         cfg.PromptTemplate,
 				StreamWriter:   cfg.StreamWriter,
-				SlashCommands:  cfg.SlashCommands,
-				CustomAgents:   cfg.CustomAgents,
-				MaxCommands:    cfg.MaxCommands,
 			}
 
 			var appendParts []string
@@ -248,7 +239,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				continue
 			}
 
-			triage, err := ParseTriageResult(agentResult.RawOutput)
+			triage, err := parsing.ParseTriageResult(agentResult.RawOutput)
 			if err != nil {
 				zap.L().Warn("Failed to parse triage result in batch, skipping batch",
 					zap.Int("batch", batchIdx+1), zap.Error(err))

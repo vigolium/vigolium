@@ -106,7 +106,7 @@ function countBySeverity(findings: Finding[]): Record<string, number> {
 // --- Chart data helpers ---
 
 export function findingsBySeverity(findings: Finding[]): { severity: string; count: number }[] {
-  const order = ["critical", "high", "medium", "low", "info"];
+  const order = ["critical", "high", "medium", "low", "info", "n/a"];
   const counts = countBySeverity(findings);
   return order
     .filter((s) => (counts[s] || 0) > 0)
@@ -116,11 +116,40 @@ export function findingsBySeverity(findings: Finding[]): { severity: string; cou
 export function findingsByModule(findings: Finding[]): { module: string; count: number }[] {
   const map = new Map<string, number>();
   for (const f of findings) {
-    map.set(f.module_name, (map.get(f.module_name) || 0) + 1);
+    const key = f.module_short || f.module_name;
+    map.set(key, (map.get(key) || 0) + 1);
   }
   return Array.from(map.entries())
     .map(([module, count]) => ({ module, count }))
     .sort((a, b) => b.count - a.count);
+}
+
+export interface ModuleFindingSummary {
+  module: string;
+  severity: string;
+  count: number;
+}
+
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4, "n/a": 5 };
+
+export function findingsByModuleWithSeverity(findings: Finding[]): ModuleFindingSummary[] {
+  const map = new Map<string, { severity: string; count: number }>();
+  for (const f of findings) {
+    const key = f.module_short || f.module_name;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count++;
+      // keep the highest severity
+      if ((SEVERITY_RANK[f.severity] ?? 99) < (SEVERITY_RANK[existing.severity] ?? 99)) {
+        existing.severity = f.severity;
+      }
+    } else {
+      map.set(key, { severity: f.severity, count: 1 });
+    }
+  }
+  return Array.from(map.entries())
+    .map(([module, { severity, count }]) => ({ module, severity, count }))
+    .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99) || a.module.localeCompare(b.module));
 }
 
 export function httpByStatusCode(records: HttpRecord[]): { status: string; count: number }[] {

@@ -1,0 +1,188 @@
+{
+  "sinks": [
+    {
+      "id": "SINK-001",
+      "kind": "file-access",
+      "function": "os.Create",
+      "file": "pkg/services/rendering/http_mode.go",
+      "line": 191,
+      "suppression": "nolint:gosec",
+      "dfd_slice": "DFD-5",
+      "notes": "Renderer response written to file; path from getNewFilePath() (random 20-char, safe) but no confinement assertion"
+    },
+    {
+      "id": "SINK-002",
+      "kind": "http-serve-file",
+      "function": "http.ServeFile",
+      "file": "pkg/api/render.go",
+      "line": 122,
+      "suppression": "none",
+      "dfd_slice": "DFD-5",
+      "notes": "Serves result.FilePath with no path confinement check before serving (SAST-006)"
+    },
+    {
+      "id": "SINK-003",
+      "kind": "http-request-outbound",
+      "function": "httputil.ReverseProxy.ServeHTTP",
+      "file": "pkg/api/pluginproxy/ds_proxy.go",
+      "line": 162,
+      "suppression": "none",
+      "dfd_slice": "DFD-3",
+      "notes": "Datasource proxy: URL built from user path + target URL"
+    },
+    {
+      "id": "SINK-004",
+      "kind": "sql-execution",
+      "function": "xorm session_raw.go SQL exec",
+      "file": "pkg/util/xorm/session_raw.go",
+      "line": 174,
+      "suppression": "none",
+      "dfd_slice": "DB layer",
+      "notes": "CodeQL taint: source from web.binding.go, authn/clients/render.go, user.go"
+    },
+    {
+      "id": "SINK-005",
+      "kind": "sql-execution",
+      "function": "annotations WHERE time filter",
+      "file": "pkg/services/annotations/annotationsimpl/xorm_store.go",
+      "line": 389,
+      "suppression": "none",
+      "dfd_slice": "DFD-2",
+      "notes": "from=0/to=0 bypasses WHERE clause; CVE-2026-21722 (prior audit)"
+    },
+    {
+      "id": "SINK-006",
+      "kind": "file-access",
+      "function": "os.Symlink (zip extraction)",
+      "file": "pkg/plugins/storage/fs.go",
+      "line": 122,
+      "suppression": "nolint:gosec",
+      "dfd_slice": "Plugin install",
+      "notes": "CodeQL unsafe-unzip-symlink; unresolved path from archive header used in symlink creation (SAST-008)"
+    },
+    {
+      "id": "SINK-007",
+      "kind": "http-request-outbound-ssrf",
+      "function": "gms_client HTTP request (presigned URL)",
+      "file": "pkg/services/cloudmigration/gmsclient/gms_client.go",
+      "line": 63,
+      "suppression": "none",
+      "dfd_slice": "DFD-4",
+      "notes": "CodeQL SSRF: URL depends on user-provided presigned URL from GMS API (SAST-007, H4)"
+    },
+    {
+      "id": "SINK-008",
+      "kind": "header-injection",
+      "function": "req.Header.Set(Authorization)",
+      "file": "pkg/api/pluginproxy/ds_proxy.go",
+      "line": 233,
+      "suppression": "none",
+      "dfd_slice": "DFD-3",
+      "notes": "X-DS-Authorization from client request forwarded as Authorization to backend"
+    },
+    {
+      "id": "SINK-009",
+      "kind": "tls-bypass",
+      "function": "tls.Config{InsecureSkipVerify: true}",
+      "file": "pkg/storage/unified/resource/tenant_watcher.go",
+      "line": 102,
+      "suppression": "nolint:gosec",
+      "dfd_slice": "Internal resource store",
+      "notes": "TLS cert validation disabled when AllowInsecure config flag is set"
+    },
+    {
+      "id": "SINK-010",
+      "kind": "tls-bypass",
+      "function": "tls.Config{InsecureSkipVerify: true}",
+      "file": "pkg/storage/unified/resource/client.go",
+      "line": 145,
+      "suppression": "nolint:gosec",
+      "dfd_slice": "Internal resource store",
+      "notes": "TLS cert validation disabled in resource client"
+    },
+    {
+      "id": "SINK-011",
+      "kind": "jwt-unverified",
+      "function": "parsedToken.UnsafeClaimsWithoutVerification",
+      "file": "pkg/services/authn/clients/ext_jwt.go",
+      "line": 346,
+      "suppression": "none",
+      "dfd_slice": "DFD-1 / CFD-1",
+      "notes": "CodeQL missing-jwt-signature-check: JWT parsed without verification. Context: Test() probe function only, not auth path. Likely FP (SAST-009)."
+    },
+    {
+      "id": "SINK-012",
+      "kind": "sql-execution",
+      "function": "sql_dashboards.go query",
+      "file": "pkg/registry/apis/dashboard/legacy/sql_dashboards.go",
+      "line": 151,
+      "suppression": "none",
+      "dfd_slice": "K8s API dashboard",
+      "notes": "CodeQL SQL injection: taint source from provisioning/request.go and web/binding.go (SAST-011)"
+    },
+    {
+      "id": "SINK-013",
+      "kind": "xss",
+      "function": "ResponseWriter.Write (reflected)",
+      "file": "pkg/web/response_writer.go",
+      "line": 100,
+      "suppression": "none",
+      "dfd_slice": "HTTP response",
+      "notes": "CodeQL reflected-xss: user-provided value in HTTP response (SAST-013)"
+    },
+    {
+      "id": "SINK-014",
+      "kind": "dangerouslySetInnerHTML",
+      "function": "plugin readme rendering",
+      "file": "public/app/features/plugins/admin/components/PluginDetailsBody.tsx",
+      "line": 57,
+      "suppression": "none",
+      "dfd_slice": "Frontend plugin display",
+      "notes": "Plugin readme rendered without DOMPurify (SAST-018). 13 of 19 dangerouslySetInnerHTML usages lack DOMPurify."
+    },
+    {
+      "id": "SINK-015",
+      "kind": "sql-file-write",
+      "function": "mysql.NewContext + sqle.New with INTO OUTFILE",
+      "file": "pkg/expr/sql/db.go",
+      "line": 71,
+      "suppression": "none",
+      "dfd_slice": "DFD-6 / CFD-4",
+      "notes": "go-mysql-server context without WithDisableFileWrites(true); INTO OUTFILE allowlisted (SAST-001/002)"
+    },
+    {
+      "id": "SINK-016",
+      "kind": "cross-org-sql-update",
+      "function": "UpdateSnapshot SQL (no org_id WHERE)",
+      "file": "pkg/services/cloudmigration/cloudmigrationimpl/xorm_store.go",
+      "line": 228,
+      "suppression": "none",
+      "dfd_slice": "DFD-4 / CFD-5",
+      "notes": "UPDATE cloud_migration_snapshot WHERE session_uid=? AND uid=? without org_id (SAST-005/017)"
+    },
+    {
+      "id": "SINK-017",
+      "kind": "cross-org-delete",
+      "function": "dashboardsnapshots.DeleteWithKey",
+      "file": "pkg/registry/apis/dashboard/snapshot/routes.go",
+      "line": 275,
+      "suppression": "none",
+      "dfd_slice": "DFD-7",
+      "notes": "DeleteWithKey called without org ownership check; RBAC only (SAST-004)"
+    },
+    {
+      "id": "SINK-018",
+      "kind": "gravatar-proxy",
+      "function": "AvatarCacheServer.Handler outbound HTTP",
+      "file": "pkg/api/avatar/avatar.go",
+      "line": 1,
+      "suppression": "none",
+      "dfd_slice": "DFD-8",
+      "notes": "Outbound Gravatar HTTP request per unique hash; no auth gate when anonymous enabled (SAST-003)"
+    }
+  ],
+  "total": 18,
+  "generated_by": "Phase4-StructuralExtraction-Audit2",
+  "audit_id": "2026-03-21T00:00:00.000Z",
+  "note": "SINK-015 through SINK-018 added for audit 2026-03-21 based on KB high-priority targets and CodeQL findings."
+}

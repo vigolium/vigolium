@@ -117,7 +117,6 @@ type Options struct {
 	SpideringHeadless      bool
 	SpideringNoCDP         bool
 	SpideringNoForms       bool
-	SpideringPilotMode     bool
 
 	// Known Issue Scan options
 	KnownIssueScanEnabled      bool

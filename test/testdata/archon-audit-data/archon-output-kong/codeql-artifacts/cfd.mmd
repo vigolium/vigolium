@@ -1,0 +1,4 @@
+flowchart TD
+  A[Request arrives] --> B{CodeQL tracked validators?}
+  B -->|no evidence| C[No decision nodes extracted]
+  C --> D[Follow manual CFD slices in KB]

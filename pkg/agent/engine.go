@@ -14,14 +14,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
+	"github.com/vigolium/vigolium/pkg/agent/backend"
 	"github.com/vigolium/vigolium/pkg/agent/codexsdk"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
+	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"go.uber.org/zap"
 )
 
 // safeWriter wraps an io.Writer with a mutex so concurrent writes don't interleave.
-// Used when parallel ACP sessions share the same StreamWriter for real-time display.
+// Used when parallel agent sessions share the same StreamWriter for real-time display.
 type safeWriter struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -38,10 +42,9 @@ func (s *safeWriter) Write(p []byte) (int, error) {
 type Engine struct {
 	settings     *config.Settings
 	repo         *database.Repository
-	pool         *ACPPool      // nil when warm sessions disabled
-	sdkPool      *SDKPool      // nil when warm sessions disabled
-	codexPool    *CodexPool    // nil when warm sessions disabled
-	opencodePool *OpenCodePool // nil when warm sessions disabled
+	sdkPool      *backend.SDKPool      // nil when warm sessions disabled
+	codexPool    *backend.CodexPool    // nil when warm sessions disabled
+	opencodePool *backend.OpenCodePool // nil when warm sessions disabled
 
 	// Caches for context gathering (populated lazily, thread-safe)
 	dirTreeCacheMu   sync.RWMutex
@@ -51,7 +54,7 @@ type Engine struct {
 
 	// contextCache caches DB enrichment results within a swarm run.
 	// Set via SetContextCache before swarm execution; nil for non-swarm modes.
-	contextCache *ContextCache
+	contextCache *agentprompt.ContextCache
 }
 
 // NewEngine creates a new agent engine.
@@ -62,10 +65,9 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 		repo:     repo,
 	}
 	if settings != nil && settings.Agent.WarmSession.IsEnabled() {
-		e.pool = NewACPPool(settings.Agent.WarmSession, settings.Agent.Backends)
-		e.sdkPool = NewSDKPool(settings.Agent.WarmSession, settings.Agent.Backends)
-		e.codexPool = NewCodexPool(settings.Agent.WarmSession, settings.Agent.Backends)
-		e.opencodePool = NewOpenCodePool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.sdkPool = backend.NewSDKPool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.codexPool = backend.NewCodexPool(settings.Agent.WarmSession, settings.Agent.Backends)
+		e.opencodePool = backend.NewOpenCodePool(settings.Agent.WarmSession, settings.Agent.Backends)
 	}
 	return e
 }
@@ -73,9 +75,6 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 // Close shuts down the engine's session pools.
 // Safe to call multiple times or on nil pools.
 func (e *Engine) Close() {
-	if e.pool != nil {
-		e.pool.Close()
-	}
 	if e.sdkPool != nil {
 		e.sdkPool.Close()
 	}
@@ -111,11 +110,11 @@ func (e *Engine) mergeGlobalMcpServers(agentDef *config.AgentDef) *config.AgentD
 	return &merged
 }
 
-// EnsureWarmSessions activates ACP session pooling if it is not already enabled.
+// EnsureWarmSessions activates session pooling if it is not already enabled.
 // This is useful for modes like swarm that make multiple agent calls and benefit
 // from subprocess reuse even when warm sessions are not explicitly configured.
 func (e *Engine) EnsureWarmSessions() {
-	if e.pool != nil && e.sdkPool != nil && e.codexPool != nil && e.opencodePool != nil {
+	if e.sdkPool != nil && e.codexPool != nil && e.opencodePool != nil {
 		return // already active
 	}
 	if e.settings == nil {
@@ -126,17 +125,14 @@ func (e *Engine) EnsureWarmSessions() {
 		enabled := true
 		cfg.Enable = &enabled
 	}
-	if e.pool == nil {
-		e.pool = NewACPPool(cfg, e.settings.Agent.Backends)
-	}
 	if e.sdkPool == nil {
-		e.sdkPool = NewSDKPool(cfg, e.settings.Agent.Backends)
+		e.sdkPool = backend.NewSDKPool(cfg, e.settings.Agent.Backends)
 	}
 	if e.codexPool == nil {
-		e.codexPool = NewCodexPool(cfg, e.settings.Agent.Backends)
+		e.codexPool = backend.NewCodexPool(cfg, e.settings.Agent.Backends)
 	}
 	if e.opencodePool == nil {
-		e.opencodePool = NewOpenCodePool(cfg, e.settings.Agent.Backends)
+		e.opencodePool = backend.NewOpenCodePool(cfg, e.settings.Agent.Backends)
 	}
 	zap.L().Debug("warm session pools auto-enabled for multi-call mode")
 }
@@ -148,19 +144,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		opts.AgentName = e.settings.Agent.DefaultAgent
 	}
 
-	// Resolve agent definition: --agent-acp-cmd override takes precedence
-	var agentDef *config.AgentDef
-	if opts.AgentACPCmd != "" {
-		agentDef = ParseACPCmd(opts.AgentACPCmd)
-		if opts.AgentName == "" {
-			opts.AgentName = "custom-acp"
-		}
-	} else {
-		var resolveErr error
-		agentDef, resolveErr = e.resolveAgent(opts.AgentName)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
+	// Resolve agent definition
+	agentDef, resolveErr := e.resolveAgent(opts.AgentName)
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	zap.L().Debug("resolved agent definition",
@@ -206,7 +193,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// Execute the agent using the configured protocol, with optional retry.
-	retryCfg := DefaultRetryConfig()
+	retryCfg := agenttypes.DefaultRetryConfig()
 	if opts.Retry != nil {
 		retryCfg = *opts.Retry
 	}
@@ -225,55 +212,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 
 	switch agentDef.EffectiveProtocol() {
-	case "acp":
-		var acpOpts []acpClientOption
-		if opts.SourcePath != "" {
-			acpOpts = append(acpOpts, withAllowedPaths(opts.SourcePath))
-		}
-		if opts.StreamWriter != nil {
-			acpOpts = append(acpOpts, withStreamWriter(opts.StreamWriter))
-		}
-		if opts.SessionWeight > 0 {
-			acpOpts = append(acpOpts, withSessionWeight(opts.SessionWeight))
-		}
-		if opts.SessionKey != "" {
-			acpOpts = append(acpOpts, withSessionKey(opts.SessionKey))
-		}
-
-		// Resolve working directory once for all ACP paths
-		cwd := "."
-		if opts.SourcePath != "" {
-			cwd = opts.SourcePath
-		}
-
-		// Enable terminal when slash commands or custom agents are configured (swarm mode).
-		if len(opts.SlashCommands) > 0 || len(opts.CustomAgents) > 0 {
-			maxCmds := opts.MaxCommands
-			if maxCmds <= 0 {
-				maxCmds = 50
-			}
-			acpOpts = append(acpOpts, withTerminal(cwd, maxCmds, opts.SlashCommands...))
-		}
-
-		var ar acpResult
-		if opts.Autopilot {
-			// Autopilot mode: use terminal-enabled ACP runner
-			ar, runErr = RunAgenticAutopilot(ctx, *agentDef, runPrompt, cwd, opts.MaxCommands, acpOpts...)
-		} else if e.pool != nil && opts.AgentACPCmd == "" {
-			// Warm session pooling — skip for ad-hoc ACP commands (no stable name to key on)
-			ar, runErr = e.pool.Prompt(ctx, opts.AgentName, runPrompt, cwd, acpOpts...)
-		} else {
-			ar, runErr = RunAgenticACP(ctx, *agentDef, runPrompt, acpOpts...)
-		}
-		stdout, stderr, sessionID = ar.Stdout, ar.Stderr, ar.SessionID
 	case "sdk":
 		// SDK protocol: full Claude Code CLI tools via JSON-lines protocol.
-		// Provides Read, Grep, Glob, Bash, Edit — unlike ACP's ReadTextFile-only.
 		cwd := "."
 		if opts.SourcePath != "" {
 			cwd = opts.SourcePath
 		}
-		sdkCfg := sdkRunConfig{
+		sdkCfg := backend.SDKRunConfig{
 			Cwd:          cwd,
 			StreamWriter: opts.StreamWriter,
 			McpServers:   agentDef.McpServers,
@@ -286,8 +231,8 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			sdkCfg.BrowserEnabled = e.settings.Agent.Browser.IsEnabled()
 		}
 
-		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash
-		// (no ACP sandboxed terminal). Set MaxTurns high for multi-step execution.
+		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash.
+		// Set MaxTurns high for multi-step execution.
 		if opts.Autopilot {
 			sdkCfg.MaxTurns = opts.MaxCommands * 3
 			if sdkCfg.MaxTurns <= 0 {
@@ -297,13 +242,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 
 			// Inject vigolium toolkit reference — written to CLAUDE.md/AGENTS.md in
 			// session dir to avoid passing multi-KB --append-system-prompt CLI arg.
-			sysPrompt, promptSource := LoadSDKAutopilotSystemPrompt()
+			sysPrompt, promptSource := agentprompt.LoadSDKAutopilotSystemPrompt()
 			if opts.SourcePath != "" {
 				sysPrompt += "\n\nApplication source code is available at: " + opts.SourcePath
 			}
 			// Conditionally append browser capabilities when agent-browser is enabled
 			if e.settings != nil && e.settings.Agent.Browser.IsEnabled() {
-				if browserSection := LoadBrowserPromptSection(); browserSection != "" {
+				if browserSection := agentprompt.LoadBrowserPromptSection(); browserSection != "" {
 					sysPrompt += "\n\n" + browserSection
 				}
 			}
@@ -332,22 +277,15 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			}
 		}
 
-		// Warn about ACP-only terminal features
-		if len(opts.SlashCommands) > 0 || len(opts.CustomAgents) > 0 {
-			zap.L().Warn("SDK protocol does not support ACP terminal features; SlashCommands and CustomAgents will be ignored",
-				zap.Strings("slashCommands", opts.SlashCommands),
-				zap.Strings("customAgents", opts.CustomAgents))
-		}
-
-		var ar acpResult
-		if e.sdkPool != nil && opts.AgentACPCmd == "" {
+		var ar runResult
+		if e.sdkPool != nil {
 			poolKey := opts.AgentName
 			if opts.SessionKey != "" {
 				poolKey = opts.SessionKey
 			}
 			ar, runErr = e.sdkPool.Prompt(ctx, opts.AgentName, runPrompt, sdkCfg, poolKey, opts.SessionWeight)
 		} else {
-			ar, runErr = RunAgenticSDK(ctx, *agentDef, runPrompt, sdkCfg)
+			ar, runErr = backend.RunAgenticSDK(ctx, *agentDef, runPrompt, sdkCfg)
 		}
 		stdout, sessionID = ar.Stdout, ar.SessionID
 	case "codex-sdk":
@@ -356,7 +294,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		if opts.SourcePath != "" {
 			cwd = opts.SourcePath
 		}
-		codexCfg := codexRunConfig{
+		codexCfg := backend.CodexRunConfig{
 			Cwd:          cwd,
 			StreamWriter: opts.StreamWriter,
 			Model:        agentDef.Model,
@@ -368,15 +306,15 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			codexCfg.DeveloperInstructions = "Application source code is available at: " + opts.SourcePath
 		}
 
-		var ar acpResult
-		if e.codexPool != nil && opts.AgentACPCmd == "" {
+		var ar runResult
+		if e.codexPool != nil {
 			poolKey := opts.AgentName
 			if opts.SessionKey != "" {
 				poolKey = opts.SessionKey
 			}
 			ar, runErr = e.codexPool.Prompt(ctx, opts.AgentName, runPrompt, codexCfg, poolKey, opts.SessionWeight)
 		} else {
-			ar, runErr = RunCodexSDK(ctx, *agentDef, runPrompt, codexCfg)
+			ar, runErr = backend.RunCodexSDK(ctx, *agentDef, runPrompt, codexCfg)
 		}
 		stdout, sessionID = ar.Stdout, ar.SessionID
 	case "opencode-sdk":
@@ -385,7 +323,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		if opts.SourcePath != "" {
 			cwd = opts.SourcePath
 		}
-		osCfg := opencodeRunConfig{
+		osCfg := backend.OpenCodeRunConfig{
 			Cwd:          cwd,
 			StreamWriter: opts.StreamWriter,
 			Model:        agentDef.Model,
@@ -396,19 +334,19 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			osCfg.SystemPrompt = "Application source code is available at: " + opts.SourcePath
 		}
 
-		var ar acpResult
-		if e.opencodePool != nil && opts.AgentACPCmd == "" {
+		var ar runResult
+		if e.opencodePool != nil {
 			poolKey := opts.AgentName
 			if opts.SessionKey != "" {
 				poolKey = opts.SessionKey
 			}
 			ar, runErr = e.opencodePool.Prompt(ctx, opts.AgentName, runPrompt, osCfg, poolKey, opts.SessionWeight)
 		} else {
-			ar, runErr = RunOpenCodeSDK(ctx, *agentDef, runPrompt, osCfg)
+			ar, runErr = backend.RunOpenCodeSDK(ctx, *agentDef, runPrompt, osCfg)
 		}
 		stdout, sessionID = ar.Stdout, ar.SessionID
 	default:
-		stdout, stderr, runErr = RunAgent(ctx, *agentDef, runPrompt, opts.StreamWriter)
+		stdout, stderr, runErr = backend.RunAgent(ctx, *agentDef, runPrompt, opts.StreamWriter)
 	}
 
 		if runErr != nil {
@@ -467,7 +405,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	// Parse and ingest results based on output schema
 	switch outputSchema {
 	case "findings":
-		findings, parseErr := ParseFindings(stdout)
+		findings, parseErr := parsing.ParseFindings(stdout)
 		if parseErr != nil {
 			zap.L().Warn("Failed to parse agent findings", zap.Error(parseErr))
 			return result, nil
@@ -483,7 +421,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 
 	case "http_records":
-		records, parseErr := ParseHTTPRecords(stdout)
+		records, parseErr := parsing.ParseHTTPRecords(stdout)
 		if parseErr != nil {
 			zap.L().Warn("Failed to parse agent HTTP records", zap.Error(parseErr))
 			return result, nil
@@ -542,7 +480,7 @@ func (e *Engine) Preflight(agentName string) error {
 	return nil
 }
 
-// ResolveAgentProtocol returns the effective protocol ("sdk", "acp", or "pipe") for
+// ResolveAgentProtocol returns the effective protocol ("sdk", "codex-sdk", "opencode-sdk", or "pipe") for
 // the named agent backend. Returns "pipe" if the agent is not found.
 func (e *Engine) ResolveAgentProtocol(agentName string) string {
 	if agentName == "" {
@@ -586,9 +524,9 @@ func (e *Engine) postProcessSourceAnalysisWithMerged(ctx context.Context, cfg So
 	if e.repo != nil && len(merged.HTTPRecords) > 0 && hostname != "" {
 		dbRows, dbErr := e.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
 		if dbErr == nil && len(dbRows) > 0 {
-			sessionHeaders = AuthHeadersFromSessionHostnames(dbRows)
+			sessionHeaders = backend.AuthHeadersFromSessionHostnames(dbRows)
 			if len(sessionHeaders) > 0 {
-				merged.HTTPRecords = ReplaceAuthHeadersInRecords(merged.HTTPRecords, sessionHeaders)
+				merged.HTTPRecords = backend.ReplaceAuthHeadersInRecords(merged.HTTPRecords, sessionHeaders)
 			}
 		}
 	}
@@ -610,7 +548,7 @@ func (e *Engine) postProcessSourceAnalysisWithMerged(ctx context.Context, cfg So
 
 	// Probe records that were saved without responses to populate status codes and bodies.
 	if e.repo != nil && hostname != "" {
-		ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
+		backend.ReprobeUnprobedRecords(ctx, e.repo, cfg.ProjectUUID, hostname, sessionHeaders, "source-analysis")
 	}
 
 	return merged, combinedRaw, combinedPrompt, nil
@@ -655,7 +593,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		exploreSessionID := uuid.New().String()
 		opts := Options{
 			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
+
 			PromptTemplate: exploreTemplate,
 			TargetURL:      cfg.TargetURL,
 			SourcePath:     cfg.SourcePath,
@@ -763,7 +701,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		formatRoutesSessionID := uuid.New().String()
 		opts := Options{
 			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
+
 			PromptTemplate: formatRoutesTemplate,
 			TargetURL:      cfg.TargetURL,
 			SourcePath:     cfg.SourcePath,
@@ -803,7 +741,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format-routes ---\n%s", formatResult.RawOutput))
 		allPrompts = append(allPrompts, fmt.Sprintf("--- format-routes ---\n%s", formatResult.RenderedPrompt))
 
-		result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+		result, parseErr := parsing.ParseSourceAnalysisResult(formatResult.RawOutput)
 		if parseErr != nil {
 			zap.L().Warn("Failed to parse format-routes output", zap.Error(parseErr))
 			errs = append(errs, fmt.Errorf("format-routes parse: %w", parseErr))
@@ -826,7 +764,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		formatSessionSessionID := uuid.New().String()
 		opts := Options{
 			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
+
 			PromptTemplate: formatSessionTemplate,
 			TargetURL:      cfg.TargetURL,
 			SourcePath:     cfg.SourcePath,
@@ -866,7 +804,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- format-session ---\n%s", formatResult.RawOutput))
 		allPrompts = append(allPrompts, fmt.Sprintf("--- format-session ---\n%s", formatResult.RenderedPrompt))
 
-		result, parseErr := ParseSourceAnalysisResult(formatResult.RawOutput)
+		result, parseErr := parsing.ParseSourceAnalysisResult(formatResult.RawOutput)
 		if parseErr != nil {
 			zap.L().Warn("Failed to parse format-session output", zap.Error(parseErr))
 			errs = append(errs, fmt.Errorf("format-session parse: %w", parseErr))
@@ -886,7 +824,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		extSessionID := uuid.New().String()
 		extOpts := Options{
 			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
+
 			PromptTemplate: extensionsTemplate,
 			TargetURL:      cfg.TargetURL,
 			SessionKey:     "sa-extensions",
@@ -925,7 +863,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		allRawOutputs = append(allRawOutputs, fmt.Sprintf("--- extensions ---\n%s", extResult.RawOutput))
 		allPrompts = append(allPrompts, fmt.Sprintf("--- extensions ---\n%s", extResult.RenderedPrompt))
 
-		result, parseErr := ParseSourceAnalysisResult(extResult.RawOutput)
+		result, parseErr := parsing.ParseSourceAnalysisResult(extResult.RawOutput)
 		if parseErr != nil {
 			zap.L().Warn("Failed to parse extensions output", zap.Error(parseErr))
 			errs = append(errs, fmt.Errorf("extensions parse: %w", parseErr))
@@ -1023,7 +961,7 @@ func (e *Engine) enrichContext(ctx context.Context, data *TemplateData, template
 
 // SetContextCache sets a context cache for DB enrichment results.
 // Used by swarm runs to avoid redundant queries across phases.
-func (e *Engine) SetContextCache(cache *ContextCache) {
+func (e *Engine) SetContextCache(cache *agentprompt.ContextCache) {
 	e.contextCache = cache
 }
 
@@ -1053,7 +991,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 	}
 
 	if opts.PromptFile != "" {
-		tmpl, loadErr := LoadTemplateFromFile(opts.PromptFile)
+		tmpl, loadErr := agentprompt.LoadTemplateFromFile(opts.PromptFile)
 		if loadErr != nil {
 			return "", "", "", fmt.Errorf("failed to load prompt file: %w", loadErr)
 		}
@@ -1062,7 +1000,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 			return "", "", "", gatherErr
 		}
 		e.enrichContext(ctx, &templateData, tmpl.Variables)
-		rendered, renderErr := RenderTemplate(tmpl, templateData)
+		rendered, renderErr := agentprompt.RenderTemplate(tmpl, templateData)
 		if renderErr != nil {
 			return "", "", "", renderErr
 		}
@@ -1071,7 +1009,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 	}
 
 	if opts.PromptTemplate != "" {
-		tmpl, loadErr := LoadTemplate(opts.PromptTemplate, e.settings.Agent.TemplatesDir)
+		tmpl, loadErr := agentprompt.LoadTemplate(opts.PromptTemplate, e.settings.Agent.TemplatesDir)
 		if loadErr != nil {
 			return "", "", "", loadErr
 		}
@@ -1080,7 +1018,7 @@ func (e *Engine) buildPrompt(ctx context.Context, opts Options) (prompt string, 
 			return "", "", "", gatherErr
 		}
 		e.enrichContext(ctx, &templateData, tmpl.Variables)
-		rendered, renderErr := RenderTemplate(tmpl, templateData)
+		rendered, renderErr := agentprompt.RenderTemplate(tmpl, templateData)
 		if renderErr != nil {
 			return "", "", "", renderErr
 		}
@@ -1359,7 +1297,7 @@ func (e *Engine) ingestFindings(ctx context.Context, findings []AgentFinding, op
 	}
 
 	for _, af := range findings {
-		dbFinding := ToDBFinding(af, moduleID, opts.ScanUUID, opts.ProjectUUID)
+		dbFinding := parsing.ToDBFinding(af, moduleID, opts.ScanUUID, opts.ProjectUUID)
 		if saveErr := e.repo.SaveFindingDirect(ctx, dbFinding); saveErr != nil {
 			zap.L().Debug("Failed to save finding",
 				zap.String("title", af.Title),
@@ -1484,7 +1422,7 @@ func inferContentType(body string) string {
 	}
 
 	// JSON: starts with { or [
-	if (trimmed[0] == '{' || trimmed[0] == '[') && isJSON(trimmed) {
+	if (trimmed[0] == '{' || trimmed[0] == '[') && parsing.IsJSON(trimmed) {
 		return "application/json"
 	}
 
@@ -1607,22 +1545,3 @@ func detectLanguage(files []string) string {
 	return best
 }
 
-// ParseACPCmd splits a command string into an AgentDef with protocol "acp".
-// Example: "traecli acp" → AgentDef{Command: "traecli", Args: ["acp"], Protocol: "acp"}
-// Returns nil if cmd is empty or whitespace-only.
-func ParseACPCmd(cmd string) *config.AgentDef {
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
-		return nil
-	}
-	var args []string
-	if len(parts) > 1 {
-		args = parts[1:]
-	}
-	return &config.AgentDef{
-		Command:     parts[0],
-		Args:        args,
-		Protocol:    "acp",
-		Description: "Ad-hoc ACP agent from --agent-acp-cmd",
-	}
-}

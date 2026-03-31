@@ -3,101 +3,36 @@ package agent
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/agent/backend"
 	"go.uber.org/zap"
 )
 
-// Sentinel errors for agent backend failures. These enable reliable retry
-// classification via errors.Is() instead of fragile string matching.
+// errEmptyAgentOutput is a root-level sentinel for empty agent output (not backend-specific).
+var errEmptyAgentOutput = errors.New("agent returned empty output (0 tokens)")
+
+// Backend sentinel errors — aliased from backend package for retry classification.
 var (
-	errEmptyAgentOutput = errors.New("agent returned empty output (0 tokens)")
+	errSDKQueryFailed  = backend.ErrSDKQueryFailed
+	errSDKStreamError  = backend.ErrSDKStreamError
+	errSDKOutputFailed = backend.ErrSDKOutputFailed
 
-	// ACP backend errors
-	errACPPromptTimeout  = errors.New("acp prompt timed out")
-	errACPInitTimeout    = errors.New("acp initialize timed out")
-	errACPSessionTimeout = errors.New("acp session creation timed out")
-	errACPPromptFailed   = errors.New("acp prompt failed")
+	errCodexStartFailed = backend.ErrCodexStartFailed
+	errCodexInitFailed  = backend.ErrCodexInitFailed
+	errCodexTurnFailed  = backend.ErrCodexTurnFailed
 
-	// SDK backend errors
-	errSDKQueryFailed  = errors.New("sdk query failed")
-	errSDKStreamError  = errors.New("sdk stream error")
-	errSDKOutputFailed = errors.New("sdk output collection failed")
-
-	// Codex backend errors
-	errCodexStartFailed = errors.New("codex SDK start failed")
-	errCodexInitFailed  = errors.New("codex SDK initialize failed")
-	errCodexTurnFailed  = errors.New("codex SDK turn failed")
-
-	// OpenCode backend errors
-	errOpenCodeStartFailed   = errors.New("opencode SDK start failed")
-	errOpenCodeSessionFailed = errors.New("opencode SDK session creation failed")
-	errOpenCodePromptFailed  = errors.New("opencode SDK prompt failed")
+	errOpenCodeStartFailed   = backend.ErrOpenCodeStartFailed
+	errOpenCodeSessionFailed = backend.ErrOpenCodeSessionFailed
+	errOpenCodePromptFailed  = backend.ErrOpenCodePromptFailed
 )
-
-// RetryConfig controls retry behavior for agent calls.
-type RetryConfig struct {
-	MaxRetries    int           // maximum number of retries (default: 2)
-	InitialDelay  time.Duration // initial backoff delay (default: 2s)
-	MaxDelay      time.Duration // maximum backoff delay (default: 30s)
-	BackoffFactor float64       // exponential backoff multiplier (default: 2.0)
-}
-
-// DefaultRetryConfig returns sensible defaults for agent call retries.
-func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{
-		MaxRetries:    2,
-		InitialDelay:  2 * time.Second,
-		MaxDelay:      30 * time.Second,
-		BackoffFactor: 2.0,
-	}
-}
-
-// effectiveMaxRetries returns MaxRetries or the default if unset.
-// Use MaxRetries=-1 to explicitly disable retries (returns 0).
-func (rc RetryConfig) effectiveMaxRetries() int {
-	if rc.MaxRetries < 0 {
-		return 0
-	}
-	if rc.MaxRetries > 0 {
-		return rc.MaxRetries
-	}
-	return 2
-}
-
-// effectiveInitialDelay returns InitialDelay or the default if unset.
-func (rc RetryConfig) effectiveInitialDelay() time.Duration {
-	if rc.InitialDelay > 0 {
-		return rc.InitialDelay
-	}
-	return 2 * time.Second
-}
-
-// effectiveMaxDelay returns MaxDelay or the default if unset.
-func (rc RetryConfig) effectiveMaxDelay() time.Duration {
-	if rc.MaxDelay > 0 {
-		return rc.MaxDelay
-	}
-	return 30 * time.Second
-}
-
-// effectiveBackoffFactor returns BackoffFactor or the default if unset.
-func (rc RetryConfig) effectiveBackoffFactor() float64 {
-	if rc.BackoffFactor > 0 {
-		return rc.BackoffFactor
-	}
-	return 2.0
-}
 
 // retryAgentCall executes fn with exponential backoff on retryable errors.
 // It returns the result of the first successful call, or the last error after all retries.
 func retryAgentCall[T any](ctx context.Context, cfg RetryConfig, fn func(ctx context.Context, attempt int) (T, error)) (T, error) {
-	maxRetries := cfg.effectiveMaxRetries()
-	delay := cfg.effectiveInitialDelay()
-	maxDelay := cfg.effectiveMaxDelay()
-	factor := cfg.effectiveBackoffFactor()
+	maxRetries := cfg.EffectiveMaxRetries()
+	delay := cfg.EffectiveInitialDelay()
 
 	var lastResult T
 	var lastErr error
@@ -126,7 +61,7 @@ func retryAgentCall[T any](ctx context.Context, cfg RetryConfig, fn func(ctx con
 		}
 
 		// Exponential backoff
-		delay = time.Duration(math.Min(float64(delay)*factor, float64(maxDelay)))
+		delay = cfg.BackoffDelay(delay)
 	}
 
 	return lastResult, lastErr
@@ -136,10 +71,6 @@ func retryAgentCall[T any](ctx context.Context, cfg RetryConfig, fn func(ctx con
 var retryableSentinels = []error{
 	context.DeadlineExceeded,
 	errEmptyAgentOutput,
-	errACPPromptTimeout,
-	errACPInitTimeout,
-	errACPSessionTimeout,
-	errACPPromptFailed,
 	errSDKQueryFailed,
 	errSDKStreamError,
 	errSDKOutputFailed,

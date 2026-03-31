@@ -1,13 +1,12 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
 )
@@ -31,67 +30,32 @@ func CopySkillsToSessionDir(sessionDir string, browserEnabled bool) {
 	}
 }
 
-// DefaultAuditAgentDir returns the default directory for the embedded audit agent: ~/.vigolium/vig-audit-agent/.
-func DefaultAuditAgentDir() string {
+// DefaultArchonDir returns the default directory for the embedded archon-audit harness: ~/.vigolium/archon-audit/.
+func DefaultArchonDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".vigolium", "vig-audit-agent")
+	return filepath.Join(home, ".vigolium", "archon-audit")
 }
 
-// ExtractAuditAgentPlugin extracts the embedded vig-audit-agent to ~/.vigolium/vig-audit-agent/.
-// It writes the plugin (commands + agents) and bundled security skills so that Claude Code
-// can load them via --plugin-dir. Returns the path to the extracted plugin directory.
-// If the plugin was already extracted, it returns the existing path without re-extracting.
-func ExtractAuditAgentPlugin() (string, error) {
-	baseDir := DefaultAuditAgentDir()
+// ExtractArchonPlugin extracts the embedded archon-audit harness to ~/.vigolium/archon-audit/
+// for the default Claude platform.
+// It writes agents, commands, skills, and plugin.json so that Claude Code can load them
+// via --plugin-dir. Returns the path to the extracted plugin directory.
+// If the harness was already extracted and up-to-date, returns the existing path.
+func ExtractArchonPlugin() (string, error) {
+	return ExtractArchonPluginForPlatform(archon.PlatformClaude)
+}
+
+// ExtractArchonPluginForPlatform extracts the embedded archon-audit harness for the
+// specified platform ("claude", "codex", or "opencode").
+func ExtractArchonPluginForPlatform(platform string) (string, error) {
+	baseDir := DefaultArchonDir()
 	if baseDir == "" {
-		return "", fmt.Errorf("cannot determine home directory for audit agent extraction")
+		return "", fmt.Errorf("cannot determine home directory for archon harness extraction")
 	}
-	return extractAuditAgentTo(baseDir)
-}
-
-// extractAuditAgentTo extracts the embedded audit agent to the given base directory.
-// Uses a version-aware marker so that binary upgrades trigger re-extraction.
-func extractAuditAgentTo(baseDir string) (string, error) {
-	if baseDir == "" {
-		return "", nil
-	}
-
-	pluginDir := filepath.Join(baseDir, "plugin")
-	skillsDir := filepath.Join(baseDir, "skills")
-
-	// Version-aware marker: compare hash of embedded content to detect upgrades
-	marker := filepath.Join(baseDir, ".extracted")
-	currentHash := embeddedAuditAgentHash()
-	if existing, err := os.ReadFile(marker); err == nil && string(existing) == currentHash {
-		return pluginDir, nil // already extracted and up-to-date
-	}
-
-	_ = os.MkdirAll(baseDir, 0o755)
-
-	copyEmbeddedDir("vig-audit-agent/plugin", pluginDir)
-	copyEmbeddedDir("vig-audit-agent/skills", skillsDir)
-
-	_ = os.WriteFile(marker, []byte(currentHash), 0o644)
-
-	zap.L().Info("Extracted embedded audit agent",
-		zap.String("base_dir", baseDir),
-		zap.String("plugin_dir", pluginDir))
-
-	return pluginDir, nil
-}
-
-// embeddedAuditAgentHash computes a hash of a representative embedded file
-// to detect when the binary's bundled audit agent has been updated.
-func embeddedAuditAgentHash() string {
-	data, err := public.StaticFS.ReadFile("vig-audit-agent/skills/audit/SKILL.md")
-	if err != nil {
-		return "unknown"
-	}
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:8]) // 16 hex chars is plenty for change detection
+	return archon.ExtractArchonHarnessForPlatform(baseDir, platform)
 }
 
 // copyEmbeddedDir recursively copies an embedded FS directory to the local filesystem.

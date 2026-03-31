@@ -19,6 +19,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/backend"
+	"github.com/vigolium/vigolium/pkg/agent/extensions"
+	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
+	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/session"
@@ -52,14 +57,7 @@ type SwarmConfig struct {
 	SAMaxConcurrency int      // max parallel source analysis sub-agents (0 = default 3)
 
 	// Agent
-	AgentName   string
-	AgentACPCmd string // ad-hoc ACP command override (e.g. "traecli acp")
-
-	// Terminal capability: custom slash commands and sub-agents
-	SlashCommands []string // custom slash commands available inside the ACP session (e.g. /security-review)
-	CustomAgents  []string // agent backend names the agent can invoke via "vigolium agent query --agent=X"
-	MaxCommands   int      // max terminal commands per session (0 = default 50)
-
+	AgentName          string
 	DryRun             bool
 	ShowPrompt         bool   // print rendered prompts to stderr before executing
 	SourceAnalysisOnly bool   // run only source analysis phase and exit
@@ -124,55 +122,9 @@ type SwarmConfig struct {
 	// PhaseCallback is called when a swarm phase starts.
 	PhaseCallback func(phase string)
 
-	// AuditAgent enables the background vig-audit-agent when set.
+	// Archon enables the background archon-audit when set.
 	// Requires SourcePath to be non-empty.
-	AuditAgent *config.AuditAgentConfig
-}
-
-// SwarmPhase constants for the agent swarm mode.
-// Phases prefixed with "native-" are executed by native Go code without AI agent involvement.
-const (
-	SwarmPhaseNormalize      = "native-normalize"
-	SwarmPhaseAuth           = "auth"
-	SwarmPhaseSourceAnalysis = "source-analysis"
-	SwarmPhaseCodeAudit      = "code-audit"
-	SwarmPhaseSAST           = "native-sast"
-	SwarmPhaseSASTReview     = "sast-review"
-	SwarmPhaseDiscover       = "native-discover"
-	SwarmPhasePlan           = "plan"
-	SwarmPhaseExtension      = "native-extension"
-	SwarmPhaseScan           = "native-scan"
-	SwarmPhaseTriage         = "triage"
-	SwarmPhaseRescan         = "native-rescan"
-)
-
-// swarmPhaseAliases maps legacy phase names to their current constant values.
-// This provides backward compatibility for checkpoints, --start-from, and --skip flags.
-var swarmPhaseAliases = map[string]string{
-	"normalize": SwarmPhaseNormalize,
-	"sast":      SwarmPhaseSAST,
-	"discover":  SwarmPhaseDiscover,
-	"extension": SwarmPhaseExtension,
-	"scan":      SwarmPhaseScan,
-	"rescan":    SwarmPhaseRescan,
-}
-
-// NormalizeSwarmPhase resolves a phase name, accepting both current and legacy names.
-func NormalizeSwarmPhase(phase string) string {
-	if mapped, ok := swarmPhaseAliases[phase]; ok {
-		return mapped
-	}
-	return phase
-}
-
-// PhaseSkipped returns true if the given phase is in the skip list.
-func PhaseSkipped(skipPhases []string, phase string) bool {
-	for _, s := range skipPhases {
-		if strings.EqualFold(s, phase) {
-			return true
-		}
-	}
-	return false
+	Archon *config.AuditAgentConfig
 }
 
 // Prompt template constants for the agent swarm mode.
@@ -273,7 +225,7 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 
 	// Set up context cache for DB enrichment across phases
 	if s.engine != nil {
-		s.engine.SetContextCache(NewContextCache(0))
+		s.engine.SetContextCache(agentprompt.NewContextCache(0))
 	}
 
 	if cfg.MaxIterations <= 0 {
@@ -366,9 +318,9 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	browserEnabled := s.engine != nil && s.engine.settings != nil && s.engine.settings.Agent.Browser.IsEnabled()
 	CopySkillsToSessionDir(sessionDir, browserEnabled)
 
-	// Start background audit agent when configured and source is available
-	if cleanup := startAuditAgentBackground(ctx, cfg.AuditAgent, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, s.repo, func(msg string) {
-		fmt.Fprintf(os.Stderr, "%s Audit agent: %s\n", terminal.InfoSymbol(), msg)
+	// Start background archon-audit when configured and source is available
+	if _, cleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", s.repo, func(msg string) {
+		fmt.Fprintf(os.Stderr, "%s archon: %s\n", terminal.InfoSymbol(), msg)
 	}); cleanup != nil {
 		defer cleanup()
 	}
@@ -405,7 +357,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	}
 	agentRun.InputType = string(cfg.InputType)
 	if agentRun.InputType == "" && len(cfg.Inputs) > 0 {
-		agentRun.InputType = string(DetectInputType(cfg.Inputs[0]))
+		agentRun.InputType = string(agentinput.DetectInputType(cfg.Inputs[0]))
 	}
 
 	// Probe records that don't have responses to enrich them with live data
@@ -483,12 +435,11 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		saCfg := SourceAnalysisConfig{
 			AgentName:      cfg.AgentName,
-			AgentACPCmd:    cfg.AgentACPCmd,
 			TargetURL:      targetURL,
 			SourcePath:     cfg.SourcePath,
 			Files:          cfg.Files,
 			Instruction:    cfg.Instruction,
-			SessionKey: SwarmPhaseSourceAnalysis,
+			SessionKey:     SwarmPhaseSourceAnalysis,
 			DryRun:         cfg.DryRun,
 			ShowPrompt:     cfg.ShowPrompt,
 			ScanUUID:       cfg.ScanUUID,
@@ -537,7 +488,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				saExtensions = append(saExtensions, saResult.Extensions...)
 			}
 			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-				vr := ValidateSessionConfigDetailed(saResult.SessionConfig)
+				vr := backend.ValidateSessionConfigDetailed(saResult.SessionConfig)
 
 				if len(vr.Invalid) > 0 {
 					printPhaseLine("source-analysis", fmt.Sprintf("session config: %d valid, %d invalid — attempting LLM repair",
@@ -547,9 +498,8 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 					for _, inv := range vr.Invalid {
 						invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
 					}
-					repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, repairConfig{
+					repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, RepairConfig{
 						AgentName:    cfg.AgentName,
-						AgentACPCmd:  cfg.AgentACPCmd,
 						ShowPrompt:   cfg.ShowPrompt,
 						ExploreNotes: saResult.SessionExploreNotes,
 					})
@@ -573,7 +523,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 				// Convert login flow URLs into HTTP records so they are ingested
 				// into the http_records table alongside source-discovered routes.
-				loginRecords := SessionConfigToHTTPRecords(saResult.SessionConfig)
+				loginRecords := backend.SessionConfigToHTTPRecords(saResult.SessionConfig)
 				if len(loginRecords) > 0 {
 					loginFiltered, loginNotes := filterSourceRecordsByHostname(loginRecords, targetURL)
 					if len(loginFiltered) > 0 {
@@ -605,7 +555,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			if s.repo != nil && targetURL != "" {
 				hostname := hostnameFromURL(targetURL)
 				if hostname != "" {
-					rows := AgentSessionConfigToSessionHostnames(
+					rows := backend.AgentSessionConfigToSessionHostnames(
 						discoveredSessionConfig, cfg.ProjectUUID, cfg.ScanUUID, hostname, "agent-swarm-source",
 					)
 					if len(authHeaders) > 0 {
@@ -632,7 +582,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			if hostname != "" {
 				dbRows, dbErr := s.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
 				if dbErr == nil && len(dbRows) > 0 {
-					authHeaders = AuthHeadersFromSessionHostnames(dbRows)
+					authHeaders = backend.AuthHeadersFromSessionHostnames(dbRows)
 					if len(authHeaders) > 0 {
 						printPhaseLine("source-analysis", fmt.Sprintf("loaded auth headers from DB  hostname=%s count=%d", hostname, len(authHeaders)))
 					}
@@ -655,7 +605,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 
 		// Replace hardcoded auth headers in source-discovered records with session headers.
 		if len(authHeaders) > 0 && len(saRecords) > 0 {
-			ReplaceAuthHeadersInHTTPRR(saRecords, authHeaders)
+			backend.ReplaceAuthHeadersInHTTPRR(saRecords, authHeaders)
 		}
 
 		// Validate, auth-inject, probe, and save source-analysis records to DB
@@ -962,7 +912,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if len(plan.QuickChecks) > 0 {
 			var validQCs []QuickCheck
 			for _, qc := range plan.QuickChecks {
-				issues := LintQuickCheck(qc)
+				issues := extensions.LintQuickCheck(qc)
 				hasErr := false
 				for _, iss := range issues {
 					if iss.Severity == "error" {
@@ -976,7 +926,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				}
 			}
 			if len(validQCs) > 0 {
-				qcExts := GenerateQuickCheckExtensions(validQCs)
+				qcExts := extensions.GenerateQuickCheckExtensions(validQCs)
 				plan.Extensions = append(plan.Extensions, qcExts...)
 				zap.L().Info("Generated quick check extensions", zap.Int("count", len(qcExts)))
 			}
@@ -988,7 +938,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 		if len(plan.Snippets) > 0 {
 			var validSnips []Snippet
 			for _, snip := range plan.Snippets {
-				issues := LintSnippet(snip)
+				issues := extensions.LintSnippet(snip)
 				hasErr := false
 				for _, iss := range issues {
 					if iss.Severity == "error" {
@@ -1002,7 +952,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 				}
 			}
 			if len(validSnips) > 0 {
-				snipExts := GenerateSnippetExtensions(validSnips)
+				snipExts := extensions.GenerateSnippetExtensions(validSnips)
 				plan.Extensions = append(plan.Extensions, snipExts...)
 				zap.L().Info("Generated snippet extensions", zap.Int("count", len(snipExts)))
 			}
@@ -1026,17 +976,16 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	// Validate extension syntax before writing to disk
 	preValidationCount := len(allExtensions)
 	if preValidationCount > 0 {
-		validExts, invalidExts := ValidateExtensionSyntax(allExtensions)
+		validExts, invalidExts := extensions.ValidateExtensionSyntax(allExtensions)
 		allExtensions = validExts
 
 		// Attempt LLM repair for invalid extensions.
 		// Pass plan context so garbled extensions can be regenerated from intent.
 		if len(invalidExts) > 0 {
-			rc := repairConfig{
-				AgentName:   cfg.AgentName,
-				AgentACPCmd: cfg.AgentACPCmd,
-				ShowPrompt:  cfg.ShowPrompt,
-				TargetURL:   targetURL,
+			rc := RepairConfig{
+				AgentName:  cfg.AgentName,
+				ShowPrompt: cfg.ShowPrompt,
+				TargetURL:  targetURL,
 			}
 			if plan != nil {
 				rc.FocusAreas = plan.FocusAreas
@@ -1045,7 +994,7 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, rc)
 			if len(repaired) > 0 {
 				// Re-validate repaired extensions to catch repair failures
-				validRepaired, stillBroken := ValidateExtensionSyntax(repaired)
+				validRepaired, stillBroken := extensions.ValidateExtensionSyntax(repaired)
 				if len(stillBroken) > 0 {
 					zap.L().Warn("Some LLM-repaired extensions still invalid, dropping",
 						zap.Int("dropped", len(stillBroken)))
@@ -1246,7 +1195,7 @@ func (s *SwarmRunner) normalizeInputs(ctx context.Context, cfg SwarmConfig) ([]*
 	var targetURL string
 
 	for _, input := range cfg.Inputs {
-		records, err := NormalizeInput(ctx, input, cfg.InputType, s.repo)
+		records, err := agentinput.NormalizeInput(ctx, input, cfg.InputType, s.repo)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to normalize input: %w", err)
 		}
@@ -1261,28 +1210,6 @@ func (s *SwarmRunner) normalizeInputs(ctx context.Context, cfg SwarmConfig) ([]*
 	}
 
 	return allRecords, targetURL, nil
-}
-
-// buildTerminalPromptContext generates prompt text describing available custom
-// agents and slash commands. Returns empty string when nothing is configured.
-func buildTerminalPromptContext(customAgents, slashCommands []string) string {
-	if len(customAgents) == 0 && len(slashCommands) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	if len(customAgents) > 0 {
-		b.WriteString("\n\n## Available Custom Agents\n\nYou can invoke the following custom agents via terminal:\n")
-		for _, a := range customAgents {
-			fmt.Fprintf(&b, "- `vigolium agent query --agent=%s --prompt \"<your analysis request>\"`\n", a)
-		}
-	}
-	if len(slashCommands) > 0 {
-		b.WriteString("\n\n## Available Slash Commands\n\nThe following custom slash commands are available in this session:\n")
-		for _, cmd := range slashCommands {
-			fmt.Fprintf(&b, "- `%s`\n", cmd)
-		}
-	}
-	return b.String()
 }
 
 // selectPlanRecords filters and ranks records for the plan phase, returning
@@ -1602,7 +1529,6 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 	planSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptPlan,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -1616,9 +1542,6 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
 		SessionWeight:  3,
-		SlashCommands:  cfg.SlashCommands,
-		CustomAgents:   cfg.CustomAgents,
-		MaxCommands:    cfg.MaxCommands,
 	}
 
 	// Resolve effective vuln focus: --vuln-type takes precedence, --focus is a broader hint
@@ -1635,11 +1558,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 		opts.Append = fmt.Sprintf("%s\n\n%s", header, effectiveVulnType)
 	}
 
-	// Inject terminal context: custom agents and slash commands
-	terminalContext := buildTerminalPromptContext(cfg.CustomAgents, cfg.SlashCommands)
-	opts.Append += terminalContext
-
-	// Retry loop — retries on both parse failures and transient ACP errors (timeouts, etc.).
+	// Retry loop — retries on both parse failures and transient agent errors (timeouts, etc.).
 	maxAttempts := cfg.MaxMasterRetries
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -1655,7 +1574,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			zap.L().Info("retrying plan agent",
 				zap.Int("attempt", attempt),
 				zap.Error(lastErr))
-			opts.Append = buildPlanRetryFeedback(effectiveVulnType, lastErr, lastRawOutput) + terminalContext
+			opts.Append = buildPlanRetryFeedback(effectiveVulnType, lastErr, lastRawOutput)
 			extraContext = retryTruncateContext(records)
 		}
 
@@ -1689,7 +1608,7 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			return nil, result.SessionID, result.RawOutput, result.RenderedPrompt, nil
 		}
 
-		parsed, parseErr := ParseSwarmPlan(result.RawOutput)
+		parsed, parseErr := parsing.ParseSwarmPlan(result.RawOutput)
 		if parseErr != nil {
 			zap.L().Debug("plan agent raw output (parse failed)",
 				zap.String("output", result.RawOutput),
@@ -1719,7 +1638,6 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 	extPhaseSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptExtensions,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -1733,9 +1651,6 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
 		SessionWeight:  2,
-		SlashCommands:  cfg.SlashCommands,
-		CustomAgents:   cfg.CustomAgents,
-		MaxCommands:    cfg.MaxCommands,
 	}
 
 	// Resolve effective vuln focus for extension agent
@@ -1777,7 +1692,7 @@ func (s *SwarmRunner) runExtensionAgent(ctx context.Context, cfg SwarmConfig, re
 	}
 
 	// Parse extensions from the output — we only care about extensions, quick_checks, snippets
-	parsed, parseErr := ParseSwarmExtensions(result.RawOutput)
+	parsed, parseErr := parsing.ParseSwarmExtensions(result.RawOutput)
 	if parseErr != nil {
 		return nil, result.SessionID, result.RawOutput, result.RenderedPrompt,
 			fmt.Errorf("extension agent output unparseable: %w", parseErr)
@@ -1944,7 +1859,6 @@ func retryTruncateContext(records []*httpmsg.HttpRequestResponse) string {
 	return sb.String()
 }
 
-
 // writeExtensionsToDir writes extensions to the session dir if available, otherwise to a temp dir.
 func writeExtensionsToDir(extensions []GeneratedExtension, sessionDir string) (string, error) {
 	if sessionDir != "" {
@@ -2083,8 +1997,8 @@ func mergeExtensionsTracked(source, plan []GeneratedExtension) ExtensionMergeRes
 		return ExtensionMergeResult{Extensions: source, Renames: renames}
 	}
 
-	existing := make(map[string]string, len(source))  // filename -> code
-	nameSet := make(map[string]bool, len(source))     // maintained for deduplicateExtensionFilename
+	existing := make(map[string]string, len(source)) // filename -> code
+	nameSet := make(map[string]bool, len(source))    // maintained for deduplicateExtensionFilename
 	result := make([]GeneratedExtension, 0, len(source)+len(plan))
 
 	// Source extensions first
@@ -2176,7 +2090,7 @@ func deduplicateRecords(records []*httpmsg.HttpRequestResponse) []*httpmsg.HttpR
 func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL string) ([]*httpmsg.HttpRequestResponse, []string) {
 	if targetURL == "" {
 		// Source-only mode: keep all records without hostname filtering.
-		normalized, _ := NormalizeAgentRecords(agentRecords)
+		normalized, _ := parsing.NormalizeAgentRecords(agentRecords)
 		var passthrough []*httpmsg.HttpRequestResponse
 		var passthroughNotes []string
 		for _, rec := range normalized {
@@ -2204,7 +2118,7 @@ func filterSourceRecordsByHostname(agentRecords []AgentHTTPRecord, targetURL str
 	}
 
 	// Normalize records first — fix garbled URLs, truncated bodies, malformed headers.
-	normalized, dropped := NormalizeAgentRecords(agentRecords)
+	normalized, dropped := parsing.NormalizeAgentRecords(agentRecords)
 	if dropped > 0 {
 		zap.L().Info("Normalized agent records",
 			zap.Int("input", len(agentRecords)),
@@ -2521,31 +2435,27 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 	}
 
 	triageCfg := TriageLoopConfig{
-		Engine:         s.engine,
-		Repository:     s.repo,
-		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
-		PromptTemplate: SwarmPromptTriage,
-		TargetURL:      agentRun.TargetURL,
-		Hostname:       hostnameFromURL(agentRun.TargetURL),
-		SourcePath:     cfg.SourcePath,
-		Instruction:    cfg.Instruction,
-		SessionKey:     SwarmPhaseTriage,
-		DryRun:         cfg.DryRun,
-		ShowPrompt:     cfg.ShowPrompt,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		StreamWriter:   cfg.StreamWriter,
-		SlashCommands:  cfg.SlashCommands,
-		CustomAgents:   cfg.CustomAgents,
-		MaxCommands:    cfg.MaxCommands,
+		Engine:                    s.engine,
+		Repository:                s.repo,
+		AgentName:                 cfg.AgentName,
+		PromptTemplate:            SwarmPromptTriage,
+		TargetURL:                 agentRun.TargetURL,
+		Hostname:                  hostnameFromURL(agentRun.TargetURL),
+		SourcePath:                cfg.SourcePath,
+		Instruction:               cfg.Instruction,
+		SessionKey:                SwarmPhaseTriage,
+		DryRun:                    cfg.DryRun,
+		ShowPrompt:                cfg.ShowPrompt,
+		ScanUUID:                  cfg.ScanUUID,
+		ProjectUUID:               cfg.ProjectUUID,
+		StreamWriter:              cfg.StreamWriter,
 		MaxRounds:                 cfg.MaxIterations,
 		MaxFindingsPerTriageBatch: 25,
 		ResumeFromRound:           triageResumeRound,
 		ProgressCallback:          cfg.ProgressCallback,
 		ScanFunc:                  cfg.ScanFunc,
-		SessionDir:     sessionDir,
-		ExtensionDir:   extensionDir,
+		SessionDir:                sessionDir,
+		ExtensionDir:              extensionDir,
 		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
@@ -2675,7 +2585,6 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 	sastReviewSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptSASTReview,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -2688,9 +2597,6 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
-		SlashCommands:  cfg.SlashCommands,
-		CustomAgents:   cfg.CustomAgents,
-		MaxCommands:    cfg.MaxCommands,
 	}
 
 	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
@@ -2723,7 +2629,7 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 	// Parse as SourceAnalysisResult (validated routes + optional extensions).
 	// ParseSourceAnalysisResult now handles multi-block output and falls back to
 	// extracting extensions even when JSON parsing fails entirely.
-	saResult, parseErr := ParseSourceAnalysisResult(agentResult.RawOutput)
+	saResult, parseErr := parsing.ParseSourceAnalysisResult(agentResult.RawOutput)
 	if parseErr != nil {
 		zap.L().Warn("Failed to parse SAST review result", zap.Error(parseErr))
 		return nil
@@ -2742,16 +2648,15 @@ func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, target
 
 	// Validate and write session config to session dir if the SAST review produced one
 	if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-		vr := ValidateSessionConfigDetailed(saResult.SessionConfig)
+		vr := backend.ValidateSessionConfigDetailed(saResult.SessionConfig)
 		if len(vr.Invalid) > 0 {
 			invalidCfg := &AgentSessionConfig{}
 			for _, inv := range vr.Invalid {
 				invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
 			}
-			repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, repairConfig{
-				AgentName:   cfg.AgentName,
-				AgentACPCmd: cfg.AgentACPCmd,
-				ShowPrompt:  cfg.ShowPrompt,
+			repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, RepairConfig{
+				AgentName:  cfg.AgentName,
+				ShowPrompt: cfg.ShowPrompt,
 			})
 			if repaired != nil {
 				vr.Valid = append(vr.Valid, repaired.Sessions...)
@@ -2791,7 +2696,6 @@ func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetU
 	authSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptAuth,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -2878,7 +2782,6 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 	codeAuditSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:      cfg.AgentName,
-		AgentACPCmd:    cfg.AgentACPCmd,
 		PromptTemplate: SwarmPromptCodeAudit,
 		TargetURL:      targetURL,
 		Hostname:       hostname,
@@ -2892,9 +2795,6 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 		ScanUUID:       cfg.ScanUUID,
 		ProjectUUID:    cfg.ProjectUUID,
 		StreamWriter:   cfg.StreamWriter,
-		SlashCommands:  cfg.SlashCommands,
-		CustomAgents:   cfg.CustomAgents,
-		MaxCommands:    cfg.MaxCommands,
 	}
 
 	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, extra)
@@ -2920,7 +2820,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 	}
 
 	// Parse findings from agent output
-	findings, parseErr := ParseFindings(agentResult.RawOutput)
+	findings, parseErr := parsing.ParseFindings(agentResult.RawOutput)
 	if parseErr != nil {
 		zap.L().Warn("Failed to parse code audit findings", zap.Error(parseErr))
 		return 0, nil
@@ -3029,10 +2929,10 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 
 // ProbeConfig holds tuning parameters for HTTP record probing.
 type ProbeConfig struct {
-	Concurrency  int           // max parallel probe requests; 0 = default 10
-	Timeout      time.Duration // per-request probe timeout; 0 = default 10s
-	MaxBodySize  int           // max response body bytes; 0 = default 2MB
-	OnProgress   func(completed, total int) // optional progress callback
+	Concurrency int                        // max parallel probe requests; 0 = default 10
+	Timeout     time.Duration              // per-request probe timeout; 0 = default 10s
+	MaxBodySize int                        // max response body bytes; 0 = default 2MB
+	OnProgress  func(completed, total int) // optional progress callback
 }
 
 func (pc ProbeConfig) effectiveConcurrency() int {
@@ -3055,7 +2955,6 @@ func (pc ProbeConfig) effectiveMaxBodySize() int {
 	}
 	return pc.MaxBodySize
 }
-
 
 func probeRecordsWithConfig(ctx context.Context, records []*httpmsg.HttpRequestResponse, pc ProbeConfig) {
 	maxConcurrency := pc.effectiveConcurrency()
@@ -3119,7 +3018,6 @@ func probeRecordsWithConfig(ctx context.Context, records []*httpmsg.HttpRequestR
 	wg.Wait()
 }
 
-
 // probeSingleRecordWithLimit sends an HTTP request with a configurable body size limit.
 func probeSingleRecordWithLimit(ctx context.Context, client *http.Client, rr *httpmsg.HttpRequestResponse, targetURL string, maxBody int) *httpmsg.HttpRequestResponse {
 	method := "GET"
@@ -3178,7 +3076,7 @@ func probeSingleRecordWithLimit(ctx context.Context, client *http.Client, rr *ht
 // and probes them using a simple HTTP client. This acts as a fallback for records
 // that the native SAST runner's httpRequester failed to probe.
 func (s *SwarmRunner) reprobeUnprobedRecords(ctx context.Context, projectUUID, hostname string, authHeaders map[string]string, source string) {
-	ReprobeUnprobedRecords(ctx, s.repo, projectUUID, hostname, authHeaders, source)
+	backend.ReprobeUnprobedRecords(ctx, s.repo, projectUUID, hostname, authHeaders, source)
 }
 
 // hydrateSessionConfig executes login flows for all sessions in the agent session config,
@@ -3331,7 +3229,7 @@ func injectAuthHeaders(records []*httpmsg.HttpRequestResponse, authHeaders map[s
 		// Skip records that already have auth headers
 		hasAuth := false
 		for _, h := range rr.Request().Headers() {
-			if isAuthHeader(h.Name) {
+			if backend.IsAuthHeader(h.Name) {
 				hasAuth = true
 				break
 			}

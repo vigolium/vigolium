@@ -97,7 +97,7 @@ func TestOneShotDBInputSource_TimestampCollision(t *testing.T) {
 
 	// Verify timestamp collision exists
 	var distinct int
-	db.NewSelect().TableExpr("http_records").ColumnExpr("COUNT(DISTINCT created_at)").Scan(ctx, &distinct)
+	_ = db.NewSelect().TableExpr("http_records").ColumnExpr("COUNT(DISTINCT created_at)").Scan(ctx, &distinct)
 	t.Logf("%d records, %d distinct timestamps", n, distinct)
 
 	source := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
@@ -142,7 +142,7 @@ func TestAuditPhasePattern_SeedThenAudit(t *testing.T) {
 			t.Fatalf("seed Next(): %v", err)
 		}
 	}
-	seed.Close()
+	_ = seed.Close()
 
 	// Verify cursor is at the end
 	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
@@ -192,13 +192,13 @@ func TestResetScanCursor(t *testing.T) {
 	ctx := context.Background()
 	scanUUID := createTestScan(t, repo)
 
-	repo.AdvanceScanCursor(ctx, scanUUID, time.Now(), "some-uuid")
+	_ = repo.AdvanceScanCursor(ctx, scanUUID, time.Now(), "some-uuid")
 	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
 	if scan.CursorAt.IsZero() {
 		t.Fatal("cursor should be non-zero after advance")
 	}
 
-	repo.ResetScanCursor(ctx, scanUUID)
+	_ = repo.ResetScanCursor(ctx, scanUUID)
 	scan, _ = repo.GetScanByUUID(ctx, scanUUID)
 	if !scan.CursorAt.IsZero() {
 		t.Errorf("cursor_at should be zero after reset, got %v", scan.CursorAt)
@@ -224,7 +224,7 @@ func TestConcurrentWritesDuringCursorRead(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			raw := fmt.Sprintf("GET /writer/%d HTTP/1.1\r\nHost: writer.example.com\r\n\r\n", i)
 			rr, _ := httpmsg.ParseRawRequest(raw)
-			repo.SaveRecord(ctx, rr, "writer", DefaultProjectUUID)
+			_, _ = repo.SaveRecord(ctx, rr, "writer", DefaultProjectUUID)
 			time.Sleep(time.Millisecond)
 		}
 	}()

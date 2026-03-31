@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +26,7 @@ func DetectTargetFromSource(sourcePath string) string {
 	}
 
 	// Resolve path
-	sourcePath = expandHome(sourcePath)
+	sourcePath = agenttypes.ExpandHome(sourcePath)
 	info, err := os.Stat(sourcePath)
 	if err != nil || !info.IsDir() {
 		return ""

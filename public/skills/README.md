@@ -744,19 +744,11 @@ vigolium agent autopilot -t https://example.com --system-prompt my-system-prompt
 
 **Use a different agent backend:**
 ```
-> Run autopilot with Gemini
+> Run autopilot with Codex
 ```
 ```bash
-vigolium agent autopilot -t https://example.com --agent gemini
+vigolium agent autopilot -t https://example.com --agent codex
 ```
-
-**Autopilot security model:**
-- Only `vigolium` commands are permitted (allowlist)
-- Destructive commands blocked (`db clean`, `db drop`, etc.)
-- Shell metacharacters rejected (`;|&\`$(){}!><`)
-- Per-command timeout: 5 minutes
-- Max 100 commands by default (configurable)
-- Output capped at 256KB per command
 
 #### Agent Swarm (Full-Scope and Targeted)
 

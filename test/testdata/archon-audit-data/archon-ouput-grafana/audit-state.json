@@ -1,0 +1,356 @@
+{
+  "audits": [
+    {
+      "audit_id": "2026-03-20T00:00:00.000Z",
+      "commit": "40a9cd68ff8efc62da02d30bf4b3e8ae3a1017ab",
+      "branch": "main",
+      "started_at": "2026-03-20T00:00:00.000Z",
+      "completed_at": "2026-03-20T23:59:00.000Z",
+      "status": "complete",
+      "phases": {
+        "1": {
+          "status": "complete",
+          "findings": "8 CVEs identified (2 CRITICAL, 2 HIGH, 3 MEDIUM, 1 LOW). All patches available. Architecture inventory created with 13 backend services and 5 frontend components mapped. Highest-risk flows identified for Phase 2 analysis.",
+          "artifacts": [
+            "security/advisory-report.md",
+            "security/architecture-inventory.md"
+          ]
+        },
+        "2": {
+          "status": "complete",
+          "findings": "9 bypass analyses completed across all CVEs. Key findings: CVE-2025-3454 patched with parser differential residual risk; CVE-2025-11539 is renderer-side (not in main repo) with default auth token '-'; CVE-2026-21725 TOCTOU confirmed with missing FOR UPDATE lock.",
+          "artifacts": [
+            "security/bypass-analysis/cve-2025-3454-bypass.md",
+            "security/bypass-analysis/cve-2025-3580-bypass.md",
+            "security/bypass-analysis/cve-2025-4123-bypass.md",
+            "security/bypass-analysis/cve-2025-11539-bypass.md",
+            "security/bypass-analysis/cve-2025-41115-bypass.md",
+            "security/bypass-analysis/cve-2025-41117-bypass.md",
+            "security/bypass-analysis/cve-2026-21721-bypass.md",
+            "security/bypass-analysis/cve-2026-21722-bypass.md",
+            "security/bypass-analysis/cve-2026-21725-bypass.md"
+          ]
+        },
+        "3": {
+          "status": "complete",
+          "findings": "Knowledge base report constructed with 5 DFD slices, 5 CFD slices, 14 attack scenarios, 12 CodeQL extraction targets. Domain attack research covers Go HTTP proxy, React plugin XSS, RBAC scope binding, cache invalidation races, and multi-tenant isolation. 19 unauthenticated endpoints cataloged. 9 security-impacting default configurations documented.",
+          "artifacts": [
+            "security/knowledge-base-report.md"
+          ]
+        },
+        "4": {
+          "status": "complete",
+          "findings": "23 SAST findings: 2 CRITICAL (CVE-2026-21722 annotation timerange bypass confirmed at source+sink), 11 HIGH (SQL injection x3, path differential, header injection, ServeFile no confinement, zip symlink traversal, SSRF, JWT unverified, CSRF bypass, path injection), 7 MEDIUM (TOCTOU, cache no invalidation, TLS InsecureSkipVerify, XSS in MarkdownCell, reflected XSS, ServeFile defense-in-depth, bad redirect), 3 LOW (timing attack, GHA pull_request_target, template.URL). CodeQL DB: 1,035,634 LoC. 3 new DFD slices discovered (Cloud Migration SSRF, Plugin Zip Symlink, JWT Unverified Claims).",
+          "artifacts": [
+            "security/sast-candidates.json",
+            "security/codeql-artifacts/entry-points.json",
+            "security/codeql-artifacts/sinks.json",
+            "security/codeql-artifacts/call-graph-slices.json",
+            "security/codeql-artifacts/flow-paths-all-severities.md",
+            "security/codeql-res/go-security-extended.sarif",
+            "security/semgrep-rules/go-gosec-suppressed-fileops.yaml",
+            "security/semgrep-rules/go-http-servefile-confinement.yaml",
+            "security/semgrep-rules/go-stale-pretxn-check.yaml",
+            "security/semgrep-rules/go-cache-missing-invalidation.yaml",
+            "security/semgrep-rules/go-rbac-eval-without-scope.yaml",
+            "security/semgrep-rules/ts-validatepath-missing.yaml",
+            "security/semgrep-rules/ts-dangerous-innerhtml.yaml",
+            "security/semgrep-rules/go-sql-no-timerange-bounds.yaml",
+            "security/semgrep-rules/go-proxy-header-injection.yaml",
+            "security/semgrep-rules/go-tls-insecure-skip-verify.yaml",
+            "security/codeql-queries/PublicDashboardAnnotationTimerangeBypas.ql",
+            "security/codeql-queries/DatasourceProxyHeaderInjection.ql",
+            "security/codeql-queries/RBACPermissionCacheMissingInvalidation.ql",
+            "security/codeql-queries/ServeFileWithoutConfinement.ql"
+          ]
+        },
+        "5": {
+          "status": "complete",
+          "findings": "29 candidate findings triaged (23 SAST + 6 Phase 6 spec gaps). 18 retained for Phase 7, 11 dropped. Key decisions: SAST-011 (JWT unverified claims) confirmed false positive \u2014 UnsafeClaimsWithoutVerification is in Test() probe function not auth path. SAST-017 (MarkdownCell disableSanitizeHtml) downgraded \u2014 confirmed to be admin server config not datasource-data-controlled. SAST-016 (InsecureSkipVerify) dropped \u2014 admin-opt-in AllowInsecure flag. SAST-018 (reflected XSS) dropped \u2014 insufficient source context for generic response_writer sink. SAST-019 dropped as duplicate of retained SAST-008. SAST-020 dropped \u2014 no confirmed open redirect bypass. All 3 LOWs dropped per policy. SPEC-GAP-005 (WebSocket) dropped \u2014 reqSignedIn gate + high exploit prerequisites. SPEC-GAP-006 (CSP unsafe-eval) dropped \u2014 defense-in-depth gap, not independently exploitable. 2 new CRITICAL (SAST-001/002), 10 HIGH, 3 MEDIUM retained from SAST. 4 spec gap findings retained (SPEC-GAP-001/002 HIGH, SPEC-GAP-003/004 MEDIUM).",
+          "artifacts": [
+            "security/enriched-findings.json",
+            "security/knowledge-base-report.md"
+          ]
+        },
+        "6": {
+          "status": "complete",
+          "findings": "6 spec gaps identified across 5 specs: 3 HIGH (OIDC ID token claim validation bypass, generic OAuth signature bypass default, OIDC claims not validated post-signature), 3 MEDIUM (JWT exp optionality, hop-by-hop header forwarding, WebSocket empty Origin bypass, CSP unsafe-eval with nonce). All gaps include specific file:line references and credible exploit paths.",
+          "artifacts": [
+            "security/spec-gap-report.md"
+          ]
+        },
+        "7": {
+          "status": "complete",
+          "findings": "3 Review Chambers completed. Chamber 1 (Auth/AuthZ): 4 valid findings (p7-001 through p7-004), 2 FPs, 4 attack patterns (AP-001 through AP-004). Chamber 2 (Proxy/SSRF): 3 valid findings (p7-020 through p7-022), 4 attack patterns (AP-020 through AP-022). Chamber 3 (Data Isolation/Rendering): 6 valid findings (p7-040 through p7-045), 5 attack patterns (AP-040 through AP-044). 13 total findings drafted. Phase 7 Addendum: 3 new attack surfaces discovered (Cloud Migration SSRF, Plugin Zip Symlink, JWT Unverified Claims).",
+          "chambers": {
+            "chamber-1": {
+              "cluster": "Authentication & Authorization",
+              "status": "closed",
+              "hypotheses": 7,
+              "valid": 4,
+              "false_positive": 2,
+              "dropped": 2,
+              "findings": [
+                "p7-001",
+                "p7-002",
+                "p7-003",
+                "p7-004"
+              ],
+              "patterns": [
+                "AP-001",
+                "AP-002",
+                "AP-003",
+                "AP-004"
+              ]
+            },
+            "chamber-2": {
+              "cluster": "Proxy & SSRF",
+              "status": "closed",
+              "hypotheses": 6,
+              "valid": 3,
+              "false_positive": 1,
+              "dropped": 2,
+              "findings": [
+                "p7-020",
+                "p7-021",
+                "p7-022"
+              ],
+              "patterns": [
+                "AP-020",
+                "AP-021",
+                "AP-022"
+              ]
+            },
+            "chamber-3": {
+              "cluster": "Data Isolation & Rendering",
+              "status": "closed",
+              "hypotheses": 7,
+              "valid": 6,
+              "false_positive": 1,
+              "dropped": 0,
+              "findings": [
+                "p7-040",
+                "p7-041",
+                "p7-042",
+                "p7-043",
+                "p7-044",
+                "p7-045"
+              ],
+              "patterns": [
+                "AP-040",
+                "AP-041",
+                "AP-042",
+                "AP-043",
+                "AP-044"
+              ]
+            }
+          },
+          "artifacts": [
+            "security/findings-draft/p7-001-oidc-missing-claim-validation.md",
+            "security/findings-draft/p7-002-csrf-header-comparison-bypass.md",
+            "security/findings-draft/p7-003-jwt-missing-exp-enforcement.md",
+            "security/findings-draft/p7-004-oauth-default-no-signature-verification.md",
+            "security/findings-draft/p7-020-xds-auth-credential-injection.md",
+            "security/findings-draft/p7-021-cloud-migration-ssrf.md",
+            "security/findings-draft/p7-022-ds-proxy-parser-differential.md",
+            "security/findings-draft/p7-040-public-dashboard-annotation-timerange-bypass.md",
+            "security/findings-draft/p7-041-renderer-jwt-forgery-default-token.md",
+            "security/findings-draft/p7-042-plugin-zip-symlink-traversal.md",
+            "security/findings-draft/p7-043-datasource-toctou-readonly-bypass.md",
+            "security/findings-draft/p7-044-datasource-cache-no-delete-invalidation.md",
+            "security/findings-draft/p7-045-renderer-servefile-no-confinement.md",
+            "security/attack-pattern-registry.json",
+            "security/chamber-workspace/chamber-1/debate.md",
+            "security/chamber-workspace/chamber-2/debate.md",
+            "security/chamber-workspace/chamber-3/debate.md"
+          ]
+        },
+        "8": {
+          "status": "complete",
+          "findings": "P8-LITE FP elimination complete. Stage 1 (inline fp-check): all 13 p7 findings reviewed, no additional FPs identified beyond Phase 7 chamber debates. Stage 2 (cold verifier): p7-040 (PUBLIC DASHBOARD ANNOTATION TIMERANGE BYPASS) confirmed HIGH \u2014 cold verifier downgraded from CRITICAL to HIGH due to 3 non-default preconditions required. p7-041 (RENDERER JWT FORGERY) confirmed HIGH with executed PoC (PASS). 2 additional drafts promoted: p7-064 (DEFAULT SECRETS ENCRYPTION KEY HIGH) and p7-065 (SESSION TOKEN MEDIUM).",
+          "artifacts": [
+            "security/adversarial-reviews/renderer-jwt-forgery-default-token-review.md",
+            "security/adversarial-reviews/public-dashboard-annotation-timerange-bypass-review.md",
+            "security/real-env-evidence/renderer-jwt-forgery-default-token/forge_jwt.go",
+            "security/real-env-evidence/renderer-jwt-forgery-default-token/forge_jwt_test.go",
+            "security/real-env-evidence/public-dashboard-annotation-timerange-bypass/timerange_bypass_test.go"
+          ]
+        },
+        "9": {
+          "status": "complete",
+          "findings": "Variant analysis complete across 7 root findings. 15 total variants discovered: p7-040 \u2192 p7-060 (authenticated annotation bypass MEDIUM); p7-001 \u2192 p9-066 (AzureAD MEDIUM), p9-067 (JWT nbf MEDIUM); p7-021 \u2192 p9-072 (MEDIUM), p9-073 (HIGH presigned URL exfiltration EXECUTED), p9-074 (MEDIUM Cloud Monitoring); p7-041 \u2192 p7-063 (MEDIUM), p7-064 (HIGH default encryption key), p7-065 (MEDIUM); p7-003 \u2192 p7-075 (MEDIUM), p7-076 (MEDIUM), p7-077 (MEDIUM); p7-042/043/044 \u2192 p9-078 (MEDIUM), p9-079 (MEDIUM), p9-080 (MEDIUM); p7-020 \u2192 0 variants.",
+          "artifacts": [
+            "security/findings-draft/p7-060-authenticated-annotation-timerange-bypass.md",
+            "security/findings-draft/p7-063-renderer-http-mode-default-auth-token.md",
+            "security/findings-draft/p7-064-secrets-manager-default-encryption-key.md",
+            "security/findings-draft/p7-065-session-token-known-default-secret-key.md",
+            "security/findings-draft/p7-075-renderer-jwt-absent-exp-bypass.md",
+            "security/findings-draft/p7-076-ext-jwt-absent-exp-bypass.md",
+            "security/findings-draft/p7-077-grpc-storage-jwt-absent-exp-bypass.md",
+            "security/findings-draft/p9-066-azuread-missing-exp-iss-validation.md",
+            "security/findings-draft/p9-067-jwt-missing-nbf-enforcement.md",
+            "security/findings-draft/p9-072-cloud-migration-ssrf-post-creation-gms-ops.md",
+            "security/findings-draft/p9-073-cloud-migration-ssrf-presigned-url-exfiltration.md",
+            "security/findings-draft/p9-074-cloud-monitoring-universe-domain-ssrf.md",
+            "security/findings-draft/p9-078-datasource-delete-by-id-toctou-readonly.md",
+            "security/findings-draft/p9-079-datasource-delete-by-name-toctou-readonly.md",
+            "security/findings-draft/p9-080-user-signed-in-cache-no-delete-invalidation.md"
+          ]
+        },
+        "10": {
+          "status": "complete",
+          "findings": "28 confirmed findings promoted to security/findings/ (4 HIGH, 24 MEDIUM). PoC execution results: H2 executed (JWT forgery test PASS, OrgRole=Admin), H3 executed (encrypt/decrypt cycle proven with known default key SW2YcwTIb9zpOOhoPsMm), H4 executed (full 4-stage SSRF chain in live Grafana 12.3.2 Docker with snapshot_part_*.bin exfiltrated). H1 and all 24 MEDIUM findings: theoretical (strong code-level evidence). Final report written to security/final-audit-report.md.",
+          "findings_promoted": {
+            "high": [
+              "H1",
+              "H2",
+              "H3",
+              "H4"
+            ],
+            "medium": [
+              "M1",
+              "M2",
+              "M3",
+              "M4",
+              "M5",
+              "M6",
+              "M7",
+              "M8",
+              "M9",
+              "M10",
+              "M11",
+              "M12",
+              "M13",
+              "M14",
+              "M15",
+              "M16",
+              "M17",
+              "M18",
+              "M19",
+              "M20",
+              "M21",
+              "M22",
+              "M23",
+              "M24"
+            ]
+          },
+          "poc_execution": {
+            "H1": "theoretical",
+            "H2": "executed",
+            "H3": "executed",
+            "H4": "executed"
+          },
+          "artifacts": [
+            "security/final-audit-report.md",
+            "security/findings/H1-public-dashboard-annotation-timerange-bypass/",
+            "security/findings/H2-renderer-jwt-forgery-default-token/",
+            "security/findings/H3-default-secrets-encryption-key/",
+            "security/findings/H4-cloud-migration-ssrf-presigned-url-exfiltration/",
+            "security/findings/M1-oidc-missing-claim-validation/",
+            "security/findings/M2-csrf-header-comparison-bypass/",
+            "security/findings/M3-jwt-missing-exp-enforcement/",
+            "security/findings/M4-oauth-default-no-signature-verification/",
+            "security/findings/M5-xds-auth-credential-injection/",
+            "security/findings/M6-cloud-migration-ssrf/",
+            "security/findings/M7-ds-proxy-parser-differential/",
+            "security/findings/M8-plugin-zip-symlink-traversal/",
+            "security/findings/M9-datasource-toctou-readonly-bypass/",
+            "security/findings/M10-datasource-cache-no-delete-invalidation/",
+            "security/findings/M11-renderer-servefile-no-confinement/",
+            "security/findings/M12-authenticated-annotation-timerange-bypass/",
+            "security/findings/M13-renderer-http-mode-default-auth-token/",
+            "security/findings/M14-session-token-known-default-secret-key/",
+            "security/findings/M15-renderer-jwt-absent-exp-bypass/",
+            "security/findings/M16-ext-jwt-absent-exp-bypass/",
+            "security/findings/M17-grpc-storage-jwt-absent-exp-bypass/",
+            "security/findings/M18-azuread-missing-exp-iss-validation/",
+            "security/findings/M19-jwt-missing-nbf-enforcement/",
+            "security/findings/M20-cloud-migration-ssrf-post-creation-gms-ops/",
+            "security/findings/M21-cloud-monitoring-universe-domain-ssrf/",
+            "security/findings/M22-datasource-delete-by-id-toctou-readonly/",
+            "security/findings/M23-datasource-delete-by-name-toctou-readonly/",
+            "security/findings/M24-user-signed-in-cache-no-delete-invalidation/"
+          ]
+        }
+      },
+      "summary": {
+        "cve_count": 8,
+        "critical_count": 0,
+        "high_count": 4,
+        "medium_count": 24,
+        "low_count": 0,
+        "total_confirmed_findings": 28
+      }
+    },
+    {
+      "audit_id": "2026-03-21T00:00:00.000Z",
+      "commit": "40a9cd68ff8efc62da02d30bf4b3e8ae3a1017ab",
+      "branch": "audit",
+      "started_at": "2026-03-21T00:00:00.000Z",
+      "completed_at": "2026-03-21T14:00:00.000Z",
+      "status": "complete",
+      "phases": {
+        "1": {
+          "status": "complete",
+          "findings": "42 CVEs identified (2024-2026). Architecture inventory with 19 key components. 4 bypasses confirmed."
+        },
+        "2": {
+          "status": "complete",
+          "findings": "25 bypass analyses. 4 confirmed bypasses: CVE-2024-9264 (SQL INTO OUTFILE), CVE-2026-21720 (avatar anon bypass), CVE-2024-1313 (K8s snapshot), CVE-2024-9476 (CancelSnapshot orgID)."
+        },
+        "3": {
+          "status": "complete",
+          "findings": "15 DFD/CFD slices, 17 attack scenarios, 30 CodeQL targets. 1,036,067 LoC audited."
+        },
+        "4": {
+          "status": "complete",
+          "findings": "23 SAST findings. CodeQL + Semgrep Pro + 10 custom rules. 5 high-priority targets confirmed."
+        },
+        "5": {
+          "status": "complete",
+          "findings": "4 probe teams, 60 validated hypotheses. Key: SQL INTO OUTFILE 4-control failure, renderer JWT default token, snapshot RBAC never invoked, auth proxy empty whitelist."
+        },
+        "6": {
+          "status": "complete",
+          "findings": "7 spec gaps. SPEC-GAP-005: SQL INTO OUTFILE via IsReadOnly bypass confirmed independently."
+        },
+        "7": {
+          "status": "complete",
+          "findings": "15 enriched findings retained from 30 candidates. 15 dropped (duplicates, FPs, insufficient evidence)."
+        },
+        "8": {
+          "status": "complete",
+          "findings": "3 chambers: 10 new p8-xxx findings (5 HIGH, 5 MEDIUM). 1 duplicate dropped. Key: p8-001 snapshot RBAC, p8-004 auth proxy bypass, p8-040 SQL RCE, p8-041 renderer JWT."
+        },
+        "9": {
+          "status": "complete",
+          "findings": "Stage 1: p8-042 dropped as duplicate. Stage 2: 5 cold verifiers \u2014 4 CONFIRMED HIGH (H1-H6), 1 downgraded HIGH\u2192MEDIUM (H7/M21 renderer JWT: impact limited to read-only endpoints, not full admin)."
+        },
+        "10": {
+          "status": "complete",
+          "findings": "7 variant hunters found 17 new variants. p8-010 (H3), p8-030 (H5) elevated to HIGH. 20 MEDIUM variants total."
+        },
+        "11": {
+          "status": "complete",
+          "findings": "27 confirmed findings (6 HIGH, 21 MEDIUM). Post-audit verification: all 21 previously theoretical findings verified \u2014 18 executed via Go unit tests, 3 code-confirmed via static analysis. 0 theoretical remaining. Final report: security/final-audit-report.md."
+        }
+      },
+      "summary": {
+        "cve_count": 42,
+        "high_count": 6,
+        "medium_count": 21,
+        "low_count": 0,
+        "total_confirmed_findings": 27,
+        "bypasses_confirmed": 4,
+        "codeql_db_loc": 1036067,
+        "chambers_run": 3,
+        "probe_teams": 4,
+        "cold_verifiers_run": 5,
+        "variant_hunters_run": 7,
+        "poc_executed": 24,
+        "poc_theoretical": 0,
+        "poc_code_confirmed": 3
+      }
+    }
+  ]
+}

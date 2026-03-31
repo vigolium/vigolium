@@ -12,7 +12,7 @@ Agent mode requires an AI backend. The default backend is Claude (via the Agent 
 vigolium agent --list-agents
 ```
 
-To use a different backend, pass `--agent <name>` (e.g., `--agent gemini`, `--agent opencode`).
+To use a different backend, pass `--agent <name>` (e.g., `--agent codex`, `--agent opencode`).
 
 ## Query: Single-Shot Analysis
 

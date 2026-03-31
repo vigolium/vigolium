@@ -1,0 +1,55 @@
+rules:
+  - id: grafana-snapshot-k8s-delete-missing-org-check
+    severity: ERROR
+    languages: [go]
+    message: >
+      The K8s API snapshot delete-by-deleteKey handler performs RBAC check
+      (ActionSnapshotsDelete) but does NOT verify that the snapshot belongs
+      to the caller's organization. The legacy REST API at DeleteDashboardSnapshotByDeleteKey
+      correctly checks queryResult.OrgID != c.OrgID, but this K8s API path
+      calls dashboardsnapshots.DeleteWithKey without any org isolation check.
+      An authenticated user in any org can delete snapshots belonging to other
+      organizations if they obtain the deleteKey. This is analogous to the
+      cross-org bypass fixed in CVE-2024-1313.
+    metadata:
+      cwe: CWE-284
+      attack_vector: authenticated-any-org
+      dfd_slice: DFD-7
+      cve: CVE-2024-1313
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          err = dashboardsnapshots.DeleteWithKey($CTX, $KEY, $SERVICE)
+      - pattern-not-inside: |
+          if $_.OrgID != $_.OrgID {
+              ...
+          }
+          ...
+          err = dashboardsnapshots.DeleteWithKey($CTX, $KEY, $SERVICE)
+    paths:
+      include:
+        - "pkg/registry/apis/dashboard/snapshot/"
+
+  - id: grafana-snapshot-delete-rbac-only-no-org
+    severity: WARNING
+    languages: [go]
+    message: >
+      Snapshot delete handler validates RBAC permission (ActionSnapshotsDelete)
+      but does not check org membership before calling DeleteWithKey. Cross-org
+      deletion is possible for any authenticated user who can acquire a deleteKey
+      from another organization (e.g., via log leakage or shared URLs).
+    metadata:
+      cwe: CWE-284
+      attack_vector: authenticated-any-org
+      dfd_slice: DFD-7
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          accessControl.Evaluate($CTX, $USER, ac.EvalPermission(dashboards.ActionSnapshotsDelete))
+      - pattern-not-inside: |
+          ...
+          $_.OrgID != $REQUESTER_ORG_ID
+          ...
+    paths:
+      include:
+        - "pkg/registry/apis/dashboard/snapshot/"

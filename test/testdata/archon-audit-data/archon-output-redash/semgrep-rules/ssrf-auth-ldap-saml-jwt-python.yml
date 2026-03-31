@@ -1,0 +1,97 @@
+rules:
+  - id: redash-ssrf-requests-url-input
+    message: User-controlled URL passed to requests without SSRF guard
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.json
+      - pattern: request.data
+    pattern-sinks:
+      - pattern: requests.get($URL, ...)
+      - pattern: requests.post($URL, ...)
+      - pattern: requests.request(..., url=$URL, ...)
+      - pattern: requests.request(..., $URL, ...)
+      - pattern: requests.Session().get($URL, ...)
+      - pattern: requests.Session().post($URL, ...)
+    pattern-sanitizers:
+      - pattern: requests_or_advocate.get(...)
+      - pattern: requests_or_advocate.post(...)
+      - pattern: requests_session.request(...)
+      - pattern: ConfiguredSession().request(...)
+      - pattern: validate_url(...)
+    paths:
+      include:
+        - "**/redash/**/*.py"
+        - "**/redash/query_runner/**/*.py"
+        - "**/redash/destinations/**/*.py"
+      exclude:
+        - "**/tests/**"
+    metadata:
+      category: security
+      focus: ssrf
+
+  - id: redash-oauth-next-state-use
+    message: OAuth callback uses request params directly in redirect or state
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: redirect($REQ)
+          - pattern: redirect($REQ, ...)
+          - pattern: make_response(redirect($REQ, ...))
+      - pattern-either:
+          - pattern: request.args.get("next", ...)
+          - pattern: request.args.get("state", ...)
+          - pattern: request.args["next"]
+          - pattern: request.args["state"]
+    paths:
+      include:
+        - "**/redash/authentication/**/*.py"
+    metadata:
+      category: security
+      focus: oauth
+
+  - id: redash-jwt-decode-dynamic-alg
+    message: jwt.decode called with dynamic algorithms or key source
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: jwt.decode($TOKEN, $KEY, algorithms=$ALGS, ...)
+      - pattern: jwt.decode($TOKEN, $KEY, $OPTS, $ALGS)
+    paths:
+      include:
+        - "**/redash/authentication/**/*.py"
+    metadata:
+      category: security
+      focus: jwt
+
+  - id: redash-ldap-filter-template
+    message: LDAP search filter built from user input template
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: $FILTER % $USER
+      - pattern: $FILTER.format(...)
+    paths:
+      include:
+        - "**/redash/authentication/ldap_auth.py"
+    metadata:
+      category: security
+      focus: ldap
+
+  - id: redash-saml-parse-response
+    message: SAML response parsing call detected; ensure signature validation
+    severity: INFO
+    languages: [python]
+    pattern: $CLIENT.parse_authn_request_response(...)
+    paths:
+      include:
+        - "**/redash/authentication/saml_auth.py"
+    metadata:
+      category: security
+      focus: saml

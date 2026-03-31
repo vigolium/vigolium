@@ -1,0 +1,91 @@
+rules:
+  - id: grafana-proxy-hop-by-hop-not-stripped
+    languages: [go]
+    message: >
+      ReverseProxy director function sets or forwards request headers without stripping
+      hop-by-hop headers (Connection, Keep-Alive, Transfer-Encoding, TE, Trailers,
+      Upgrade, Proxy-Authorization, Proxy-Authenticate). From the Domain Attack Research
+      in the knowledge base: in the datasource proxy director(), hop-by-hop header
+      stripping is not explicitly verified. Go's stdlib httputil.ReverseProxy handles
+      some but not all cases. Attacker-controlled datasource proxy requests could
+      inject Upgrade or Connection headers to confuse backend services.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-116
+      dfd-slice: DFD-1
+      confidence: LOW
+    patterns:
+      - pattern: |
+          func ($RECV $TYPE) director($REQ *http.Request) {
+              ...
+              $REQ.Header.Set($HEADER, ...)
+              ...
+          }
+      - pattern-not: |
+          func ($RECV $TYPE) director($REQ *http.Request) {
+              ...
+              $REQ.Header.Del("Connection")
+              ...
+          }
+    paths:
+      include:
+        - "pkg/api/pluginproxy/**/*.go"
+      exclude:
+        - "**/*_test.go"
+
+  - id: grafana-proxy-pathUnescape-after-routing
+    languages: [go]
+    message: >
+      url.PathUnescape() called AFTER route matching has already been performed on the
+      raw path. This creates a parser differential: routes are matched on the encoded
+      path, but the backend receives the decoded path. In DFD-1 / ds_proxy.go:212,
+      PathUnescape is called in the director() function (after route matching is done
+      in NewDataSourceProxy). An attacker who sends %2F can pass route matching that
+      expects / but the backend receives /. This is the residual path traversal risk
+      after CVE-2025-3454 was patched via CleanRelativePath.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-22
+      cve-context: CVE-2025-3454 residual (parser differential)
+      dfd-slice: DFD-1
+      confidence: MEDIUM
+      location: pkg/api/pluginproxy/ds_proxy.go:212
+    pattern: |
+      $UNESCAPED, $ERR = url.PathUnescape($REQ.URL.RawPath)
+      ...
+      $REQ.URL.Path = $UNESCAPED
+    paths:
+      include:
+        - "pkg/api/pluginproxy/**/*.go"
+      exclude:
+        - "**/*_test.go"
+
+  - id: grafana-x-ds-authorization-header-forwarding
+    languages: [go]
+    message: >
+      X-DS-Authorization header is read from the incoming request and forwarded as
+      the Authorization header to the backend datasource. In ds_proxy.go director(),
+      this allows any authenticated Grafana user to inject an arbitrary Authorization
+      header for the backend datasource request by sending X-DS-Authorization in
+      their request. Verify that X-DS-Authorization can only be set by trusted internal
+      components, not by external API clients.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-116
+      dfd-slice: DFD-1
+      confidence: HIGH
+      location: pkg/api/pluginproxy/ds_proxy.go:230-233
+    pattern: |
+      $DSAUTH := $REQ.Header.Get("X-DS-Authorization")
+      if len($DSAUTH) > 0 {
+        $REQ.Header.Del("X-DS-Authorization")
+        $REQ.Header.Set("Authorization", $DSAUTH)
+      }
+    paths:
+      include:
+        - "pkg/api/pluginproxy/**/*.go"
+      exclude:
+        - "**/*_test.go"

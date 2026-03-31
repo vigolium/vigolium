@@ -1,0 +1,87 @@
+rules:
+  - id: grafana-annotation-query-from-to-zero-bypass
+    languages: [go]
+    message: >
+      Time range filter `query.From > 0 && query.To > 0` allows from=0 and to=0 to
+      bypass the WHERE time filter entirely. In xorm_store.go Get(), when both From and To
+      are 0 (default zero value for int64), the annotation time range clause is completely
+      omitted from the SQL query. This causes the public dashboard annotation endpoint
+      GET /api/public/dashboards/:token/annotations?from=0&to=0 to return ALL annotations
+      for the org, bypassing the time selection lock (CVE-2026-21722).
+      Fix: add validation that From > 0 and To > From when called from public dashboard paths,
+      or default to a safe time window when both are zero.
+    severity: CRITICAL
+    metadata:
+      category: security
+      cwe: CWE-284
+      cve-context: CVE-2026-21722
+      dfd-slice: DFD-3
+      confidence: HIGH
+      location: pkg/services/annotations/annotationsimpl/xorm_store.go:389
+    pattern: |
+      if $QUERY.From > 0 && $QUERY.To > 0 {
+        $SQL.WriteString(...)
+        ...
+      }
+    paths:
+      include:
+        - "pkg/services/annotations/**/*.go"
+      exclude:
+        - "**/*_test.go"
+
+  - id: grafana-public-dashboard-annotation-no-bounds
+    languages: [go]
+    message: >
+      Public dashboard annotation handler reads From and To directly from query parameters
+      without validating that they are non-zero or within the dashboard's locked time range.
+      GET /api/public/dashboards/:token/annotations?from=0&to=0 bypasses time filtering.
+      Callers should validate that From > 0, To > From, and optionally that the range
+      does not extend beyond the TimeSelectionEnabled dashboard configuration.
+    severity: CRITICAL
+    metadata:
+      category: security
+      cwe: CWE-284
+      cve-context: CVE-2026-21722
+      dfd-slice: DFD-3
+      confidence: HIGH
+      location: pkg/services/publicdashboards/api/query.go:96-97
+    pattern: |
+      reqDTO := AnnotationsQueryDTO{
+        From: c.QueryInt64("from"),
+        To:   c.QueryInt64("to"),
+      }
+    paths:
+      include:
+        - "pkg/services/publicdashboards/**/*.go"
+      exclude:
+        - "**/*_test.go"
+
+  - id: grafana-sql-no-org-id-filter
+    languages: [go]
+    message: >
+      Raw SQL query on a multi-tenant table (annotation, dashboard, data_source, alert_rule)
+      without an org_id parameter binding. In multi-tenant Grafana, every query against
+      shared tables must include `org_id = ?` to prevent cross-tenant data access.
+      This pattern detects SQL() calls that reference org-scoped table names but may
+      lack org_id parameter.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-284
+      dfd-slice: CFD-2
+      confidence: LOW
+    patterns:
+      - pattern: |
+          sess.SQL("SELECT ... FROM annotation ...", ...)
+      - pattern-not: |
+          sess.SQL("SELECT ... FROM annotation ... WHERE ... org_id ...", ...)
+      - pattern: |
+          sess.SQL("SELECT ... FROM data_source ...", ...)
+      - pattern-not: |
+          sess.SQL("SELECT ... FROM data_source ... WHERE ... org_id ...", ...)
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"

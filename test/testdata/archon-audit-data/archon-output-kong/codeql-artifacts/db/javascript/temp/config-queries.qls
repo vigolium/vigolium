@@ -1,0 +1,177 @@
+---
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/AngularJS/DisablingSce.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/AngularJS/DoubleCompilation.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/AngularJS/InsecureUrlWhitelist.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/RegExp/IdentityReplacement.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-201/PostMessageStar.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-830/FunctionalityFromUntrustedSource.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-830/FunctionalityFromUntrustedDomain.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-094/CodeInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-094/UnsafeDynamicMethodAccess.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-094/ImproperCodeSanitization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-209/StackTraceExposure.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-200/PrivateFileExposure.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-601/ClientSideUrlRedirect.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-601/ServerSideUrlRedirect.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-326/InsufficientKeySize.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-178/CaseSensitiveMiddlewarePath.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-327/BrokenCryptoAlgorithm.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-327/BadRandomness.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-916/InsufficientPasswordHash.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-918/RequestForgery.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-942/CorsPermissiveConfiguration.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-598/SensitiveGetQuery.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-614/ClearTextCookie.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-089/SqlInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-073/TemplateObjectInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/IncompleteUrlSchemeCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/UselessRegExpCharacterEscape.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/IncompleteHostnameRegExp.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/IncorrectSuffixCheck.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/IncompleteUrlSubstringSanitization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-020/OverlyLargeRange.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-640/HostHeaderPoisoningInEmailGeneration.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-400/DeepObjectResourceExhaustion.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-834/LoopBoundInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-295/DisablingCertificateValidation.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-693/InsecureHelmet.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-347/MissingJWTKeyVerification.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-770/ResourceExhaustion.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-770/MissingRateLimiting.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-346/CorsMisconfigurationForCredentials.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/IncompleteSanitization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/BadTagFilter.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/UnsafeHtmlExpansion.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/IncompleteMultiCharacterSanitization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/DoubleEscaping.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-116/IncompleteHtmlAttributeSanitization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-915/PrototypePollutingAssignment.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-915/PrototypePollutingMergeCall.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-915/PrototypePollutingFunction.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-776/XmlBomb.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-312/CleartextStorage.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-312/CleartextLogging.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-312/BuildArtifactLeak.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-754/UnvalidatedDynamicMethodCall.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-134/TaintedFormatString.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-352/MissingCsrfMiddleware.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-338/InsecureRandomness.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-300/InsecureDependencyResolution.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-502/UnsafeDeserialization.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-730/RegExpInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-730/ServerCrash.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-1004/ClientExposedCookie.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-022/ZipSlip.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-022/TaintedPath.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-843/TypeConfusionThroughParameterTampering.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-611/Xxe.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-078/UselessUseOfCat.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-078/CommandInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-078/UnsafeShellCommandConstruction.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-078/SecondOrderCommandInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-078/ShellCommandInjectionFromEnvironment.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-643/XpathInjection.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-829/InsecureDownload.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/ReflectedXss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/XssThroughDom.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/UnsafeJQueryPlugin.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/Xss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/ExceptionXss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/UnsafeHtmlConstruction.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Security/CWE-079/StoredXss.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Performance/ReDoS.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Performance/PolynomialReDoS.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Electron/AllowRunningInsecureContent.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Electron/DisablingWebSecurity.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Diagnostics/ExtractionErrors.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Diagnostics/ExtractedFiles.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Summary/LinesOfCode.ql
+ -
+  query: /Users/bytedance/.codeql/packages/codeql/javascript-queries/2.3.6/Summary/LinesOfUserCode.ql

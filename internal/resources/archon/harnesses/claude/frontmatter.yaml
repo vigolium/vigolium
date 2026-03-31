@@ -1,0 +1,131 @@
+format: md
+defaults:
+  tools: "Glob, Grep, Read, Bash"
+  model: "sonnet"
+  color: "blue"
+  permissionMode: "bypassPermissions"
+  effort: "low"
+
+overrides:
+  # --- Phase 1 ---
+  advisory-hunter:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "cyan"
+
+  commit-archaeologist:
+    color: "yellow"
+
+  # --- Phase 2 ---
+  patch-bypass-checker:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "red"
+
+  # --- Phase 3 ---
+  knowledge-base-builder:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch, Agent"
+    model: "opus"
+    color: "green"
+    skills: ["security-threat-model"]
+
+  # --- Phase 4 ---
+  static-analyzer:
+    tools: "Glob, Grep, Read, Bash, Write, Edit, Agent"
+    color: "yellow"
+
+  # --- Phase 5 (Deep Probe) ---
+  probe-strategist:
+    tools: "Glob, Grep, Read, Write, Edit, Bash, SendMessage"
+    color: "magenta"
+    permissionMode: ~
+    effort: "medium"
+
+  code-anatomist:
+    tools: "Glob, Grep, Read, Write"
+    model: "haiku"
+    color: "yellow"
+    permissionMode: ~
+
+  backward-reasoner:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "red"
+    permissionMode: ~
+    effort: "medium"
+
+  contradiction-reasoner:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "orange"
+    permissionMode: ~
+    effort: "medium"
+
+  causal-verifier:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "cyan"
+    permissionMode: ~
+    effort: "medium"
+
+  evidence-harvester:
+    tools: "Glob, Grep, Read, Bash, Write"
+    permissionMode: ~
+
+  # --- Phase 7 ---
+  enrichment-filter:
+    tools: "Glob, Grep, Read, Bash, Write"
+    color: "green"
+
+  # --- Phase 6 ---
+  spec-gap-analyst:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch, Agent"
+    color: "cyan"
+    skills: ["spec-to-code-compliance"]
+
+  # --- Phase 8 (Review Chamber) ---
+  chamber-synthesizer:
+    tools: "Glob, Grep, Read, Write, Edit, Bash, Agent, SendMessage"
+    model: "opus"
+    color: "magenta"
+    effort: "medium"
+    memory: "project"
+
+  attack-ideator:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "red"
+
+  code-tracer:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+
+  devils-advocate:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "orange"
+
+  variant-scout:
+    color: "cyan"
+    background: true
+
+  # --- Phase 9 ---
+  cold-verifier:
+    tools: "Glob, Grep, Read, Write, Bash, WebFetch"
+    model: "opus"
+    color: "white"
+    effort: "medium"
+
+  # --- Phase 10 ---
+  variant-hunter:
+    tools: "Glob, Grep, Read, Bash, Agent"
+    color: "green"
+
+  # --- Phase 11 ---
+  poc-builder:
+    tools: "Glob, Grep, Read, Bash, Write, WebFetch"
+    color: "yellow"
+    skills: ["vuln-report"]
+
+  report-assembler:
+    tools: "Glob, Grep, Read, Write, Bash"
+    color: "white"
+
+  # --- Excluded (not present in Claude plugin) ---
+  deep-auditor:
+    exclude: true

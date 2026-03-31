@@ -5,73 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
+	"github.com/vigolium/vigolium/pkg/agent/backend"
+	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
+	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	"go.uber.org/zap"
 )
-
-// ScanIntent holds structured parameters extracted from a natural language scan prompt.
-type ScanIntent struct {
-	Apps    []AppIntent   `json:"apps"`
-	Raw     string        `json:"raw"`
-	Cleanup *SetupCleanup `json:"cleanup,omitempty"` // resources created during SDK-based setup
-}
-
-// SetupCleanup tracks resources created during SDK-based intent setup
-// that need to be cleaned up when the scan completes.
-type SetupCleanup struct {
-	DockerProjects []string `json:"docker_projects,omitempty"`
-	Containers     []string `json:"containers,omitempty"`
-	CloneDirs      []string `json:"-"` // populated locally, not from JSON
-}
-
-// Cleanup stops docker containers/projects created during setup.
-// Safe to call on nil receiver.
-func (sc *SetupCleanup) Cleanup() {
-	if sc == nil {
-		return
-	}
-	ctx := context.Background()
-	for _, project := range sc.DockerProjects {
-		zap.L().Info("Stopping docker compose project from setup", zap.String("project", project))
-		cmd := exec.CommandContext(ctx, "docker", "compose", "-p", project, "down", "--timeout", "10")
-		if err := cmd.Run(); err != nil {
-			zap.L().Warn("Failed to stop docker project", zap.String("project", project), zap.Error(err))
-		}
-	}
-	for _, container := range sc.Containers {
-		cmd := exec.CommandContext(ctx, "docker", "rm", "-f", container)
-		_ = cmd.Run()
-	}
-}
-
-// intentParseConfig holds optional configuration for intent parsing.
-type intentParseConfig struct {
-	sessionsDir string
-}
-
-// IntentParseOption is a functional option for ParseScanIntent.
-type IntentParseOption func(*intentParseConfig)
-
-// WithSessionsDir sets the sessions directory used for SDK-based setup (clone targets, etc.).
-func WithSessionsDir(dir string) IntentParseOption {
-	return func(c *intentParseConfig) { c.sessionsDir = dir }
-}
-
-// AppIntent holds parameters for a single application to scan.
-type AppIntent struct {
-	Target      string `json:"target,omitempty"`      // URL if mentioned
-	SourcePath  string `json:"source_path,omitempty"` // filesystem path if mentioned
-	Focus       string `json:"focus,omitempty"`       // vulnerability focus if mentioned
-	Instruction string `json:"instruction,omitempty"` // leftover context
-	Discover    bool   `json:"discover,omitempty"`    // implied by target + source combo
-	CodeAudit   bool   `json:"code_audit,omitempty"`  // implied by source-only
-	AuditAgent  string `json:"audit_agent,omitempty"` // "lite", "full", or "" (background audit agent)
-}
 
 // intentExtractionPrompt is the system prompt for the quick LLM call that parses natural language.
 const intentExtractionPrompt = `You are a parameter extraction assistant. Extract structured scan parameters from a natural language request.
@@ -144,16 +88,16 @@ func ParseScanIntent(ctx context.Context, engine *Engine, prompt string, opts ..
 	}
 
 	// Apply options
-	var cfg intentParseConfig
+	var cfg IntentParseConfig
 	for _, o := range opts {
 		o(&cfg)
 	}
 
 	// SDK path: prompts requiring environment setup (git clone, docker, etc.)
-	if needsSDKSetup(trimmed) && cfg.sessionsDir != "" {
+	if needsSDKSetup(trimmed) && cfg.SessionsDir != "" {
 		protocol := engine.ResolveAgentProtocol("")
 		if protocol == "sdk" {
-			intent, err := ParseScanIntentSDK(ctx, engine, trimmed, cfg.sessionsDir)
+			intent, err := ParseScanIntentSDK(ctx, engine, trimmed, cfg.SessionsDir)
 			if err != nil {
 				zap.L().Warn("SDK intent setup failed, falling back to simple LLM",
 					zap.Error(err))
@@ -178,14 +122,14 @@ func ParseScanIntent(ctx context.Context, engine *Engine, prompt string, opts ..
 
 	intent, err := parseIntentJSON(result.RawOutput)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse intent from LLM response: %w (raw: %s)", err, truncateForLog(result.RawOutput, 200))
+		return nil, fmt.Errorf("failed to parse intent from LLM response: %w (raw: %s)", err, backend.TruncateForLog(result.RawOutput, 200))
 	}
 
 	intent.Raw = trimmed
 
 	// Expand ~ in source paths
 	for i := range intent.Apps {
-		intent.Apps[i].SourcePath = expandHome(intent.Apps[i].SourcePath)
+		intent.Apps[i].SourcePath = agenttypes.ExpandHome(intent.Apps[i].SourcePath)
 	}
 
 	return intent, nil
@@ -194,7 +138,7 @@ func ParseScanIntent(ctx context.Context, engine *Engine, prompt string, opts ..
 // tryStructuredFallback checks if the prompt is already a structured input format
 // (URL, curl, etc.) and returns a ScanIntent directly without an LLM call.
 func tryStructuredFallback(input string) *ScanIntent {
-	inputType := DetectInputType(input)
+	inputType := agentinput.DetectInputType(input)
 	if inputType == InputTypeUnknown {
 		return nil
 	}
@@ -223,7 +167,7 @@ func tryStructuredFallback(input string) *ScanIntent {
 func parseIntentJSON(raw string) (*ScanIntent, error) {
 	// Reuse the existing extractJSON from parser.go which handles markdown fences,
 	// brace matching, and other LLM output quirks.
-	jsonStr, err := extractJSON(raw)
+	jsonStr, err := parsing.ExtractJSON(raw)
 	if err != nil {
 		return nil, fmt.Errorf("no JSON found in response: %w", err)
 	}
@@ -234,28 +178,6 @@ func parseIntentJSON(raw string) (*ScanIntent, error) {
 	}
 
 	return &intent, nil
-}
-
-// expandHome expands ~ prefix to the user's home directory.
-func expandHome(path string) string {
-	if path == "" {
-		return ""
-	}
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return home + path[1:]
-	}
-	if path == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return home
-	}
-	return path
 }
 
 // ParseAndResolveIntent is a convenience that calls ParseScanIntent followed by
@@ -355,7 +277,7 @@ func ParseScanIntentSDK(ctx context.Context, engine *Engine, prompt string, sess
 
 	systemPrompt := fmt.Sprintf(setupIntentSystemPrompt, cloneDir)
 
-	sdkCfg := sdkRunConfig{
+	sdkCfg := backend.SDKRunConfig{
 		Cwd:                cloneDir,
 		MaxTurns:           30,
 		Effort:             "medium",
@@ -370,7 +292,7 @@ func ParseScanIntentSDK(ctx context.Context, engine *Engine, prompt string, sess
 		zap.String("cloneDir", cloneDir),
 		zap.String("agent", defaultAgent))
 
-	result, err := RunAgenticSDK(ctx, *agentDef, prompt, sdkCfg)
+	result, err := backend.RunAgenticSDK(ctx, *agentDef, prompt, sdkCfg)
 	if err != nil {
 		return nil, fmt.Errorf("SDK setup agent failed: %w", err)
 	}
@@ -391,7 +313,7 @@ func ParseScanIntentSDK(ctx context.Context, engine *Engine, prompt string, sess
 }
 
 // parseSDKIntentOutput extracts ScanIntent JSON from the SDK agent's freeform output.
-// It looks for the INTENT_JSON: marker line, falling back to extractJSON() if not found.
+// It looks for the INTENT_JSON: marker line, falling back to parsing.ExtractJSON() if not found.
 func parseSDKIntentOutput(output string) (*ScanIntent, error) {
 	// Strategy 1: Look for the INTENT_JSON: marker
 	const marker = "INTENT_JSON:"
@@ -418,7 +340,7 @@ func parseSDKIntentOutput(output string) (*ScanIntent, error) {
 // parseIntentJSONWithCleanup extracts JSON from raw text and unmarshals into ScanIntent
 // including the cleanup field.
 func parseIntentJSONWithCleanup(raw string) (*ScanIntent, error) {
-	jsonStr, err := extractJSON(raw)
+	jsonStr, err := parsing.ExtractJSON(raw)
 	if err != nil {
 		return nil, fmt.Errorf("no JSON found: %w", err)
 	}
@@ -439,7 +361,7 @@ func parseIntentJSONWithCleanup(raw string) (*ScanIntent, error) {
 
 	// Expand ~ in source paths
 	for i := range intent.Apps {
-		intent.Apps[i].SourcePath = expandHome(intent.Apps[i].SourcePath)
+		intent.Apps[i].SourcePath = agenttypes.ExpandHome(intent.Apps[i].SourcePath)
 	}
 
 	return intent, nil

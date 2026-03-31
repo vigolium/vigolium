@@ -1,0 +1,12 @@
+---
+sourceLocationPrefix: /Users/bytedance/Desktop/demo/kong/spec/fixtures
+baselineLinesOfCode: 916
+unicodeNewlines: false
+columnKind: utf8
+primaryLanguage: go
+creationMetadata:
+  cliVersion: 2.24.2
+  creationTime: 2026-03-30T08:10:10.274227Z
+finalised: true
+overlayBaseDatabase: false
+overlayDatabase: false

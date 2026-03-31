@@ -48,8 +48,9 @@ const (
 	ModuleTypeSourceTools = "source-tools"
 	ModuleTypeSAST        = "sast"
 	ModuleTypeOAST        = "oast"
-	ModuleTypeExtension   = "extension"
+	ModuleTypeExtension      = "extension"
 	ModuleTypeKnownIssueScan = "known-issue-scan"
+	ModuleTypeWhitebox       = "whitebox"
 )
 
 // FindingSource constants identify which phase/component produced a finding.
@@ -60,6 +61,7 @@ const (
 	FindingSourceOAST              = "oast"
 	FindingSourceSourceTools       = "source-tools"
 	FindingSourceExtension         = "extension"
+	FindingSourceArchon            = "archon"
 )
 
 // DefaultUserUUID is the well-known UUID for the default local user created during init.
@@ -392,7 +394,7 @@ type AgentRun struct {
 	ParentRunUUID    string                 `bun:"parent_run_uuid,nullzero" json:"parent_run_uuid,omitempty"`   // for swarm sub-runs
 	InputRecordCount int                    `bun:"input_record_count,default:0" json:"input_record_count"`
 
-	// Agent session (ACP session ID for resume)
+	// Agent session ID (for resume)
 	SessionID string `bun:"session_id,nullzero" json:"session_id,omitempty"`
 
 	// Debug (stored as JSON text blobs)

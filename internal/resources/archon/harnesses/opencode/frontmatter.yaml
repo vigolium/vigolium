@@ -1,0 +1,197 @@
+# OpenCode agents use the identical frontmatter format as ByteSec.
+# Confirmed by comparing all 23 agent files — frontmatter is byte-identical.
+
+format: md
+defaults:
+  mode: "subagent"
+  color: "#0000CC"
+  permission:
+    edit: "allow"
+    bash:
+      "*": "allow"
+
+overrides:
+  # --- Phase 1 ---
+  advisory-hunter:
+    color: "#00CCCC"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  commit-archaeologist:
+    color: "#CCCC00"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+
+  # --- Phase 2 ---
+  patch-bypass-checker:
+    color: "#CC0000"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  # --- Phase 3 ---
+  knowledge-base-builder:
+    color: "#00CC00"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+
+  # --- Phase 4 ---
+  static-analyzer:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "deny"
+      task:
+        "*": "allow"
+
+  # --- Phase 5 (Deep Probe) ---
+  probe-strategist:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+
+  code-anatomist:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "deny"
+
+  backward-reasoner:
+    color: "#CC0000"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  contradiction-reasoner:
+    color: "#CC6600"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  causal-verifier:
+    color: "#00CCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  evidence-harvester:
+    # uses defaults (color #0000CC, edit allow, bash allow)
+    {}
+
+  # --- Phase 6 ---
+  spec-gap-analyst:
+    color: "#00CCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+
+  # --- Phase 7 ---
+  enrichment-filter:
+    color: "#00CC00"
+
+  deep-auditor:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+
+  # --- Phase 8 (Review Chamber) ---
+  chamber-synthesizer:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+
+  attack-ideator:
+    color: "#CC0000"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  code-tracer:
+    # uses defaults (color #0000CC, edit allow, bash allow)
+    {}
+
+  devils-advocate:
+    color: "#CC6600"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  variant-scout:
+    color: "#00CCCC"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+
+  # --- Phase 9 ---
+  cold-verifier:
+    color: "#CCCCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  # --- Phase 10 ---
+  variant-hunter:
+    color: "#00CC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+
+  # --- Phase 11 ---
+  poc-builder:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+
+  report-assembler:
+    color: "#CCCCCC"

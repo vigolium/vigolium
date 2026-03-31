@@ -254,7 +254,7 @@ func TestSwarmEmptyAgentOutput(t *testing.T) {
 	db, repo := setupTestDB(t)
 	_ = db
 
-	// Agent that produces empty output (simulates the opencode ACP bug)
+	// Agent that produces empty output (simulates empty response)
 	dir := t.TempDir()
 	emptyScript := filepath.Join(dir, "empty-agent.sh")
 	require.NoError(t, os.WriteFile(emptyScript, []byte("#!/bin/sh\ncat > /dev/null\n"), 0755))

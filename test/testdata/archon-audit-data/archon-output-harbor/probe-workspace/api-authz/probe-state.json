@@ -1,0 +1,30 @@
+{
+  "component": "api-authz",
+  "loop": 1,
+  "total_validated": 6,
+  "total_needs_deeper": 1,
+  "loops": [
+    {
+      "loop": 1,
+      "q1_coverage_gaps": [
+        "artifactrash dao Filter/Flush timestamp SQL (internal, not user-controlled)",
+        "member/dao ListRoles OIDC group injection (separate component boundary)"
+      ],
+      "q2_chain_seeds": [
+        "PH-10/19 (Webhook SSRF HIGH) -> cloud metadata IAM credentials -> infrastructure compromise",
+        "PH-07/20 (Robot creates robot) + PH-10/19 -> persistent access + lateral movement",
+        "PH-03/18 (Group enumeration MEDIUM) -> reconnaissance for OIDC group injection attack"
+      ],
+      "q3_fragile_items": [],
+      "q4_untouched_areas": [
+        "artifactrash.Filter/Flush internal timestamp formatting (assessed non-exploitable via user input)",
+        "OIDC group claim injection at login time (separate OIDC auth component, out of scope for this probe)"
+      ],
+      "q5_impact_multipliers": [
+        "OIDC group injection (if validated separately) would elevate PH-03/18 from MEDIUM to HIGH"
+      ],
+      "decision": "proceed_to_summary",
+      "reason": "All significant entry points covered. No fragile protections. Remaining gaps are in separate component boundaries (OIDC auth, not api-authz). Q1 uncovered areas are internal-only (not user-controllable). Q3 has no fragile items requiring re-investigation."
+    }
+  ]
+}

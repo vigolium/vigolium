@@ -1,0 +1,83 @@
+rules:
+  - id: grafana-rbac-eval-permission-no-scope
+    languages: [go]
+    message: >
+      EvalPermission called with only an action string and no scope parameter.
+      In CFD-2, RBAC scope evaluation without a specific scope defaults to wildcard
+      matching, which may grant broader access than intended. EvalPermission with no
+      scope means any permission matching the action string (including wildcard scopes)
+      will succeed. Ensure a scoped eval like EvalPermission(action, ScopeResourceUID(uid))
+      is used for resource-specific checks.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-863
+      cfd-slice: CFD-2
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          ac.EvalPermission($ACTION)
+      - pattern: |
+          $AC.EvalPermission($ACTION)
+      - pattern: |
+          accesscontrol.EvalPermission($ACTION)
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"
+
+  - id: grafana-rbac-scope-wildcard-in-eval
+    languages: [go]
+    message: >
+      EvalPermission called with a literal wildcard scope (":*" suffix or just "*").
+      Wildcard scopes grant access to ALL resources of that type. Verify this is
+      intentional and not a missing resource-specific scope that should use
+      ScopeResourceUID(uid) or equivalent.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-863
+      cfd-slice: CFD-2
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          ac.EvalPermission($ACTION, "$PREFIX:*")
+      - pattern: |
+          ac.EvalPermission($ACTION, "*")
+      - pattern: |
+          $AC.EvalPermission($ACTION, "$PREFIX:*")
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"
+
+  - id: grafana-annotation-query-no-timerange-bound
+    languages: [go]
+    message: >
+      SQL query on annotation table with a FROM/TO timerange check that allows 0 values
+      to pass through without bounds enforcement. In DFD-3 / xorm_store.go:389,
+      the check `if query.From > 0 && query.To > 0` means that from=0&to=0 bypasses
+      the time range filter entirely, returning ALL annotations. The annotation endpoint
+      for public dashboards accepts these values directly from user-controlled query params.
+      Fix: enforce a default or minimum timerange when From=0 and To=0 in public
+      dashboard annotation paths.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-284
+      cve-context: CVE-2026-21722 (public dashboard annotation timerange bypass)
+      dfd-slice: DFD-3
+      confidence: HIGH
+    pattern: |
+      if $QUERY.From > 0 && $QUERY.To > 0 {
+          ...
+      }
+    paths:
+      include:
+        - "pkg/services/annotations/**/*.go"
+      exclude:
+        - "**/*_test.go"

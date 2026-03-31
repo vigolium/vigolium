@@ -1,0 +1,61 @@
+rules:
+  - id: grafana-http-servefile-without-confinement
+    languages: [go]
+    message: >
+      http.ServeFile() called without a preceding path confinement check
+      (filepath.Rel, strings.HasPrefix, or filepath.Abs comparison). In DFD-2,
+      pkg/api/render.go:122 calls http.ServeFile(c.Resp, c.Req, result.FilePath)
+      where result.FilePath comes from getNewFilePath() in the rendering service.
+      While the path is currently constructed with a random 20-char string, there is
+      no runtime confinement assertion before ServeFile. Note: http.ServeFile also
+      strips ../.. sequences per stdlib, but does NOT prevent serving arbitrary files
+      outside the intended directory if the path was already absolute and attacker-influenced.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-22
+      cve-context: CVE-2025-11539 pattern (renderer path traversal)
+      dfd-slice: DFD-2
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          http.ServeFile($W, $R, $PATH)
+      - pattern-not: |
+          ...
+          if !strings.HasPrefix($PATH, ...) { ... }
+          ...
+          http.ServeFile($W, $R, $PATH)
+      - pattern-not: |
+          ...
+          if _, $ERR = filepath.Rel(...); $ERR != nil { ... }
+          ...
+          http.ServeFile($W, $R, $PATH)
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
+        - "pkg/tests/**"
+
+  - id: grafana-servefile-result-filepath
+    languages: [go]
+    message: >
+      http.ServeFile() is called with a field from a result struct (result.FilePath).
+      Verify the rendering pipeline cannot produce a path outside the designated
+      images/pdf/csv directories configured in Cfg.ImagesDir/PDFsDir/CSVsDir.
+      Missing: a confinement assertion that result.FilePath starts with the expected
+      directory prefix after filepath.Abs().
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-22
+      dfd-slice: DFD-2
+      confidence: HIGH
+      location: pkg/api/render.go:122
+    pattern: |
+      http.ServeFile($W, $R, $RESULT.FilePath)
+    paths:
+      include:
+        - "pkg/**/*.go"
+      exclude:
+        - "**/*_test.go"
