@@ -295,6 +295,20 @@ install_vigolium_binary() {
 	rm -rf "$extract_dir"
 
 	success "Vigolium CLI binary installed to ${LIGHT_GREEN}${binary_path}${NC}"
+
+	# Show build info from the installed binary
+	local version_output
+	version_output=$("$binary_path" version 2>/dev/null || true)
+	if [[ -n "$version_output" ]]; then
+		local build_info commit_info
+		build_info=$(echo "$version_output" | grep 'Build:' || true)
+		commit_info=$(echo "$version_output" | grep 'Commit:' || true)
+		if [[ -n "$build_info" || -n "$commit_info" ]]; then
+			log "Installed binary info:"
+			[[ -n "$build_info" ]] && echo -e "  ${LIGHT_GREEN}${build_info}${NC}"
+			[[ -n "$commit_info" ]] && echo -e "  ${LIGHT_GREEN}${commit_info}${NC}"
+		fi
+	fi
 }
 
 # Update PATH in shell profile
