@@ -32,15 +32,8 @@ type (
 	AgentHTTPRecordsOutput = agenttypes.AgentHTTPRecordsOutput
 )
 
-// Recon & exploitation
-type (
-	ReconDeliverable     = agenttypes.ReconDeliverable
-	ReconEndpoint        = agenttypes.ReconEndpoint
-	AuthFlowInfo         = agenttypes.AuthFlowInfo
-	VulnQueue            = agenttypes.VulnQueue
-	VulnQueueItem        = agenttypes.VulnQueueItem
-	ExploitationEvidence = agenttypes.ExploitationEvidence
-)
+// Exploitation evidence
+type ExploitationEvidence = agenttypes.ExploitationEvidence
 
 // Pipeline types
 type (
@@ -82,12 +75,7 @@ type (
 )
 
 // Autopilot types
-type (
-	AutopilotPhase          = agenttypes.AutopilotPhase
-	VulnClass               = agenttypes.VulnClass
-	AutopilotPipelineResult = agenttypes.AutopilotPipelineResult
-	AutopilotCheckpoint     = agenttypes.AutopilotCheckpoint
-)
+type AutopilotPipelineResult = agenttypes.AutopilotPipelineResult
 
 // Intent types
 type (
@@ -124,20 +112,6 @@ const (
 	InputTypeRecordUUID = agenttypes.InputTypeRecordUUID
 	InputTypeUnknown    = agenttypes.InputTypeUnknown
 
-	// AutopilotPhase
-	AutopilotPhaseRecon         = agenttypes.AutopilotPhaseRecon
-	AutopilotPhaseVulnAnalysis  = agenttypes.AutopilotPhaseVulnAnalysis
-	AutopilotPhaseNativeScan    = agenttypes.AutopilotPhaseNativeScan
-	AutopilotPhaseExploitVerify = agenttypes.AutopilotPhaseExploitVerify
-	AutopilotPhaseReport        = agenttypes.AutopilotPhaseReport
-
-	// VulnClass
-	VulnClassInjection = agenttypes.VulnClassInjection
-	VulnClassXSS       = agenttypes.VulnClassXSS
-	VulnClassAuth      = agenttypes.VulnClassAuth
-	VulnClassSSRF      = agenttypes.VulnClassSSRF
-	VulnClassAuthz     = agenttypes.VulnClassAuthz
-
 	// SwarmPhase
 	SwarmPhaseNormalize      = agenttypes.SwarmPhaseNormalize
 	SwarmPhaseAuth           = agenttypes.SwarmPhaseAuth
@@ -155,7 +129,6 @@ const (
 
 // Re-export functions with external consumers.
 var (
-	ToVulnClasses       = agenttypes.ToVulnClasses
 	NormalizeSwarmPhase = agenttypes.NormalizeSwarmPhase
 	PhaseSkipped        = agenttypes.PhaseSkipped
 	WithSessionsDir     = agenttypes.WithSessionsDir
@@ -171,12 +144,9 @@ var (
 
 // Re-export parsing functions with external consumers.
 var (
-	ParseFindings             = parsing.ParseFindings
-	ParseHTTPRecords          = parsing.ParseHTTPRecords
-	ToDBFinding               = parsing.ToDBFinding
-	ParseReconDeliverable     = parsing.ParseReconDeliverable
-	ParseVulnQueue            = parsing.ParseVulnQueue
-	ParseExploitationEvidence = parsing.ParseExploitationEvidence
+	ParseFindings    = parsing.ParseFindings
+	ParseHTTPRecords = parsing.ParseHTTPRecords
+	ToDBFinding      = parsing.ToDBFinding
 )
 
 // Re-export input functions with external consumers.

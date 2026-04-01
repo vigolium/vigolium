@@ -59,7 +59,7 @@ func (h *Handlers) buildQueryOpts(req AgentRunRequest) agent.Options {
 		PromptTemplate: req.PromptTemplate,
 		PromptFile:     req.PromptFile,
 		PromptInline:   req.Prompt,
-		SourcePath:     req.EffectiveSourcePath(),
+		SourcePath:     req.SourcePath,
 		Files:          req.Files,
 		Append:         req.Append,
 		Instruction:    req.Instruction,
@@ -82,7 +82,7 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 	}
 
 	// Natural language prompt: resolve when explicit fields are empty
-	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.EffectiveSourcePath() == "" {
+	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.SourcePath == "" {
 		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
 		if resolveErr != nil {
 			return resolveErr // already sent HTTP response
@@ -103,8 +103,13 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 			if req.Instruction == "" {
 				req.Instruction = app.Instruction
 			}
-			if req.Archon == "" {
-				req.Archon = app.Archon
+			// Map intent archon to new fields (not legacy Archon)
+			if app.Archon != "" && req.ArchonMode == "" {
+				if app.Archon == "off" {
+					req.NoArchon = true
+				} else {
+					req.ArchonMode = app.Archon
+				}
 			}
 		}
 	}
@@ -120,9 +125,16 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		req.Target = targetURL
 	}
 
-	if req.Target == "" && req.EffectiveSourcePath() == "" {
+	if req.Target == "" && req.SourcePath == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error: "target or source is required (use target, input, source, or prompt field)",
+		})
+	}
+
+	// Validate archon_mode if provided
+	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "scan" && mode != "deep" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, scan, or deep", mode),
 		})
 	}
 
@@ -150,6 +162,12 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 	}
 	h.agentMu.Unlock()
 
+	// Resolve project UUID: request body takes priority, then X-Project-UUID header
+	projectUUID := req.ProjectUUID
+	if projectUUID == "" {
+		projectUUID = getProjectUUID(c)
+	}
+
 	// Persist to DB
 	agentName := req.Agent
 	if agentName == "" {
@@ -158,10 +176,10 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 	h.persistAgentRun(runID, "autopilot", agentName)
 
 	if req.Stream {
-		return h.handleAutopilotSSE(c, runID, req, timeout)
+		return h.handleAutopilotSSE(c, runID, req, projectUUID, timeout)
 	}
 
-	go h.runBackgroundAutopilot(runID, req, timeout)
+	go h.runBackgroundAutopilot(runID, req, projectUUID, timeout)
 
 	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
 		RunID:   runID,
@@ -171,7 +189,8 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 }
 
 // buildAutopilotPipelineConfig creates an AutopilotPipelineConfig from an autopilot request.
-func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent.AutopilotPipelineConfig {
+// projectUUID should be pre-resolved by the caller (from request body or X-Project-UUID header).
+func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, projectUUID string) agent.AutopilotPipelineConfig {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
@@ -182,36 +201,31 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest) agent
 		maxCmds = 100
 	}
 
-	specialists := req.Specialists
-	if len(specialists) == 0 {
-		specialists = []string{"injection", "xss", "auth", "ssrf", "authz"}
-	}
-
 	cfg := agent.AutopilotPipelineConfig{
 		TargetURL:   req.Target,
-		SourcePath:  req.EffectiveSourcePath(),
+		SourcePath:  req.SourcePath,
 		Files:       req.Files,
 		Instruction: req.Instruction,
 		Focus:       req.Focus,
-		Specialists: agent.ToVulnClasses(specialists),
 		AgentName:   agentName,
 		MaxCommands: maxCmds,
 		DryRun:      req.DryRun,
 		SessionsDir: h.settings.Agent.EffectiveSessionsDir(),
-		ResumeDir:   req.ResumeDir,
-		ProjectUUID: req.ProjectUUID,
+		ProjectUUID: projectUUID,
 		ScanUUID:    req.ScanUUID,
 	}
 
-	if auditCfg := agent.ResolveAuditAgentConfig(req.Archon, h.settings.Agent.Archon); auditCfg != nil {
+	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), req.SourcePath, h.settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
 	}
+
+	cfg.BrowserEnabled = h.settings.Agent.Browser.IsEnabled()
 
 	return cfg
 }
 
 // handleAutopilotSSE runs the autopilot pipeline synchronously while streaming SSE events.
-func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopilotRequest, timeout time.Duration) error {
+func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopilotRequest, projectUUID string, timeout time.Duration) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -226,7 +240,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		cfg := h.buildAutopilotPipelineConfig(req)
+		cfg := h.buildAutopilotPipelineConfig(req, projectUUID)
 
 		// Set up stream writer pipe.
 		pr, pw := io.Pipe()
@@ -240,7 +254,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 
 		runner := agent.NewAutopilotPipelineRunner(h.agentEngine, h.repo)
 		go func() {
-			result, runErr := runner.Run(ctx, cfg)
+			result, runErr := runner.RunAutonomous(ctx, cfg)
 			_ = pw.Close()
 			done <- autopilotRunResult{result: result, err: runErr}
 		}()
@@ -284,7 +298,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 		if status != nil && res.result != nil {
 			status.Status = "completed"
 			status.CompletedAt = &now
-			status.FindingCount = res.result.TotalFindings
+			status.FindingCount = res.result.ArchonFindingsCount
 		}
 		h.agentMu.Unlock()
 
@@ -296,12 +310,12 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 		_ = writeSSE(w, sseEvent{Type: "done", AutopilotResult: res.result})
 		zap.L().Info("Autopilot run completed (streaming)",
 			zap.String("run_id", runID),
-			zap.Int("findings", res.result.TotalFindings))
+			zap.Int("archon_findings", res.result.ArchonFindingsCount))
 	})
 }
 
 // runBackgroundAutopilot executes the autopilot pipeline in a goroutine and updates status.
-func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotRequest, timeout time.Duration) {
+func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotRequest, projectUUID string, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
 		h.agentHeavyRunning = false
@@ -311,10 +325,10 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cfg := h.buildAutopilotPipelineConfig(req)
+	cfg := h.buildAutopilotPipelineConfig(req, projectUUID)
 
 	runner := agent.NewAutopilotPipelineRunner(h.agentEngine, h.repo)
-	result, runErr := runner.Run(ctx, cfg)
+	result, runErr := runner.RunAutonomous(ctx, cfg)
 
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
@@ -337,14 +351,14 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 
 	status.Status = "completed"
 	status.CompletedAt = &now
-	status.FindingCount = result.TotalFindings
+	status.FindingCount = result.ArchonFindingsCount
 
 	// Persist to DB
 	h.persistAgentRunCompleted(runID, status)
 
 	zap.L().Info("Autopilot run completed",
 		zap.String("run_id", runID),
-		zap.Int("findings", result.TotalFindings))
+		zap.Int("archon_findings", result.ArchonFindingsCount))
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +511,12 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 	}
 	h.agentMu.Unlock()
 
+	// Resolve project UUID: request body takes priority, then X-Project-UUID header
+	projectUUID := req.ProjectUUID
+	if projectUUID == "" {
+		projectUUID = getProjectUUID(c)
+	}
+
 	// Persist to DB
 	swarmAgentName := req.Agent
 	if swarmAgentName == "" {
@@ -505,10 +525,10 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 	h.persistAgentRun(runID, "swarm", swarmAgentName)
 
 	if req.Stream {
-		return h.handleSwarmSSE(c, runID, req, timeout)
+		return h.handleSwarmSSE(c, runID, req, projectUUID, timeout)
 	}
 
-	go h.runBackgroundAgentSwarm(runID, req, timeout)
+	go h.runBackgroundAgentSwarm(runID, req, projectUUID, timeout)
 
 	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
 		RunID:   runID,
@@ -518,7 +538,8 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 }
 
 // buildSwarmConfig creates an agent.SwarmConfig from an API request.
-func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
+// projectUUID should be pre-resolved by the caller (from request body or X-Project-UUID header).
+func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) agent.SwarmConfig {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
@@ -573,9 +594,19 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 		ShowPrompt:         req.ShowPrompt,
 		SourceAnalysisOnly: req.SourceAnalysisOnly,
 		CodeAudit:          req.CodeAudit,
+		Browser:            settings.Agent.Browser.IsEnabled(),
+		MasterBatchSize:    req.MasterBatchSize,
+		ProbeConcurrency:   req.ProbeConcurrency,
+		MaxProbeBodySize:   req.MaxProbeBodySize,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
-		ProjectUUID:        req.ProjectUUID,
+		ProjectUUID:        projectUUID,
 		ScanUUID:           req.ScanUUID,
+	}
+
+	if req.ProbeTimeout != "" {
+		if d, err := time.ParseDuration(req.ProbeTimeout); err == nil {
+			cfg.ProbeTimeout = d
+		}
 	}
 
 	// Resolve a target URL for the scan runner.
@@ -583,16 +614,16 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 	targetURL := h.resolveSwarmTargetURL(req)
 
 	// Wire scan callback using the server's runner infrastructure
-	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, req.ProjectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, settings)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, projectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, settings)
 
 	// Wire optional discovery callback
 	if req.Discover {
-		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, req.ProjectUUID, req.ScanUUID, settings)
+		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, projectUUID, req.ScanUUID, settings)
 	}
 
 	// Wire SAST callback when source_path is provided (unless skip_sast)
 	if req.SourcePath != "" && !req.SkipSAST {
-		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, req.SourcePath, req.ProjectUUID, req.ScanUUID, settings)
+		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, req.SourcePath, projectUUID, req.ScanUUID, settings)
 	}
 
 	// Handle --start-from via synthetic checkpoint
@@ -606,7 +637,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest) agent.SwarmConfig {
 	}
 
 	// Wire archon
-	if auditCfg := agent.ResolveAuditAgentConfig(req.Archon, h.settings.Agent.Archon); auditCfg != nil {
+	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), req.SourcePath, h.settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
 	}
 
@@ -787,7 +818,7 @@ func (h *Handlers) resolveSwarmTargetURL(req AgentSwarmRequest) string {
 }
 
 // handleSwarmSSE runs the agent swarm synchronously while streaming SSE events.
-func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmRequest, timeout time.Duration) error {
+func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmRequest, projectUUID string, timeout time.Duration) error {
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
@@ -802,7 +833,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		cfg := h.buildSwarmConfig(req)
+		cfg := h.buildSwarmConfig(req, projectUUID)
 
 		// Wire phase callback for SSE events
 		cfg.PhaseCallback = func(phase string) {
@@ -881,6 +912,11 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 		}
 		h.agentMu.Unlock()
 
+		// Persist to DB
+		if status != nil {
+			h.persistAgentRunCompleted(runID, status)
+		}
+
 		_ = writeSSE(w, sseEvent{Type: "done", SwarmResult: res.result})
 		zap.L().Info("Agent swarm completed (streaming)",
 			zap.String("run_id", runID),
@@ -889,7 +925,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 }
 
 // runBackgroundAgentSwarm executes an agent swarm in a goroutine and updates status.
-func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, timeout time.Duration) {
+func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, projectUUID string, timeout time.Duration) {
 	defer func() {
 		h.agentMu.Lock()
 		h.agentHeavyRunning = false
@@ -899,7 +935,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cfg := h.buildSwarmConfig(req)
+	cfg := h.buildSwarmConfig(req, projectUUID)
 
 	// Wire phase callback for status updates
 	cfg.PhaseCallback = func(phase string) {

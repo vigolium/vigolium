@@ -309,7 +309,7 @@ func TestBuildAuditAgentCommand_OpenCode(t *testing.T) {
 
 func TestResolveAuditAgentConfig_PreservesPlatform(t *testing.T) {
 	base := config.AuditAgentConfig{Platform: "codex"}
-	result := ResolveAuditAgentConfig("deep", base)
+	result := ResolveAuditAgentConfig(false, "deep", "/some/source", base)
 	if result == nil {
 		t.Fatal("expected non-nil config")
 	}

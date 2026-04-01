@@ -227,7 +227,7 @@ For each chamber, spawn 4 agents with `run_in_background: true`:
 
 > **Chamber Synthesizer** (lead of each chamber):
 > `subagent_type: "archon:chamber-synthesizer"`, `name: "chamber-synth-<NN>"`
-> Prompt: "You are the Synthesizer for Review Chamber <chamber-id>. Threat cluster: <description>. DFD slices: <list>. NNN range: p8-<start> to p8-<end>. Methodology: `~/.archon-audit/skills/audit/SKILL.md` Phase 8. State: `archon/audit-state.json`. Create debate.md at `archon/chamber-workspace/<chamber-id>/debate.md` and orchestrate the debate. Deep Probe pre-validated hypotheses for this cluster: <list from probe-summary.md — include title, attack input, code path, severity estimate>. Instruct the Ideator to build on these rather than regenerating them. Your Ideator is `ideator-<NN>`, Tracer is `tracer-<NN>`, Advocate is `advocate-<NN>`. Use SendMessage to coordinate turns."
+> Prompt: "You are the Synthesizer for Review Chamber <chamber-id>. Threat cluster: <description>. DFD slices: <list>. NNN range: p8-<start> to p8-<end>. Methodology: `~/.config/archon-audit/skills/audit/SKILL.md` Phase 8. State: `archon/audit-state.json`. Create debate.md at `archon/chamber-workspace/<chamber-id>/debate.md` and orchestrate the debate. Deep Probe pre-validated hypotheses for this cluster: <list from probe-summary.md — include title, attack input, code path, severity estimate>. Instruct the Ideator to build on these rather than regenerating them. Your Ideator is `ideator-<NN>`, Tracer is `tracer-<NN>`, Advocate is `advocate-<NN>`. Use SendMessage to coordinate turns."
 
 > **Attack Ideator**:
 > `subagent_type: "archon:attack-ideator"`, `name: "ideator-<NN>"`

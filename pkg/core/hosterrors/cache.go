@@ -110,6 +110,22 @@ func (c *Cache) MarkSuccess(value string) {
 	_ = c.failedTargets.Set(value, existingCacheItemValue)
 }
 
+// QuarantinedCount returns the number of hosts that have been marked as
+// unresponsive (error count >= MaxHostError). This is informational only,
+// useful for logging cross-phase host error propagation.
+func (c *Cache) QuarantinedCount() int {
+	count := 0
+	items := c.failedTargets.GetALL(false)
+	for _, v := range items {
+		if item, ok := v.(*cacheItem); ok {
+			if item.errors.Load() >= int32(c.MaxHostError) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 var reCheckError = regexp.MustCompile(`(no address found for host|Client\.Timeout exceeded while awaiting headers|could not resolve host|connection refused|connection reset by peer|i/o timeout|could not connect to any address found for host|timeout awaiting response headers)`)
 
 var reCheckErrorIgnoreTimeout = regexp.MustCompile(`(no address found for host|could not resolve host|connection refused|connection reset by peer|i/o timeout|could not connect to any address found for host)`)

@@ -145,14 +145,16 @@ At least one of `prompt_template`, `prompt_file`, or `prompt` is required.
 
 ## Autopilot (Agentic Scan)
 
-Full autonomous control. The AI agent drives the vulnerability scanning workflow, deciding what to scan, interpreting results, and iterating. When `--source` is provided, a background **archon-audit** agent runs in parallel — performing deep multi-phase whitebox security auditing of the source code (commit archaeology, SAST, adversarial debate, cold verification) while the main agent handles dynamic scanning.
+Full autonomous control. The AI agent drives the vulnerability scanning workflow, deciding what to scan, interpreting results, and iterating. When `--archon` is provided with `--source`, autopilot runs an **archon-audit first**, then feeds the audit findings into the agent's prompt — the agent reviews whitebox findings and takes action: writing PoCs, running targeted scans, and investigating uncertain findings.
+
+See the full [Autopilot documentation](autopilot.md) for architecture diagrams, finding prompt formatting tiers, and detailed configuration.
 
 ### What It Does
 
 - Spawns an AI agent with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write)
-- Agent autonomously handles recon, vulnerability analysis, native scanning, exploit verification, and reporting
 - Agent decides its own workflow — discover, scan, review, iterate, report
-- **Background archon-audit** (optional, with `--archon`): runs a parallel multi-phase source code audit producing rich whitebox findings with adversarial verification, then imports them into the database
+- **Archon-first** (optional, with `--archon`): runs archon-audit sequentially, waits for completion, then loads findings into the agent's prompt for exploitation and verification
+- Without `--archon`: agent receives a generic security assessment brief
 
 ### CLI
 
@@ -160,90 +162,45 @@ Full autonomous control. The AI agent drives the vulnerability scanning workflow
 # Basic autonomous scan
 vigolium agent autopilot -t https://example.com
 
-# With source code context
-vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
-
-# With background archon-audit (deep 11-phase whitebox audit)
+# Archon-first: deep whitebox audit, then agent exploits findings
 vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon deep
 
-# Quick 3-phase archon audit alongside dynamic scanning
-vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon lite
+# Quick archon audit (3-phase) before scanning
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon
 
 # With focus area
 vigolium agent autopilot -t https://api.example.com --focus "auth bypass"
 
-# Custom limits
-vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
+# Natural language prompt
+vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 
-# Preview system prompt
-vigolium agent autopilot -t https://example.com --dry-run
-```
-
-**More Examples:**
-
-```bash
-# Pipe a curl command — target is auto-derived from the URL
-echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vigolium agent autopilot
-
-# Pass raw input directly (Burp-style raw HTTP)
-vigolium agent autopilot --input "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test"
-
-# Source-aware scan of specific files in a large codebase
-vigolium agent autopilot -t http://localhost:8080 --source ~/projects/spring-app --files src/main/java/auth/,src/main/java/api/
-
-# Source-aware with deep archon-audit for comprehensive whitebox + dynamic coverage
-vigolium agent autopilot -t http://localhost:8080 --source ~/projects/spring-app --archon deep
-
-# Guide the agent with custom instructions
-vigolium agent autopilot -t https://staging.example.com --instruction "Test only the /admin and /api/v2 endpoints. Check for IDOR and privilege escalation."
-
-# Load detailed pentest scope from a file
-vigolium agent autopilot -t https://example.com --instruction-file scope.txt
-
-# Quick scan with tight limits for a CI job
-vigolium agent autopilot -t https://example.com --max-commands 20 --timeout 5m
-
-# Show the rendered prompt before execution for debugging
-vigolium agent autopilot -t https://example.com --show-prompt --focus "SSRF via URL parameters"
-
-# Combine source context with focus area for targeted code-informed scanning
-vigolium agent autopilot -t http://localhost:3000 --source ./src --focus "SQL injection in search endpoints"
+# Preview the prompt without executing
+vigolium agent autopilot -t https://example.com --source ./src --archon deep --dry-run
 ```
 
 **Key Flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-t, --target` | (required) | Target URL |
+| `-t, --target` | — | Target URL (derived from `--input` if not set) |
 | `--source` | — | Path to application source code |
 | `--focus` | — | Focus area hint (e.g., "API injection") |
-| `--timeout` | 30m | Overall timeout |
+| `--archon` | — | Run archon-audit before scanning: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Requires `--source` |
+| `--timeout` | 6h | Maximum session duration |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
-| `--archon` | — | Run background archon-audit: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Requires `--source` |
-| `--dry-run` | false | Render system prompt without launching |
+| `--dry-run` | false | Render prompt without launching |
 
-### Background Archon-Audit
+### Archon-Audit Integration
 
-When `--archon` is provided alongside `--source`, vigolium launches a parallel archon-audit process that performs deep whitebox security auditing of the source code. This runs independently of the main autopilot agent.
-
-**Archon-audit modes:**
+When `--archon` is provided with `--source`, autopilot runs the archon-audit **sequentially** (not in parallel). The agent waits for the audit to complete, then receives an enriched prompt with the findings.
 
 | Mode | Phases | Duration | Description |
 |------|--------|----------|-------------|
-| `lite` | 3 | Minutes | Quick code review — commit archaeology, knowledge base, basic findings |
-| `scan` | 6 | ~1 hour | Standard audit — adds SAST, enrichment, finding validation |
-| `deep` | 11 | Hours | Full audit — adds adversarial debate chambers, cold verification, variant hunting, bypass analysis |
+| `lite` | 3 | Minutes | Quick recon + secrets + fast SAST |
+| `scan` | 6 | ~1 hour | Comprehensive analysis |
+| `deep` | 11 | Hours | Full adversarial audit (debate chambers, cold verification, variant hunting, PoC building) |
 
-**What happens:**
-
-1. Archon-audit launches as a background Claude Code process in the source directory
-2. It writes output to `<source>/archon/` (audit-state.json, findings-draft/, reports)
-3. Vigolium syncs `audit-state.json` and findings to `~/.vigolium/agent-sessions/<session>/archon-audit/` every 30 seconds
-4. Phase progress is tracked in a child `AgentRun` record (mode=`archon`, linked to parent autopilot run)
-5. On completion, all findings are imported into the database via the archon parser (rich structured data with CWE, adversarial verdicts, PoC status)
-6. The `<source>/archon/` directory is cleaned up (the copy lives in the session dir)
-
-Archon findings appear in the database with `finding_source=archon` and `module_type=whitebox`, distinguishable from the main autopilot's dynamic findings.
+After the audit, findings are loaded and injected into the agent prompt (tiered by count: full detail for ≤15, summary table for 16-40, top 10 for 41+). The agent can also read full finding files from the session directory. See [Archon-Audit](archon-audit.md) for audit details.
 
 ### API
 
@@ -257,9 +214,9 @@ POST /api/agent/run/autopilot
   "agent": "claude",
   "source": "/path/to/source",
   "focus": "API injection",
-  "max_commands": 50,
-  "timeout": "30m",
   "archon": "deep",
+  "max_commands": 50,
+  "timeout": "6h",
   "stream": true
 }
 ```
@@ -624,7 +581,7 @@ All three modes share a common execution engine (`pkg/agent/engine.go`). Query i
 ```
 
 - **Query** is the primitive — Swarm calls `Engine.Run()` at each AI checkpoint, making Query effectively its building block.
-- **Autopilot** is architecturally separate — it gives the agent terminal access and lets it drive, rather than orchestrating phases programmatically.
+- **Autopilot** is architecturally separate — it optionally runs archon-audit first, then gives the agent terminal access with enriched findings context and lets it drive.
 - **Swarm** supports both targeted and full-scope scanning. With `--discover`, it runs content discovery and spidering before planning. Without `--discover`, it focuses on targeted endpoint testing.
 
 ### Feature Matrix
@@ -647,8 +604,8 @@ All three modes share a common execution engine (`pkg/agent/engine.go`). Query i
 
 Both are agentic scan modes. Autopilot agents get full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) for autonomous workflows. The tradeoff:
 
-- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and handle unexpected findings with full coding agent capability.
-- **Swarm advantage:** Agentic scan with native Go handling the scanning phases (faster, cheaper), AI only called at strategic points
+- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and exploit archon findings with full coding agent capability. With `--archon`, the agent receives pre-analyzed whitebox findings and focuses on exploitation/verification.
+- **Swarm advantage:** Agentic scan with native Go handling the scanning phases (faster, cheaper), AI only called at strategic points. Better for targeted scanning and CI pipelines.
 
 ### When Modes Genuinely Differ
 

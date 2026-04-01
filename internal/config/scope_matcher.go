@@ -17,10 +17,11 @@ import (
 type BodySizeAction int
 
 const (
-	BodySizeOK       BodySizeAction = iota // Within limits
-	BodySizeTruncate                       // Truncate and continue
-	BodySizeDrop                           // Drop entirely
-	BodySizeSkipScan                       // Save truncated but skip scan
+	BodySizeOK          BodySizeAction = iota // Within limits
+	BodySizeTruncate                          // Truncate and continue
+	BodySizeDrop                              // Drop entirely
+	BodySizeSkipScan                          // Save truncated but skip scan
+	BodySizePassiveOnly                       // Run passive modules only, skip active
 )
 
 // ScopeMatchInput holds the primitive values needed to evaluate scope rules.
@@ -140,6 +141,8 @@ func (m *ScopeMatcher) CheckBodySize(reqBodyLen, respBodyLen int) (action BodySi
 		return BodySizeDrop, maxReq, maxResp
 	case "skip-scan":
 		return BodySizeSkipScan, maxReq, maxResp
+	case "passive-only":
+		return BodySizePassiveOnly, maxReq, maxResp
 	default:
 		return BodySizeTruncate, maxReq, maxResp
 	}

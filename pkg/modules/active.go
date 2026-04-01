@@ -40,3 +40,19 @@ type ActiveModule interface {
 		scanCtx *ScanContext,
 	) ([]*output.ResultEvent, error)
 }
+
+// Prioritized is an optional interface for modules that declare execution priority.
+// Lower values indicate higher priority (0 = highest). Modules without this
+// interface default to DefaultModulePriority (100).
+// Higher priority modules are spawned first, getting earlier access to rate-limit slots.
+type Prioritized interface {
+	Priority() int
+}
+
+// VulnClassifier is an optional interface for modules that declare their
+// vulnerability class for cross-module deduplication. When a module reports
+// a finding, the executor marks the (URL, param, vuln_class) as found.
+// Other modules with the same vuln class can check and skip redundant scanning.
+type VulnClassifier interface {
+	VulnClass() string // e.g., "xss", "sqli", "ssti"
+}

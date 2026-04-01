@@ -12,7 +12,7 @@ Read the chamber's `debate.md` to understand:
 
 ## Method 2.6: CodeQL Structural Artifacts
 
-Before manual code tracing for any hypothesis, apply Method 2.6 from `~/.archon-audit/skills/audit/references/deep-analysis.md`:
+Before manual code tracing for any hypothesis, apply Method 2.6 from `~/.config/archon-audit/skills/audit/references/deep-analysis.md`:
 
 ### A. Load the call graph slice
 Open `archon/codeql-artifacts/call-graph-slices.json`. Find entries relevant to the hypothesis.

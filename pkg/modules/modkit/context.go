@@ -11,6 +11,26 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// ParameterFindingRegistry tracks which (URL, parameter, vulnerability class)
+// combinations have already produced findings. Modules can check this to
+// avoid redundant scanning of already-confirmed vulnerabilities.
+type ParameterFindingRegistry struct {
+	found sync.Map // key: "host+path|param_name|vuln_tag" → struct{}
+}
+
+// MarkFound records that a vulnerability of the given class was found
+// at the specified location and parameter.
+func (r *ParameterFindingRegistry) MarkFound(hostPath, paramName, vulnTag string) {
+	r.found.Store(hostPath+"|"+paramName+"|"+vulnTag, struct{}{})
+}
+
+// HasFinding returns true if a vulnerability of the given class was already
+// found at the specified location and parameter.
+func (r *ParameterFindingRegistry) HasFinding(hostPath, paramName, vulnTag string) bool {
+	_, ok := r.found.Load(hostPath + "|" + paramName + "|" + vulnTag)
+	return ok
+}
+
 // RequestFeeder allows modules to inject discovered requests back into the scanning pipeline.
 type RequestFeeder interface {
 	// Feed submits a new request for scanning. Returns true if accepted, false if dropped.
@@ -64,6 +84,7 @@ type ScanContext struct {
 	MutationGen         MutationGenerator
 	RequestFeeder       RequestFeeder
 	InsertionPoints     InsertionPointProvider
+	ParamFindings       *ParameterFindingRegistry // Cross-module finding dedup
 
 	baselineOnce   sync.Once
 	baselineCache  *lru.Cache[string, *BaselineEntry]
@@ -118,6 +139,14 @@ func (sc *ScanContext) GetInsertionPoints(raw []byte, requestID string, includeN
 		return p.GetInsertionPoints(raw, requestID, includeNested)
 	}
 	return httpmsg.CreateAllInsertionPoints(raw, includeNested)
+}
+
+// ParamFindingsRegistry returns the ParameterFindingRegistry or nil safely.
+func (sc *ScanContext) ParamFindingsRegistry() *ParameterFindingRegistry {
+	if sc == nil {
+		return nil
+	}
+	return sc.ParamFindings
 }
 
 // MutGen returns the MutationGenerator or a default implementation if nil.

@@ -362,8 +362,17 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		MaxProbeBodySize:   swarmMaxProbeBody,
 	}
 
-	// Wire archon: --archon flag overrides config
-	if auditCfg := agent.ResolveAuditAgentConfig(swarmArchon, settings.Agent.Archon); auditCfg != nil {
+	// Wire archon: --archon flag overrides config (swarm uses opt-in archon)
+	swarmNoArchon := swarmArchon == "off"
+	swarmArchonMode := swarmArchon
+	if swarmArchonMode == "off" || swarmArchonMode == "" {
+		swarmArchonMode = ""
+	}
+	// Swarm archon is opt-in: when flag is empty, pass noArchon=true to skip
+	if swarmArchon == "" {
+		swarmNoArchon = true
+	}
+	if auditCfg := agent.ResolveAuditAgentConfig(swarmNoArchon, swarmArchonMode, swarmSource, settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
 	}
 

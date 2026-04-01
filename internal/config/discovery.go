@@ -16,6 +16,7 @@ type DiscoveryConfig struct {
 	SaveResponseBody         bool                     `yaml:"save_response_body"`
 	EnableMalformedPathProbe bool                     `yaml:"enable_malformed_path_probe"`
 	EnrichTargets            bool                     `yaml:"enrich_targets"` // enrich discovery targets with paths from previous phases (spidering, external harvest)
+	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])
 }
 
 // DiscoveryRecursionConfig controls directory traversal depth.

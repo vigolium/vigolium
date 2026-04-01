@@ -46,7 +46,7 @@ Write a minimized exploit script at `archon/findings/<ID>-<slug>/poc.{py|sh|js}`
 
 For CRITICAL and HIGH findings, real-environment PoC execution is required.
 
-Follow `~/.archon-audit/skills/audit/references/real-env-validation.md` for provisioning:
+Follow `~/.config/archon-audit/skills/audit/references/real-env-validation.md` for provisioning:
 - **Web apps**: Docker Compose preferred; cloud VM as fallback
 - **Libraries**: minimal consumer app at vulnerable version
 - **CLI tools**: clean container with production-like config

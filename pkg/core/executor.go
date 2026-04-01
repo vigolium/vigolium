@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	goruntime "runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -141,6 +142,9 @@ type ExecutorConfig struct {
 	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint] // Optional: shared IP cache (if nil, a new one is created)
 	ParallelPassive       bool                 // When true, run passive per-request modules concurrently
 	PassiveModuleTimeout  time.Duration        // Timeout per passive module call (default: 5s). 0 uses default.
+	AdaptiveWorkers       bool                 // When true, dynamically scale worker count based on queue depth
+	MinWorkers            int                  // Floor for adaptive scaling (default: 2)
+	MaxWorkers            int                  // Ceiling for adaptive scaling (default: Workers*4)
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -181,9 +185,10 @@ type Executor struct {
 	perHostPassive    []modules.PassiveModule
 	perRequestPassive []modules.PassiveModule
 
-	running      atomic.Bool
-	results      atomic.Bool
-	statsTracker *stats.Tracker
+	running       atomic.Bool
+	results       atomic.Bool
+	statsTracker  *stats.Tracker
+	moduleMetrics *stats.ModuleMetrics
 
 	// Insertion point cache: keyed by request SHA-256 hash, bounded LRU.
 	// Avoids redundant AnalyzeRequest() calls for repeated/retried requests.
@@ -199,6 +204,20 @@ type Executor struct {
 
 	// Per-module finding cap
 	moduleFindingCount sync.Map // key: module ID → *moduleFindingTracker
+
+	// Per-host module claim maps: ensures per-host modules run exactly once
+	// per (module, host) pair even with concurrent workers.
+	perHostActiveClaimed  sync.Map // key: "moduleID:host" → struct{}
+	perHostPassiveClaimed sync.Map // key: "moduleID:host" → struct{}
+
+	// In-flight counter: tracks workers currently processing items.
+	// Used by the feedback drain loop to wait for all workers to complete.
+	inFlight atomic.Int64
+
+	// Adaptive worker scaling
+	activeWorkers atomic.Int32  // current number of active workers
+	minWorkers    int
+	maxWorkers    int
 
 	// Feedback channel: modules can inject discovered requests back into the pipeline
 	feedbackCh chan *work.WorkItem
@@ -230,7 +249,18 @@ func NewExecutor(
 	} else {
 		ipCacheSize := cfg.IPCacheSize
 		if ipCacheSize <= 0 {
-			ipCacheSize = 4096
+			// Auto-size based on input source count for better cache utilization
+			total := getKnownTotal(src)
+			switch {
+			case total > 0 && total <= 500:
+				ipCacheSize = int(total) + 100
+			case total > 500 && total <= 50000:
+				ipCacheSize = int(total / 2)
+			case total > 50000:
+				ipCacheSize = 25000
+			default:
+				ipCacheSize = 4096
+			}
 		}
 		ipCache, _ = lru.New[string, []httpmsg.InsertionPoint](ipCacheSize)
 	}
@@ -267,12 +297,13 @@ func NewExecutor(
 		e.scanCtx.OASTProvider = cfg.OASTProvider
 	}
 
-	// Wire feedback feeder into ScanContext
+	// Wire feedback feeder and cross-module finding dedup into ScanContext
 	if e.scanCtx == nil {
 		e.scanCtx = &modules.ScanContext{}
 	}
 	e.feeder = &executorFeeder{ch: e.feedbackCh}
 	e.scanCtx.RequestFeeder = e.feeder
+	e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
 
 	// Wire insertion point provider for module reuse of cached IPs
 	e.scanCtx.InsertionPoints = &executorIPProvider{cache: e.ipCache}
@@ -284,10 +315,18 @@ func NewExecutor(
 	e.perHostPassive = filterPassiveModulesByScanScope(passiveModules, modules.ScanScopeHost)
 	e.perRequestPassive = filterPassiveModulesByScanScope(passiveModules, modules.ScanScopeRequest)
 
+	// Sort active modules by priority within each scope group.
+	// Higher priority (lower number) modules are spawned first,
+	// getting earlier access to rate-limit slots.
+	sortActiveByPriority(e.perHostActive)
+	sortActiveByPriority(e.perRequestActive)
+	sortActiveByPriority(e.perIPActive)
+
 	// Always create stats tracker for counting processed items.
 	// Periodic printing is only started when ShowStats is enabled (see Execute).
 	total := getKnownTotal(src)
 	e.statsTracker = stats.New(total, false)
+	e.moduleMetrics = &stats.ModuleMetrics{}
 
 	return e
 }
@@ -298,6 +337,14 @@ func (e *Executor) Processed() int64 {
 		return e.statsTracker.Processed()
 	}
 	return 0
+}
+
+// ModuleMetrics returns a point-in-time snapshot of per-module performance metrics.
+func (e *Executor) ModuleMetrics() map[string]stats.ModuleStatsSnapshot {
+	if e.moduleMetrics != nil {
+		return e.moduleMetrics.Snapshot()
+	}
+	return nil
 }
 
 // FeedbackDropped returns the number of feedback items dropped due to channel capacity.
@@ -332,36 +379,58 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	var wg conc.WaitGroup
 	itemCh := make(chan *work.WorkItem, e.cfg.Workers*2)
 
+	e.activeWorkers.Store(int32(e.cfg.Workers))
 	for i := 0; i < e.cfg.Workers; i++ {
 		workerID := i
 		wg.Go(func() {
 			e.worker(ctx, workerID, itemCh)
+			e.activeWorkers.Add(-1)
 		})
+	}
+
+	// Start adaptive worker controller if enabled
+	var controllerCancel context.CancelFunc
+	if e.cfg.AdaptiveWorkers {
+		e.minWorkers = e.cfg.MinWorkers
+		if e.minWorkers <= 0 {
+			e.minWorkers = 2
+		}
+		e.maxWorkers = e.cfg.MaxWorkers
+		if e.maxWorkers <= 0 {
+			e.maxWorkers = e.cfg.Workers * 4
+		}
+		var controllerCtx context.Context
+		controllerCtx, controllerCancel = context.WithCancel(ctx)
+		go e.workerController(controllerCtx, itemCh, &wg)
 	}
 
 	e.feedItems(ctx, itemCh)
 
 	// After source EOF, drain remaining feedback items from in-flight workers.
-	// Use an idle timeout: if no new feedback arrives within the drain timeout, assume done.
-	drainTimeout := e.cfg.FeedbackDrainTimeout
-	if drainTimeout <= 0 {
-		drainTimeout = 100 * time.Millisecond
-	}
-	drainTimer := time.NewTimer(drainTimeout)
-	defer drainTimer.Stop()
+	// Wait until all workers finish (inFlight == 0) and the feedback channel is empty,
+	// rather than using a fixed idle timeout that could miss late feedback.
+	drainTick := time.NewTicker(50 * time.Millisecond)
+	defer drainTick.Stop()
 drainLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			break drainLoop
 		case fb := <-e.feedbackCh:
-			drainTimer.Reset(drainTimeout)
 			if !e.sendItem(ctx, fb, itemCh) {
 				break drainLoop
 			}
-		case <-drainTimer.C:
-			break drainLoop
+		case <-drainTick.C:
+			// All workers idle and no pending feedback => done
+			if e.inFlight.Load() == 0 && len(e.feedbackCh) == 0 {
+				break drainLoop
+			}
 		}
+	}
+
+	// Stop the adaptive worker controller before closing the channel
+	if controllerCancel != nil {
+		controllerCancel()
 	}
 
 	close(itemCh)
@@ -504,6 +573,7 @@ func (e *Executor) worker(ctx context.Context, _ int, itemCh <-chan *work.WorkIt
 			if !ok {
 				return
 			}
+			e.inFlight.Add(1)
 			if e.cfg.PauseCtrl != nil {
 				e.cfg.PauseCtrl.AcquireWorker()
 			}
@@ -511,10 +581,49 @@ func (e *Executor) worker(ctx context.Context, _ int, itemCh <-chan *work.WorkIt
 			if e.cfg.PauseCtrl != nil {
 				e.cfg.PauseCtrl.ReleaseWorker()
 			}
+			e.inFlight.Add(-1)
 			item.Complete()
 			if e.statsTracker != nil {
 				e.statsTracker.Increment()
 			}
+		}
+	}
+}
+
+// workerController monitors queue depth and scales workers up or down.
+// Only active when AdaptiveWorkers is enabled.
+func (e *Executor) workerController(ctx context.Context, itemCh chan *work.WorkItem, wg *conc.WaitGroup) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	nextID := e.cfg.Workers // start IDs after initial workers
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			queueDepth := len(itemCh)
+			queueCap := cap(itemCh)
+			active := int(e.activeWorkers.Load())
+
+			// Scale up: queue > 75% full and we have headroom
+			if queueDepth > queueCap*3/4 && active < e.maxWorkers {
+				workerID := nextID
+				nextID++
+				e.activeWorkers.Add(1)
+				wg.Go(func() {
+					e.worker(ctx, workerID, itemCh)
+					e.activeWorkers.Add(-1)
+				})
+				zap.L().Debug("Adaptive scaling: spawned worker",
+					zap.Int("worker_id", workerID),
+					zap.Int("active_workers", int(e.activeWorkers.Load())))
+			}
+
+			// Note: scaling down is handled naturally — when itemCh is closed,
+			// excess workers exit on their own. We don't preemptively kill workers
+			// to avoid complexity of per-worker cancellation and potential data loss.
 		}
 	}
 }
@@ -711,11 +820,31 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		e.requestUUIDs.Store(req.Request().ID(), item.RecordUUID)
 	}
 
+	// Pre-compute scope status before passive modules so scope-aware
+	// passive modules can be skipped for out-of-scope items.
+	inScope := true
+	if e.cfg.ScopeMatcher != nil && req.Service() != nil {
+		inScope = e.cfg.ScopeMatcher.InScopeBytes(
+			req.Service().Host(),
+			req.Request().Path(),
+			httpResp.StatusCode(),
+			getHeaderValue(req.Request().Headers(), "Content-Type"),
+			getHeaderValue(httpResp.Headers(), "Content-Type"),
+			req.Request().Raw(),
+			httpResp.Body(),
+		)
+	}
+
 	// Phase 1: Passive modules (no network I/O — run on ALL records
 	// regardless of scope/body-size gates since they are read-only).
+	// Scope-aware passive modules are excluded for out-of-scope items.
 	// Pre-filter eligible modules once to avoid redundant CanProcess calls.
 	eligiblePerHost := e.filterEligiblePassive(e.perHostPassive, req, &filter)
 	eligiblePerRequest := e.filterEligiblePassive(e.perRequestPassive, req, &filter)
+	if !inScope {
+		eligiblePerHost = filterNonScopeAware(eligiblePerHost)
+		eligiblePerRequest = filterNonScopeAware(eligiblePerRequest)
+	}
 	e.runPassivePerHostFiltered(req, eligiblePerHost)
 	e.runPassivePerRequestFiltered(req, eligiblePerRequest)
 
@@ -729,22 +858,14 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		e.saveToDatabase(item, req)
 		return
 	}
+	skipActive := bodySizeAction == config.BodySizePassiveOnly
 
 	// Scope check + database save (single pass)
+	// inScope was pre-computed above for passive module filtering.
 	if e.cfg.ScopeMatcher != nil {
-		// Defensive nil guard — Service() can be nil during shutdown
 		if req.Service() == nil {
 			return
 		}
-		inScope := e.cfg.ScopeMatcher.InScopeBytes(
-			req.Service().Host(),
-			req.Request().Path(),
-			httpResp.StatusCode(),
-			getHeaderValue(req.Request().Headers(), "Content-Type"),
-			getHeaderValue(httpResp.Headers(), "Content-Type"),
-			req.Request().Raw(),
-			httpResp.Body(),
-		)
 
 		if !inScope && e.cfg.ScopeOnIngest {
 			return // ScopeOnIngest: drop entirely (no save, no scan)
@@ -762,13 +883,16 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 	elig := computeEligibility(req)
 
 	// Phase 2: Active modules (network I/O — run categories in parallel)
+	// Skipped when body size gate is set to passive-only.
 	// conc.WaitGroup automatically catches panics per goroutine and re-panics
 	// on Wait(), which is caught by the top-level recoverFromPanic("processItem").
-	var g conc.WaitGroup
-	e.runActivePerHost(req, &filter, &elig, &g)
-	e.runActivePerRequest(req, &filter, &elig, &g)
-	e.runActivePerInsertionPoint(req, &filter, &elig, &g)
-	g.Wait()
+	if !skipActive {
+		var g conc.WaitGroup
+		e.runActivePerHost(req, &filter, &elig, &g)
+		e.runActivePerRequest(req, &filter, &elig, &g)
+		e.runActivePerInsertionPoint(req, &filter, &elig, &g)
+		g.Wait()
+	}
 }
 
 // saveToDatabase stores the request/response record in the database if enabled.
@@ -830,12 +954,19 @@ func (e *Executor) runPassiveWithTimeout(
 	item *httpmsg.HttpRequestResponse,
 ) []*output.ResultEvent {
 	timeout := e.passiveModuleTimeout()
+	// Allow modules to override with a per-module timeout hint
+	if hinter, ok := module.(modules.TimeoutHinter); ok {
+		if hint := hinter.TimeoutHint(); hint > 0 {
+			timeout = hint
+		}
+	}
 
 	type result struct {
 		events []*output.ResultEvent
 		err    error
 	}
 
+	start := time.Now()
 	ch := make(chan result, 1)
 	go func() {
 		events, err := scanFn()
@@ -847,6 +978,7 @@ func (e *Executor) runPassiveWithTimeout(
 
 	select {
 	case r := <-ch:
+		e.moduleMetrics.Record(module.ID(), time.Since(start), len(r.events), r.err)
 		if r.err != nil {
 			zap.L().Debug("Passive module error",
 				zap.String("module", module.ID()),
@@ -855,6 +987,7 @@ func (e *Executor) runPassiveWithTimeout(
 		}
 		return r.events
 	case <-timer.C:
+		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		zap.L().Warn("Passive module timed out — skipping",
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
@@ -865,7 +998,18 @@ func (e *Executor) runPassiveWithTimeout(
 
 // runPassivePerHostFiltered runs pre-filtered passive modules (CanProcess already checked).
 func (e *Executor) runPassivePerHostFiltered(item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
+	host := ""
+	if svc := item.Service(); svc != nil {
+		host = svc.Host()
+	}
+
 	for _, module := range eligible {
+		// Claim this (module, host) pair — skip if another worker already claimed it
+		claimKey := module.ID() + ":" + host
+		if _, loaded := e.perHostPassiveClaimed.LoadOrStore(claimKey, struct{}{}); loaded {
+			continue
+		}
+
 		results := e.runPassiveWithTimeout(
 			func() ([]*output.ResultEvent, error) {
 				return module.ScanPerHost(item, e.scanCtx)
@@ -922,6 +1066,11 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 		return
 	}
 
+	host := ""
+	if svc := item.Service(); svc != nil {
+		host = svc.Host()
+	}
+
 	for _, module := range e.perHostActive {
 		if !filter.allows(module.ID()) {
 			continue
@@ -930,9 +1079,17 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 			continue
 		}
 
+		// Claim this (module, host) pair — skip if another worker already claimed it
+		claimKey := module.ID() + ":" + host
+		if _, loaded := e.perHostActiveClaimed.LoadOrStore(claimKey, struct{}{}); loaded {
+			continue
+		}
+
 		mod := module // capture loop variable
 		g.Go(func() {
+			start := time.Now()
 			results, err := mod.ScanPerHost(item, e.httpClient, e.scanCtx)
+			e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
 			if err != nil {
 				if isLevelDBClosed(err) {
 					zap.L().Debug("Active module error (shutdown)",
@@ -965,7 +1122,9 @@ func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter
 
 		mod := module // capture loop variable
 		g.Go(func() {
+			start := time.Now()
 			results, err := mod.ScanPerRequest(item, e.httpClient, e.scanCtx)
+			e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
 			if err != nil {
 				if isLevelDBClosed(err) {
 					zap.L().Debug("Active module error (shutdown)",
@@ -1005,6 +1164,12 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 		e.ipCache.Add(key, allPoints)
 	}
 
+	// Pre-compute host+path for cross-module finding dedup
+	itemHostPath := ""
+	if e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
+		itemHostPath = item.Target()
+	}
+
 	for _, ip := range allPoints {
 		for _, module := range e.perIPActive {
 			if !filter.allows(module.ID()) {
@@ -1017,9 +1182,18 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 				continue
 			}
 
+			// Cross-module dedup: skip if another module already found this vuln class on this param
+			if vc, ok := module.(modules.VulnClassifier); ok && e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
+				if e.scanCtx.ParamFindings.HasFinding(itemHostPath, ip.Name(), vc.VulnClass()) {
+					continue
+				}
+			}
+
 			mod, pt := module, ip // capture loop variables
 			g.Go(func() {
+				start := time.Now()
 				results, err := mod.ScanPerInsertionPoint(item, pt, e.httpClient, e.scanCtx)
+				e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
 				if err != nil {
 					if isLevelDBClosed(err) {
 						zap.L().Debug("Active module error (shutdown)",
@@ -1066,6 +1240,16 @@ func (e *Executor) processResults(results []*output.ResultEvent, m modules.Modul
 		}
 
 		e.emitResult(result)
+
+		// Cross-module finding dedup: mark (URL, param, vuln_class) as found
+		// so that lower-priority modules with the same vuln class can skip.
+		if vc, ok := m.(modules.VulnClassifier); ok && e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
+			param := result.FuzzingParameter
+			if param != "" {
+				hostPath := result.Host + result.Matched
+				e.scanCtx.ParamFindings.MarkFound(hostPath, param, vc.VulnClass())
+			}
+		}
 	}
 }
 
@@ -1261,6 +1445,38 @@ func filterPassiveModulesByScanScope(mods []modules.PassiveModule, scope modules
 		}
 	}
 	return result
+}
+
+// modulePriority returns the priority of a module. Lower values = higher priority.
+// Modules implementing the Prioritized interface declare their own priority;
+// others default to DefaultModulePriority (100).
+func modulePriority(m modules.Module) int {
+	if p, ok := m.(modules.Prioritized); ok {
+		return p.Priority()
+	}
+	return modkit.DefaultModulePriority
+}
+
+// sortActiveByPriority sorts active modules by priority (lower = higher priority).
+// Uses stable sort to preserve registration order for modules with equal priority.
+func sortActiveByPriority(mods []modules.ActiveModule) {
+	sort.SliceStable(mods, func(i, j int) bool {
+		return modulePriority(mods[i]) < modulePriority(mods[j])
+	})
+}
+
+// filterNonScopeAware removes passive modules that declared themselves as
+// scope-aware. Called when the current item is out of scope so that only
+// modules that explicitly want all traffic (e.g., fingerprinting) still run.
+func filterNonScopeAware(mods []modules.PassiveModule) []modules.PassiveModule {
+	out := make([]modules.PassiveModule, 0, len(mods))
+	for _, m := range mods {
+		if sa, ok := m.(modules.ScopeAwareModule); ok && sa.ScopeAware() {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // moduleFilter provides O(1) module-enable lookups via a map.

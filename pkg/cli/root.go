@@ -218,10 +218,6 @@ func init() {
 	pf.BoolVar(&globalNoClustering, "no-clustering", false, "Disable deduplication of identical concurrent HTTP requests")
 	pf.StringVar(&globalProjectID, "project-id", "", "Project UUID to scope all operations to (defaults to the default project)")
 	pf.StringVar(&globalProjectName, "project-name", "", "Project name to scope all operations to (must match exactly one project)")
-
-	// Deprecated: --project is an alias for --project-id
-	pf.StringVar(&globalProjectID, "project", "", "Deprecated: use --project-id instead")
-	_ = pf.MarkDeprecated("project", "use --project-id instead")
 }
 
 func Execute() {

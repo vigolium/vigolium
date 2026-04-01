@@ -670,33 +670,48 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 	return runner, cleanup
 }
 
-// ResolveAuditAgentConfig merges a CLI/API flag value with the YAML config.
+// ResolveAuditAgentConfig determines whether archon-audit should run.
+// Archon is enabled by default when source code is available. Pass noArchon=true
+// to force-disable it (--no-archon flag). The mode defaults to "lite" when empty.
 // Returns nil when the audit agent should not run.
-//
-// Flag values: "" (use config default), "lite", "scan", "deep", "off" (force disable).
-// Legacy "full" maps to "deep".
-func ResolveAuditAgentConfig(flag string, agentCfg config.AuditAgentConfig) *config.AuditAgentConfig {
-	if flag == "off" {
+func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agentCfg config.AuditAgentConfig) *config.AuditAgentConfig {
+	// Explicit disable
+	if noArchon {
 		return nil
 	}
-	if flag != "" {
-		// Map legacy "full" to "deep"
-		mode := flag
-		if mode == "full" {
-			mode = "deep"
-		}
-		enabled := true
-		return &config.AuditAgentConfig{
-			Enable:       &enabled,
-			PluginDir:    agentCfg.PluginDir,
-			Mode:         mode,
-			Platform:     agentCfg.Platform,
-			SyncInterval: agentCfg.SyncInterval,
-		}
+	// No source code — archon has nothing to audit
+	if sourcePath == "" {
+		return nil
 	}
-	if agentCfg.IsEnabled() {
-		cfg := agentCfg
-		return &cfg
+	// Source is provided and not disabled: always enabled
+	effectiveMode := mode
+	if effectiveMode == "" {
+		effectiveMode = agentCfg.EffectiveMode()
 	}
-	return nil
+	if effectiveMode == "" {
+		effectiveMode = "lite"
+	}
+	// Validate mode
+	if !isValidArchonMode(effectiveMode) {
+		zap.L().Warn("Invalid archon mode, falling back to lite", zap.String("mode", effectiveMode))
+		effectiveMode = "lite"
+	}
+	enabled := true
+	return &config.AuditAgentConfig{
+		Enable:       &enabled,
+		PluginDir:    agentCfg.PluginDir,
+		Mode:         effectiveMode,
+		Platform:     agentCfg.Platform,
+		SyncInterval: agentCfg.SyncInterval,
+	}
+}
+
+// isValidArchonMode returns true for recognized archon audit modes.
+func isValidArchonMode(mode string) bool {
+	switch mode {
+	case "lite", "scan", "deep":
+		return true
+	default:
+		return false
+	}
 }

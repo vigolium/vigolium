@@ -867,8 +867,6 @@ func normalizePhase(phase string) string {
 		return "discovery"
 	case "spitolas":
 		return "spidering"
-	case "dynamic-assessment":
-		return "audit"
 	case "ext":
 		return "extension"
 	default:

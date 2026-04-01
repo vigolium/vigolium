@@ -30,10 +30,11 @@ Starts an AI agent run with a prompt template, file, or inline prompt. Returns `
 | `prompt_template`  | string   | No*      | Name of a prompt template (from `~/.vigolium/prompts/`)        |
 | `prompt_file`      | string   | No*      | Path to a prompt file on disk                                  |
 | `prompt`           | string   | No*      | Inline prompt text                                             |
-| `repo_path`        | string   | No       | Path to source code repository for context                     |
+| `source`           | string   | No       | Path to source code for context (JSON field: `source`)         |
 | `files`            | string[] | No       | Specific files to include as context                           |
 | `append`           | string   | No       | Additional text appended to the prompt                         |
-| `source`           | string   | No       | Source label for findings                                      |
+| `instruction`      | string   | No       | Custom instruction appended to the prompt                      |
+| `source_label`     | string   | No       | Source label for findings (JSON field: `source_label`)          |
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
 | `stream`           | bool     | No       | If `true`, returns an SSE stream instead of 202 async response |
 
@@ -46,7 +47,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
   -d '{
     "agent": "claude",
     "prompt_template": "code-review",
-    "repo_path": "/home/user/src/my-app"
+    "source": "/home/user/src/my-app"
   }' | jq .
 
 # Run with an inline prompt
@@ -54,7 +55,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Analyze the authentication flow for vulnerabilities",
-    "repo_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "files": ["src/auth/login.py", "src/auth/session.py"]
   }' | jq .
 ```
@@ -73,24 +74,31 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
 
 ## POST /api/agent/run/autopilot — Autonomous Scanning Session
 
-Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands.
+Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands. When `--source` is provided, archon-audit runs automatically in parallel.
 
 **Request body:**
 
 | Field              | Type     | Required | Description                                                    |
 |--------------------|----------|----------|----------------------------------------------------------------|
-| `target`           | string   | **Yes**  | Target URL to scan                                             |
+| `prompt`           | string   | No       | Natural language scan prompt (parsed into target/source/focus when explicit fields are empty) |
+| `target`           | string   | No*      | Target URL to scan (derived from `input` if not set)           |
+| `input`            | string   | No       | Raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically |
 | `agent`            | string   | No       | Agent backend name (default from config)                       |
-| `repo_path`        | string   | No       | Path to source code repository for context                     |
-| `files`            | string[] | No       | Specific files to include as context                           |
+| `source`           | string   | No       | Path to application source code for source-aware scanning      |
+| `files`            | string[] | No       | Specific files to include (relative to `source`)               |
 | `focus`            | string   | No       | Focus area hint (e.g. `"API injection"`, `"auth bypass"`)      |
-| `system_prompt`    | string   | No       | Custom system prompt file path (overrides default)             |
-| `timeout`          | string   | No       | Go duration string (default `"30m"`)                           |
+| `instruction`      | string   | No       | Custom instruction appended to the prompt                      |
+| `timeout`          | string   | No       | Go duration string (default `"6h"`)                            |
 | `max_commands`     | int      | No       | Max CLI commands the agent can execute (default `100`)         |
 | `dry_run`          | bool     | No       | Render the prompt without executing the agent                  |
 | `stream`           | bool     | No       | If `true`, returns an SSE stream                               |
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
-| `audit_agent`      | string   | No       | Run background [audit agent](../agentic-scan/audit-agent.md): `"lite"` (6-phase), `"full"` (11-phase), `"off"` to disable. Requires `source` |
+| `project_uuid`     | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header) |
+| `no_archon`        | bool     | No       | Disable automatic archon-audit (enabled by default when `source` is set) |
+| `archon_mode`      | string   | No       | Archon audit mode: `"lite"` (default, 3-phase), `"scan"` (6-phase), or `"deep"` (11-phase) |
+| `archon`           | string   | No       | **DEPRECATED** — use `no_archon` + `archon_mode` instead. Legacy values: `"lite"`, `"scan"`, `"deep"`, `"off"` |
+
+\* At least one of `target`, `input`, `source`, or `prompt` is required.
 
 ```bash
 # Basic autopilot scan
@@ -114,13 +122,20 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
     "stream": true
   }'
 
-# Autopilot with background audit agent (deep parallel code audit)
+# Autopilot with background archon-audit (deep parallel code audit)
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -H "Content-Type: application/json" \
   -d '{
     "target": "https://example.com",
     "source": "/home/user/src/my-app",
-    "audit_agent": "lite"
+    "archon_mode": "deep"
+  }' | jq .
+
+# Autopilot from raw input (target auto-extracted)
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "curl -X POST https://example.com/api/login -d '\''user=admin&pass=test'\''"
   }' | jq .
 ```
 
@@ -205,13 +220,11 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `batch_concurrency`    | int      | No       | Max parallel master agent batches (0 = auto, scales with CPU)         |
 | `max_master_retries`   | int      | No       | Max master agent retries on parse failure (default `3`)               |
 | `sa_max_concurrency`   | int      | No       | Max parallel source analysis sub-agents (default `3`)                 |
-
-*Terminal capability:*
-
-| Field                  | Type     | Required | Description                                                           |
-|------------------------|----------|----------|-----------------------------------------------------------------------|
-| `custom_agents`        | string[] | No       | Custom agent names for sub-agent invocation                           |
-| `max_commands`         | int      | No       | Max terminal commands per session (default `50`)                      |
+| `max_plan_records`     | int      | No       | Max records sent to plan agent (0 = default `10`)                     |
+| `master_batch_size`    | int      | No       | Max records per master agent batch (0 = default `5`)                  |
+| `probe_concurrency`    | int      | No       | Max parallel probe requests (0 = default `10`)                        |
+| `probe_timeout`        | string   | No       | Per-request probe timeout as Go duration (0 = default `10s`)          |
+| `max_probe_body`       | int      | No       | Max response body size in bytes during probing (0 = default 2MB)      |
 
 *Output control:*
 
@@ -226,9 +239,9 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
-| `project_uuid`         | string   | No       | Scope results to a project                                            |
+| `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
-| `audit_agent`          | string   | No       | Run background [audit agent](../agentic-scan/audit-agent.md): `"lite"` (6-phase), `"full"` (11-phase), `"off"` to disable. Requires `source_path` |
+| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"scan"` (6-phase), `"deep"` (11-phase), `"off"` to disable. Requires `source_path` |
 
 **Basic examples:**
 
@@ -330,17 +343,17 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "skip_sast": true
   }' | jq .
 
-# Source-aware with background audit agent (parallel deep code audit)
+# Source-aware with background archon-audit (parallel deep code audit)
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
     "source_path": "/home/user/src/my-app",
     "discover": true,
-    "audit_agent": "lite"
+    "archon": "lite"
   }' | jq .
 
-# Full 11-phase audit agent with comprehensive scan
+# Full 11-phase archon-audit with comprehensive scan
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
@@ -348,7 +361,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "source_path": "/home/user/src/my-app",
     "discover": true,
     "code_audit": true,
-    "audit_agent": "full"
+    "archon": "deep"
   }' | jq .
 ```
 
@@ -457,7 +470,7 @@ curl -N -X POST http://localhost:9002/api/agent/run/swarm \
 
 The autopilot and swarm endpoints accept a `prompt` field for natural language scan requests. When `prompt` is provided and no explicit input fields are set (`target`, `input`, `source`), the prompt is parsed by an AI intent extractor that returns structured parameters.
 
-The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and audit agent level (`"lite"` or `"full"`).
+The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and archon audit level (`"lite"`, `"scan"`, or `"deep"`).
 
 **Extracted fields:**
 
@@ -469,7 +482,7 @@ The intent extractor recognizes: target URLs, source code paths, vulnerability f
 | `instruction`  | `instruction`        | `instruction`     | Remaining guidance                                    |
 | `discover`     | —                    | `discover`        | Inferred when both target and source are present      |
 | `code_audit`   | —                    | `code_audit`      | Inferred when source-only (no target)                 |
-| `audit_agent`  | `audit_agent`        | `audit_agent`     | `"lite"` or `"full"` when audit agent is mentioned    |
+| `archon`       | `archon_mode`        | `archon`          | `"lite"`, `"scan"`, or `"deep"` when archon/audit agent is mentioned |
 
 **Autopilot with natural language prompt:**
 
@@ -526,7 +539,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
         "target": "http://localhost:3005",
         "source_path": "~/src/VAmPI",
         "discover": true,
-        "audit_agent": "lite"
+        "archon": "lite"
       }
     ],
     "raw": "scan source at ~/src/VAmPI on localhost:3005 with audit agent"
@@ -534,7 +547,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
 }
 ```
 
-> **Note:** Explicit fields always take precedence. If you pass both `prompt` and `target`/`input`/`source`, the prompt is ignored and explicit fields are used directly. The `audit_agent` field from intent extraction is only applied when `audit_agent` is not already set in the request body.
+> **Note:** Explicit fields always take precedence. If you pass both `prompt` and `target`/`input`/`source`, the prompt is ignored and explicit fields are used directly. The `archon` field from intent extraction is only applied when `archon`/`archon_mode` is not already set in the request body.
 
 ---
 

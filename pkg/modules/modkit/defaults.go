@@ -23,6 +23,10 @@ func validateModuleID(id string) {
 	}
 }
 
+// DefaultModulePriority is the priority assigned to modules that don't implement
+// the Prioritized interface. Lower values = higher priority.
+const DefaultModulePriority = 100
+
 // BaseModule provides default implementations for common Module methods.
 type BaseModule struct {
 	ModuleID           string

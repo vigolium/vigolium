@@ -33,7 +33,7 @@ Classify the project into one or more types:
 ### Step 3: Domain Attack Research
 
 Three non-exclusive modes apply after project classification. Read
-`~/.archon-audit/skills/audit/references/domain-attack-playbooks.md` before starting this step.
+`~/.config/archon-audit/skills/audit/references/domain-attack-playbooks.md` before starting this step.
 
 **Mode A -- Library-as-target**: project type is `library`, `plugin`, or `protocol`.
 - Delegate to `sharp-edges` -- analyze the library's own API surface for footgun designs and dangerous defaults

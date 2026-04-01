@@ -338,36 +338,36 @@ func TestAuditAgent_SkippedWhenDisabled(t *testing.T) {
 }
 
 // TestAuditAgent_ResolveConfig verifies the shared config resolution logic.
+// Archon is now enabled by default when source is provided, disabled with noArchon=true.
 func TestAuditAgent_ResolveConfig(t *testing.T) {
 	baseCfg := config.AuditAgentConfig{
 		PluginDir:    "/custom/path",
 		Mode:         "deep",
 		SyncInterval: 60,
 	}
-	enabledCfg := baseCfg
-	enabled := true
-	enabledCfg.Enable = &enabled
 
 	tests := []struct {
-		name     string
-		flag     string
-		cfg      config.AuditAgentConfig
-		wantNil  bool
-		wantMode string
+		name       string
+		noArchon   bool
+		mode       string
+		sourcePath string
+		cfg        config.AuditAgentConfig
+		wantNil    bool
+		wantMode   string
 	}{
-		{"empty flag, disabled config", "", baseCfg, true, ""},
-		{"empty flag, enabled config", "", enabledCfg, false, "deep"},
-		{"flag=lite overrides config", "lite", baseCfg, false, "lite"},
-		{"flag=deep overrides config", "deep", baseCfg, false, "deep"},
-		{"flag=scan overrides config", "scan", baseCfg, false, "scan"},
-		{"flag=full maps to deep", "full", baseCfg, false, "deep"},
-		{"flag=off disables even enabled config", "off", enabledCfg, true, ""},
-		{"flag preserves SyncInterval", "lite", enabledCfg, false, "lite"},
+		{"no source returns nil", false, "", "", baseCfg, true, ""},
+		{"source with defaults uses lite", false, "", "/src/app", baseCfg, false, "deep"},
+		{"source with mode=lite", false, "lite", "/src/app", baseCfg, false, "lite"},
+		{"source with mode=deep", false, "deep", "/src/app", baseCfg, false, "deep"},
+		{"source with mode=scan", false, "scan", "/src/app", baseCfg, false, "scan"},
+		{"noArchon disables even with source", true, "", "/src/app", baseCfg, true, ""},
+		{"noArchon disables with mode", true, "deep", "/src/app", baseCfg, true, ""},
+		{"preserves SyncInterval", false, "lite", "/src/app", baseCfg, false, "lite"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := agent.ResolveAuditAgentConfig(tt.flag, tt.cfg)
+			result := agent.ResolveAuditAgentConfig(tt.noArchon, tt.mode, tt.sourcePath, tt.cfg)
 			if tt.wantNil {
 				assert.Nil(t, result)
 				return
@@ -376,7 +376,7 @@ func TestAuditAgent_ResolveConfig(t *testing.T) {
 			assert.Equal(t, tt.wantMode, result.Mode)
 			assert.True(t, result.IsEnabled())
 
-			if tt.flag != "" && tt.cfg.SyncInterval > 0 {
+			if tt.cfg.SyncInterval > 0 {
 				assert.Equal(t, tt.cfg.SyncInterval, result.SyncInterval,
 					"SyncInterval from config should be preserved")
 			}

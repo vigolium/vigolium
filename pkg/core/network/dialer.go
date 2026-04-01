@@ -11,11 +11,9 @@ import (
 )
 
 // Dialer is a shared fastdialer instance for host DNS resolution.
-// Deprecated: Use NewDialer() to create instances instead of relying on global state.
 var Dialer *fastdialer.Dialer
 
 // Init creates the global Dialer instance based on user configuration.
-// Deprecated: Use NewDialer() to create instances instead.
 func Init(options *types.Options) error {
 	if Dialer != nil {
 		return nil
@@ -71,7 +69,6 @@ func NewDialer(options *types.Options) (*fastdialer.Dialer, error) {
 
 // Close closes the global shared fastdialer and resets it to nil,
 // allowing Init() to re-create it if called again.
-// Deprecated: Close the dialer instance directly instead.
 func Close() {
 	if Dialer != nil {
 		Dialer.Close()

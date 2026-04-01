@@ -1,6 +1,7 @@
 package archon
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -193,6 +194,57 @@ func TestBuildFindings(t *testing.T) {
 	}
 	assert.True(t, highCount > 0, "should have high severity findings")
 	assert.True(t, medCount > 0, "should have medium severity findings")
+}
+
+func stringSummaryDir() string {
+	return filepath.Join(testdataDir(), "archon-output-string-summary")
+}
+
+func TestParseAuditStateStringSummary(t *testing.T) {
+	state, err := parseAuditState(filepath.Join(stringSummaryDir(), "audit-state.json"))
+	require.NoError(t, err)
+	require.Len(t, state.Audits, 1)
+
+	audit := state.Audits[0]
+	assert.Equal(t, "abc123", audit.Commit)
+	assert.Equal(t, "complete", audit.Status)
+	assert.Len(t, audit.Phases, 3)
+
+	// String summaries should be stored under "text" key
+	p1 := audit.Phases["1"]
+	assert.Equal(t, "complete", p1.Status)
+	assert.Contains(t, p1.SummaryText(), "Advisory collection complete")
+
+	// Finding count extraction should gracefully return 0 when summary is a string
+	run := BuildAgentRun(state, stringSummaryDir(), database.DefaultProjectUUID)
+	assert.Equal(t, 0, run.FindingCount, "string summary cannot provide total_findings, should be 0")
+	assert.Equal(t, "completed", run.Status)
+}
+
+func TestPhaseEntryUnmarshalMixed(t *testing.T) {
+	// Object summary
+	data := `{"status":"complete","summary":{"total_findings":10}}`
+	var p1 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p1))
+	assert.Equal(t, float64(10), p1.Summary["total_findings"])
+
+	// String summary
+	data = `{"status":"complete","summary":"all done"}`
+	var p2 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p2))
+	assert.Equal(t, "all done", p2.SummaryText())
+
+	// No summary
+	data = `{"status":"pending"}`
+	var p3 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p3))
+	assert.Nil(t, p3.Summary)
+
+	// Null summary
+	data = `{"status":"complete","summary":null}`
+	var p4 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p4))
+	assert.Nil(t, p4.Summary)
 }
 
 func TestMapConfidence(t *testing.T) {

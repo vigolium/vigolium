@@ -39,10 +39,63 @@ type AuditEntry struct {
 }
 
 // PhaseEntry describes one phase in the audit.
+// Summary is flexible: LLM-generated audit-state.json may produce a plain string
+// or a structured object. We accept both and normalise to map[string]interface{}.
 type PhaseEntry struct {
 	Status      string                 `json:"status"`
 	CompletedAt time.Time              `json:"completed_at"`
-	Summary     map[string]interface{} `json:"summary,omitempty"`
+	Summary     map[string]interface{} `json:"-"` // populated by custom unmarshal
+	SummaryRaw  json.RawMessage        `json:"summary,omitempty"`
+}
+
+// UnmarshalJSON implements lenient parsing for PhaseEntry.
+// It accepts summary as a string, an object, or absent.
+func (p *PhaseEntry) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion.
+	type Alias struct {
+		Status      string          `json:"status"`
+		CompletedAt time.Time       `json:"completed_at"`
+		Summary     json.RawMessage `json:"summary,omitempty"`
+	}
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	p.Status = a.Status
+	p.CompletedAt = a.CompletedAt
+	p.SummaryRaw = a.Summary
+
+	if len(a.Summary) == 0 {
+		return nil
+	}
+
+	// Try object first.
+	var m map[string]interface{}
+	if err := json.Unmarshal(a.Summary, &m); err == nil {
+		p.Summary = m
+		return nil
+	}
+
+	// Fall back to string.
+	var s string
+	if err := json.Unmarshal(a.Summary, &s); err == nil {
+		p.Summary = map[string]interface{}{"text": s}
+		return nil
+	}
+
+	// Accept anything else silently — don't fail the whole parse.
+	return nil
+}
+
+// SummaryText returns the summary as a plain string if it was provided as one,
+// or empty string otherwise.
+func (p PhaseEntry) SummaryText() string {
+	if t, ok := p.Summary["text"]; ok {
+		if s, ok := t.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // ArchonFinding is the intermediate representation of a parsed finding file.

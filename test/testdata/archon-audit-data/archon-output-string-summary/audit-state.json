@@ -1,0 +1,32 @@
+{
+  "audits": [
+    {
+      "audit_id": "2026-03-31T21:30:00Z",
+      "commit": "abc123",
+      "branch": "main",
+      "mode": "deep",
+      "model": "claude-sonnet-4-6",
+      "agent_sdk": "claude-code",
+      "started_at": "2026-03-31T21:30:00Z",
+      "completed_at": "2026-03-31T23:59:00Z",
+      "status": "complete",
+      "phases": {
+        "1": {
+          "status": "complete",
+          "completed_at": "2026-03-31T21:45:00Z",
+          "summary": "Advisory collection complete. 22 unique advisories collected."
+        },
+        "8": {
+          "status": "complete",
+          "completed_at": "2026-03-31T23:50:00Z",
+          "summary": "Phase 8 Review Chambers complete. 3 chambers run. 46 finding drafts generated."
+        },
+        "11": {
+          "status": "complete",
+          "completed_at": "2026-03-31T23:59:00Z",
+          "summary": "Phase 11 Report Assembly complete. Findings: 34 total (C:1, H:10, M:11, plus 22 variants)."
+        }
+      }
+    }
+  ]
+}

@@ -24,68 +24,11 @@ const (
 	InputTypeUnknown    InputType = "unknown"
 )
 
-// AutopilotPhase identifies a phase in the autopilot pipeline.
-type AutopilotPhase string
-
-const (
-	AutopilotPhaseRecon         AutopilotPhase = "recon"
-	AutopilotPhaseVulnAnalysis  AutopilotPhase = "vuln-analysis"
-	AutopilotPhaseNativeScan    AutopilotPhase = "native-scan"
-	AutopilotPhaseExploitVerify AutopilotPhase = "exploit-verify"
-	AutopilotPhaseReport        AutopilotPhase = "report"
-)
-
-// VulnClass identifies a vulnerability class for specialist agents.
-type VulnClass string
-
-const (
-	VulnClassInjection VulnClass = "injection"
-	VulnClassXSS       VulnClass = "xss"
-	VulnClassAuth      VulnClass = "auth"
-	VulnClassSSRF      VulnClass = "ssrf"
-	VulnClassAuthz     VulnClass = "authz"
-)
-
-// ToVulnClasses converts string slice to VulnClass slice.
-func ToVulnClasses(ss []string) []VulnClass {
-	result := make([]VulnClass, len(ss))
-	for i, s := range ss {
-		result[i] = VulnClass(s)
-	}
-	return result
-}
-
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
 type AutopilotPipelineResult struct {
-	VulnQueues     map[VulnClass]*VulnQueue
-	Evidence       map[VulnClass][]ExploitationEvidence
-	TotalFindings  int
-	Confirmed      int
-	FalsePositives int
-	PhasesRun      []AutopilotPhase
-	PhaseTimings   map[AutopilotPhase]time.Duration
-	PhaseFailed    map[AutopilotPhase]bool // tracks which phases failed
-	Duration       time.Duration
-	SessionDir     string
-}
-
-// AutopilotCheckpoint captures autopilot pipeline state for checkpoint/resume.
-type AutopilotCheckpoint struct {
-	CompletedPhases             []AutopilotPhase          `json:"completed_phases"`
-	TargetURL                   string                    `json:"target_url"`
-	VulnQueues                  map[VulnClass]*VulnQueue  `json:"vuln_queues,omitempty"`
-	ExtensionDir                string                    `json:"extension_dir,omitempty"`
-	Timestamp                   time.Time                 `json:"timestamp"`
-	CompletedSpecialists        map[VulnClass]bool        `json:"completed_specialists,omitempty"`
-	CompletedExploitSpecialists map[VulnClass]bool        `json:"completed_exploit_specialists,omitempty"`
-}
-
-// LastPhase returns the last completed phase, or "" if none.
-func (cp *AutopilotCheckpoint) LastPhase() AutopilotPhase {
-	if cp == nil || len(cp.CompletedPhases) == 0 {
-		return ""
-	}
-	return cp.CompletedPhases[len(cp.CompletedPhases)-1]
+	ArchonFindingsCount int
+	Duration            time.Duration
+	SessionDir          string
 }
 
 // SwarmPhase constants for the agent swarm mode.

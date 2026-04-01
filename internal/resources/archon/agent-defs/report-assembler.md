@@ -82,7 +82,7 @@ Run all consistency checks:
 
 Also run the validation script:
 ```bash
-python3 ~/.archon-audit/skills/audit/hooks/scripts/validate_phase_output.py all archon/
+python3 ~/.config/archon-audit/skills/audit/hooks/scripts/validate_phase_output.py all archon/
 ```
 
 Report any consistency failures to the orchestrator.

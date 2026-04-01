@@ -1,6 +1,8 @@
 package modules
 
 import (
+	"time"
+
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 )
@@ -36,4 +38,19 @@ type Flusher interface {
 // result pipeline (post-hooks, DB storage, callbacks).
 type BatchFlusher interface {
 	FlushFindings(scanCtx *ScanContext) ([]*output.ResultEvent, error)
+}
+
+// TimeoutHinter is an optional interface for passive modules that need
+// more (or less) time than the global PassiveModuleTimeout.
+// Modules that do not implement this interface use the executor's default timeout.
+type TimeoutHinter interface {
+	TimeoutHint() time.Duration
+}
+
+// ScopeAwareModule is an optional interface for passive modules that should
+// only run on in-scope records. Modules returning true will be skipped when
+// the current item is out of scope. Default behavior (not implementing this
+// interface) is to run on all records regardless of scope.
+type ScopeAwareModule interface {
+	ScopeAware() bool
 }

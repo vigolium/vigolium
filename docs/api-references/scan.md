@@ -146,8 +146,8 @@ Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a
 | `heuristics_check`     | string            | No       | Heuristics check level: `none`, `basic`, `advanced`                         |
 | `headers`              | map[string]string | No       | Custom HTTP headers included in all requests                                |
 | `scanning_profile`     | string            | No       | Scanning profile name or path                                               |
-| `repo_path`            | string            | No       | Absolute path to local source repo for SAST scan (like `--repo`). Mutually exclusive with `repo_url`. |
-| `repo_url`             | string            | No       | Git URL to clone for SAST scan (like `--repo-url`). Mutually exclusive with `repo_path`. |
+| `repo_path`            | string            | No       | Absolute path to local source repo for ad-hoc SAST scan (like `--sast-adhoc`). Mutually exclusive with `repo_url`. |
+| `repo_url`             | string            | No       | Git URL to clone for ad-hoc SAST scan (auto-cloned). Mutually exclusive with `repo_path`. |
 
 > **SAST scanning:** When `repo_path` or `repo_url` is provided without targets and without explicit `only`/`skip`, the scan automatically runs in SAST-only mode (`only: "sast"`). The `scan_mode` in the response is set to `"sast"`. You can combine SAST with target scanning by providing both targets and a repo path.
 

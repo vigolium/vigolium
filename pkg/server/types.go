@@ -422,21 +422,12 @@ type AgentRunRequest struct {
 	PromptFile     string   `json:"prompt_file,omitempty"`
 	Prompt         string   `json:"prompt,omitempty"`
 	SourcePath     string   `json:"source,omitempty"`          // path to source code
-	RepoPath       string   `json:"repo_path,omitempty"`       // deprecated: use source
 	Files          []string `json:"files,omitempty"`
 	Append         string   `json:"append,omitempty"`
 	Instruction    string   `json:"instruction,omitempty"`     // custom instruction appended to the prompt
 	Source         string   `json:"source_label,omitempty"`
 	ScanUUID       string   `json:"scan_uuid,omitempty"`
 	Stream         bool     `json:"stream,omitempty"`
-}
-
-// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
-func (r AgentRunRequest) EffectiveSourcePath() string {
-	if r.SourcePath != "" {
-		return r.SourcePath
-	}
-	return r.RepoPath
 }
 
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
@@ -446,27 +437,40 @@ type AgentAutopilotRequest struct {
 	Input       string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
 	Agent       string   `json:"agent,omitempty"`               // agent backend name
 	SourcePath  string   `json:"source,omitempty"`              // path to application source code
-	RepoPath    string   `json:"repo_path,omitempty"`           // deprecated: use source
 	Files       []string `json:"files,omitempty"`               // specific files to include
 	Focus       string   `json:"focus,omitempty"`               // focus area hint
 	Instruction string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
-	Specialists []string `json:"specialists,omitempty"`         // vulnerability classes (injection, xss, auth, ssrf, authz)
 	Timeout     string   `json:"timeout,omitempty"`             // Go duration string, default "6h"
 	MaxCommands int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
 	DryRun      bool     `json:"dry_run,omitempty"`             // render prompt without executing
 	Stream      bool     `json:"stream,omitempty"`              // enable SSE streaming
 	ScanUUID    string   `json:"scan_uuid,omitempty"`           // optional scan UUID
-	ResumeDir   string   `json:"resume_dir,omitempty"`          // resume from a previous session directory
 	ProjectUUID string   `json:"project_uuid,omitempty"`        // project UUID for data scoping
-	Archon      string   `json:"archon,omitempty"`              // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
+	Archon      string   `json:"archon,omitempty"`              // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "scan", "deep", "off"
+	NoArchon    bool     `json:"no_archon,omitempty"`           // disable automatic archon-audit (enabled by default when source is set)
+	ArchonMode  string   `json:"archon_mode,omitempty"`         // archon audit mode: "lite" (default), "scan", "deep"
 }
 
-// EffectiveSourcePath returns SourcePath, falling back to the deprecated RepoPath.
-func (r AgentAutopilotRequest) EffectiveSourcePath() string {
-	if r.SourcePath != "" {
-		return r.SourcePath
+// ResolvedNoArchon returns true when archon should be disabled, handling backward
+// compatibility with the legacy Archon field.
+func (r AgentAutopilotRequest) ResolvedNoArchon() bool {
+	if r.Archon == "off" {
+		return true
 	}
-	return r.RepoPath
+	return r.NoArchon
+}
+
+// ResolvedArchonMode returns the effective archon mode, handling backward
+// compatibility with the legacy Archon field.
+func (r AgentAutopilotRequest) ResolvedArchonMode() string {
+	if r.ArchonMode != "" {
+		return r.ArchonMode
+	}
+	// Legacy: "archon": "deep" means mode=deep
+	if r.Archon != "" && r.Archon != "off" {
+		return r.Archon
+	}
+	return "lite"
 }
 
 // AgentSwarmRequest is the request body for POST /api/agent/run/swarm.
@@ -505,10 +509,14 @@ type AgentSwarmRequest struct {
 	Agent              string   `json:"agent,omitempty"`                // agent backend name
 
 	// Concurrency tuning
-	BatchConcurrency    int `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
-	MaxMasterRetries    int `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
-	SAMaxConcurrency    int `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
-	MaxPlanRecords      int `json:"max_plan_records,omitempty"`      // max records sent to plan agent (0 = default 10)
+	BatchConcurrency    int           `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
+	MaxMasterRetries    int           `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
+	SAMaxConcurrency    int           `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
+	MaxPlanRecords      int           `json:"max_plan_records,omitempty"`      // max records sent to plan agent (0 = default 10)
+	MasterBatchSize     int    `json:"master_batch_size,omitempty"`     // max records per master agent batch (0 = default 5)
+	ProbeConcurrency    int    `json:"probe_concurrency,omitempty"`     // max parallel probe requests (0 = default 10)
+	ProbeTimeout        string `json:"probe_timeout,omitempty"`         // per-request probe timeout as Go duration e.g. "10s" (0 = default 10s)
+	MaxProbeBodySize    int    `json:"max_probe_body,omitempty"`        // max response body size in bytes during probing (0 = default 2MB)
 
 	// Output control
 	DryRun      bool   `json:"dry_run,omitempty"`      // render prompts without executing
@@ -522,6 +530,21 @@ type AgentSwarmRequest struct {
 
 	// Background archon-audit
 	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
+}
+
+// ResolvedNoArchon returns true when archon should be disabled.
+// Swarm uses opt-in archon: empty string means disabled.
+func (r AgentSwarmRequest) ResolvedNoArchon() bool {
+	return r.Archon == "" || r.Archon == "off"
+}
+
+// ResolvedArchonMode returns the effective archon mode.
+// Returns empty string when archon is disabled.
+func (r AgentSwarmRequest) ResolvedArchonMode() string {
+	if r.Archon == "" || r.Archon == "off" {
+		return ""
+	}
+	return r.Archon
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

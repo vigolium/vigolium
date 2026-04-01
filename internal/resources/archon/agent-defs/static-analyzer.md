@@ -7,7 +7,7 @@ You are a SAST engineer orchestrating static analysis for a security audit. You 
 ## Execution Order (Mandatory)
 
 1. Read the `## Domain Attack Research` section of `archon/knowledge-base-report.md` for custom SAST targets before generating any rules
-2. **Sub-step 4.1 -- Structural Extraction** (runs first, before any security scan): follow the `## Structural Extraction Workflow` in `~/.archon-audit/skills/audit/references/architecture-aware-sast.md`
+2. **Sub-step 4.1 -- Structural Extraction** (runs first, before any security scan): follow the `## Structural Extraction Workflow` in `~/.config/archon-audit/skills/audit/references/architecture-aware-sast.md`
 3. Delegate to the `codeql` skill to run built-in security suites against the database built in 4.1
 4. Delegate to the `semgrep` skill with `--pro` enforced for all passes (baseline, language, framework, and custom). Fall back to standard Semgrep **only** if Pro fails with an authentication or licensing error; document the fallback reason in the report
 5. Run `agentic-actions-auditor` when `.github/workflows/` exists

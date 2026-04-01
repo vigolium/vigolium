@@ -23,6 +23,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
+	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
@@ -599,6 +600,36 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", m)
 	}
 	return fmt.Sprintf("%dm%ds", m, s)
+}
+
+// logModuleMetrics logs the top modules by total time and findings at debug level.
+func logModuleMetrics(metrics map[string]corestats.ModuleStatsSnapshot) {
+	// Sort by total time descending for top-5 slowest
+	type entry struct {
+		id   string
+		snap corestats.ModuleStatsSnapshot
+	}
+	entries := make([]entry, 0, len(metrics))
+	for id, snap := range metrics {
+		entries = append(entries, entry{id, snap})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].snap.TotalTime > entries[j].snap.TotalTime
+	})
+
+	limit := 5
+	if len(entries) < limit {
+		limit = len(entries)
+	}
+	for i := 0; i < limit; i++ {
+		e := entries[i]
+		zap.L().Debug("Module metrics",
+			zap.String("module", e.id),
+			zap.Int64("invocations", e.snap.Invocations),
+			zap.Int64("findings", e.snap.Findings),
+			zap.Int64("errors", e.snap.Errors),
+			zap.Duration("total_time", e.snap.TotalTime))
+	}
 }
 
 // RunNativeScan orchestrates the 5-phase scan pipeline:
@@ -1576,7 +1607,21 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		},
 	}
 
-	executor := core.NewExecutor(executorCfg, compositeSource, nil, nil)
+	// Optionally run passive modules during discovery for early fingerprinting/secrets.
+	var discoveryPassive []modules.PassiveModule
+	if r.settings != nil && len(r.settings.Discovery.PassiveModuleTags) > 0 {
+		ids := modules.ResolveModuleTags(r.settings.Discovery.PassiveModuleTags)
+		if len(ids) > 0 {
+			discoveryPassive = modules.GetPassiveModulesByIDs(ids)
+			if len(discoveryPassive) > 0 {
+				zap.L().Info("Discovery: passive modules enabled",
+					zap.Int("count", len(discoveryPassive)),
+					zap.Strings("tags", r.settings.Discovery.PassiveModuleTags))
+			}
+		}
+	}
+
+	executor := core.NewExecutor(executorCfg, compositeSource, nil, discoveryPassive)
 	_, err := executor.Execute(ctx)
 
 	// Flush remaining batched records
@@ -2024,6 +2069,14 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
+	// Log quarantined hosts from prior phases so users see cross-phase propagation
+	if infra.svc != nil && infra.svc.HostErrors != nil {
+		if qc := infra.svc.HostErrors.QuarantinedCount(); qc > 0 {
+			zap.L().Info("Audit: carrying forward host errors from prior phases",
+				zap.Int("quarantined_hosts", qc))
+		}
+	}
+
 	// If KnownIssueScan was enabled, filter out secret-detect to avoid duplicate kingfisher findings
 	if r.options.KnownIssueScanEnabled {
 		passiveModules = filterOutPassiveModule(passiveModules, secret_detect.ModuleID)
@@ -2161,6 +2214,11 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		// Close the batched record writer to flush remaining records
 		if recordWriter != nil {
 			recordWriter.Close()
+		}
+
+		// Log per-module metrics for this round
+		if metrics := executor.ModuleMetrics(); len(metrics) > 0 {
+			logModuleMetrics(metrics)
 		}
 
 		// Log request clustering stats for this round

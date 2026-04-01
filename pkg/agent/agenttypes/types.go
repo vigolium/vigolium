@@ -4,6 +4,7 @@ package agenttypes
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"time"
@@ -129,6 +130,44 @@ type AgentFinding struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
+// UnmarshalJSON implements lenient parsing for AgentFinding.
+// Handles: line as string ("42"), tags as single string, severity as int.
+func (f *AgentFinding) UnmarshalJSON(data []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if v, ok := raw["title"]; ok {
+		f.Title = fmt.Sprint(v)
+	}
+	if v, ok := raw["description"]; ok {
+		f.Description = fmt.Sprint(v)
+	}
+	if v, ok := raw["severity"]; ok {
+		f.Severity = fmt.Sprint(v)
+	}
+	if v, ok := raw["confidence"]; ok {
+		f.Confidence = fmt.Sprint(v)
+	}
+	if v, ok := raw["file"]; ok {
+		f.File = fmt.Sprint(v)
+	}
+	if v, ok := raw["line"]; ok {
+		f.Line = flexInt(v)
+	}
+	if v, ok := raw["snippet"]; ok {
+		f.Snippet = fmt.Sprint(v)
+	}
+	if v, ok := raw["cwe"]; ok {
+		f.CWE = fmt.Sprint(v)
+	}
+	if v, ok := raw["tags"]; ok {
+		f.Tags = flexStringSlice(v)
+	}
+	return nil
+}
+
 // AgentFindingsOutput is the expected JSON output for findings-type templates.
 type AgentFindingsOutput struct {
 	Findings []AgentFinding `json:"findings"`
@@ -185,47 +224,6 @@ func (r *AgentHTTPRecord) UnmarshalJSON(data []byte) error {
 // AgentHTTPRecordsOutput is the expected JSON output for http_records-type templates.
 type AgentHTTPRecordsOutput struct {
 	HTTPRecords []AgentHTTPRecord `json:"http_records"`
-}
-
-// ReconDeliverable is the structured output from the recon phase of the autopilot pipeline.
-type ReconDeliverable struct {
-	Endpoints []ReconEndpoint `json:"endpoints"`
-	TechStack []string        `json:"tech_stack,omitempty"`
-	AuthFlows []AuthFlowInfo  `json:"auth_flows,omitempty"`
-	Notes     string          `json:"notes,omitempty"`
-}
-
-// ReconEndpoint represents a discovered endpoint from the recon phase.
-type ReconEndpoint struct {
-	URL       string `json:"url"`
-	Method    string `json:"method,omitempty"`
-	Parameter string `json:"parameter,omitempty"`
-	Notes     string `json:"notes,omitempty"`
-}
-
-// AuthFlowInfo describes an authentication flow discovered during recon.
-type AuthFlowInfo struct {
-	Type     string `json:"type"`               // "session", "jwt", "api_key", "oauth"
-	Endpoint string `json:"endpoint,omitempty"`
-	Notes    string `json:"notes,omitempty"`
-}
-
-// VulnQueue is the structured output from a vuln analysis specialist.
-type VulnQueue struct {
-	Class string          `json:"class"`
-	Items []VulnQueueItem `json:"items"`
-}
-
-// VulnQueueItem represents a potential vulnerability sink identified by a specialist.
-type VulnQueueItem struct {
-	Endpoint       string `json:"endpoint"`
-	Method         string `json:"method,omitempty"`
-	Parameter      string `json:"parameter,omitempty"`
-	SinkType       string `json:"sink_type,omitempty"`
-	WitnessPayload string `json:"witness_payload,omitempty"`
-	Context        string `json:"context,omitempty"`
-	Confidence     string `json:"confidence,omitempty"` // "high", "medium", "low"
-	Notes          string `json:"notes,omitempty"`
 }
 
 // Evidence status values.

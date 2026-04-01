@@ -2,24 +2,34 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/agent/parsing"
+	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
-// AutopilotPipelineConfig configures the v2 autopilot pipeline.
+// Prompt formatting thresholds and limits.
+const (
+	findingsTierFullDetail    = 15   // ≤ this count: full detail per finding
+	findingsTierSummaryTable  = 40   // ≤ this count: table + critical/high detail; above: table + top N
+	findingsTopNDetail        = 10   // number of findings shown in full detail for large sets
+	maxBodyExcerptChars       = 500  // max chars from finding body in full-detail view
+	maxTitleChars             = 47   // max title length in summary table
+	maxKnowledgeBaseChars     = 4000 // max chars of knowledge base included in prompt
+)
+
+// AutopilotPipelineConfig configures the autopilot pipeline.
 type AutopilotPipelineConfig struct {
 	TargetURL   string
 	SourcePath  string
@@ -27,35 +37,29 @@ type AutopilotPipelineConfig struct {
 	Instruction string
 	Focus       string
 
-	Specialists          []VulnClass
-	NoFilterSpecialists  bool // when true, skip smart specialist filtering based on recon
-	AgentName            string
-	MaxCommands          int
+	AgentName   string
+	MaxCommands int
 
 	DryRun     bool
 	ShowPrompt bool
 
 	SessionsDir string
 	SessionDir  string
-	ResumeDir   string
 
 	ProjectUUID string
 	ScanUUID    string
 
-	StreamWriter io.Writer
+	StreamWriter     io.Writer
+	ProgressCallback func(phase string, message string)
 
-	// Callbacks
-	ScanFunc                ScanFunc
-	SourceAnalysisCallback  func(*SourceAnalysisResult) error
-	PhaseCallback           func(AutopilotPhase)
-	ProgressCallback        func(phase string, message string)
+	// Archon enables the archon-audit run in parallel with the autonomous agent.
+	Archon *config.AuditAgentConfig
 
-	// Archon enables the background archon-audit when set.
-	Archon         *config.AuditAgentConfig
-	ArchonParallel bool // run archon in parallel with autopilot instead of waiting
+	// BrowserEnabled indicates whether agent-browser is available for the agent.
+	BrowserEnabled bool
 }
 
-// AutopilotPipelineRunner orchestrates the autopilot multi-agent pipeline.
+// AutopilotPipelineRunner orchestrates the autopilot pipeline.
 type AutopilotPipelineRunner struct {
 	engine *Engine
 	repo   *database.Repository
@@ -66,10 +70,15 @@ func NewAutopilotPipelineRunner(engine *Engine, repo *database.Repository) *Auto
 	return &AutopilotPipelineRunner{engine: engine, repo: repo}
 }
 
-// RunAutonomous executes a fully autonomous autopilot session using the Agent SDK.
-// Instead of the rigid 5-phase pipeline, the agent gets a comprehensive mission brief
-// and full tool access (Bash, Read, Grep, etc.) to decide its own workflow.
-// The agent runs vigolium CLI commands, curl, jq, and any standard tools autonomously.
+type archonContext struct {
+	Findings      []*archon.ArchonFinding
+	KnowledgeBase string
+}
+
+// RunAutonomous executes the autopilot pipeline:
+// 1. Start archon-audit in parallel (if configured) — does NOT block
+// 2. Build prompt with live-findings instructions so agent can read findings as they arrive
+// 3. Launch autonomous agent with full tool access
 func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
 	start := time.Now()
 
@@ -77,29 +86,43 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		return nil, fmt.Errorf("autopilot preflight failed: %w", err)
 	}
 
-	result := &AutopilotPipelineResult{
-		VulnQueues:   make(map[VulnClass]*VulnQueue),
-		Evidence:     make(map[VulnClass][]ExploitationEvidence),
-		PhaseTimings: make(map[AutopilotPhase]time.Duration),
-		PhaseFailed:  make(map[AutopilotPhase]bool),
-		SessionDir:   cfg.SessionDir,
+	// Auto-create session directory when not provided (e.g. API path)
+	if cfg.SessionDir == "" && cfg.SessionsDir != "" {
+		runID := "agt-" + uuid.New().String()
+		sessionDir, sdErr := EnsureSessionDir(cfg.SessionsDir, runID)
+		if sdErr != nil {
+			zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+		} else {
+			cfg.SessionDir = sessionDir
+		}
 	}
 
-	// Start archon-audit when configured and source is available
+	result := &AutopilotPipelineResult{
+		SessionDir: cfg.SessionDir,
+	}
+
+	// Step 1: Start archon-audit in parallel (does not wait for completion)
 	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
 	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
 	if archonCleanup != nil {
 		defer archonCleanup()
 	}
-	if archonRunner != nil && !cfg.ArchonParallel {
-		archonLogFn("waiting for archon-audit to finish before starting autopilot")
-		_ = archonRunner.Wait()
-		if status := archonRunner.Status(); status != nil {
-			archonLogFn(fmt.Sprintf("finished  %d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
+
+	archonRunning := archonRunner != nil
+	var archonCtx *archonContext
+	if archonRunning {
+		archonLogFn("running in parallel — agent will check for findings as they arrive")
+		emitProgress(&cfg, "archon", "running archon-audit in parallel")
+		// Load any pre-existing findings (e.g. from a resumed session)
+		archonCtx = loadArchonContext(cfg.SessionDir)
+		if archonCtx != nil && len(archonCtx.Findings) > 0 {
+			result.ArchonFindingsCount = len(archonCtx.Findings)
+			archonLogFn(fmt.Sprintf("loaded %d pre-existing findings", len(archonCtx.Findings)))
 		}
 	}
 
-	prompt := buildAutonomousPrompt(cfg)
+	// Step 2: Build prompt (includes live-findings monitoring instructions when archon is running)
+	prompt := buildAutonomousPrompt(cfg, archonCtx, archonRunning)
 
 	autopilotSessionID := uuid.New().String()
 	opts := Options{
@@ -122,7 +145,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	}
 
 	printPhaseLine("autopilot", "starting autonomous agent session")
-	emitProgress(cfg, "autopilot", "starting autonomous agent session")
+	emitProgress(&cfg, "autopilot", "starting autonomous agent session")
 
 	// Wrap stream writer with progress tracking
 	streamWriter := cfg.StreamWriter
@@ -146,77 +169,219 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		_ = os.WriteFile(filepath.Join(cfg.SessionDir, "output.md"), []byte(agentResult.RawOutput), 0644)
 	}
 
-	// Findings are saved to the DB by vigolium commands the agent executes
-	// (scan-url, scan-request, finding load, etc.). The agent reports its own
-	// summary in the output text.
+	// Update archon findings count with final tally (archon may have produced
+	// more findings while the autonomous agent was running in parallel)
+	if archonRunning {
+		if finalCtx := loadArchonContext(cfg.SessionDir); finalCtx != nil && len(finalCtx.Findings) > 0 {
+			result.ArchonFindingsCount = len(finalCtx.Findings)
+		}
+	}
 
-	emitProgress(cfg, "autopilot", "autonomous session completed")
+	emitProgress(&cfg, "autopilot", "autonomous session completed")
 	result.Duration = time.Since(start)
 	return result, nil
 }
 
-// buildAutonomousPrompt constructs the mission brief for a fully autonomous autopilot session.
-func buildAutonomousPrompt(cfg AutopilotPipelineConfig) string {
+// loadArchonContext loads archon findings and knowledge base from the session directory.
+func loadArchonContext(sessionDir string) *archonContext {
+	if sessionDir == "" {
+		return nil
+	}
+	archonDir := filepath.Join(sessionDir, "archon-audit")
+
+	auditImport, err := archon.ParseAuditFolder(archonDir)
+	if err != nil {
+		zap.L().Debug("No archon findings to load", zap.Error(err))
+		return nil
+	}
+
+	ac := &archonContext{
+		Findings: auditImport.RawFindings,
+	}
+
+	// Load knowledge base report if available
+	kbPath := filepath.Join(archonDir, "knowledge-base-report.md")
+	if kbData, readErr := os.ReadFile(kbPath); readErr == nil {
+		ac.KnowledgeBase = string(kbData)
+	}
+
+	return ac
+}
+
+// buildAutonomousPrompt constructs the mission brief for an autonomous autopilot session.
+// Handles four modes: source-only, target-only, source+target, and with/without archon findings.
+// When archonRunning is true, the agent is told to monitor for live findings from archon.
+func buildAutonomousPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
+	sourceOnly := cfg.TargetURL == "" && cfg.SourcePath != ""
+	if sourceOnly {
+		return buildSourceOnlyPrompt(cfg, ac, archonRunning)
+	}
+	return buildTargetPrompt(cfg, ac, archonRunning)
+}
+
+// buildSourceOnlyPrompt constructs a code-review-focused mission brief when no target is available.
+func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
 	var b strings.Builder
+	hasFindings := ac != nil && len(ac.Findings) > 0
+
+	b.WriteString("# Autonomous Security Code Review\n\n")
+	b.WriteString("## Mission\n\n")
+
+	if hasFindings {
+		fmt.Fprintf(&b, "An automated security audit (archon-audit) has been performed on the source code at **%s**.\n", cfg.SourcePath)
+		b.WriteString("Your job is to review the audit findings, investigate the source code, and provide a comprehensive security analysis.\n\n")
+		b.WriteString("- **Validate findings** — Read the relevant source code to confirm or disprove each finding\n")
+		b.WriteString("- **Assess exploitability** — Determine real-world impact and attack scenarios\n")
+		b.WriteString("- **Find additional issues** — The audit may have missed vulnerabilities\n")
+		b.WriteString("- **Provide remediation** — Suggest specific code fixes for confirmed vulnerabilities\n\n")
+	} else {
+		fmt.Fprintf(&b, "Perform a comprehensive security code review of the application at **%s**.\n\n", cfg.SourcePath)
+		b.WriteString("No live target is available — this is a **static analysis / code review** session.\n\n")
+	}
+
+	// Source section
+	b.WriteString("## Source Code\n\n")
+	fmt.Fprintf(&b, "- **Path:** %s\n", cfg.SourcePath)
+	if len(cfg.Files) > 0 {
+		fmt.Fprintf(&b, "- **Focus files:** %s\n", strings.Join(cfg.Files, ", "))
+	}
+	b.WriteString("\n")
+
+	writeCommonSections(&b, cfg, ac, archonRunning)
+
+	// Source-only recommended approach
+	b.WriteString("## Recommended Approach\n\n")
+	if archonRunning && !hasFindings {
+		b.WriteString("An archon-audit is running in parallel. Start your own analysis immediately:\n\n")
+	}
+	if hasFindings {
+		b.WriteString("1. **Review audit findings** — Prioritize by severity, read the cited source locations\n")
+		b.WriteString("2. **Validate each finding** — Trace data flow through the code to confirm exploitability\n")
+		b.WriteString("3. **Search for variants** — If a pattern is vulnerable, grep for similar patterns\n")
+		b.WriteString("4. **Check for missed issues** — Review auth, input validation, crypto, secrets, config\n")
+		b.WriteString("5. **Report** — Summarize with severity, evidence (code snippets), and remediation\n\n")
+	} else {
+		b.WriteString("1. **Map the application** — Read entry points, routes, middleware, auth configuration\n")
+		b.WriteString("2. **Identify sinks** — Find SQL queries, shell commands, file operations, HTTP clients, template rendering\n")
+		b.WriteString("3. **Trace data flow** — Follow user input from entry points to sinks\n")
+		b.WriteString("4. **Check security controls** — Authentication, authorization, CSRF, rate limiting, input validation\n")
+		b.WriteString("5. **Check secrets and config** — Hardcoded credentials, insecure defaults, debug flags\n")
+		b.WriteString("6. **Report** — Summarize findings with code locations, severity, and remediation\n\n")
+	}
+
+	b.WriteString("## Guidelines\n\n")
+	b.WriteString("- Use Grep, Glob, and Read tools to navigate the codebase efficiently\n")
+	b.WriteString("- Trace complete data flows — don't stop at the first function boundary\n")
+	b.WriteString("- Check both the happy path and error handling paths\n")
+	b.WriteString("- When you find a vulnerability, search for similar patterns elsewhere in the code\n")
+	b.WriteString("- No live target is available — do not attempt HTTP requests or scanning commands\n")
+
+	return b.String()
+}
+
+// buildTargetPrompt constructs a mission brief for target-based scanning (with or without source).
+func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
+	var b strings.Builder
+	hasFindings := ac != nil && len(ac.Findings) > 0
 
 	b.WriteString("# Autonomous Security Assessment\n\n")
-	b.WriteString("## Mission\n\n")
-	fmt.Fprintf(&b, "Perform a comprehensive security assessment of **%s**.\n\n", cfg.TargetURL)
-	b.WriteString("You have full autonomy to decide your approach. Use any combination of vigolium CLI commands, ")
-	b.WriteString("curl, jq, and standard Unix tools. There are no fixed phases — you decide what to do, ")
-	b.WriteString("in what order, and when you're done.\n\n")
 
+	if hasFindings {
+		b.WriteString("## Mission\n\n")
+		fmt.Fprintf(&b, "An automated security audit (archon-audit) has been performed on the source code targeting **%s**.\n", cfg.TargetURL)
+		b.WriteString("Your job is to review the audit findings and take action:\n\n")
+		b.WriteString("- **Write PoCs/exploits** for confirmed or high-confidence findings against the live target\n")
+		b.WriteString("- **Run native scans** (`vigolium scan-url`, `vigolium scan-request`) on discovered routes and endpoints\n")
+		b.WriteString("- **Investigate** findings that need more evidence or validation\n")
+		b.WriteString("- **Skip** low-confidence or already-disproved findings\n")
+		b.WriteString("- **Discover gaps** — run discovery on the target to find endpoints the audit may have missed\n\n")
+	} else {
+		b.WriteString("## Mission\n\n")
+		fmt.Fprintf(&b, "Perform a comprehensive security assessment of **%s**.\n\n", cfg.TargetURL)
+		b.WriteString("You have full autonomy to decide your approach. Use any combination of vigolium CLI commands, ")
+		b.WriteString("curl, jq, and standard Unix tools. There are no fixed phases — you decide what to do, ")
+		b.WriteString("in what order, and when you're done.\n\n")
+	}
+
+	// Target section
 	b.WriteString("## Target\n\n")
 	fmt.Fprintf(&b, "- **URL:** %s\n", cfg.TargetURL)
 
 	if cfg.SourcePath != "" {
 		fmt.Fprintf(&b, "- **Source code:** %s\n", cfg.SourcePath)
-		b.WriteString("  - Read the source code to understand routes, auth flows, and vulnerability sinks\n")
-		b.WriteString("  - Use this knowledge to guide your scanning strategy\n")
+		if !hasFindings {
+			b.WriteString("  - Read the source code to understand routes, auth flows, and vulnerability sinks\n")
+			b.WriteString("  - Use this knowledge to guide your scanning strategy\n")
+		}
 	}
 	if len(cfg.Files) > 0 {
 		fmt.Fprintf(&b, "- **Focus files:** %s\n", strings.Join(cfg.Files, ", "))
 	}
 	b.WriteString("\n")
 
-	if cfg.Focus != "" {
-		b.WriteString("## Focus Area\n\n")
-		b.WriteString(cfg.Focus)
-		b.WriteString("\n\n")
-	}
+	writeCommonSections(&b, cfg, ac, archonRunning)
 
-	if cfg.Instruction != "" {
-		b.WriteString("## Custom Instructions\n\n")
-		b.WriteString(cfg.Instruction)
-		b.WriteString("\n\n")
-	}
-
+	// Recommended approach
 	b.WriteString("## Recommended Approach\n\n")
-	b.WriteString("1. **Reconnaissance** — Discover the attack surface:\n")
-	b.WriteString("   - Run `vigolium scan --only discovery -t <target> --json` for content discovery\n")
-	b.WriteString("   - Run `vigolium scan --only spidering -t <target> --json --spider` for crawling\n")
-	b.WriteString("   - Use `curl -s -i` to probe interesting endpoints manually\n")
-	if cfg.SourcePath != "" {
-		b.WriteString("   - Read application source code to find routes, auth mechanisms, and sinks\n")
+	if archonRunning && !hasFindings {
+		b.WriteString("An archon-audit is running in parallel on the source code. Start your own scanning immediately:\n\n")
 	}
-	b.WriteString("   - Review discovered endpoints: `vigolium traffic --json`\n\n")
 
-	b.WriteString("2. **Analysis & Scanning** — Test for vulnerabilities:\n")
-	b.WriteString("   - Scan high-value endpoints: `vigolium scan-url <url> --json`\n")
-	b.WriteString("   - Use targeted module tags: `--module-tag injection,xss,auth,ssrf,ssti`\n")
-	b.WriteString("   - Pipe raw requests: `printf '...' | vigolium scan-request --json`\n")
-	b.WriteString("   - Write custom JS extensions for edge cases: `vigolium ext eval --ext-file script.js`\n\n")
+	if hasFindings {
+		b.WriteString("The archon audit has already mapped the codebase. Focus on validation and exploitation:\n\n")
+		b.WriteString("1. **Review audit findings** — Prioritize by severity and confidence\n")
+		if cfg.BrowserEnabled {
+			b.WriteString("2. **Authenticate if needed** — If findings require authenticated access, use `agent-browser` to log in and capture session credentials\n")
+			b.WriteString("3. **Exploit confirmed findings** — Write PoCs using curl, custom scripts, or vigolium extensions\n")
+		} else {
+			b.WriteString("2. **Exploit confirmed findings** — Write PoCs using curl, custom scripts, or vigolium extensions\n")
+		}
+		b.WriteString("   - Use `printf '<raw-request>' | vigolium scan-request --json` for targeted scanning\n")
+		b.WriteString("   - Use `vigolium scan-url <url> --json --module-tag <tag>` for route-level scanning\n")
+		stepN := 3
+		if cfg.BrowserEnabled {
+			stepN = 4
+		}
+		fmt.Fprintf(&b, "%d. **Run targeted native scans** — Scan routes identified in findings\n", stepN)
+		fmt.Fprintf(&b, "%d. **Investigate uncertain findings** — Use source code analysis and probing\n", stepN+1)
+		fmt.Fprintf(&b, "%d. **Discover gaps** — Run `vigolium scan --only discovery -t <target> --json` to find missed endpoints\n", stepN+2)
+		fmt.Fprintf(&b, "%d. **Report** — Summarize confirmed vulnerabilities with evidence and remediation\n\n", stepN+3)
+	} else {
+		stepN := 1
+		if cfg.BrowserEnabled {
+			fmt.Fprintf(&b, "%d. **Authenticate** — If the target has a login page, use `agent-browser` to authenticate:\n", stepN)
+			b.WriteString("   - `agent-browser open <login-url> --session-name scan` to open the page\n")
+			b.WriteString("   - `agent-browser snapshot --json --session-name scan` to find form elements\n")
+			b.WriteString("   - Fill credentials, submit, then `agent-browser cookies --json --session-name scan`\n")
+			b.WriteString("   - Use captured cookies/tokens with vigolium scan commands via `--header`\n\n")
+			stepN++
+		}
+		fmt.Fprintf(&b, "%d. **Reconnaissance** — Discover the attack surface:\n", stepN)
+		b.WriteString("   - Run `vigolium scan --only discovery -t <target> --json` for content discovery\n")
+		b.WriteString("   - Run `vigolium scan --only spidering -t <target> --json --spider` for crawling\n")
+		b.WriteString("   - Use `curl -s -i` to probe interesting endpoints manually\n")
+		if cfg.SourcePath != "" {
+			b.WriteString("   - Read application source code to find routes, auth mechanisms, and sinks\n")
+		}
+		b.WriteString("   - Review discovered endpoints: `vigolium traffic --json`\n\n")
 
-	b.WriteString("3. **Verification & Iteration** — Confirm and expand:\n")
-	b.WriteString("   - Review findings: `vigolium finding --json --severity critical,high`\n")
-	b.WriteString("   - Manually verify with curl to confirm exploitability\n")
-	b.WriteString("   - Test related endpoints for similar vulnerabilities\n")
-	b.WriteString("   - Import confirmed findings: `echo '{...}' | vigolium finding load`\n\n")
+		fmt.Fprintf(&b, "%d. **Analysis & Scanning** — Test for vulnerabilities:\n", stepN+1)
+		b.WriteString("   - Scan high-value endpoints: `vigolium scan-url <url> --json`\n")
+		b.WriteString("   - Use targeted module tags: `--module-tag injection,xss,auth,ssrf,ssti`\n")
+		b.WriteString("   - Pipe raw requests: `printf '...' | vigolium scan-request --json`\n")
+		b.WriteString("   - Write custom JS extensions for edge cases: `vigolium ext eval --ext-file script.js`\n\n")
 
-	b.WriteString("4. **Reporting** — Summarize your work:\n")
-	b.WriteString("   - Provide a clear summary of all confirmed vulnerabilities\n")
-	b.WriteString("   - Include severity, evidence, and remediation guidance\n")
-	b.WriteString("   - Note any false positives you identified and dismissed\n\n")
+		fmt.Fprintf(&b, "%d. **Verification & Iteration** — Confirm and expand:\n", stepN+2)
+		b.WriteString("   - Review findings: `vigolium finding --json --severity critical,high`\n")
+		b.WriteString("   - Manually verify with curl to confirm exploitability\n")
+		b.WriteString("   - Test related endpoints for similar vulnerabilities\n")
+		b.WriteString("   - Import confirmed findings: `echo '{...}' | vigolium finding load`\n\n")
+
+		fmt.Fprintf(&b, "%d. **Reporting** — Summarize your work:\n", stepN+3)
+		b.WriteString("   - Provide a clear summary of all confirmed vulnerabilities\n")
+		b.WriteString("   - Include severity, evidence, and remediation guidance\n")
+		b.WriteString("   - Note any false positives you identified and dismissed\n\n")
+	}
 
 	b.WriteString("## Guidelines\n\n")
 	b.WriteString("- Always use `--json` for structured output you can analyze\n")
@@ -230,641 +395,195 @@ func buildAutonomousPrompt(cfg AutopilotPipelineConfig) string {
 	return b.String()
 }
 
-// Run executes the full autopilot pipeline (legacy 5-phase mode for non-SDK backends).
-func (r *AutopilotPipelineRunner) Run(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
-	start := time.Now()
-
-	// Pre-flight: verify agent backend is reachable before starting pipeline
-	if err := r.engine.Preflight(cfg.AgentName); err != nil {
-		return nil, fmt.Errorf("autopilot preflight failed: %w", err)
-	}
-
-	// Ensure warm sessions for multi-call mode
-	r.engine.EnsureWarmSessions()
-
-	result := &AutopilotPipelineResult{
-		VulnQueues:   make(map[VulnClass]*VulnQueue),
-		Evidence:     make(map[VulnClass][]ExploitationEvidence),
-		PhaseTimings: make(map[AutopilotPhase]time.Duration),
-		PhaseFailed:  make(map[AutopilotPhase]bool),
-		SessionDir:   cfg.SessionDir,
-	}
-
-	// Start archon-audit when configured and source is available
-	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
-	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
-	if archonCleanup != nil {
-		defer archonCleanup()
-	}
-	if archonRunner != nil && !cfg.ArchonParallel {
-		archonLogFn("waiting for archon-audit to finish before starting autopilot")
-		_ = archonRunner.Wait()
-		if status := archonRunner.Status(); status != nil {
-			archonLogFn(fmt.Sprintf("finished  %d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
-		}
-	}
-
-	// Load checkpoint for resume
-	var checkpoint *AutopilotCheckpoint
-	if cfg.ResumeDir != "" {
-		cp, err := loadAutopilotCheckpoint(cfg.ResumeDir)
-		if err != nil {
-			zap.L().Warn("Failed to load autopilot checkpoint, starting fresh", zap.Error(err))
-		} else {
-			checkpoint = cp
-			if cp.VulnQueues != nil {
-				result.VulnQueues = cp.VulnQueues
-			}
-		}
-	}
-
-	phaseCompleted := func(phase AutopilotPhase) bool {
-		if checkpoint == nil {
-			return false
-		}
-		for _, p := range checkpoint.CompletedPhases {
-			if p == phase {
-				return true
-			}
-		}
-		return false
-	}
-
-	notifyPhase := func(phase AutopilotPhase) {
-		if cfg.PhaseCallback != nil {
-			cfg.PhaseCallback(phase)
-		}
-		printPhaseLine(string(phase), "starting")
-	}
-
-	// Phase 1: Recon (+ parallel source analysis when --source is provided)
-	var reconResult *ReconDeliverable
-	if !phaseCompleted(AutopilotPhaseRecon) {
-		notifyPhase(AutopilotPhaseRecon)
-		emitProgress(cfg, "recon", "starting reconnaissance")
-		phaseStart := time.Now()
-
-		var reconErr error
-		var sourceResult *SourceAnalysisResult
-
-		if cfg.SourcePath != "" {
-			// Run recon and source analysis in parallel
-			g, gctx := errgroup.WithContext(ctx)
-			g.Go(func() error {
-				reconResult, reconErr = r.runRecon(gctx, cfg)
-				return nil // don't fail the group
-			})
-			g.Go(func() error {
-				saCfg := SourceAnalysisConfig{
-					AgentName:   cfg.AgentName,
-					TargetURL:   cfg.TargetURL,
-					SourcePath:  cfg.SourcePath,
-					Files:       cfg.Files,
-					Instruction: cfg.Instruction,
-					SessionKey:  "autopilot-source-analysis",
-					DryRun:      cfg.DryRun,
-					ShowPrompt:  cfg.ShowPrompt,
-					ScanUUID:    cfg.ScanUUID,
-					ProjectUUID: cfg.ProjectUUID,
-					StreamWriter: cfg.StreamWriter,
-					SessionDir:  cfg.SessionDir,
-				}
-				emitProgress(cfg, "source-analysis", "running source analysis in parallel with recon")
-				var saErr error
-				sourceResult, _, _, saErr = r.engine.RunSourceAnalysisParallel(gctx, saCfg)
-				if saErr != nil {
-					zap.L().Warn("Parallel source analysis failed", zap.Error(saErr))
-				}
-				return nil // don't fail the group
-			})
-			_ = g.Wait()
-		} else {
-			reconResult, reconErr = r.runRecon(ctx, cfg)
-		}
-
-		result.PhaseTimings[AutopilotPhaseRecon] = time.Since(phaseStart)
-		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseRecon)
-
-		if reconErr != nil {
-			zap.L().Warn("Recon phase failed, continuing with empty recon", zap.Error(reconErr))
-			result.PhaseFailed[AutopilotPhaseRecon] = true
-		} else if reconResult != nil {
-			zap.L().Info("Recon completed",
-				zap.Int("endpoints", len(reconResult.Endpoints)),
-				zap.Int("tech_stack", len(reconResult.TechStack)))
-			emitProgress(cfg, "recon", fmt.Sprintf("found %d endpoints", len(reconResult.Endpoints)))
-		}
-
-		// Process source analysis results
-		if sourceResult != nil {
-			if cfg.SourceAnalysisCallback != nil {
-				if cbErr := cfg.SourceAnalysisCallback(sourceResult); cbErr != nil {
-					zap.L().Warn("Source analysis callback failed", zap.Error(cbErr))
-				}
-			}
-			emitProgress(cfg, "source-analysis", fmt.Sprintf("found %d routes, %d extensions",
-				len(sourceResult.HTTPRecords), len(sourceResult.Extensions)))
-		}
-
-		r.saveCheckpoint(cfg, result)
-	}
-
-	// Smart specialist filtering: skip irrelevant specialists based on recon output
-	effectiveSpecialists := cfg.Specialists
-	if !cfg.NoFilterSpecialists && reconResult != nil {
-		effectiveSpecialists = filterSpecialistsByRecon(reconResult, cfg.Specialists)
-		if len(effectiveSpecialists) < len(cfg.Specialists) {
-			zap.L().Info("Filtered specialists based on recon",
-				zap.Int("original", len(cfg.Specialists)),
-				zap.Int("remaining", len(effectiveSpecialists)))
-		}
-	}
-	// Use filtered specialists for remaining phases
-	filteredCfg := cfg
-	filteredCfg.Specialists = effectiveSpecialists
-
-	// Phase 2: Vuln Analysis (parallel specialists)
-	if !phaseCompleted(AutopilotPhaseVulnAnalysis) {
-		notifyPhase(AutopilotPhaseVulnAnalysis)
-		phaseStart := time.Now()
-
-		// Pass completed specialists from checkpoint for partial resume
-		var completedSpecs map[VulnClass]bool
-		if checkpoint != nil && checkpoint.CompletedSpecialists != nil {
-			completedSpecs = checkpoint.CompletedSpecialists
-		}
-		emitProgress(filteredCfg, "vuln-analysis", fmt.Sprintf("running %d specialists", len(filteredCfg.Specialists)))
-		queues, extensions, err := r.runVulnAnalysis(ctx, filteredCfg, completedSpecs)
-		result.PhaseTimings[AutopilotPhaseVulnAnalysis] = time.Since(phaseStart)
-		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseVulnAnalysis)
-
-		if err != nil {
-			zap.L().Warn("Vuln analysis phase had errors", zap.Error(err))
-		}
-
-		// Check if vuln analysis produced any results
-		hasResults := false
-		for _, q := range queues {
-			if q != nil && len(q.Items) > 0 {
-				hasResults = true
-				break
-			}
-		}
-		if !hasResults {
-			result.PhaseFailed[AutopilotPhaseVulnAnalysis] = true
-		}
-
-		for class, queue := range queues {
-			result.VulnQueues[class] = queue
-		}
-
-		// Write merged extensions
-		if len(extensions) > 0 && cfg.SessionDir != "" {
-			extDir, writeErr := WriteExtensionsToSessionDir(extensions, cfg.SessionDir)
-			if writeErr != nil {
-				zap.L().Warn("Failed to write extensions", zap.Error(writeErr))
-			} else {
-				zap.L().Info("Merged extensions from specialists",
-					zap.Int("count", len(extensions)),
-					zap.String("dir", extDir))
-			}
-		}
-
-		r.saveCheckpoint(cfg, result)
-	}
-
-	// Phase 3: Native Scan
-	if !phaseCompleted(AutopilotPhaseNativeScan) && cfg.ScanFunc != nil {
-		// Warn if all AI phases failed — scan will run with default modules, not AI-guided targeting
-		if result.PhaseFailed[AutopilotPhaseRecon] && result.PhaseFailed[AutopilotPhaseVulnAnalysis] {
-			zap.L().Warn("All AI phases failed — native scan will run with default modules (no AI-guided targeting). " +
-				"Check agent backend configuration and ensure the agent binary is installed and accessible")
-			printPhaseLine("warning", "AI phases produced no results; falling back to default scan modules")
-		}
-
-		notifyPhase(AutopilotPhaseNativeScan)
-		phaseStart := time.Now()
-
-		extDir := filepath.Join(cfg.SessionDir, "extensions")
-		if _, statErr := os.Stat(extDir); os.IsNotExist(statErr) {
-			extDir = ""
-		}
-
-		// Collect module tags from all vuln queues
-		var tags []string
-		for _, queue := range result.VulnQueues {
-			if queue != nil && queue.Class != "" {
-				tags = append(tags, queue.Class)
-			}
-		}
-
-		scanErr := cfg.ScanFunc(ctx, ScanRequest{
-			ModuleTags:   tags,
-			ExtensionDir: extDir,
-		})
-		result.PhaseTimings[AutopilotPhaseNativeScan] = time.Since(phaseStart)
-		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseNativeScan)
-
-		if scanErr != nil {
-			zap.L().Warn("Native scan phase failed", zap.Error(scanErr))
-		}
-
-		r.saveCheckpoint(cfg, result)
-	}
-
-	// Phase 4: Exploit Verify (parallel specialists, conditional)
-	if !phaseCompleted(AutopilotPhaseExploitVerify) {
-		notifyPhase(AutopilotPhaseExploitVerify)
-		phaseStart := time.Now()
-
-		var completedExploitSpecs map[VulnClass]bool
-		if checkpoint != nil && checkpoint.CompletedExploitSpecialists != nil {
-			completedExploitSpecs = checkpoint.CompletedExploitSpecialists
-		}
-		emitProgress(filteredCfg, "exploit-verify", "verifying findings")
-		evidence, err := r.runExploitVerify(ctx, filteredCfg, result.VulnQueues, completedExploitSpecs)
-		result.PhaseTimings[AutopilotPhaseExploitVerify] = time.Since(phaseStart)
-		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseExploitVerify)
-
-		if err != nil {
-			zap.L().Warn("Exploit verification had errors", zap.Error(err))
-		}
-
-		for class, ev := range evidence {
-			result.Evidence[class] = ev
-			for _, e := range ev {
-				switch e.Status {
-				case EvidenceStatusExploited:
-					result.Confirmed++
-				case EvidenceStatusFalsePositive:
-					result.FalsePositives++
-				}
-				result.TotalFindings++
-			}
-		}
-
-		r.saveCheckpoint(cfg, result)
-	}
-
-	// Phase 5: Report
-	if !phaseCompleted(AutopilotPhaseReport) {
-		notifyPhase(AutopilotPhaseReport)
-		phaseStart := time.Now()
-
-		r.runReport(ctx, cfg, result)
-		result.PhaseTimings[AutopilotPhaseReport] = time.Since(phaseStart)
-		result.PhasesRun = append(result.PhasesRun, AutopilotPhaseReport)
-	}
-
-	result.Duration = time.Since(start)
-	return result, nil
-}
-
-// runRecon executes the recon phase using an autopilot agent with terminal access.
-func (r *AutopilotPipelineRunner) runRecon(ctx context.Context, cfg AutopilotPipelineConfig) (*ReconDeliverable, error) {
-	opts := Options{
-		AgentName:      cfg.AgentName,
-		PromptTemplate: "autopilot-recon",
-		SourcePath:     cfg.SourcePath,
-		TargetURL:      cfg.TargetURL,
-		Source:         "autopilot-v2",
-		Autopilot:      true,
-		MaxCommands:    cfg.MaxCommands,
-		Instruction:    cfg.Instruction,
-		StreamWriter:   cfg.StreamWriter,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		SessionKey:     "autopilot-recon",
-	}
+// writeCommonSections writes focus, instruction, archon findings, knowledge base, and
+// live archon monitoring sections that are shared between source-only and target prompts.
+func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) {
+	hasFindings := ac != nil && len(ac.Findings) > 0
 
 	if cfg.Focus != "" {
-		opts.Append = fmt.Sprintf("## Focus Area\n\n%s", cfg.Focus)
+		b.WriteString("## Focus Area\n\n")
+		b.WriteString(cfg.Focus)
+		b.WriteString("\n\n")
 	}
 
-	result, err := r.engine.Run(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("recon agent failed: %w", err)
+	if cfg.Instruction != "" {
+		b.WriteString("## Custom Instructions\n\n")
+		b.WriteString(cfg.Instruction)
+		b.WriteString("\n\n")
 	}
 
-	recon, parseErr := parsing.ParseReconDeliverable(result.RawOutput)
-	if parseErr != nil {
-		zap.L().Warn("Failed to parse recon deliverable", zap.Error(parseErr))
-		return nil, nil
-	}
+	// Archon findings section
+	if hasFindings {
+		b.WriteString("## Security Audit Findings\n\n")
+		fmt.Fprintf(b, "The archon-audit produced **%d findings**. ", len(ac.Findings))
+		b.WriteString("Review them and decide what action to take for each.\n\n")
 
-	return recon, nil
-}
-
-// runVulnAnalysis runs parallel specialist agents for vuln analysis (no terminal).
-// It supports resuming from a checkpoint — already-completed specialists are skipped.
-func (r *AutopilotPipelineRunner) runVulnAnalysis(ctx context.Context, cfg AutopilotPipelineConfig, completedSpecialists map[VulnClass]bool) (map[VulnClass]*VulnQueue, []GeneratedExtension, error) {
-	queues := make(map[VulnClass]*VulnQueue)
-	var mu sync.Mutex
-	var allExtensions []GeneratedExtension
-
-	g, gctx := errgroup.WithContext(ctx)
-
-	for _, specialist := range cfg.Specialists {
-		class := specialist
-
-		// Skip already-completed specialists on resume
-		if completedSpecialists[class] {
-			zap.L().Info("Skipping already-completed vuln specialist", zap.String("class", string(class)))
-			continue
+		if cfg.SessionDir != "" {
+			fmt.Fprintf(b, "> Full finding details: `%s/archon-audit/findings-draft/`\n\n", cfg.SessionDir)
 		}
 
-		g.Go(func() error {
-			templateID := fmt.Sprintf("autopilot-vuln-%s", class)
-
-			opts := Options{
-				AgentName:      cfg.AgentName,
-				PromptTemplate: templateID,
-				SourcePath:     cfg.SourcePath,
-				TargetURL:      cfg.TargetURL,
-				Source:         "autopilot-v2",
-				Autopilot:      false, // no terminal for vuln analysis
-				Instruction:    cfg.Instruction,
-				StreamWriter:   cfg.StreamWriter,
-				ScanUUID:       cfg.ScanUUID,
-				ProjectUUID:    cfg.ProjectUUID,
-				SessionKey:     fmt.Sprintf("autopilot-vuln-%s", class),
-			}
-
-			if len(cfg.Files) > 0 {
-				opts.Files = cfg.Files
-			}
-
-			result, err := r.engine.Run(gctx, opts)
-			if err != nil {
-				zap.L().Warn("Vuln analysis specialist failed",
-					zap.String("class", string(class)), zap.Error(err))
-				return nil // don't fail the group
-			}
-
-			queue, parseErr := parsing.ParseVulnQueue(result.RawOutput)
-			if parseErr != nil {
-				zap.L().Warn("Failed to parse vuln queue",
-					zap.String("class", string(class)), zap.Error(parseErr))
-				return nil
-			}
-
-			// Extract extensions: try structured JSON first, fall back to code blocks
-			extensions := parsing.ParseExtensionsFromJSON(result.RawOutput)
-			if len(extensions) == 0 {
-				extensions = parsing.ExtractCodeBlockExtensions(result.RawOutput)
-			}
-
-			mu.Lock()
-			queues[class] = queue
-			allExtensions = append(allExtensions, extensions...)
-			mu.Unlock()
-
-			zap.L().Info("Vuln analysis specialist completed",
-				zap.String("class", string(class)),
-				zap.Int("items", len(queue.Items)),
-				zap.Int("extensions", len(extensions)))
-
-			return nil
-		})
+		b.WriteString(formatArchonFindings(ac.Findings))
+		b.WriteString("\n")
 	}
 
-	err := g.Wait()
-	return queues, allExtensions, err
-}
-
-// runExploitVerify runs parallel specialist agents for exploit verification (with terminal).
-// It supports resuming from a checkpoint — already-completed specialists are skipped.
-func (r *AutopilotPipelineRunner) runExploitVerify(ctx context.Context, cfg AutopilotPipelineConfig, queues map[VulnClass]*VulnQueue, completedSpecialists map[VulnClass]bool) (map[VulnClass][]ExploitationEvidence, error) {
-	evidence := make(map[VulnClass][]ExploitationEvidence)
-	var mu sync.Mutex
-
-	g, gctx := errgroup.WithContext(ctx)
-
-	for _, specialist := range cfg.Specialists {
-		class := specialist
-		queue := queues[class]
-
-		// Skip if no vuln queue items for this class
-		if queue == nil || len(queue.Items) == 0 {
-			continue
+	// Knowledge base section (truncated)
+	if ac != nil && ac.KnowledgeBase != "" {
+		b.WriteString("## Application Knowledge Base\n\n")
+		kb := ac.KnowledgeBase
+		if len(kb) > maxKnowledgeBaseChars {
+			kb = kb[:maxKnowledgeBaseChars] + "\n\n... (truncated — see full report in session dir)\n"
 		}
-
-		// Skip already-completed specialists on resume
-		if completedSpecialists[class] {
-			zap.L().Info("Skipping already-completed exploit specialist", zap.String("class", string(class)))
-			continue
-		}
-
-		g.Go(func() error {
-			templateID := fmt.Sprintf("autopilot-exploit-%s", class)
-
-			// Serialize vuln queue as context for the exploit agent
-			queueJSON, _ := json.Marshal(queue)
-
-			opts := Options{
-				AgentName:      cfg.AgentName,
-				PromptTemplate: templateID,
-				SourcePath:     cfg.SourcePath,
-				TargetURL:      cfg.TargetURL,
-				Source:         "autopilot-v2",
-				Autopilot:      true, // terminal enabled for exploitation
-				MaxCommands:    cfg.MaxCommands,
-				Instruction:    cfg.Instruction,
-				StreamWriter:   cfg.StreamWriter,
-				ScanUUID:       cfg.ScanUUID,
-				ProjectUUID:    cfg.ProjectUUID,
-				SessionKey:     fmt.Sprintf("autopilot-exploit-%s", class),
-				Extra: map[string]string{
-					"VulnQueue": string(queueJSON),
-				},
-			}
-
-			result, err := r.engine.Run(gctx, opts)
-			if err != nil {
-				zap.L().Warn("Exploit verification specialist failed",
-					zap.String("class", string(class)), zap.Error(err))
-				return nil
-			}
-
-			ev, parseErr := parsing.ParseExploitationEvidence(result.RawOutput)
-			if parseErr != nil {
-				zap.L().Warn("Failed to parse exploitation evidence",
-					zap.String("class", string(class)), zap.Error(parseErr))
-				return nil
-			}
-
-			mu.Lock()
-			evidence[class] = ev
-			mu.Unlock()
-
-			zap.L().Info("Exploit verification completed",
-				zap.String("class", string(class)),
-				zap.Int("evidence_count", len(ev)))
-
-			return nil
-		})
+		b.WriteString(kb)
+		b.WriteString("\n\n")
 	}
 
-	err := g.Wait()
-	return evidence, err
-}
-
-// runReport executes the report phase.
-func (r *AutopilotPipelineRunner) runReport(ctx context.Context, cfg AutopilotPipelineConfig, result *AutopilotPipelineResult) {
-	// Serialize evidence for the report agent
-	evidenceJSON, _ := json.MarshalIndent(result.Evidence, "", "  ")
-
-	opts := Options{
-		AgentName:      cfg.AgentName,
-		PromptTemplate: "autopilot-report",
-		TargetURL:      cfg.TargetURL,
-		Source:         "autopilot-v2",
-		Autopilot:      false,
-		StreamWriter:   cfg.StreamWriter,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		SessionKey:     "autopilot-report",
-		Extra: map[string]string{
-			"Evidence":       string(evidenceJSON),
-			"TotalFindings":  fmt.Sprintf("%d", result.TotalFindings),
-			"Confirmed":      fmt.Sprintf("%d", result.Confirmed),
-			"FalsePositives": fmt.Sprintf("%d", result.FalsePositives),
-		},
-	}
-
-	reportResult, err := r.engine.Run(ctx, opts)
-	if err != nil {
-		zap.L().Warn("Report phase failed", zap.Error(err))
-		return
-	}
-
-	// Save report to session directory
-	if cfg.SessionDir != "" && reportResult.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(cfg.SessionDir, "report.md"), []byte(reportResult.RawOutput), 0644)
+	// Live archon monitoring section (when archon is running in parallel)
+	if archonRunning && cfg.SessionDir != "" {
+		b.WriteString("## Live Security Audit (archon-audit)\n\n")
+		b.WriteString("An archon-audit is running **in parallel** on the source code. Findings are synced to:\n\n")
+		fmt.Fprintf(b, "```\n%s/archon-audit/findings-draft/\n```\n\n", cfg.SessionDir)
+		b.WriteString("Check this directory periodically — new findings appear as the audit progresses:\n\n")
+		fmt.Fprintf(b, "```bash\nls %s/archon-audit/findings-draft/\ncat %s/archon-audit/audit-state.json\n```\n\n", cfg.SessionDir, cfg.SessionDir)
+		b.WriteString("As findings arrive, review and exploit them alongside your own discovery work.\n")
+		b.WriteString("Start with your own reconnaissance while waiting for audit results.\n\n")
 	}
 }
 
-// saveCheckpoint persists the autopilot pipeline state after a phase completes.
-func (r *AutopilotPipelineRunner) saveCheckpoint(cfg AutopilotPipelineConfig, result *AutopilotPipelineResult) {
-	if cfg.SessionDir == "" {
-		return
+// formatArchonFindings formats archon findings for inclusion in the agent prompt.
+// Uses tiered formatting based on finding count to manage prompt size.
+func formatArchonFindings(findings []*archon.ArchonFinding) string {
+	if len(findings) == 0 {
+		return ""
 	}
-	cp := &AutopilotCheckpoint{
-		CompletedPhases: make([]AutopilotPhase, len(result.PhasesRun)),
-		TargetURL:       cfg.TargetURL,
-		VulnQueues:      result.VulnQueues,
-		Timestamp:       time.Now(),
-	}
-	copy(cp.CompletedPhases, result.PhasesRun)
 
-	if err := writeAutopilotCheckpoint(cfg.SessionDir, cp); err != nil {
-		zap.L().Warn("Failed to write autopilot checkpoint", zap.Error(err))
+	// Sort by severity: critical > high > medium > low > info
+	sorted := make([]*archon.ArchonFinding, len(findings))
+	copy(sorted, findings)
+	sort.Slice(sorted, func(i, j int) bool {
+		return severityRank(sorted[i].Severity) < severityRank(sorted[j].Severity)
+	})
+
+	var b strings.Builder
+
+	// Tier 1: full detail per finding
+	if len(sorted) <= findingsTierFullDetail {
+		for _, f := range sorted {
+			writeFullFinding(&b, f)
+		}
+		return b.String()
+	}
+
+	// Tier 2: summary table + detail for critical/high only
+	if len(sorted) <= findingsTierSummaryTable {
+		writeFindingSummaryTable(&b, sorted)
+		b.WriteString("\n### Critical and High Severity Details\n\n")
+		for _, f := range sorted {
+			if isCriticalOrHigh(f.Severity) {
+				writeFullFinding(&b, f)
+			}
+		}
+		return b.String()
+	}
+
+	// Tier 3: summary table + top N detail
+	writeFindingSummaryTable(&b, sorted)
+	fmt.Fprintf(&b, "\n### Top %d Findings (Details)\n\n", findingsTopNDetail)
+	count := findingsTopNDetail
+	if count > len(sorted) {
+		count = len(sorted)
+	}
+	for i := 0; i < count; i++ {
+		writeFullFinding(&b, sorted[i])
+	}
+	fmt.Fprintf(&b, "\n> %d additional findings available. Read individual files from the findings-draft directory.\n", len(sorted)-count)
+	return b.String()
+}
+
+// writeFullFinding writes a detailed finding entry to the builder.
+func writeFullFinding(b *strings.Builder, f *archon.ArchonFinding) {
+	title := f.Title
+	if title == "" {
+		title = f.Slug
+	}
+
+	fmt.Fprintf(b, "### [%s] %s (%s)\n", f.FindingID, title, f.Severity)
+
+	// Metadata line
+	fmt.Fprintf(b, "- **Verdict:** %s", f.Verdict)
+	if f.PoCStatus != "" {
+		fmt.Fprintf(b, " | **PoC Status:** %s", f.PoCStatus)
+	}
+	if f.CWE != "" {
+		fmt.Fprintf(b, " | **CWE:** %s", f.CWE)
+	}
+	b.WriteString("\n")
+
+	// Locations
+	if len(f.Locations) > 0 {
+		fmt.Fprintf(b, "- **Locations:** `%s`\n", strings.Join(f.Locations, "`, `"))
+	}
+
+	if f.Body != "" {
+		b.WriteString("\n")
+		b.WriteString(modkit.Truncate(f.Body, maxBodyExcerptChars))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+}
+
+// writeFindingSummaryTable writes a markdown table summarizing all findings.
+func writeFindingSummaryTable(b *strings.Builder, findings []*archon.ArchonFinding) {
+	b.WriteString("| ID | Title | Severity | Verdict | PoC | Locations |\n")
+	b.WriteString("|----|-------|----------|---------|-----|-----------|\n")
+	for _, f := range findings {
+		title := f.Title
+		if title == "" {
+			title = f.Slug
+		}
+		title = modkit.Truncate(title, maxTitleChars)
+		locs := ""
+		if len(f.Locations) > 0 {
+			locs = f.Locations[0]
+			if len(f.Locations) > 1 {
+				locs += fmt.Sprintf(" (+%d)", len(f.Locations)-1)
+			}
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n",
+			f.FindingID, title, f.Severity, f.Verdict, f.PoCStatus, locs)
 	}
 }
 
-// writeAutopilotCheckpoint persists an AutopilotCheckpoint to the session directory.
-func writeAutopilotCheckpoint(sessionDir string, cp *AutopilotCheckpoint) error {
-	if sessionDir == "" {
-		return nil
+// parseSeverity converts a severity string to the typed enum.
+// Returns severity.Undefined for unrecognized values.
+func parseSeverity(sev string) severity.Severity {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "critical":
+		return severity.Critical
+	case "high":
+		return severity.High
+	case "medium":
+		return severity.Medium
+	case "low":
+		return severity.Low
+	case "info":
+		return severity.Info
+	default:
+		return severity.Undefined
 	}
-	data, err := json.MarshalIndent(cp, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal autopilot checkpoint: %w", err)
-	}
-	return os.WriteFile(filepath.Join(sessionDir, "autopilot-checkpoint.json"), data, 0644)
 }
 
-// loadAutopilotCheckpoint reads an AutopilotCheckpoint from the session directory.
-func loadAutopilotCheckpoint(sessionDir string) (*AutopilotCheckpoint, error) {
-	data, err := os.ReadFile(filepath.Join(sessionDir, "autopilot-checkpoint.json"))
-	if err != nil {
-		return nil, err
-	}
-	var cp AutopilotCheckpoint
-	if err := json.Unmarshal(data, &cp); err != nil {
-		return nil, fmt.Errorf("failed to parse autopilot checkpoint: %w", err)
-	}
-	return &cp, nil
+// severityRank returns a sort rank for severity (lower = more critical).
+func severityRank(sev string) int {
+	// severity.Severity int values increase with severity, so negate for descending sort.
+	return -int(parseSeverity(sev))
 }
 
-// filterSpecialistsByRecon prunes the specialist list based on recon results.
-// Returns all configured specialists if recon is nil/empty or filtering is disabled.
-func filterSpecialistsByRecon(recon *ReconDeliverable, configured []VulnClass) []VulnClass {
-	if recon == nil || len(recon.Endpoints) == 0 {
-		return configured
-	}
-
-	// Build a set of interesting signals from the recon data
-	hasAuthEndpoints := false
-	hasIDParams := false
-	hasSSRFPatterns := false
-
-	authKeywords := []string{"login", "register", "password", "token", "session", "oauth", "auth", "signup", "signin"}
-	ssrfKeywords := []string{"url=", "redirect", "proxy", "fetch", "callback", "next=", "return=", "dest=", "target="}
-	idKeywords := []string{"id=", "user_id", "account_id", "order_id", "item_id"}
-
-	for _, ep := range recon.Endpoints {
-		if hasAuthEndpoints && hasSSRFPatterns && hasIDParams {
-			break // all signals found, no need to check more endpoints
-		}
-		epLower := strings.ToLower(ep.URL + " " + ep.Parameter + " " + ep.Notes)
-		for _, kw := range authKeywords {
-			if strings.Contains(epLower, kw) {
-				hasAuthEndpoints = true
-				break
-			}
-		}
-		for _, kw := range ssrfKeywords {
-			if strings.Contains(epLower, kw) {
-				hasSSRFPatterns = true
-				break
-			}
-		}
-		for _, kw := range idKeywords {
-			if strings.Contains(epLower, kw) {
-				hasIDParams = true
-				break
-			}
-		}
-	}
-
-	// Also check auth flows from recon
-	if len(recon.AuthFlows) > 0 {
-		hasAuthEndpoints = true
-	}
-
-	var filtered []VulnClass
-	for _, class := range configured {
-		switch class {
-		case VulnClassAuth:
-			if !hasAuthEndpoints {
-				zap.L().Info("Skipping specialist (no auth endpoints detected)", zap.String("class", string(class)))
-				continue
-			}
-		case VulnClassAuthz:
-			if !hasAuthEndpoints && !hasIDParams {
-				zap.L().Info("Skipping specialist (no auth flows or ID parameters detected)", zap.String("class", string(class)))
-				continue
-			}
-		case VulnClassSSRF:
-			if !hasSSRFPatterns {
-				zap.L().Info("Skipping specialist (no SSRF-related patterns detected)", zap.String("class", string(class)))
-				continue
-			}
-		}
-		filtered = append(filtered, class)
-	}
-
-	// Always run at least injection and XSS — they're universally applicable
-	if len(filtered) == 0 {
-		return configured
-	}
-
-	return filtered
+func isCriticalOrHigh(sev string) bool {
+	return parseSeverity(sev) >= severity.High
 }
 
-// emitProgress calls the progress callback if set.
-func emitProgress(cfg AutopilotPipelineConfig, phase, message string) {
+func emitProgress(cfg *AutopilotPipelineConfig, phase, message string) {
 	if cfg.ProgressCallback != nil {
 		cfg.ProgressCallback(phase, message)
 	}
@@ -880,7 +599,6 @@ type progressWriter struct {
 	lastEmitted int64
 }
 
-// Write delegates to the inner writer and emits progress at intervals.
 func (pw *progressWriter) Write(p []byte) (n int, err error) {
 	n, err = pw.inner.Write(p)
 	pw.written += int64(n)

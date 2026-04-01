@@ -33,12 +33,10 @@ var (
 	autopilotInstruction     string
 	autopilotInstructionFile string
 	autopilotMcpServers      []string
-	autopilotMcpEnabled  bool
-	autopilotSpecialists []string
-	autopilotResume      string
-	autopilotBrowser     bool
-	autopilotArchon         string
-	autopilotArchonParallel bool
+	autopilotMcpEnabled      bool
+	autopilotBrowser         bool
+	autopilotNoArchon        bool
+	autopilotArchonMode      string
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -51,9 +49,10 @@ The agent runs commands like scan-url, finding, traffic via its terminal
 capabilities to discover endpoints, scan for vulnerabilities, review
 results, and iterate until done.
 
-When --source is provided, the agent will also analyze the application
-source code to discover routes, understand auth flows, and identify
-potential vulnerability sinks before scanning.
+When --source is provided, archon-audit runs automatically in parallel
+with the autonomous agent. The agent begins scanning immediately while
+archon audits the source code, picking up findings as they arrive.
+Use --no-archon to disable this behavior.
 
 Supports natural language prompts as a positional argument:
   vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
@@ -93,12 +92,9 @@ func init() {
 	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.StringSliceVar(&autopilotMcpServers, "mcp-server", nil, "MCP servers to attach (format: name=command,arg1,arg2 or name=http://url)")
 	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to agent sessions")
-	f.StringSliceVar(&autopilotSpecialists, "specialists", nil, "Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz)")
-	f.StringVar(&autopilotResume, "resume", "", "Resume from a previous session directory")
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
-	f.StringVar(&autopilotArchon, "archon", "", "Run archon-audit for security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
-	agentAutopilotCmd.Flag("archon").NoOptDefVal = "lite" // bare --archon defaults to lite
-	f.BoolVar(&autopilotArchonParallel, "parallel", false, "Run archon-audit in parallel with autopilot instead of waiting for it to finish")
+	f.BoolVar(&autopilotNoArchon, "no-archon", false, "Disable automatic archon-audit (enabled by default when --source is set)")
+	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), or deep (11-phase)")
 }
 
 func runAgentAutopilot(_ *cobra.Command, args []string) error {
@@ -219,9 +215,12 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	}
 
 	// Archon
-	if autopilotArchon != "" {
+	if !autopilotNoArchon && autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "  %s Archon: %s %s\n", terminal.Purple(terminal.SymbolInfo),
-			terminal.HiGreen(autopilotArchon+" mode"), terminal.Muted("(background whitebox audit)"))
+			terminal.HiGreen(autopilotArchonMode+" mode"), terminal.Muted("(parallel whitebox audit)"))
+	} else if autopilotNoArchon && autopilotSource != "" {
+		fmt.Fprintf(os.Stderr, "  %s Archon: %s\n", terminal.Purple(terminal.SymbolInfo),
+			terminal.Muted("disabled (--no-archon)"))
 	}
 
 	// Focus / instruction
@@ -248,22 +247,15 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	// Merge CLI MCP servers onto the resolved agent definition
 	mergeAgentMcpServers(settings, autopilotAgent, cliMcpServers)
 
-	// Detect agent protocol: SDK gets fully autonomous mode, others get legacy pipeline
+	// Warn if protocol is not SDK (autopilot requires SDK for full tool access)
 	protocol := engine.ResolveAgentProtocol(autopilotAgent)
-	if protocol == "sdk" {
-		return runAutopilotAutonomous(ctx, engine, settings, repo, sessionDir, instruction)
+	if protocol != "sdk" {
+		fmt.Fprintf(os.Stderr, "%s Autopilot requires SDK protocol for full tool access. "+
+			"Current backend uses %q. Consider using: vigolium agent swarm\n",
+			terminal.WarningSymbol(), protocol)
 	}
 
-	// Non-SDK backends fall back to the legacy 5-phase pipeline
-	fmt.Fprintf(os.Stderr, "%s Autopilot works best with the Agent SDK backend (protocol: sdk). "+
-		"Current backend uses %q protocol.\n"+
-		"%s For full autonomy, configure an SDK agent: agent.default_agent: claude-sdk\n"+
-		"%s Falling back to legacy specialist pipeline.\n",
-		terminal.WarningSymbol(), protocol,
-		terminal.WarningSymbol(),
-		terminal.WarningSymbol())
-
-	return runAutopilotPipeline(ctx, engine, settings, repo, sessionDir, instruction)
+	return runAutopilotAutonomous(ctx, engine, settings, repo, sessionDir, instruction)
 }
 
 // parseMcpServerFlags parses --mcp-server flag values into McpServerConfig.
@@ -358,11 +350,13 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		StreamWriter: streamWriter,
 	}
 
-	// Wire archon
-	if auditCfg := agent.ResolveAuditAgentConfig(autopilotArchon, settings.Agent.Archon); auditCfg != nil {
+	// Wire archon (enabled by default when source is provided)
+	if auditCfg := agent.ResolveAuditAgentConfig(autopilotNoArchon, autopilotArchonMode, autopilotSource, settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
-		cfg.ArchonParallel = autopilotArchonParallel
 	}
+
+	// Wire browser
+	cfg.BrowserEnabled = settings.Agent.Browser.IsEnabled()
 
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
 	result, err := runner.RunAutonomous(ctx, cfg)
@@ -375,64 +369,6 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 
 	fmt.Fprintf(os.Stderr, "\n%s Autonomous autopilot session complete (%s)\n",
 		terminal.SuccessSymbol(),
-		result.Duration.Round(time.Second))
-
-	return nil
-}
-
-// runAutopilotPipeline runs the multi-agent specialist pipeline.
-func runAutopilotPipeline(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string) error {
-	// Resolve specialists
-	specialists := autopilotSpecialists
-	if len(specialists) == 0 {
-		specialists = []string{"injection", "xss", "auth", "ssrf", "authz"}
-	}
-
-	var streamWriter io.Writer
-	if settings.Agent.StreamEnabled() {
-		streamWriter = os.Stdout
-	}
-
-	projectUUID, _ := resolveProjectUUID()
-
-	cfg := agent.AutopilotPipelineConfig{
-		TargetURL:   autopilotTarget,
-		SourcePath:  autopilotSource,
-		Files:       autopilotFiles,
-		Instruction: instruction,
-		Focus:       autopilotFocus,
-		Specialists: agent.ToVulnClasses(specialists),
-		AgentName:   autopilotAgent,
-		MaxCommands: autopilotMaxCommands,
-		DryRun:      autopilotDryRun,
-		ShowPrompt:  autopilotShowPrompt,
-		SessionsDir: settings.Agent.EffectiveSessionsDir(),
-		SessionDir:  sessionDir,
-		ResumeDir:   autopilotResume,
-		ProjectUUID: projectUUID,
-		ScanUUID:    globalScanID,
-		StreamWriter: streamWriter,
-		ScanFunc:    buildAgentSwarmScanFunc(settings, repo, "", nil, new(string)),
-	}
-
-	// Wire archon
-	if auditCfg := agent.ResolveAuditAgentConfig(autopilotArchon, settings.Agent.Archon); auditCfg != nil {
-		cfg.Archon = auditCfg
-		cfg.ArchonParallel = autopilotArchonParallel
-	}
-
-	runner := agent.NewAutopilotPipelineRunner(engine, repo)
-	result, err := runner.Run(ctx, cfg)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("autopilot pipeline timed out after %s", autopilotTimeout)
-		}
-		return fmt.Errorf("autopilot pipeline failed: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "\n%s Autopilot pipeline complete: %d findings, %d confirmed, %d false positives (%s)\n",
-		terminal.SuccessSymbol(),
-		result.TotalFindings, result.Confirmed, result.FalsePositives,
 		result.Duration.Round(time.Second))
 
 	return nil
@@ -477,8 +413,10 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	if app.Instruction != "" && autopilotInstruction == "" {
 		autopilotInstruction = app.Instruction
 	}
-	if app.Archon != "" && autopilotArchon == "" {
-		autopilotArchon = app.Archon
+	if app.Archon == "off" {
+		autopilotNoArchon = true
+	} else if app.Archon != "" {
+		autopilotArchonMode = app.Archon
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
 		terminal.SuccessSymbol(),
@@ -530,13 +468,8 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 			StreamWriter: streamWriter,
 		}
 
-		protocol := engine.ResolveAgentProtocol(autopilotAgent)
 		runner := agent.NewAutopilotPipelineRunner(engine, repo)
-		if protocol == "sdk" {
-			_, err := runner.RunAutonomous(ctx, cfg)
-			return err
-		}
-		_, err := runner.Run(ctx, cfg)
+		_, err := runner.RunAutonomous(ctx, cfg)
 		return err
 	})
 }
