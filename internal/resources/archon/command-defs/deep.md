@@ -55,7 +55,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
          "commit": "<HEAD SHA from: git rev-parse HEAD>",
          "branch": "<current branch>",
          "mode": "deep",
-         "model": "<model name, e.g. opus-4.6, gpt5.2, sonnet-4.6>",
+         "model": "<model name, e.g. opus-4.6, gpt-5.3-codex, sonnet-4.6>",
          "agent_sdk": "<platform name, e.g. claude-code, codex, bytesec, opencode, traecli>",
          "started_at": "<ISO timestamp>",
          "completed_at": null,

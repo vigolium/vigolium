@@ -1,0 +1,13 @@
+[
+  {
+    "code": "team-alpha-2026",
+    "label": "Team Alpha",
+    "allowed_domains": ["@acme.com", "@partner.io"],
+    "expires": "2026-12-31T23:59:59Z"
+  },
+  {
+    "code": "demo-access",
+    "label": "Demo User",
+    "allowed_emails": ["demo@example.com"]
+  }
+]

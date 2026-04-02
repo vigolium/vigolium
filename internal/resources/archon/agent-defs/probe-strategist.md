@@ -20,41 +20,35 @@ Read `archon/knowledge-base-report.md`: sections `## DFD/CFD Slices`, `## Attack
 
 Then use Glob + Grep to find all source files for your assigned component(s).
 
-Write `archon/probe-workspace/<component>/attack-surface-map.md`:
+Write `archon/probe-workspace/<component>/attack-surface-map.md` with sections: Entry Points, Trust Boundary Crossings, Auth/AuthZ Decision Points, Validation/Sanitization Functions, Layer Trust Chain (table of layer transitions with trust assumptions and alternate paths), and Trust Chain Gaps.
 
+<!-- codex-trim-start -->
+Template:
 ```markdown
 # Attack Surface Map: <component>
 
 ## Entry Points
 - `<file:line>` — <function> — <what input it accepts>
-...
 
 ## Trust Boundary Crossings
 - <where attacker-controlled data crosses into privileged execution>
-...
 
 ## Auth / AuthZ Decision Points
 - `<file:line>` — <function> — <what it decides>
-...
 
 ## Validation / Sanitization Functions
 - `<file:line>` — <function> — <what it validates>
-...
 
 ## Layer Trust Chain
-
-For each layer transition in this component:
 
 | From Layer | To Layer | Trust Assumption | Holds for ALL paths? | Alternate Paths that Skip This Layer? |
 |-----------|---------|-----------------|:---:|---|
 | Middleware | Handler | Input is validated JSON | HTTP: YES | WebSocket: NO, Queue consumer: NO |
-| Handler | Service | User is authenticated | REST API: YES | Background worker: NO |
-| Service | DB | Queries are parameterized | ORM paths: YES | Raw SQL in reporting: NO |
-...
 
 ## Trust Chain Gaps (rows where "Alternate Paths" column is NOT empty)
 - <description of each gap — feed these to generators as priority targets>
 ```
+<!-- codex-trim-end -->
 
 ---
 
@@ -187,6 +181,9 @@ For a new loop: direct generators to focus ONLY on the gaps identified in Q1/Q3/
 
 ## Step 8: Write probe-summary.md
 
+Write `archon/probe-workspace/<component>/probe-summary.md` with: status, loop count, hypothesis counts, validated hypotheses (with reasoning model, target, attack input, code path, sanitizers, consequence, severity, evidence file), needs-deeper items (with ambiguity and suggested follow-up), and a coverage summary table mapping entry points to which reasoners covered them.
+
+<!-- codex-trim-start -->
 ```markdown
 # Deep Probe Summary: <component>
 
@@ -220,6 +217,7 @@ Stop reason: <covered all entry points / max loops / no significant gaps>
 |------------|:-:|:-:|:-:|
 | <entry> | <PH-NNs or NONE> | <PH-NNs or NONE> | <PH-NNs or NONE> |
 ```
+<!-- codex-trim-end -->
 
 ---
 

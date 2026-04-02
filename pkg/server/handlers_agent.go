@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -82,7 +84,7 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 	}
 
 	// Natural language prompt: resolve when explicit fields are empty
-	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.SourcePath == "" {
+	if req.Prompt != "" && req.Target == "" && req.Input == "" && req.SourcePath == "" && req.Diff == "" && req.LastCommits == 0 {
 		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
 		if resolveErr != nil {
 			return resolveErr // already sent HTTP response
@@ -125,9 +127,9 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		req.Target = targetURL
 	}
 
-	if req.Target == "" && req.SourcePath == "" {
+	if req.Target == "" && req.SourcePath == "" && req.Diff == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "target or source is required (use target, input, source, or prompt field)",
+			Error: "target, source, or diff is required (use target, input, source, diff, or prompt field)",
 		})
 	}
 
@@ -201,10 +203,27 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 		maxCmds = 100
 	}
 
+	sourcePath := req.SourcePath
+	files := req.Files
+	var diffCtx *agenttypes.DiffContext
+
+	// Resolve source (git URL, archive, local path) and diff context
+	if sourcePath != "" || req.Diff != "" || req.LastCommits > 0 {
+		sessionDir := filepath.Join(h.settings.Agent.EffectiveSessionsDir(), "api-"+uuid.New().String()[:8])
+		resolved, resolvedFiles, dc, err := agent.ResolveSourceAndDiff(sourcePath, req.Diff, req.LastCommits, files, sessionDir)
+		if err != nil {
+			zap.L().Warn("Source/diff resolution failed, proceeding with original values", zap.Error(err))
+		} else {
+			sourcePath = resolved
+			files = resolvedFiles
+			diffCtx = dc
+		}
+	}
+
 	cfg := agent.AutopilotPipelineConfig{
 		TargetURL:   req.Target,
-		SourcePath:  req.SourcePath,
-		Files:       req.Files,
+		SourcePath:  sourcePath,
+		Files:       files,
 		Instruction: req.Instruction,
 		Focus:       req.Focus,
 		AgentName:   agentName,
@@ -213,9 +232,10 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 		SessionsDir: h.settings.Agent.EffectiveSessionsDir(),
 		ProjectUUID: projectUUID,
 		ScanUUID:    req.ScanUUID,
+		DiffContext: diffCtx,
 	}
 
-	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), req.SourcePath, h.settings.Agent.Archon); auditCfg != nil {
+	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), sourcePath, h.settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
 	}
 
@@ -375,7 +395,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 	}
 
 	// Natural language prompt: resolve when explicit fields are empty
-	hasExplicitInput := req.Input != "" || len(req.Inputs) > 0 || req.HTTPRequestBase64 != "" || req.SourcePath != ""
+	hasExplicitInput := req.Input != "" || len(req.Inputs) > 0 || req.HTTPRequestBase64 != "" || req.SourcePath != "" || req.Diff != "" || req.LastCommits > 0
 	if req.Prompt != "" && !hasExplicitInput {
 		resolved, resolveErr := h.resolvePromptIntent(c, req.Prompt)
 		if resolveErr != nil {
@@ -421,9 +441,9 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 	}
 
 	inputs := req.EffectiveInputs()
-	if len(inputs) == 0 && req.SourcePath == "" {
+	if len(inputs) == 0 && req.SourcePath == "" && req.Diff == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "at least one input is required (input, inputs, http_request_base64, source_path, or prompt field)",
+			Error: "at least one input is required (input, inputs, http_request_base64, source_path, diff, or prompt field)",
 		})
 	}
 
@@ -574,11 +594,29 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 		}
 	}
 
+	sourcePath := req.SourcePath
+	files := req.Files
+	var swarmDiffCtx *agenttypes.DiffContext
+
+	// Resolve source (git URL, archive, local path) and diff context
+	if sourcePath != "" || req.Diff != "" || req.LastCommits > 0 {
+		sessionDir := filepath.Join(settings.Agent.EffectiveSessionsDir(), "api-"+uuid.New().String()[:8])
+		resolved, resolvedFiles, dc, err := agent.ResolveSourceAndDiff(sourcePath, req.Diff, req.LastCommits, files, sessionDir)
+		if err != nil {
+			zap.L().Warn("Source/diff resolution failed, proceeding with original values", zap.Error(err))
+		} else {
+			sourcePath = resolved
+			files = resolvedFiles
+			swarmDiffCtx = dc
+		}
+	}
+
 	cfg := agent.SwarmConfig{
 		Inputs:             req.EffectiveInputs(),
 		Instruction:        req.Instruction,
-		SourcePath:         req.SourcePath,
-		Files:              req.Files,
+		SourcePath:         sourcePath,
+		Files:              files,
+		DiffContext:        swarmDiffCtx,
 		VulnType:           req.VulnType,
 		Focus:              req.Focus,
 		ModuleNames:        req.ModuleNames,
@@ -622,8 +660,8 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 	}
 
 	// Wire SAST callback when source_path is provided (unless skip_sast)
-	if req.SourcePath != "" && !req.SkipSAST {
-		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, req.SourcePath, projectUUID, req.ScanUUID, settings)
+	if sourcePath != "" && !req.SkipSAST {
+		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, req.ScanUUID, settings)
 	}
 
 	// Handle --start-from via synthetic checkpoint
@@ -637,7 +675,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 	}
 
 	// Wire archon
-	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), req.SourcePath, h.settings.Agent.Archon); auditCfg != nil {
+	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), sourcePath, h.settings.Agent.Archon); auditCfg != nil {
 		cfg.Archon = auditCfg
 	}
 

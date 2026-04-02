@@ -4,9 +4,10 @@ Vigolium supports project-based data isolation. Every scan record, finding, scop
 
 ## Concepts
 
-- **Project** — A named container for all scan data. Each project has a UUID, name, description, and optional per-project config overlay.
+- **Project** — A named container for all scan data. Each project has a UUID, name, description, optional access control lists, and optional per-project config overlay.
 - **Default project** — A built-in project (`00000000-0000-0000-0000-000000000001`) created during `vigolium init`. All data belongs to this project unless you specify otherwise.
 - **Project config** — An optional YAML overlay at `~/.vigolium/projects/<uuid>/config.yaml` that merges on top of the global config.
+- **Access control** — Projects can carry `allowed_domains` (email domain patterns like `@acme.com`) and `allowed_emails` (exact addresses like `alice@acme.com`) to control who can access them. See [Access Control](#access-control) below.
 
 ## CLI Usage
 
@@ -48,6 +49,39 @@ vigolium project config
 # or for a specific project
 vigolium project config a1b2c3d4-...
 ```
+
+### Manage project access
+
+```bash
+# Add allowed domains and emails (auto-detected)
+vigolium project allow a1b2c3d4-... @acme.com @partner.io alice@external.com
+# ✓ Added 2 domain(s) and 1 email(s) to project my-engagement
+#   Allowed domains: @acme.com, @partner.io
+#   Allowed emails:  alice@external.com
+
+# Mix freely — @-prefixed values go to domains, the rest to emails
+vigolium project allow a1b2c3d4-... @newdomain.io bob@contractor.com
+
+# Remove entries from both lists
+vigolium project remove-access a1b2c3d4-... @partner.io alice@external.com
+# ✓ Removed 2 entry/entries from project my-engagement
+```
+
+### Readonly failsafe
+
+Set `VIGOLIUM_PROJECT_READONLY=true` to prevent all mutating project commands (`create`, `allow`, `remove-access`) from the CLI. Read-only commands (`list`, `use`, `config`) still work.
+
+```bash
+export VIGOLIUM_PROJECT_READONLY=true
+
+vigolium project allow a1b2c3d4-... @evil.com
+# Error: project management is disabled (VIGOLIUM_PROJECT_READONLY=true)
+
+vigolium project list
+# still works
+```
+
+This is useful in production or shared environments where projects should only be managed through the REST API.
 
 ## Scoping Operations to a Project
 
@@ -125,6 +159,66 @@ audit:
     enabled: true
     variables:
       auth_token: "Bearer project-specific-token"
+```
+
+## Access Control
+
+Projects can restrict access by email domain or exact email address using the `allowed_domains` and `allowed_emails` fields.
+
+### How it works
+
+When a request includes both `X-Project-UUID` and `X-User-Email` headers, the server checks access:
+
+1. If `allowed_emails` is non-empty → the user's email must match exactly (case-insensitive).
+2. Otherwise, if `allowed_domains` is non-empty → the user's email domain (e.g. `@acme.com`) must match.
+3. If both lists are empty → the project is open to anyone.
+4. If `X-User-Email` is not sent → the check is skipped entirely.
+
+Denied requests receive a `403 Forbidden` response.
+
+### Managing via CLI
+
+```bash
+# Add domains and emails (auto-detected by format)
+vigolium project allow <project-uuid> @acme.com alice@external.com
+
+# Remove entries
+vigolium project remove-access <project-uuid> @acme.com alice@external.com
+```
+
+### Managing via API
+
+```bash
+# Set access lists on create
+curl -X POST http://localhost:9002/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name":"restricted","allowed_domains":["@acme.com"],"allowed_emails":["alice@ext.com"]}'
+
+# Update access lists
+curl -X PUT http://localhost:9002/api/projects/a1b2c3d4-... \
+  -H "Content-Type: application/json" \
+  -d '{"allowed_domains":["@acme.com","@partner.io"]}'
+
+# Clear restrictions (project becomes open)
+curl -X PUT http://localhost:9002/api/projects/a1b2c3d4-... \
+  -H "Content-Type: application/json" \
+  -d '{"allowed_domains":[],"allowed_emails":[]}'
+
+# Get domain-to-project mapping (for frontend middleware)
+curl http://localhost:9002/api/projects/domain-map
+```
+
+The `domain-map` endpoint returns:
+
+```json
+{
+  "domains": {
+    "@acme.com": ["project-uuid-1", "project-uuid-2"]
+  },
+  "emails": {
+    "alice@ext.com": ["project-uuid-1"]
+  }
+}
 ```
 
 ## Database Isolation

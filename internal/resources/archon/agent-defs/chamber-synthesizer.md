@@ -137,6 +137,7 @@ After all hypotheses reach terminal verdicts:
 2. Update Status to `CLOSED` in the debate.md header
 3. Use the `task` tool to notify the orchestrator: "Chamber <chamber-id> closed. Findings: <count>. Patterns: <count>."
 
+<!-- codex-trim-start -->
 ```markdown
 ## Chamber Summary
 
@@ -144,7 +145,6 @@ After all hypotheses reach terminal verdicts:
 |-----------|---------|----------|---------------|
 | H-01 | VALID | HIGH | p8-001-<slug>.md |
 | H-02 | FALSE POSITIVE | -- | -- |
-| ... | | | |
 
 Findings written: <count>
 Patterns added to registry: <count>
@@ -152,6 +152,9 @@ Variant candidates: <count>
 
 Chamber closed: <ISO timestamp>
 ```
+<!-- codex-trim-end -->
+
+Write a Chamber Summary table to debate.md with verdict, severity, and finding draft path for each hypothesis, plus counts of findings, patterns, and variant candidates.
 
 ## Hard Limits
 
@@ -172,8 +175,9 @@ Chamber closed: <ISO timestamp>
 
 ## Finding Draft Template
 
-Write to `archon/findings-draft/p8-<NNN>-<slug>.md`:
+Write to `archon/findings-draft/p8-<NNN>-<slug>.md` with frontmatter (Phase, Sequence, Slug, Verdict, Rationale, Severity-Original, PoC-Status, Pre-FP-Flag, Debate path) followed by sections: Summary, Location, Attacker Control, Trust Boundary Crossed, Impact, Evidence, Reproduction Steps.
 
+<!-- codex-trim-start -->
 ```
 Phase: 8
 Sequence: NNN
@@ -193,6 +197,7 @@ Debate: archon/chamber-workspace/<chamber-id>/debate.md
 ## Evidence
 ## Reproduction Steps
 ```
+<!-- codex-trim-end -->
 
 ## What You Do NOT Do
 

@@ -84,8 +84,10 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `target`           | string   | No*      | Target URL to scan (derived from `input` if not set)           |
 | `input`            | string   | No       | Raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically |
 | `agent`            | string   | No       | Agent backend name (default from config)                       |
-| `source`           | string   | No       | Path to application source code for source-aware scanning      |
-| `files`            | string[] | No       | Specific files to include (relative to `source`)               |
+| `source`           | string   | No       | Path to source code, git URL (with optional OAuth token), or archive file (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`) |
+| `files`            | string[] | No       | Specific files to include (relative to `source`). Auto-populated from `diff` when not set |
+| `diff`             | string   | No       | Focus on changed code: GitHub PR URL (`github.com/.../pull/123`), git ref range (`main...branch`), or `HEAD~N` |
+| `last_commits`     | int      | No       | Focus on last N commits (shorthand for `diff: "HEAD~N"`)       |
 | `focus`            | string   | No       | Focus area hint (e.g. `"API injection"`, `"auth bypass"`)      |
 | `instruction`      | string   | No       | Custom instruction appended to the prompt                      |
 | `timeout`          | string   | No       | Go duration string (default `"6h"`)                            |
@@ -98,44 +100,94 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `archon_mode`      | string   | No       | Archon audit mode: `"lite"` (default, 3-phase), `"scan"` (6-phase), or `"deep"` (11-phase) |
 | `archon`           | string   | No       | **DEPRECATED** — use `no_archon` + `archon_mode` instead. Legacy values: `"lite"`, `"scan"`, `"deep"`, `"off"` |
 
-\* At least one of `target`, `input`, `source`, or `prompt` is required.
+\* At least one of `target`, `input`, `source`, `diff`, or `prompt` is required.
+
+**Source resolution:** The `source` field accepts local paths, git URLs (HTTPS or SSH), git URLs with embedded OAuth tokens (`https://oauth2:TOKEN@github.com/...`), and archive files. Git repos are cloned with `--depth 1` and archives are extracted into the session directory. OAuth tokens are stripped from logs.
+
+**Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and the patch content is included in the agent prompt. For PR URLs without `source`, the repo is auto-cloned. GitHub PRs use the GitHub REST API directly (no `gh` CLI required). OAuth tokens embedded in the URL (`https://oauth2:TOKEN@github.com/...`) are extracted and passed as `Authorization: Bearer` header. The `GITHUB_TOKEN` env var is used as a fallback.
+
+**Fast scan (CI/PR review)** — lite archon, diff-focused, tight limits:
 
 ```bash
-# Basic autopilot scan
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "diff": "https://github.com/org/repo/pull/42",
+    "archon_mode": "lite",
+    "max_commands": 20,
+    "timeout": "10m"
+  }' | jq .
+```
+
+**Balanced scan (routine assessment)** — scan-mode archon, standard limits:
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "archon_mode": "scan",
+    "focus": "authentication bypass",
+    "max_commands": 50,
+    "timeout": "1h",
+    "stream": true
+  }'
+```
+
+**Deep scan (thorough pentest)** — deep archon (11-phase), full autonomy:
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "archon_mode": "deep",
+    "instruction": "Test all API endpoints. Focus on IDOR, auth bypass, and injection.",
+    "max_commands": 100,
+    "timeout": "6h",
+    "stream": true
+  }'
+```
+
+**Diff-focused scan (PR review without pre-cloned source):**
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://staging.example.com",
+    "diff": "https://github.com/org/repo/pull/123",
+    "archon_mode": "lite",
+    "max_commands": 25,
+    "timeout": "15m"
+  }' | jq .
+```
+
+**Private repo with OAuth token:**
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "https://oauth2:ghp_token123@github.com/org/private-repo.git",
+    "archon_mode": "scan"
+  }' | jq .
+```
+
+**Basic scan (no source):**
+
+```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -H "Content-Type: application/json" \
   -d '{
     "target": "https://example.com",
     "agent": "claude",
     "focus": "API injection"
-  }' | jq .
-
-# Autopilot with source code context and streaming
-curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target": "https://example.com",
-    "source": "/home/user/src/my-app",
-    "focus": "authentication bypass",
-    "timeout": "45m",
-    "max_commands": 50,
-    "stream": true
-  }'
-
-# Autopilot with background archon-audit (deep parallel code audit)
-curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target": "https://example.com",
-    "source": "/home/user/src/my-app",
-    "archon_mode": "deep"
-  }' | jq .
-
-# Autopilot from raw input (target auto-extracted)
-curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "curl -X POST https://example.com/api/login -d '\''user=admin&pass=test'\''"
   }' | jq .
 ```
 
@@ -170,6 +222,12 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 
 **Request body:**
 
+*Prompt:*
+
+| Field                  | Type     | Required | Description                                                           |
+|------------------------|----------|----------|-----------------------------------------------------------------------|
+| `prompt`               | string   | No       | Natural language scan prompt (parsed into structured fields when explicit fields are empty) |
+
 *Inputs:*
 
 | Field                  | Type     | Required | Description                                                           |
@@ -180,14 +238,16 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `http_response_base64` | string   | No       | Base64-encoded raw HTTP response (attached to the request above)      |
 | `url`                  | string   | No       | URL hint for parsing the base64 request                               |
 
-\* At least one of `input`, `inputs`, or `http_request_base64` is required.
+\* At least one of `input`, `inputs`, `http_request_base64`, `source_path`, `diff`, or `prompt` is required.
 
 *Source analysis:*
 
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
-| `source_path`          | string   | No       | Path to source code for route discovery (triggers source analysis)    |
-| `files`                | string[] | No       | Specific source files to include (relative to `source_path`)          |
+| `source_path`          | string   | No       | Path to source code, git URL, or archive file for route discovery     |
+| `files`                | string[] | No       | Specific source files to include (relative to `source_path`). Auto-populated from `diff` when not set |
+| `diff`                 | string   | No       | Focus on changed code: PR URL, git ref range, or `HEAD~N`            |
+| `last_commits`         | int      | No       | Focus on last N commits (shorthand for `diff: "HEAD~N"`)             |
 | `source_analysis_only` | bool     | No       | Run only the source analysis phase and exit                           |
 | `skip_sast`            | bool     | No       | Skip native SAST tools (ast-grep, osv-scanner) during source analysis       |
 
@@ -205,6 +265,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `max_iterations`       | int      | No       | Max triage→rescan rounds (default `3`)                                |
 | `discover`             | bool     | No       | Run discovery+spidering before master agent planning                  |
 | `code_audit`           | bool     | No       | Enable AI security code audit phase (requires `source_path`)          |
+| `triage`               | bool     | No       | Enable AI triage and rescan phases (disabled by default)              |
 | `profile`              | string   | No       | Scanning profile name (e.g. `"light"`, `"thorough"`)                  |
 
 *Agent selection:*
@@ -242,6 +303,10 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
 | `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"scan"` (6-phase), `"deep"` (11-phase), `"off"` to disable. Requires `source_path` |
+
+**Source resolution:** The `source_path` field accepts the same input types as the autopilot `source` field: local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`).
+
+**Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and focuses the source analysis phase on the changed code. GitHub PRs use the GitHub REST API directly. OAuth tokens embedded in the URL or the `GITHUB_TOKEN` env var are used for authentication.
 
 **Basic examples:**
 
@@ -289,6 +354,46 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  }' | jq .
+```
+
+**Diff-focused scanning:**
+
+```bash
+# Swarm focused on a GitHub PR diff (auto-fetches changed files via GitHub API)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "http://localhost:3000",
+    "source_path": "/home/user/src/my-app",
+    "diff": "https://github.com/org/repo/pull/42"
+  }' | jq .
+
+# Swarm focused on last 5 commits
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "http://localhost:3000",
+    "source_path": "/home/user/src/my-app",
+    "last_commits": 5
+  }' | jq .
+
+# Swarm with diff on a git ref range
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "http://localhost:3000",
+    "source_path": "/home/user/src/my-app",
+    "diff": "main...feature-branch"
+  }' | jq .
+
+# Swarm with PR diff + private repo token (auto-clones, token used for GitHub API)
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "http://localhost:3000",
+    "diff": "https://oauth2:ghp_token@github.com/org/private-repo/pull/7",
+    "archon": "lite"
   }' | jq .
 ```
 

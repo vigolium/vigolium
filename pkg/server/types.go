@@ -387,9 +387,11 @@ type ProjectWithStats struct {
 
 // ProjectRequest is the request body for POST/PUT /api/projects.
 type ProjectRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	OwnerUUID   string `json:"owner_uuid"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	OwnerUUID      string   `json:"owner_uuid"`
+	AllowedDomains []string `json:"allowed_domains"`
+	AllowedEmails  []string `json:"allowed_emails"`
 }
 
 // SourceRepoRequest is the request body for POST/PUT /api/source-repos.
@@ -449,6 +451,8 @@ type AgentAutopilotRequest struct {
 	Archon      string   `json:"archon,omitempty"`              // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "scan", "deep", "off"
 	NoArchon    bool     `json:"no_archon,omitempty"`           // disable automatic archon-audit (enabled by default when source is set)
 	ArchonMode  string   `json:"archon_mode,omitempty"`         // archon audit mode: "lite" (default), "scan", "deep"
+	Diff        string   `json:"diff,omitempty"`                // focus on changed code: PR URL, git ref range, or HEAD~N
+	LastCommits int      `json:"last_commits,omitempty"`        // focus on last N commits (shorthand for diff HEAD~N)
 }
 
 // ResolvedNoArchon returns true when archon should be disabled, handling backward
@@ -530,6 +534,10 @@ type AgentSwarmRequest struct {
 
 	// Background archon-audit
 	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
+
+	// Diff context
+	Diff        string `json:"diff,omitempty"`          // focus on changed code: PR URL, git ref range, or HEAD~N
+	LastCommits int    `json:"last_commits,omitempty"`  // focus on last N commits (shorthand for diff HEAD~N)
 }
 
 // ResolvedNoArchon returns true when archon should be disabled.

@@ -41,6 +41,7 @@ For each advisory record: ID, severity, CVSS score, affected versions, patch com
 
 Grep the repo for first-party security signals before touching any external API:
 
+<!-- codex-trim-start -->
 ```bash
 # CVE/GHSA IDs in any file
 grep -rE "(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9-]+)" . --include="*.md" --include="*.txt" --include="*.rst" -l
@@ -51,6 +52,9 @@ grep -rniE "(security|vulnerability|advisory|patch|fix.*cve|cve.*fix)" CHANGELOG
 # Commit messages mentioning CVEs
 git log --oneline --all | grep -iE "(CVE|GHSA|security fix|vulnerability)" | head -100
 ```
+<!-- codex-trim-end -->
+
+Search for CVE/GHSA IDs in .md/.txt/.rst files, security keywords in changelogs, and CVE-related commit messages.
 
 #### Source 2 — GitHub Security Advisories (`gh api` — NOT WebSearch)
 
@@ -58,6 +62,7 @@ git log --oneline --all | grep -iE "(CVE|GHSA|security fix|vulnerability)" | hea
 
 First determine the repo's ecosystem and primary package name from manifests (package.json, go.mod, Cargo.toml, requirements.txt, pom.xml, etc.).
 
+<!-- codex-trim-start -->
 ```bash
 # Detect remote
 REMOTE=$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||;s|\.git$||')
@@ -93,9 +98,11 @@ query($cursor: String) {
 # Repo-specific advisories (if the repo itself publishes advisories)
 gh api "repos/$OWNER/$REPO/security-advisories" --paginate 2>/dev/null | jq 'sort_by(.published_at) | reverse'
 ```
+<!-- codex-trim-end -->
 
-Filter nodes to only those where `vulnerabilities[].package.name` matches the target project's package names.
+Use `gh api graphql --paginate` with the `securityAdvisories` query to fetch advisories. Filter to matching package names. For Tier 2 expansion, remove the date cutoff filter. Also query `repos/{owner}/{repo}/security-advisories` for repo-specific advisories.
 
+<!-- codex-trim-start -->
 **If Tier 2 expansion triggered**: rerun without the `$cutoff` filter to fetch all-time:
 ```bash
 gh api graphql --paginate -f query='
@@ -114,9 +121,11 @@ query($cursor: String) {
   }
 }' 2>/dev/null | jq '[.data.securityAdvisories.nodes[]] | sort_by(.publishedAt) | reverse'
 ```
+<!-- codex-trim-end -->
 
 #### Source 3 — OSV API (`curl`/web fetch — NOT WebSearch)
 
+<!-- codex-trim-start -->
 ```bash
 # Single package query — replace ECOSYSTEM and PACKAGE with actual values
 # Ecosystems: npm, PyPI, Go, Maven, NuGet, RubyGems, crates.io, Packagist, Hex
@@ -131,21 +140,24 @@ curl -s -X POST https://api.osv.dev/v1/querybatch \
   -d '{"queries": [{"package": {"name": "<PKG1>", "ecosystem": "<ECO1>"}}, {"package": {"name": "<PKG2>", "ecosystem": "<ECO2>"}}]}' \
   | jq '.results[].vulns | sort_by(.published) | reverse'
 ```
+<!-- codex-trim-end -->
 
-Paginate using the `page_token` field until exhausted. **No cap** — collect all. OSV often has the richest historical coverage.
+Query `https://api.osv.dev/v1/query` (single) or `/v1/querybatch` (multiple) with package name and ecosystem. Paginate using `page_token` until exhausted. No cap — collect all.
 
 #### Source 4 — NVD REST API (web fetch — NOT WebSearch)
 
 Fetch via web fetch. For Tier 1 (recent): include `&pubStartDate=<2-years-ago>`. For Tier 2 expansion: remove date filter.
 
+<!-- codex-trim-start -->
 ```
 https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<project-name>&resultsPerPage=100&startIndex=0
 https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<project-name>&cvssV3Severity=CRITICAL&resultsPerPage=100
 https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<project-name>&cvssV3Severity=HIGH&resultsPerPage=100
 https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=<project-name>&cvssV3Severity=MEDIUM&resultsPerPage=100
 ```
+<!-- codex-trim-end -->
 
-Parse `vulnerabilities[].cve` — extract `id`, `published`, `lastModified`, `cvssMetricV31[].cvssData.baseSeverity`, `weaknesses[].description[].value` (CWE), `descriptions[0].value`.
+Query NVD REST API v2.0 at `services.nvd.nist.gov/rest/json/cves/2.0` with `keywordSearch=<project-name>`. Parse `vulnerabilities[].cve` — extract `id`, `published`, `lastModified`, `cvssMetricV31[].cvssData.baseSeverity`, `weaknesses[].description[].value` (CWE), `descriptions[0].value`.
 Paginate with `startIndex` increments of 100 until `startIndex >= totalResults`.
 
 #### Source 5 — WebSearch (supplementary only)
@@ -182,6 +194,7 @@ Produce a ranked list: component → count of advisories → severity distributi
 
 Map each advisory to a bug class. Use CWE IDs where available; infer from description otherwise.
 
+<!-- codex-trim-start -->
 | Bug Class | CWEs | Count | Examples |
 |-----------|------|-------|---------|
 | Injection (SQL/cmd/LDAP) | CWE-89, CWE-77, CWE-78 | N | ... |
@@ -195,32 +208,17 @@ Map each advisory to a bug class. Use CWE IDs where available; infer from descri
 | Race condition / TOCTOU | CWE-362 | N | ... |
 | Info disclosure | CWE-200, CWE-209 | N | ... |
 | Other | — | N | ... |
+<!-- codex-trim-end -->
 
 **Recurring bug types** (2+ advisories in same class) = bug classes to actively hunt in Phase 8 review chambers.
 
 #### 2c. Attack Surface Trends
 
-Identify which input vectors are repeatedly exploited:
-- Network input (HTTP headers, query params, body, cookies)
-- File input (uploads, config files, template files)
-- Deserialized input (JSON, XML, YAML, pickle, protobuf)
-- CLI arguments
-- Environment variables / config injection
-- Third-party data (OAuth responses, webhook payloads, API responses)
-- IPC / plugin interfaces
-
-**Repeatedly exploited vectors** → Phase 5 deep probe teams should prioritize these entry points.
+Identify which input vectors are repeatedly exploited (network, file, deserialized, CLI, env vars, third-party data, IPC/plugins). Repeatedly exploited vectors → Phase 5 deep probe teams should prioritize these entry points.
 
 #### 2d. Patch Quality Signals
 
-Identify components patched multiple times for the **same bug class** — this signals structurally incomplete fixes:
-
-```
-Component X: patched for SQLi in v1.2, v2.0, v2.3 → likely structural, not patched at root
-Component Y: patched for auth bypass in v3.1, v3.4 → auth model may be fundamentally flawed
-```
-
-These become high-priority Phase 2 (patch-bypass-checker) targets with `type: structural-recurrence`.
+Identify components patched multiple times for the **same bug class** — this signals structurally incomplete fixes. These become high-priority Phase 2 (patch-bypass-checker) targets with `type: structural-recurrence`.
 
 ---
 
@@ -249,6 +247,7 @@ Identify the highest-risk flows that deserve Phase 3 DFD/CFD slices.
 
 When only a patched version is known (no direct commit reference):
 
+<!-- codex-trim-start -->
 ```bash
 # Find commits between vulnerable and patched tags
 git log --oneline v<vulnerable>..v<patched>
@@ -259,8 +258,9 @@ git log --oneline v<vulnerable>..v<patched> -- src/archon/ src/auth/ src/validat
 # Diff the full range
 git diff v<vulnerable>..v<patched> -- <relevant-paths>
 ```
+<!-- codex-trim-end -->
 
-For **structural-recurrence** components identified in 2d: diff ALL patch commits across versions for that component to find the unpatched root cause.
+Use `git log` and `git diff` between vulnerable and patched version tags to identify patch commits. For **structural-recurrence** components identified in 2d: diff ALL patch commits across versions for that component to find the unpatched root cause.
 
 ---
 
@@ -279,7 +279,9 @@ Table of all advisories with ID, severity, CVSS, affected versions, patch commit
 
 ### Vulnerability Pattern Analysis
 
-Output from steps 2a–2d:
+Output from steps 2a–2d: Component Vulnerability Heatmap, Bug Type Recurrence, Attack Surface Trends, Patch Quality Signals.
+
+<!-- codex-trim-start -->
 - **Component Vulnerability Heatmap**: ranked table, flag high-heat components
 - **Bug Type Recurrence**: table with counts, recurring classes flagged
 - **Attack Surface Trends**: exploited input vectors ranked by frequency
@@ -287,6 +289,9 @@ Output from steps 2a–2d:
 
 **Audit targeting recommendations** (the synthesis):
 > Based on pattern analysis: Phase 3 should prioritize [component X, component Y] for DFD slices. Phase 5 deep probe should target [input vector A, B] entry points. Phase 8 chambers should include [bug class X, Y] as mandatory attack modes. Patch-bypass-checker should flag [component Z] as structural-recurrence candidate.
+<!-- codex-trim-end -->
+
+Include audit targeting recommendations synthesizing which components, input vectors, and bug classes to prioritize in later phases.
 
 ### Architecture Inventory
 

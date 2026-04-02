@@ -27,8 +27,10 @@ type Project struct {
 	OwnerUUID   string `bun:"owner_uuid,nullzero" json:"owner_uuid,omitempty"` // soft FK → users
 	ConfigPath  string `bun:"config_path,nullzero" json:"config_path,omitempty"`
 
-	Tags          []string  `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
-	DefaultTarget string    `bun:"default_target,nullzero" json:"default_target,omitempty"`
+	Tags           []string  `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
+	AllowedDomains []string  `bun:"allowed_domains,type:jsonb,nullzero" json:"allowed_domains,omitempty"`
+	AllowedEmails  []string  `bun:"allowed_emails,type:jsonb,nullzero" json:"allowed_emails,omitempty"`
+	DefaultTarget  string    `bun:"default_target,nullzero" json:"default_target,omitempty"`
 	LastScanAt    time.Time `bun:"last_scan_at,nullzero" json:"last_scan_at,omitempty"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

@@ -73,6 +73,93 @@ vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 vigolium agent autopilot -t https://example.com --source ./src --archon-mode deep --dry-run
 ```
 
+### Scanning Profiles: Fast, Balanced, and Deep
+
+Choose the right scan intensity for your use case:
+
+```bash
+# ── Fast (CI/PR review) ──────────────────────────────────────
+# Quick scan focused on a PR diff — lite archon, tight limits
+vigolium agent autopilot \
+  -t http://localhost:3000 \
+  --source ~/src/my-app \
+  --diff "https://github.com/org/repo/pull/42" \
+  --archon-mode lite \
+  --max-commands 20 --timeout 10m
+
+# ── Balanced (routine assessment) ─────────────────────────────
+# Standard scan with source context and archon in scan mode
+vigolium agent autopilot \
+  -t http://localhost:3000 \
+  --source ~/src/my-app \
+  --archon-mode scan \
+  --max-commands 50 --timeout 1h
+
+# ── Deep (thorough pentest) ───────────────────────────────────
+# Full autonomous audit with deep archon (11-phase)
+vigolium agent autopilot \
+  -t http://localhost:3000 \
+  --source ~/src/my-app \
+  --archon-mode deep \
+  --max-commands 100 --timeout 6h
+```
+
+### Source Input Types
+
+The `--source` flag accepts multiple input types, auto-detected:
+
+```bash
+# Local directory (most common)
+vigolium agent autopilot -t http://target --source ~/src/my-app
+
+# Git URL (cloned to session dir automatically)
+vigolium agent autopilot -t http://target --source https://github.com/org/repo.git
+
+# Private repo with OAuth token (token stripped from logs)
+vigolium agent autopilot -t http://target \
+  --source "https://oauth2:ghp_token123@github.com/org/private-repo.git"
+
+# SSH URL (uses system SSH keys)
+vigolium agent autopilot -t http://target --source git@github.com:org/repo.git
+
+# Archive file (extracted to session dir)
+vigolium agent autopilot -t http://target --source ./app-source.tar.gz
+vigolium agent autopilot -t http://target --source ~/downloads/source.zip
+```
+
+### Diff-Focused Scanning
+
+Focus the scan on changed code using `--diff` or `--last-commits`:
+
+```bash
+# GitHub PR — auto-fetches changed files and patch via gh CLI
+vigolium agent autopilot -t http://target \
+  --source ~/src/repo --diff "https://github.com/org/repo/pull/123"
+
+# GitHub PR with OAuth token (for private repos — token used for both API auth and auto-clone)
+vigolium agent autopilot -t http://target \
+  --diff "https://oauth2:ghp_token123@github.com/org/private-repo/pull/42"
+
+# Git ref range
+vigolium agent autopilot -t http://target \
+  --source ~/src/repo --diff "origin/main...feature-branch"
+
+# Last N commits
+vigolium agent autopilot -t http://target \
+  --source ~/src/repo --last-commits 5
+
+# PR URL without --source (auto-clones the repo)
+vigolium agent autopilot -t http://target \
+  --diff "https://github.com/org/repo/pull/123"
+
+# CI/CD integration — GitHub Actions
+vigolium agent autopilot -t $APP_URL \
+  --source . --diff "https://github.com/$GITHUB_REPOSITORY/pull/$PR_NUMBER" \
+  --archon-mode lite --max-commands 20 --timeout 10m
+```
+
+When `--diff` is used, the changed file list auto-populates `--files` (unless explicitly set), and the patch content is included in the agent prompt so it can prioritize changed code paths.
+
 ---
 
 ## How It Works
@@ -134,8 +221,10 @@ vigolium agent autopilot [prompt] [flags]
 |------|---------|-------------|
 | `-t, --target` | — | Target URL (derived from `--input` if not set) |
 | `--input` | — | Raw input (curl, raw HTTP, Burp XML, URL). Reads stdin if piped |
-| `--source` | — | Path to application source code (auto-enables archon) |
+| `--source` | — | Path to source code, git URL, or archive file (auto-enables archon) |
 | `--files` | — | Specific files to include (relative to `--source`) |
+| `--diff` | — | Focus on changed code: GitHub PR URL (`github.com/.../pull/123`), git ref range (`main...branch`), or `HEAD~N` |
+| `--last-commits` | 0 | Focus on last N commits (shorthand for `--diff HEAD~N`) |
 | `--focus` | — | Focus area hint (e.g., "API injection", "auth bypass") |
 | `--instruction` | — | Custom instruction appended to the agent prompt |
 | `--instruction-file` | — | Path to a file containing custom instructions |
@@ -149,6 +238,10 @@ vigolium agent autopilot [prompt] [flags]
 | `--browser` | false | Enable agent-browser for browser-based authentication and SPA exploration |
 | `--mcp-server` | — | MCP servers to attach (`name=command,arg1` or `name=http://url`) |
 | `--mcp-enabled` | false | Enable MCP server passthrough to agent sessions |
+
+**Source input types:** `--source` accepts local paths (`~/src/app`), git URLs (`https://github.com/org/repo.git`), git URLs with embedded OAuth tokens (`https://oauth2:TOKEN@github.com/...`), SSH URLs (`git@github.com:org/repo.git`), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). Git repos are cloned and archives are extracted into the session directory automatically.
+
+**Diff types:** `--diff` accepts GitHub PR URLs, git ref ranges (`main...branch`, `abc123..def456`), and `HEAD~N`. When a PR URL is provided without `--source`, the repo is auto-cloned. Changed files auto-populate `--files` for focused archon and agent analysis. OAuth tokens embedded in PR URLs (`https://oauth2:TOKEN@github.com/.../pull/42`) are extracted and used as `Authorization: Bearer` header for the GitHub REST API. The `GITHUB_TOKEN` env var is used as a fallback when no token is in the URL.
 
 ### Examples
 
@@ -242,23 +335,119 @@ Findings are also imported into the database (tags: `archon`, `phase-N`, verdict
 POST /api/agent/run/autopilot
 ```
 
-```json
-{
-  "target": "https://example.com",
-  "agent": "claude",
-  "source": "/path/to/source",
-  "focus": "API injection",
-  "instruction": "Focus on auth bypass and IDOR",
-  "archon": "deep",
-  "max_commands": 50,
-  "timeout": "6h",
-  "stream": true
-}
+**Request body fields** (see [API Reference](../api-references/agent.md) for the full schema):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target` | string | Target URL |
+| `source` | string | Path to source code, git URL, or archive file |
+| `diff` | string | PR URL, git ref range, or `HEAD~N` for diff-focused scanning |
+| `last_commits` | int | Shorthand for `--diff HEAD~N` |
+| `focus` | string | Focus area hint |
+| `instruction` | string | Custom instruction |
+| `no_archon` | bool | Disable automatic archon-audit |
+| `archon_mode` | string | `"lite"`, `"scan"`, or `"deep"` |
+| `max_commands` | int | Max CLI commands (default 100) |
+| `timeout` | string | Duration string (default `"6h"`) |
+| `stream` | bool | Enable SSE streaming |
+
+### Example: Fast Scan (CI/PR Review)
+
+Quick scan focused on a PR diff with lite archon and tight resource limits — ideal for CI pipelines.
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "diff": "https://github.com/org/repo/pull/42",
+    "archon_mode": "lite",
+    "max_commands": 20,
+    "timeout": "10m"
+  }' | jq .
 ```
+
+### Example: Balanced Scan (Routine Assessment)
+
+Standard scan with source context and 6-phase archon — good balance of coverage and speed.
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "archon_mode": "scan",
+    "focus": "authentication bypass",
+    "max_commands": 50,
+    "timeout": "1h",
+    "stream": true
+  }'
+```
+
+### Example: Deep Scan (Thorough Pentest)
+
+Full autonomous audit with 11-phase archon, high command limit, and extended timeout — maximum coverage.
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "/home/user/src/my-app",
+    "archon_mode": "deep",
+    "instruction": "Test all API endpoints. Focus on IDOR, auth bypass, and injection.",
+    "max_commands": 100,
+    "timeout": "6h",
+    "stream": true
+  }'
+```
+
+### Example: Diff-Only Scan (PR Review)
+
+Scan focused on a GitHub PR's changed files — agent and archon prioritize the diff.
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://staging.example.com",
+    "diff": "https://github.com/org/repo/pull/123",
+    "archon_mode": "lite",
+    "max_commands": 25,
+    "timeout": "15m"
+  }' | jq .
+```
+
+### Example: Git URL with Token (Private Repo)
+
+Source from a private GitHub repo — the OAuth token is used for cloning and stripped from logs.
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "source": "https://oauth2:ghp_token123@github.com/org/private-repo.git",
+    "archon_mode": "scan",
+    "stream": true
+  }'
+```
+
+### Response
 
 Set `"stream": true` for SSE streaming of agent output. The response streams `chunk` events with raw agent output and a final `done` event with the result.
 
 Non-streaming requests return `202 Accepted` with a run ID for status polling:
+
+```json
+{
+  "run_id": "agt-550e8400-e29b-41d4-a716-446655440000",
+  "status": "running",
+  "message": "autopilot run started"
+}
+```
 
 ```
 GET /api/agent/status/:id

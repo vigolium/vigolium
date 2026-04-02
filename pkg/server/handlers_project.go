@@ -68,12 +68,14 @@ func (h *Handlers) HandleCreateProject(c fiber.Ctx) error {
 
 	now := time.Now()
 	project := &database.Project{
-		UUID:        uuid.NewString(),
-		Name:        req.Name,
-		Description: req.Description,
-		OwnerUUID:   req.OwnerUUID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		UUID:           uuid.NewString(),
+		Name:           req.Name,
+		Description:    req.Description,
+		OwnerUUID:      req.OwnerUUID,
+		AllowedDomains: req.AllowedDomains,
+		AllowedEmails:  req.AllowedEmails,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	if err := h.repo.CreateProject(c.Context(), project); err != nil {
@@ -150,6 +152,12 @@ func (h *Handlers) HandleUpdateProject(c fiber.Ctx) error {
 	if req.OwnerUUID != "" {
 		project.OwnerUUID = req.OwnerUUID
 	}
+	if req.AllowedDomains != nil {
+		project.AllowedDomains = req.AllowedDomains
+	}
+	if req.AllowedEmails != nil {
+		project.AllowedEmails = req.AllowedEmails
+	}
 	project.UpdatedAt = time.Now()
 
 	if err := h.repo.UpdateProject(c.Context(), project); err != nil {
@@ -188,6 +196,45 @@ func buildProjectStats(row *database.ProjectStatsRow) ProjectStats {
 		SourceRepos:      row.SourceRepos,
 		OASTInteractions: row.OASTInteractions,
 	}
+}
+
+// HandleProjectDomainMap handles GET /api/projects/domain-map
+// Returns a mapping of email domain → list of project UUIDs.
+func (h *Handlers) HandleProjectDomainMap(c fiber.Ctx) error {
+	if h.db == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	projects, err := h.repo.ListProjects(c.Context(), "")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "query failed: " + err.Error(),
+			Code:  fiber.StatusInternalServerError,
+		})
+	}
+
+	type domainMapResponse struct {
+		Domains map[string][]string `json:"domains"`
+		Emails  map[string][]string `json:"emails"`
+	}
+
+	resp := domainMapResponse{
+		Domains: make(map[string][]string),
+		Emails:  make(map[string][]string),
+	}
+	for _, p := range projects {
+		for _, domain := range p.AllowedDomains {
+			resp.Domains[domain] = append(resp.Domains[domain], p.UUID)
+		}
+		for _, email := range p.AllowedEmails {
+			resp.Emails[email] = append(resp.Emails[email], p.UUID)
+		}
+	}
+
+	return c.JSON(resp)
 }
 
 // HandleDeleteProject handles DELETE /api/projects/:uuid

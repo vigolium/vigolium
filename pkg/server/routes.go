@@ -32,7 +32,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	if cfg.CORSAllowedOrigins != "" {
 		corsCfg := cors.Config{
 			AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders: []string{"Content-Type", "Authorization", "X-Project-UUID"},
+			AllowHeaders: []string{"Content-Type", "Authorization", "X-Project-UUID", "X-User-Email"},
 		}
 		switch cfg.CORSAllowedOrigins {
 		case "reflect-origin":
@@ -94,6 +94,9 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	// Project UUID extraction from X-Project-UUID header
 	app.Use(ProjectUUIDMiddleware())
 
+	// Project-level access control via X-User-Email header
+	app.Use(ProjectAccessMiddleware(handlers.repo))
+
 	// Routes (public — no role guard needed, auth already skips these)
 	app.Get("/health", handlers.HandleHealth)
 	app.Get("/server-info", handlers.HandleServerInfo)
@@ -127,6 +130,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/extensions", handlers.HandleListExtensions)
 	viewer.Get("/extensions/:name", handlers.HandleGetExtension)
 	viewer.Get("/projects", handlers.HandleListProjects)
+	viewer.Get("/projects/domain-map", handlers.HandleProjectDomainMap)
 	viewer.Get("/projects/:uuid", handlers.HandleGetProject)
 	viewer.Get("/agent/status/list", handlers.HandleAgentRunList) // must be before :id
 	viewer.Get("/agent/status/:id", handlers.HandleAgentRunStatus)

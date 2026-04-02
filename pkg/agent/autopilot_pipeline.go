@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
@@ -57,6 +58,10 @@ type AutopilotPipelineConfig struct {
 
 	// BrowserEnabled indicates whether agent-browser is available for the agent.
 	BrowserEnabled bool
+
+	// DiffContext holds parsed diff information for focused scanning.
+	// When set, the agent prompt includes changed file list and patch content.
+	DiffContext *agenttypes.DiffContext
 }
 
 // AutopilotPipelineRunner orchestrates the autopilot pipeline.
@@ -410,6 +415,29 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		b.WriteString("## Custom Instructions\n\n")
 		b.WriteString(cfg.Instruction)
 		b.WriteString("\n\n")
+	}
+
+	// Diff context section
+	if cfg.DiffContext != nil && len(cfg.DiffContext.ChangedFiles) > 0 {
+		b.WriteString("## Diff Context (Changed Files)\n\n")
+		fmt.Fprintf(b, "This scan is focused on changes from: **%s**\n\n", cfg.DiffContext.DiffRef)
+		b.WriteString("### Changed Files\n\n")
+		for _, f := range cfg.DiffContext.ChangedFiles {
+			fmt.Fprintf(b, "- `%s`\n", f)
+		}
+		b.WriteString("\n")
+		if cfg.DiffContext.PatchContent != "" {
+			patch := cfg.DiffContext.PatchContent
+			const maxPatchChars = 8000
+			if len(patch) > maxPatchChars {
+				patch = patch[:maxPatchChars] + "\n\n... (patch truncated — full diff available via git)\n"
+			}
+			b.WriteString("### Patch\n\n```diff\n")
+			b.WriteString(patch)
+			b.WriteString("\n```\n\n")
+		}
+		b.WriteString("**Priority:** Focus your analysis on the changed code paths. ")
+		b.WriteString("Vulnerabilities in unchanged code are lower priority unless directly related to the changes.\n\n")
 	}
 
 	// Archon findings section

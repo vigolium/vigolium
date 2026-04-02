@@ -324,6 +324,21 @@ type SDKSessionManifest struct {
 	Entries []SDKSessionEntry `json:"entries"`
 }
 
+// DiffContext holds parsed diff information for focused scanning.
+// When present, the agent and archon-audit prioritize the changed files.
+type DiffContext struct {
+	ChangedFiles []string `json:"changed_files"`           // changed file paths relative to source root
+	PatchContent string   `json:"patch_content,omitempty"` // unified diff patch content
+	DiffRef      string   `json:"diff_ref"`                // original ref/URL for display (e.g. "origin/main...feature")
+}
+
+// ResolvedSource holds the result of source path resolution.
+// The --source flag may be a local path, git URL, or archive file;
+// ResolveSource() normalizes all of these into a local directory path.
+type ResolvedSource struct {
+	LocalPath string // absolute local filesystem path to source
+}
+
 // SourceAnalysisConfig holds parameters for a source code analysis run.
 type SourceAnalysisConfig struct {
 	AgentName      string

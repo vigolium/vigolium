@@ -81,34 +81,33 @@ func ExtractArchonHarnessForPlatform(baseDir, platform string) (string, error) {
 }
 
 // installAgents extracts agent-defs with harness config transforms applied.
+// Supports nested subdirectories (e.g. agent-defs/vigolium/) via WalkDir.
 func installAgents(baseDir, platform string, cfg *HarnessConfig) error {
 	destDir := filepath.Join(baseDir, "agents")
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
 
-	entries, err := fs.ReadDir(archonres.AgentsFS, "agent-defs")
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-
-		data, err := archonres.AgentsFS.ReadFile("agent-defs/" + entry.Name())
+	return fs.WalkDir(archonres.AgentsFS, "agent-defs", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("read %s: %w", entry.Name(), err)
+			return nil // skip errors silently
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
 		}
 
-		agent, err := ParseCanonicalAgent(entry.Name(), data)
+		data, err := archonres.AgentsFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+
+		agent, err := ParseCanonicalAgent(d.Name(), data)
 		if err != nil {
 			return err
 		}
 
 		if IsExcluded(agent.Basename, cfg) {
-			continue
+			return nil
 		}
 
 		var output []byte
@@ -128,9 +127,9 @@ func installAgents(baseDir, platform string, cfg *HarnessConfig) error {
 		if err := os.WriteFile(destFile, output, 0o644); err != nil {
 			return err
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 // installCommands extracts command-defs as agent commands.

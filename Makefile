@@ -481,7 +481,7 @@ update-ui:
 	@echo "$(PREFIX) Updating dashboard UI..."
 	@rm -rf public/ui/
 	@mkdir -p public/ui/
-	@cp -r platform/vigolium-workbench/dist/* public/ui/
+	@cp -r platform/vigolium-console/dist-workbench/* public/ui/
 	@echo "$(PREFIX) UI assets updated"
 
 # Sync platform sub-repos to standalone repos

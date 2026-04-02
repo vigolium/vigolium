@@ -1,7 +1,8 @@
 format: toml
 agent_name_prefix: "archon:"
 defaults:
-  model: "gpt5.2"
+  model: "gpt-5.3-codex"
+  model_reasoning_effort: "medium"
   sandbox_mode: "workspace-write"
 
 overrides:

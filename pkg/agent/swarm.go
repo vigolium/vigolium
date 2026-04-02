@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/agent/backend"
 	"github.com/vigolium/vigolium/pkg/agent/extensions"
 	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
@@ -39,8 +40,9 @@ type SwarmConfig struct {
 	InputType InputType // explicit type (auto-detected if empty)
 
 	// Source analysis
-	SourcePath string   // path to application source code (triggers source analysis phase)
-	Files      []string // specific files to include (relative to SourcePath)
+	SourcePath  string                  // path to application source code (triggers source analysis phase)
+	Files       []string                // specific files to include (relative to SourcePath)
+	DiffContext *agenttypes.DiffContext  // non-nil when --diff or --last-commits was provided
 
 	// Custom instruction
 	Instruction string // user-provided custom instruction appended to agent prompts

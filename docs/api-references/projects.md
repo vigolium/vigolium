@@ -1,8 +1,26 @@
 # Vigolium API Reference — Projects
 
-Manage projects for multi-tenant data isolation. All scan data (HTTP records, findings, scopes, scans) is scoped to a project via `project_uuid`.
+Manage projects for multi-tenant data isolation. All scan data (HTTP records, findings, scopes, scans) is scoped to a project via `project_uuid`. Projects can optionally carry `allowed_emails` (exact addresses) and `allowed_domains` (email domain patterns) to control access.
 
 > **Note:** These endpoints manage project records themselves. To scope API operations to a specific project, use the `X-Project-UUID` request header on other endpoints.
+
+## Access Control via `X-User-Email`
+
+When a request includes both `X-Project-UUID` and `X-User-Email` headers, the server checks whether the user is allowed to access the project:
+
+1. If the project has `allowed_emails` set, the user's email must match exactly (case-insensitive).
+2. Otherwise, if the project has `allowed_domains` set, the user's email domain (e.g. `@acme.com`) must match one of the entries.
+3. If both lists are empty, the project is open — any user can access it.
+4. If `X-User-Email` is not sent, the access check is skipped entirely.
+
+Denied requests receive a `403 Forbidden` response.
+
+```bash
+# Request with project access check
+curl -s http://localhost:9002/api/findings \
+  -H 'X-Project-UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890' \
+  -H 'X-User-Email: alice@acme.com' | jq .
+```
 
 ## GET /api/projects — List Projects
 
@@ -29,6 +47,8 @@ curl -s 'http://localhost:9002/api/projects?owner=00000000-0000-0000-0000-000000
     "name": "default",
     "description": "Default project",
     "owner_uuid": "00000000-0000-0000-0000-000000000001",
+    "allowed_domains": ["@acme.com", "@partner.io"],
+    "allowed_emails": ["alice@external.com"],
     "created_at": "2026-02-19T10:00:00Z",
     "updated_at": "2026-02-19T10:00:00Z",
     "stats": {
@@ -88,16 +108,18 @@ curl -s 'http://localhost:9002/api/projects?owner=00000000-0000-0000-0000-000000
 
 **Request body:**
 
-| Field         | Type   | Required | Description                  |
-|---------------|--------|----------|------------------------------|
-| `name`        | string | Yes      | Project name                 |
-| `description` | string | No       | Project description          |
-| `owner_uuid`  | string | No       | UUID of the owning user      |
+| Field             | Type     | Required | Description                                      |
+|-------------------|----------|----------|--------------------------------------------------|
+| `name`            | string   | Yes      | Project name                                     |
+| `description`     | string   | No       | Project description                              |
+| `owner_uuid`      | string   | No       | UUID of the owning user                          |
+| `allowed_domains` | string[] | No       | Email domains allowed to access this project (e.g. `["@acme.com"]`) |
+| `allowed_emails`  | string[] | No       | Exact email addresses allowed to access this project |
 
 ```bash
 curl -s -X POST http://localhost:9002/api/projects \
   -H 'Content-Type: application/json' \
-  -d '{"name": "my-project", "description": "Web app audit"}' | jq .
+  -d '{"name": "my-project", "description": "Web app audit", "allowed_domains": ["@acme.com"], "allowed_emails": ["alice@external.com"]}' | jq .
 ```
 
 ```json
@@ -105,6 +127,8 @@ curl -s -X POST http://localhost:9002/api/projects \
   "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "name": "my-project",
   "description": "Web app audit",
+  "allowed_domains": ["@acme.com"],
+  "allowed_emails": ["alice@external.com"],
   "created_at": "2026-03-06T12:00:00Z",
   "updated_at": "2026-03-06T12:00:00Z"
 }
@@ -134,6 +158,8 @@ curl -s http://localhost:9002/api/projects/a1b2c3d4-e5f6-7890-abcd-ef1234567890 
   "name": "my-project",
   "description": "Web app audit",
   "owner_uuid": "00000000-0000-0000-0000-000000000001",
+  "allowed_domains": ["@acme.com", "@partner.io"],
+  "allowed_emails": ["alice@external.com"],
   "created_at": "2026-03-06T12:00:00Z",
   "updated_at": "2026-03-06T12:00:00Z",
   "stats": {
@@ -175,24 +201,28 @@ Update fields on an existing project. Only non-empty fields are applied.
 
 **Request body:**
 
-| Field         | Type   | Required | Description                  |
-|---------------|--------|----------|------------------------------|
-| `name`        | string | No       | New project name             |
-| `description` | string | No       | New description              |
-| `owner_uuid`  | string | No       | New owner UUID               |
+| Field             | Type     | Required | Description                                      |
+|-------------------|----------|----------|--------------------------------------------------|
+| `name`            | string   | No       | New project name                                 |
+| `description`     | string   | No       | New description                                  |
+| `owner_uuid`      | string   | No       | New owner UUID                                   |
+| `allowed_domains` | string[] | No       | Replace allowed domains list (send `[]` to clear)|
+| `allowed_emails`  | string[] | No       | Replace allowed emails list (send `[]` to clear) |
 
 ```bash
 curl -s -X PUT http://localhost:9002/api/projects/a1b2c3d4-e5f6-7890-abcd-ef1234567890 \
   -H 'Content-Type: application/json' \
-  -d '{"description": "Updated description"}' | jq .
+  -d '{"allowed_domains": ["@acme.com"], "allowed_emails": ["bob@external.com"]}' | jq .
 ```
 
 ```json
 {
   "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "name": "my-project",
-  "description": "Updated description",
+  "description": "Web app audit",
   "owner_uuid": "00000000-0000-0000-0000-000000000001",
+  "allowed_domains": ["@acme.com"],
+  "allowed_emails": ["bob@external.com"],
   "created_at": "2026-03-06T12:00:00Z",
   "updated_at": "2026-03-06T12:30:00Z"
 }
@@ -204,6 +234,43 @@ curl -s -X PUT http://localhost:9002/api/projects/a1b2c3d4-e5f6-7890-abcd-ef1234
 |------|------------------------|
 | 400  | Invalid request body   |
 | 404  | Project not found      |
+| 503  | Database not connected |
+
+---
+
+## GET /api/projects/domain-map — Domain-to-Project Mapping
+
+Returns a mapping of email domains and exact email addresses to project UUIDs. Useful for frontend middleware to resolve which projects a user has access to in a single call.
+
+```bash
+curl -s http://localhost:9002/api/projects/domain-map | jq .
+```
+
+```json
+{
+  "domains": {
+    "@acme.com": [
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+    ],
+    "@partner.io": [
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    ]
+  },
+  "emails": {
+    "alice@external.com": [
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    ]
+  }
+}
+```
+
+The frontend middleware can check access by looking up the user's exact email in `emails`, then falling back to their email domain in `domains`. Projects without any `allowed_domains` or `allowed_emails` are omitted from the respective maps.
+
+**Errors:**
+
+| Code | Condition              |
+|------|------------------------|
 | 503  | Database not connected |
 
 ---

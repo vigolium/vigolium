@@ -1,0 +1,16 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/oast-interactions/layout,_N_T_/oast-interactions/[[...id]]/layout,_N_T_/oast-interactions/[[...id]]/page,_N_T_/oast-interactions"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/oast-interactions/$oc$id/__PAGE__",
+    "/oast-interactions/$oc$id",
+    "/oast-interactions",
+    "/_index",
+    "/_head"
+  ]
+}

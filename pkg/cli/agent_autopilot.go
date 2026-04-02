@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -37,6 +38,8 @@ var (
 	autopilotBrowser         bool
 	autopilotNoArchon        bool
 	autopilotArchonMode      string
+	autopilotDiff            string
+	autopilotLastCommits     int
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -95,6 +98,8 @@ func init() {
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
 	f.BoolVar(&autopilotNoArchon, "no-archon", false, "Disable automatic archon-audit (enabled by default when --source is set)")
 	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), or deep (11-phase)")
+	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
+	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 }
 
 func runAgentAutopilot(_ *cobra.Command, args []string) error {
@@ -179,6 +184,20 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
 	}
 
+	// Resolve source (git URL, archive, local path) and diff context
+	var diffCtx *agenttypes.DiffContext
+	if autopilotSource != "" || autopilotDiff != "" || autopilotLastCommits > 0 {
+		var err error
+		autopilotSource, autopilotFiles, diffCtx, err = agent.ResolveSourceAndDiff(
+			autopilotSource, autopilotDiff, autopilotLastCommits, autopilotFiles, sessionDir)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Recalculate sourceOnly after resolution
+	sourceOnly = autopilotTarget == "" && autopilotSource != ""
+
 	// Print startup summary (matches swarm format)
 	fmt.Fprint(os.Stderr, GetBanner())
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
@@ -212,6 +231,14 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	// Source
 	if autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "  %s Source: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(terminal.ShortenHome(autopilotSource)))
+	}
+
+	// Diff
+	if diffCtx != nil {
+		fmt.Fprintf(os.Stderr, "  %s Diff: %s (%d changed files)\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(diffCtx.DiffRef),
+			len(diffCtx.ChangedFiles))
 	}
 
 	// Archon
@@ -255,7 +282,7 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 			terminal.WarningSymbol(), protocol)
 	}
 
-	return runAutopilotAutonomous(ctx, engine, settings, repo, sessionDir, instruction)
+	return runAutopilotAutonomous(ctx, engine, settings, repo, sessionDir, instruction, diffCtx)
 }
 
 // parseMcpServerFlags parses --mcp-server flag values into McpServerConfig.
@@ -325,7 +352,7 @@ func mergeAgentMcpServers(settings *config.Settings, agentName string, cliServer
 
 // runAutopilotAutonomous runs a fully autonomous agent session using the Agent SDK.
 // The agent has full tool access and decides its own workflow — no fixed phases.
-func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string) error {
+func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, sessionDir, instruction string, diffCtx *agenttypes.DiffContext) error {
 	var streamWriter io.Writer
 	if settings.Agent.StreamEnabled() {
 		streamWriter = os.Stdout
@@ -348,6 +375,7 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		ProjectUUID:  projectUUID,
 		ScanUUID:     globalScanID,
 		StreamWriter: streamWriter,
+		DiffContext:  diffCtx,
 	}
 
 	// Wire archon (enabled by default when source is provided)

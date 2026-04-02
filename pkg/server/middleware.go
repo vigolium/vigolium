@@ -32,6 +32,78 @@ func getProjectUUID(c fiber.Ctx) string {
 	return database.DefaultProjectUUID
 }
 
+// ProjectAccessMiddleware checks X-User-Email against the project's
+// allowed_emails and allowed_domains lists. The check order is:
+//  1. If allowed_emails is non-empty, check for an exact email match.
+//  2. Otherwise, if allowed_domains is non-empty, check if the user's
+//     email domain (@suffix) matches any entry.
+//  3. If both lists are empty, the project is open — access is allowed.
+//
+// Must be applied after ProjectUUIDMiddleware.
+func ProjectAccessMiddleware(repo *database.Repository) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		if repo == nil {
+			return c.Next()
+		}
+
+		// Skip access check for public/utility endpoints
+		path := c.Path()
+		if path == "/" || path == "/health" || path == "/server-info" || path == "/metrics" || strings.HasPrefix(path, "/swagger") {
+			return c.Next()
+		}
+
+		userEmail := c.Get("X-User-Email")
+		if userEmail == "" {
+			// No user email header — skip access check (anonymous)
+			return c.Next()
+		}
+
+		projectUUID := getProjectUUID(c)
+		project, err := repo.GetProjectByUUID(c.Context(), projectUUID)
+		if err != nil {
+			// Project not found — let downstream handlers deal with it
+			return c.Next()
+		}
+
+		// 1. Check allowed_emails (exact match)
+		if len(project.AllowedEmails) > 0 {
+			for _, email := range project.AllowedEmails {
+				if strings.EqualFold(email, userEmail) {
+					return c.Next()
+				}
+			}
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error: "email not allowed for this project",
+				Code:  fiber.StatusForbidden,
+			})
+		}
+
+		// 2. Check allowed_domains (domain suffix match)
+		if len(project.AllowedDomains) > 0 {
+			atIdx := strings.LastIndex(userEmail, "@")
+			if atIdx < 0 {
+				return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+					Error: "invalid email format",
+					Code:  fiber.StatusForbidden,
+				})
+			}
+			userDomain := "@" + strings.ToLower(userEmail[atIdx+1:])
+			for _, domain := range project.AllowedDomains {
+				if strings.EqualFold(domain, userDomain) {
+					return c.Next()
+				}
+			}
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error: "email domain not allowed for this project",
+				Code:  fiber.StatusForbidden,
+			})
+		}
+
+		// 3. Both lists empty — open project
+		return c.Next()
+	}
+}
+
 const authUserLocalsKey = "auth_user"
 
 // BearerAuth returns fiber middleware that validates Bearer tokens and resolves user identity.

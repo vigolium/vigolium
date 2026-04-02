@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "middleware": {
+    "/": {
+      "files": [
+        "server/edge/chunks/[root-of-the-server]__08mld0p._.js",
+        "server/edge/chunks/[root-of-the-server]__02m1rd5._.js",
+        "server/edge/chunks/node_modules_@workos-inc_node_lib_webapi-oTg8yaNv_mjs_0lqtntq._.js",
+        "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_107zeil.js"
+      ],
+      "name": "middleware",
+      "page": "/",
+      "entrypoint": "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_107zeil.js",
+      "matchers": [
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?(?:\\/((?!_next\\/static|_next\\/image|favicon.ico|vigolium-logo-minimal.png).*))(\\\\.json)?[\\/#\\?]?$",
+          "originalSource": "/((?!_next/static|_next/image|favicon.ico|vigolium-logo-minimal.png).*)"
+        }
+      ],
+      "wasm": [],
+      "assets": [],
+      "env": {
+        "__NEXT_BUILD_ID": "dPubnbqOpL3Mbj76pn55v",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "UKMsAVo7Nb1msJU3K/9GISJC5gSJe8TIldvRXyuG5tk=",
+        "__NEXT_PREVIEW_MODE_ID": "80a2c8785994b3eac95ed3d69e720336",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "6c16c05c83c02ec67178f77728c8f8cdc7c3b02215d35f10f29db7a29180ac77",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "174a340aba5460b808014c978dc65f5ca1ca203f70616ef44652e1674a6c4053"
+      }
+    }
+  },
+  "sortedMiddleware": [
+    "/"
+  ],
+  "functions": {}
+}

@@ -75,6 +75,11 @@ func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
 	return db, nil
 }
 
+// NewDBFromBun wraps an existing bun.DB for use in tests or external tooling.
+func NewDBFromBun(bunDB *bun.DB, driver string) *DB {
+	return &DB{DB: bunDB, driver: driver}
+}
+
 // openSQLite creates SQLite connection with optimized settings
 func openSQLite(cfg *config.SQLiteConfig) (*sql.DB, error) {
 	// Expand path (handle ~ and environment variables)
@@ -214,6 +219,8 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			owner_uuid TEXT,
 			config_path TEXT,
 			tags TEXT,
+			allowed_domains TEXT,
+			allowed_emails TEXT,
 			default_target TEXT,
 			last_scan_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

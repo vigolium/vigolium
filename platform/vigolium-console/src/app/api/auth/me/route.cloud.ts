@@ -1,0 +1,101 @@
+import { withAuth } from '@workos-inc/authkit-nextjs';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { resolveOrgBilling } from '@/lib/billing';
+import { getUserOrganization } from '@/lib/workos-server';
+import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
+
+const requireOrg = process.env.REQUIRE_ORG_MEMBERSHIP === 'true';
+
+export async function GET() {
+  const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
+  if (skipAuth) {
+    return NextResponse.json({
+      name: 'Admin',
+      email: 'admin@local',
+      role: 'admin',
+      credits: 999999,
+      organization: null,
+    });
+  }
+
+  // Check for access-code session first (bypasses WorkOS entirely)
+  const cookieStore = await cookies();
+  const accessCookie = cookieStore.get(ACCESS_COOKIE_NAME);
+  if (accessCookie?.value) {
+    const payload = await verifyAccessSession(accessCookie.value);
+    if (payload) {
+      return NextResponse.json({
+        name: payload.label,
+        email: payload.email,
+        role: 'access-code',
+        credits: 999999,
+        organization: null,
+      });
+    }
+    // Invalid/expired cookie — treat as unauthenticated
+    return NextResponse.json(null, { status: 401 });
+  }
+
+  // WorkOS authentication
+  let session;
+  try {
+    session = await withAuth();
+  } catch {
+    return NextResponse.json(
+      { error: 'Authentication is not configured. Check WorkOS environment variables.' },
+      { status: 503 },
+    );
+  }
+
+  if (!session.user) {
+    return NextResponse.json(null, { status: 401 });
+  }
+
+  const user = session.user;
+
+  // Org membership gate (when enabled)
+  if (requireOrg) {
+    try {
+      const org = await getUserOrganization(user.id);
+      if (!org) {
+        return NextResponse.json(
+          { error: 'no_organization', message: 'You must be invited to an organization to access this platform.' },
+          { status: 403 },
+        );
+      }
+    } catch {
+      // If the org check itself fails, let the user through rather than blocking
+    }
+  }
+
+  let billing;
+  try {
+    billing = await resolveOrgBilling(user.id);
+  } catch {
+    // Billing not configured — return user info without credits
+    return NextResponse.json({
+      id: user.id,
+      name: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.email,
+      email: user.email,
+      role: 'user',
+      credits: 0,
+      organization: null,
+      billingError: 'Billing is not configured. Check Stripe environment variables.',
+    });
+  }
+
+  const organization = billing?.orgId
+    ? { id: billing.orgId, name: billing.orgName! }
+    : null;
+  const credits = billing?.credits ?? 0;
+
+  return NextResponse.json({
+    id: user.id,
+    name: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user.email,
+    email: user.email,
+    role: 'user',
+    credits,
+    organization,
+  });
+}

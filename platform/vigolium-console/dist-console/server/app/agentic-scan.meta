@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/agentic-scan/layout,_N_T_/agentic-scan/page,_N_T_/agentic-scan"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/agentic-scan/__PAGE__",
+    "/agentic-scan",
+    "/_index",
+    "/_head"
+  ]
+}

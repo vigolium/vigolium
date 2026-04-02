@@ -45,6 +45,7 @@ Cycle through all 8 modes. For each, cross-reference the specified Phase inputs:
 | 7. State Machine Attacks | Out-of-order transitions, replay, missing-transition checks | Phase 3 CFD slices (auth/session flows) |
 | 8. Supply Chain Interaction | Dependency interaction with application code | Phase 1 dependency intel + Phase 3 Mode A/B research |
 
+<!-- codex-trim-start -->
 ### Thinking Prompts per Mode
 
 **Mode 1 (Chaining)**: "If IDOR gives read access to user metadata, and metadata contains session tokens, chain IDOR + session hijack for account takeover." Look at Phase 7 dropped lows — what happens if two of them are combined?
@@ -69,6 +70,7 @@ Cycle through all 8 modes. For each, cross-reference the specified Phase inputs:
 - Mode 4+5: Stored payload via low-trust API consumed by high-trust renderer (stored XSS via trust boundary)
 - Mode 6+7: URL parser differential to bypass OAuth redirect_uri + replay auth code
 - Mode 2+8: Caching library serves stale responses; abuse for stale user data via cache key inheritance
+<!-- codex-trim-end -->
 
 For each applicable mode, generate at least one hypothesis. Explicitly attempt at least 2 cross-mode combinations.
 

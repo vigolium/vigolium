@@ -126,6 +126,31 @@ overrides:
     tools: "Glob, Grep, Read, Write, Bash"
     color: "white"
 
+  # --- Vigolium Analyzer ---
+  vigolium-audit:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "red"
+
+  vigolium-recon-titles:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "cyan"
+
+  vigolium-recon-empty-titles:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "cyan"
+
+  vigolium-recon-api:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "cyan"
+
+  vigolium-recon-errors:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "cyan"
+
+  vigolium-recon-anomalies:
+    tools: "Bash, Read, Write, Grep, Glob"
+    color: "cyan"
+
   # --- Excluded (not present in Claude plugin) ---
   deep-auditor:
     exclude: true

@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -60,6 +61,8 @@ var (
 	swarmAuth                bool
 	swarmCredentials         string
 	swarmArchon          string
+	swarmDiff            string
+	swarmLastCommits     int
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -191,6 +194,9 @@ func init() {
 	f.StringVar(&swarmArchon, "archon", "", "Run background archon-audit for parallel security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
 	agentSwarmCmd.Flag("archon").NoOptDefVal = "lite" // bare --archon defaults to lite
 
+	// Diff context
+	f.StringVar(&swarmDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
+	f.IntVar(&swarmLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 }
 
 func runAgentSwarm(cmd *cobra.Command, args []string) error {
@@ -308,6 +314,17 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
 	}
 
+	// Resolve source (git URL, archive, local path) and diff context
+	var swarmDiffCtx *agenttypes.DiffContext
+	if swarmSource != "" || swarmDiff != "" || swarmLastCommits > 0 {
+		var err error
+		swarmSource, swarmFiles, swarmDiffCtx, err = agent.ResolveSourceAndDiff(
+			swarmSource, swarmDiff, swarmLastCommits, swarmFiles, sessionDir)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Track generated auth config path (set by SourceAnalysisCallback, used by scan callbacks)
 	var generatedAuthConfig string
 
@@ -333,6 +350,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		Instruction:        instruction,
 		SourcePath:         swarmSource,
 		Files:              swarmFiles,
+		DiffContext:        swarmDiffCtx,
 		VulnType:           swarmVulnType,
 		Focus:              swarmFocus,
 		ModuleNames:        swarmModules,
@@ -482,6 +500,14 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	// Source
 	if swarmSource != "" {
 		fmt.Fprintf(os.Stderr, "  %s Source: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(terminal.ShortenHome(swarmSource)))
+	}
+
+	// Diff
+	if swarmDiffCtx != nil {
+		fmt.Fprintf(os.Stderr, "  %s Diff: %s (%d changed files)\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiTeal(swarmDiffCtx.DiffRef),
+			len(swarmDiffCtx.ChangedFiles))
 	}
 
 	// Phases — show enabled/disabled status for each swarm phase

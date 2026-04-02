@@ -1,0 +1,16 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/source-repos/layout,_N_T_/source-repos/[[...id]]/layout,_N_T_/source-repos/[[...id]]/page,_N_T_/source-repos"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/source-repos/$oc$id/__PAGE__",
+    "/source-repos/$oc$id",
+    "/source-repos",
+    "/_index",
+    "/_head"
+  ]
+}

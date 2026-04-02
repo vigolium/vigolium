@@ -2,7 +2,7 @@ package archon
 
 import "embed"
 
-//go:embed agent-defs/*.md
+//go:embed agent-defs
 var AgentsFS embed.FS
 
 //go:embed command-defs/*.md

@@ -1,0 +1,52 @@
+{
+  "name": "vigolium-console",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
+    "dev:console": "VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
+    "dev:console:noauth": "VIGOLIUM_SKIP_AUTH=true next dev --turbopack -p 5002",
+    "dev:clean": "rm -rf .next && VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
+    "dev:workbench": "NEXT_PUBLIC_BUILD_MODE=static NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
+    "dev:workbench:clean": "rm -rf .next-workbench && NEXT_PUBLIC_BUILD_MODE=static NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
+    "build": "next build",
+    "build:prod": "rm -rf .next && next build",
+    "build:console": "rm -rf .next dist-console && next build && cp -r .next dist-console && rm -rf dist-console/dev",
+    "build:workbench": "rm -rf .next-workbench dist-workbench && NEXT_PUBLIC_BUILD_MODE=static next build && cp -r .next-workbench dist-workbench && rm -rf dist-workbench/__next.* dist-workbench/dev",
+    "build:all": "bun run build:workbench && bun run build:console",
+    "preview:workbench": "bunx serve dist-workbench",
+    "start": "next start -p 5002",
+    "lint": "next lint",
+    "setup": "bash scripts/setup.sh",
+    "deploy": "bash scripts/deploy.sh"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.91.3",
+    "@workos-inc/authkit-nextjs": "^2.17.0",
+    "@workos-inc/node": "^8.9.0",
+    "ag-grid-community": "^35.1.0",
+    "ag-grid-react": "^35.1.0",
+    "fflate": "^0.8.2",
+    "jose": "^6.2.2",
+    "lucide-react": "^0.576.0",
+    "next": "^16.2.1",
+    "prismjs": "^1.30.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-simple-code-editor": "^0.14.1",
+    "recharts": "^3.8.0",
+    "remark-gfm": "^4.0.1",
+    "server-only": "^0.0.1",
+    "stripe": "^20.4.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/node": "^25.5.0",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3"
+  }
+}
