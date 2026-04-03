@@ -133,6 +133,26 @@ func (lc *Browser) Download() error {
 		us = append(us, host(lc.Revision))
 	}
 
+	// On platforms without a hostConf entry (e.g., linux/arm64), HostGoogle
+	// and HostNPM produce broken URLs with empty path segments (the urlPrefix
+	// is ""). Filter those out so fetchup doesn't fail on guaranteed 404s.
+	if hostConf.urlPrefix == "" {
+		valid := us[:0]
+		for _, u := range us {
+			if !strings.Contains(u, "chromium-browser-snapshots") {
+				valid = append(valid, u)
+			}
+		}
+		us = valid
+	}
+
+	if len(us) == 0 {
+		return fmt.Errorf(
+			"no browser download URLs available for %s/%s — install chromium manually (e.g. apt install chromium)",
+			runtime.GOOS, runtime.GOARCH,
+		)
+	}
+
 	dir := lc.Dir()
 
 	fu := fetchup.New(dir, us...)
@@ -224,6 +244,8 @@ func LookPath() (found string, has bool) {
 			"/usr/bin/google-chrome-stable",
 			"/usr/bin/chromium",
 			"/usr/bin/chromium-browser",
+			"/usr/lib/chromium/chromium",
+			"/usr/lib/chromium-browser/chromium-browser",
 			"/snap/bin/chromium",
 			"/data/data/com.termux/files/usr/bin/chromium-browser",
 		},

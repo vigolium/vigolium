@@ -98,6 +98,7 @@ type Config struct {
 	Headless      bool
 	BrowserCount  int
 	BrowserEngine string // "chromium" (default), "ungoogled", or "fingerprint"
+	BrowserPath   string // explicit path to browser binary (overrides auto-detection)
 
 	// Auth & Network
 	BasicAuthUser  string

@@ -16,6 +16,7 @@ type SpideringConfig struct {
 	Strategy            string `yaml:"strategy"`              // default: "adaptive"
 	IncludeResponseBody bool   `yaml:"include_response_body"` // default: true
 	BrowserEngine       string `yaml:"browser_engine"`        // "chromium" (default), "ungoogled", or "fingerprint"
+	BrowserPath         string `yaml:"browser_path"`          // explicit path to browser binary (overrides auto-detection)
 	NoCDP               bool   `yaml:"no_cdp"`                // disable CDP event listener detection
 	NoForms             bool   `yaml:"no_forms"`              // disable automatic form filling
 }

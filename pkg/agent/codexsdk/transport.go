@@ -60,7 +60,12 @@ func startProcess(ctx context.Context, opts *Options) (*process, error) {
 		zap.String("command", cmdLine.String()),
 		zap.String("cwd", opts.Cwd))
 
-	cmd := exec.CommandContext(ctx, cmdPath, args...)
+	// Use background context for the subprocess lifetime — the session pool
+	// manages process lifecycle via Kill(). The caller's ctx is only used for
+	// bounding startup operations (Initialize, ThreadStart), not the process
+	// lifetime. Using the caller's ctx here would kill the process when the
+	// creation timeout context is cancelled.
+	cmd := exec.CommandContext(context.Background(), cmdPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if opts.Cwd != "" {

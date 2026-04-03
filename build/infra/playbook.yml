@@ -1,0 +1,76 @@
+---
+# =============================================================================
+# Vigolium Full-Stack Deployment
+# =============================================================================
+# Deploys:
+#   1. Vigolium scanner server (Go binary + SQLite)
+#   2. Scanner dependencies (Chromium, semgrep, CodeQL, Claude Code, nuclei templates)
+#   3. Vigolium Console (Next.js, cloud mode with WorkOS/GitHub auth)
+#   4. Caddy reverse proxy (auto-TLS via Cloudflare DNS-01)
+#
+# Usage:
+#   # First time — create vault for secrets:
+#   ansible-vault create inventory/group_vars/vault.yml
+#   #   vault_cloudflare_api_token: "cf-api-token-with-dns-edit"
+#   #   vault_vigolium_api_key: "your-api-key-here"
+#
+#   # Deploy:
+#   ansible-playbook playbook.yml --ask-vault-pass
+#
+#   # Only update scanner binary:
+#   ansible-playbook playbook.yml --tags scanner --ask-vault-pass
+#
+#   # Only update console:
+#   ansible-playbook playbook.yml --tags console --ask-vault-pass
+# =============================================================================
+
+- name: Deploy Vigolium
+  hosts: all
+  become: true
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - vigolium_domain is defined and vigolium_domain != ""
+          - cloudflare_api_token is defined and cloudflare_api_token != ""
+          - vigolium_api_key is defined and vigolium_api_key != ""
+        fail_msg: "Required variables missing. Check group_vars/all.yml and vault.yml"
+
+  roles:
+    - role: common
+      tags: [common]
+    - role: vigolium-deps
+      tags: [deps]
+    - role: vigolium-server
+      tags: [scanner]
+    - role: vigolium-console
+      tags: [console]
+    - role: caddy
+      tags: [caddy]
+
+  post_tasks:
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          Vigolium Deployment Complete
+          ============================================================
+
+          Scanner API:  http://{{ vigolium_server_host }}:{{ vigolium_server_port }}
+          Console:      http://127.0.0.1:{{ vigolium_console_port }}
+          Public URL:   https://{{ vigolium_domain }}
+
+          Services:
+            systemctl status vigolium
+            systemctl status vigolium-console
+            systemctl status caddy
+
+          Logs:
+            journalctl -u vigolium -f
+            journalctl -u vigolium-console -f
+            journalctl -u caddy -f
+
+          Quick test:
+            curl -s https://{{ vigolium_domain }}/health
+          ============================================================

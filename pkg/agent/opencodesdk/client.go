@@ -362,7 +362,10 @@ func startDaemon(ctx context.Context, opts *Options) (*daemon, error) {
 		zap.Int("port", port),
 		zap.String("cwd", opts.Cwd))
 
-	cmd := exec.CommandContext(ctx, cmdPath, args...)
+	// Use background context for the daemon lifetime — the session pool
+	// manages process lifecycle via Kill(). The caller's ctx is only used for
+	// bounding startup operations, not the daemon lifetime.
+	cmd := exec.CommandContext(context.Background(), cmdPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if opts.Cwd != "" {

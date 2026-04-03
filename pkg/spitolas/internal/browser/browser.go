@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,14 +50,28 @@ func New(cfg *config.Config) (*Browser, error) {
 func (b *Browser) launch() error {
 	l := launcher.New()
 
-	// Try to use embedded browser binary
-	binPath, err := b.getEmbeddedBrowserPath()
-	if err != nil {
-		zap.L().Warn("Failed to get embedded browser, using auto-download fallback",
-			zap.Error(err))
-	} else {
-		l = l.Bin(binPath)
+	// Priority: config path > embedded binary > system browser > auto-download
+	var binPath string
+
+	if b.config.BrowserPath != "" {
+		// User-specified browser path takes highest priority
+		binPath = b.config.BrowserPath
+		zap.L().Debug("Using configured browser path", zap.String("path", binPath))
+	} else if embedded, err := b.getEmbeddedBrowserPath(); err == nil {
+		binPath = embedded
 		zap.L().Debug("Using embedded browser", zap.String("path", binPath))
+	} else if sysPath, found := launcher.LookPath(); found && validateBrowserBin(sysPath) {
+		// Validate the system browser actually works — Ubuntu installs snap
+		// stubs at /usr/bin/chromium-browser that aren't real browsers.
+		binPath = sysPath
+		zap.L().Debug("Using system browser", zap.String("path", binPath))
+	} else {
+		zap.L().Warn("No browser binary found, using auto-download fallback",
+			zap.Error(err))
+	}
+
+	if binPath != "" {
+		l = l.Bin(binPath)
 	}
 
 	l.NoSandbox(true)
@@ -365,6 +380,30 @@ func (b *Browser) Close() error {
 // IsConnected returns true if browser is connected.
 func (b *Browser) IsConnected() bool {
 	return b.rodBrowser != nil
+}
+
+// validateBrowserBin checks if a browser binary is a real browser executable
+// (not a snap stub or broken wrapper). On Ubuntu, apt install chromium-browser
+// installs a shell script at /usr/bin/chromium-browser that just prints
+// "Please install it with: snap install chromium" and exits.
+func validateBrowserBin(binPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binPath, "--version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	output := string(out)
+	// Snap stubs print "requires the chromium snap to be installed"
+	if strings.Contains(output, "snap") {
+		return false
+	}
+	// A real browser prints a version line like "Chromium 124.0.6367.60"
+	return strings.Contains(output, "Chromium") ||
+		strings.Contains(output, "Chrome") ||
+		strings.Contains(output, "Microsoft Edge")
 }
 
 // getEmbeddedBrowserPath returns the path to the embedded browser binary based on config.

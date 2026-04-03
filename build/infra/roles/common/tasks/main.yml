@@ -1,0 +1,80 @@
+---
+# =============================================================================
+# Common: system user, base packages, firewall
+# =============================================================================
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - git
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - jq
+      - unzip
+      - sqlite3
+      - netcat-openbsd
+      - dumb-init
+      - ufw
+    state: present
+
+- name: Create vigolium group
+  ansible.builtin.group:
+    name: "{{ vigolium_group }}"
+    state: present
+
+- name: Create vigolium user
+  ansible.builtin.user:
+    name: "{{ vigolium_user }}"
+    group: "{{ vigolium_group }}"
+    home: "{{ vigolium_home }}"
+    shell: /bin/bash
+    create_home: true
+    system: true
+
+- name: Create data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vigolium_user }}"
+    group: "{{ vigolium_group }}"
+    mode: "0750"
+  loop:
+    - "{{ vigolium_data_dir }}"
+    - "{{ vigolium_data_dir }}/extensions"
+    - "{{ vigolium_data_dir }}/agent-sessions"
+    - "{{ vigolium_home }}/.local/bin"
+
+- name: Configure UFW defaults
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTP/HTTPS for Caddy
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled

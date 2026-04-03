@@ -1,0 +1,34 @@
+[Unit]
+Description=Vigolium Scanner Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ vigolium_user }}
+Group={{ vigolium_group }}
+ExecStart=/usr/local/bin/vigolium server --host {{ vigolium_server_host }} --service-port {{ vigolium_server_port }}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Environment
+Environment=HOME={{ vigolium_home }}
+Environment=PATH={{ vigolium_home }}/.bun/bin:{{ vigolium_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CHROME_NO_SANDBOX=true
+Environment=CHROMIUM_FLAGS=--no-sandbox --disable-dev-shm-usage
+WorkingDirectory={{ vigolium_home }}
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths={{ vigolium_data_dir }} {{ vigolium_home }}/nuclei-templates {{ vigolium_home }}/.local /tmp
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

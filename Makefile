@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui
+.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui
 
 # Go parameters
 GOCMD=go
@@ -127,7 +127,7 @@ test-benchmark: test-integration
 # Run E2E tests (requires Docker)
 test-e2e: install-gotestsum
 	@echo "$(PREFIX) Running E2E tests (requires Docker)..."
-	$(TESTCMD) $(TESTFLAGS) -tags=e2e ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 15m ./test/e2e/...
 
 # Run API E2E tests only (server endpoint tests, no Docker needed)
 test-e2e-api: install-gotestsum
@@ -163,6 +163,11 @@ test-e2e-dvwa: install-gotestsum
 test-e2e-juiceshop: install-gotestsum
 	@echo "$(PREFIX) Running Juice Shop E2E tests..."
 	$(TESTCMD) $(TESTFLAGS) -tags=canary -run TestJuiceShop ./test/e2e/
+
+# Run browser fallback E2E tests (Docker multi-arch, verifies system chromium fallback)
+test-e2e-browser-fallback: install-gotestsum
+	@echo "$(PREFIX) Running browser fallback E2E tests (Docker multi-arch)..."
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 20m -run TestBrowserFallback ./test/e2e/
 
 # Run whitebox benchmark tests (Docker-based, data-driven from YAML definitions)
 test-benchmark-whitebox: install-gotestsum
@@ -632,6 +637,7 @@ help:
 	@echo "    make test-e2e-vampi   Run VAmPI canary tests only (SQLi)"
 	@echo "    make test-e2e-dvwa    Run DVWA canary tests only (XSS, SQLi, LFI)"
 	@echo "    make test-e2e-juiceshop  Run Juice Shop canary tests only"
+	@echo "    make test-e2e-browser-fallback  Browser fallback test (Docker multi-arch)"
 	@echo "    make test-xbow        Run all xbow validation benchmarks (Docker + XBOW_SOURCE_DIR)"
 	@echo "    make test-xbow-ssti   Run xbow SSTI benchmarks"
 	@echo "    make test-xbow-xss    Run xbow XSS benchmarks"

@@ -1783,6 +1783,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			Silent:              r.options.Silent,
 			Verbose:             r.options.Verbose,
 			BrowserEngine:       settingsCfg.BrowserEngine,
+			BrowserPath:         settingsCfg.BrowserPath,
 			NoCDP:               settingsCfg.NoCDP,
 			NoForms:             settingsCfg.NoForms,
 			ProxyURL:            r.options.ProxyURL,

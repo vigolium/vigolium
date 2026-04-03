@@ -34,6 +34,7 @@ type SpiderConfig struct {
 	Silent              bool
 	Verbose             bool   // show all traffic including static files
 	BrowserEngine       string // "chromium" or "ungoogled"
+	BrowserPath         string // explicit path to browser binary (overrides auto-detection)
 	NoCDP               bool   // disable CDP event listener detection
 	NoForms             bool   // disable automatic form filling
 	ProxyURL            string // HTTP proxy URL for browser traffic
@@ -78,6 +79,9 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 	}
 	if cfg.BrowserEngine != "" {
 		crawlerCfg.BrowserEngine = cfg.BrowserEngine
+	}
+	if cfg.BrowserPath != "" {
+		crawlerCfg.BrowserPath = cfg.BrowserPath
 	}
 	crawlerCfg.UseCDPDetection = !cfg.NoCDP
 	crawlerCfg.FormFillEnabled = !cfg.NoForms

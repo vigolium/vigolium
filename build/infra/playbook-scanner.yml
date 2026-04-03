@@ -1,0 +1,73 @@
+---
+# =============================================================================
+# Vigolium Scanner-Only Deployment
+# =============================================================================
+# Deploys just the scanner server with dependencies — no Caddy, no console.
+# The API server listens on 0.0.0.0 so you can reach it directly or put your
+# own reverse proxy / tunnel in front.
+#
+# Usage:
+#   ansible-vault create inventory/group_vars/vault.yml
+#   #   vault_vigolium_api_key: "your-api-key-here"
+#
+#   ansible-playbook playbook-scanner.yml --ask-vault-pass
+#
+#   # Only update binary:
+#   ansible-playbook playbook-scanner.yml --tags scanner --ask-vault-pass
+# =============================================================================
+
+- name: Deploy Vigolium Scanner
+  hosts: all
+  become: true
+
+  vars:
+    # Override: bind to all interfaces since there's no reverse proxy
+    vigolium_server_host: "0.0.0.0"
+
+    # No console, no Caddy — these aren't needed
+    install_claude_code: true
+    install_chromium: true
+    install_semgrep: true
+    install_codeql: true
+    install_nuclei_templates: true
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - vigolium_api_key is defined and vigolium_api_key != ""
+        fail_msg: "vigolium_api_key is required. Set it in vault.yml"
+
+  roles:
+    - role: common
+      tags: [common]
+    - role: vigolium-deps
+      tags: [deps]
+    - role: vigolium-server
+      tags: [scanner]
+
+  post_tasks:
+    - name: Allow scanner port through UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ vigolium_server_port | string }}"
+        proto: tcp
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          Vigolium Scanner Deployed
+          ============================================================
+
+          API:      http://{{ ansible_host }}:{{ vigolium_server_port }}
+          Swagger:  http://{{ ansible_host }}:{{ vigolium_server_port }}/swagger/
+          Health:   http://{{ ansible_host }}:{{ vigolium_server_port }}/health
+
+          Service:  systemctl status vigolium
+          Logs:     journalctl -u vigolium -f
+
+          Quick test:
+            curl -s -H 'Authorization: Bearer <api-key>' \
+              http://{{ ansible_host }}:{{ vigolium_server_port }}/health
+          ============================================================

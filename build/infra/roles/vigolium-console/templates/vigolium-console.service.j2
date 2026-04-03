@@ -1,0 +1,30 @@
+[Unit]
+Description=Vigolium Console (Next.js)
+After=network-online.target vigolium.service
+Wants=network-online.target
+Requires=vigolium.service
+
+[Service]
+Type=simple
+User={{ vigolium_user }}
+Group={{ vigolium_group }}
+WorkingDirectory={{ vigolium_console_dir }}
+ExecStart={{ vigolium_home }}/.bun/bin/bun run start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT={{ vigolium_console_port }}
+Environment=PATH={{ vigolium_home }}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile={{ vigolium_console_dir }}/.env.local
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ vigolium_console_dir }}
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

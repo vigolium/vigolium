@@ -1,0 +1,116 @@
+---
+# =============================================================================
+# Scanner Dependencies: Chromium, semgrep, CodeQL, Claude Code, nuclei templates
+# =============================================================================
+
+# --- Chromium ---
+- name: Install Chromium and fonts
+  ansible.builtin.apt:
+    name:
+      - chromium
+      - fonts-liberation
+    state: present
+  when: install_chromium | bool
+
+# --- Python + semgrep + ast-grep ---
+- name: Install Python 3
+  ansible.builtin.apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-venv
+    state: present
+  when: install_semgrep | bool
+
+- name: Install semgrep and ast-grep via pip
+  ansible.builtin.pip:
+    name:
+      - semgrep
+      - ast-grep-cli
+    extra_args: --break-system-packages --no-cache-dir
+  when: install_semgrep | bool
+
+# --- osv-scanner ---
+- name: Detect architecture for osv-scanner
+  ansible.builtin.set_fact:
+    osv_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+
+- name: Install osv-scanner
+  ansible.builtin.get_url:
+    url: "https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_{{ osv_arch }}"
+    dest: /usr/local/bin/osv-scanner
+    mode: "0755"
+  ignore_errors: true
+
+# --- CodeQL ---
+- name: Detect architecture for CodeQL
+  ansible.builtin.set_fact:
+    codeql_arch: "{{ 'linux64' if ansible_architecture == 'x86_64' else 'linux-arm64' }}"
+  when: install_codeql | bool
+
+- name: Create CodeQL directory
+  ansible.builtin.file:
+    path: /opt/codeql
+    state: directory
+    mode: "0755"
+  when: install_codeql | bool
+
+- name: Download and extract CodeQL
+  ansible.builtin.unarchive:
+    src: "https://github.com/github/codeql-action/releases/latest/download/codeql-bundle-{{ codeql_arch }}.tar.gz"
+    dest: /opt/codeql
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+    creates: /opt/codeql/codeql
+  when: install_codeql | bool
+  ignore_errors: true
+
+- name: Symlink CodeQL binary
+  ansible.builtin.file:
+    src: /opt/codeql/codeql
+    dest: /usr/local/bin/codeql
+    state: link
+  when: install_codeql | bool
+  ignore_errors: true
+
+# --- Claude Code CLI (via Bun — shared with vigolium-console role) ---
+- name: Install Bun (shared with console)
+  ansible.builtin.shell: |
+    curl -fsSL https://bun.sh/install | bash
+  args:
+    creates: "{{ vigolium_home }}/.bun/bin/bun"
+  become_user: "{{ vigolium_user }}"
+  when: install_claude_code | bool
+
+- name: Install Claude Code CLI via Bun
+  ansible.builtin.command:
+    cmd: "{{ vigolium_home }}/.bun/bin/bun install -g @anthropic-ai/claude-code"
+  become_user: "{{ vigolium_user }}"
+  environment:
+    PATH: "{{ vigolium_home }}/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+  changed_when: true
+  when: install_claude_code | bool
+  ignore_errors: true
+
+# --- Nuclei Templates ---
+- name: Clone nuclei-templates
+  ansible.builtin.git:
+    repo: https://github.com/projectdiscovery/nuclei-templates.git
+    dest: "{{ vigolium_home }}/nuclei-templates"
+    depth: 1
+    version: main
+  become_user: "{{ vigolium_user }}"
+  when: install_nuclei_templates | bool
+
+# --- Set environment for Chromium ---
+- name: Set Chromium environment in vigolium profile
+  ansible.builtin.blockinfile:
+    path: "{{ vigolium_home }}/.bashrc"
+    create: true
+    owner: "{{ vigolium_user }}"
+    group: "{{ vigolium_group }}"
+    block: |
+      export CHROME_NO_SANDBOX=true
+      export CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
+    marker: "# {mark} VIGOLIUM CHROMIUM ENV"
+  when: install_chromium | bool
