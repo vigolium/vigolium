@@ -1797,9 +1797,13 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			}
 		}
 
+		// Use RecordWriter to serialize and batch database writes, avoiding
+		// SQLite SQLITE_BUSY errors under concurrent CDP event ingestion.
+		rw := database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
 		timeoutCtx, cancel := context.WithTimeout(ctx, maxDuration)
-		result, err := spitolas.RunSpider(timeoutCtx, cfg, r.repository)
+		result, err := spitolas.RunSpider(timeoutCtx, cfg, rw)
 		cancel()
+		rw.Close()
 
 		if err != nil {
 			zap.L().Error("Spidering failed",

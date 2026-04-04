@@ -436,7 +436,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
   -d '{
     "agent": "claude",
     "prompt_template": "code-review",
-    "repo_path": "/home/user/src/my-app"
+    "source": "/home/user/src/my-app"
   }' | jq .
 ```
 

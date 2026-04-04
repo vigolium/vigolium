@@ -443,7 +443,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 	inputs := req.EffectiveInputs()
 	if len(inputs) == 0 && req.SourcePath == "" && req.Diff == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "at least one input is required (input, inputs, http_request_base64, source_path, diff, or prompt field)",
+			Error: "at least one input is required (input, inputs, http_request_base64, source, diff, or prompt field)",
 		})
 	}
 
@@ -659,7 +659,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, projectUUID, req.ScanUUID, settings)
 	}
 
-	// Wire SAST callback when source_path is provided (unless skip_sast)
+	// Wire SAST callback when source is provided (unless skip_sast)
 	if sourcePath != "" && !req.SkipSAST {
 		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, req.ScanUUID, settings)
 	}

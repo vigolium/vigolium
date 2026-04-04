@@ -238,14 +238,14 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `http_response_base64` | string   | No       | Base64-encoded raw HTTP response (attached to the request above)      |
 | `url`                  | string   | No       | URL hint for parsing the base64 request                               |
 
-\* At least one of `input`, `inputs`, `http_request_base64`, `source_path`, `diff`, or `prompt` is required.
+\* At least one of `input`, `inputs`, `http_request_base64`, `source`, `diff`, or `prompt` is required.
 
 *Source analysis:*
 
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
-| `source_path`          | string   | No       | Path to source code, git URL, or archive file for route discovery     |
-| `files`                | string[] | No       | Specific source files to include (relative to `source_path`). Auto-populated from `diff` when not set |
+| `source`               | string   | No       | Path to source code, git URL, or archive file for route discovery     |
+| `files`                | string[] | No       | Specific source files to include (relative to `source`). Auto-populated from `diff` when not set |
 | `diff`                 | string   | No       | Focus on changed code: PR URL, git ref range, or `HEAD~N`            |
 | `last_commits`         | int      | No       | Focus on last N commits (shorthand for `diff: "HEAD~N"`)             |
 | `source_analysis_only` | bool     | No       | Run only the source analysis phase and exit                           |
@@ -264,7 +264,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | `start_from`           | string   | No       | Resume from a specific phase (e.g. `"plan"`, `"triage"`)              |
 | `max_iterations`       | int      | No       | Max triage→rescan rounds (default `3`)                                |
 | `discover`             | bool     | No       | Run discovery+spidering before master agent planning                  |
-| `code_audit`           | bool     | No       | Enable AI security code audit phase (requires `source_path`)          |
+| `code_audit`           | bool     | No       | Enable AI security code audit phase (requires `source`)               |
 | `triage`               | bool     | No       | Enable AI triage and rescan phases (disabled by default)              |
 | `profile`              | string   | No       | Scanning profile name (e.g. `"light"`, `"thorough"`)                  |
 
@@ -302,9 +302,9 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
-| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"scan"` (6-phase), `"deep"` (11-phase), `"off"` to disable. Requires `source_path` |
+| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"scan"` (6-phase), `"deep"` (11-phase), `"off"` to disable. Requires `source` |
 
-**Source resolution:** The `source_path` field accepts the same input types as the autopilot `source` field: local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`).
+**Source resolution:** The `source` field accepts local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). The legacy `source_path` JSON key is still accepted for backward compatibility.
 
 **Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and focuses the source analysis phase on the changed code. GitHub PRs use the GitHub REST API directly. OAuth tokens embedded in the URL or the `GITHUB_TOKEN` env var are used for authentication.
 
@@ -365,7 +365,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "http://localhost:3000",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "diff": "https://github.com/org/repo/pull/42"
   }' | jq .
 
@@ -374,7 +374,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "http://localhost:3000",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "last_commits": 5
   }' | jq .
 
@@ -383,7 +383,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "http://localhost:3000",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "diff": "main...feature-branch"
   }' | jq .
 
@@ -405,7 +405,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "agent": "claude"
   }' | jq .
 
@@ -414,7 +414,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "files": ["routes/api.js", "controllers/auth.js", "middleware/session.js"]
   }' | jq .
 
@@ -423,7 +423,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "source_analysis_only": true
   }' | jq .
 
@@ -432,7 +432,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "discover": true,
     "code_audit": true,
     "instruction": "Focus on business logic flaws in the payment flow",
@@ -444,7 +444,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "skip_sast": true
   }' | jq .
 
@@ -453,7 +453,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "discover": true,
     "archon": "lite"
   }' | jq .
@@ -463,7 +463,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "discover": true,
     "code_audit": true,
     "archon": "deep"
@@ -582,7 +582,7 @@ The intent extractor recognizes: target URLs, source code paths, vulnerability f
 | Intent Field   | Maps To (Autopilot) | Maps To (Swarm)  | Description                                           |
 |----------------|----------------------|-------------------|-------------------------------------------------------|
 | `target`       | `target`             | `input`           | Target URL                                            |
-| `source_path`  | `source`             | `source_path`     | Filesystem path to source code                        |
+| `source_path`  | `source`             | `source`          | Filesystem path to source code                        |
 | `focus`        | `focus`              | `focus`           | Vulnerability focus area                              |
 | `instruction`  | `instruction`        | `instruction`     | Remaining guidance                                    |
 | `discover`     | —                    | `discover`        | Inferred when both target and source are present      |

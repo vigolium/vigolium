@@ -1,16 +1,24 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/diagnostics"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
+)
+
+var (
+	doctorFix  bool
+	doctorOnly []string
 )
 
 var doctorCmd = &cobra.Command{
@@ -22,10 +30,24 @@ var doctorCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(doctorCmd)
+	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Auto-install/fix failing checks")
+	doctorCmd.Flags().StringSliceVar(&doctorOnly, "only", nil, "Fix only specific items (bun,chrome,ast-grep,agent-browser,claude,nuclei)")
+}
+
+// doctorOutput is the JSON structure when --fix is used with --json.
+type doctorOutput struct {
+	Report  *diagnostics.Report      `json:"report"`
+	Fixes   []diagnostics.FixResult  `json:"fixes,omitempty"`
+	Updated *diagnostics.Report      `json:"updated,omitempty"`
 }
 
 func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
+
+	if len(doctorOnly) > 0 && !doctorFix {
+		fmt.Printf("  %s --only has no effect without --fix\n", terminal.Yellow(terminal.SymbolWarning))
+		return nil
+	}
 
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
@@ -44,14 +66,62 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 
 	report := diagnostics.Run(deps)
 
+	if !doctorFix {
+		if globalJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(report)
+		}
+		printDoctorReport(report, globalVerbose || globalDebug)
+		return nil
+	}
+
+	// --fix mode: print initial report, fix, then recheck.
+	verbose := globalVerbose || globalDebug
+	if !globalJSON {
+		printDoctorReport(report, verbose)
+		fmt.Printf("  %s\n", terminal.BoldCyan("Fixing issues..."))
+		fmt.Println()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	fixes := diagnostics.RunFixes(ctx, report, settings, doctorOnly)
+
+	if !globalJSON {
+		fmt.Println()
+		printFixResults(fixes)
+	}
+
+	// Re-run checks to show updated status (skip agent ping — it wasn't fixed).
+	deps.SkipAgentPing = true
+	updated := diagnostics.Run(deps)
+
 	if globalJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+		return enc.Encode(doctorOutput{
+			Report:  report,
+			Fixes:   fixes,
+			Updated: updated,
+		})
 	}
 
-	printDoctorReport(report, globalVerbose || globalDebug)
+	fmt.Println()
+	fmt.Printf("  %s\n", terminal.BoldCyan("Updated status:"))
+	printDoctorReport(updated, verbose)
 	return nil
+}
+
+func printFixResults(results []diagnostics.FixResult) {
+	for _, r := range results {
+		if r.Success {
+			fmt.Printf("  %s %-20s %s\n", terminal.Green(terminal.SymbolSuccess), terminal.Green(r.Label), terminal.White(r.Message))
+		} else {
+			fmt.Printf("  %s %-20s %s\n", terminal.Red(terminal.SymbolError), terminal.Red(r.Label), terminal.White(r.Message))
+		}
+	}
 }
 
 func printDoctorReport(r *diagnostics.Report, verbose bool) {
@@ -71,7 +141,13 @@ func printDoctorReport(r *diagnostics.Report, verbose bool) {
 	printCheck("Agent Browser", r.Browser.Status, r.Browser.Message)
 	printDetails(verbose, r.Browser.Details)
 
-	for name, tool := range r.Tools {
+	toolNames := make([]string, 0, len(r.Tools))
+	for name := range r.Tools {
+		toolNames = append(toolNames, name)
+	}
+	sort.Strings(toolNames)
+	for _, name := range toolNames {
+		tool := r.Tools[name]
 		msg := tool.Path
 		if msg == "" {
 			msg = tool.Message

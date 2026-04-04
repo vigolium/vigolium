@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/queue"
 )
@@ -65,9 +66,10 @@ type Report struct {
 // Deps provides the dependencies needed to run diagnostics.
 // All fields are optional — nil values are handled gracefully.
 type Deps struct {
-	DB       *database.DB
-	Queue    queue.Queue
-	Settings *config.Settings
+	DB             *database.DB
+	Queue          queue.Queue
+	Settings       *config.Settings
+	SkipAgentPing  bool // skip the slow agent ping (useful for recheck after --fix)
 }
 
 // Run performs all diagnostic checks and returns a report.
@@ -84,10 +86,28 @@ func Run(deps Deps) *Report {
 
 	r.Database = checkDatabase(deps.DB)
 	r.Queue = checkQueue(deps.Queue)
-	r.Agent = checkAgent(settings)
+	r.Agent = checkAgent(settings, deps.SkipAgentPing)
 	r.Browser = checkBrowser(settings)
 	r.Tools["ast-grep"] = checkTool("ast-grep", nil)
 	r.Tools["chromium"] = checkTool("chromium", []string{"chromium-browser", "google-chrome", "google-chrome-stable"})
+	r.Tools["bun"] = checkTool("bun", []string{config.ExpandPath("~/.bun/bin/bun")})
+	r.Tools["claude"] = checkTool("claude", nil)
+	r.Tools["agent-browser"] = checkTool("agent-browser", nil)
+
+	// If no system chromium found, check CfT cache only (no download).
+	if r.Tools["chromium"].Status != StatusOK {
+		if cftbrowser.IsSupported() {
+			if cached, err := cftbrowser.FindCachedBrowser(); err == nil {
+				r.Tools["chromium"] = &ToolCheck{
+					Status:  StatusOK,
+					Path:    cached,
+					Message: "Chrome for Testing (cached)",
+					Details: []string{fmt.Sprintf("found cached Chrome for Testing: %s", cached)},
+				}
+			}
+		}
+	}
+
 	r.TemplatesDir = checkTemplatesDir(settings)
 	r.NucleiTemplates = checkNucleiTemplates(settings)
 
@@ -139,7 +159,7 @@ func checkQueue(q queue.Queue) *CheckResult {
 	}
 }
 
-func checkAgent(settings *config.Settings) *AgentCheck {
+func checkAgent(settings *config.Settings, skipPing bool) *AgentCheck {
 	name := settings.Agent.DefaultAgent
 	if name == "" {
 		return &AgentCheck{Status: StatusError, Name: "(none)", Message: "no default agent configured", Details: []string{"checking agent.default_agent in config"}}
@@ -177,6 +197,17 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 	}
 
 	details = append(details, fmt.Sprintf("resolved binary: %s", path))
+
+	if skipPing {
+		details = append(details, "ping skipped")
+		return &AgentCheck{
+			Status:   StatusOK,
+			Name:     name,
+			Binary:   path,
+			Protocol: def.EffectiveProtocol(),
+			Details:  details,
+		}
+	}
 
 	// Live ping: send a test prompt and verify the agent responds
 	details = append(details, "sending test prompt to verify agent responsiveness")
@@ -269,17 +300,17 @@ func checkTemplatesDir(settings *config.Settings) *CheckResult {
 	}
 }
 
-func checkNucleiTemplates(settings *config.Settings) *CheckResult {
+// nucleiTemplatesDir resolves the nuclei templates directory from settings or default.
+func nucleiTemplatesDir(settings *config.Settings) string {
 	dir := settings.KnownIssueScan.TemplatesDir
 	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return &CheckResult{Status: StatusWarning, Message: fmt.Sprintf("cannot determine home directory: %v", err)}
-		}
-		dir = filepath.Join(home, "nuclei-templates")
-	} else {
-		dir = config.ExpandPath(dir)
+		return config.ExpandPath("~/nuclei-templates")
 	}
+	return config.ExpandPath(dir)
+}
+
+func checkNucleiTemplates(settings *config.Settings) *CheckResult {
+	dir := nucleiTemplatesDir(settings)
 
 	details := []string{fmt.Sprintf("checking nuclei templates directory: %s", dir)}
 

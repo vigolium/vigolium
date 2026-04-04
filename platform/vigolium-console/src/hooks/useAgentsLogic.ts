@@ -32,6 +32,13 @@ export const PROFILE_OPTIONS: { value: ScanProfile; label: string; description: 
   { value: 'autopilot', label: 'Autopilot', description: 'AI agent drives the CLI autonomously', icon: 'bot' },
 ];
 
+export const ARCHON_MODE_OPTIONS = [
+  { value: '', label: 'Default' },
+  { value: 'lite', label: 'Lite' },
+  { value: 'scan', label: 'Scan' },
+  { value: 'deep', label: 'Deep' },
+];
+
 const HTTP_METHODS = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\s/;
 
 export function detectInputType(value: string): DetectedInputType {
@@ -80,17 +87,28 @@ export function useAgentsLogic() {
   const [swarmDiscover, setSwarmDiscover] = useState(false);
   const [swarmCodeAudit, setSwarmCodeAudit] = useState(false);
   const [swarmSkipSast, setSwarmSkipSast] = useState(false);
+  const [swarmDiff, setSwarmDiff] = useState('');
+  const [swarmLastCommits, setSwarmLastCommits] = useState('');
+  const [swarmTriage, setSwarmTriage] = useState(false);
+  const [swarmOnlyPhase, setSwarmOnlyPhase] = useState('');
+  const [swarmSkipPhases, setSwarmSkipPhases] = useState('');
+  const [swarmStartFrom, setSwarmStartFrom] = useState('');
+  const [swarmShowPrompt, setSwarmShowPrompt] = useState(false);
+  const [swarmArchon, setSwarmArchon] = useState('');
 
   // Autopilot advanced fields
   const [autopilotAgent, setAutopilotAgent] = useState('');
   const [autopilotFocus, setAutopilotFocus] = useState('');
   const [autopilotTimeout, setAutopilotTimeout] = useState('');
-  const [autopilotSystemPrompt, setAutopilotSystemPrompt] = useState('');
+  const [autopilotInstruction, setAutopilotInstruction] = useState('');
   const [autopilotMaxCommands, setAutopilotMaxCommands] = useState('');
   const [autopilotDryRun, setAutopilotDryRun] = useState(false);
-  const [autopilotRepoPath, setAutopilotRepoPath] = useState('');
+  const [autopilotSource, setAutopilotSource] = useState('');
   const [autopilotFiles, setAutopilotFiles] = useState('');
   const [autopilotScanUuid, setAutopilotScanUuid] = useState('');
+  const [autopilotDiff, setAutopilotDiff] = useState('');
+  const [autopilotArchonMode, setAutopilotArchonMode] = useState('');
+  const [autopilotNoArchon, setAutopilotNoArchon] = useState(false);
 
   // Query advanced fields
   const [scanMode, setScanMode] = useState<ScanMode>('template');
@@ -102,6 +120,8 @@ export function useAgentsLogic() {
   const [append, setAppend] = useState('');
   const [querySource, setQuerySource] = useState('');
   const [queryScanUuid, setQueryScanUuid] = useState('');
+  const [queryInstruction, setQueryInstruction] = useState('');
+  const [querySourceLabel, setQuerySourceLabel] = useState('');
 
   // Streaming state (scan)
   const [scanOutput, setScanOutput] = useState('');
@@ -145,6 +165,12 @@ export function useAgentsLogic() {
     window.history.replaceState({}, '', '/agentic-scan');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync advancedMode with scanProfile so the correct advanced section renders
+  useEffect(() => {
+    if (scanProfile === 'autopilot') setAdvancedMode('autopilot');
+    else setAdvancedMode('swarm');
+  }, [scanProfile]);
 
   // Auto-enable Code Audit when source code is selected
   useEffect(() => {
@@ -216,7 +242,7 @@ export function useAgentsLogic() {
       fetchSSE('/api/agent/run/swarm', { input: url, source_analysis_only: true, code_audit: true, stream: true, ...sourceBody }, callbacks, abort.signal);
     } else if (scanProfile === 'autopilot') {
       const apBody: Record<string, unknown> = { target: url, stream: true };
-      if (swarmSource) apBody.repo_path = swarmSource;
+      if (swarmSource) apBody.source = swarmSource;
       fetchSSE('/api/agent/run/autopilot', apBody, callbacks, abort.signal);
     } else {
       // Custom mode — use advancedMode to decide endpoint
@@ -235,7 +261,7 @@ export function useAgentsLogic() {
       }
       if (swarmInputs) body.inputs = swarmInputs.split('\n').map((s) => s.trim()).filter(Boolean);
       if (swarmSource) body.source = swarmSource;
-      if (swarmModuleTags) body.module_tags = swarmModuleTags.split(',').map((t) => t.trim()).filter(Boolean);
+      if (swarmModuleTags) body.module_names = swarmModuleTags.split(',').map((t) => t.trim()).filter(Boolean);
       if (swarmAgent) body.agent = swarmAgent;
       if (swarmVulnType) body.vuln_type = swarmVulnType;
       if (swarmMaxIterations) body.max_iterations = parseInt(swarmMaxIterations, 10);
@@ -251,18 +277,29 @@ export function useAgentsLogic() {
       if (swarmDiscover) body.discover = true;
       if (swarmCodeAudit) body.code_audit = true;
       if (swarmSkipSast) body.skip_sast = true;
+      if (swarmDiff) body.diff = swarmDiff;
+      if (swarmLastCommits) body.last_commits = parseInt(swarmLastCommits, 10);
+      if (swarmTriage) body.triage = true;
+      if (swarmOnlyPhase) body.only_phase = swarmOnlyPhase;
+      if (swarmSkipPhases) body.skip_phases = swarmSkipPhases.split(',').map((s) => s.trim()).filter(Boolean);
+      if (swarmStartFrom) body.start_from = swarmStartFrom;
+      if (swarmShowPrompt) body.show_prompt = true;
+      if (swarmArchon) body.archon = swarmArchon;
       fetchSSE('/api/agent/run/swarm', body, callbacks, abort.signal);
     } else if (advancedMode === 'autopilot') {
       const body: Record<string, unknown> = { target: url, stream: true };
       if (autopilotAgent) body.agent = autopilotAgent;
       if (autopilotFocus) body.focus = autopilotFocus;
       if (autopilotTimeout) body.timeout = autopilotTimeout;
-      if (autopilotSystemPrompt) body.system_prompt = autopilotSystemPrompt;
+      if (autopilotInstruction) body.instruction = autopilotInstruction;
       if (autopilotMaxCommands) body.max_commands = parseInt(autopilotMaxCommands, 10);
       if (autopilotDryRun) body.dry_run = true;
-      if (autopilotRepoPath) body.repo_path = autopilotRepoPath;
+      if (autopilotSource) body.source = autopilotSource;
       if (autopilotFiles) body.files = autopilotFiles.split(',').map((f) => f.trim()).filter(Boolean);
       if (autopilotScanUuid) body.scan_uuid = autopilotScanUuid;
+      if (autopilotDiff) body.diff = autopilotDiff;
+      if (autopilotArchonMode) body.archon_mode = autopilotArchonMode;
+      if (autopilotNoArchon) body.no_archon = true;
       fetchSSE('/api/agent/run/autopilot', body, callbacks, abort.signal);
     } else {
       // query
@@ -273,14 +310,16 @@ export function useAgentsLogic() {
       } else {
         if (customPrompt) body.prompt = customPrompt;
       }
-      if (repoPath) body.repo_path = repoPath;
+      if (repoPath) body.source = repoPath;
       if (queryFiles) body.files = queryFiles.split(',').map((f) => f.trim()).filter(Boolean);
       if (append) body.append = append;
       if (querySource) body.source = querySource;
       if (queryScanUuid) body.scan_uuid = queryScanUuid;
+      if (queryInstruction) body.instruction = queryInstruction;
+      if (querySourceLabel) body.source_label = querySourceLabel;
       fetchSSE('/api/agent/run/query', body, callbacks, abort.signal);
     }
-  }, [advancedMode, detectedInputType, swarmInputs, swarmSource, swarmModuleTags, swarmAgent, swarmVulnType, swarmMaxIterations, swarmTimeout, swarmDryRun, swarmScanUuid, swarmProjectUuid, swarmInstruction, swarmFiles, swarmFocus, swarmProfile, swarmSourceAnalysisOnly, swarmDiscover, swarmCodeAudit, swarmSkipSast, autopilotAgent, autopilotFocus, autopilotTimeout, autopilotSystemPrompt, autopilotMaxCommands, autopilotDryRun, autopilotRepoPath, autopilotFiles, autopilotScanUuid, scanMode, agentName, promptTemplate, customPrompt, repoPath, queryFiles, append, querySource, queryScanUuid]);
+  }, [advancedMode, detectedInputType, swarmInputs, swarmSource, swarmModuleTags, swarmAgent, swarmVulnType, swarmMaxIterations, swarmTimeout, swarmDryRun, swarmScanUuid, swarmProjectUuid, swarmInstruction, swarmFiles, swarmFocus, swarmProfile, swarmSourceAnalysisOnly, swarmDiscover, swarmCodeAudit, swarmSkipSast, swarmDiff, swarmLastCommits, swarmTriage, swarmOnlyPhase, swarmSkipPhases, swarmStartFrom, swarmShowPrompt, swarmArchon, autopilotAgent, autopilotFocus, autopilotTimeout, autopilotInstruction, autopilotMaxCommands, autopilotDryRun, autopilotSource, autopilotFiles, autopilotScanUuid, autopilotDiff, autopilotArchonMode, autopilotNoArchon, scanMode, agentName, promptTemplate, customPrompt, repoPath, queryFiles, append, querySource, queryScanUuid, queryInstruction, querySourceLabel]);
 
   // Chat
   const handleChatSend = useCallback(() => {
@@ -340,9 +379,9 @@ export function useAgentsLogic() {
   const doUpload = useCallback((file: File) => {
     uploadRepo.mutate(file, {
       onSuccess: (data) => {
-        if (advancedMode === 'swarm') setSwarmSource(data.repo_path);
-        else if (advancedMode === 'autopilot') setAutopilotRepoPath(data.repo_path);
-        else if (advancedMode === 'query') setRepoPath(data.repo_path);
+        if (advancedMode === 'swarm') setSwarmSource(data.source ?? '');
+        else if (advancedMode === 'autopilot') setAutopilotSource(data.source ?? '');
+        else if (advancedMode === 'query') setRepoPath(data.source ?? '');
       },
     });
   }, [uploadRepo, advancedMode]);
@@ -471,17 +510,28 @@ export function useAgentsLogic() {
     swarmDiscover, setSwarmDiscover,
     swarmCodeAudit, setSwarmCodeAudit,
     swarmSkipSast, setSwarmSkipSast,
+    swarmDiff, setSwarmDiff,
+    swarmLastCommits, setSwarmLastCommits,
+    swarmTriage, setSwarmTriage,
+    swarmOnlyPhase, setSwarmOnlyPhase,
+    swarmSkipPhases, setSwarmSkipPhases,
+    swarmStartFrom, setSwarmStartFrom,
+    swarmShowPrompt, setSwarmShowPrompt,
+    swarmArchon, setSwarmArchon,
 
     // Autopilot fields
     autopilotAgent, setAutopilotAgent,
     autopilotFocus, setAutopilotFocus,
     autopilotTimeout, setAutopilotTimeout,
-    autopilotSystemPrompt, setAutopilotSystemPrompt,
+    autopilotInstruction, setAutopilotInstruction,
     autopilotMaxCommands, setAutopilotMaxCommands,
     autopilotDryRun, setAutopilotDryRun,
-    autopilotRepoPath, setAutopilotRepoPath,
+    autopilotSource, setAutopilotSource,
     autopilotFiles, setAutopilotFiles,
     autopilotScanUuid, setAutopilotScanUuid,
+    autopilotDiff, setAutopilotDiff,
+    autopilotArchonMode, setAutopilotArchonMode,
+    autopilotNoArchon, setAutopilotNoArchon,
 
     // Query fields
     scanMode, setScanMode,
@@ -493,6 +543,8 @@ export function useAgentsLogic() {
     append, setAppend,
     querySource, setQuerySource,
     queryScanUuid, setQueryScanUuid,
+    queryInstruction, setQueryInstruction,
+    querySourceLabel, setQuerySourceLabel,
 
     // Scan streaming
     scanOutput, scanResult, scanError,

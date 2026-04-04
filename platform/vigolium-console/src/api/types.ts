@@ -422,7 +422,8 @@ export interface ScanAllRecordsRequest {
 
 // POST /api/repos/upload
 export interface RepoUploadResponse {
-  repo_path: string;
+  repo_id: string;
+  source: string;
   message: string;
 }
 
@@ -496,45 +497,35 @@ export interface AgentQueryRequest {
   prompt_template?: string;
   prompt_file?: string;
   prompt?: string;
-  repo_path?: string;
+  source?: string;
   files?: string[];
   append?: string;
-  source?: string;
+  instruction?: string;
+  source_label?: string;
   scan_uuid?: string;
   stream?: boolean;
 }
 
 // POST /api/agent/run/autopilot
 export interface AgentAutopilotRequest {
-  target: string;
+  target?: string;
+  prompt?: string;
+  input?: string;
   agent?: string;
-  repo_path?: string;
+  source?: string;
   files?: string[];
+  diff?: string;
+  last_commits?: number;
   focus?: string;
-  system_prompt?: string;
+  instruction?: string;
   timeout?: string;
   max_commands?: number;
   dry_run?: boolean;
   stream?: boolean;
   scan_uuid?: string;
-}
-
-// POST /api/agent/run/pipeline
-export interface AgentPipelineRequest {
-  target: string;
-  agent?: string;
-  repo_path?: string;
-  files?: string[];
-  focus?: string;
-  profile?: string;
-  timeout?: string;
-  max_rescan_rounds?: number;
-  skip_phases?: string[];
-  start_from?: string;
-  dry_run?: boolean;
-  stream?: boolean;
-  scan_uuid?: string;
   project_uuid?: string;
+  no_archon?: boolean;
+  archon_mode?: string;
 }
 
 // POST /api/agent/chat/completions
@@ -567,13 +558,15 @@ export interface AgentSwarmRequest {
   http_request_base64?: string;
   http_response_base64?: string;
   url?: string;
+  prompt?: string;
   vuln_type?: string;
   module_names?: string[];
-  scanning_phase?: string;
   max_iterations?: number;
   agent?: string;
   source?: string;
   files?: string[];
+  diff?: string;
+  last_commits?: number;
   instruction?: string;
   focus?: string;
   profile?: string;
@@ -581,6 +574,12 @@ export interface AgentSwarmRequest {
   discover?: boolean;
   code_audit?: boolean;
   skip_sast?: boolean;
+  triage?: boolean;
+  only_phase?: string;
+  skip_phases?: string[];
+  start_from?: string;
+  show_prompt?: boolean;
+  archon?: string;
   project_uuid?: string;
   scan_uuid?: string;
   stream?: boolean;

@@ -20,9 +20,10 @@ import (
 const (
 	browserFallbackDockerfile          = "test/e2e/testdata/browser-fallback/Dockerfile"
 	browserFallbackNoChromiumDockerfile = "test/e2e/testdata/browser-fallback/Dockerfile.no-chromium"
-	browserFallbackSnapStubDockerfile  = "test/e2e/testdata/browser-fallback/Dockerfile.snap-stub"
-	browserFallbackImageBase           = "vigolium-browser-fallback-test"
-	spideringTarget                    = "https://ginandjuice.shop/"
+	browserFallbackSnapStubDockerfile   = "test/e2e/testdata/browser-fallback/Dockerfile.snap-stub"
+	browserFallbackCfTDockerfile        = "test/e2e/testdata/browser-fallback/Dockerfile.cft-download"
+	browserFallbackImageBase            = "vigolium-browser-fallback-test"
+	spideringTarget                     = "https://ginandjuice.shop/"
 )
 
 // TestBrowserFallback_SystemChromium verifies that vigolium spidering
@@ -269,6 +270,182 @@ func buildImageWithDockerfile(ctx context.Context, t *testing.T, repoRoot, image
 		t.Logf("Docker build output:\n%s", buf.String())
 	}
 	require.NoError(t, err, "docker build failed for %s", platform)
+}
+
+// TestCfTDownload_Doctor verifies that `vigolium doctor` downloads Chrome
+// for Testing when no system chromium is installed. Only runs on linux/amd64
+// since CfT has no linux/arm64 builds.
+func TestCfTDownload_Doctor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping CfT download e2e test in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+	platform := "linux/amd64"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	imageName := browserFallbackImageBase + ":cft-download"
+
+	buildImageWithDockerfile(ctx, t, repoRoot, imageName, platform, browserFallbackCfTDockerfile)
+	t.Cleanup(func() { removeImage(imageName) })
+
+	// Run `vigolium doctor` — should download Chrome for Testing.
+	stdout, stderr := runDocker(ctx, t, imageName, platform,
+		"vigolium", "doctor", "--verbose")
+	output := stdout + "\n" + stderr
+
+	// Should show CfT download progress.
+	assert.Contains(t, output, "Chrome for Testing",
+		"doctor should attempt Chrome for Testing download")
+
+	// Should report chromium as OK after download.
+	assert.Contains(t, output, "chrome-for-testing",
+		"doctor should show CfT cache path")
+
+	// Should NOT report chromium as missing/warning after download succeeds.
+	if strings.Contains(output, "not found in PATH") && !strings.Contains(output, "chrome-for-testing") {
+		t.Error("doctor should have resolved chromium via CfT download")
+	}
+
+	t.Logf("Doctor output:\n%s", output)
+}
+
+// TestCfTDownload_Spidering verifies that after `vigolium doctor` downloads
+// Chrome for Testing, spidering can use the cached binary. Only linux/amd64.
+func TestCfTDownload_Spidering(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping CfT spidering e2e test in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+	platform := "linux/amd64"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	imageName := browserFallbackImageBase + ":cft-spidering"
+
+	buildImageWithDockerfile(ctx, t, repoRoot, imageName, platform, browserFallbackCfTDockerfile)
+	t.Cleanup(func() { removeImage(imageName) })
+
+	// Step 1: Run doctor to download Chrome for Testing.
+	doctorOut, doctorErr := runDocker(ctx, t, imageName, platform,
+		"vigolium", "doctor")
+	t.Logf("Doctor output:\n%s\n%s", doctorOut, doctorErr)
+
+	// Step 2: Run spidering using the same cached CfT browser.
+	// Use `docker run` with a named volume to persist the cache between runs.
+	volumeName := "vigolium-cft-test-cache"
+	_ = exec.Command("docker", "volume", "rm", "-f", volumeName).Run()
+	t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "-f", volumeName).Run() })
+
+	// Run doctor first with the volume to cache the browser.
+	doctorArgs := []string{
+		"run", "--rm",
+		"--platform", platform,
+		"-v", volumeName + ":/root/.cache/vigolium",
+		imageName,
+		"vigolium", "doctor",
+	}
+	cmd := exec.CommandContext(ctx, "docker", doctorArgs...)
+	var dBuf bytes.Buffer
+	cmd.Stdout = &dBuf
+	cmd.Stderr = &dBuf
+	err := cmd.Run()
+	t.Logf("Doctor (with volume) exit: %v\nOutput:\n%s", err, dBuf.String())
+
+	// Then run spidering with the same volume.
+	spiderArgs := []string{
+		"run", "--rm",
+		"--platform", platform,
+		"-v", volumeName + ":/root/.cache/vigolium",
+		imageName,
+		"vigolium", "run", "spidering",
+		"-t", spideringTarget,
+		"--debug",
+	}
+	cmd = exec.CommandContext(ctx, "docker", spiderArgs...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+
+	output := stdout.String() + "\n" + stderr.String()
+	t.Logf("Spidering exit: %v", err)
+	t.Logf("Spidering output:\n%s", output)
+
+	// Should use the cached CfT browser.
+	assert.Contains(t, output, "Spidering", "spidering phase should have started")
+	assert.NotContains(t, output, "can't find a browser binary",
+		"should find CfT-downloaded browser")
+	assert.NotContains(t, output, "failed to create browser pool",
+		"browser pool creation should succeed with CfT browser")
+
+	if strings.Contains(output, "Using cached Chrome for Testing") {
+		t.Log("Confirmed: spidering used cached Chrome for Testing binary")
+	}
+}
+
+// TestCfTDownload_SpideringAutoDownload verifies that spidering automatically
+// downloads Chrome for Testing when no browser is available — without running
+// `vigolium doctor` first. Only linux/amd64.
+func TestCfTDownload_SpideringAutoDownload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping CfT auto-download e2e test in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+	platform := "linux/amd64"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	imageName := browserFallbackImageBase + ":cft-auto"
+
+	buildImageWithDockerfile(ctx, t, repoRoot, imageName, platform, browserFallbackCfTDockerfile)
+	t.Cleanup(func() { removeImage(imageName) })
+
+	// Run spidering directly — no doctor step. CfT should auto-download.
+	stdout, stderr := runDocker(ctx, t, imageName, platform,
+		"vigolium", "run", "spidering",
+		"-t", spideringTarget,
+		"--debug")
+	output := stdout + "\n" + stderr
+
+	t.Logf("Spidering (auto-download) output:\n%s", output)
+
+	// Should have downloaded CfT on the fly.
+	assert.Contains(t, output, "Chrome for Testing",
+		"spidering should trigger CfT auto-download when no browser is available")
+	assert.Contains(t, output, "Spidering", "spidering phase should have started")
+	assert.NotContains(t, output, "can't find a browser binary",
+		"should not fall through to broken rod auto-download")
+	assert.NotContains(t, output, "failed to create browser pool",
+		"browser pool creation should succeed with auto-downloaded CfT browser")
+
+	if strings.Contains(output, "Using downloaded Chrome for Testing") {
+		t.Log("Confirmed: spidering auto-downloaded Chrome for Testing")
+	}
+}
+
+// runDocker executes a command inside a Docker container and returns stdout/stderr.
+func runDocker(ctx context.Context, t *testing.T, imageName, platform string, command ...string) (string, string) {
+	t.Helper()
+
+	args := []string{"run", "--rm", "--platform", platform, imageName}
+	args = append(args, command...)
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	t.Logf("Exit code: %v", err)
+
+	return stdout.String(), stderr.String()
 }
 
 // removeImage removes a Docker image (best-effort cleanup).

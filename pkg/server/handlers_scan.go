@@ -157,17 +157,17 @@ func validateRunScanRequest(req RunScanRequest) error {
 		return fmt.Errorf("max_per_host must be > 0")
 	}
 
-	// SAST repo field validation
-	if req.RepoPath != "" && req.RepoURL != "" {
-		return ErrRepoPathURLExclusive
+	// SAST source field validation
+	if req.Source != "" && req.RepoURL != "" {
+		return ErrSourceURLExclusive
 	}
-	if req.RepoPath != "" {
-		if !filepath.IsAbs(req.RepoPath) {
-			return fmt.Errorf("repo_path must be an absolute path")
+	if req.Source != "" {
+		if !filepath.IsAbs(req.Source) {
+			return fmt.Errorf("source must be an absolute path")
 		}
-		info, err := os.Stat(req.RepoPath)
+		info, err := os.Stat(req.Source)
 		if err != nil || !info.IsDir() {
-			return fmt.Errorf("repo_path %q does not exist or is not a directory", req.RepoPath)
+			return fmt.Errorf("source %q does not exist or is not a directory", req.Source)
 		}
 	}
 	if req.RepoURL != "" {
@@ -225,8 +225,8 @@ func (h *Handlers) buildRunScanOptions(req RunScanRequest, projectUUID string) (
 	}
 
 	// Wire SAST ad-hoc field
-	if req.RepoPath != "" {
-		opts.SASTAdhoc = req.RepoPath
+	if req.Source != "" {
+		opts.SASTAdhoc = req.Source
 		opts.SASTEnabled = true
 	}
 	if req.RepoURL != "" {
@@ -393,11 +393,11 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		req.Targets = append(req.Targets, req.URLs...)
 	}
 
-	// Targets are optional when repo_path or repo_url is provided (SAST-only scan)
-	hasSASTRepo := req.RepoPath != "" || req.RepoURL != ""
-	if len(req.Targets) == 0 && !hasSASTRepo {
+	// Targets are optional when source or repo_url is provided (SAST-only scan)
+	hasSASTSource := req.Source != "" || req.RepoURL != ""
+	if len(req.Targets) == 0 && !hasSASTSource {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: "at least one target URL is required (use 'targets' or 'urls' field), or provide 'repo_path'/'repo_url' for SAST scan",
+			Error: "at least one target URL is required (use 'targets' or 'urls' field), or provide 'source'/'repo_url' for SAST scan",
 		})
 	}
 
@@ -437,8 +437,8 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		opts.SASTAdhoc = clonedPath
 	}
 
-	// Auto-set only=sast when a repo is provided but no phase is specified
-	if hasSASTRepo && req.Only == "" && len(req.Skip) == 0 && len(req.Targets) == 0 {
+	// Auto-set only=sast when a source is provided but no phase is specified
+	if hasSASTSource && req.Only == "" && len(req.Skip) == 0 && len(req.Targets) == 0 {
 		req.Only = "sast"
 	}
 
@@ -501,7 +501,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 			Message:      "scan record created (dry run)",
 			TargetsCount: len(req.Targets),
 			ScanMode:     scanMode,
-			RepoPath:     opts.SASTAdhoc,
+			Source:       opts.SASTAdhoc,
 		})
 	}
 
@@ -550,7 +550,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 				Message:      fmt.Sprintf("scan queued (position %d)", len(qCh)),
 				TargetsCount: len(req.Targets),
 				ScanMode:     scanMode,
-				RepoPath:     opts.SASTAdhoc,
+				Source:       opts.SASTAdhoc,
 			})
 		}
 		h.scanMu.Unlock()
@@ -576,7 +576,7 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		Message:      "scan started",
 		TargetsCount: len(req.Targets),
 		ScanMode:     scanMode,
-		RepoPath:     opts.SASTAdhoc,
+		Source:       opts.SASTAdhoc,
 	})
 }
 

@@ -586,8 +586,11 @@ deps: update-jsscan
 
 # Chromium browser archive management (logic in helper scripts)
 
-deps-chrome: ## Download Chromium browser archives from URLs in versions.go
+deps-chrome: ## Download all browser archives (versions.go + Chrome for Testing from CfT API)
 	@$(SCRIPTS_DIR)/chrome-download.sh
+
+deps-chrome-cft: ## Download only Chrome for Testing (stable). Usage: make deps-chrome-cft [PLATFORM=linux64]
+	@$(SCRIPTS_DIR)/chrome-download-cft.sh $(PLATFORM)
 
 deps-chrome-update: ## Update browser version+URL. Usage: make deps-chrome-update NAME=chromium PLATFORM=linux64 VERSION=144.0.xxx URL=https://...
 	@$(SCRIPTS_DIR)/chrome-update.sh "$(NAME)" "$(PLATFORM)" "$(VERSION)" "$(URL)"

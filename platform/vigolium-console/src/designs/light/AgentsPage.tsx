@@ -8,7 +8,7 @@ import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
 import GitHubRepoPicker from './GitHubRepoPicker';
-import { useAgentsLogic, AGENT_OPTIONS, PROFILE_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
+import { useAgentsLogic, AGENT_OPTIONS, PROFILE_OPTIONS, ARCHON_MODE_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
 
 const PROFILE_ICONS: Record<string, typeof Zap> = {
   zap: Zap,
@@ -234,13 +234,13 @@ export default function AgentsPage() {
                   onClick={() => h.setScanProfile('autopilot')}
                   className={`px-3 py-2 text-center border transition-colors ${
                     h.scanProfile === 'autopilot'
-                      ? 'border-[#0078c8] bg-[#0078c8]/10'
+                      ? 'border-[#4a9aba] bg-[#4a9aba]/8'
                       : 'border-[#bbc3c4] hover:border-[#708e8e] hover:bg-[#ede4d1]/50'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-1.5 mb-0.5">
-                    <Bot className={`w-3 h-3 ${h.scanProfile === 'autopilot' ? 'text-[#0078c8]' : 'text-[#708e8e]'}`} />
-                    <span className={`text-xs font-bold ${h.scanProfile === 'autopilot' ? 'text-[#0078c8]' : 'text-[#005661]'}`}>AUTOPILOT</span>
+                    <Bot className={`w-3 h-3 ${h.scanProfile === 'autopilot' ? 'text-[#4a9aba]' : 'text-[#708e8e]'}`} />
+                    <span className={`text-xs font-bold ${h.scanProfile === 'autopilot' ? 'text-[#3d7a8f]' : 'text-[#005661]'}`}>AUTOPILOT</span>
                   </div>
                   <p className="text-[10px] text-[#708e8e] leading-tight">AI agent drives the CLI autonomously — explores, scans, and iterates on findings.</p>
                 </button>
@@ -248,13 +248,13 @@ export default function AgentsPage() {
                   onClick={() => { if (h.scanProfile === 'autopilot') h.setScanProfile('quick'); }}
                   className={`px-3 py-2 text-center border transition-colors ${
                     h.scanProfile !== 'autopilot'
-                      ? 'border-[#0078c8] bg-[#0078c8]/10'
+                      ? 'border-[#4a9aba] bg-[#4a9aba]/8'
                       : 'border-[#bbc3c4] hover:border-[#708e8e] hover:bg-[#ede4d1]/50'
                   }`}
                 >
                   <div className="flex items-center justify-center gap-1.5 mb-0.5">
-                    <Bug className={`w-3 h-3 ${h.scanProfile !== 'autopilot' ? 'text-[#0078c8]' : 'text-[#708e8e]'}`} />
-                    <span className={`text-xs font-bold ${h.scanProfile !== 'autopilot' ? 'text-[#0078c8]' : 'text-[#005661]'}`}>SWARM</span>
+                    <Bug className={`w-3 h-3 ${h.scanProfile !== 'autopilot' ? 'text-[#4a9aba]' : 'text-[#708e8e]'}`} />
+                    <span className={`text-xs font-bold ${h.scanProfile !== 'autopilot' ? 'text-[#3d7a8f]' : 'text-[#005661]'}`}>SWARM</span>
                   </div>
                   <p className="text-[10px] text-[#708e8e] leading-tight">AI-guided targeted vulnerability scan with module selection.</p>
                 </button>
@@ -357,22 +357,46 @@ export default function AgentsPage() {
                         <label className="text-[#708e8e] text-[10px] block mb-0.5">Profile</label>
                         <input value={h.swarmProfile} onChange={(e) => h.setSwarmProfile(e.target.value)} placeholder="thorough" className={inputClass} />
                       </div>
-                      <div className="col-span-2 flex flex-wrap items-end gap-1">
-                        {([
-                          ['Discover', h.swarmDiscover, h.setSwarmDiscover] as const,
-                          ['Source Only', h.swarmSourceAnalysisOnly, h.setSwarmSourceAnalysisOnly] as const,
-                          ['Code Audit', h.swarmCodeAudit, h.setSwarmCodeAudit] as const,
-                          ['Skip SAST', h.swarmSkipSast, h.setSwarmSkipSast] as const,
-                          ['Dry Run', h.swarmDryRun, h.setSwarmDryRun] as const,
-                        ]).map(([label, value, setter]) => (
-                          <button key={label} type="button" onClick={() => setter(!value)}
-                            className={`px-2.5 py-1 text-xs font-bold border transition-colors ${
-                              value
-                                ? 'border-[#0078c8] bg-[#0078c8]/15 text-[#0078c8]'
-                                : 'border-[#bbc3c4] text-[#708e8e] hover:border-[#708e8e]'
-                            }`}
-                          >{label}</button>
-                        ))}
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Diff</label>
+                        <input value={h.swarmDiff} onChange={(e) => h.setSwarmDiff(e.target.value)} placeholder="PR URL or main...branch" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon</label>
+                        <Dropdown value={h.swarmArchon} onChange={h.setSwarmArchon} options={ARCHON_MODE_OPTIONS} />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-1">
+                      {([
+                        ['Discover', h.swarmDiscover, h.setSwarmDiscover] as const,
+                        ['Source Only', h.swarmSourceAnalysisOnly, h.setSwarmSourceAnalysisOnly] as const,
+                        ['Code Audit', h.swarmCodeAudit, h.setSwarmCodeAudit] as const,
+                        ['Skip SAST', h.swarmSkipSast, h.setSwarmSkipSast] as const,
+                        ['Triage', h.swarmTriage, h.setSwarmTriage] as const,
+                        ['Show Prompt', h.swarmShowPrompt, h.setSwarmShowPrompt] as const,
+                        ['Dry Run', h.swarmDryRun, h.setSwarmDryRun] as const,
+                      ]).map(([label, value, setter]) => (
+                        <button key={label} type="button" onClick={() => setter(!value)}
+                          className={`px-2.5 py-1 text-xs font-bold border transition-colors ${
+                            value
+                              ? 'border-[#0078c8] bg-[#0078c8]/15 text-[#0078c8]'
+                              : 'border-[#bbc3c4] text-[#708e8e] hover:border-[#708e8e]'
+                          }`}
+                        >{label}</button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Only Phase</label>
+                        <input value={h.swarmOnlyPhase} onChange={(e) => h.setSwarmOnlyPhase(e.target.value)} placeholder="plan" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Skip Phases <span className="text-[#bbc3c4] italic">comma-sep</span></label>
+                        <input value={h.swarmSkipPhases} onChange={(e) => h.setSwarmSkipPhases(e.target.value)} placeholder="triage, native-rescan" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Start From</label>
+                        <input value={h.swarmStartFrom} onChange={(e) => h.setSwarmStartFrom(e.target.value)} placeholder="triage" className={inputClass} />
                       </div>
                     </div>
                   </div>
@@ -399,18 +423,37 @@ export default function AgentsPage() {
                         <input value={h.autopilotMaxCommands} onChange={(e) => h.setAutopilotMaxCommands(e.target.value)} placeholder="50" className={inputClass} />
                       </div>
                     </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Source</label>
+                        <input value={h.autopilotSource} onChange={(e) => h.setAutopilotSource(e.target.value)} placeholder="git URL or local path" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Diff</label>
+                        <input value={h.autopilotDiff} onChange={(e) => h.setAutopilotDiff(e.target.value)} placeholder="PR URL or main...branch" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon Mode</label>
+                        <Dropdown value={h.autopilotArchonMode} onChange={h.setAutopilotArchonMode} options={ARCHON_MODE_OPTIONS} />
+                      </div>
+                    </div>
                     <div>
-                      <label className="text-[#708e8e] text-[10px] block mb-0.5">System Prompt</label>
-                      <textarea value={h.autopilotSystemPrompt} onChange={(e) => h.setAutopilotSystemPrompt(e.target.value)} placeholder="Custom system prompt..." rows={2} className={`${inputClass} resize-y`} />
+                      <label className="text-[#708e8e] text-[10px] block mb-0.5">Instruction</label>
+                      <textarea value={h.autopilotInstruction} onChange={(e) => h.setAutopilotInstruction(e.target.value)} placeholder="Custom instruction for the agent..." rows={2} className={`${inputClass} resize-y`} />
                     </div>
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => h.setAutopilotDryRun(!h.autopilotDryRun)}
-                        className={`px-2 py-0.5 text-[9px] font-bold border transition-colors ${
-                          h.autopilotDryRun
-                            ? 'border-[#0078c8] bg-[#0078c8]/15 text-[#0078c8]'
-                            : 'border-[#bbc3c4] text-[#708e8e] hover:border-[#708e8e]'
-                        }`}
-                      >Dry Run</button>
+                      {([
+                        ['Dry Run', h.autopilotDryRun, h.setAutopilotDryRun] as const,
+                        ['No Archon', h.autopilotNoArchon, h.setAutopilotNoArchon] as const,
+                      ]).map(([label, value, setter]) => (
+                        <button key={label} type="button" onClick={() => setter(!value)}
+                          className={`px-2 py-0.5 text-[9px] font-bold border transition-colors ${
+                            value
+                              ? 'border-[#0078c8] bg-[#0078c8]/15 text-[#0078c8]'
+                              : 'border-[#bbc3c4] text-[#708e8e] hover:border-[#708e8e]'
+                          }`}
+                        >{label}</button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -442,6 +485,16 @@ export default function AgentsPage() {
                     <div>
                       <label className="text-[#708e8e] text-xs block mb-0.5">Files <span className="text-[#bbc3c4] italic">comma-sep</span></label>
                       <input value={h.queryFiles} onChange={(e) => h.setQueryFiles(e.target.value)} placeholder="src/main.go" className={inputClass} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="text-[#708e8e] text-xs block mb-0.5">Instruction</label>
+                        <input value={h.queryInstruction} onChange={(e) => h.setQueryInstruction(e.target.value)} placeholder="Custom instruction..." className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-xs block mb-0.5">Source Label</label>
+                        <input value={h.querySourceLabel} onChange={(e) => h.setQuerySourceLabel(e.target.value)} placeholder="my-source" className={inputClass} />
+                      </div>
                     </div>
                   </div>
                 )}

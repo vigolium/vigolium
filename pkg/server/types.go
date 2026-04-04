@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/agent"
@@ -113,9 +114,27 @@ type RunScanRequest struct {
 	// Scanning profile name or path
 	ScanningProfile string `json:"scanning_profile,omitempty"`
 
-	// SAST repo fields (like --repo / --repo-url)
-	RepoPath string `json:"repo_path,omitempty"` // Local path to source repo for SAST scan
-	RepoURL  string `json:"repo_url,omitempty"`  // Git URL to clone for SAST scan
+	// Source code for SAST scanning (like --sast-adhoc)
+	Source  string `json:"source,omitempty"`   // Local path or Git URL for SAST scan
+	RepoURL string `json:"repo_url,omitempty"` // Git URL to clone for SAST scan (legacy, prefer "source")
+}
+
+// UnmarshalJSON implements custom unmarshaling for RunScanRequest to support
+// the legacy "repo_path" JSON key as a backward-compatible alias for "source".
+func (r *RunScanRequest) UnmarshalJSON(data []byte) error {
+	type Alias RunScanRequest
+	aux := &struct {
+		*Alias
+		LegacyRepoPath string `json:"repo_path,omitempty"`
+	}{Alias: (*Alias)(r)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	// Legacy fallback: accept "repo_path" when "source" is not set.
+	if r.Source == "" && aux.LegacyRepoPath != "" {
+		r.Source = aux.LegacyRepoPath
+	}
+	return nil
 }
 
 // ScanAllRecordsRequest is the request body for POST /api/scan-all-records.
@@ -187,15 +206,15 @@ type ScanResponse struct {
 	Message       string `json:"message,omitempty"`
 	RecordsToScan int64  `json:"records_to_scan,omitempty"`
 	TargetsCount  int    `json:"targets_count,omitempty"`
-	ScanMode      string `json:"scan_mode,omitempty"` // "target", "full", "incremental", "sast"
-	RepoPath      string `json:"repo_path,omitempty"`
+	ScanMode string `json:"scan_mode,omitempty"` // "target", "full", "incremental", "sast"
+	Source   string `json:"source,omitempty"`
 }
 
 // RepoUploadResponse is the response for POST /api/repos/upload.
 type RepoUploadResponse struct {
-	RepoID   string `json:"repo_id"`
-	RepoPath string `json:"repo_path"`
-	Message  string `json:"message"`
+	RepoID string `json:"repo_id"`
+	Source string `json:"source"`
+	Message string `json:"message"`
 }
 
 // RepoDeleteResponse is the response for DELETE /api/repos/:id.
@@ -490,8 +509,8 @@ type AgentSwarmRequest struct {
 	URL                string   `json:"url,omitempty"`                  // optional URL hint for parsing the base64 request
 
 	// Source analysis
-	SourcePath         string   `json:"source_path,omitempty"`          // path to source code for route discovery (triggers source analysis phase)
-	Files              []string `json:"files,omitempty"`                // specific source files to include (relative to source_path)
+	SourcePath         string   `json:"source,omitempty"`               // path to source code for route discovery (triggers source analysis phase)
+	Files              []string `json:"files,omitempty"`                // specific source files to include (relative to source)
 	SourceAnalysisOnly bool     `json:"source_analysis_only,omitempty"` // run only source analysis phase and exit
 	SkipSAST           bool     `json:"skip_sast,omitempty"`            // skip native SAST tools during source analysis
 
@@ -563,6 +582,24 @@ func (r AgentSwarmRequest) EffectiveInputs() []string {
 	}
 	result = append(result, r.Inputs...)
 	return result
+}
+
+// UnmarshalJSON implements custom unmarshaling for AgentSwarmRequest to support
+// the legacy "source_path" JSON key as a backward-compatible alias for "source".
+func (r *AgentSwarmRequest) UnmarshalJSON(data []byte) error {
+	type Alias AgentSwarmRequest
+	aux := &struct {
+		*Alias
+		LegacySourcePath string `json:"source_path,omitempty"`
+	}{Alias: (*Alias)(r)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	// Legacy fallback: accept "source_path" when "source" is not set.
+	if r.SourcePath == "" && aux.LegacySourcePath != "" {
+		r.SourcePath = aux.LegacySourcePath
+	}
+	return nil
 }
 
 // AgentRunResponse is the response for POST /api/agent/run/*.

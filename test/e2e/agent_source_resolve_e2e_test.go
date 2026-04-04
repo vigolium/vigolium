@@ -100,7 +100,7 @@ func TestSwarmAPI_DiffOnly_Accepted(t *testing.T) {
 	resp := env.post(t, "/api/agent/run/swarm", `{
 		"input": "http://localhost:3000/api/login",
 		"diff": "HEAD~3",
-		"source_path": "/tmp"
+		"source": "/tmp"
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
@@ -223,7 +223,7 @@ func TestSwarmAPI_SourceArchive(t *testing.T) {
 
 	resp := env.post(t, "/api/agent/run/swarm", `{
 		"input": "http://localhost:3000",
-		"source_path": "`+zipPath+`"
+		"source": "`+zipPath+`"
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 	resp.Body.Close()

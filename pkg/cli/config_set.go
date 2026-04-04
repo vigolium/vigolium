@@ -11,8 +11,8 @@ import (
 var configSetCmd = &cobra.Command{
 	Use:   "set <key> <value>",
 	Short: "Set a configuration value",
-	Long:  "Set a configuration value using dot-notation key (e.g. notify.enabled true).",
-	Args:  cobra.ExactArgs(2),
+	Long:  "Set a configuration value using dot-notation key (e.g. notify.enabled true).\nAlso accepts 'key = value' format copied from 'config ls' output.",
+	Args:  cobra.RangeArgs(2, 3),
 	RunE:  runConfigSet,
 }
 
@@ -21,8 +21,17 @@ func init() {
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
-	key := args[0]
-	value := args[1]
+	var key, value string
+	if len(args) == 3 && args[1] == "=" {
+		// Support "key = value" format (copied from config ls output)
+		key = args[0]
+		value = args[2]
+	} else if len(args) == 2 {
+		key = args[0]
+		value = args[1]
+	} else {
+		return fmt.Errorf("usage: config set <key> <value> or config set <key> = <value>")
+	}
 
 	// Load current settings
 	configPath := config.ConfigFilePath()

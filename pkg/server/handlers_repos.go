@@ -29,7 +29,7 @@ func repoUploadsDir(settings *config.Settings) string {
 
 // HandleRepoUpload handles POST /api/repos/upload — accepts a zip/tar.gz/tar archive
 // and extracts it into a unique directory. Returns the repo ID and path for use with
-// POST /api/scans/run repo_path field.
+// POST /api/scans/run source field.
 func (h *Handlers) HandleRepoUpload(c fiber.Ctx) error {
 	if int64(len(c.Body())) > maxUploadSize {
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(ErrorResponse{
@@ -119,9 +119,9 @@ func (h *Handlers) HandleRepoUpload(c fiber.Ctx) error {
 	zap.L().Info("Repo uploaded", zap.String("repo_id", repoID), zap.String("path", destDir))
 
 	return c.Status(fiber.StatusOK).JSON(RepoUploadResponse{
-		RepoID:   repoID,
-		RepoPath: destDir,
-		Message:  "repository uploaded and extracted",
+		RepoID:  repoID,
+		Source:  destDir,
+		Message: "repository uploaded and extracted",
 	})
 }
 

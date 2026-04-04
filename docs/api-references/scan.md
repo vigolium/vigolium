@@ -121,7 +121,7 @@ Use `GET /api/scan/status` to check the progress of the scan.
 
 ### POST /api/scans/run — Run Target Scan
 
-Triggers a background scan against target URLs. Equivalent to `vigolium scan -t <url>`. At least one target URL is required unless `repo_path` or `repo_url` is provided for SAST scanning — use `POST /api/scan-all-records` to scan existing DB records.
+Triggers a background scan against target URLs. Equivalent to `vigolium scan -t <url>`. At least one target URL is required unless `source` or `repo_url` is provided for SAST scanning — use `POST /api/scan-all-records` to scan existing DB records.
 
 Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a scan is already running.
 
@@ -129,7 +129,7 @@ Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a
 
 | Field                  | Type              | Required | Description                                                                 |
 |------------------------|-------------------|----------|-----------------------------------------------------------------------------|
-| `targets`              | string[]          | Yes*     | Target URLs (like `-t`). At least one target or url is required, unless `repo_path`/`repo_url` is provided. |
+| `targets`              | string[]          | Yes*     | Target URLs (like `-t`). At least one target or url is required, unless `source`/`repo_url` is provided. |
 | `urls`                 | string[]          | Yes*     | Alias for `targets`. Both fields are merged if provided.                    |
 | `dry_run`              | bool              | No       | Validate params and create scan record without launching the runner         |
 | `strategy`             | string            | No       | Strategy preset: `lite`, `balanced`, `deep`, `whitebox`                     |
@@ -146,10 +146,10 @@ Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a
 | `heuristics_check`     | string            | No       | Heuristics check level: `none`, `basic`, `advanced`                         |
 | `headers`              | map[string]string | No       | Custom HTTP headers included in all requests                                |
 | `scanning_profile`     | string            | No       | Scanning profile name or path                                               |
-| `repo_path`            | string            | No       | Absolute path to local source repo for ad-hoc SAST scan (like `--sast-adhoc`). Mutually exclusive with `repo_url`. |
-| `repo_url`             | string            | No       | Git URL to clone for ad-hoc SAST scan (auto-cloned). Mutually exclusive with `repo_path`. |
+| `source`               | string            | No       | Absolute path to local source repo for ad-hoc SAST scan (like `--sast-adhoc`). Mutually exclusive with `repo_url`. The legacy `repo_path` key is still accepted. |
+| `repo_url`             | string            | No       | Git URL to clone for ad-hoc SAST scan (auto-cloned). Mutually exclusive with `source`. |
 
-> **SAST scanning:** When `repo_path` or `repo_url` is provided without targets and without explicit `only`/`skip`, the scan automatically runs in SAST-only mode (`only: "sast"`). The `scan_mode` in the response is set to `"sast"`. You can combine SAST with target scanning by providing both targets and a repo path.
+> **SAST scanning:** When `source` or `repo_url` is provided without targets and without explicit `only`/`skip`, the scan automatically runs in SAST-only mode (`only: "sast"`). The `scan_mode` in the response is set to `"sast"`. You can combine SAST with target scanning by providing both targets and a source path.
 
 **Phase duration factors:**
 
@@ -218,11 +218,11 @@ curl -s -X POST http://localhost:9002/api/scans/run \
     "dry_run": true
   }' | jq .
 
-# SAST scan with local repo path
+# SAST scan with local source path
 curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Content-Type: application/json" \
   -d '{
-    "repo_path": "/tmp/demo/juice-shop",
+    "source": "/tmp/demo/juice-shop",
     "only": "sast"
   }' | jq .
 
@@ -238,7 +238,7 @@ curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Content-Type: application/json" \
   -d '{
     "targets": ["https://example.com"],
-    "repo_path": "/tmp/demo/juice-shop",
+    "source": "/tmp/demo/juice-shop",
     "strategy": "whitebox"
   }' | jq .
 ```
@@ -265,7 +265,7 @@ curl -s -X POST http://localhost:9002/api/scans/run \
   "status": "running",
   "message": "scan started",
   "scan_mode": "sast",
-  "repo_path": "/home/user/.vigolium/source-aware/github.com_juice-shop_juice-shop"
+  "source": "/home/user/.vigolium/source-aware/github.com_juice-shop_juice-shop"
 }
 ```
 
@@ -301,8 +301,8 @@ When a scan starts (via API or CLI), the runner logs a configuration summary to 
 | Code | Condition                                                                 |
 |------|---------------------------------------------------------------------------|
 | 400  | Missing targets (when no repo provided), invalid parameters, or missing DB |
-| 400  | `repo_path` and `repo_url` both provided (mutually exclusive)             |
-| 400  | `repo_path` is not an absolute path or does not exist                     |
+| 400  | `source` and `repo_url` both provided (mutually exclusive)                |
+| 400  | `source` is not an absolute path or does not exist                        |
 | 400  | `repo_url` clone failed                                                   |
 | 409  | A scan is already running                                                 |
 | 500  | Failed to create scan runner                                              |
@@ -989,7 +989,7 @@ Endpoints for uploading and managing source code repositories for SAST scanning.
 
 ### POST /api/repos/upload — Upload Source Repository
 
-Accepts a zip, tar.gz, or tar archive containing source code. Extracts it into a unique directory and returns the path for use with `POST /api/scans/run`'s `repo_path` field.
+Accepts a zip, tar.gz, or tar archive containing source code. Extracts it into a unique directory and returns the path for use with `POST /api/scans/run`'s `source` field.
 
 **Request:** `multipart/form-data` with a `file` field. Maximum upload size: 500 MB.
 
@@ -1011,7 +1011,7 @@ curl -s -X POST http://localhost:9002/api/repos/upload \
 ```json
 {
   "repo_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "repo_path": "/home/user/.vigolium/source-aware/uploads/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "source": "/home/user/.vigolium/source-aware/uploads/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "message": "repository uploaded and extracted"
 }
 ```
@@ -1022,12 +1022,12 @@ curl -s -X POST http://localhost:9002/api/repos/upload \
 # 1. Upload the repo
 RESP=$(curl -s -X POST http://localhost:9002/api/repos/upload \
   -F "file=@./juice-shop.zip")
-REPO_PATH=$(echo "$RESP" | jq -r '.repo_path')
+SOURCE=$(echo "$RESP" | jq -r '.source')
 
 # 2. Run SAST scan using the uploaded path
 curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Content-Type: application/json" \
-  -d "{\"repo_path\": \"$REPO_PATH\", \"only\": \"sast\"}" | jq .
+  -d "{\"source\": \"$SOURCE\", \"only\": \"sast\"}" | jq .
 ```
 
 **Error responses:**

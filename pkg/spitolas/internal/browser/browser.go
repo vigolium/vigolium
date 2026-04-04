@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 	chromium "github.com/vigolium/vigolium/internal/resources/spitolas"
+	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/spitolas/extension"
 	_ "github.com/vigolium/vigolium/pkg/spitolas/extension/ublock" // Auto-register uBlock
 
@@ -65,6 +66,19 @@ func (b *Browser) launch() error {
 		// stubs at /usr/bin/chromium-browser that aren't real browsers.
 		binPath = sysPath
 		zap.L().Debug("Using system browser", zap.String("path", binPath))
+	} else if cftPath, cftErr := cftbrowser.FindCachedBrowser(); cftErr == nil {
+		binPath = cftPath
+		zap.L().Info("Using cached Chrome for Testing", zap.String("path", binPath))
+	} else if cftbrowser.IsSupported() {
+		// No browser found anywhere — download Chrome for Testing on the fly.
+		zap.L().Info("No browser binary found, downloading Chrome for Testing")
+		if dlPath, dlErr := cftbrowser.EnsureBrowser(context.Background()); dlErr == nil {
+			binPath = dlPath
+			zap.L().Info("Using downloaded Chrome for Testing", zap.String("path", binPath))
+		} else {
+			zap.L().Warn("Chrome for Testing download failed, falling back to rod auto-download",
+				zap.Error(dlErr))
+		}
 	} else {
 		zap.L().Warn("No browser binary found, using auto-download fallback",
 			zap.Error(err))

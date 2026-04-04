@@ -59,7 +59,7 @@ func runConfigLs(cmd *cobra.Command, args []string) error {
 		}
 
 		colorFn := sectionKeyColor(entry.Key)
-		fmt.Printf("  %s = %s\n", colorFn(entry.Key), displayValue)
+		fmt.Printf("%s = %s\n", colorFn(entry.Key), displayValue)
 		count++
 	}
 

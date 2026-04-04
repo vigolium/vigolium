@@ -1,0 +1,65 @@
+# Test image WITHOUT system chromium but WITH network access.
+# Verifies that `vigolium doctor` downloads Chrome for Testing
+# and that spidering can use the downloaded browser.
+# NOTE: Only works on linux/amd64 — CfT has no linux/arm64 builds.
+
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags "-s -w" \
+    -o /out/vigolium ./cmd/vigolium
+
+# Runtime: Debian WITHOUT chromium — CfT will be downloaded at runtime
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install all shared libraries Chrome for Testing needs at runtime.
+# This list mirrors what agent-browser's install.rs installs via apt.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        dumb-init \
+        # Core Chrome dependencies
+        libnss3 \
+        libnspr4 \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libatspi2.0-0 \
+        libcups2 \
+        libdrm2 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libcairo2 \
+        libcairo-gobject2 \
+        libasound2 \
+        libxshmfence1 \
+        libxi6 \
+        libgtk-3-0 \
+        libgdk-pixbuf-2.0-0 \
+        libxrender1 \
+        libfreetype6 \
+        libfontconfig1 \
+        libdbus-1-3 \
+        # Fonts
+        fonts-liberation \
+        fonts-freefont-ttf \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/vigolium /usr/local/bin/vigolium
+
+WORKDIR /root
+ENTRYPOINT ["dumb-init", "--"]

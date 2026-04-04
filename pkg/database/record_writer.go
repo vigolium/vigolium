@@ -191,6 +191,25 @@ func (w *RecordWriter) Metrics() RecordWriterMetrics {
 	}
 }
 
+// SaveRecord implements the network.RecordSaver interface by delegating to Write.
+func (w *RecordWriter) SaveRecord(ctx context.Context, rr *httpmsg.HttpRequestResponse, source string, projectUUID string) (string, error) {
+	return w.Write(ctx, rr, source, projectUUID)
+}
+
+// SaveRecordBatch implements the network.RecordSaver interface by delegating
+// each record to Write. The flush loop handles the actual batching.
+func (w *RecordWriter) SaveRecordBatch(ctx context.Context, records []*httpmsg.HttpRequestResponse, source string, projectUUID string) ([]string, error) {
+	uuids := make([]string, 0, len(records))
+	for _, rr := range records {
+		uuid, err := w.Write(ctx, rr, source, projectUUID)
+		if err != nil {
+			return uuids, err
+		}
+		uuids = append(uuids, uuid)
+	}
+	return uuids, nil
+}
+
 // Close stops accepting new writes, flushes remaining records, and returns.
 func (w *RecordWriter) Close() {
 	w.cancel()

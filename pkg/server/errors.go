@@ -31,7 +31,8 @@ var (
 	ErrMissingFile          = errors.New("'file' field is required")
 	ErrUnsupportedArchive   = errors.New("unsupported archive format; use .zip, .tar.gz, or .tar")
 	ErrRepoNotFound         = errors.New("repo not found")
-	ErrRepoPathURLExclusive = errors.New("repo_path and repo_url are mutually exclusive; use one or the other")
+	ErrSourceURLExclusive   = errors.New("source and repo_url are mutually exclusive; use one or the other")
+	ErrRepoPathURLExclusive = ErrSourceURLExclusive // Deprecated: use ErrSourceURLExclusive
 	ErrForbidden            = errors.New("insufficient permissions")
 	ErrInvalidCredentials   = errors.New("invalid username or access code")
 )

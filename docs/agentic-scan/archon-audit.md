@@ -203,7 +203,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "discover": true,
     "archon": "lite"
   }' | jq .
@@ -213,7 +213,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
-    "source_path": "/home/user/src/my-app",
+    "source": "/home/user/src/my-app",
     "discover": true,
     "code_audit": true,
     "archon": "deep"

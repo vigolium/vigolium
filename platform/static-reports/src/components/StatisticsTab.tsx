@@ -126,29 +126,33 @@ export default function StatisticsTab({ data, scanDuration }: Props) {
 
       <section>
         <SectionTitle>Findings Analysis</SectionTitle>
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-          <div className="lg:col-span-3">
-            <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">
-              Findings by Module
-            </h3>
-            {useModuleTable ? (
-              <ModuleBarChart data={moduleDetailData} />
-            ) : (
-              <BarChartComponent
-                data={moduleData.map((d) => ({ endpoint: d.module, count: d.count }))}
+        {data.findings.length > 0 ? (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            <div className="lg:col-span-3">
+              <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">
+                Findings by Module
+              </h3>
+              {useModuleTable ? (
+                <ModuleBarChart data={moduleDetailData} />
+              ) : (
+                <BarChartComponent
+                  data={moduleData.map((d) => ({ endpoint: d.module, count: d.count }))}
+                />
+              )}
+            </div>
+            <div className="lg:col-span-2">
+              <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">
+                Severity Distribution
+              </h3>
+              <PieChartComponent
+                data={severityData.map((d) => ({ status: d.severity, count: d.count }))}
+                colorMap="severity"
               />
-            )}
+            </div>
           </div>
-          <div className="lg:col-span-2">
-            <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">
-              Severity Distribution
-            </h3>
-            <PieChartComponent
-              data={severityData.map((d) => ({ status: d.severity, count: d.count }))}
-              colorMap="severity"
-            />
-          </div>
-        </div>
+        ) : (
+          <p className="text-sm text-text-muted font-sans py-6">No findings data available for this scan.</p>
+        )}
       </section>
 
       {data.httpRecords.length > 0 && (
