@@ -27,6 +27,7 @@ type ServerConfig struct {
 	NoAgent              bool       // If true, disable all agent endpoints and warm sessions
 	ViewOnly             bool       // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
 	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
+	NoSwagger            bool       // If true, disable Swagger UI and spec endpoint
 	Debug                bool       // Log raw request body, query params, and headers
 	Version              string     // Injected version string for /server-info
 	Author               string

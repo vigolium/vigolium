@@ -52,13 +52,15 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	}
 
 	// Swagger UI (before auth so docs are publicly accessible)
-	app.Get("/swagger/doc.json", handlers.HandleSwaggerSpec)
-	app.Use("/swagger", swaggerui.New(swaggerui.Config{
-		BasePath:    "/",
-		FileContent: swaggerSpec,
-		Path:        "swagger",
-		Title:       "Vigolium API",
-	}))
+	if !cfg.NoSwagger {
+		app.Get("/swagger/doc.json", handlers.HandleSwaggerSpec)
+		app.Use("/swagger", swaggerui.New(swaggerui.Config{
+			BasePath:    "/",
+			FileContent: swaggerSpec,
+			Path:        "swagger",
+			Title:       "Vigolium API",
+		}))
+	}
 
 	// Favicon (served from public/ root, not ui/ subdirectory)
 	app.Get("/favicon.ico", func(c fiber.Ctx) error {

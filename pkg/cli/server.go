@@ -56,6 +56,9 @@ type serverOptions struct {
 
 	// View-only mode
 	ViewOnly bool
+
+	// Disable Swagger UI
+	NoSwagger bool
 }
 
 var serverOpts = &serverOptions{
@@ -103,6 +106,10 @@ func init() {
 	// View-only mode
 	flags.BoolVar(&serverOpts.ViewOnly, "view-only", false,
 		"Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints)")
+
+	// Disable Swagger
+	flags.BoolVar(&serverOpts.NoSwagger, "no-swagger", false,
+		"Disable Swagger UI and API spec endpoint")
 }
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
@@ -284,6 +291,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		ShutdownTimeout:      30 * time.Second,
 		CORSAllowedOrigins:   settings.Server.CORSAllowedOrigins,
 		EnableMetrics:        settings.Server.EnableMetrics,
+		NoSwagger:            serverOpts.NoSwagger || settings.Server.DisableSwagger,
 		NoAgent:              serverOpts.NoAgent,
 		ViewOnly:             serverOpts.ViewOnly,
 		Debug:                globalDebug,

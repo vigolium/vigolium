@@ -13,6 +13,7 @@ type ServerConfig struct {
 	IngestProxyPort    int    `yaml:"ingest_proxy_port"`
 	CORSAllowedOrigins string `yaml:"cors_allowed_origins"`
 	EnableMetrics      bool   `yaml:"enable_metrics"`
+	DisableSwagger     bool   `yaml:"disable_swagger"`
 }
 
 // DefaultServerConfig returns default server configuration

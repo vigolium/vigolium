@@ -269,7 +269,7 @@ export default function ScanPage() {
   // --- File upload logic (repo mode) ---
   const doUpload = useCallback((file: File) => {
     uploadRepo.mutate(file, {
-      onSuccess: (data) => { setRepoPath(data.repo_path); },
+      onSuccess: (data) => { setRepoPath(data.source); },
     });
   }, [uploadRepo]);
 
@@ -402,7 +402,7 @@ export default function ScanPage() {
             req.targets = targets;
           }
         }
-        if (repoPath) req.repo_path = repoPath;
+        if (repoPath) req.source = repoPath;
         if (repoUrl) req.repo_url = repoUrl;
         req.strategy = 'whitebox';
         if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
@@ -435,7 +435,7 @@ export default function ScanPage() {
         if (scopeOrigin) req.scope_origin = scopeOrigin;
         if (heuristics) req.heuristics_check = heuristics;
         if (scanProfile) req.scanning_profile = scanProfile;
-        if (repoPath) req.repo_path = repoPath;
+        if (repoPath) req.source = repoPath;
         if (repoUrl) req.repo_url = repoUrl;
         req.headers = hdrs;
         runScan.mutate(req);
@@ -558,7 +558,7 @@ export default function ScanPage() {
             {(activeMode === 'url' || activeMode === 'raw_request') && (
               <button onClick={() => setNoPassive(!noPassive)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${noPassive ? 'border-[#ef2f27]/50 text-[#ef2f27] bg-[#ef2f27]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>NO_PASSIVE: {noPassive ? 'ON' : 'OFF'}</button>
             )}
-            <button onClick={() => setAdvancedOpen(v => !v)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${advancedOpen ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>ADVANCED: {advancedOpen ? 'ON' : 'OFF'}</button>
+            <button onClick={() => setAdvancedOpen(v => !v)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${advancedOpen ? 'border-[#f2c55c]/50 text-[#f2c55c] bg-[#f2c55c]/10' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}>ADVANCED</button>
           </div>
           {advancedOpen && (
             <div className="space-y-2 pl-4 border-l-2 border-[#2e2b26]">
@@ -590,8 +590,8 @@ export default function ScanPage() {
                 </div>
               )}
 
-              {/* Repo mode: upload + repo fields */}
-              {activeMode === 'repo_scan' && (
+              {/* Source upload + repo fields (repo_scan or full_scan for SAST) */}
+              {(activeMode === 'repo_scan' || activeMode === 'full_scan') && (
                 <>
                   <div
                     onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}
@@ -613,16 +613,18 @@ export default function ScanPage() {
                       </>
                     )}
                     <p className="text-[10px] text-[#918175] mt-1">.zip, .tar.gz, .tgz, .tar — or drop a folder (auto-zipped) — max 500 MB</p>
-                    {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — repo_path set</p>}
+                    {uploadRepo.isSuccess && <p className="text-[10px] text-[#98bc37] mt-1">uploaded — source path set</p>}
                     {uploadRepo.isError && <p className="text-[10px] text-[#ef2f27] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>}
                   </div>
-                  <div>
-                    <label className="text-[#918175] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
-                    <GitHubRepoPicker onSelect={(url) => { setRepoUrl(url); setRepoPath(''); }} selectedRepo={repoUrl.includes('x-access-token') ? repoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
-                  </div>
+                  {activeMode === 'repo_scan' && (
+                    <div>
+                      <label className="text-[#918175] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                      <GitHubRepoPicker onSelect={(url) => { setRepoUrl(url); setRepoPath(''); }} selectedRepo={repoUrl.includes('x-access-token') ? repoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                    </div>
+                  )}
                   <div className="flex gap-2">
-                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_PATH (local path or uploaded)</label><input type="text" value={repoPath} onChange={(e) => { setRepoPath(e.target.value); if (e.target.value) setRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>
-                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO_URL (git URL)</label><input type="text" value={repoUrl} onChange={(e) => { setRepoUrl(e.target.value); if (e.target.value) setRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} /></div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">SOURCE (local path or uploaded)</label><input type="text" value={repoPath} onChange={(e) => { setRepoPath(e.target.value); if (e.target.value) setRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} /></div>
+                    <div className="flex-1"><label className="text-[#918175] text-[10px] uppercase block mb-0.5">REPO URL (git URL)</label><input type="text" value={repoUrl} onChange={(e) => { setRepoUrl(e.target.value); if (e.target.value) setRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} /></div>
                   </div>
                 </>
               )}
@@ -686,7 +688,7 @@ export default function ScanPage() {
               {mutation.data.scan_mode && <span><span className="text-[#918175]">mode:</span> <span className="text-[#fce8c3]">{mutation.data.scan_mode}</span></span>}
               {mutation.data.targets_count != null && <span><span className="text-[#918175]">targets:</span> <span className="text-[#fce8c3]">{mutation.data.targets_count}</span></span>}
               {mutation.data.records_to_scan != null && <span><span className="text-[#918175]">records:</span> <span className="text-[#fce8c3]">{mutation.data.records_to_scan}</span></span>}
-              {mutation.data.repo_path && <span><span className="text-[#918175]">repo:</span> <span className="text-[#fce8c3]">{mutation.data.repo_path}</span></span>}
+              {mutation.data.source && <span><span className="text-[#918175]">source:</span> <span className="text-[#fce8c3]">{mutation.data.source}</span></span>}
               {mutation.data.message && <span><span className="text-[#918175]">msg:</span> <span className="text-[#fce8c3]">{mutation.data.message}</span></span>}
             </div>
           )}

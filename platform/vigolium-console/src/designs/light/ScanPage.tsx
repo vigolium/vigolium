@@ -301,7 +301,7 @@ export default function ScanPage() {
 
   const doUpload = useCallback((file: File) => {
     uploadRepo.mutate(file, {
-      onSuccess: (data) => { setRepoPath(data.repo_path); },
+      onSuccess: (data) => { setRepoPath(data.source); },
     });
   }, [uploadRepo]);
 
@@ -418,7 +418,7 @@ export default function ScanPage() {
       }
       case 'repo_scan': {
         const req: RunScanRequest = {};
-        if (repoPath) req.repo_path = repoPath;
+        if (repoPath) req.source = repoPath;
         else if (input.trim()) req.repo_url = input.trim();
         if (repoUrl) req.repo_url = repoUrl;
         req.strategy = 'whitebox';
@@ -444,7 +444,7 @@ export default function ScanPage() {
         if (strategy) req.strategy = strategy;
         if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
         if (moduleTags) req.module_tags = moduleTags.split(',').map(s => s.trim()).filter(Boolean);
-        if (repoPath) req.repo_path = repoPath;
+        if (repoPath) req.source = repoPath;
         if (repoUrl) req.repo_url = repoUrl;
         if (dryRun) req.dry_run = true;
         if (concurrency) req.concurrency = parseInt(concurrency);
@@ -589,7 +589,7 @@ export default function ScanPage() {
                 NO_PASSIVE: {noPassive ? 'ON' : 'OFF'}
               </button>
             )}
-            <button onClick={() => setAdvancedOpen(v => !v)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${advancedOpen ? 'border-[#e34e1c]/50 text-[#e34e1c] bg-[#e34e1c]/10' : 'border-[#bbc3c4] text-[#708e8e] hover:text-[#005661]'}`}>ADVANCED: {advancedOpen ? 'ON' : 'OFF'}</button>
+            <button onClick={() => setAdvancedOpen(v => !v)} className={`px-2 py-1 text-xs border transition-colors shrink-0 ${advancedOpen ? 'border-[#e34e1c]/50 text-[#e34e1c] bg-[#e34e1c]/10' : 'border-[#bbc3c4] text-[#708e8e] hover:text-[#005661]'}`}>ADVANCED</button>
           </div>
 
           {advancedOpen && (
@@ -610,8 +610,8 @@ export default function ScanPage() {
                 </>
               )}
 
-              {/* Repo mode: upload + GitHub picker + repo fields */}
-              {activeMode === 'repo_scan' && (
+              {/* Source upload + repo fields (repo_scan or full_scan for SAST) */}
+              {(activeMode === 'repo_scan' || activeMode === 'full_scan') && (
                 <>
                   <div
                     onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}
@@ -634,23 +634,25 @@ export default function ScanPage() {
                     )}
                     <p className="text-[10px] text-[#708e8e] mt-1">.zip, .tar.gz, .tgz, .tar -- or drop a folder (auto-zipped) -- max 500 MB</p>
                     {uploadRepo.isSuccess && (
-                      <p className="text-[10px] text-[#00b368] mt-1">uploaded -- repo_path set</p>
+                      <p className="text-[10px] text-[#00b368] mt-1">uploaded -- source path set</p>
                     )}
                     {uploadRepo.isError && (
                       <p className="text-[10px] text-[#e34e1c] mt-1">upload failed: {(uploadRepo.error as Error).message}</p>
                     )}
                   </div>
-                  <div>
-                    <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
-                    <GitHubRepoPicker onSelect={(url) => { setRepoUrl(url); setRepoPath(''); }} selectedRepo={repoUrl.includes('x-access-token') ? repoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
-                  </div>
+                  {activeMode === 'repo_scan' && (
+                    <div>
+                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">GITHUB REPO</label>
+                      <GitHubRepoPicker onSelect={(url) => { setRepoUrl(url); setRepoPath(''); }} selectedRepo={repoUrl.includes('x-access-token') ? repoUrl.replace(/https:\/\/x-access-token:[^@]+@github\.com\//, '').replace('.git', '') : undefined} />
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">REPO_PATH (local / uploaded)</label>
+                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">SOURCE (local / uploaded)</label>
                       <input type="text" value={repoPath} onChange={(e) => { setRepoPath(e.target.value); if (e.target.value) setRepoUrl(''); }} placeholder="/path/to/repo" className={inputClass} />
                     </div>
                     <div className="flex-1">
-                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">REPO_URL (git URL)</label>
+                      <label className="text-[#708e8e] text-[10px] uppercase block mb-0.5">REPO URL (git URL)</label>
                       <input type="text" value={repoUrl} onChange={(e) => { setRepoUrl(e.target.value); if (e.target.value) setRepoPath(''); }} placeholder="https://github.com/org/repo" className={inputClass} />
                     </div>
                   </div>
@@ -739,7 +741,7 @@ export default function ScanPage() {
               {mutation.data.scan_mode && <span><span className="text-[#708e8e]">mode:</span> <span className="text-[#005661]">{mutation.data.scan_mode}</span></span>}
               {mutation.data.targets_count != null && <span><span className="text-[#708e8e]">targets:</span> <span className="text-[#005661]">{mutation.data.targets_count}</span></span>}
               {mutation.data.records_to_scan != null && <span><span className="text-[#708e8e]">records:</span> <span className="text-[#005661]">{mutation.data.records_to_scan}</span></span>}
-              {mutation.data.repo_path && <span><span className="text-[#708e8e]">repo:</span> <span className="text-[#005661]">{mutation.data.repo_path}</span></span>}
+              {mutation.data.source && <span><span className="text-[#708e8e]">source:</span> <span className="text-[#005661]">{mutation.data.source}</span></span>}
               {mutation.data.message && <span><span className="text-[#708e8e]">msg:</span> <span className="text-[#005661]">{mutation.data.message}</span></span>}
             </div>
           )}

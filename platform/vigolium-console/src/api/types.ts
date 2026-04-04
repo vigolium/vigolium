@@ -140,7 +140,8 @@ export interface ScanResponse {
   records_to_scan?: number;
   targets_count?: number;
   scan_mode?: string;
-  repo_path?: string;
+  source?: string;
+  repo_path?: string; // legacy, prefer source
 }
 
 export interface ErrorResponse {
@@ -392,7 +393,8 @@ export interface RunScanRequest {
   heuristics_check?: string;
   headers?: Record<string, string>;
   scanning_profile?: string;
-  repo_path?: string;
+  source?: string;
+  repo_path?: string; // legacy, prefer source
   repo_url?: string;
 }
 

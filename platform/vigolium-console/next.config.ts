@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const isStatic = process.env.NEXT_PUBLIC_BUILD_MODE === 'static';
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['host.docker.internal'],
   output: isStatic ? 'export' : undefined,
   // Use separate build directories so both dev servers can run simultaneously
   distDir: isStatic ? '.next-workbench' : '.next',

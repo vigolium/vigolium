@@ -11,7 +11,6 @@ export default function ServerInfo({ serverInfo }: Props) {
     { key: 'version', value: serverInfo.version },
     { key: 'uptime', value: serverInfo.uptime },
     { key: 'queue', value: String(serverInfo.queue_depth) },
-    { key: 'db', value: serverInfo.db_driver || 'sqlite' },
     { key: 'records', value: String(serverInfo.total_records) },
     { key: 'findings', value: String(serverInfo.total_findings) },
     ...(serverInfo.commit ? [{ key: 'commit', value: serverInfo.commit.slice(0, 7) }] : []),
@@ -29,12 +28,6 @@ export default function ServerInfo({ serverInfo }: Props) {
               <span className="text-[#005661] truncate">{item.value}</span>
             </div>
           ))}
-          {serverInfo.service_addr && (
-            <div className="flex items-center">
-              <span className="text-[#708e8e] w-[70px] shrink-0">addr: </span>
-              <span className="text-[#004d57] truncate">{serverInfo.service_addr}</span>
-            </div>
-          )}
         </div>
       </div>
     </div>
