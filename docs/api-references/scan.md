@@ -146,6 +146,7 @@ Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a
 | `heuristics_check`     | string            | No       | Heuristics check level: `none`, `basic`, `advanced`                         |
 | `headers`              | map[string]string | No       | Custom HTTP headers included in all requests                                |
 | `scanning_profile`     | string            | No       | Scanning profile name or path                                               |
+| `intensity`            | string            | No       | Scan intensity preset: `"quick"`, `"balanced"`, or `"deep"`. Resolves to `scanning_profile` + `strategy`. Explicit `scanning_profile` or `strategy` fields override intensity. |
 | `source`               | string            | No       | Absolute path to local source repo for ad-hoc SAST scan (like `--sast-adhoc`). Mutually exclusive with `repo_url`. The legacy `repo_path` key is still accepted. |
 | `repo_url`             | string            | No       | Git URL to clone for ad-hoc SAST scan (auto-cloned). Mutually exclusive with `source`. |
 
@@ -912,6 +913,7 @@ Returns `202 Accepted` on success, `200 OK` for dry runs, or `409 Conflict` if a
 | `heuristics_check`     | string            | No       | Heuristics check level: `none`, `basic`, `advanced`                         |
 | `headers`              | map[string]string | No       | Custom HTTP headers included in all requests                                |
 | `scanning_profile`     | string            | No       | Scanning profile name or path                                               |
+| `intensity`            | string            | No       | Scan intensity preset: `"quick"`, `"balanced"`, or `"deep"`. Resolves to `scanning_profile` + `strategy`. |
 
 ```bash
 # Scan all records (no filters)

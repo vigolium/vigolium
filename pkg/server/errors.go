@@ -13,8 +13,6 @@ var (
 	ErrDatabaseRequired   = errors.New("database is required for this endpoint")
 	ErrScanAlreadyRunning = errors.New("a scan is already running")
 	ErrNoRecordsToScan    = errors.New("no records found after scan cursor")
-	ErrAgentLightAlreadyRunning = errors.New("another query/autopilot agent is already running")
-	ErrAgentHeavyAlreadyRunning = errors.New("another pipeline/swarm agent is already running")
 	ErrAgentNotFound       = errors.New("agent run not found")
 	ErrMissingPrompt       = errors.New("prompt_template, prompt_file, or prompt is required")
 	ErrMissingTarget       = errors.New("'target' field is required")

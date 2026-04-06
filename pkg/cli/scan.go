@@ -14,6 +14,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/input/formats/detect"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
@@ -62,6 +63,8 @@ func init() {
 	// Content discovery flags
 	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Enable content discovery phase before scanning")
 	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
+	flags.StringVar(&scanOpts.FuzzWordlistPath, "fuzz-wordlist", "", "Custom fuzz wordlist path for discovery (enables fuzzing on the fly)")
+
 
 	// Browser-based spidering flags
 	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Enable browser-based spidering phase before scanning")
@@ -220,9 +223,6 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 		settings.Database.Driver = "sqlite"
 		settings.Database.SQLite.Path = statelessDBPath
-		if !scanOpts.Silent {
-			fmt.Fprintf(os.Stderr, "%s Stateless mode: using temporary database\n", terminal.InfoSymbol())
-		}
 	}
 
 	// Validate database config
@@ -251,6 +251,18 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	// Validate scanning strategy config
 	if err := settings.ScanningStrategy.Validate(); err != nil {
 		return fmt.Errorf("invalid scanning strategy configuration: %w", err)
+	}
+
+	// Resolve --intensity to scanning profile name.
+	if rootCmd.PersistentFlags().Changed("intensity") {
+		profileName, resolvedIntensity, intensityErr := agent.ResolveNativeScanIntensity(globalIntensity)
+		if intensityErr != nil {
+			return intensityErr
+		}
+		scanOpts.Intensity = resolvedIntensity
+		if !rootCmd.PersistentFlags().Changed("scanning-profile") {
+			globalScanningProfile = profileName
+		}
 	}
 
 	// Determine scanning profile: CLI --scanning-profile > config scanning_strategy.scanning_profile
@@ -1076,6 +1088,13 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.HiCyan("vigolium traffic list"),
 		terminal.HiCyan("vigolium findings list"))
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Scan Configuration"))
+	if opts.Stateless {
+		statelessLine := "Stateless mode: using temporary database"
+		if globalVerbose && settings.Database.SQLite.Path != "" {
+			statelessLine += " " + terminal.Gray("("+settings.Database.SQLite.Path+")")
+		}
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), statelessLine)
+	}
 	if opts.ProjectUUID != "" {
 		fmt.Fprintf(os.Stderr, "  %s Project: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ProjectUUID))
 	}

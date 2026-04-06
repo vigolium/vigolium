@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -218,6 +219,18 @@ func (h *Handlers) buildRunScanOptions(req RunScanRequest, projectUUID string) (
 
 	if req.ScopeOrigin != "" {
 		opts.ScopeOriginMode = req.ScopeOrigin
+	}
+
+	// Resolve intensity to scanning profile
+	if req.Intensity != "" {
+		profileName, resolvedIntensity, err := agent.ResolveNativeScanIntensity(req.Intensity)
+		if err != nil {
+			return nil, err
+		}
+		opts.Intensity = resolvedIntensity
+		if req.ScanningProfile == "" {
+			req.ScanningProfile = profileName
+		}
 	}
 
 	if req.ScanningProfile != "" {
@@ -440,6 +453,14 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 	// Auto-set only=sast when a source is provided but no phase is specified
 	if hasSASTSource && req.Only == "" && len(req.Skip) == 0 && len(req.Targets) == 0 {
 		req.Only = "sast"
+	}
+
+	// Load and apply scanning profile to settings (mirrors CLI logic in scan.go)
+	if opts.ScanningProfile != "" {
+		profilePath := settings.ScanningStrategy.ResolveProfilePath(opts.ScanningProfile)
+		if profile, profileErr := config.LoadProfile(profilePath); profileErr == nil {
+			_ = config.ApplyProfile(settings, profile)
+		}
 	}
 
 	// Apply strategy and phases

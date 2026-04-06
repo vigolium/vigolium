@@ -434,6 +434,47 @@ vigolium agent swarm -t http://localhost:3000 --source ~/projects/my-app --start
 
 ```
 
+### Intensity Presets
+
+The `--intensity` flag bundles multiple settings into a single preset:
+
+```bash
+# Quick — fast CI/CD scan, no discovery or triage
+vigolium agent swarm --input "https://example.com/api/users?id=1" --intensity quick
+
+# Balanced (default) — code audit if source provided, standard limits
+vigolium agent swarm -t https://example.com --source ./src
+
+# Deep — full discovery, triage, browser, extended duration
+vigolium agent swarm -t https://example.com --source ./src --intensity deep
+```
+
+Each preset configures:
+
+| Setting | `quick` | `balanced` (default) | `deep` |
+|---|---|---|---|
+| `--discover` | off | off | on |
+| `--code-audit` (if source) | off | on | on |
+| `--triage` | off | off | on |
+| `--max-iterations` | 1 | 3 | 5 |
+| `--archon` (if source) | lite | scan | deep |
+| `--max-plan-records` | 5 | 10 | 20 |
+| `--master-batch-size` | 5 | 5 | 10 |
+| `--batch-concurrency` | 2 | 3 | 5 |
+| `--probe-concurrency` | 15 | 10 | 5 |
+| `--browser` | off | off | on |
+| `--swarm-duration` | 2h | 12h | 24h |
+
+Explicit flags always override intensity presets:
+
+```bash
+# Deep intensity but disable triage
+vigolium agent swarm -t https://example.com --intensity deep --triage=false
+
+# Quick intensity with custom timeout
+vigolium agent swarm --input "..." --intensity quick --swarm-duration 30m
+```
+
 ### Supported Input Types
 
 Inputs are auto-detected from their content:
@@ -450,6 +491,7 @@ Inputs are auto-detected from their content:
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--intensity` | balanced | Scan intensity preset: `quick`, `balanced`, or `deep` |
 | `-t, --target` | — | Target URL (required when `--source` is used) |
 | `--input` | — | Raw input (curl command, raw HTTP, Burp XML). Use `-` for stdin |
 | `--record-uuid` | — | HTTP record UUID from database |

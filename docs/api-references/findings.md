@@ -15,7 +15,8 @@ Returns paginated vulnerability findings.
 | `scan_id`     | string |            | Filter by scan UUID                               |
 | `module_name` | string |            | Filter by module name                             |
 | `module_type`    | string |            | Filter by module type: `active` or `passive`      |
-| `finding_source` | string |            | Filter by finding source: `audit`, `spa`, `agent`, `oast`, `source-tools`, `extension` |
+| `finding_source` | string |            | Filter by finding source: `audit`, `spa`, `agent`, `oast`, `source-tools`, `extension`, `archon` |
+| `repo_name`   | string |            | Filter by repository name or URL (exact match). Populated for whitebox/archon findings |
 | `search`      | string |            | Search across description, module ID, matched_at  |
 | `sort`        | string | `found_at` | Sort field: `found_at`, `created_at`, `severity`, `module_name`, `module_id`, `confidence` |
 | `order`       | string | `desc`     | Sort order: `asc` or `desc`                       |
@@ -35,6 +36,9 @@ curl -s 'http://localhost:9002/api/findings?module_type=passive' | jq .
 
 # Filter by finding source
 curl -s 'http://localhost:9002/api/findings?finding_source=audit' | jq .
+
+# Filter by repo name (whitebox/archon findings)
+curl -s 'http://localhost:9002/api/findings?finding_source=archon&repo_name=Kong/kong' | jq .
 
 # Search findings
 curl -s 'http://localhost:9002/api/findings?search=reflected' | jq .
@@ -56,6 +60,8 @@ curl -s 'http://localhost:9002/api/findings?search=reflected' | jq .
       "severity": "high",
       "confidence": "firm",
       "tags": ["xss", "reflected"],
+      "source_file": "",
+      "repo_name": "",
       "matched_at": ["https://example.com/search?q=test"],
       "extracted_results": ["<script>alert(1)</script>"],
       "additional_evidence": [
@@ -99,6 +105,8 @@ curl -s http://localhost:9002/api/findings/1 | jq .
   "severity": "high",
   "confidence": "firm",
   "tags": ["xss", "reflected"],
+  "source_file": "",
+  "repo_name": "",
   "matched_at": ["https://example.com/search?q=test"],
   "extracted_results": ["<script>alert(1)</script>"],
   "additional_evidence": [
@@ -149,6 +157,19 @@ curl -s -X DELETE http://localhost:9002/api/findings/42 | jq .
 ---
 
 ## Finding Fields
+
+### `repo_name`
+
+**Type:** `string` (optional, omitted when empty)
+
+The repository name or URL associated with a finding. Primarily populated for whitebox and archon audit findings. During archon import, the value is resolved with the following priority:
+
+1. `repo_url` field in `audit-state.json` (if present)
+2. `repo` field in `audit-state.json` (if present)
+3. `**Repository**:` line from `commit-recon-report.md` — prefers a full URL in parentheses (e.g. `https://github.com/goharbor/harbor`), otherwise uses the org/repo slug (e.g. `Kong/kong`)
+4. Folder basename as fallback
+
+Use the `?repo_name=` query parameter on `GET /api/findings` to filter findings by repository.
 
 ### `additional_evidence`
 

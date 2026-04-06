@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { Copy, Check, Upload, Loader2, Zap, Shield, Radar } from 'lucide-react';
+import { Copy, Check, Upload, Loader2, Zap, Scale, Layers } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useScanURL, useScanRequest, useRunScan, useUploadRepo, useScans, useDeleteScan, useStopScan, usePauseScan, useResumeScan, useScanLogs } from '@/api/hooks';
 import type { ScanURLRequest, ScanRequestRequest, RunScanRequest, ScansQueryParams, Scan, ScanLog } from '@/api/types';
@@ -37,10 +37,10 @@ const HISTORY_PAGE_SIZE = 20;
 
 interface HeaderRow { key: string; value: string; }
 
-const STRATEGY_META: Record<string, { title: string; desc: string; icon: React.ReactNode }> = {
-  lite:     { title: 'QUICK',    desc: 'Fast & light',     icon: <Zap className="w-4 h-4 mx-auto mb-1" /> },
-  balanced: { title: 'BALANCED', desc: 'Good coverage',    icon: <Shield className="w-4 h-4 mx-auto mb-1" /> },
-  deep:     { title: 'DEEP',     desc: 'Maximum coverage', icon: <Radar className="w-4 h-4 mx-auto mb-1" /> },
+const STRATEGY_META: Record<string, { title: string; desc: string; Icon: typeof Zap }> = {
+  lite:     { title: 'Quick',    desc: 'Fast surface-level scan for common issues',                Icon: Zap },
+  balanced: { title: 'Balanced', desc: 'Thorough scan with smart defaults',                       Icon: Scale },
+  deep:     { title: 'Deep',     desc: 'Exhaustive scan with full discovery and verification',     Icon: Layers },
 };
 
 /* ─── auto-detect mode from input ─── */
@@ -442,6 +442,8 @@ export default function ScanPage() {
         const req: RunScanRequest = {};
         if (targets.length > 0) req.targets = targets;
         if (strategy) req.strategy = strategy;
+        const intensityMap: Record<string, string> = { lite: 'quick', balanced: 'balanced', deep: 'deep' };
+        req.intensity = intensityMap[strategy] || 'balanced';
         if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
         if (moduleTags) req.module_tags = moduleTags.split(',').map(s => s.trim()).filter(Boolean);
         if (repoPath) req.source = repoPath;
@@ -536,23 +538,26 @@ export default function ScanPage() {
 
           {/* 3. Strategy presets (shown for full_scan) */}
           {activeMode === 'full_scan' && (
-            <div className="flex gap-3">
+            <div className="grid grid-cols-3 gap-0">
               {STRATEGIES.map(s => {
                 const meta = STRATEGY_META[s];
                 const selected = strategy === s;
+                const { Icon } = meta;
                 return (
                   <button
                     key={s}
                     onClick={() => setStrategy(s)}
-                    className={`flex-1 border py-3 px-4 text-center transition-colors ${
+                    className={`border px-3 py-2 text-center transition-colors ${
                       selected
-                        ? 'border-[#00b368]/50 text-[#00b368] bg-[#00b368]/10'
-                        : 'border-[#bbc3c4] text-[#708e8e] hover:text-[#005661] hover:border-[#005661]/30'
+                        ? 'border-[#4a9aba] bg-[#4a9aba]/10'
+                        : 'border-[#bbc3c4] hover:border-[#708e8e] hover:bg-[#ede4d1]/50'
                     }`}
                   >
-                    {meta.icon}
-                    <div className="text-xs font-bold">{meta.title}</div>
-                    <div className="text-[10px] mt-0.5 opacity-70">{meta.desc}</div>
+                    <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                      <Icon className={`w-3 h-3 ${selected ? 'text-[#4a9aba]' : 'text-[#708e8e]'}`} />
+                      <span className={`text-xs font-bold ${selected ? 'text-[#3d7a8f]' : 'text-[#005661]'}`}>{meta.title}</span>
+                    </div>
+                    <p className="text-[10px] text-[#708e8e] leading-tight">{meta.desc}</p>
                   </button>
                 );
               })}

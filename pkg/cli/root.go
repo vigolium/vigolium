@@ -66,6 +66,9 @@ var (
 	// Scanning profile (name or path)
 	globalScanningProfile string
 
+	// Scan intensity preset (quick, balanced, deep)
+	globalIntensity string
+
 	// Watch mode: re-run queries at interval
 	globalWatchRaw string
 
@@ -205,6 +208,7 @@ func init() {
 	pf.StringSliceVar(&globalSkipPhases, "skip", nil, "Skip these phases (repeatable: discovery, external-harvest, spidering, spa, sast, audit)")
 	pf.StringVar(&globalStrategy, "strategy", "", "Scanning strategy preset (lite, balanced, deep, whitebox)")
 	pf.StringVar(&globalScanningProfile, "scanning-profile", "", "Scanning profile name or YAML file path")
+	pf.StringVar(&globalIntensity, "intensity", "", "Scan intensity preset: quick, balanced, or deep (maps to scanning profile + strategy)")
 	pf.StringVar(&globalWatchRaw, "watch", "", "Re-run on interval (e.g. 10s, 1m, 5m)")
 	pf.StringVar(&globalScopeOrigin, "scope-origin", "", "Host scope strictness: all, relaxed, balanced, strict")
 	pf.DurationVar(&globalScanningMaxDuration, "scanning-max-duration", 0, "Maximum total scan duration (overrides config, e.g. 1h, 30m)")

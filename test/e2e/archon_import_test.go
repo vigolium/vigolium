@@ -62,7 +62,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 
 	// Build and save findings
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
 	require.NotEmpty(t, findings)
 
 	saved, skipped := 0, 0
@@ -109,6 +109,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	assert.Contains(t, p7001.Tags, "phase-7")
 	assert.NotEmpty(t, p7001.Description)
 	assert.NotEmpty(t, p7001.MatchedAt)
+	assert.Equal(t, "https://github.com/goharbor/harbor", p7001.RepoName, "repo name should be persisted from commit-recon-report")
 
 	// Verify severity distribution
 	sevCounts := map[string]int{}
@@ -119,7 +120,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	assert.True(t, sevCounts["medium"] > 0, "should have medium severity findings")
 
 	// Verify dedup: import the same data again
-	findings2 := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID)
+	findings2 := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
 	dupes := 0
 	for _, f := range findings2 {
 		_ = repo.SaveFindingDirect(ctx, f)
@@ -190,7 +191,7 @@ func TestArchonImport_AllDatasets(t *testing.T) {
 			require.NoError(t, err)
 
 			auditID := result.State.Audits[0].AuditID
-			findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID)
+			findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
 
 			saved := 0
 			for _, f := range findings {

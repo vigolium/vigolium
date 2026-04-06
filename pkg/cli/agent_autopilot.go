@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultAutopilotMaxCommands = 100
+
 // agent autopilot flags
 var (
 	autopilotTarget          string
@@ -40,6 +42,7 @@ var (
 	autopilotArchonMode      string
 	autopilotDiff            string
 	autopilotLastCommits     int
+	autopilotIntensity       string
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -72,7 +75,14 @@ Supported input types for --input (auto-detected):
   - Base64:      Base64-encoded raw HTTP request (Burp base64 export)
 
 When input is piped via stdin, it is automatically read (no --input needed).
-The target URL is extracted from the input when --target is not provided.`,
+The target URL is extracted from the input when --target is not provided.
+
+Intensity presets (--intensity) bundle multiple settings into a single flag:
+  quick     — Fast CI/PR scans: 30 commands, 1h timeout, lite archon
+  balanced  — Standard assessment (default): 100 commands, 6h timeout, scan archon
+  deep      — Thorough pentest: 300 commands, 12h timeout, deep archon, browser enabled
+
+Explicit flags always override intensity presets.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runAgentAutopilot,
 }
@@ -90,7 +100,7 @@ func init() {
 	f.DurationVar(&autopilotTimeout, "timeout", 6*time.Hour, "Maximum duration for the autopilot session")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
-	f.IntVar(&autopilotMaxCommands, "max-commands", 100, "Maximum number of CLI commands the agent can execute")
+	f.IntVar(&autopilotMaxCommands, "max-commands", defaultAutopilotMaxCommands, "Maximum number of CLI commands the agent can execute")
 	f.StringVar(&autopilotInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
 	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.StringSliceVar(&autopilotMcpServers, "mcp-server", nil, "MCP servers to attach (format: name=command,arg1,arg2 or name=http://url)")
@@ -100,9 +110,10 @@ func init() {
 	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), or deep (11-phase)")
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
+	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
 }
 
-func runAgentAutopilot(_ *cobra.Command, args []string) error {
+func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
@@ -110,6 +121,31 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	hasExplicitFlags := autopilotTarget != "" || autopilotInput != "" || autopilotSource != ""
 	if len(args) > 0 && !hasExplicitFlags {
 		return runAutopilotFromPrompt(args[0])
+	}
+
+	// Resolve intensity preset — apply before other flag processing
+	intensity, err := agent.ValidateIntensity(autopilotIntensity)
+	if err != nil {
+		return err
+	}
+	if cmd != nil {
+		changed := map[string]bool{
+			"max-commands": cmd.Flags().Changed("max-commands"),
+			"timeout":      cmd.Flags().Changed("timeout"),
+			"archon-mode":  cmd.Flags().Changed("archon-mode"),
+			"no-archon":    cmd.Flags().Changed("no-archon"),
+			"browser":      cmd.Flags().Changed("browser"),
+		}
+		intensityResult := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
+			MaxCommands: autopilotMaxCommands,
+			Timeout:     autopilotTimeout,
+			ArchonMode:  autopilotArchonMode,
+			Browser:     autopilotBrowser,
+		}, changed)
+		autopilotMaxCommands = intensityResult.MaxCommands
+		autopilotTimeout = intensityResult.Timeout
+		autopilotArchonMode = intensityResult.ArchonMode
+		autopilotBrowser = intensityResult.Browser
 	}
 
 	// Resolve input and target
@@ -122,8 +158,6 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 	if autopilotTarget == "" && autopilotSource == "" {
 		return fmt.Errorf("target is required: use --target, --input, --source, or pipe via stdin\n\nOr use a natural language prompt:\n  vigolium agent autopilot \"scan source at ~/src/app on localhost:3005\"")
 	}
-	sourceOnly := autopilotTarget == ""
-
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
 		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
@@ -195,8 +229,7 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Recalculate sourceOnly after resolution
-	sourceOnly = autopilotTarget == "" && autopilotSource != ""
+	sourceOnly := autopilotTarget == "" && autopilotSource != ""
 
 	// Print startup summary (matches swarm format)
 	fmt.Fprint(os.Stderr, GetBanner())
@@ -219,6 +252,9 @@ func runAgentAutopilot(_ *cobra.Command, args []string) error {
 		modeLine += fmt.Sprintf(" | Model: %s", terminal.HiTeal(effectiveModel))
 	}
 	fmt.Fprintln(os.Stderr, modeLine)
+
+	// Intensity
+	fmt.Fprintf(os.Stderr, "  %s Intensity: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(autopilotIntensity))
 
 	// Target
 	if autopilotTarget != "" {
@@ -446,6 +482,26 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	} else if app.Archon != "" {
 		autopilotArchonMode = app.Archon
 	}
+	if app.Diff != "" && autopilotDiff == "" {
+		autopilotDiff = app.Diff
+	}
+	if len(app.Files) > 0 && len(autopilotFiles) == 0 {
+		autopilotFiles = app.Files
+	}
+	if app.Browser {
+		autopilotBrowser = true
+	}
+	if app.MaxCommands > 0 && autopilotMaxCommands == defaultAutopilotMaxCommands {
+		autopilotMaxCommands = app.MaxCommands
+	}
+	if app.Timeout != "" {
+		if d, err := time.ParseDuration(app.Timeout); err == nil {
+			autopilotTimeout = d
+		}
+	}
+	if app.Intensity != "" && autopilotIntensity == "balanced" {
+		autopilotIntensity = app.Intensity
+	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
 		terminal.SuccessSymbol(),
 		valueOrNone(autopilotTarget),
@@ -470,6 +526,18 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 			focus = app.Focus
 		}
 
+		// Resolve per-app max-commands: app intent overrides if non-zero, else use CLI flag
+		maxCmds := autopilotMaxCommands
+		if app.MaxCommands > 0 {
+			maxCmds = app.MaxCommands
+		}
+
+		// Resolve per-app files: app intent overrides if non-empty
+		files := autopilotFiles
+		if len(app.Files) > 0 {
+			files = app.Files
+		}
+
 		fmt.Fprintf(os.Stderr, "%s [%d/%d] Starting autopilot: target=%s source=%s\n",
 			terminal.InfoSymbol(), idx+1, len(intent.Apps),
 			valueOrNone(app.Target),
@@ -482,19 +550,53 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 
 		projectUUID, _ := resolveProjectUUID()
 
+		// Resolve per-app source and diff context
+		sourcePath := app.SourcePath
+		diffRef := app.Diff
+		if diffRef == "" {
+			diffRef = autopilotDiff
+		}
+		var diffCtx *agenttypes.DiffContext
+		if sourcePath != "" || diffRef != "" {
+			var err error
+			sourcePath, files, diffCtx, err = agent.ResolveSourceAndDiff(
+				sourcePath, diffRef, 0, files, sessionDir)
+			if err != nil {
+				return fmt.Errorf("failed to resolve source/diff: %w", err)
+			}
+		}
+
 		cfg := agent.AutopilotPipelineConfig{
 			TargetURL:    app.Target,
-			SourcePath:   app.SourcePath,
+			SourcePath:   sourcePath,
+			Files:        files,
 			Instruction:  instruction,
 			Focus:        focus,
 			AgentName:    autopilotAgent,
-			MaxCommands:  autopilotMaxCommands,
+			MaxCommands:  maxCmds,
 			SessionsDir:  settings.Agent.EffectiveSessionsDir(),
 			SessionDir:   sessionDir,
 			ProjectUUID:  projectUUID,
 			ScanUUID:     globalScanID,
 			StreamWriter: streamWriter,
+			DiffContext:  diffCtx,
 		}
+
+		// Wire archon per-app
+		archonMode := autopilotArchonMode
+		noArchon := autopilotNoArchon
+		if app.Archon == "off" {
+			noArchon = true
+		} else if app.Archon != "" {
+			archonMode = app.Archon
+		}
+		if auditCfg := agent.ResolveAuditAgentConfig(noArchon, archonMode, sourcePath, settings.Agent.Archon); auditCfg != nil {
+			cfg.Archon = auditCfg
+		}
+
+		// Wire browser per-app
+		browserEnabled := settings.Agent.Browser.IsEnabled() || autopilotBrowser || app.Browser
+		cfg.BrowserEnabled = browserEnabled
 
 		runner := agent.NewAutopilotPipelineRunner(engine, repo)
 		_, err := runner.RunAutonomous(ctx, cfg)

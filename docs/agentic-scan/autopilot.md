@@ -73,35 +73,38 @@ vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 vigolium agent autopilot -t https://example.com --source ./src --archon-mode deep --dry-run
 ```
 
-### Scanning Profiles: Fast, Balanced, and Deep
+### Intensity Presets
 
-Choose the right scan intensity for your use case:
+The `--intensity` flag bundles multiple settings into a single preset:
 
 ```bash
-# ── Fast (CI/PR review) ──────────────────────────────────────
-# Quick scan focused on a PR diff — lite archon, tight limits
-vigolium agent autopilot \
-  -t http://localhost:3000 \
-  --source ~/src/my-app \
-  --diff "https://github.com/org/repo/pull/42" \
-  --archon-mode lite \
-  --max-commands 20 --timeout 10m
+# ── Quick (CI/PR review) ─────────────────────────────────────
+vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app --intensity quick
 
-# ── Balanced (routine assessment) ─────────────────────────────
-# Standard scan with source context and archon in scan mode
-vigolium agent autopilot \
-  -t http://localhost:3000 \
-  --source ~/src/my-app \
-  --archon-mode scan \
-  --max-commands 50 --timeout 1h
+# ── Balanced (default, routine assessment) ────────────────────
+vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app
 
 # ── Deep (thorough pentest) ───────────────────────────────────
-# Full autonomous audit with deep archon (11-phase)
-vigolium agent autopilot \
-  -t http://localhost:3000 \
-  --source ~/src/my-app \
-  --archon-mode deep \
-  --max-commands 100 --timeout 6h
+vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app --intensity deep
+```
+
+Each preset configures:
+
+| Setting | `quick` | `balanced` (default) | `deep` |
+|---|---|---|---|
+| `--max-commands` | 30 | 100 | 300 |
+| `--timeout` | 1h | 6h | 12h |
+| `--archon-mode` | lite | scan | deep |
+| `--browser` | off | off | on |
+
+Explicit flags always override intensity presets:
+
+```bash
+# Deep intensity but with a shorter timeout
+vigolium agent autopilot -t http://localhost:3000 --intensity deep --timeout 2h
+
+# Quick intensity but allow more commands
+vigolium agent autopilot -t http://localhost:3000 --intensity quick --max-commands 200
 ```
 
 ### Source Input Types
@@ -219,6 +222,7 @@ vigolium agent autopilot [prompt] [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--intensity` | balanced | Scan intensity preset: `quick`, `balanced`, or `deep` |
 | `-t, --target` | — | Target URL (derived from `--input` if not set) |
 | `--input` | — | Raw input (curl, raw HTTP, Burp XML, URL). Reads stdin if piped |
 | `--source` | — | Path to source code, git URL, or archive file (auto-enables archon) |
@@ -339,6 +343,7 @@ POST /api/agent/run/autopilot
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `intensity` | string | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"` |
 | `target` | string | Target URL |
 | `source` | string | Path to source code, git URL, or archive file |
 | `diff` | string | PR URL, git ref range, or `HEAD~N` for diff-focused scanning |
@@ -351,9 +356,9 @@ POST /api/agent/run/autopilot
 | `timeout` | string | Duration string (default `"6h"`) |
 | `stream` | bool | Enable SSE streaming |
 
-### Example: Fast Scan (CI/PR Review)
+### Example: Quick Scan (CI/PR Review)
 
-Quick scan focused on a PR diff with lite archon and tight resource limits — ideal for CI pipelines.
+Fast scan with tight resource limits — ideal for CI pipelines:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -361,16 +366,14 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "diff": "https://github.com/org/repo/pull/42",
-    "archon_mode": "lite",
-    "max_commands": 20,
-    "timeout": "10m"
+    "intensity": "quick",
+    "diff": "https://github.com/org/repo/pull/42"
   }' | jq .
 ```
 
 ### Example: Balanced Scan (Routine Assessment)
 
-Standard scan with source context and 6-phase archon — good balance of coverage and speed.
+Standard scan with source context — good balance of coverage and speed. `"balanced"` is the default when `intensity` is omitted:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -378,17 +381,14 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "archon_mode": "scan",
     "focus": "authentication bypass",
-    "max_commands": 50,
-    "timeout": "1h",
     "stream": true
   }'
 ```
 
 ### Example: Deep Scan (Thorough Pentest)
 
-Full autonomous audit with 11-phase archon, high command limit, and extended timeout — maximum coverage.
+Maximum coverage with deep archon, browser, high command limit, and extended timeout:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -396,12 +396,23 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "archon_mode": "deep",
+    "intensity": "deep",
     "instruction": "Test all API endpoints. Focus on IDOR, auth bypass, and injection.",
-    "max_commands": 100,
-    "timeout": "6h",
     "stream": true
   }'
+```
+
+Individual fields can override intensity presets:
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "http://localhost:3000",
+    "intensity": "deep",
+    "max_commands": 50,
+    "timeout": "2h"
+  }' | jq .
 ```
 
 ### Example: Diff-Only Scan (PR Review)

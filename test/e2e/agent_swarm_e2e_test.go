@@ -16,6 +16,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -3053,4 +3054,178 @@ func TestSwarmRealAgentSourceAnalysis(t *testing.T) {
 	assert.True(t,
 		len(plan.ModuleTags) > 0 || len(plan.ModuleIDs) > 0,
 		"expected plan to have module selections")
+}
+
+// ─── Intensity preset tests ────────────────────────────────────────────────
+
+// TestSwarmIntensityQuickPreset verifies that quick intensity resolves to
+// the expected preset values.
+func TestSwarmIntensityQuickPreset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{}
+
+	result := agent.ResolveSwarmIntensity(agenttypes.IntensityQuick, agent.SwarmIntensityPreset{}, changed)
+
+	assert.False(t, result.Discover)
+	assert.False(t, result.CodeAudit)
+	assert.False(t, result.Triage)
+	assert.Equal(t, 1, result.MaxIterations)
+	assert.Equal(t, "lite", result.Archon)
+	assert.Equal(t, 5, result.MaxPlanRecords)
+	assert.Equal(t, 5, result.MasterBatchSize)
+	assert.Equal(t, 2, result.BatchConcurrency)
+	assert.Equal(t, 15, result.ProbeConcurrency)
+	assert.False(t, result.Browser)
+	assert.False(t, result.Auth)
+	assert.Equal(t, 2*time.Hour, result.SwarmDuration)
+	assert.True(t, result.SkipSAST)
+}
+
+// TestSwarmIntensityDeepPreset verifies that deep intensity resolves to
+// the expected preset values.
+func TestSwarmIntensityDeepPreset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{}
+
+	result := agent.ResolveSwarmIntensity(agenttypes.IntensityDeep, agent.SwarmIntensityPreset{}, changed)
+
+	assert.True(t, result.Discover)
+	assert.True(t, result.CodeAudit)
+	assert.True(t, result.Triage)
+	assert.Equal(t, 5, result.MaxIterations)
+	assert.Equal(t, "deep", result.Archon)
+	assert.Equal(t, 20, result.MaxPlanRecords)
+	assert.Equal(t, 10, result.MasterBatchSize)
+	assert.Equal(t, 5, result.BatchConcurrency)
+	assert.Equal(t, 5, result.ProbeConcurrency)
+	assert.True(t, result.Browser)
+	assert.True(t, result.Auth)
+	assert.Equal(t, 24*time.Hour, result.SwarmDuration)
+	assert.False(t, result.SkipSAST)
+}
+
+// TestSwarmIntensityExplicitOverride verifies that explicit flags override
+// intensity preset values.
+func TestSwarmIntensityExplicitOverride(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{
+		"discover":       true,
+		"triage":         true,
+		"max-iterations": true,
+	}
+
+	current := agent.SwarmIntensityPreset{
+		Discover:      false, // override deep's true
+		Triage:        false, // override deep's true
+		MaxIterations: 2,     // override deep's 5
+	}
+
+	result := agent.ResolveSwarmIntensity(agenttypes.IntensityDeep, current, changed)
+
+	// Explicit overrides should win
+	assert.False(t, result.Discover)
+	assert.False(t, result.Triage)
+	assert.Equal(t, 2, result.MaxIterations)
+	// Non-overridden values come from deep preset
+	assert.True(t, result.CodeAudit)
+	assert.Equal(t, "deep", result.Archon)
+	assert.Equal(t, 20, result.MaxPlanRecords)
+	assert.True(t, result.Browser)
+}
+
+// TestSwarmIntensityBalancedMatchesDefaults verifies that balanced intensity
+// matches the existing default behavior.
+func TestSwarmIntensityBalancedMatchesDefaults(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{}
+	result := agent.ResolveSwarmIntensity(agenttypes.IntensityBalanced, agent.SwarmIntensityPreset{}, changed)
+
+	assert.False(t, result.Discover)
+	assert.True(t, result.CodeAudit)
+	assert.False(t, result.Triage)
+	assert.Equal(t, 3, result.MaxIterations)
+	assert.Equal(t, "scan", result.Archon)
+	assert.Equal(t, 10, result.MaxPlanRecords)
+	assert.Equal(t, 12*time.Hour, result.SwarmDuration)
+}
+
+// TestSwarmIntensityValidation verifies that invalid intensity values are rejected.
+func TestSwarmIntensityValidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	// Valid values
+	for _, valid := range []string{"quick", "balanced", "deep", "", "QUICK", "Deep"} {
+		_, err := agenttypes.ValidateIntensity(valid)
+		assert.NoError(t, err, "expected %q to be valid", valid)
+	}
+
+	// Invalid values
+	for _, invalid := range []string{"fast", "slow", "turbo", "medium"} {
+		_, err := agenttypes.ValidateIntensity(invalid)
+		assert.Error(t, err, "expected %q to be invalid", invalid)
+	}
+}
+
+// TestSwarmIntensityAPIValidation tests that the REST API rejects invalid intensity values.
+func TestSwarmIntensityAPIValidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	env := newAgentTestEnv(t)
+
+	// Invalid intensity should return 400
+	resp := env.post(t, "/api/agent/run/swarm", `{
+		"input": "https://example.com",
+		"intensity": "turbo"
+	}`)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp.Body.Close()
+
+	// Valid intensity should be accepted (202 or proceed)
+	resp = env.post(t, "/api/agent/run/swarm", `{
+		"input": "https://example.com",
+		"intensity": "quick"
+	}`)
+	assert.Equal(t, 202, resp.StatusCode)
+	resp.Body.Close()
+}
+
+// TestAutopilotIntensityAPIValidation tests that the REST API rejects invalid intensity values.
+func TestAutopilotIntensityAPIValidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	env := newAgentTestEnv(t)
+
+	// Invalid intensity should return 400
+	resp := env.post(t, "/api/agent/run/autopilot", `{
+		"target": "https://example.com",
+		"intensity": "invalid"
+	}`)
+	assert.Equal(t, 400, resp.StatusCode)
+	resp.Body.Close()
+
+	// Valid intensity should be accepted (202)
+	resp = env.post(t, "/api/agent/run/autopilot", `{
+		"target": "https://example.com",
+		"intensity": "deep"
+	}`)
+	assert.Equal(t, 202, resp.StatusCode)
+	resp.Body.Close()
 }

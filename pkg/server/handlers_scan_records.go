@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
@@ -273,6 +274,16 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 		opts.Headers = headers
 	}
 
+	// Resolve intensity to scanning profile
+	if req.Intensity != "" {
+		if profileName, resolvedIntensity, err := agent.ResolveNativeScanIntensity(req.Intensity); err == nil {
+			opts.Intensity = resolvedIntensity
+			if req.ScanningProfile == "" {
+				req.ScanningProfile = profileName
+			}
+		}
+	}
+
 	if req.ScanningProfile != "" {
 		opts.ScanningProfile = req.ScanningProfile
 	}
@@ -284,6 +295,14 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 		settings = &clone
 	} else {
 		settings = config.DefaultSettings()
+	}
+
+	// Load and apply scanning profile to settings
+	if opts.ScanningProfile != "" {
+		profilePath := settings.ScanningStrategy.ResolveProfilePath(opts.ScanningProfile)
+		if profile, profileErr := config.LoadProfile(profilePath); profileErr == nil {
+			_ = config.ApplyProfile(settings, profile)
+		}
 	}
 
 	if req.HeuristicsCheck != "" {

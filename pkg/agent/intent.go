@@ -31,18 +31,28 @@ Return ONLY valid JSON (no markdown, no explanation). Use this exact schema:
       "instruction": "any other guidance",
       "discover": true,
       "code_audit": false,
-      "audit_agent": "lite"
+      "audit_agent": "lite",
+      "diff": "",
+      "files": [],
+      "browser": false,
+      "max_commands": 0,
+      "timeout": ""
     }
   ]
 }
 
 Rules:
 - "target" is a URL (http:// or https://). If user says "running on localhost:3005", produce "http://localhost:3005".
-- "source_path" is a filesystem path (starts with /, ~/, or ./).
+- "source_path" is a filesystem path (starts with /, ~/, or ./) OR a git repository URL (github.com/..., gitlab.com/..., bitbucket.org/...).
 - If both target and source_path are present for an app, set "discover" to true.
 - If only source_path is present (no target URL), set "code_audit" to true.
 - "focus" captures vulnerability type hints (e.g. "auth bypass", "injection", "XSS").
-- "audit_agent" is "lite" or "full" when the user mentions an audit agent, security audit agent, or background audit. Default to "lite" if the user mentions audit agent without specifying a level. Leave empty if not mentioned.
+- "audit_agent" is "lite", "scan", or "deep" when the user mentions archon, audit agent, security audit, or background audit. "deep" for deep/thorough/comprehensive audit. "scan" for standard audit. Default to "lite" if mentioned without level. Leave empty if not mentioned.
+- "diff" captures a diff reference: a PR/MR URL (e.g. "github.com/org/repo/pull/123", "gitlab.com/org/repo/-/merge_requests/45"), a git ref range (e.g. "main...feature-branch"), or HEAD~N. If user says "last N commits", produce "HEAD~N". Leave empty if not mentioned.
+- "files" is an array of specific file paths when the user mentions focusing on particular files (e.g. "focus on auth.go and middleware.go"). Paths are relative to the source root. Leave empty if not mentioned.
+- "browser" is true when the user mentions browser, browser-based testing, headless browser, or UI testing. Default false.
+- "max_commands" is a positive integer when the user mentions a command limit (e.g. "limit 200 commands", "max 50 steps"). Default 0 (meaning use system default).
+- "timeout" is a Go duration string when the user mentions a time limit (e.g. "2h", "30m", "1h30m"). Convert natural language: "2 hours" → "2h", "30 minutes" → "30m". Leave empty if not mentioned.
 - "instruction" captures any remaining guidance that doesn't fit other fields.
 - When multiple source paths are listed, create one app entry per source path.
 - Expand ~ to the literal "~" character (do not resolve it).
@@ -227,7 +237,12 @@ INTENT_JSON:
       "instruction": "any other user guidance",
       "discover": true,
       "code_audit": false,
-      "audit_agent": ""
+      "audit_agent": "",
+      "diff": "",
+      "files": [],
+      "browser": false,
+      "max_commands": 0,
+      "timeout": ""
     }
   ],
   "cleanup": {
@@ -245,7 +260,12 @@ INTENT_JSON:
 - "cleanup.containers": individual container IDs if you started containers without compose.
 - "focus": extract vulnerability focus hints from the user request (e.g. "auth bypass", "injection").
 - "instruction": any remaining user guidance that doesn't fit other fields.
-- "audit_agent": "lite" or "full" if user mentions audit agent; empty otherwise.
+- "audit_agent": "lite", "scan", or "deep" if user mentions archon or audit agent; empty otherwise.
+- "diff": PR/MR URL, git ref range, or HEAD~N if user mentions reviewing a diff or PR. Empty otherwise.
+- "files": array of specific file paths to focus on. Empty if not mentioned.
+- "browser": true if user mentions browser-based testing. Default false.
+- "max_commands": positive integer if user specifies command limit. Default 0.
+- "timeout": Go duration string (e.g. "2h", "30m") if user specifies time limit. Empty otherwise.
 
 ## Important
 - Do NOT start scanning or run vigolium commands.

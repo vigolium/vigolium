@@ -3,11 +3,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { zipSync } from 'fflate';
-import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useGitHubCloneUrl } from '@/api/hooks';
+import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useGitHubCloneUrl, useStartAutopilotRun, useAgentRunStatus } from '@/api/hooks';
 import { fetchSSE } from '@/lib/sse';
 
 export type ScanProfile = 'quick' | 'deep' | 'code-review' | 'autopilot';
 export type InputMode = 'url' | 'raw' | 'curl';
+export type TargetInputTab = 'target' | 'prompt';
 export type DetectedInputType = 'url' | 'raw' | 'curl' | 'empty';
 export type AdvancedMode = 'swarm' | 'autopilot' | 'query';
 export type ScanMode = 'template' | 'custom';
@@ -39,6 +40,13 @@ export const ARCHON_MODE_OPTIONS = [
   { value: 'deep', label: 'Deep' },
 ];
 
+export const INTENSITY_OPTIONS = [
+  { value: '', label: 'Default (balanced)' },
+  { value: 'quick', label: 'Quick', description: 'Fast surface-level scan for common issues', icon: 'zap' },
+  { value: 'balanced', label: 'Balanced', description: 'Thorough scan with smart defaults', icon: 'scale' },
+  { value: 'deep', label: 'Deep', description: 'Exhaustive scan with full discovery and verification', icon: 'layers' },
+];
+
 const HTTP_METHODS = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\s/;
 
 export function detectInputType(value: string): DetectedInputType {
@@ -55,11 +63,11 @@ export function useAgentsLogic() {
 
   // Hero state
   const [targetUrl, setTargetUrl] = useState('');
-  const [scanProfile, setScanProfile] = useState<ScanProfile>('quick');
+  const [scanProfile, setScanProfile] = useState<ScanProfile>('autopilot');
 
   // Advanced options visibility
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [advancedMode, setAdvancedMode] = useState<AdvancedMode>('swarm');
+  const [advancedMode, setAdvancedMode] = useState<AdvancedMode>('autopilot');
 
   // Chat panel visibility
   const [chatOpen, setChatOpen] = useState(false);
@@ -95,6 +103,7 @@ export function useAgentsLogic() {
   const [swarmStartFrom, setSwarmStartFrom] = useState('');
   const [swarmShowPrompt, setSwarmShowPrompt] = useState(false);
   const [swarmArchon, setSwarmArchon] = useState('');
+  const [swarmIntensity, setSwarmIntensity] = useState('');
 
   // Autopilot advanced fields
   const [autopilotAgent, setAutopilotAgent] = useState('');
@@ -109,6 +118,7 @@ export function useAgentsLogic() {
   const [autopilotDiff, setAutopilotDiff] = useState('');
   const [autopilotArchonMode, setAutopilotArchonMode] = useState('');
   const [autopilotNoArchon, setAutopilotNoArchon] = useState(false);
+  const [autopilotIntensity, setAutopilotIntensity] = useState('');
 
   // Query advanced fields
   const [scanMode, setScanMode] = useState<ScanMode>('template');
@@ -122,6 +132,29 @@ export function useAgentsLogic() {
   const [queryScanUuid, setQueryScanUuid] = useState('');
   const [queryInstruction, setQueryInstruction] = useState('');
   const [querySourceLabel, setQuerySourceLabel] = useState('');
+
+  // Target input tab (target vs prompt)
+  const [targetInputTab, setTargetInputTab] = useState<TargetInputTab>('target');
+  const [targetPrompt, setTargetPrompt] = useState('');
+  const [targetRunId, setTargetRunId] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState('');
+  const startAutopilotRun = useStartAutopilotRun();
+  const { data: targetRunStatus } = useAgentRunStatus(targetRunId);
+
+  const handleTargetSubmit = useCallback(() => {
+    const prompt = targetPrompt.trim();
+    if (!prompt || startAutopilotRun.isPending) return;
+    setTargetError('');
+    setTargetRunId(null);
+    startAutopilotRun.mutate({ prompt }, {
+      onSuccess: (data) => {
+        setTargetRunId(data.run_id);
+      },
+      onError: (err) => {
+        setTargetError(err instanceof Error ? err.message : 'Failed to start autopilot run');
+      },
+    });
+  }, [targetPrompt, startAutopilotRun]);
 
   // Streaming state (scan)
   const [scanOutput, setScanOutput] = useState('');
@@ -234,22 +267,17 @@ export function useAgentsLogic() {
 
     const sourceBody = swarmSource ? { source: swarmSource } : {};
 
-    if (scanProfile === 'quick') {
-      fetchSSE('/api/agent/run/swarm', { input: url, profile: 'light', stream: true, ...sourceBody }, callbacks, abort.signal);
-    } else if (scanProfile === 'deep') {
-      fetchSSE('/api/agent/run/swarm', { input: url, discover: true, stream: true, ...sourceBody }, callbacks, abort.signal);
-    } else if (scanProfile === 'code-review') {
-      fetchSSE('/api/agent/run/swarm', { input: url, source_analysis_only: true, code_audit: true, stream: true, ...sourceBody }, callbacks, abort.signal);
-    } else if (scanProfile === 'autopilot') {
+    if (scanProfile === 'autopilot') {
       const apBody: Record<string, unknown> = { target: url, stream: true };
       if (swarmSource) apBody.source = swarmSource;
+      if (autopilotIntensity) apBody.intensity = autopilotIntensity;
       fetchSSE('/api/agent/run/autopilot', apBody, callbacks, abort.signal);
     } else {
       // Custom mode — use advancedMode to decide endpoint
       handleCustomSubmit(url, abort, callbacks);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetUrl, scanProfile, isScanStreaming, makeScanCallbacks, swarmSource]);
+  }, [targetUrl, scanProfile, isScanStreaming, makeScanCallbacks, swarmSource, autopilotIntensity]);
 
   const handleCustomSubmit = useCallback((url: string, abort: AbortController, callbacks: ReturnType<typeof makeScanCallbacks>) => {
     if (advancedMode === 'swarm') {
@@ -285,6 +313,7 @@ export function useAgentsLogic() {
       if (swarmStartFrom) body.start_from = swarmStartFrom;
       if (swarmShowPrompt) body.show_prompt = true;
       if (swarmArchon) body.archon = swarmArchon;
+      if (swarmIntensity) body.intensity = swarmIntensity;
       fetchSSE('/api/agent/run/swarm', body, callbacks, abort.signal);
     } else if (advancedMode === 'autopilot') {
       const body: Record<string, unknown> = { target: url, stream: true };
@@ -300,6 +329,7 @@ export function useAgentsLogic() {
       if (autopilotDiff) body.diff = autopilotDiff;
       if (autopilotArchonMode) body.archon_mode = autopilotArchonMode;
       if (autopilotNoArchon) body.no_archon = true;
+      if (autopilotIntensity) body.intensity = autopilotIntensity;
       fetchSSE('/api/agent/run/autopilot', body, callbacks, abort.signal);
     } else {
       // query
@@ -518,6 +548,7 @@ export function useAgentsLogic() {
     swarmStartFrom, setSwarmStartFrom,
     swarmShowPrompt, setSwarmShowPrompt,
     swarmArchon, setSwarmArchon,
+    swarmIntensity, setSwarmIntensity,
 
     // Autopilot fields
     autopilotAgent, setAutopilotAgent,
@@ -532,6 +563,7 @@ export function useAgentsLogic() {
     autopilotDiff, setAutopilotDiff,
     autopilotArchonMode, setAutopilotArchonMode,
     autopilotNoArchon, setAutopilotNoArchon,
+    autopilotIntensity, setAutopilotIntensity,
 
     // Query fields
     scanMode, setScanMode,
@@ -545,6 +577,12 @@ export function useAgentsLogic() {
     queryScanUuid, setQueryScanUuid,
     queryInstruction, setQueryInstruction,
     querySourceLabel, setQuerySourceLabel,
+
+    // Target input tab (prompt-based autopilot)
+    targetInputTab, setTargetInputTab,
+    targetPrompt, setTargetPrompt,
+    targetRunId, targetRunStatus, targetError,
+    startAutopilotRun, handleTargetSubmit,
 
     // Scan streaming
     scanOutput, scanResult, scanError,

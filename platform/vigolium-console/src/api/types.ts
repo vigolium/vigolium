@@ -393,6 +393,7 @@ export interface RunScanRequest {
   heuristics_check?: string;
   headers?: Record<string, string>;
   scanning_profile?: string;
+  intensity?: string;
   source?: string;
   repo_path?: string; // legacy, prefer source
   repo_url?: string;
@@ -420,6 +421,7 @@ export interface ScanAllRecordsRequest {
   heuristics_check?: string;
   headers?: Record<string, string>;
   scanning_profile?: string;
+  intensity?: string;
 }
 
 // POST /api/repos/upload
@@ -510,6 +512,7 @@ export interface AgentQueryRequest {
 
 // POST /api/agent/run/autopilot
 export interface AgentAutopilotRequest {
+  intensity?: 'quick' | 'balanced' | 'deep';
   target?: string;
   prompt?: string;
   input?: string;
@@ -555,6 +558,7 @@ export interface ChatCompletionResponse {
 
 // POST /api/agent/run/swarm
 export interface AgentSwarmRequest {
+  intensity?: 'quick' | 'balanced' | 'deep';
   input?: string;
   inputs?: string[];
   http_request_base64?: string;

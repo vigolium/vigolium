@@ -27,9 +27,12 @@ type ServerConfig struct {
 	NoAgent              bool       // If true, disable all agent endpoints and warm sessions
 	ViewOnly             bool       // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
 	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
-	NoSwagger            bool       // If true, disable Swagger UI and spec endpoint
-	Debug                bool       // Log raw request body, query params, and headers
-	Version              string     // Injected version string for /server-info
+	NoSwagger            bool          // If true, disable Swagger UI and spec endpoint
+	Debug                bool          // Log raw request body, query params, and headers
+	AgentHeavyMax        int           // Max concurrent heavy agent runs (autopilot/swarm); 0 = default 5
+	AgentLightMax        int           // Max concurrent light agent runs (query/chat); 0 = default 10
+	AgentQueueTimeout    time.Duration // Max wait time when all agent slots busy; 0 = default 30s
+	Version              string        // Injected version string for /server-info
 	Author               string
 	Commit               string
 	BuildTime            string
@@ -115,6 +118,9 @@ type RunScanRequest struct {
 	// Scanning profile name or path
 	ScanningProfile string `json:"scanning_profile,omitempty"`
 
+	// Intensity preset: quick, balanced, deep (resolves to scanning_profile + strategy)
+	Intensity string `json:"intensity,omitempty"`
+
 	// Source code for SAST scanning (like --sast-adhoc)
 	Source  string `json:"source,omitempty"`   // Local path or Git URL for SAST scan
 	RepoURL string `json:"repo_url,omitempty"` // Git URL to clone for SAST scan (legacy, prefer "source")
@@ -179,6 +185,9 @@ type ScanAllRecordsRequest struct {
 
 	// Scanning profile name or path
 	ScanningProfile string `json:"scanning_profile,omitempty"`
+
+	// Intensity preset: quick, balanced, deep (resolves to scanning_profile + strategy)
+	Intensity string `json:"intensity,omitempty"`
 }
 
 // ScanURLRequest is the request body for POST /api/scan-url.
@@ -455,6 +464,7 @@ type AgentRunRequest struct {
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
 type AgentAutopilotRequest struct {
 	Prompt      string   `json:"prompt,omitempty"`              // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
+	Intensity   string   `json:"intensity,omitempty"`           // scan intensity preset: quick, balanced (default), deep
 	Target      string   `json:"target,omitempty"`              // target URL (derived from input if not set)
 	Input       string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
 	Agent       string   `json:"agent,omitempty"`               // agent backend name
@@ -501,6 +511,9 @@ func (r AgentAutopilotRequest) ResolvedArchonMode() string {
 type AgentSwarmRequest struct {
 	// Natural language prompt (parsed into structured fields when explicit fields are empty)
 	Prompt string `json:"prompt,omitempty"`
+
+	// Scan intensity preset: quick, balanced (default), deep
+	Intensity string `json:"intensity,omitempty"`
 
 	// Inputs
 	Input              string   `json:"input,omitempty"`                // single input (URL, curl, raw HTTP, Burp XML, record UUID)

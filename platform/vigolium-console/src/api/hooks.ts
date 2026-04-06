@@ -49,6 +49,7 @@ import type {
   Extension,
   ExtensionEditResponse,
   ExtensionDocsResponse,
+  AgentRunResponse,
   AgentRunStatusResponse,
   AgentRunListResponse,
   AgentSession,
@@ -618,6 +619,13 @@ export function useAgentRunStatus(runId: string | null) {
     refetchInterval: (query) => {
       return query.state.data?.status === 'running' ? 3_000 : false;
     },
+  });
+}
+
+export function useStartAutopilotRun() {
+  return useMutation({
+    mutationFn: (body: { prompt: string }) =>
+      apiPost<AgentRunResponse>('/api/agent/run/autopilot', body),
   });
 }
 

@@ -77,6 +77,13 @@ type (
 // Autopilot types
 type AutopilotPipelineResult = agenttypes.AutopilotPipelineResult
 
+// Intensity types
+type (
+	Intensity                = agenttypes.Intensity
+	AutopilotIntensityPreset = agenttypes.AutopilotIntensityPreset
+	SwarmIntensityPreset     = agenttypes.SwarmIntensityPreset
+)
+
 // Intent types
 type (
 	ScanIntent        = agenttypes.ScanIntent
@@ -112,6 +119,11 @@ const (
 	InputTypeRecordUUID = agenttypes.InputTypeRecordUUID
 	InputTypeUnknown    = agenttypes.InputTypeUnknown
 
+	// Intensity
+	IntensityQuick    = agenttypes.IntensityQuick
+	IntensityBalanced = agenttypes.IntensityBalanced
+	IntensityDeep     = agenttypes.IntensityDeep
+
 	// SwarmPhase
 	SwarmPhaseNormalize      = agenttypes.SwarmPhaseNormalize
 	SwarmPhaseAuth           = agenttypes.SwarmPhaseAuth
@@ -129,9 +141,11 @@ const (
 
 // Re-export functions with external consumers.
 var (
-	NormalizeSwarmPhase = agenttypes.NormalizeSwarmPhase
-	PhaseSkipped        = agenttypes.PhaseSkipped
-	WithSessionsDir     = agenttypes.WithSessionsDir
+	NormalizeSwarmPhase         = agenttypes.NormalizeSwarmPhase
+	PhaseSkipped               = agenttypes.PhaseSkipped
+	WithSessionsDir            = agenttypes.WithSessionsDir
+	ValidateIntensity          = agenttypes.ValidateIntensity
+	NativeScanIntensityProfiles = agenttypes.NativeScanIntensityProfiles
 )
 
 // Re-export backend functions with external consumers.

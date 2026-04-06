@@ -40,6 +40,21 @@ server:
   # Default: true
   enable_metrics: true
 
+  # Maximum concurrent heavy agent runs (autopilot/swarm) via the API.
+  # Limits resource usage from long-running autonomous agent sessions.
+  # Default: 5
+  agent_heavy_max: 5
+
+  # Maximum concurrent light agent runs (query/chat) via the API.
+  # Default: 10
+  agent_light_max: 10
+
+  # Maximum time to wait for an agent slot when all slots are busy.
+  # Requests that exceed this timeout receive a 429 Too Many Requests response.
+  # Format: Go duration string (e.g., "30s", "1m", "5s").
+  # Default: 30s
+  agent_queue_timeout: 30s
+
 # ============================================================================
 # Database Configuration
 # ============================================================================
@@ -1098,6 +1113,12 @@ agent:
   # Default: ~/.vigolium/prompts/
   templates_dir: ~/.vigolium/prompts/
 
+  # Directory for agent run session artifacts (output.txt, extensions/, plan.json).
+  # Each agent run creates a subdirectory under this path.
+  # Supports ~ expansion.
+  # Default: ~/.vigolium/agent-sessions/
+  sessions_dir: ~/.vigolium/agent-sessions/
+
   # --------------------------------------------------------------------------
   # LLM Configuration (Direct API)
   # --------------------------------------------------------------------------
@@ -1210,6 +1231,76 @@ agent:
 
     # Path to agent-browser binary (default: "agent-browser" via $PATH).
     # binary_path: /usr/local/bin/agent-browser
+
+  # --------------------------------------------------------------------------
+  # Context Limits (DB Enrichment)
+  # --------------------------------------------------------------------------
+  # Controls how much data is pulled from the database when enriching agent
+  # prompts with existing scan context (findings, endpoints, etc.).
+  context_limits:
+    # Maximum number of findings to include in agent context.
+    # Default: 50
+    max_findings: 50
+
+    # Maximum number of endpoints to include.
+    # Default: 100
+    max_endpoints: 100
+
+    # Maximum number of high-risk items to include.
+    # Default: 20
+    max_high_risk: 20
+
+    # Minimum risk score threshold for inclusion.
+    # Default: 50
+    min_risk_score: 50
+
+  # --------------------------------------------------------------------------
+  # Autopilot Guardrails (SDK Mode Safety)
+  # --------------------------------------------------------------------------
+  # Safety and observability controls for autonomous SDK agent mode.
+  guardrails:
+    # Log all agent tool invocations at INFO level for auditing.
+    # Default: false
+    log_commands: false
+
+    # Hard ceiling on agent conversation turns (0 = no override).
+    # Default: 0
+    max_turns: 0
+
+    # Extra tools to block in SDK mode (in addition to built-in blocklist).
+    # Default: []
+    disallowed_tools: []
+    # Example: block file editing and writing in read-only mode:
+    # disallowed_tools:
+    #   - Edit
+    #   - Write
+
+  # --------------------------------------------------------------------------
+  # Archon Audit Integration
+  # --------------------------------------------------------------------------
+  # Background security audit agent. When enabled and --source is provided,
+  # agent modes (swarm, autopilot) launch archon-audit as a parallel agent
+  # for deep code-level security analysis alongside the main scan.
+  archon:
+    # Enable archon-audit integration.
+    # Default: false
+    enable: false
+
+    # Path to archon-audit harness directory.
+    # Default: ~/.vigolium/archon-audit/
+    # plugin_dir: ~/.vigolium/archon-audit/
+
+    # Audit mode: "deep" (11-phase), "scan" (6-phase), or "lite" (3-phase).
+    # Default: lite
+    mode: lite
+
+    # Agent CLI platform: "claude", "codex", or "opencode".
+    # Default: claude
+    platform: claude
+
+    # Seconds between state synchronization with the parent agent.
+    # Default: 30
+    sync_interval: 30
 
   # --------------------------------------------------------------------------
   # Agent Backend Definitions

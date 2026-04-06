@@ -30,10 +30,20 @@ type agentTestEnv struct {
 	settings *config.Settings
 }
 
-// newAgentTestEnv starts an API server with a fake agent configured.
-// The fake agent uses "cat" which echoes stdin to stdout, simulating
-// an agent that returns the prompt as its output.
+// newAgentTestEnv starts an API server with a fake agent configured and default concurrency limits.
 func newAgentTestEnv(t *testing.T) *agentTestEnv {
+	t.Helper()
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{})
+	// Add alt-agent used by some tests
+	env.settings.Agent.Backends["alt-agent"] = config.AgentDef{
+		Command:     "cat",
+		Description: "Alternative fake agent for testing",
+	}
+	return env
+}
+
+// newAgentTestEnvWithConfig starts an API server with custom ServerConfig overrides.
+func newAgentTestEnvWithConfig(t *testing.T, cfgOverride server.ServerConfig) *agentTestEnv {
 	t.Helper()
 
 	db, repo := setupTestDB(t)
@@ -57,22 +67,23 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 					Command:     "cat",
 					Description: "Fake agent for testing (echoes stdin)",
 				},
-				"alt-agent": {
-					Command:     "cat",
-					Description: "Alternative fake agent for testing",
-				},
 			},
 		},
 	}
 
-	srv := server.NewServer(server.ServerConfig{
+	cfg := server.ServerConfig{
 		ServiceAddr:          addr,
 		NoAuth:               true,
 		CORSAllowedOrigins:   "reflect-origin",
 		Version:              "test-agent-v0.0.1",
 		DisableFetchResponse: true,
 		WriteTimeout:         120 * time.Second,
-	}, taskQueue, db, repo, settings, nil)
+		AgentHeavyMax:        cfgOverride.AgentHeavyMax,
+		AgentLightMax:        cfgOverride.AgentLightMax,
+		AgentQueueTimeout:    cfgOverride.AgentQueueTimeout,
+	}
+
+	srv := server.NewServer(cfg, taskQueue, db, repo, settings, nil)
 
 	go func() { _ = srv.Start() }()
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
@@ -270,17 +281,20 @@ func TestAgentAPI_Status_NotFound(t *testing.T) {
 }
 
 // ============================================================
-// POST /api/agent/run/query — concurrency lock
+// POST /api/agent/run/query — concurrency semaphore
 // ============================================================
 
-func TestAgentAPI_Run_ConcurrencyLock(t *testing.T) {
-	env := newAgentTestEnv(t)
+func TestAgentAPI_Run_ConcurrencyLimit(t *testing.T) {
+	// Use a single light slot so we can saturate it with one request
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     1,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
 
 	// Start an agent run with a slow command
-	// Use "sleep 2" as a slow agent so it stays running while we test
 	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
-		Command: "sleep",
-		Args:    []string{"2"},
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
 	}
 
 	resp1 := env.post(t, "/api/agent/run/query", `{
@@ -291,20 +305,20 @@ func TestAgentAPI_Run_ConcurrencyLock(t *testing.T) {
 	resp1.Body.Close()
 
 	// Give it a moment to start
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
-	// Second request should get 409 Conflict
+	// Second request should get 429 Too Many Requests (slot full, queue timeout)
 	resp2 := env.post(t, "/api/agent/run/query", `{
 		"prompt": "should be rejected"
 	}`)
-	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
+	assert.Equal(t, http.StatusTooManyRequests, resp2.StatusCode)
 
 	var body server.ErrorResponse
 	readJSON(t, resp2, &body)
-	assert.Contains(t, body.Error, "already")
+	assert.Contains(t, body.Error, "busy")
 
 	// Wait for first run to finish to not interfere with other tests
-	time.Sleep(3 * time.Second)
+	time.Sleep(4 * time.Second)
 }
 
 // ============================================================
@@ -447,41 +461,44 @@ func TestAgentAPI_ChatCompletions_UnknownModelFallsBackToDefault(t *testing.T) {
 }
 
 // ============================================================
-// POST /api/agent/chat/completions — concurrency lock
+// POST /api/agent/chat/completions — concurrency semaphore
 // ============================================================
 
-func TestAgentAPI_ChatCompletions_ConcurrencyLock(t *testing.T) {
-	env := newAgentTestEnv(t)
+func TestAgentAPI_ChatCompletions_ConcurrencyLimit(t *testing.T) {
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     1,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
 
 	// Start a slow agent run via the /run endpoint
 	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
-		Command: "sleep",
-		Args:    []string{"2"},
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
 	}
 
 	resp1 := env.post(t, "/api/agent/run/query", `{
-		"prompt": "hold the lock",
+		"prompt": "hold the slot",
 		"agent": "slow-agent"
 	}`)
 	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
 	resp1.Body.Close()
 
 	// Give it a moment to start
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
-	// Chat completions should also get 409
+	// Chat completions shares light semaphore — should get 429
 	resp2 := env.post(t, "/api/agent/chat/completions", `{
 		"model": "fake-agent",
 		"messages": [{"role": "user", "content": "should fail"}]
 	}`)
-	assert.Equal(t, http.StatusConflict, resp2.StatusCode)
+	assert.Equal(t, http.StatusTooManyRequests, resp2.StatusCode)
 
 	var body server.ErrorResponse
 	readJSON(t, resp2, &body)
-	assert.Contains(t, body.Error, "already")
+	assert.Contains(t, body.Error, "busy")
 
 	// Wait for first run to finish
-	time.Sleep(3 * time.Second)
+	time.Sleep(4 * time.Second)
 }
 
 // ============================================================
@@ -530,16 +547,19 @@ func TestAgentAPI_ChatCompletions_ResponseFormat(t *testing.T) {
 }
 
 // ============================================================
-// POST /api/agent/chat/completions — shared lock with /agent/run/query
+// POST /api/agent/chat/completions — shared semaphore with /agent/run/query
 // ============================================================
 
 func TestAgentAPI_ChatCompletions_BlocksAgentRun(t *testing.T) {
-	env := newAgentTestEnv(t)
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     1,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
 
 	// Use a slow agent via chat completions by configuring a slow command
 	env.settings.Agent.Backends["slow-chat"] = config.AgentDef{
-		Command: "sleep",
-		Args:    []string{"2"},
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
 	}
 
 	// Start chat completion with a slow agent in a goroutine
@@ -553,16 +573,209 @@ func TestAgentAPI_ChatCompletions_BlocksAgentRun(t *testing.T) {
 		resp.Body.Close()
 	}()
 
-	// Give it a moment to acquire the lock
+	// Give it a moment to acquire the slot
 	time.Sleep(300 * time.Millisecond)
 
-	// Agent run should be blocked
+	// Agent run should be rejected (light semaphore full)
 	resp := env.post(t, "/api/agent/run/query", `{
 		"prompt": "should be blocked"
 	}`)
-	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	resp.Body.Close()
 
 	// Wait for chat completion to finish
 	<-done
+}
+
+// ============================================================
+// Agent concurrency — multiple concurrent light runs
+// ============================================================
+
+func TestAgentAPI_ConcurrentLightRuns(t *testing.T) {
+	// Allow 3 concurrent light runs
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     3,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
+
+	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
+	}
+
+	// Fire 3 concurrent runs — all should be accepted
+	var responses [3]*http.Response
+	for i := range 3 {
+		resp := env.post(t, "/api/agent/run/query", fmt.Sprintf(`{
+			"prompt": "run %d",
+			"agent": "slow-agent"
+		}`, i))
+		responses[i] = resp
+	}
+
+	for i, resp := range responses {
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode, "run %d should be accepted", i)
+		resp.Body.Close()
+	}
+
+	// Give agents a moment to start
+	time.Sleep(300 * time.Millisecond)
+
+	// 4th request should get 429 (all 3 slots occupied)
+	resp4 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "should be rejected",
+		"agent": "slow-agent"
+	}`)
+	assert.Equal(t, http.StatusTooManyRequests, resp4.StatusCode)
+	resp4.Body.Close()
+
+	// Wait for all runs to complete
+	time.Sleep(4 * time.Second)
+}
+
+// ============================================================
+// Agent concurrency — heavy and light are independent
+// ============================================================
+
+func TestAgentAPI_HeavyAndLightIndependent(t *testing.T) {
+	// 1 heavy slot, 1 light slot — they don't block each other
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentHeavyMax:     1,
+		AgentLightMax:     1,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
+
+	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
+	}
+
+	// Start a light agent run (occupies the 1 light slot)
+	resp1 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "light run",
+		"agent": "slow-agent"
+	}`)
+	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
+	resp1.Body.Close()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Heavy run should still succeed (different semaphore)
+	resp2 := env.post(t, "/api/agent/run/autopilot", `{
+		"source": "/tmp/nonexistent-test-path",
+		"agent": "slow-agent",
+		"dry_run": true
+	}`)
+	// dry_run autopilot returns 200 (renders prompt) or 400 (validation),
+	// but NOT 429 — proving heavy semaphore is independent
+	assert.NotEqual(t, http.StatusTooManyRequests, resp2.StatusCode)
+	resp2.Body.Close()
+
+	// Wait for light run to complete
+	time.Sleep(4 * time.Second)
+}
+
+// ============================================================
+// Agent concurrency — slot released after completion
+// ============================================================
+
+func TestAgentAPI_SlotReleasedAfterCompletion(t *testing.T) {
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     1,
+		AgentQueueTimeout: 500 * time.Millisecond,
+	})
+
+	// First run: fast agent that completes quickly
+	resp1 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "fast run"
+	}`)
+	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
+	var run1 server.AgentRunResponse
+	readJSON(t, resp1, &run1)
+
+	// Poll until first run completes
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		r := env.get(t, "/api/agent/status/"+run1.RunID)
+		var status server.AgentRunStatusResponse
+		readJSON(t, r, &status)
+		if status.Status != "running" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Second run should succeed (slot was released)
+	resp2 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "second run after first completed"
+	}`)
+	assert.Equal(t, http.StatusAccepted, resp2.StatusCode)
+	resp2.Body.Close()
+
+	// Wait for completion
+	time.Sleep(2 * time.Second)
+}
+
+// ============================================================
+// Agent concurrency — queue waits for slot
+// ============================================================
+
+func TestAgentAPI_QueueWaitsForSlot(t *testing.T) {
+	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
+		AgentLightMax:     1,
+		AgentQueueTimeout: 5 * time.Second, // generous wait
+	})
+
+	// Start a fast agent (completes in ~1s)
+	env.settings.Agent.Backends["brief-agent"] = config.AgentDef{
+		Command: "sh",
+		Args:    []string{"-c", "sleep 1 && echo done"},
+	}
+
+	resp1 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "brief",
+		"agent": "brief-agent"
+	}`)
+	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
+	resp1.Body.Close()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Second request: slot is busy but queue timeout is generous,
+	// so it should wait and eventually acquire the slot after first finishes
+	resp2 := env.post(t, "/api/agent/run/query", `{
+		"prompt": "waited in queue"
+	}`)
+	assert.Equal(t, http.StatusAccepted, resp2.StatusCode)
+	resp2.Body.Close()
+
+	// Wait for all to finish
+	time.Sleep(3 * time.Second)
+}
+
+// ============================================================
+// Agent concurrency — default config allows multiple runs
+// ============================================================
+
+func TestAgentAPI_DefaultConfigAllowsMultipleRuns(t *testing.T) {
+	// Default config (no overrides) should allow multiple concurrent runs
+	env := newAgentTestEnv(t)
+
+	env.settings.Agent.Backends["slow-agent"] = config.AgentDef{
+		Command: "sh",
+		Args:    []string{"-c", "sleep 3 && echo done"},
+	}
+
+	// Fire 3 concurrent light runs — default is 10 slots, all should succeed
+	for i := range 3 {
+		resp := env.post(t, "/api/agent/run/query", fmt.Sprintf(`{
+			"prompt": "run %d",
+			"agent": "slow-agent"
+		}`, i))
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode, "run %d should be accepted", i)
+		resp.Body.Close()
+	}
+
+	// Wait for all to complete
+	time.Sleep(3 * time.Second)
 }

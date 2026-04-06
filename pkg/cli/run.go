@@ -44,6 +44,7 @@ func init() {
 	// Content discovery flags
 	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Run deparos content discovery before scanning")
 	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
+	flags.StringVar(&scanOpts.FuzzWordlistPath, "fuzz-wordlist", "", "Custom fuzz wordlist path for discovery (enables fuzzing on the fly)")
 
 	// Browser-based spidering flags
 	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Run browser-based spidering before scanning")

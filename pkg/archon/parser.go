@@ -20,6 +20,7 @@ import (
 type AuditImport struct {
 	RawFindings []*ArchonFinding
 	State       *AuditState
+	RepoName    string // resolved repo name (URL preferred, then slug, then folder basename)
 }
 
 // AuditState represents the top-level audit-state.json structure.
@@ -32,6 +33,8 @@ type AuditEntry struct {
 	AuditID     string                `json:"audit_id"`
 	Commit      string                `json:"commit"`
 	Branch      string                `json:"branch"`
+	Repo        string                `json:"repo,omitempty"`     // optional repo slug (e.g. "goharbor/harbor")
+	RepoURL     string                `json:"repo_url,omitempty"` // optional full repo URL
 	StartedAt   time.Time             `json:"started_at"`
 	CompletedAt time.Time             `json:"completed_at"`
 	Status      string                `json:"status"`
@@ -149,9 +152,12 @@ func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 		return nil, fmt.Errorf("parse findings-draft: %w", err)
 	}
 
+	repoName := resolveRepoName(state, folderPath)
+
 	return &AuditImport{
 		State:       state,
 		RawFindings: findings,
+		RepoName:    repoName,
 	}, nil
 }
 
@@ -213,10 +219,10 @@ func BuildAgentRun(state *AuditState, folderPath, projectUUID string) *database.
 }
 
 // BuildFindings converts parsed ArchonFindings to database.Finding structs.
-func BuildFindings(findings []*ArchonFinding, auditID, agentRunUUID, projectUUID string) []*database.Finding {
+func BuildFindings(findings []*ArchonFinding, auditID, agentRunUUID, projectUUID, repoName string) []*database.Finding {
 	var result []*database.Finding
 	for _, af := range findings {
-		result = append(result, toDBFinding(af, auditID, agentRunUUID, projectUUID))
+		result = append(result, toDBFinding(af, auditID, agentRunUUID, projectUUID, repoName))
 	}
 	return result
 }
@@ -471,7 +477,7 @@ func applyColdVerify(base, overlay *ArchonFinding) {
 	}
 }
 
-func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID string) *database.Finding {
+func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName string) *database.Finding {
 	moduleID := fmt.Sprintf("archon:%s", strings.ToLower(af.FindingID))
 
 	severity := strings.ToUpper(af.Severity)
@@ -535,10 +541,60 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID string) *
 		Tags:            tags,
 		CWEID:           cweID,
 		SourceFile:      sourceFile,
+		RepoName:        repoName,
 		MatchedAt:       af.Locations,
 		FindingHash:     hash,
 		FoundAt:         time.Now(),
 	}
+}
+
+// resolveRepoName determines the repository name from available sources.
+// Priority: audit-state.json repo_url → repo → commit-recon-report.md → folder basename.
+func resolveRepoName(state *AuditState, folderPath string) string {
+	if len(state.Audits) > 0 {
+		audit := state.Audits[0]
+		if audit.RepoURL != "" {
+			return audit.RepoURL
+		}
+		if audit.Repo != "" {
+			return audit.Repo
+		}
+	}
+
+	if name := extractRepoFromCommitRecon(folderPath); name != "" {
+		return name
+	}
+
+	return filepath.Base(folderPath)
+}
+
+// repoLineRegex matches "**Repository**: value" in commit-recon-report.md.
+// Captures the value after the colon, which may be a slug like "Kong/kong"
+// or a slug followed by a URL like "goharbor/harbor (https://github.com/goharbor/harbor)".
+var repoLineRegex = regexp.MustCompile(`(?m)^\*\*Repository\*\*:\s*(.+)$`)
+
+// repoURLInParens extracts a URL from parentheses, e.g. "(https://github.com/goharbor/harbor)".
+var repoURLInParens = regexp.MustCompile(`\((https?://[^\s)]+)\)`)
+
+func extractRepoFromCommitRecon(folderPath string) string {
+	data, err := os.ReadFile(filepath.Join(folderPath, "commit-recon-report.md"))
+	if err != nil {
+		return ""
+	}
+
+	m := repoLineRegex.FindSubmatch(data)
+	if m == nil {
+		return ""
+	}
+	val := strings.TrimSpace(string(m[1]))
+
+	// Prefer a URL in parentheses if present (e.g. "goharbor/harbor (https://...)")
+	if urlMatch := repoURLInParens.FindStringSubmatch(val); urlMatch != nil {
+		return urlMatch[1]
+	}
+
+	// Otherwise return the raw value (typically an org/repo slug)
+	return val
 }
 
 // --- helpers ---

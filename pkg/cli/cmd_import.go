@@ -73,7 +73,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 
 	// Build and save findings
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, projectUUID)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, projectUUID, result.RepoName)
 
 	saved, skipped := 0, 0
 	for _, f := range findings {

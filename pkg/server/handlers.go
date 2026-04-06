@@ -94,10 +94,10 @@ type Handlers struct {
 	agentEngine *agent.Engine
 
 	// Agent run state for API-triggered agent runs
-	agentMu           sync.Mutex
-	agentHeavyRunning bool // pipeline, swarm (only 1 at a time)
-	agentLightRunning bool // query, autopilot, chat completions (only 1 at a time)
-	agentRunStatus    map[string]*AgentRunStatusResponse
+	agentMu        sync.Mutex
+	agentHeavySem  chan struct{}                       // counting semaphore for heavy runs (autopilot/swarm)
+	agentLightSem  chan struct{}                       // counting semaphore for light runs (query/chat)
+	agentRunStatus map[string]*AgentRunStatusResponse
 
 	// Background cleanup for completed agent run statuses
 	agentCleanupStop chan struct{}
@@ -109,6 +109,15 @@ type Handlers struct {
 // NewHandlers creates a new Handlers instance.
 // Starts a background goroutine to clean up old agent run records from the database.
 func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *database.RecordWriter, cfg ServerConfig, settings *config.Settings, httpRequester *http.Requester) *Handlers {
+	heavyMax := cfg.AgentHeavyMax
+	if heavyMax <= 0 {
+		heavyMax = 5
+	}
+	lightMax := cfg.AgentLightMax
+	if lightMax <= 0 {
+		lightMax = 10
+	}
+
 	h := &Handlers{
 		queue:            q,
 		db:               db,
@@ -120,6 +129,8 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		startTime:        time.Now(),
 		scanStates:       make(map[string]*scanState),
 		scanQueues:       make(map[string]chan *queuedScan),
+		agentHeavySem:    make(chan struct{}, heavyMax),
+		agentLightSem:    make(chan struct{}, lightMax),
 		agentRunStatus:   make(map[string]*AgentRunStatusResponse),
 		agentCleanupStop: make(chan struct{}),
 		counts:           newCountCache(10 * time.Second),

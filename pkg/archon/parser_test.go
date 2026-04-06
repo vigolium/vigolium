@@ -154,7 +154,7 @@ func TestBuildFindings(t *testing.T) {
 
 	auditID := result.State.Audits[0].AuditID
 	agentRunUUID := "test-run-uuid"
-	findings := BuildFindings(result.RawFindings, auditID, agentRunUUID, database.DefaultProjectUUID)
+	findings := BuildFindings(result.RawFindings, auditID, agentRunUUID, database.DefaultProjectUUID, result.RepoName)
 
 	assert.Equal(t, len(result.RawFindings), len(findings))
 
@@ -180,6 +180,7 @@ func TestBuildFindings(t *testing.T) {
 	assert.Contains(t, p7001.Tags, "archon")
 	assert.Contains(t, p7001.Tags, "phase-7")
 	assert.NotEmpty(t, p7001.Description)
+	assert.Equal(t, "https://github.com/goharbor/harbor", p7001.RepoName, "repo name should be extracted from commit-recon-report")
 
 	// Check severity distribution
 	highCount := 0
@@ -254,6 +255,69 @@ func TestMapConfidence(t *testing.T) {
 	assert.Equal(t, "tentative", mapConfidence("MEDIUM"))
 	assert.Equal(t, "tentative", mapConfidence("LOW"))
 	assert.Equal(t, "tentative", mapConfidence(""))
+}
+
+func TestResolveRepoName_FromCommitRecon(t *testing.T) {
+	// Harbor has commit-recon-report.md with "**Repository**: goharbor/harbor (https://github.com/goharbor/harbor)"
+	result, err := ParseAuditFolder(harborDir())
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/goharbor/harbor", result.RepoName)
+}
+
+func TestResolveRepoName_SlugWithoutURL(t *testing.T) {
+	// Kong has commit-recon-report.md with "**Repository**: Kong/kong" (no URL in parens)
+	kongDir := filepath.Join(testdataDir(), "archon-output-kong")
+	result, err := ParseAuditFolder(kongDir)
+	require.NoError(t, err)
+	assert.Equal(t, "Kong/kong", result.RepoName)
+}
+
+func TestResolveRepoName_FallbackToFolderBasename(t *testing.T) {
+	// String-summary fixture has no commit-recon-report.md and no repo in audit-state.json
+	result, err := ParseAuditFolder(stringSummaryDir())
+	require.NoError(t, err)
+	assert.Equal(t, "archon-output-string-summary", result.RepoName)
+}
+
+func TestResolveRepoName_AuditStateRepoURL(t *testing.T) {
+	// If audit-state.json has repo_url, it takes priority
+	state := &AuditState{
+		Audits: []AuditEntry{{
+			RepoURL: "https://github.com/example/repo",
+			Repo:    "example/repo",
+		}},
+	}
+	name := resolveRepoName(state, "/some/path/my-folder")
+	assert.Equal(t, "https://github.com/example/repo", name)
+}
+
+func TestResolveRepoName_AuditStateRepoSlug(t *testing.T) {
+	// If audit-state.json has repo but no repo_url, use repo
+	state := &AuditState{
+		Audits: []AuditEntry{{
+			Repo: "example/repo",
+		}},
+	}
+	name := resolveRepoName(state, "/some/path/my-folder")
+	assert.Equal(t, "example/repo", name)
+}
+
+func TestExtractRepoFromCommitRecon(t *testing.T) {
+	tests := []struct {
+		name     string
+		dir      string
+		expected string
+	}{
+		{"harbor with URL", harborDir(), "https://github.com/goharbor/harbor"},
+		{"kong slug only", filepath.Join(testdataDir(), "archon-output-kong"), "Kong/kong"},
+		{"redash slug only", filepath.Join(testdataDir(), "archon-output-redash"), "getredash/redash"},
+		{"nonexistent dir", "/nonexistent/path", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, extractRepoFromCommitRecon(tc.dir))
+		})
+	}
 }
 
 func TestExtractCWE(t *testing.T) {

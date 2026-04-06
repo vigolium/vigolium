@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useMemo } from 'react';
-import { Copy, Check, Upload, Loader2, Zap, Shield, Radar } from 'lucide-react';
+import { Copy, Check, Upload, Loader2, Zap, Scale, Layers } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useScanURL, useScanRequest, useRunScan, useUploadRepo, useScans, useDeleteScan, useStopScan, usePauseScan, useResumeScan, useScanLogs } from '@/api/hooks';
 import type { ScanURLRequest, ScanRequestRequest, RunScanRequest, ScansQueryParams, Scan, ScanLog } from '@/api/types';
@@ -424,6 +424,8 @@ export default function ScanPage() {
         const req: RunScanRequest = {};
         if (targets.length > 0) req.targets = targets;
         req.strategy = strategy;
+        const intensityMap: Record<string, string> = { lite: 'quick', balanced: 'balanced', deep: 'deep' };
+        req.intensity = intensityMap[strategy] || 'balanced';
         if (modules) req.modules = modules.split(',').map(s => s.trim()).filter(Boolean);
         if (moduleTags) req.module_tags = moduleTags.split(',').map(s => s.trim()).filter(Boolean);
         if (dryRun) req.dry_run = true;
@@ -501,42 +503,48 @@ export default function ScanPage() {
 
           {/* 3. Strategy presets (only for full_scan) */}
           {activeMode === 'full_scan' && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-0">
               <button
                 onClick={() => setStrategy('lite')}
-                className={`border p-3 text-center transition-colors ${
+                className={`border px-3 py-2 text-center transition-colors ${
                   strategy === 'lite'
-                    ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10'
-                    : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3] hover:border-[#918175]/50'
+                    ? 'border-[#68a8e4] bg-[#68a8e4]/10'
+                    : 'border-[#2e2b26] hover:border-[#918175] hover:bg-[#2e2b26]/30'
                 }`}
               >
-                <Zap className="w-4 h-4 mx-auto mb-1" />
-                <div className="text-xs font-bold">QUICK</div>
-                <div className="text-[10px] mt-1 opacity-70">Fast &amp; light</div>
+                <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                  <Zap className={`w-3 h-3 ${strategy === 'lite' ? 'text-[#68a8e4]' : 'text-[#918175]'}`} />
+                  <span className={`text-xs font-bold ${strategy === 'lite' ? 'text-[#68a8e4]' : 'text-[#fce8c3]'}`}>Quick</span>
+                </div>
+                <p className="text-[10px] text-[#706560] leading-tight">Fast surface-level scan for common issues</p>
               </button>
               <button
                 onClick={() => setStrategy('balanced')}
-                className={`border p-3 text-center transition-colors ${
+                className={`border px-3 py-2 text-center transition-colors ${
                   strategy === 'balanced'
-                    ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10'
-                    : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3] hover:border-[#918175]/50'
+                    ? 'border-[#68a8e4] bg-[#68a8e4]/10'
+                    : 'border-[#2e2b26] hover:border-[#918175] hover:bg-[#2e2b26]/30'
                 }`}
               >
-                <Shield className="w-4 h-4 mx-auto mb-1" />
-                <div className="text-xs font-bold">BALANCED</div>
-                <div className="text-[10px] mt-1 opacity-70">Good coverage</div>
+                <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                  <Scale className={`w-3 h-3 ${strategy === 'balanced' ? 'text-[#68a8e4]' : 'text-[#918175]'}`} />
+                  <span className={`text-xs font-bold ${strategy === 'balanced' ? 'text-[#68a8e4]' : 'text-[#fce8c3]'}`}>Balanced</span>
+                </div>
+                <p className="text-[10px] text-[#706560] leading-tight">Thorough scan with smart defaults</p>
               </button>
               <button
                 onClick={() => setStrategy('deep')}
-                className={`border p-3 text-center transition-colors ${
+                className={`border px-3 py-2 text-center transition-colors ${
                   strategy === 'deep'
-                    ? 'border-[#7fd962]/50 text-[#7fd962] bg-[#7fd962]/10'
-                    : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3] hover:border-[#918175]/50'
+                    ? 'border-[#68a8e4] bg-[#68a8e4]/10'
+                    : 'border-[#2e2b26] hover:border-[#918175] hover:bg-[#2e2b26]/30'
                 }`}
               >
-                <Radar className="w-4 h-4 mx-auto mb-1" />
-                <div className="text-xs font-bold">DEEP</div>
-                <div className="text-[10px] mt-1 opacity-70">Maximum coverage</div>
+                <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                  <Layers className={`w-3 h-3 ${strategy === 'deep' ? 'text-[#68a8e4]' : 'text-[#918175]'}`} />
+                  <span className={`text-xs font-bold ${strategy === 'deep' ? 'text-[#68a8e4]' : 'text-[#fce8c3]'}`}>Deep</span>
+                </div>
+                <p className="text-[10px] text-[#706560] leading-tight">Exhaustive scan with full discovery and verification</p>
               </button>
             </div>
           )}

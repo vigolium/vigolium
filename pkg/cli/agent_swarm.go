@@ -63,6 +63,7 @@ var (
 	swarmArchon          string
 	swarmDiff            string
 	swarmLastCommits     int
+	swarmIntensity       string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -89,7 +90,14 @@ Supported input types for --input (auto-detected):
   - Base64:      Base64-encoded raw HTTP request (Burp base64 export)
   - Record UUID: abc123-... (from http_records table)
 
-When input is piped via stdin, it is automatically read (no --input needed).`,
+When input is piped via stdin, it is automatically read (no --input needed).
+
+Intensity presets (--intensity) bundle multiple settings into a single flag:
+  quick     — Fast scan: no discovery/triage, 2h limit, low iterations
+  balanced  — Standard scan (default): code audit if source, 12h limit
+  deep      — Thorough scan: discovery, triage, browser, 24h limit, 5 iterations
+
+Explicit flags always override intensity presets.`,
 	Args: cobra.MaximumNArgs(1),
 	Example: `  # Swarm a single URL
   vigolium agent swarm --input "https://example.com/api/users?id=1"
@@ -140,7 +148,16 @@ When input is piped via stdin, it is automatically read (no --input needed).`,
   vigolium agent swarm -t https://example.com --source ./src --dry-run
 
   # Show rendered prompts on stderr while executing
-  vigolium agent swarm --input "https://example.com" --show-prompt`,
+  vigolium agent swarm --input "https://example.com" --show-prompt
+
+  # Quick intensity — fast scan for CI/CD pipelines
+  vigolium agent swarm --input "https://example.com/api/users?id=1" --intensity quick
+
+  # Deep intensity — full discovery, triage, browser, extended duration
+  vigolium agent swarm -t https://example.com --source ./src --intensity deep
+
+  # Override a specific setting within an intensity preset
+  vigolium agent swarm -t https://example.com --intensity deep --triage=false`,
 	RunE: runAgentSwarm,
 }
 
@@ -197,6 +214,9 @@ func init() {
 	// Diff context
 	f.StringVar(&swarmDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&swarmLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
+
+	// Intensity
+	f.StringVar(&swarmIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
 }
 
 func runAgentSwarm(cmd *cobra.Command, args []string) error {
@@ -232,13 +252,66 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--source-analysis-only requires --source")
 	}
 
+	// --auth requires --browser (checked after intensity resolution below)
+
+	// Resolve intensity preset — apply before other flag processing
+	intensity, intensityErr := agent.ValidateIntensity(swarmIntensity)
+	if intensityErr != nil {
+		return intensityErr
+	}
+	{
+		changed := map[string]bool{
+			"discover":          cmd.Flags().Changed("discover"),
+			"code-audit":       cmd.Flags().Changed("code-audit"),
+			"triage":           cmd.Flags().Changed("triage"),
+			"max-iterations":   cmd.Flags().Changed("max-iterations"),
+			"archon":           cmd.Flags().Changed("archon"),
+			"max-plan-records": cmd.Flags().Changed("max-plan-records"),
+			"master-batch-size":  cmd.Flags().Changed("master-batch-size"),
+			"batch-concurrency":  cmd.Flags().Changed("batch-concurrency"),
+			"probe-concurrency":  cmd.Flags().Changed("probe-concurrency"),
+			"browser":           cmd.Flags().Changed("browser"),
+			"auth":              cmd.Flags().Changed("auth"),
+			"swarm-duration":    cmd.Flags().Changed("swarm-duration"),
+			"skip-sast":         cmd.Flags().Changed("skip-sast"),
+		}
+		intensityResult := agent.ResolveSwarmIntensity(intensity, agent.SwarmIntensityPreset{
+			Discover:         swarmDiscover,
+			CodeAudit:        swarmCodeAudit,
+			Triage:           swarmTriage,
+			MaxIterations:    swarmMaxIterations,
+			Archon:           swarmArchon,
+			MaxPlanRecords:   swarmMaxPlanRecords,
+			MasterBatchSize:  swarmMasterBatchSize,
+			BatchConcurrency: swarmBatchConcurrency,
+			ProbeConcurrency: swarmProbeConcurrency,
+			Browser:          swarmBrowser,
+			Auth:             swarmAuth,
+			SwarmDuration:    swarmTimeout,
+			SkipSAST:         swarmSkipSAST,
+		}, changed)
+		swarmDiscover = intensityResult.Discover
+		swarmCodeAudit = intensityResult.CodeAudit
+		swarmTriage = intensityResult.Triage
+		swarmMaxIterations = intensityResult.MaxIterations
+		swarmArchon = intensityResult.Archon
+		swarmMaxPlanRecords = intensityResult.MaxPlanRecords
+		swarmMasterBatchSize = intensityResult.MasterBatchSize
+		swarmBatchConcurrency = intensityResult.BatchConcurrency
+		swarmProbeConcurrency = intensityResult.ProbeConcurrency
+		swarmBrowser = intensityResult.Browser
+		swarmAuth = intensityResult.Auth
+		swarmTimeout = intensityResult.SwarmDuration
+		swarmSkipSAST = intensityResult.SkipSAST
+	}
+
 	// --auth requires --browser
 	if swarmAuth && !swarmBrowser {
 		return fmt.Errorf("--auth requires --browser (browser automation must be enabled for auth capture)")
 	}
 
-	// Enable code-audit by default when --source is provided
-	if swarmSource != "" && !cmd.Flags().Changed("code-audit") {
+	// Enable code-audit by default when --source is provided (unless intensity already set it)
+	if swarmSource != "" && !cmd.Flags().Changed("code-audit") && !cmd.Flags().Changed("intensity") {
 		swarmCodeAudit = true
 	}
 
@@ -486,6 +559,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		modeLine += fmt.Sprintf(" | Model: %s", terminal.HiTeal(effectiveModel))
 	}
 	fmt.Fprintln(os.Stderr, modeLine)
+
+	// Intensity
+	fmt.Fprintf(os.Stderr, "  %s Intensity: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(swarmIntensity))
 
 	// Prompt
 	promptPath := agent.ResolveTemplatePath(agent.SwarmPromptPlan, settings.Agent.TemplatesDir)
@@ -994,6 +1070,15 @@ func applyIntentToSwarmFlags(app agent.AppIntent) {
 	}
 	if app.Archon != "" && swarmArchon == "" {
 		swarmArchon = app.Archon
+	}
+	if app.Diff != "" && swarmDiff == "" {
+		swarmDiff = app.Diff
+	}
+	if len(app.Files) > 0 && len(swarmFiles) == 0 {
+		swarmFiles = app.Files
+	}
+	if app.Browser {
+		swarmBrowser = true
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s discover=%v\n",
 		terminal.SuccessSymbol(),

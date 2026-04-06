@@ -2,20 +2,13 @@
 
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Square, Send, Bot, Terminal, MessageSquare, Clock, CheckCircle, XCircle, Loader2, Zap, Layers, Bug, ScrollText, Copy, Check, Upload, ChevronDown, Play, X, Settings2 } from 'lucide-react';
+import { Square, Send, Bot, Terminal, MessageSquare, Clock, CheckCircle, XCircle, Loader2, Zap, Layers, Bug, ScrollText, Copy, Check, Upload, ChevronDown, Play, X, Settings2, Crosshair, Scale } from 'lucide-react';
 import type { AgentSession, AgentSessionDetail } from '@/api/types';
 import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
 import GitHubRepoPicker from './GitHubRepoPicker';
-import { useAgentsLogic, AGENT_OPTIONS, PROFILE_OPTIONS, ARCHON_MODE_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
-
-const PROFILE_ICONS: Record<string, typeof Zap> = {
-  zap: Zap,
-  layers: Layers,
-  'scroll-text': ScrollText,
-  bot: Bot,
-};
+import { useAgentsLogic, AGENT_OPTIONS, ARCHON_MODE_OPTIONS, INTENSITY_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
 
 const INPUT_TYPE_LABELS: Record<DetectedInputType, { label: string; color: string }> = {
   url: { label: 'URL', color: '#00b368' },
@@ -178,25 +171,59 @@ export default function AgentsPage() {
               {/* Target input — 2/3 */}
               <div className="col-span-2 flex flex-col">
                 <div className="flex items-center gap-1.5 mb-0.5" style={{ minHeight: '1.25rem' }}>
-                  <label className="text-[#708e8e] text-xs">Target</label>
-                  <span className="text-[10px]" style={{ color: INPUT_TYPE_LABELS[h.detectedInputType].color }}>
-                    (type: {h.detectedInputType === 'empty' ? 'url' : h.detectedInputType === 'raw' ? 'raw request' : h.detectedInputType})
-                  </span>
+                  <button
+                    onClick={() => h.setTargetInputTab('target')}
+                    className={`text-xs font-bold transition-colors ${h.targetInputTab === 'target' ? 'text-[#00b368]' : 'text-[#708e8e] hover:text-[#005661]'}`}
+                  >Target</button>
+                  <span className="text-[#bbc3c4]">|</span>
+                  <button
+                    onClick={() => h.setTargetInputTab('prompt')}
+                    className={`text-xs font-bold transition-colors flex items-center gap-1 ${h.targetInputTab === 'prompt' ? 'text-[#00b368]' : 'text-[#708e8e] hover:text-[#005661]'}`}
+                  ><Crosshair className="w-3 h-3" />Prompt</button>
+                  {h.targetInputTab === 'target' ? (
+                    <span className="text-[10px]" style={{ color: INPUT_TYPE_LABELS[h.detectedInputType].color }}>
+                      (type: {h.detectedInputType === 'empty' ? 'url' : h.detectedInputType === 'raw' ? 'raw request' : h.detectedInputType})
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#c49000]">(type: natural language)</span>
+                  )}
                 </div>
-                <textarea
-                  value={h.targetUrl}
-                  onChange={(e) => h.setTargetUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && h.detectedInputType === 'url') {
-                      e.preventDefault();
-                      h.handleProfileSubmit();
-                    }
-                  }}
-                  placeholder={"https://example.com/api/endpoint\n\nor paste a raw HTTP request / curl command"}
-                  rows={Math.max(4, Math.min(20, h.targetUrl.split('\n').length + 1))}
-                  className={`${inputClass} !text-xs !py-1.5 font-mono resize-y whitespace-pre-wrap break-all flex-1`}
-                />
-                {h.scanError && <p className="text-xs text-[#e34e1c] mt-1">{h.scanError}</p>}
+                {h.targetInputTab === 'target' ? (
+                  <>
+                    <textarea
+                      value={h.targetUrl}
+                      onChange={(e) => h.setTargetUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && h.detectedInputType === 'url') {
+                          e.preventDefault();
+                          h.handleProfileSubmit();
+                        }
+                      }}
+                      placeholder={"https://example.com/api/endpoint\n\nor paste a raw HTTP request / curl command"}
+                      rows={Math.max(4, Math.min(20, h.targetUrl.split('\n').length + 1))}
+                      className={`${inputClass} !text-xs !py-1.5 font-mono resize-y whitespace-pre-wrap break-all flex-1`}
+                    />
+                    {h.scanError && <p className="text-xs text-[#e34e1c] mt-1">{h.scanError}</p>}
+                  </>
+                ) : (
+                  <>
+                    <textarea
+                      value={h.targetPrompt}
+                      onChange={(e) => h.setTargetPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          h.handleTargetSubmit();
+                        }
+                      }}
+                      placeholder="scan localhost:3000 for auth bypass"
+                      rows={Math.max(4, Math.min(20, h.targetPrompt.split('\n').length + 1))}
+                      className={`${inputClass} !text-xs !py-1.5 font-mono resize-y whitespace-pre-wrap break-all flex-1`}
+                    />
+                    {h.targetError && <p className="text-xs text-[#e34e1c] mt-1">{h.targetError}</p>}
+                    {h.targetRunStatus?.error && <p className="text-xs text-[#e34e1c] mt-1">{h.targetRunStatus.error}</p>}
+                  </>
+                )}
               </div>
               {/* GitHub Repo + Upload — 1/3 */}
               <div className="flex flex-col gap-1.5">
@@ -261,9 +288,47 @@ export default function AgentsPage() {
               </div>
             </div>
 
+            {/* Intensity */}
+            <div>
+              <label className="text-[#708e8e] text-xs block mb-1">Scan Intensity Level</label>
+              <div className="grid grid-cols-3 gap-0">
+                {INTENSITY_OPTIONS.filter((o) => o.value !== '').map((o) => {
+                  const currentIntensity = h.scanProfile === 'autopilot' ? h.autopilotIntensity : h.swarmIntensity;
+                  const active = currentIntensity === o.value || (!currentIntensity && o.value === 'balanced');
+                  const Icon = o.icon === 'zap' ? Zap : o.icon === 'scale' ? Scale : Layers;
+                  return (
+                    <button
+                      key={o.value}
+                      onClick={() => { h.setSwarmIntensity(o.value); h.setAutopilotIntensity(o.value); }}
+                      className={`px-3 py-2 text-center border transition-colors ${
+                        active
+                          ? 'border-[#4a9aba] bg-[#4a9aba]/10'
+                          : 'border-[#bbc3c4] hover:border-[#708e8e] hover:bg-[#ede4d1]/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                        <Icon className={`w-3 h-3 ${active ? 'text-[#4a9aba]' : 'text-[#708e8e]'}`} />
+                        <span className={`text-xs font-bold ${active ? 'text-[#3d7a8f]' : 'text-[#005661]'}`}>{o.label}</span>
+                      </div>
+                      {o.description && <p className="text-[10px] text-[#708e8e] leading-tight">{o.description}</p>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Start Scan / Stop + Advanced toggle */}
             <div className="flex items-center gap-2">
-              {!h.isScanStreaming ? (
+              {h.targetInputTab === 'prompt' ? (
+                <button
+                  onClick={h.handleTargetSubmit}
+                  disabled={!h.targetPrompt.trim() || h.startAutopilotRun.isPending}
+                  className="px-4 py-1 text-xs font-bold border border-[#FF8C00] text-[#FF8C00] bg-[#FF8C00]/10 hover:bg-[#FF8C00]/20 shadow-[inset_0_0_18px_rgba(255,140,0,0.3)] hover:shadow-[inset_0_0_28px_rgba(255,140,0,0.5)] transition-colors disabled:opacity-30 flex items-center gap-1.5"
+                >
+                  {h.startAutopilotRun.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  {h.startAutopilotRun.isPending ? 'SUBMITTING...' : 'START SCAN'}
+                </button>
+              ) : !h.isScanStreaming ? (
                 <button
                   onClick={h.handleProfileSubmit}
                   disabled={!h.targetUrl.trim()}
@@ -289,40 +354,20 @@ export default function AgentsPage() {
               >
                 <Settings2 className="w-3 h-3" /> ADVANCED
               </button>
+              {h.targetInputTab === 'prompt' && h.targetRunId && h.targetRunStatus && (
+                <span className="flex items-center gap-1.5 text-xs">
+                  <span className="text-[#708e8e]">run</span>
+                  <span className="text-[#0078c8] font-mono">{h.targetRunId.slice(0, 12)}</span>
+                  <StatusBadge status={h.targetRunStatus.status} />
+                  {h.targetRunStatus.current_phase && <span className="text-[#005661]">{h.targetRunStatus.current_phase}</span>}
+                  {h.targetRunStatus.finding_count > 0 && <span className="text-[#00b368] font-bold">{h.targetRunStatus.finding_count} findings</span>}
+                </span>
+              )}
             </div>
 
             {/* Advanced Options */}
             {h.showAdvanced && (
               <div className="mt-2 space-y-2">
-                {/* Swarm sub-profiles */}
-                {h.scanProfile !== 'autopilot' && (
-                  <div>
-                    <label className="text-[#708e8e] text-[10px] block mb-0.5">Swarm Profile</label>
-                    <div className="flex gap-0">
-                      {PROFILE_OPTIONS.filter((p) => p.value !== 'autopilot').map((p) => {
-                        const Icon = PROFILE_ICONS[p.icon] || Zap;
-                        const active = h.scanProfile === p.value;
-                        return (
-                          <button
-                            key={p.value}
-                            onClick={() => h.setScanProfile(p.value)}
-                            className={`flex-1 px-2 py-1 text-center border transition-colors ${
-                              active
-                                ? 'border-[#d75f00] bg-[#d75f00]/10'
-                                : 'border-[#bbc3c4] hover:border-[#708e8e] hover:bg-[#ede4d1]/50'
-                            }`}
-                          >
-                            <div className="flex items-center justify-center gap-1 mb-0.5">
-                              <Icon className={`w-3 h-3 ${active ? 'text-[#d75f00]' : 'text-[#708e8e]'}`} />
-                              <span className={`text-[10px] font-bold ${active ? 'text-[#d75f00]' : 'text-[#005661]'}`}>{p.label}</span>
-                            </div>
-                            <p className="text-[9px] text-[#708e8e] leading-tight">{p.description}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
                 {/* Swarm options (default mode) */}
                 {h.advancedMode === 'swarm' && (
                   <div className="space-y-1.5">
@@ -360,6 +405,10 @@ export default function AgentsPage() {
                       <div>
                         <label className="text-[#708e8e] text-[10px] block mb-0.5">Diff</label>
                         <input value={h.swarmDiff} onChange={(e) => h.setSwarmDiff(e.target.value)} placeholder="PR URL or main...branch" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Intensity</label>
+                        <Dropdown value={h.swarmIntensity} onChange={h.setSwarmIntensity} options={INTENSITY_OPTIONS} />
                       </div>
                       <div>
                         <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon</label>
@@ -431,6 +480,10 @@ export default function AgentsPage() {
                       <div>
                         <label className="text-[#708e8e] text-[10px] block mb-0.5">Diff</label>
                         <input value={h.autopilotDiff} onChange={(e) => h.setAutopilotDiff(e.target.value)} placeholder="PR URL or main...branch" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Intensity</label>
+                        <Dropdown value={h.autopilotIntensity} onChange={h.setAutopilotIntensity} options={INTENSITY_OPTIONS} />
                       </div>
                       <div>
                         <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon Mode</label>

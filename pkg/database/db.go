@@ -328,6 +328,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			cwe_id TEXT,
 			cvss_score REAL DEFAULT 0,
 			source_file TEXT,
+			repo_name TEXT,
 			matched_at TEXT,
 			extracted_results TEXT,
 			additional_evidence TEXT,
@@ -637,6 +638,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "findings", "cwe_id", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "cvss_score", "REAL DEFAULT 0")
 	db.addColumnIfNotExists(ctx, "findings", "source_file", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "repo_name", "TEXT")
 
 	// Source Repos
 	db.addColumnIfNotExists(ctx, "source_repos", "branch", "TEXT")

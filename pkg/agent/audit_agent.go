@@ -326,7 +326,7 @@ func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
 		auditID = result.State.Audits[0].AuditID
 	}
 
-	findings := archon.BuildFindings(result.RawFindings, auditID, r.agentRunUUID, r.cfg.ProjectUUID)
+	findings := archon.BuildFindings(result.RawFindings, auditID, r.agentRunUUID, r.cfg.ProjectUUID, result.RepoName)
 
 	var saved int
 	for _, f := range findings {

@@ -14,6 +14,9 @@ type ServerConfig struct {
 	CORSAllowedOrigins string `yaml:"cors_allowed_origins"`
 	EnableMetrics      bool   `yaml:"enable_metrics"`
 	DisableSwagger     bool   `yaml:"disable_swagger"`
+	AgentHeavyMax      int    `yaml:"agent_heavy_max"`      // max concurrent heavy agent runs (autopilot/swarm); 0 = default 5
+	AgentLightMax      int    `yaml:"agent_light_max"`      // max concurrent light agent runs (query/chat); 0 = default 10
+	AgentQueueTimeout  string `yaml:"agent_queue_timeout"`  // max wait when all agent slots busy; 0/empty = default 30s
 }
 
 // DefaultServerConfig returns default server configuration

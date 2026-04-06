@@ -108,6 +108,7 @@ type Options struct {
 	// Content discovery options
 	DiscoverEnabled     bool
 	DiscoverMaxDuration time.Duration
+	FuzzWordlistPath    string // CLI override for discovery fuzz wordlist (also enables fuzzing)
 
 	// Browser-based spidering options
 	SpideringEnabled       bool
@@ -135,6 +136,8 @@ type Options struct {
 	ScanningStrategy string
 	// ScanningProfile selects a scanning profile (from --scanning-profile or config)
 	ScanningProfile string
+	// Intensity is the resolved scan intensity preset (quick, balanced, deep) for display/logging.
+	Intensity string
 	// HeuristicsCheck controls the pre-scan heuristics check level: "none", "basic", "advanced".
 	HeuristicsCheck string
 	// SkipAudit disables the audit phase when set by a strategy

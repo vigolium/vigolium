@@ -25,6 +25,40 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Agent concurrency helpers
+// ---------------------------------------------------------------------------
+
+// acquireAgentSlot tries to acquire a slot from the given semaphore channel.
+// Returns true if a slot was acquired, false if all slots are busy (429 response already sent).
+// Callers must return nil immediately when false is returned.
+func (h *Handlers) acquireAgentSlot(c fiber.Ctx, sem chan struct{}) bool {
+	timeout := h.config.AgentQueueTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	select {
+	case sem <- struct{}{}:
+		return true // slot acquired immediately
+	default:
+		// All slots busy — wait with timeout
+		select {
+		case sem <- struct{}{}:
+			return true
+		case <-time.After(timeout):
+			_ = c.Status(fiber.StatusTooManyRequests).JSON(ErrorResponse{
+				Error: fmt.Sprintf("all %d agent slots busy, try again later", cap(sem)),
+			})
+			return false
+		}
+	}
+}
+
+// releaseAgentSlot releases a slot back to the semaphore.
+func (h *Handlers) releaseAgentSlot(sem chan struct{}) {
+	<-sem
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/agent/run/query — single-shot prompt execution
 // ---------------------------------------------------------------------------
 
@@ -113,6 +147,18 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 					req.ArchonMode = app.Archon
 				}
 			}
+			if app.Diff != "" && req.Diff == "" {
+				req.Diff = app.Diff
+			}
+			if len(app.Files) > 0 && len(req.Files) == 0 {
+				req.Files = app.Files
+			}
+			if app.MaxCommands > 0 && req.MaxCommands == 0 {
+				req.MaxCommands = app.MaxCommands
+			}
+			if app.Timeout != "" && req.Timeout == "" {
+				req.Timeout = app.Timeout
+			}
 		}
 	}
 
@@ -140,22 +186,47 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		})
 	}
 
+	// Resolve intensity preset
+	intensity, intensityErr := agent.ValidateIntensity(req.Intensity)
+	if intensityErr != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: intensityErr.Error()})
+	}
+	{
+		changed := map[string]bool{
+			"max-commands": req.MaxCommands != 0,
+			"timeout":      req.Timeout != "",
+			"archon-mode":  req.ArchonMode != "",
+			"no-archon":    req.NoArchon || req.Archon == "off",
+			"browser":      false,
+		}
+		result := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
+			MaxCommands: req.MaxCommands,
+			Timeout:     parseDurationOrDefault(req.Timeout, 6*time.Hour),
+			ArchonMode:  req.ResolvedArchonMode(),
+		}, changed)
+		if req.MaxCommands == 0 {
+			req.MaxCommands = result.MaxCommands
+		}
+		if req.Timeout == "" {
+			req.Timeout = result.Timeout.String()
+		}
+		if req.ArchonMode == "" && req.Archon == "" {
+			req.ArchonMode = result.ArchonMode
+		}
+	}
+
 	timeout := parseDurationOrDefault(req.Timeout, 6*time.Hour)
 
 	return h.startAutopilotRun(c, req, timeout)
 }
 
-// startAutopilotRun acquires concurrency lock, creates status tracking, and runs the autopilot pipeline.
+// startAutopilotRun acquires a heavy agent slot, creates status tracking, and runs the autopilot pipeline.
 func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, timeout time.Duration) error {
-	h.agentMu.Lock()
-	if h.agentHeavyRunning {
-		h.agentMu.Unlock()
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentHeavyAlreadyRunning.Error(),
-		})
+	if !h.acquireAgentSlot(c, h.agentHeavySem) {
+		return nil // 429 already sent
 	}
-	h.agentHeavyRunning = true
 
+	h.agentMu.Lock()
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
@@ -241,6 +312,15 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 
 	cfg.BrowserEnabled = h.settings.Agent.Browser.IsEnabled()
 
+	// Intensity-derived browser: deep intensity enables browser without mutating shared settings
+	if req.Intensity != "" {
+		if intensity, err := agent.ValidateIntensity(req.Intensity); err == nil {
+			if preset, ok := agenttypes.AutopilotPresets[intensity]; ok && preset.Browser {
+				cfg.BrowserEnabled = true
+			}
+		}
+	}
+
 	return cfg
 }
 
@@ -251,11 +331,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 	c.Set("Connection", "keep-alive")
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
-		defer func() {
-			h.agentMu.Lock()
-			h.agentHeavyRunning = false
-			h.agentMu.Unlock()
-		}()
+		defer h.releaseAgentSlot(h.agentHeavySem)
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -336,11 +412,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 
 // runBackgroundAutopilot executes the autopilot pipeline in a goroutine and updates status.
 func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotRequest, projectUUID string, timeout time.Duration) {
-	defer func() {
-		h.agentMu.Lock()
-		h.agentHeavyRunning = false
-		h.agentMu.Unlock()
-	}()
+	defer h.releaseAgentSlot(h.agentHeavySem)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -428,6 +500,12 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			if req.Archon == "" {
 				req.Archon = app.Archon
 			}
+			if app.Diff != "" && req.Diff == "" {
+				req.Diff = app.Diff
+			}
+			if len(app.Files) > 0 && len(req.Files) == 0 {
+				req.Files = app.Files
+			}
 		}
 	}
 
@@ -447,7 +525,70 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 		})
 	}
 
-	timeout := parseDurationOrDefault(req.Timeout, 15*time.Minute)
+	// Resolve intensity preset
+	swarmIntensity, intensityErr := agent.ValidateIntensity(req.Intensity)
+	if intensityErr != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: intensityErr.Error()})
+	}
+	{
+		changed := map[string]bool{
+			"discover":          req.Discover,
+			"code-audit":       req.CodeAudit,
+			"triage":           req.Triage,
+			"max-iterations":   req.MaxIterations != 0,
+			"archon":           req.Archon != "",
+			"max-plan-records": req.MaxPlanRecords != 0,
+			"master-batch-size":  req.MasterBatchSize != 0,
+			"batch-concurrency":  req.BatchConcurrency != 0,
+			"probe-concurrency":  req.ProbeConcurrency != 0,
+			"browser":           false,
+			"auth":              false,
+			"swarm-duration":    req.Timeout != "",
+			"skip-sast":         req.SkipSAST,
+		}
+		result := agent.ResolveSwarmIntensity(swarmIntensity, agent.SwarmIntensityPreset{
+			Discover:         req.Discover,
+			CodeAudit:        req.CodeAudit,
+			Triage:           req.Triage,
+			MaxIterations:    req.MaxIterations,
+			Archon:           req.Archon,
+			MaxPlanRecords:   req.MaxPlanRecords,
+			MasterBatchSize:  req.MasterBatchSize,
+			BatchConcurrency: req.BatchConcurrency,
+			ProbeConcurrency: req.ProbeConcurrency,
+			Browser:          false,
+			Auth:             false,
+			SwarmDuration:    parseDurationOrDefault(req.Timeout, 12*time.Hour),
+			SkipSAST:         req.SkipSAST,
+		}, changed)
+		req.Discover = result.Discover
+		req.CodeAudit = result.CodeAudit
+		req.Triage = result.Triage
+		if req.MaxIterations == 0 {
+			req.MaxIterations = result.MaxIterations
+		}
+		if req.Archon == "" {
+			req.Archon = result.Archon
+		}
+		if req.MaxPlanRecords == 0 {
+			req.MaxPlanRecords = result.MaxPlanRecords
+		}
+		if req.MasterBatchSize == 0 {
+			req.MasterBatchSize = result.MasterBatchSize
+		}
+		if req.BatchConcurrency == 0 {
+			req.BatchConcurrency = result.BatchConcurrency
+		}
+		if req.ProbeConcurrency == 0 {
+			req.ProbeConcurrency = result.ProbeConcurrency
+		}
+		req.SkipSAST = result.SkipSAST
+		if req.Timeout == "" {
+			req.Timeout = result.SwarmDuration.String()
+		}
+	}
+
+	timeout := parseDurationOrDefault(req.Timeout, 12*time.Hour)
 	return h.startSwarmRun(c, req, timeout)
 }
 
@@ -512,17 +653,13 @@ func (h *Handlers) ingestSwarmBase64(c fiber.Ctx, req *AgentSwarmRequest) (strin
 	return recordUUID, nil
 }
 
-// startSwarmRun acquires the concurrency lock, creates status tracking, and runs the agent swarm.
+// startSwarmRun acquires a heavy agent slot, creates status tracking, and runs the agent swarm.
 func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout time.Duration) error {
-	h.agentMu.Lock()
-	if h.agentHeavyRunning {
-		h.agentMu.Unlock()
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentHeavyAlreadyRunning.Error(),
-		})
+	if !h.acquireAgentSlot(c, h.agentHeavySem) {
+		return nil // 429 already sent
 	}
-	h.agentHeavyRunning = true
 
+	h.agentMu.Lock()
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
@@ -632,7 +769,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 		ShowPrompt:         req.ShowPrompt,
 		SourceAnalysisOnly: req.SourceAnalysisOnly,
 		CodeAudit:          req.CodeAudit,
-		Browser:            settings.Agent.Browser.IsEnabled(),
+		Browser:            settings.Agent.Browser.IsEnabled() || swarmIntensityEnablesBrowser(req.Intensity),
 		MasterBatchSize:    req.MasterBatchSize,
 		ProbeConcurrency:   req.ProbeConcurrency,
 		MaxProbeBodySize:   req.MaxProbeBodySize,
@@ -731,6 +868,21 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		scanRunner.SetRepository(h.repo)
 		return scanRunner.RunNativeScan()
 	}
+}
+
+// swarmIntensityEnablesBrowser checks whether the given intensity preset enables browser.
+func swarmIntensityEnablesBrowser(intensityStr string) bool {
+	if intensityStr == "" {
+		return false
+	}
+	intensity, err := agent.ValidateIntensity(intensityStr)
+	if err != nil {
+		return false
+	}
+	if preset, ok := agenttypes.SwarmPresets[intensity]; ok {
+		return preset.Browser
+	}
+	return false
 }
 
 // buildServerSwarmDiscoverFunc creates a callback that runs discovery+spidering.
@@ -862,11 +1014,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 	c.Set("Connection", "keep-alive")
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
-		defer func() {
-			h.agentMu.Lock()
-			h.agentHeavyRunning = false
-			h.agentMu.Unlock()
-		}()
+		defer h.releaseAgentSlot(h.agentHeavySem)
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -964,11 +1112,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 
 // runBackgroundAgentSwarm executes an agent swarm in a goroutine and updates status.
 func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, projectUUID string, timeout time.Duration) {
-	defer func() {
-		h.agentMu.Lock()
-		h.agentHeavyRunning = false
-		h.agentMu.Unlock()
-	}()
+	defer h.releaseAgentSlot(h.agentHeavySem)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -1023,17 +1167,13 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 // ---------------------------------------------------------------------------
 
 // startAgentRun is the entry point for query mode.
-// It acquires the concurrency lock, creates status tracking, and runs the agent.
+// It acquires a light agent slot, creates status tracking, and runs the agent.
 func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
-	h.agentMu.Lock()
-	if h.agentLightRunning {
-		h.agentMu.Unlock()
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentLightAlreadyRunning.Error(),
-		})
+	if !h.acquireAgentSlot(c, h.agentLightSem) {
+		return nil // 429 already sent
 	}
-	h.agentLightRunning = true
 
+	h.agentMu.Lock()
 	runID := "agt-" + uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
@@ -1065,11 +1205,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 	c.Set("Connection", "keep-alive")
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
-		defer func() {
-			h.agentMu.Lock()
-			h.agentLightRunning = false
-			h.agentMu.Unlock()
-		}()
+		defer h.releaseAgentSlot(h.agentLightSem)
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -1150,11 +1286,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 
 // runBackgroundAgentWithOpts executes an agent run in a goroutine and updates status.
 func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, timeout time.Duration) {
-	defer func() {
-		h.agentMu.Lock()
-		h.agentLightRunning = false
-		h.agentMu.Unlock()
-	}()
+	defer h.releaseAgentSlot(h.agentLightSem)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -1478,21 +1610,10 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 		agentName = req.Model
 	}
 
-	h.agentMu.Lock()
-	if h.agentLightRunning {
-		h.agentMu.Unlock()
-		return c.Status(fiber.StatusConflict).JSON(ErrorResponse{
-			Error: ErrAgentLightAlreadyRunning.Error(),
-		})
+	if !h.acquireAgentSlot(c, h.agentLightSem) {
+		return nil // 429 already sent
 	}
-	h.agentLightRunning = true
-	h.agentMu.Unlock()
-
-	defer func() {
-		h.agentMu.Lock()
-		h.agentLightRunning = false
-		h.agentMu.Unlock()
-	}()
+	defer h.releaseAgentSlot(h.agentLightSem)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

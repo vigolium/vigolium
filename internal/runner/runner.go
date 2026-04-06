@@ -652,6 +652,13 @@ func (r *Runner) printScanConfig() {
 	settings := r.settings
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Scan Configuration"))
+	if opts.Stateless {
+		statelessLine := "Stateless mode: using temporary database"
+		if opts.Verbose && settings.Database.SQLite.Path != "" {
+			statelessLine += " " + terminal.Gray("("+settings.Database.SQLite.Path+")")
+		}
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), statelessLine)
+	}
 
 	if opts.ProjectUUID != "" {
 		fmt.Fprintf(os.Stderr, "  %s Project: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ProjectUUID))
@@ -2725,6 +2732,11 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		cfg.EnableMalformedPathProbe = dc.EnableMalformedPathProbe
 
 		// MaxDuration is resolved via scanning_pace (applied to r.options by scan.go)
+	}
+
+	// CLI --fuzz-wordlist override (takes precedence over YAML config)
+	if r.options.FuzzWordlistPath != "" {
+		cfg.FuzzWordlistPath = config.ExpandPath(r.options.FuzzWordlistPath)
 	}
 
 	// Proxy support

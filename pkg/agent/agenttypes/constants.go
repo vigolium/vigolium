@@ -2,6 +2,7 @@ package agenttypes
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -127,13 +128,19 @@ func WithSessionsDir(dir string) IntentParseOption {
 
 // AppIntent holds parameters for a single application to scan.
 type AppIntent struct {
-	Target      string `json:"target,omitempty"`      // URL if mentioned
-	SourcePath  string `json:"source_path,omitempty"` // filesystem path if mentioned
-	Focus       string `json:"focus,omitempty"`       // vulnerability focus if mentioned
-	Instruction string `json:"instruction,omitempty"` // leftover context
-	Discover    bool   `json:"discover,omitempty"`    // implied by target + source combo
-	CodeAudit   bool   `json:"code_audit,omitempty"`  // implied by source-only
-	Archon      string `json:"archon,omitempty"`      // "lite", "scan", "deep", or "" (background archon-audit)
+	Target      string   `json:"target,omitempty"`       // URL if mentioned
+	SourcePath  string   `json:"source_path,omitempty"`  // filesystem path if mentioned
+	Focus       string   `json:"focus,omitempty"`        // vulnerability focus if mentioned
+	Instruction string   `json:"instruction,omitempty"`  // leftover context
+	Discover    bool     `json:"discover,omitempty"`     // implied by target + source combo
+	CodeAudit   bool     `json:"code_audit,omitempty"`   // implied by source-only
+	Archon      string   `json:"archon,omitempty"`       // "lite", "scan", "deep", or "" (background archon-audit)
+	Diff        string   `json:"diff,omitempty"`         // PR URL, git ref range (main...branch), or HEAD~N
+	Files       []string `json:"files,omitempty"`        // specific files to focus on (relative to source)
+	Browser     bool     `json:"browser,omitempty"`      // enable browser-based interaction
+	MaxCommands int      `json:"max_commands,omitempty"` // command limit override
+	Timeout     string   `json:"timeout,omitempty"`      // duration string (e.g. "2h", "30m")
+	Intensity   string   `json:"intensity,omitempty"`    // "quick", "balanced", "deep"
 }
 
 // AuditAgentConfig configures a background archon-audit run.
@@ -161,6 +168,142 @@ type AuditAgentStatus struct {
 	Phase           string `json:"current_phase"`
 	CompletedPhases int    `json:"completed_phases"`
 	TotalPhases     int    `json:"total_phases"`
+}
+
+// ---------------------------------------------------------------------------
+// Intensity presets
+// ---------------------------------------------------------------------------
+
+// Intensity represents the scan intensity level.
+type Intensity string
+
+const (
+	IntensityQuick    Intensity = "quick"
+	IntensityBalanced Intensity = "balanced"
+	IntensityDeep     Intensity = "deep"
+)
+
+// ValidateIntensity normalizes and validates an intensity string.
+// Returns IntensityBalanced for empty input.
+func ValidateIntensity(s string) (Intensity, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "balanced":
+		return IntensityBalanced, nil
+	case "quick":
+		return IntensityQuick, nil
+	case "deep":
+		return IntensityDeep, nil
+	default:
+		return "", fmt.Errorf("invalid intensity %q: must be quick, balanced, or deep", s)
+	}
+}
+
+// AutopilotIntensityPreset holds the preset values for autopilot at a given intensity.
+type AutopilotIntensityPreset struct {
+	MaxCommands int
+	Timeout     time.Duration
+	ArchonMode  string
+	Browser     bool
+	SkipSAST    bool
+}
+
+// SwarmIntensityPreset holds the preset values for swarm at a given intensity.
+type SwarmIntensityPreset struct {
+	Discover         bool
+	CodeAudit        bool // applied only when source is provided
+	Triage           bool
+	MaxIterations    int
+	Archon           string // archon mode when source is provided; empty = disabled
+	MaxPlanRecords   int
+	MasterBatchSize  int
+	BatchConcurrency int
+	ProbeConcurrency int
+	Browser          bool
+	Auth             bool // applied only when browser is enabled
+	SwarmDuration    time.Duration
+	SkipSAST         bool
+}
+
+// AutopilotPresets maps intensity levels to autopilot preset values.
+var AutopilotPresets = map[Intensity]AutopilotIntensityPreset{
+	IntensityQuick: {
+		MaxCommands: 30,
+		Timeout:     1 * time.Hour,
+		ArchonMode:  "lite",
+		Browser:     false,
+		SkipSAST:    true,
+	},
+	IntensityBalanced: {
+		MaxCommands: 100,
+		Timeout:     6 * time.Hour,
+		ArchonMode:  "scan",
+		Browser:     false,
+		SkipSAST:    false,
+	},
+	IntensityDeep: {
+		MaxCommands: 300,
+		Timeout:     12 * time.Hour,
+		ArchonMode:  "deep",
+		Browser:     true,
+		SkipSAST:    false,
+	},
+}
+
+// SwarmPresets maps intensity levels to swarm preset values.
+var SwarmPresets = map[Intensity]SwarmIntensityPreset{
+	IntensityQuick: {
+		Discover:         false,
+		CodeAudit:        false,
+		Triage:           false,
+		MaxIterations:    1,
+		Archon:           "lite",
+		MaxPlanRecords:   5,
+		MasterBatchSize:  5,
+		BatchConcurrency: 2,
+		ProbeConcurrency: 15,
+		Browser:          false,
+		Auth:             false,
+		SwarmDuration:    2 * time.Hour,
+		SkipSAST:         true,
+	},
+	IntensityBalanced: {
+		Discover:         false,
+		CodeAudit:        true,
+		Triage:           false,
+		MaxIterations:    3,
+		Archon:           "scan",
+		MaxPlanRecords:   10,
+		MasterBatchSize:  5,
+		BatchConcurrency: 3,
+		ProbeConcurrency: 10,
+		Browser:          false,
+		Auth:             false,
+		SwarmDuration:    12 * time.Hour,
+		SkipSAST:         false,
+	},
+	IntensityDeep: {
+		Discover:         true,
+		CodeAudit:        true,
+		Triage:           true,
+		MaxIterations:    5,
+		Archon:           "deep",
+		MaxPlanRecords:   20,
+		MasterBatchSize:  10,
+		BatchConcurrency: 5,
+		ProbeConcurrency: 5,
+		Browser:          true,
+		Auth:             true,
+		SwarmDuration:    24 * time.Hour,
+		SkipSAST:         false,
+	},
+}
+
+// NativeScanIntensityProfiles maps intensity levels to scanning profile names
+// for native (non-agent) scan mode.
+var NativeScanIntensityProfiles = map[Intensity]string{
+	IntensityQuick:    "quick",
+	IntensityBalanced: "standard",
+	IntensityDeep:     "full",
 }
 
 // ExpandHome expands ~ prefix to the user's home directory.

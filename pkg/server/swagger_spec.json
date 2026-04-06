@@ -932,6 +932,12 @@
             "schema": { "type": "string" }
           },
           {
+            "name": "repo_name",
+            "in": "query",
+            "description": "Filter by repository name or URL",
+            "schema": { "type": "string" }
+          },
+          {
             "name": "search",
             "in": "query",
             "description": "Full-text search across finding fields",

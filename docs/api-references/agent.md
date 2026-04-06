@@ -81,6 +81,7 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | Field              | Type     | Required | Description                                                    |
 |--------------------|----------|----------|----------------------------------------------------------------|
 | `prompt`           | string   | No       | Natural language scan prompt (parsed into target/source/focus when explicit fields are empty) |
+| `intensity`        | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `max_commands`, `timeout`, `archon_mode`, and `browser` settings |
 | `target`           | string   | No*      | Target URL to scan (derived from `input` if not set)           |
 | `input`            | string   | No       | Raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically |
 | `agent`            | string   | No       | Agent backend name (default from config)                       |
@@ -106,7 +107,7 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 
 **Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and the patch content is included in the agent prompt. For PR URLs without `source`, the repo is auto-cloned. GitHub PRs use the GitHub REST API directly (no `gh` CLI required). OAuth tokens embedded in the URL (`https://oauth2:TOKEN@github.com/...`) are extracted and passed as `Authorization: Bearer` header. The `GITHUB_TOKEN` env var is used as a fallback.
 
-**Fast scan (CI/PR review)** — lite archon, diff-focused, tight limits:
+**Quick scan (CI/PR review)** — lite archon, diff-focused, tight limits:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -114,14 +115,12 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "diff": "https://github.com/org/repo/pull/42",
-    "archon_mode": "lite",
-    "max_commands": 20,
-    "timeout": "10m"
+    "intensity": "quick",
+    "diff": "https://github.com/org/repo/pull/42"
   }' | jq .
 ```
 
-**Balanced scan (routine assessment)** — scan-mode archon, standard limits:
+**Balanced scan (routine assessment)** — scan-mode archon, standard limits (`"balanced"` is the default when `intensity` is omitted):
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -129,15 +128,12 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "archon_mode": "scan",
     "focus": "authentication bypass",
-    "max_commands": 50,
-    "timeout": "1h",
     "stream": true
   }'
 ```
 
-**Deep scan (thorough pentest)** — deep archon (11-phase), full autonomy:
+**Deep scan (thorough pentest)** — deep archon, browser, extended timeout:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -145,10 +141,8 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "/home/user/src/my-app",
-    "archon_mode": "deep",
+    "intensity": "deep",
     "instruction": "Test all API endpoints. Focus on IDOR, auth bypass, and injection.",
-    "max_commands": 100,
-    "timeout": "6h",
     "stream": true
   }'
 ```
@@ -227,6 +221,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `prompt`               | string   | No       | Natural language scan prompt (parsed into structured fields when explicit fields are empty) |
+| `intensity`            | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `discover`, `triage`, `code_audit`, `max_iterations`, `archon`, concurrency, and duration settings |
 
 *Inputs:*
 
@@ -307,6 +302,28 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 **Source resolution:** The `source` field accepts local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). The legacy `source_path` JSON key is still accepted for backward compatibility.
 
 **Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and focuses the source analysis phase on the changed code. GitHub PRs use the GitHub REST API directly. OAuth tokens embedded in the URL or the `GITHUB_TOKEN` env var are used for authentication.
+
+**Intensity presets:**
+
+```bash
+# Quick scan — fast CI/CD pipeline check
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com/api/users?id=1",
+    "intensity": "quick"
+  }' | jq .
+
+# Deep scan — full discovery, triage, browser, extended duration
+curl -s -X POST http://localhost:9002/api/agent/run/swarm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://example.com",
+    "source": "/home/user/src/my-app",
+    "intensity": "deep",
+    "stream": true
+  }'
+```
 
 **Basic examples:**
 

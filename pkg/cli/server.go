@@ -294,6 +294,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		NoSwagger:            serverOpts.NoSwagger || settings.Server.DisableSwagger,
 		NoAgent:              serverOpts.NoAgent,
 		ViewOnly:             serverOpts.ViewOnly,
+		AgentHeavyMax:        settings.Server.AgentHeavyMax,
+		AgentLightMax:        settings.Server.AgentLightMax,
+		AgentQueueTimeout:    parseAgentQueueTimeout(settings.Server.AgentQueueTimeout),
 		Debug:                globalDebug,
 		Version:              Version,
 		Author:               Author,
@@ -638,4 +641,17 @@ func startCatchupScan(
 	}()
 
 	return catchupRunner
+}
+
+// parseAgentQueueTimeout parses a Go duration string for the agent queue timeout.
+// Returns 0 (triggering the runtime default of 30s) on empty or invalid input.
+func parseAgentQueueTimeout(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }

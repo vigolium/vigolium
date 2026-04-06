@@ -79,6 +79,23 @@ vigolium agent swarm \
   -t https://example.com
 ```
 
+### Intensity Presets
+
+The `--intensity` flag bundles multiple settings into a single preset — works for both swarm and autopilot:
+
+```bash
+# Quick — fast CI/CD scan, minimal phases
+vigolium agent swarm --input "https://example.com/api/users?id=1" --intensity quick
+
+# Deep — full discovery, triage, browser, extended duration
+vigolium agent swarm -t https://example.com --source ./app --intensity deep
+
+# Deep autopilot — 300 commands, 12h timeout, deep archon, browser
+vigolium agent autopilot -t https://example.com --source ./app --intensity deep
+```
+
+Explicit flags always override intensity presets.
+
 ### Full-Scope Scanning with Discovery
 
 Add `--discover` to run content discovery and spidering before the AI planning phase:
@@ -272,3 +289,5 @@ vigolium agent swarm --show-prompt \
 | **Swarm** | 2-4+ | Targeted request scanning, focused testing |
 | **Pipeline** | 5-6+ | Full-scope structured scanning |
 | **Autopilot** | Many (parallel) | Deep autonomous assessment, multi-class testing |
+
+All agent modes support the `--intensity` flag (`quick`, `balanced`, `deep`) to control scan depth, duration, and resource usage with a single setting.

@@ -59,6 +59,11 @@ func (h *Handlers) HandleListFindings(c fiber.Ctx) error {
 		filters.FindingSource = fs
 	}
 
+	// Repo name
+	if rn := c.Query("repo_name"); rn != "" {
+		filters.RepoName = rn
+	}
+
 	// Search
 	if s := c.Query("search"); s != "" {
 		filters.SearchTerm = s

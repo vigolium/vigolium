@@ -329,3 +329,52 @@ func waitForScanIdle(t *testing.T, env *settingsTestEnv) {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+// ============================================================
+// Intensity preset tests
+// ============================================================
+
+func TestAPI_ScansRun_IntensityQuick(t *testing.T) {
+	env := newSettingsTestEnv(t, "")
+
+	resp := env.post(t, "/api/scans/run", `{"targets":["http://example.com"],"intensity":"quick","dry_run":true}`)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body server.ScanResponse
+	readJSON(t, resp, &body)
+	assert.Equal(t, "dry_run", body.Status)
+}
+
+func TestAPI_ScansRun_IntensityDeep(t *testing.T) {
+	env := newSettingsTestEnv(t, "")
+
+	resp := env.post(t, "/api/scans/run", `{"targets":["http://example.com"],"intensity":"deep","dry_run":true}`)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body server.ScanResponse
+	readJSON(t, resp, &body)
+	assert.Equal(t, "dry_run", body.Status)
+}
+
+func TestAPI_ScansRun_IntensityInvalid(t *testing.T) {
+	env := newSettingsTestEnv(t, "")
+
+	resp := env.post(t, "/api/scans/run", `{"targets":["http://example.com"],"intensity":"turbo"}`)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body server.ErrorResponse
+	readJSON(t, resp, &body)
+	assert.Contains(t, body.Error, "invalid intensity")
+}
+
+func TestAPI_ScansRun_IntensityWithExplicitProfileOverride(t *testing.T) {
+	env := newSettingsTestEnv(t, "")
+
+	// Explicit scanning_profile should take precedence over intensity
+	resp := env.post(t, "/api/scans/run", `{"targets":["http://example.com"],"intensity":"quick","scanning_profile":"full","dry_run":true}`)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body server.ScanResponse
+	readJSON(t, resp, &body)
+	assert.Equal(t, "dry_run", body.Status)
+}

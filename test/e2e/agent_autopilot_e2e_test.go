@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -149,4 +150,86 @@ func TestAutopilotRealAgent(t *testing.T) {
 
 	t.Logf("Pipeline completed in %s", result.Duration.Round(time.Second))
 	t.Logf("Session dir: %s", sessionDir)
+}
+
+// ─── Intensity preset tests ────────────────────────────────────────────────
+
+// TestAutopilotIntensityQuickPreset verifies that quick intensity resolves to
+// the expected preset values (30 commands, 1h timeout, lite archon).
+func TestAutopilotIntensityQuickPreset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	// No flags explicitly changed
+	changed := map[string]bool{}
+
+	result := agent.ResolveAutopilotIntensity(agenttypes.IntensityQuick, agent.AutopilotIntensityPreset{}, changed)
+
+	assert.Equal(t, 30, result.MaxCommands)
+	assert.Equal(t, 1*time.Hour, result.Timeout)
+	assert.Equal(t, "lite", result.ArchonMode)
+	assert.False(t, result.Browser)
+	assert.True(t, result.SkipSAST)
+}
+
+// TestAutopilotIntensityDeepPreset verifies that deep intensity resolves to
+// the expected preset values (300 commands, 12h timeout, deep archon, browser on).
+func TestAutopilotIntensityDeepPreset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{}
+
+	result := agent.ResolveAutopilotIntensity(agenttypes.IntensityDeep, agent.AutopilotIntensityPreset{}, changed)
+
+	assert.Equal(t, 300, result.MaxCommands)
+	assert.Equal(t, 12*time.Hour, result.Timeout)
+	assert.Equal(t, "deep", result.ArchonMode)
+	assert.True(t, result.Browser)
+	assert.False(t, result.SkipSAST)
+}
+
+// TestAutopilotIntensityExplicitOverride verifies that explicit flags override
+// intensity preset values.
+func TestAutopilotIntensityExplicitOverride(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{
+		"max-commands": true,
+		"timeout":      true,
+	}
+
+	current := agent.AutopilotIntensityPreset{
+		MaxCommands: 50,
+		Timeout:     2 * time.Hour,
+	}
+
+	result := agent.ResolveAutopilotIntensity(agenttypes.IntensityDeep, current, changed)
+
+	// Explicit overrides should win
+	assert.Equal(t, 50, result.MaxCommands)
+	assert.Equal(t, 2*time.Hour, result.Timeout)
+	// Non-overridden values come from deep preset
+	assert.Equal(t, "deep", result.ArchonMode)
+	assert.True(t, result.Browser)
+}
+
+// TestAutopilotIntensityBalancedIsDefault verifies that balanced intensity
+// matches the existing default behavior.
+func TestAutopilotIntensityBalancedIsDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	changed := map[string]bool{}
+	result := agent.ResolveAutopilotIntensity(agenttypes.IntensityBalanced, agent.AutopilotIntensityPreset{}, changed)
+
+	assert.Equal(t, 100, result.MaxCommands)
+	assert.Equal(t, 6*time.Hour, result.Timeout)
+	assert.Equal(t, "scan", result.ArchonMode)
+	assert.False(t, result.Browser)
 }

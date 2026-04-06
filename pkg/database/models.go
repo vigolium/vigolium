@@ -233,6 +233,7 @@ type Finding struct {
 
 	// Source info (for SAST findings)
 	SourceFile string `bun:"source_file,nullzero" json:"source_file,omitempty"`
+	RepoName   string `bun:"repo_name,nullzero" json:"repo_name,omitempty"` // repository name or URL for whitebox/archon findings
 
 	MatchedAt          []string `bun:"matched_at,type:jsonb,nullzero" json:"matched_at,omitempty"`
 	ExtractedResults   []string `bun:"extracted_results,type:jsonb,nullzero" json:"extracted_results,omitempty"`

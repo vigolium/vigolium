@@ -38,6 +38,7 @@ type QueryFilters struct {
 	ModuleName    string   // Filter findings by module name
 	ModuleType    string   // Filter findings by module type (active, passive, nuclei, etc.)
 	FindingSource string   // Filter findings by source (audit, spa, agent, etc.)
+	RepoName      string   // Filter findings by repo name
 
 	// Date range filtering
 	DateFrom *time.Time
@@ -487,6 +488,11 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	// Finding source filtering
 	if fqb.filters.FindingSource != "" {
 		query.Where("f.finding_source = ?", fqb.filters.FindingSource)
+	}
+
+	// Repo name filtering
+	if fqb.filters.RepoName != "" {
+		query.Where("f.repo_name = ?", fqb.filters.RepoName)
 	}
 
 	// Domain filtering (join http_records to filter by hostname via junction table)
