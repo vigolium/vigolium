@@ -417,25 +417,34 @@ func startDaemon(ctx context.Context, opts *Options) (*daemon, error) {
 	return d, nil
 }
 
-// close kills the daemon process group and cleans up.
+// close gracefully shuts down the daemon process group: SIGTERM first, then SIGKILL after timeout.
 func (d *daemon) close() {
 	d.closeOnce.Do(func() {
 		if d.cmd != nil && d.cmd.Process != nil {
-			err := syscall.Kill(-d.cmd.Process.Pid, syscall.SIGKILL)
-			if err != nil && !errors.Is(err, syscall.ESRCH) {
-				zap.L().Debug("failed to kill opencode process group",
-					zap.Int("pid", d.cmd.Process.Pid),
-					zap.Error(err))
+			pid := d.cmd.Process.Pid
+
+			// Graceful: send SIGTERM to entire process group first.
+			if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+				zap.L().Debug("failed to SIGTERM opencode process group",
+					zap.Int("pid", pid), zap.Error(err))
+			}
+
+			// Wait up to 5s for graceful exit, then escalate to SIGKILL.
+			select {
+			case <-d.done:
+				return
+			case <-time.After(5 * time.Second):
+				zap.L().Debug("SIGTERM timeout, sending SIGKILL to opencode process group",
+					zap.Int("pid", pid))
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			}
 		}
 
+		// Final wait with timeout to avoid hanging on stuck I/O.
 		if d.cmd != nil {
-			// Wait for process exit with a timeout to avoid blocking forever
 			select {
 			case <-d.done:
-			case <-time.After(5 * time.Second):
-				zap.L().Debug("timeout waiting for opencode daemon to exit, force killing",
-					zap.Int("pid", d.cmd.Process.Pid))
+			case <-time.After(3 * time.Second):
 				if d.cmd.Process != nil {
 					_ = d.cmd.Process.Kill()
 				}

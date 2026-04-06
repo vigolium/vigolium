@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -204,18 +206,44 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	engine := agent.NewEngine(settings, repo)
 	defer engine.Close()
 
-	ctx := context.Background()
+	// Auto-cleanup orphaned processes, stale temp dirs, and old sessions
+	sessionsDir := settings.Agent.EffectiveSessionsDir()
+	if n := agent.CleanupOrphanedProcesses(sessionsDir); n > 0 {
+		zap.L().Info("Cleaned up orphaned autopilot processes", zap.Int("count", n))
+	}
+	agent.CleanupStaleTempDirs()
+	if n, err := agent.CleanupSessionDirs(sessionsDir, 48*time.Hour); err == nil && n > 0 {
+		zap.L().Debug("Cleaned up stale session directories", zap.Int("count", n))
+	}
+
+	// Context with cancellation and signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if autopilotTimeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, autopilotTimeout)
 		defer cancel()
 	}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		zap.L().Info("Signal received, shutting down autopilot")
+		cancel()
+	}()
 
 	// Create session directory for agent artifacts
 	autopilotRunID := "agt-" + uuid.New().String()
-	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), autopilotRunID)
+	sessionDir, sdErr := agent.EnsureSessionDir(sessionsDir, autopilotRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+	}
+
+	// Write PID file for orphan detection on future startups
+	if sessionDir != "" {
+		if pidErr := agent.WriteRunPID(sessionDir); pidErr != nil {
+			zap.L().Warn("Failed to write PID file", zap.Error(pidErr))
+		}
+		defer agent.RemoveRunPID(sessionDir)
 	}
 
 	// Resolve source (git URL, archive, local path) and diff context
@@ -510,15 +538,31 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 
 // runMultiAppAutopilot fans out parallel autopilot runs for multiple apps.
 func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *config.Settings, repo *database.Repository, intent *agent.ScanIntent) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if autopilotTimeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, autopilotTimeout)
 		defer cancel()
 	}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		zap.L().Info("Signal received, shutting down multi-app autopilot")
+		cancel()
+	}()
 
 	return runMultiAppFanOut(ctx, intent, func(ctx context.Context, idx int, app agent.AppIntent) error {
 		runID := "agt-" + uuid.New().String()
 		sessionDir, _ := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), runID)
+
+		// Write PID file for orphan detection
+		if sessionDir != "" {
+			if pidErr := agent.WriteRunPID(sessionDir); pidErr != nil {
+				zap.L().Warn("Failed to write PID file", zap.Error(pidErr))
+			}
+			defer agent.RemoveRunPID(sessionDir)
+		}
 
 		instruction := mergeIntentInstruction(autopilotInstruction, autopilotInstructionFile, app)
 		focus := autopilotFocus

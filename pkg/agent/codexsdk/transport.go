@@ -168,30 +168,36 @@ func (p *process) writeLine(data []byte) error {
 	return err
 }
 
-// close kills the process group and cleans up.
+// close gracefully shuts down the process group: SIGTERM first, then SIGKILL after timeout.
 func (p *process) close() {
 	p.closeOnce.Do(func() {
 		_ = p.stdin.Close()
 
 		if p.cmd != nil && p.cmd.Process != nil {
-			err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-			if err != nil && !errors.Is(err, syscall.ESRCH) {
-				zap.L().Debug("failed to kill codex process group",
-					zap.Int("pid", p.cmd.Process.Pid),
-					zap.Error(err))
+			pid := p.cmd.Process.Pid
+
+			// Graceful: send SIGTERM to entire process group first.
+			if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+				zap.L().Debug("failed to SIGTERM codex process group",
+					zap.Int("pid", pid), zap.Error(err))
+			}
+
+			// Wait up to 5s for graceful exit, then escalate to SIGKILL.
+			select {
+			case <-p.done:
+				return
+			case <-time.After(5 * time.Second):
+				zap.L().Debug("SIGTERM timeout, sending SIGKILL to codex process group",
+					zap.Int("pid", pid))
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			}
 		}
 
-		// Wait for the process to exit with a timeout.
-		// cmd.Wait blocks until all I/O is drained, which can hang
-		// if reader goroutines are stuck. Use the done channel with a deadline.
+		// Final wait with timeout to avoid hanging on stuck I/O.
 		if p.cmd != nil {
-			timer := time.NewTimer(5 * time.Second)
-			defer timer.Stop()
 			select {
 			case <-p.done:
-			case <-timer.C:
-				// Force kill individual process as a last resort
+			case <-time.After(3 * time.Second):
 				if p.cmd.Process != nil {
 					_ = p.cmd.Process.Kill()
 				}

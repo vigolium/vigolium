@@ -168,30 +168,39 @@ func (p *process) writeLine(data []byte) error {
 	return err
 }
 
-// close kills the process group and cleans up resources.
+// close gracefully shuts down the process group: SIGTERM first, then SIGKILL after timeout.
 func (p *process) close() {
 	p.closeOnce.Do(func() {
 		_ = p.stdin.Close()
 
 		if p.cmd != nil && p.cmd.Process != nil {
-			// Kill the entire process group
-			err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-			if err != nil && !errors.Is(err, syscall.ESRCH) {
-				zap.L().Debug("failed to kill claude process group",
-					zap.Int("pid", p.cmd.Process.Pid),
-					zap.Error(err))
+			pid := p.cmd.Process.Pid
+
+			// Graceful: send SIGTERM to entire process group first.
+			if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+				zap.L().Debug("failed to SIGTERM claude process group",
+					zap.Int("pid", pid), zap.Error(err))
+			}
+
+			// Wait up to 5s for graceful exit, then escalate to SIGKILL.
+			select {
+			case <-p.done:
+				return
+			case <-time.After(5 * time.Second):
+				zap.L().Debug("SIGTERM timeout, sending SIGKILL to claude process group",
+					zap.Int("pid", pid))
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			}
 		}
 
-		// Wait for process exit (background goroutine closes p.done after cmd.Wait).
-		// Use a timeout to avoid hanging if the process doesn't exit cleanly.
+		// Final wait with timeout to avoid hanging on stuck I/O.
 		if p.cmd != nil {
 			select {
 			case <-p.done:
-			case <-time.After(5 * time.Second):
-				zap.L().Debug("timed out waiting for claude process exit, force-killing",
-					zap.Int("pid", p.cmd.Process.Pid))
-				_ = p.cmd.Process.Kill()
+			case <-time.After(3 * time.Second):
+				if p.cmd.Process != nil {
+					_ = p.cmd.Process.Kill()
+				}
 			}
 		}
 	})

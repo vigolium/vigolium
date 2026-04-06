@@ -642,6 +642,18 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 		return nil, nil
 	}
 
+	// Clean up stale archon/ dir from a previous crashed run.
+	// Safe: no new archon-audit is running yet at this point.
+	staleArchonDir := filepath.Join(sourcePath, "archon")
+	if info, statErr := os.Stat(staleArchonDir); statErr == nil && info.IsDir() {
+		zap.L().Info("Removing stale archon dir from previous run", zap.String("path", staleArchonDir))
+		if rmErr := os.RemoveAll(staleArchonDir); rmErr != nil {
+			zap.L().Warn("Failed to remove stale archon dir", zap.Error(rmErr))
+		} else if logFn != nil {
+			logFn("cleaned up stale archon/ dir from previous run")
+		}
+	}
+
 	runner, err := StartAuditAgent(ctx, *auditCfg, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID, repo)
 	if err != nil {
 		zap.L().Warn("Failed to start background archon-audit, continuing without it", zap.Error(err))
