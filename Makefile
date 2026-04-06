@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui
+.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs
 
 # Go parameters
 GOCMD=go
@@ -320,6 +320,41 @@ test-coverage: install-gotestsum ensure-jsscan
 test-ci: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Running tests for CI..."
 	@$(GOPATH_BIN)/gotestsum --junitfile test-results.xml --format testdox --format-hide-empty-pkg --hide-summary=skipped,output -- -v -race ./...
+
+# --- SSH Testbed ---
+SSH_TESTBED_DIR=test/ssh-testbed
+
+# Generate dummy SSH keypair for testbed
+ssh-testbed-keygen:
+	@mkdir -p $(SSH_TESTBED_DIR)/keys
+	@if [ -f $(SSH_TESTBED_DIR)/keys/testbed_key ]; then \
+		echo "$(PREFIX) SSH keypair already exists at $(SSH_TESTBED_DIR)/keys/testbed_key"; \
+	else \
+		ssh-keygen -t ed25519 -f $(SSH_TESTBED_DIR)/keys/testbed_key -N "" -C "testbed"; \
+		cp $(SSH_TESTBED_DIR)/keys/testbed_key.pub $(SSH_TESTBED_DIR)/keys/authorized_keys; \
+		echo "$(PREFIX) SSH keypair generated at $(SSH_TESTBED_DIR)/keys/"; \
+	fi
+
+# Start SSH testbed containers (generates keys if missing)
+ssh-testbed-up: ssh-testbed-keygen
+	@echo "$(PREFIX) Starting SSH testbed containers..."
+	docker compose -f $(SSH_TESTBED_DIR)/docker-compose.yml up -d --build
+	@echo "$(PREFIX) SSH testbed ready:"
+	@echo "  Ubuntu 24.04: ssh -i $(SSH_TESTBED_DIR)/keys/testbed_key -p 2222 deploy@localhost"
+	@echo "  Debian 12:    ssh -i $(SSH_TESTBED_DIR)/keys/testbed_key -p 2223 deploy@localhost"
+
+# Stop SSH testbed containers
+ssh-testbed-down:
+	@echo "$(PREFIX) Stopping SSH testbed containers..."
+	docker compose -f $(SSH_TESTBED_DIR)/docker-compose.yml down -v
+
+# Show SSH testbed status
+ssh-testbed-status:
+	docker compose -f $(SSH_TESTBED_DIR)/docker-compose.yml ps
+
+# Follow SSH testbed logs
+ssh-testbed-logs:
+	docker compose -f $(SSH_TESTBED_DIR)/docker-compose.yml logs -f
 
 # Vulnerable app directories
 VULN_APPS_DIR=test/testdata/vulnerable-apps
@@ -695,6 +730,15 @@ help:
 	@echo "    make vulnerable-java-down  Stop Vulnerable Java App"
 	@echo "    make vulnerable-nginx-up   Start detectify Vulnerable Nginx (http://127.0.0.1:5000)"
 	@echo "    make vulnerable-nginx-down Stop Vulnerable Nginx"
+	@echo ""
+	@echo "\033[33m  SSH TESTBED (Docker)\033[0m"
+	@echo "    make ssh-testbed-keygen   Generate dummy SSH keypair"
+	@echo "    make ssh-testbed-up       Start SSH testbed (Ubuntu :2222, Debian :2223)"
+	@echo "    make ssh-testbed-down     Stop and remove SSH testbed containers"
+	@echo "    make ssh-testbed-status   Show SSH testbed container status"
+	@echo "    make ssh-testbed-logs     Follow SSH testbed container logs"
+	@echo ""
+	@echo "\033[33m  DATABASE (Docker)\033[0m"
 	@echo "    make postgres-up      Start PostgreSQL for E2E tests (localhost:5433)"
 	@echo "    make postgres-down    Stop and remove PostgreSQL test container"
 	@echo "    make test-benchmark-vuln-java   Run vulnerable-java benchmarks"
