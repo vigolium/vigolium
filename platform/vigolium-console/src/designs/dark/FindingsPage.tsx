@@ -231,6 +231,8 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
       },
       { field: 'scan_uuid', headerName: 'SCAN_ID', width: 100 },
       { field: 'finding_source', headerName: 'SOURCE', width: 120 },
+      { field: 'repo_name', headerName: 'REPO', width: 140 },
+      { field: 'source_file', headerName: 'FILE', width: 160 },
       { field: 'found_at', headerName: 'TIME', width: 120, cellRenderer: DateRenderer },
     ],
     []

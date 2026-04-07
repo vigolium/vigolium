@@ -166,6 +166,8 @@ func (c *AuditAgentConfig) EffectiveMode() string {
 		return "deep"
 	case "scan":
 		return "scan"
+	case "mock":
+		return "mock"
 	default:
 		return "lite"
 	}

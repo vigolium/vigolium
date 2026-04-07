@@ -935,7 +935,7 @@ func maybeGenerateHTMLReport(db *database.DB, opts *types.Options) {
 	outPath := opts.OutputPathForFormat("html")
 	if err := generateHTMLFromDB(context.Background(), db, outPath); err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
-	} else if !opts.Silent {
+	} else {
 		fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(outPath))
 	}
 }
@@ -958,7 +958,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 		case "html":
 			if err := generateHTMLFromDB(ctx, db, outPath); err != nil {
 				fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
-			} else if !opts.Silent {
+			} else {
 				fmt.Fprintf(os.Stderr, "%s HTML report exported to %s\n", terminal.InfoSymbol(), terminal.Cyan(outPath))
 			}
 		case "jsonl":
@@ -992,7 +992,7 @@ func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Opti
 	}
 	if writeErr != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), writeErr)
-	} else if !opts.Silent {
+	} else {
 		fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
 			terminal.InfoSymbol(), terminal.Cyan(outputPath), len(items))
 	}

@@ -571,6 +571,16 @@ snapshot:
 release:
 	@echo "$(PREFIX) Building release..."
 	goreleaser release --snapshot --clean
+	@echo "$(PREFIX) Packaging vigolium-console..."
+	@cd platform/vigolium-console && tar czf ../../build/dist/vigolium-console.tar.gz \
+		--exclude='node_modules' \
+		--exclude='.next' \
+		--exclude='.next-workbench' \
+		--exclude='dist-workbench' \
+		--exclude='dist-console' \
+		--exclude='.env' \
+		--exclude='.env.local' \
+		.
 	@echo "$(PREFIX) Cleaning old files on R2..."
 	@mc rm --recursive --force r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/ || true
 	@echo "$(PREFIX) Uploading to R2..."

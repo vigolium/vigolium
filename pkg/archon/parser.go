@@ -33,12 +33,22 @@ type AuditEntry struct {
 	AuditID     string                `json:"audit_id"`
 	Commit      string                `json:"commit"`
 	Branch      string                `json:"branch"`
-	Repo        string                `json:"repo,omitempty"`     // optional repo slug (e.g. "goharbor/harbor")
-	RepoURL     string                `json:"repo_url,omitempty"` // optional full repo URL
+	Repo        string                `json:"repo,omitempty"`        // optional repo slug (e.g. "goharbor/harbor")
+	Repository  string                `json:"repository,omitempty"`  // alternate key used by lite/scan modes
+	RepoURL     string                `json:"repo_url,omitempty"`    // optional full repo URL
+	Mode        string                `json:"mode,omitempty"`        // audit mode: lite, scan, deep
 	StartedAt   time.Time             `json:"started_at"`
 	CompletedAt time.Time             `json:"completed_at"`
 	Status      string                `json:"status"`
 	Phases      map[string]PhaseEntry `json:"phases"`
+}
+
+// EffectiveRepo returns the repo name from whichever JSON field was populated.
+func (e AuditEntry) EffectiveRepo() string {
+	if e.Repo != "" {
+		return e.Repo
+	}
+	return e.Repository
 }
 
 // PhaseEntry describes one phase in the audit.
@@ -132,24 +142,33 @@ type ArchonFinding struct {
 }
 
 // ParseAuditFolder parses an archon output folder and returns the import data.
+// It tolerates a missing audit-state.json (e.g. when the archon process was
+// cancelled before completing). Findings are still parsed from findings-draft/.
 func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 	statePath := filepath.Join(folderPath, "audit-state.json")
-	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("audit-state.json not found in %s", folderPath)
-	}
 
-	state, err := parseAuditState(statePath)
-	if err != nil {
-		return nil, fmt.Errorf("parse audit-state.json: %w", err)
-	}
-	if len(state.Audits) == 0 {
-		return nil, fmt.Errorf("no audit entries in audit-state.json")
+	var state *AuditState
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		// No state file yet — create a synthetic empty state so callers
+		// that access State fields don't panic.
+		state = &AuditState{}
+	} else {
+		var parseErr error
+		state, parseErr = parseAuditState(statePath)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse audit-state.json: %w", parseErr)
+		}
 	}
 
 	findingsDir := filepath.Join(folderPath, "findings-draft")
 	findings, err := parseFindingsDir(findingsDir)
 	if err != nil {
 		return nil, fmt.Errorf("parse findings-draft: %w", err)
+	}
+
+	// Nothing to import if both state and findings are empty.
+	if len(state.Audits) == 0 && len(findings) == 0 {
+		return nil, fmt.Errorf("no audit-state.json and no findings in %s", folderPath)
 	}
 
 	repoName := resolveRepoName(state, folderPath)
@@ -299,6 +318,9 @@ func parseFindingsDir(dir string) ([]*ArchonFinding, error) {
 // findingFileRegex matches archon finding filenames like p7-001-slug.md or p8-002-slug.cold-verify.md
 var findingFileRegex = regexp.MustCompile(`^p(\d+)-(\d+)-(.+?)(?:\.cold-verify)?\.md$`)
 
+// liteFindingFileRegex matches lite-mode filenames like l1-001.md or l2-003.md (no slug).
+var liteFindingFileRegex = regexp.MustCompile(`^l(\d+)-(\d+)\.md$`)
+
 func parseFindingFile(path string) (*ArchonFinding, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -306,33 +328,48 @@ func parseFindingFile(path string) (*ArchonFinding, error) {
 	}
 
 	filename := filepath.Base(path)
-	m := findingFileRegex.FindStringSubmatch(filename)
-	if m == nil {
-		return nil, nil // not a finding file
-	}
-
-	phase := m[1]
-	seq := m[2]
-	slug := m[3]
-	findingID := fmt.Sprintf("P%s-%s", phase, seq)
-
 	content := string(data)
 
-	af := &ArchonFinding{
-		FindingID: findingID,
-		Phase:     phase,
-		Sequence:  seq,
-		Slug:      slug,
-		Filename:  filename,
+	// Try standard deep/scan-mode pattern first: p<phase>-<seq>-<slug>.md
+	if m := findingFileRegex.FindStringSubmatch(filename); m != nil {
+		phase := m[1]
+		seq := m[2]
+		slug := m[3]
+		findingID := fmt.Sprintf("P%s-%s", phase, seq)
+
+		af := &ArchonFinding{
+			FindingID: findingID,
+			Phase:     phase,
+			Sequence:  seq,
+			Slug:      slug,
+			Filename:  filename,
+		}
+
+		if phase == "7" {
+			parsePhase7Finding(af, content)
+		} else {
+			parseFrontmatterFinding(af, content)
+		}
+		return af, nil
 	}
 
-	if phase == "7" {
-		parsePhase7Finding(af, content)
-	} else {
-		parseFrontmatterFinding(af, content)
+	// Try lite-mode pattern: l<phase>-<seq>.md
+	if m := liteFindingFileRegex.FindStringSubmatch(filename); m != nil {
+		phase := m[1]
+		seq := m[2]
+		findingID := fmt.Sprintf("L%s-%s", phase, seq)
+
+		af := &ArchonFinding{
+			FindingID: findingID,
+			Phase:     phase,
+			Sequence:  seq,
+			Filename:  filename,
+		}
+		parseLiteFinding(af, content)
+		return af, nil
 	}
 
-	return af, nil
+	return nil, nil // not a finding file
 }
 
 // parsePhase7Finding parses the Phase 7 table-header format.
@@ -457,6 +494,56 @@ func parseFrontmatterFinding(af *ArchonFinding, content string) {
 	}
 }
 
+// liteBoldFieldRegex matches markdown bold list items: - **Key**: Value
+var liteBoldFieldRegex = regexp.MustCompile(`-\s*\*\*(.+?)\*\*:\s*(.+)`)
+
+// liteHeadingRegex matches lite finding headings: ## l2-001: Title
+var liteHeadingRegex = regexp.MustCompile(`^##\s+l\d+-\d+:\s*(.+)`)
+
+// parseLiteFinding parses the lite-mode markdown format with bold list items.
+func parseLiteFinding(af *ArchonFinding, content string) {
+	// Extract title from ## heading
+	if m := liteHeadingRegex.FindStringSubmatch(content); m != nil {
+		af.Title = strings.TrimSpace(m[1])
+	}
+
+	// Extract fields from - **Key**: Value lines
+	for _, m := range liteBoldFieldRegex.FindAllStringSubmatch(content, -1) {
+		key := strings.TrimSpace(m[1])
+		val := strings.TrimSpace(m[2])
+		switch key {
+		case "Severity":
+			af.Severity = val
+		case "File":
+			af.Locations = append(af.Locations, val)
+		case "Line":
+			// Append line number to the last location if present
+			if len(af.Locations) > 0 {
+				af.Locations[len(af.Locations)-1] += ":" + val
+			}
+		case "Category":
+			af.Slug = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(val, " ", "-"), "—", "-"))
+		case "CWE":
+			af.CWE = extractCWE(val)
+		case "Verdict":
+			af.Verdict = val
+		}
+	}
+
+	// If no slug was derived from Category, create one from the title
+	if af.Slug == "" && af.Title != "" {
+		af.Slug = strings.ToLower(strings.ReplaceAll(af.Title, " ", "-"))
+	}
+
+	// Set confidence from verdict — store the raw verdict value so that
+	// toDBFinding's mapConfidence call produces the correct result.
+	if af.Confidence == "" && af.Verdict != "" {
+		af.Confidence = af.Verdict
+	}
+
+	af.Body = content
+}
+
 func applyColdVerify(base, overlay *ArchonFinding) {
 	if overlay.AdversarialVerdict != "" {
 		base.AdversarialVerdict = overlay.AdversarialVerdict
@@ -556,8 +643,8 @@ func resolveRepoName(state *AuditState, folderPath string) string {
 		if audit.RepoURL != "" {
 			return audit.RepoURL
 		}
-		if audit.Repo != "" {
-			return audit.Repo
+		if repo := audit.EffectiveRepo(); repo != "" {
+			return repo
 		}
 	}
 

@@ -55,6 +55,11 @@ export interface Finding {
   additional_evidence?: string[];
   request?: string;
   response?: string;
+  source_file?: string;
+  repo_name?: string;
+  cvss_score?: number;
+  status?: string;
+  agent_run_uuid?: string;
   finding_hash: string;
   found_at: string;
   created_at: string;

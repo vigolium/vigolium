@@ -2,6 +2,7 @@ package archon
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -126,7 +127,27 @@ func TestParseAuditFolder(t *testing.T) {
 func TestParseAuditFolderMissingState(t *testing.T) {
 	_, err := ParseAuditFolder("/nonexistent/path")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "audit-state.json not found")
+	assert.Contains(t, err.Error(), "no audit-state.json and no findings")
+}
+
+func TestParseAuditFolderWithoutState(t *testing.T) {
+	// Simulate a cancelled archon run: findings-draft/ exists but no audit-state.json
+	dir := t.TempDir()
+	findingsDir := filepath.Join(dir, "findings-draft")
+	require.NoError(t, os.MkdirAll(findingsDir, 0o755))
+
+	// Copy a real finding file from harbor testdata
+	src := filepath.Join(harborDir(), "findings-draft", "p7-001-open-redirect-authproxy.md")
+	data, err := os.ReadFile(src)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(findingsDir, "p7-001-open-redirect-authproxy.md"), data, 0o644))
+
+	result, err := ParseAuditFolder(dir)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.NotEmpty(t, result.RawFindings)
+	assert.NotNil(t, result.State) // synthetic empty state
+	assert.Empty(t, result.State.Audits)
 }
 
 func TestBuildAgentRun(t *testing.T) {
@@ -318,6 +339,86 @@ func TestExtractRepoFromCommitRecon(t *testing.T) {
 			assert.Equal(t, tc.expected, extractRepoFromCommitRecon(tc.dir))
 		})
 	}
+}
+
+func liteDir() string {
+	return filepath.Join(testdataDir(), "archon-output-lite")
+}
+
+func TestParseLiteFinding(t *testing.T) {
+	af, err := parseFindingFile(filepath.Join(liteDir(), "findings-draft", "l2-001.md"))
+	require.NoError(t, err)
+	require.NotNil(t, af)
+
+	assert.Equal(t, "L2-001", af.FindingID)
+	assert.Equal(t, "2", af.Phase)
+	assert.Equal(t, "001", af.Sequence)
+	assert.Equal(t, "SQL Injection in User Lookup", af.Title)
+	assert.Equal(t, "Critical", af.Severity)
+	assert.Equal(t, "VALID", af.Verdict)
+	assert.Equal(t, "VALID", af.Confidence) // raw verdict; mapped to "firm" by toDBFinding
+	assert.NotEmpty(t, af.Locations, "should extract file location")
+	assert.Equal(t, "models/user_model.py:72", af.Locations[0])
+	assert.NotEmpty(t, af.Body)
+	assert.NotEmpty(t, af.Slug)
+}
+
+func TestParseLiteFindingL1(t *testing.T) {
+	af, err := parseFindingFile(filepath.Join(liteDir(), "findings-draft", "l1-001.md"))
+	require.NoError(t, err)
+	require.NotNil(t, af)
+
+	assert.Equal(t, "L1-001", af.FindingID)
+	assert.Equal(t, "1", af.Phase)
+	assert.Equal(t, "001", af.Sequence)
+	assert.Equal(t, "Hardcoded JWT Secret Key", af.Title)
+	assert.Equal(t, "High", af.Severity)
+	assert.Equal(t, "VALID", af.Verdict)
+	assert.Equal(t, "app.py:12", af.Locations[0])
+}
+
+func TestParseFindingsDirLite(t *testing.T) {
+	findings, err := parseFindingsDir(filepath.Join(liteDir(), "findings-draft"))
+	require.NoError(t, err)
+	assert.Len(t, findings, 2, "should parse both l1 and l2 findings")
+}
+
+func TestParseAuditFolderLite(t *testing.T) {
+	result, err := ParseAuditFolder(liteDir())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.NotEmpty(t, result.RawFindings)
+	assert.Equal(t, "erev0s/VAmPI", result.RepoName)
+	assert.Equal(t, "complete", result.State.Audits[0].Status)
+	assert.Equal(t, "lite", result.State.Audits[0].Mode)
+}
+
+func TestBuildFindingsLite(t *testing.T) {
+	result, err := ParseAuditFolder(liteDir())
+	require.NoError(t, err)
+
+	auditID := result.State.Audits[0].AuditID
+	findings := BuildFindings(result.RawFindings, auditID, "test-run", database.DefaultProjectUUID, result.RepoName)
+
+	assert.Equal(t, len(result.RawFindings), len(findings))
+
+	// Check a converted finding
+	var l2001 *database.Finding
+	for _, f := range findings {
+		if f.ModuleID == "archon:l2-001" {
+			l2001 = f
+			break
+		}
+	}
+	require.NotNil(t, l2001, "should have archon:l2-001")
+	assert.Equal(t, "SQL Injection in User Lookup", l2001.ModuleName)
+	assert.Equal(t, "critical", l2001.Severity)
+	assert.Equal(t, "firm", l2001.Confidence)
+	assert.Equal(t, database.ModuleTypeWhitebox, l2001.ModuleType)
+	assert.Equal(t, database.FindingSourceArchon, l2001.FindingSource)
+	assert.NotEmpty(t, l2001.FindingHash)
+	assert.Contains(t, l2001.Tags, "archon")
+	assert.Equal(t, "erev0s/VAmPI", l2001.RepoName)
 }
 
 func TestExtractCWE(t *testing.T) {

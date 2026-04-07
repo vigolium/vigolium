@@ -63,6 +63,8 @@ export default function FindingsTable() {
       { field: 'module_name', headerName: 'MODULE', flex: 1, minWidth: 140 },
       { field: 'module_type', headerName: 'TYPE', width: 80 },
       { field: 'finding_source', headerName: 'SOURCE', width: 120 },
+      { field: 'repo_name', headerName: 'REPO', width: 140 },
+      { field: 'source_file', headerName: 'FILE', width: 160 },
       { field: 'description', headerName: 'DESCRIPTION', flex: 2, minWidth: 180 },
       {
         field: 'matched_at',

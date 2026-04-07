@@ -61,6 +61,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
          "audit_id": "<ISO timestamp>",
          "commit": "<HEAD SHA from: git rev-parse HEAD>",
          "branch": "<current branch>",
+         "repository": "<org/repo from: git remote get-url origin 2>/dev/null | sed 's|.*://[^/]*/||;s|.*:||;s|\\.git$||' — fallback: basename $(pwd)>",
          "mode": "lite",
          "model": "<model name, e.g. opus-4.6, gpt-5.3-codex, sonnet-4.6>",
          "agent_sdk": "<platform name, e.g. claude-code, codex, bytesec, opencode, traecli>",
@@ -147,22 +148,25 @@ Scan the target scope (minus recon exclusions) for hardcoded secrets, credential
        ${TARGET:-.} 2>/dev/null || true
      ```
 
-2. For each finding, write a minimal finding file to `archon/findings-draft/`:
+2. For each finding, write a finding file to `archon/findings-draft/`:
    ```
-   Filename: q1-NNN.md (NNN = 001, 002, ...)
+   Filename: l1-NNN.md (NNN = 001, 002, ...)
    ```
    Each file:
    ```markdown
-   ## Q1-NNN: <Secret Type>
+   ## l1-NNN: <Secret Type>
 
    - **Severity**: Critical | High | Medium
    - **File**: <path>
    - **Line**: <line number>
-   - **Type**: <e.g. AWS Access Key, GitHub PAT, Private Key, Hardcoded Password>
+   - **Category**: <e.g. Hardcoded Secret — AWS Access Key, GitHub PAT, Private Key, Hardcoded Password>
    - **Verdict**: VALID
 
    ### Evidence
    <masked snippet — show enough context to locate but redact the actual secret value>
+
+   ### Recommendation
+   <single sentence: what to do — e.g. rotate key, move to env var, use secrets manager>
    ```
 
 3. Severity assignment:
@@ -199,26 +203,26 @@ Run a single pass of built-in static analysis security suites, scoped by Q0 reco
    - Insecure deserialization: pickle.loads, yaml.load without SafeLoader, unserialize
    - Hardcoded crypto: weak algorithms (MD5, SHA1 for security), ECB mode
 
-3. For each finding, write a minimal finding file to `archon/findings-draft/`:
+3. For each finding, write a finding file to `archon/findings-draft/`:
    ```
-   Filename: q2-NNN.md (NNN = 001, 002, ...)
+   Filename: l2-NNN.md (NNN = 001, 002, ...)
    ```
    Each file:
    ```markdown
-   ## Q2-NNN: <Vulnerability Title>
+   ## l2-NNN: <Vulnerability Title>
 
    - **Severity**: Critical | High | Medium
    - **File**: <path>
    - **Line**: <line number>
-   - **Rule**: <rule ID from tool, or manual pattern name>
    - **Category**: <e.g. SQL Injection, Command Injection, XSS, Path Traversal>
+   - **Rule**: <rule ID from tool, or manual pattern name>
    - **Verdict**: VALID
 
    ### Evidence
    <code snippet showing the vulnerable pattern>
 
-   ### One-Liner
-   <single sentence explaining the risk>
+   ### Recommendation
+   <single sentence explaining the risk and what to fix>
    ```
 
 4. Severity assignment — trust the tool's severity mapping. For manual scans:
@@ -227,7 +231,7 @@ Run a single pass of built-in static analysis security suites, scoped by Q0 reco
    - **Medium**: Weak crypto, information disclosure, missing security headers
 
 5. **Quick dedup and filter**:
-   - If a Q2 finding overlaps with a Q1 finding (same file + line), keep the Q1 finding and drop the Q2 duplicate.
+   - If an l2 finding overlaps with an l1 finding (same file + line), keep the l1 finding and drop the l2 duplicate.
    - Using `archon/lite-recon.md` entry points and framework context, drop findings in files that are clearly not reachable from user input (e.g., build scripts, migration utilities, dev-only tooling). Mark dropped findings with `Verdict: FILTERED` rather than deleting them.
 
 Update `archon/audit-state.json`: set `Q2` status to `complete` with timestamp.
@@ -238,32 +242,20 @@ Update `archon/audit-state.json`: set `Q2` status to `complete` with timestamp.
 
 After all phases complete:
 
-1. **Assign final IDs**: Collect all `archon/findings-draft/q1-*.md` and `archon/findings-draft/q2-*.md` with `Verdict: VALID`. Assign severity-prefixed IDs: `C1`, `C2`, ..., `H1`, `H2`, ..., `M1`, `M2`, ... Drop all Low severity findings.
+1. **Draft promotion**: Collect all `archon/findings-draft/l1-*.md` and `archon/findings-draft/l2-*.md` with `Verdict: VALID`. Assign severity-prefixed IDs (`C1`, `H1`, `M1`). Drop all Low severity findings.
 
-2. **Rename finding files**: Move each to `archon/findings/<ID>.md` (e.g., `archon/findings/C1.md`).
+2. **PoC Building**: For each confirmed finding, spawn `archon:poc-builder` with `run_in_background: true`. Each receives: finding draft path, assigned ID, and `archon/lite-recon.md` path for project context. Wait for all PoC builders to complete.
 
-3. **PoC Building**: For each confirmed finding, spawn `archon:poc-builder` with `run_in_background: true`. Each receives: finding draft path, assigned ID, and `archon/lite-recon.md` path for project context. Wait for all PoC builders to complete.
+3. **Report Assembly**: Spawn `archon:report-assembler` (foreground) with the following additional instruction:
 
-4. **Print summary table** to the user:
-   ```
-   Lite Audit Complete — <N> findings
+   > "LITE MODE: This is a lite audit report. Add a note in the Executive Summary: 'This report was generated using lite audit mode. Only quick recon, secrets scanning, and built-in SAST were performed. No intelligence gathering, knowledge base, deep probe, review chambers, or variant analysis. For deeper analysis, run /archon:scan (6-phase) or /archon:deep (full 11-phase).' Skip chamber workspace appendix and consistency cross-checks. The report should be concise — findings table, per-finding detail with evidence and PoC, and a short executive summary."
 
-   | ID | Severity | Category | File:Line | One-Liner | PoC |
-   |----|----------|----------|-----------|-----------|-----|
-   | C1 | Critical | AWS Key  | src/config.js:42 | Hardcoded AWS access key | archon/findings/C1-poc.md |
-   | H1 | High     | SQLi     | api/users.py:87  | User input concatenated into SQL query | archon/findings/H1-poc.md |
-   | ...| ...      | ...      | ...       | ... | ... |
-
-   For deeper analysis, run /archon:scan (6-phase) or /archon:deep (full 11-phase).
-   ```
-
-5. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`.
+4. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
 
 ---
 
 ## Notes
 
-- **No narrative report**: lite mode does not produce `archon/final-audit-report.md`. The findings + PoCs are the deliverable.
 - **No knowledge base**: lite mode does not produce `archon/knowledge-base-report.md`.
-- **Compatible output**: finding files use the same format and directory structure as `/archon:scan` and `/archon:deep`, so upgrading to a deeper audit preserves lite findings.
-- **Minimal agent use**: lite mode runs the scan phases inline — only `archon:poc-builder` agents are dispatched for PoC generation.
+- **Compatible output**: finding files use the same format and directory structure as `/archon:scan` and `/archon:deep`, so upgrading to a deeper audit preserves lite findings. The report is produced by the same `archon:report-assembler` agent.
+- **Minimal agent use**: lite mode runs the scan phases inline — only `archon:poc-builder` and `archon:report-assembler` agents are dispatched.

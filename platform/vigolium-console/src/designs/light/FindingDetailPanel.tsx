@@ -120,6 +120,12 @@ export default function FindingDetailPanel({ findingId, onClose }: Props) {
             {finding.finding_source && (
               <div><span className="text-[#708e8e]">source: </span><span className="text-[#005661] font-semibold">{finding.finding_source}</span></div>
             )}
+            {finding.status && (
+              <div><span className="text-[#708e8e]">status: </span><span className="text-[#005661]">{finding.status}</span></div>
+            )}
+            {finding.cvss_score != null && finding.cvss_score > 0 && (
+              <div><span className="text-[#708e8e]">cvss: </span><span className="text-[#005661] font-semibold">{finding.cvss_score}</span></div>
+            )}
           </div>
 
           {/* Module */}
@@ -134,6 +140,18 @@ export default function FindingDetailPanel({ findingId, onClose }: Props) {
             <div className="text-[#708e8e] italic [&_code]:text-[#7d2a00] [&_code]:bg-[#e0d7c4] [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded-sm [&_code]:not-italic [&_p]:inline">
               <span>module_short: </span>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{finding.module_short}</ReactMarkdown>
+            </div>
+          )}
+
+          {/* Repo + Source file */}
+          {(finding.repo_name || finding.source_file) && (
+            <div className="space-y-0.5">
+              {finding.repo_name && (
+                <div><span className="text-[#708e8e]">repo: </span><span className="text-[#005661] font-semibold">{finding.repo_name}</span></div>
+              )}
+              {finding.source_file && (
+                <div><span className="text-[#708e8e]">source_file: </span><span className="text-[#005661]">{finding.source_file}</span></div>
+              )}
             </div>
           )}
 
@@ -171,6 +189,7 @@ export default function FindingDetailPanel({ findingId, onClose }: Props) {
               <span>finding_hash: <span className="text-[#005661] break-all">{finding.finding_hash}</span></span>
               <span>found_at: <span className="text-[#005661]">{formatDate(finding.found_at)}</span></span>
               {finding.scan_uuid && <span>scan_id: <span className="text-[#005661]">{finding.scan_uuid}</span></span>}
+              {finding.agent_run_uuid && <span>agent_run: <span className="text-[#005661]">{finding.agent_run_uuid}</span></span>}
             </div>
           </div>
 

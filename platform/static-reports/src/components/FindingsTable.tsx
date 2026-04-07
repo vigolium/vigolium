@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
@@ -316,6 +316,12 @@ function FindingDetail({ finding }: { finding: Finding }) {
             <DetailValue>{finding.cvss_score}</DetailValue>
           </div>
         )}
+        {finding.repo_name && (
+          <div className="flex gap-2">
+            <DetailLabel>repo_name:</DetailLabel>
+            <DetailValue mono>{finding.repo_name}</DetailValue>
+          </div>
+        )}
         {finding.source_file && (
           <div className="flex gap-2">
             <DetailLabel>source_file:</DetailLabel>
@@ -521,7 +527,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
 
   const columnDefs = useMemo<ColDef<Finding>[]>(
     () => [
-      { field: "id", headerName: "#", width: 60, sort: "asc" },
+      { field: "id", headerName: "#", width: 60 },
       {
         field: "severity",
         headerName: "Severity",
@@ -534,6 +540,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
             </span>
           );
         },
+        sort: "asc",
         comparator: (a: string, b: string) => (SEVERITY_ORDER[a] ?? 99) - (SEVERITY_ORDER[b] ?? 99),
       },
       {
@@ -566,6 +573,26 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         headerName: "Source",
         width: 110,
         cellClass: "text-xs capitalize",
+      },
+      {
+        field: "repo_name",
+        headerName: "Repository",
+        width: 160,
+        cellClass: "text-xs",
+        cellRenderer: ({ value }: { value: string | null }) => {
+          if (!value) return null;
+          return <span className="text-xs font-mono text-charcoal-light truncate block" title={value}>{value}</span>;
+        },
+      },
+      {
+        field: "source_file",
+        headerName: "Source File",
+        width: 180,
+        cellClass: "text-xs",
+        cellRenderer: ({ value }: { value: string | null }) => {
+          if (!value) return null;
+          return <span className="text-xs font-mono text-charcoal-light truncate block" title={value}>{value}</span>;
+        },
       },
       {
         field: "matched_at",
@@ -640,6 +667,15 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   const onClearHosts = useCallback(() => {
     setSelectedHosts(new Set());
   }, []);
+
+  useEffect(() => {
+    if (expandedId === null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpandedId(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [expandedId]);
 
   const selectedFinding = expandedId !== null ? data.find((f) => f.id === expandedId) : null;
 

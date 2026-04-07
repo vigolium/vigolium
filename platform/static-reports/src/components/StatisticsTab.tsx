@@ -1,8 +1,8 @@
+import { Fragment } from "react";
 import type { ExportData } from "../types";
 import {
   computeSummary,
   findingsBySeverity,
-  findingsByModule,
   findingsByModuleWithSeverity,
   httpByStatusCode,
   httpByContentType,
@@ -59,7 +59,7 @@ function HorizontalBarList({ data, color }: { data: { label: string; count: numb
   );
 }
 
-function ModuleBarChart({ data }: { data: ModuleFindingSummary[] }) {
+function ModuleBarChart({ data, totalFindings }: { data: ModuleFindingSummary[]; totalFindings: number }) {
   const { theme } = useTheme();
   const severityColors = getSeverityColors(theme);
 
@@ -69,34 +69,40 @@ function ModuleBarChart({ data }: { data: ModuleFindingSummary[] }) {
 
   return (
     <div>
-      <div className="space-y-0.5">
+      <div className="inline-grid gap-y-1 gap-x-2" style={{ gridTemplateColumns: "auto 180px auto" }}>
         {visible.map((row) => {
           const color = severityColors[row.severity] || "#888";
+          const pct = totalFindings > 0 ? Math.round((row.count / totalFindings) * 100) : 0;
           return (
-            <div key={row.module} className="flex items-center gap-2">
-              <span className="text-[11px] text-charcoal-light w-[240px] shrink-0 text-right truncate" title={row.module}>
+            <Fragment key={row.module}>
+              <span className="text-[11px] text-charcoal-light text-right font-mono whitespace-nowrap self-center" title={row.module}>
                 {row.module}
               </span>
-              <div className="w-[280px] shrink-0 h-[14px] bg-warm-border/20 rounded-sm overflow-hidden">
+              <div className="h-[18px] bg-warm-border/20 rounded-sm overflow-hidden self-center">
                 <div
-                  className="h-full rounded-sm"
+                  className="h-full rounded-sm transition-all"
                   style={{
-                    width: `${Math.max((row.count / maxCount) * 100, 8)}%`,
+                    width: `${Math.max((row.count / maxCount) * 100, 6)}%`,
                     backgroundColor: color,
-                    opacity: 0.75,
+                    opacity: 0.8,
                   }}
                 />
               </div>
-              <span className="text-[11px] text-text-muted w-[20px] shrink-0 text-right">{row.count}</span>
-            </div>
+              <span className="text-[11px] text-charcoal-light font-semibold text-right tabular-nums self-center whitespace-nowrap">
+                {row.count}
+                {pct < 100 && <span className="text-text-muted font-normal"> ({pct}%)</span>}
+              </span>
+            </Fragment>
           );
         })}
+        {remaining > 0 && (
+          <Fragment>
+            <span />
+            <span className="text-[10px] text-text-muted text-right pt-1">+{remaining} more</span>
+            <span />
+          </Fragment>
+        )}
       </div>
-      {remaining > 0 && (
-        <div className="text-[10px] text-text-muted text-right pt-1">
-          +{remaining} more
-        </div>
-      )}
     </div>
   );
 }
@@ -106,13 +112,10 @@ export default function StatisticsTab({ data, scanDuration }: Props) {
   const summary = computeSummary(data);
   if (scanDuration) summary.scanDuration = scanDuration;
   const severityData = findingsBySeverity(data.findings);
-  const moduleData = findingsByModule(data.findings);
   const moduleDetailData = findingsByModuleWithSeverity(data.findings);
   const statusData = httpByStatusCode(data.httpRecords);
   const contentTypeData = httpByContentType(data.httpRecords);
 
-  // Use horizontal bars when there are many items (vertical bar chart becomes unreadable)
-  const useModuleTable = moduleData.length > 15;
   const useContentTypeHBars = contentTypeData.length > 15;
 
   return (
@@ -132,13 +135,7 @@ export default function StatisticsTab({ data, scanDuration }: Props) {
               <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">
                 Findings by Module
               </h3>
-              {useModuleTable ? (
-                <ModuleBarChart data={moduleDetailData} />
-              ) : (
-                <BarChartComponent
-                  data={moduleData.map((d) => ({ endpoint: d.module, count: d.count }))}
-                />
-              )}
+              <ModuleBarChart data={moduleDetailData} totalFindings={data.findings.length} />
             </div>
             <div className="lg:col-span-2">
               <h3 className="text-sm font-sans font-semibold text-text-muted uppercase tracking-widest mb-4">

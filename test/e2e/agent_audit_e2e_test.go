@@ -388,6 +388,56 @@ func TestAuditAgent_ResolveConfig(t *testing.T) {
 	}
 }
 
+// TestAuditAgent_MockMode verifies that mock mode writes a sample audit-state.json
+// directly in Go without launching any subprocess. This tests the pipeline-level
+// short-circuit in RunAutonomous.
+func TestAuditAgent_MockMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	sessionDir := t.TempDir()
+	sourceDir := t.TempDir()
+
+	archonCfg := &config.AuditAgentConfig{
+		Mode: "mock",
+	}
+
+	settings := config.DefaultSettings()
+	engine := agent.NewEngine(settings, nil)
+	defer engine.Close()
+
+	runner := agent.NewAutopilotPipelineRunner(engine, nil)
+	result, err := runner.RunAutonomous(context.Background(), agent.AutopilotPipelineConfig{
+		SourcePath: sourceDir,
+		SessionDir: sessionDir,
+		Archon:     archonCfg,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify: audit-state.json was written to session dir
+	auditStatePath := filepath.Join(sessionDir, "archon-audit", "audit-state.json")
+	require.FileExists(t, auditStatePath, "audit-state.json should exist in session dir")
+
+	data, err := os.ReadFile(auditStatePath)
+	require.NoError(t, err)
+
+	stateStr := string(data)
+	assert.Contains(t, stateStr, `"status": "complete"`, "state should be complete")
+	assert.Contains(t, stateStr, `"mock"`, "should have a mock phase")
+	assert.Contains(t, stateStr, `"Mock mode"`, "should have mock summary")
+}
+
+// TestAuditAgent_MockResolveConfig verifies that mock is accepted by ResolveAuditAgentConfig.
+func TestAuditAgent_MockResolveConfig(t *testing.T) {
+	baseCfg := config.AuditAgentConfig{}
+	result := agent.ResolveAuditAgentConfig(false, "mock", "/src/app", baseCfg)
+	require.NotNil(t, result)
+	assert.Equal(t, "mock", result.Mode)
+	assert.True(t, result.IsEnabled())
+}
+
 // TestAuditAgent_EmbeddedPluginExtraction verifies that the embedded archon-audit
 // harness is extracted and contains expected files.
 func TestAuditAgent_EmbeddedPluginExtraction(t *testing.T) {

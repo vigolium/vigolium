@@ -95,6 +95,7 @@ export interface Finding {
   cwe_id?: string | null;
   cvss_score?: number;
   source_file?: string | null;
+  repo_name?: string | null;
   matched_at: string[] | null;
   extracted_results: string[] | null;
   additional_evidence: string[] | null;

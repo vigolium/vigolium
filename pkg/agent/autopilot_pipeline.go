@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -106,12 +108,17 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		SessionDir: cfg.SessionDir,
 	}
 
+	// Mock mode: write sample audit-state.json and return immediately.
+	// No subprocess is launched, no main agent runs.
+	if cfg.Archon != nil && cfg.Archon.EffectiveMode() == "mock" {
+		return r.runMockMode(cfg, result, start)
+	}
+
 	// Step 1: Start archon-audit in parallel (does not wait for completion)
 	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
 	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
-	if archonCleanup != nil {
-		defer archonCleanup()
-	}
+	// archonCleanup is called explicitly below (not deferred) so we can
+	// run a fallback import after the archon process has fully stopped.
 
 	archonRunning := archonRunner != nil
 	var archonCtx *archonContext
@@ -129,6 +136,15 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	// Step 2: Build prompt (includes live-findings monitoring instructions when archon is running)
 	prompt := buildAutonomousPrompt(cfg, archonCtx, archonRunning)
 
+	// Use medium effort for scan/deep archon modes, low otherwise.
+	effort := "low"
+	if cfg.Archon != nil {
+		switch cfg.Archon.EffectiveMode() {
+		case "scan", "deep":
+			effort = "medium"
+		}
+	}
+
 	autopilotSessionID := uuid.New().String()
 	opts := Options{
 		AgentName:    cfg.AgentName,
@@ -139,6 +155,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		Source:       "autopilot",
 		Autopilot:    true,
 		MaxCommands:  cfg.MaxCommands,
+		Effort:       effort,
 		StreamWriter: cfg.StreamWriter,
 		ScanUUID:     cfg.ScanUUID,
 		ProjectUUID:  cfg.ProjectUUID,
@@ -174,6 +191,11 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		_ = os.WriteFile(filepath.Join(cfg.SessionDir, "output.md"), []byte(agentResult.RawOutput), 0644)
 	}
 
+	// Wait for archon to finish before importing findings.
+	if archonCleanup != nil {
+		archonCleanup()
+	}
+
 	// Update archon findings count with final tally (archon may have produced
 	// more findings while the autonomous agent was running in parallel)
 	if archonRunning {
@@ -182,9 +204,169 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		}
 	}
 
+	// Import archon findings from the session directory into the database.
+	// The monitor goroutine attempts this too, but context cancellation or
+	// timing issues can cause that import to silently fail. SaveFindingDirect
+	// uses hash-based dedup so double-imports are harmless.
+	if archonRunning && r.repo != nil && cfg.SessionDir != "" {
+		stats := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID)
+		result.ArchonFindingsCount = stats.parsed
+		if stats.parsed > 0 {
+			archonLogFn(fmt.Sprintf("imported %d findings (%d new, %d already existed)",
+				stats.parsed, stats.saved, stats.parsed-stats.saved))
+		}
+	}
+
+	// Print archon completion status after import is done.
+	if archonRunner != nil {
+		if status := archonRunner.Status(); status != nil {
+			archonLogFn(fmt.Sprintf("%d/%d phases completed (status: %s)",
+				status.CompletedPhases, status.TotalPhases, status.Status))
+		}
+	}
+
 	emitProgress(&cfg, "autopilot", "autonomous session completed")
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+type archonImportStats struct {
+	parsed int
+	saved  int
+}
+
+// importArchonFindings parses archon output from the session directory and saves
+// findings to the database. Uses context.Background() to avoid issues with
+// parent context cancellation.
+func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, scanUUID string) archonImportStats {
+	archonDir := filepath.Join(sessionDir, "archon-audit")
+
+	result, err := archon.ParseAuditFolder(archonDir)
+	if err != nil {
+		zap.L().Debug("Archon import: no findings to import", zap.Error(err))
+		return archonImportStats{}
+	}
+
+	auditID := ""
+	if len(result.State.Audits) > 0 {
+		auditID = result.State.Audits[0].AuditID
+	}
+
+	findings := archon.BuildFindings(result.RawFindings, auditID, "", projectUUID, result.RepoName)
+
+	ctx := context.Background()
+	var saved int
+	for _, f := range findings {
+		f.ScanUUID = scanUUID
+		if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
+			zap.L().Debug("Archon import: failed to save finding",
+				zap.String("module_id", f.ModuleID), zap.Error(err))
+			continue
+		}
+		if f.ID > 0 {
+			saved++
+		}
+	}
+
+	if saved > 0 {
+		zap.L().Info("Imported archon findings",
+			zap.Int("parsed", len(findings)),
+			zap.Int("saved", saved))
+	}
+
+	return archonImportStats{parsed: len(findings), saved: saved}
+}
+
+// runMockMode writes a sample audit-state.json with a mock finding and returns
+// immediately. No subprocess is launched and no main agent runs.
+func (r *AutopilotPipelineRunner) runMockMode(cfg AutopilotPipelineConfig, result *AutopilotPipelineResult, start time.Time) (*AutopilotPipelineResult, error) {
+	printPhaseLine("mock", "writing sample audit-state.json (no agent launched)")
+
+	archonDir := filepath.Join(cfg.SessionDir, "archon-audit")
+	if err := os.MkdirAll(archonDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mock: failed to create archon-audit dir: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Resolve git metadata from source path (best-effort)
+	commit, branch, repository := resolveGitMeta(cfg.SourcePath)
+
+	mockState := map[string]interface{}{
+		"audits": []map[string]interface{}{
+			{
+				"audit_id":     now,
+				"commit":       commit,
+				"branch":       branch,
+				"repository":   repository,
+				"mode":         "mock",
+				"model":        "none",
+				"agent_sdk":    "none",
+				"started_at":   now,
+				"completed_at": now,
+				"status":       "complete",
+				"phases": map[string]interface{}{
+					"mock": map[string]interface{}{
+						"status":       "complete",
+						"completed_at": now,
+						"summary":      "Mock mode — sample output, no agent executed",
+					},
+				},
+			},
+		},
+	}
+
+	data, err := json.MarshalIndent(mockState, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("mock: failed to marshal audit-state: %w", err)
+	}
+
+	statePath := filepath.Join(archonDir, "audit-state.json")
+	if err := os.WriteFile(statePath, data, 0o644); err != nil {
+		return nil, fmt.Errorf("mock: failed to write audit-state.json: %w", err)
+	}
+
+	printPhaseLine("mock", "sample audit-state.json written to "+statePath)
+	result.Duration = time.Since(start)
+	return result, nil
+}
+
+// resolveGitMeta extracts commit SHA, branch, and repository name from a source
+// directory. Returns empty strings on failure (best-effort).
+func resolveGitMeta(sourceDir string) (commit, branch, repository string) {
+	if sourceDir == "" {
+		return "", "", ""
+	}
+	run := func(args ...string) string {
+		cmd := exec.CommandContext(context.Background(), "git", args...)
+		cmd.Dir = sourceDir
+		out, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	commit = run("rev-parse", "HEAD")
+	branch = run("branch", "--show-current")
+
+	remote := run("remote", "get-url", "origin")
+	if remote != "" {
+		// Extract org/repo from URL: strip scheme+host or git@ prefix, drop .git suffix
+		repo := remote
+		if idx := strings.Index(repo, "://"); idx >= 0 {
+			repo = repo[idx+3:]
+			if si := strings.Index(repo, "/"); si >= 0 {
+				repo = repo[si+1:]
+			}
+		} else if idx := strings.Index(repo, ":"); idx >= 0 {
+			repo = repo[idx+1:]
+		}
+		repo = strings.TrimSuffix(repo, ".git")
+		repository = repo
+	} else {
+		repository = filepath.Base(sourceDir)
+	}
+	return
 }
 
 // loadArchonContext loads archon findings and knowledge base from the session directory.

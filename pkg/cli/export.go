@@ -16,12 +16,14 @@ import (
 )
 
 var (
-	topExportFormat string
-	topExportOutput string
-	topExportOnly   []string
-	topExportLite   bool
-	topExportSearch string
-	topExportLimit  int
+	topExportFormat  string
+	topExportOutput  string
+	topExportOnly    []string
+	topExportExclude []string
+	topExportLite    bool
+	topExportSearch  string
+	topExportLimit   int
+	topExportTitle   string
 )
 
 // validExportTypes lists all accepted --only values.
@@ -45,6 +47,10 @@ func init() {
 		"Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources")
 	exportCmd.Flags().IntVar(&topExportLimit, "limit", 0,
 		"Maximum number of records to export per table (0 = unlimited)")
+	exportCmd.Flags().StringSliceVar(&topExportExclude, "exclude", []string{"module"},
+		"Exclude items by type (comma-separated, e.g. module,scan)")
+	exportCmd.Flags().StringVar(&topExportTitle, "title", "",
+		"Custom title for the HTML report (default: \"Vigolium Static Report\")")
 }
 
 // shouldExport returns true if the given data type should be included in the export.
@@ -123,8 +129,12 @@ func runExportHTML() error {
 		return err
 	}
 
+	title := "Vigolium Static Report"
+	if topExportTitle != "" {
+		title = topExportTitle
+	}
 	meta := output.HTMLReportMeta{
-		Title:        "Vigolium Static Report",
+		Title:        title,
 		Version:      getVersion(),
 		ScanDuration: computeScanDuration(ctx, db),
 	}
@@ -387,6 +397,22 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 				items = append(items, exportEnvelope{Type: "scope", Data: s})
 			}
 		}
+	}
+
+	// Apply --exclude filter
+	if len(topExportExclude) > 0 {
+		excludeSet := make(map[string]bool, len(topExportExclude))
+		for _, e := range topExportExclude {
+			excludeSet[strings.ToLower(strings.TrimSpace(e))] = true
+		}
+		filtered := items[:0]
+		for _, item := range items {
+			if env, ok := item.(exportEnvelope); ok && excludeSet[strings.ToLower(env.Type)] {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		items = filtered
 	}
 
 	return items, nil

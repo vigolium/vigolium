@@ -64,6 +64,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
          "audit_id": "<ISO timestamp>",
          "commit": "<HEAD SHA from: git rev-parse HEAD>",
          "branch": "<current branch>",
+         "repository": "<org/repo from: git remote get-url origin 2>/dev/null | sed 's|.*://[^/]*/||;s|.*:||;s|\\.git$||' — fallback: basename $(pwd)>",
          "mode": "scan",
          "model": "<model name, e.g. opus-4.6, gpt-5.3-codex, sonnet-4.6>",
          "agent_sdk": "<platform name, e.g. claude-code, codex, bytesec, opencode, traecli>",

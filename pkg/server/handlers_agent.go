@@ -180,9 +180,9 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 	}
 
 	// Validate archon_mode if provided
-	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "scan" && mode != "deep" {
+	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "scan" && mode != "deep" && mode != "mock" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, scan, or deep", mode),
+			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, scan, deep, or mock", mode),
 		})
 	}
 

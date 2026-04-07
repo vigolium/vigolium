@@ -81,67 +81,7 @@ ansible-playbook -i inventory.ini your-playbook.yml
 
 ### 5. Deploy vigolium with Ansible
 
-The repo includes a full Ansible deployment setup at `build/infra/`. You can run it against the testbed containers to test the deployment pipeline end-to-end.
-
-**Prerequisites:**
-
-```bash
-# Install Ansible and required collections
-brew install ansible
-ansible-galaxy collection install community.general ansible.posix
-
-# Build the Linux binary (cross-compile from macOS)
-make build-linux
-```
-
-**Run the scanner-only playbook:**
-
-```bash
-cd build/infra
-
-# Deploy to Ubuntu testbed (port 2222)
-ansible-playbook playbook-scanner.yml \
-  -i "localhost:2222," \
-  -u deploy \
-  --private-key ../../test/ssh-testbed/keys/testbed_key \
-  -e vault_vigolium_api_key="test-api-key" \
-  -e ansible_ssh_common_args='-o StrictHostKeyChecking=no' \
-  -e install_codeql=false \
-  -e install_claude_code=false
-
-# Deploy to Debian testbed (port 2223)
-ansible-playbook playbook-scanner.yml \
-  -i "localhost:2223," \
-  -u deploy \
-  --private-key ../../test/ssh-testbed/keys/testbed_key \
-  -e vault_vigolium_api_key="test-api-key" \
-  -e ansible_ssh_common_args='-o StrictHostKeyChecking=no' \
-  -e install_codeql=false \
-  -e install_claude_code=false
-```
-
-> The trailing comma after the host is required — it tells Ansible this is a host, not a file path.
-
-**Skip heavy dependencies** to speed things up:
-
-```bash
--e install_codeql=false       # ~2 GB CodeQL bundle
--e install_semgrep=false      # Python + semgrep + ast-grep
--e install_claude_code=false  # Bun + Claude Code CLI
--e install_chromium=false     # Chromium for headless crawling
-```
-
-**Verify the deployment:**
-
-```bash
-ssh -i test/ssh-testbed/keys/testbed_key -p 2222 deploy@localhost
-
-# On the container:
-systemctl status vigolium
-curl -s -H "Authorization: Bearer test-api-key" http://localhost:9002/health
-```
-
-See `build/infra/DEPLOY-SCANNER-SIMPLE.md` for the full deployment guide.
+The Ansible deployment setup lives in the separate [vigolium-infra](https://github.com/vigolium/vigolium-infra) repo. Clone it and run against the testbed containers to test the deployment pipeline end-to-end. See the vigolium-infra README for full instructions.
 
 ### 6. Run scans
 

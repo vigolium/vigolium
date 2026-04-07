@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -96,9 +97,8 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 			cmdLine.WriteString(a)
 		}
 	}
-	printPhaseLine("archon", "cmd: "+cmdLine.String())
-
 	zap.L().Debug("starting background archon-audit",
+		zap.String("cmd", cmdLine.String()),
 		zap.String("platform", platform),
 		zap.String("plugin_dir", pluginDir),
 		zap.String("mode", r.cfg.Mode),
@@ -190,14 +190,83 @@ func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *s
 
 	// Save raw output
 	if r.cfg.SessionDir != "" {
-		outputPath := filepath.Join(r.cfg.SessionDir, "archon-audit-output.txt")
-		if writeErr := os.WriteFile(outputPath, output.Bytes(), 0o644); writeErr != nil {
-			zap.L().Debug("Failed to save archon audit output", zap.Error(writeErr))
+		outputPath := filepath.Join(r.cfg.SessionDir, "archon-audit-output.md")
+		rawOutput := output.Bytes()
+
+		// If stdout buffer is empty (process killed before --print flushed),
+		// fall back to reading key archon output files from the synced session dir.
+		if len(rawOutput) == 0 {
+			rawOutput = r.collectFallbackOutput()
+		}
+
+		if len(rawOutput) > 0 {
+			if writeErr := os.WriteFile(outputPath, rawOutput, 0o644); writeErr != nil {
+				zap.L().Debug("Failed to save archon audit output", zap.Error(writeErr))
+			}
 		}
 	}
 
 	// Update AgentRun as completed/failed
 	r.finalizeAgentRun(ctx, err)
+}
+
+// collectFallbackOutput reads key archon output files from the synced session
+// directory and concatenates them. Used when the process was killed before
+// stdout was flushed (e.g. --print mode with early cancellation).
+func (r *AuditAgentRunner) collectFallbackOutput() []byte {
+	archonDir := filepath.Join(r.cfg.SessionDir, "archon-audit")
+
+	// Ordered list of output files to try, covering lite through deep modes.
+	candidates := []string{
+		"lite-recon.md",
+		"commit-recon-report.md",
+		"knowledge-base-report.md",
+		"enrichment-report.md",
+		"spec-gap-report.md",
+		"advisory-report.md",
+		"final-audit-report.md",
+	}
+
+	var parts [][]byte
+	for _, name := range candidates {
+		data, err := os.ReadFile(filepath.Join(archonDir, name))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		header := fmt.Sprintf("# %s\n\n", strings.TrimSuffix(name, ".md"))
+		parts = append(parts, []byte(header))
+		parts = append(parts, data)
+		parts = append(parts, []byte("\n\n---\n\n"))
+	}
+
+	// List finding files if any exist.
+	findingsDir := filepath.Join(archonDir, "findings-draft")
+	if entries, err := os.ReadDir(findingsDir); err == nil {
+		var findingNames []string
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				findingNames = append(findingNames, e.Name())
+			}
+		}
+		if len(findingNames) > 0 {
+			sort.Strings(findingNames)
+			summary := fmt.Sprintf("# Findings Draft\n\n%d finding files produced:\n", len(findingNames))
+			for _, name := range findingNames {
+				summary += fmt.Sprintf("- %s\n", name)
+			}
+			parts = append(parts, []byte(summary))
+		}
+	}
+
+	if len(parts) == 0 {
+		return nil
+	}
+
+	var buf []byte
+	for _, p := range parts {
+		buf = append(buf, p...)
+	}
+	return buf
 }
 
 func (r *AuditAgentRunner) syncLoop(ctx context.Context) {
@@ -675,9 +744,6 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 			runner.Cancel()
 			<-runner.Done()
 		}
-		if status := runner.Status(); status != nil && logFn != nil {
-			logFn(fmt.Sprintf("%d/%d phases completed (status: %s)", status.CompletedPhases, status.TotalPhases, status.Status))
-		}
 	}
 	return runner, cleanup
 }
@@ -721,7 +787,7 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 // isValidArchonMode returns true for recognized archon audit modes.
 func isValidArchonMode(mode string) bool {
 	switch mode {
-	case "lite", "scan", "deep":
+	case "lite", "scan", "deep", "mock":
 		return true
 	default:
 		return false

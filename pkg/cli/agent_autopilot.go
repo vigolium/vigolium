@@ -109,7 +109,7 @@ func init() {
 	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to agent sessions")
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
 	f.BoolVar(&autopilotNoArchon, "no-archon", false, "Disable automatic archon-audit (enabled by default when --source is set)")
-	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), or deep (11-phase)")
+	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), deep (11-phase), or mock (sample output, no agent)")
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")

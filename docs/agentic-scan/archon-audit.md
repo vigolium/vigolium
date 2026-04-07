@@ -327,7 +327,7 @@ Archon-audit writes output to the source directory under `archon/`, which is syn
 │   ├── final-audit-report.md
 │   ├── attack-pattern-registry.json
 │   └── ...
-├── archon-audit-output.txt           # Raw Claude Code process output
+├── archon-audit-output.md            # Raw Claude Code process output
 ├── output.md                         # Main agent output
 ├── skills/
 │   └── vigolium-scanner/

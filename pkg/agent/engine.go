@@ -238,7 +238,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			if sdkCfg.MaxTurns <= 0 {
 				sdkCfg.MaxTurns = 300
 			}
-			sdkCfg.Effort = "high"
+			sdkCfg.Effort = "low"
+			if opts.Effort != "" {
+				sdkCfg.Effort = opts.Effort
+			}
 
 			// Inject vigolium toolkit reference — written to CLAUDE.md/AGENTS.md in
 			// session dir to avoid passing multi-KB --append-system-prompt CLI arg.

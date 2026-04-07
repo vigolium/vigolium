@@ -59,6 +59,7 @@ type Options struct {
 	// Autopilot mode
 	Autopilot     bool   // enable autonomous scanning
 	MaxCommands   int    // max agent turns (0 = default 100)
+	Effort        string // SDK effort level override (e.g. "low", "medium", "high"); empty = default
 	SessionWeight int    `json:"-"` // session weight for pool scheduling (0 = default)
 	SessionDir    string `json:"-"` // session directory for artifacts (SDK: CLAUDE.md written here for system prompt)
 

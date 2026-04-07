@@ -1,9 +1,0 @@
----
-- name: Reload systemd
-  ansible.builtin.systemd:
-    daemon_reload: true
-
-- name: Restart vigolium
-  ansible.builtin.systemd:
-    name: vigolium
-    state: restarted
