@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Mail, Github, KeyRound } from 'lucide-react';
+import { Mail, Github, KeyRound, ShieldOff } from 'lucide-react';
 import Layout from './Layout';
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -16,14 +16,18 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+interface AuthGatePageProps {
+  ssoDisabled?: boolean;
+}
+
 type AuthTab = 'sso' | 'access-code';
 
-export default function AuthGatePage() {
+export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps) {
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('return_to') || '/select-project';
   const signInUrl = `/api/auth/signin?return_to=${encodeURIComponent(returnTo)}`;
 
-  const [activeTab, setActiveTab] = useState<AuthTab>('sso');
+  const [activeTab, setActiveTab] = useState<AuthTab>(ssoDisabled ? 'access-code' : 'sso');
   const [accessCode, setAccessCode] = useState('');
   const [accessEmail, setAccessEmail] = useState('');
   const [accessError, setAccessError] = useState('');
@@ -120,34 +124,44 @@ export default function AuthGatePage() {
 
             <div className="p-5">
               {activeTab === 'sso' ? (
-                <>
-                  <p className="text-[var(--v-text-muted)] text-xs mb-4">select a provider to continue</p>
-                  <div className="flex gap-2">
-                    <a
-                      href={signInUrl}
-                      className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-accent)]/50 hover:bg-[var(--v-accent)]/5 hover:text-[var(--v-text)]"
-                    >
-                      <Mail className="w-4 h-4 text-[var(--v-accent)]" />
-                      <span>Email</span>
-                    </a>
-
-                    <a
-                      href={signInUrl}
-                      className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-secondary)]/50 hover:bg-[var(--v-secondary)]/5 hover:text-[var(--v-text)]"
-                    >
-                      <GoogleIcon className="w-4 h-4 text-[var(--v-secondary)]" />
-                      <span>Google</span>
-                    </a>
-
-                    <a
-                      href={signInUrl}
-                      className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-tertiary)]/50 hover:bg-[var(--v-tertiary)]/5 hover:text-[var(--v-text)]"
-                    >
-                      <Github className="w-4 h-4 text-[var(--v-tertiary)]" />
-                      <span>GitHub</span>
-                    </a>
+                ssoDisabled ? (
+                  <div className="flex flex-col items-center gap-3 py-4 text-center">
+                    <ShieldOff className="w-6 h-6 text-[var(--v-text-muted)]" />
+                    <p className="text-[var(--v-text-muted)] text-xs leading-relaxed">
+                      SSO login has been disabled by the administrator.<br />
+                      Use the <button type="button" onClick={() => setActiveTab('access-code')} className="text-[var(--v-accent)] hover:underline">access code</button> tab to sign in.
+                    </p>
                   </div>
-                </>
+                ) : (
+                  <>
+                    <p className="text-[var(--v-text-muted)] text-xs mb-4">select a provider to continue</p>
+                    <div className="flex gap-2">
+                      <a
+                        href={signInUrl}
+                        className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-accent)]/50 hover:bg-[var(--v-accent)]/5 hover:text-[var(--v-text)]"
+                      >
+                        <Mail className="w-4 h-4 text-[var(--v-accent)]" />
+                        <span>Email</span>
+                      </a>
+
+                      <a
+                        href={signInUrl}
+                        className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-secondary)]/50 hover:bg-[var(--v-secondary)]/5 hover:text-[var(--v-text)]"
+                      >
+                        <GoogleIcon className="w-4 h-4 text-[var(--v-secondary)]" />
+                        <span>Google</span>
+                      </a>
+
+                      <a
+                        href={signInUrl}
+                        className="flex-1 flex flex-col items-center gap-2 px-3 py-3 border border-[var(--v-border)] bg-[var(--v-surface)] text-[10px] text-[var(--v-text-muted)] transition-all duration-150 hover:border-[var(--v-tertiary)]/50 hover:bg-[var(--v-tertiary)]/5 hover:text-[var(--v-text)]"
+                      >
+                        <Github className="w-4 h-4 text-[var(--v-tertiary)]" />
+                        <span>GitHub</span>
+                      </a>
+                    </div>
+                  </>
+                )
               ) : (
                 <form onSubmit={handleAccessCodeSubmit}>
                   <p className="text-[var(--v-text-muted)] text-xs mb-4">enter your access code and email</p>

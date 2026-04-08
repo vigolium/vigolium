@@ -8,5 +8,5 @@ var StaticFS embed.FS
 //go:embed vigolium-configs.example.yaml
 var DefaultConfigYAML []byte
 
-//go:embed default-users.json
-var DefaultUsersJSON []byte
+//go:embed workbench-users.json
+var WorkbenchUsersJSON []byte

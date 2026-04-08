@@ -19,6 +19,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [configIssues, setConfigIssues] = useState<ConfigIssue[] | null>(null);
   const [configOk, setConfigOk] = useState<boolean | null>(null);
+  const [ssoDisabled, setSsoDisabled] = useState(false);
 
   useEffect(() => {
     // Static mode uses AuthGate in layout, not a separate login page
@@ -33,6 +34,7 @@ export default function LoginPage() {
       .then((data) => {
         setConfigOk(data.ok);
         setConfigIssues(data.issues || []);
+        setSsoDisabled(data.ssoDisabled ?? false);
       })
       .catch(() => {
         // If config-check itself fails, assume config is broken
@@ -51,5 +53,5 @@ export default function LoginPage() {
   // Still loading config check — show nothing briefly
   if (configOk === null) return null;
 
-  return themeId === 'dark' ? <DarkAuthGate /> : <LightAuthGate />;
+  return themeId === 'dark' ? <DarkAuthGate ssoDisabled={ssoDisabled} /> : <LightAuthGate ssoDisabled={ssoDisabled} />;
 }

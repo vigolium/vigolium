@@ -12,7 +12,7 @@ export interface AccessCodeEntry {
 
 function loadAccessCodes(): AccessCodeEntry[] {
   const filePath =
-    process.env.ACCESS_CODES_PATH || join(process.cwd(), 'config/access-codes.json');
+    process.env.CONSOLE_USERS_PATH || join(process.cwd(), 'config/console-users.json');
   try {
     const raw = readFileSync(filePath, 'utf-8');
     return JSON.parse(raw) as AccessCodeEntry[];

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Mail, Github, KeyRound } from 'lucide-react';
+import { Mail, Github, KeyRound, ShieldOff } from 'lucide-react';
 import Layout from './Layout';
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -16,14 +16,18 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
+interface AuthGatePageProps {
+  ssoDisabled?: boolean;
+}
+
 type AuthTab = 'sso' | 'access-code';
 
-export default function AuthGatePage() {
+export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps) {
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('return_to') || '/select-project';
   const signInUrl = `/api/auth/signin?return_to=${encodeURIComponent(returnTo)}`;
 
-  const [activeTab, setActiveTab] = useState<AuthTab>('sso');
+  const [activeTab, setActiveTab] = useState<AuthTab>(ssoDisabled ? 'access-code' : 'sso');
   const [accessCode, setAccessCode] = useState('');
   const [accessEmail, setAccessEmail] = useState('');
   const [accessError, setAccessError] = useState('');
@@ -124,74 +128,84 @@ export default function AuthGatePage() {
 
             <div className="p-6">
               {activeTab === 'sso' ? (
-                <div className="space-y-3">
-                  <p className="text-xs text-center mb-4" style={{ color: 'var(--v-secondary)' }}>
-                    Select a provider to continue
-                  </p>
+                ssoDisabled ? (
+                  <div className="flex flex-col items-center gap-3 py-4 text-center">
+                    <ShieldOff className="w-6 h-6" style={{ color: 'var(--v-text-muted)' }} />
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--v-text-muted)' }}>
+                      SSO login has been disabled by the administrator.<br />
+                      Use the <button type="button" onClick={() => setActiveTab('access-code')} className="hover:underline" style={{ color: 'var(--v-accent)' }}>access code</button> tab to sign in.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-center mb-4" style={{ color: 'var(--v-secondary)' }}>
+                      Select a provider to continue
+                    </p>
 
-                  <a
-                    href={signInUrl}
-                    className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
-                    style={{
-                      backgroundColor: 'rgba(46, 139, 87, 0.06)',
-                      borderColor: 'rgba(46, 139, 87, 0.3)',
-                      color: '#2e8b57',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(46, 139, 87, 0.12)';
-                      e.currentTarget.style.borderColor = '#2e8b57';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(46, 139, 87, 0.06)';
-                      e.currentTarget.style.borderColor = 'rgba(46, 139, 87, 0.3)';
-                    }}
-                  >
-                    <Mail className="w-4 h-4 flex-shrink-0" />
-                    <span>Sign in with Email</span>
-                  </a>
+                    <a
+                      href={signInUrl}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
+                      style={{
+                        backgroundColor: 'rgba(46, 139, 87, 0.06)',
+                        borderColor: 'rgba(46, 139, 87, 0.3)',
+                        color: '#2e8b57',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(46, 139, 87, 0.12)';
+                        e.currentTarget.style.borderColor = '#2e8b57';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(46, 139, 87, 0.06)';
+                        e.currentTarget.style.borderColor = 'rgba(46, 139, 87, 0.3)';
+                      }}
+                    >
+                      <Mail className="w-4 h-4 flex-shrink-0" />
+                      <span>Sign in with Email</span>
+                    </a>
 
-                  <a
-                    href={signInUrl}
-                    className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
-                    style={{
-                      backgroundColor: 'rgba(66, 133, 244, 0.06)',
-                      borderColor: 'rgba(66, 133, 244, 0.3)',
-                      color: '#4285f4',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(66, 133, 244, 0.12)';
-                      e.currentTarget.style.borderColor = '#4285f4';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(66, 133, 244, 0.06)';
-                      e.currentTarget.style.borderColor = 'rgba(66, 133, 244, 0.3)';
-                    }}
-                  >
-                    <GoogleIcon className="w-4 h-4 flex-shrink-0" />
-                    <span>Sign in with Google</span>
-                  </a>
+                    <a
+                      href={signInUrl}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
+                      style={{
+                        backgroundColor: 'rgba(66, 133, 244, 0.06)',
+                        borderColor: 'rgba(66, 133, 244, 0.3)',
+                        color: '#4285f4',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(66, 133, 244, 0.12)';
+                        e.currentTarget.style.borderColor = '#4285f4';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(66, 133, 244, 0.06)';
+                        e.currentTarget.style.borderColor = 'rgba(66, 133, 244, 0.3)';
+                      }}
+                    >
+                      <GoogleIcon className="w-4 h-4 flex-shrink-0" />
+                      <span>Sign in with Google</span>
+                    </a>
 
-                  <a
-                    href={signInUrl}
-                    className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
-                    style={{
-                      backgroundColor: 'rgba(36, 41, 46, 0.06)',
-                      borderColor: 'rgba(36, 41, 46, 0.25)',
-                      color: '#24292e',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(36, 41, 46, 0.12)';
-                      e.currentTarget.style.borderColor = '#24292e';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(36, 41, 46, 0.06)';
-                      e.currentTarget.style.borderColor = 'rgba(36, 41, 46, 0.25)';
-                    }}
-                  >
-                    <Github className="w-4 h-4 flex-shrink-0" />
-                    <span>Sign in with GitHub</span>
-                  </a>
-                </div>
+                    <a
+                      href={signInUrl}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 border rounded text-xs font-medium transition-all duration-200"
+                      style={{
+                        backgroundColor: 'rgba(36, 41, 46, 0.06)',
+                        borderColor: 'rgba(36, 41, 46, 0.25)',
+                        color: '#24292e',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(36, 41, 46, 0.12)';
+                        e.currentTarget.style.borderColor = '#24292e';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(36, 41, 46, 0.06)';
+                        e.currentTarget.style.borderColor = 'rgba(36, 41, 46, 0.25)';
+                      }}
+                    >
+                      <Github className="w-4 h-4 flex-shrink-0" />
+                      <span>Sign in with GitHub</span>
+                    </a>
+                  </div>
+                )
               ) : (
                 <form onSubmit={handleAccessCodeSubmit}>
                   <p className="text-xs mb-4" style={{ color: 'var(--v-text-muted)' }}>

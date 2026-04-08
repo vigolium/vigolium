@@ -12,20 +12,31 @@ export interface EnvIssue {
 export interface EnvCheckResult {
   ok: boolean;
   issues: EnvIssue[];
+  ssoDisabled: boolean;
+}
+
+/** SSO is disabled when explicitly set OR when WorkOS keys are missing. */
+export function isSSODisabled(): boolean {
+  if (process.env.VIGOLIUM_DISABLE_SSO === 'true') return true;
+  return !process.env.WORKOS_API_KEY || !process.env.WORKOS_CLIENT_ID;
 }
 
 export function checkCloudEnv(): EnvCheckResult {
   const issues: EnvIssue[] = [];
+  const ssoDisabled = isSSODisabled();
 
-  // WorkOS — required for auth in cloud mode
+  // WorkOS — required for SSO auth. When SSO is disabled (explicitly or by missing keys),
+  // downgrade to warnings so the login page still renders with access-code auth.
+  const workOSSeverity: EnvIssue['severity'] = ssoDisabled ? 'warning' : 'error';
+  const workOSSuffix = ssoDisabled ? ' SSO login is disabled; access-code login is available.' : '';
   if (!process.env.WORKOS_API_KEY) {
-    issues.push({ key: 'WORKOS_API_KEY', severity: 'error', message: 'WorkOS API key is missing — authentication will not work.' });
+    issues.push({ key: 'WORKOS_API_KEY', severity: workOSSeverity, message: `WorkOS API key is missing — SSO authentication will not work.${workOSSuffix}` });
   }
   if (!process.env.WORKOS_CLIENT_ID) {
-    issues.push({ key: 'WORKOS_CLIENT_ID', severity: 'error', message: 'WorkOS client ID is missing — authentication will not work.' });
+    issues.push({ key: 'WORKOS_CLIENT_ID', severity: workOSSeverity, message: `WorkOS client ID is missing — SSO authentication will not work.${workOSSuffix}` });
   }
   if (!process.env.WORKOS_COOKIE_PASSWORD) {
-    issues.push({ key: 'WORKOS_COOKIE_PASSWORD', severity: 'error', message: 'WorkOS cookie password is missing — session encryption will fail.' });
+    issues.push({ key: 'WORKOS_COOKIE_PASSWORD', severity: workOSSeverity, message: `WorkOS cookie password is missing — session encryption will fail.${workOSSuffix}` });
   }
 
   // Stripe — required for billing
@@ -44,5 +55,5 @@ export function checkCloudEnv(): EnvCheckResult {
   }
 
   const hasError = issues.some((i) => i.severity === 'error');
-  return { ok: !hasError, issues };
+  return { ok: !hasError, issues, ssoDisabled };
 }

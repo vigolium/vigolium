@@ -188,7 +188,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	// Bootstrap from embedded default template on first run.
 	var userStore *server.UserStore
 	usersFilePath := config.ExpandPath(settings.Server.UsersFile)
-	if created, err := server.BootstrapUsersFile(usersFilePath, public.DefaultUsersJSON); err != nil {
+	if created, err := server.BootstrapUsersFile(usersFilePath, public.WorkbenchUsersJSON); err != nil {
 		zap.L().Warn("Failed to bootstrap users file", zap.Error(err))
 	} else if created && !globalSilent {
 		fmt.Printf("  %s Created default users file at %s\n",
