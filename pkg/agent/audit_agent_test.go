@@ -274,14 +274,13 @@ func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 	if !foundAllowed {
 		t.Error("expected --allowedTools in claude args")
 	}
-	// Slash command must NOT be in args (piped via stdin)
-	for _, a := range args {
-		if a == "-p" {
-			t.Error("-p flag should not be in claude args; slash command should be piped via stdin")
-		}
+	// Skill command should be the last positional arg (not piped via stdin)
+	lastArg := args[len(args)-1]
+	if lastArg != "/archon-audit:archon:deep" {
+		t.Errorf("expected last arg = /archon-audit:archon:deep, got %q", lastArg)
 	}
-	if stdinPrompt != "/archon-audit:archon:deep" {
-		t.Errorf("expected stdinPrompt = /archon-audit:archon:deep, got %q", stdinPrompt)
+	if stdinPrompt != "" {
+		t.Errorf("expected empty stdinPrompt, got %q", stdinPrompt)
 	}
 }
 

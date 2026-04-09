@@ -671,8 +671,8 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binar
 			"--dangerously-skip-permissions",
 			"--plugin-dir", pluginDir,
 			"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
+			command,
 		}
-		stdinPrompt = command
 	}
 
 	return binary, args, stdinPrompt, nil
