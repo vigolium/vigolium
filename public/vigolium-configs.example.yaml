@@ -1080,11 +1080,8 @@ external_harvester:
 # Each agent is an external command that receives a prompt on stdin
 # and returns structured results.
 #
-# Communication protocol:
-#   "pipe" (default) — pipe prompt to stdin, capture stdout
-#   "acp"            — Agent Client Protocol (JSON-RPC over stdio),
-#                      enables streaming progress, permission handling,
-#                      and structured session management
+# Communication protocols: "sdk", "codex-sdk", "opencode-sdk", "pipe" (default).
+# See the backends section below for details on each protocol.
 #
 # Manage agent runs at runtime:
 #   POST /api/agent/run/query      — single-shot prompt execution
@@ -1169,12 +1166,12 @@ agent:
   # --------------------------------------------------------------------------
   # MCP Server Configuration
   # --------------------------------------------------------------------------
-  # Attach Model Context Protocol (MCP) servers to ACP agent sessions.
+  # Attach Model Context Protocol (MCP) servers to agent sessions.
   # MCP servers provide tools (e.g., Playwright browser, file search, databases)
   # that the agent can invoke during execution.
   #
   # When mcp_enabled is true, the global mcp_servers listed here are attached
-  # to all ACP sessions (merged with any per-backend mcp_servers).
+  # to all agent sessions (merged with any per-backend mcp_servers).
   # Per-backend servers take precedence on name collision.
   #
   # Can also be enabled per-run with the --mcp-enabled flag in autopilot mode.
@@ -1199,9 +1196,9 @@ agent:
     #   url: http://localhost:8080/mcp
 
   # --------------------------------------------------------------------------
-  # Warm Session Pooling (ACP)
+  # Warm Session Pooling
   # --------------------------------------------------------------------------
-  # Keep ACP agent subprocesses alive between runs to avoid cold-start latency.
+  # Keep agent subprocesses alive between runs to avoid cold-start latency.
   # When enabled, after an agent run completes the subprocess stays warm in a
   # pool and is reused for subsequent runs with the same agent backend.
   warm_session:
@@ -1306,71 +1303,34 @@ agent:
   # Agent Backend Definitions
   # --------------------------------------------------------------------------
   # Each entry defines an external command that acts as an AI agent.
-  # Set "protocol" to "sdk", "acp", or "pipe" (default is "pipe" if omitted).
+  # Set "protocol" to "sdk", "codex-sdk", "opencode-sdk", or "pipe" (default).
   #
   # Protocol comparison:
-  #   sdk:  Claude Agent SDK (JSON-lines). Full CLI tools (Read, Grep, Glob, Bash,
-  #         Edit, Write). Best output quality. Requires "claude" CLI in PATH.
-  #   acp:  Agent Communication Protocol. Only provides ReadTextFile tool access.
-  #         Supports warm session pooling and terminal/autopilot mode.
-  #   pipe: Simple stdin/stdout. Prompt piped to stdin, output captured from stdout.
+  #   sdk:          Claude Agent SDK (JSON-lines). Full CLI tools (Read, Grep, Glob,
+  #                 Bash, Edit, Write). Best output quality. Requires "claude" CLI.
+  #   codex-sdk:    Codex native JSON-RPC v2. Requires "codex" CLI in PATH.
+  #   opencode-sdk: OpenCode REST API + SSE streaming. Requires "opencode" CLI.
+  #   pipe:         Simple stdin/stdout. Prompt piped to stdin, output from stdout.
   #
   # Model injection per provider (the "model" field works automatically):
   #   Claude (sdk): passed via SDK Options.Model
-  #   Claude (acp): SetSessionModel ACP extension after session creation
   #   Gemini:       injected as "-m <model>" CLI arg
   #   OpenCode:     injected via OPENCODE_CONFIG_CONTENT env var
   #   Codex:        injected as "--model <model>" CLI arg
   #   Cursor:       injected as "--model <model>" CLI arg
   #
-  # Claude ACP uses "session_meta" (ACP _meta passthrough) for thinking, effort, tools.
   # OpenCode uses "provider_config" for thinking, permissions, custom API.
   backends:
 
     # ── Claude Code (SDK — recommended, default) ────────────────────
     # Uses the Claude Agent SDK (JSON-lines protocol) for full CLI tool access.
-    # Provides Read, Grep, Glob, Bash, Edit, Write — all standard Claude Code
-    # tools. Much higher output quality than ACP (which only gets ReadTextFile).
+    # Provides Read, Grep, Glob, Bash, Edit, Write — all standard Claude Code tools.
     # Requires "claude" CLI in PATH.
     claude:
       command: claude
       description: "Anthropic Claude Code (SDK protocol)"
       protocol: sdk
       model: sonnet                    # "sonnet", "opus", "haiku", or full model ID
-      # Per-backend MCP servers (in addition to global mcp_servers when mcp_enabled is true).
-      # mcp_servers:
-      #   - name: playwright
-      #     command: npx
-      #     args: ["-y", "@anthropic-ai/mcp-server-playwright"]
-
-    # ── Claude Code (ACP) ──────────────────────────────────────────
-    # Requires Node.js/npx in PATH. npx auto-downloads the bridge on first run.
-    # NOTE: ACP only provides ReadTextFile — limited tool access compared to SDK.
-    claude-acp:
-      command: npx
-      args: ["-y", "@zed-industries/claude-agent-acp@latest"]
-      description: "Anthropic Claude Code (ACP)"
-      protocol: acp
-      model: sonnet                    # "sonnet", "opus", "haiku"
-      session_meta:
-        # system_prompt:
-        #   append: "Extra instructions appended to the system prompt"
-        claude_code:
-          options:
-            setting_sources: []          # ignore global Claude Code settings
-            prompt_suggestions: false    # no interactive prompt suggestions
-            thinking:
-              type: adaptive             # "adaptive" or "disabled"
-            effort: medium               # "low", "medium", or "high"
-            disallowed_tools:
-              - AskUserQuestion
-              - EnterWorktree
-              - EnterPlanMode
-              - ExitPlanMode
-              - "Bash(curl:*)"
-            extra_args:
-              permission-mode: bypassPermissions
-              dangerously-skip-permissions: ""
       # Per-backend MCP servers (in addition to global mcp_servers when mcp_enabled is true).
       # mcp_servers:
       #   - name: playwright
@@ -1403,41 +1363,14 @@ agent:
         # api_url: ""                  # custom OpenAI-compatible base URL
         # api_key: "${OPENCODE_API_KEY}"  # API key for custom providers
 
-    # ── OpenCode (ACP) ─────────────────────────────────────────────
-    # Model + options injected via OPENCODE_CONFIG_CONTENT env var.
-    opencode-acp:
-      command: opencode
-      args: ["acp"]
-      description: "OpenCode agent (ACP)"
-      protocol: acp
-      # model: "anthropic/claude-sonnet-4-5"
-      provider_config:
-        thinking:
-          enabled: false
-          budget_tokens: 16000
-        permission:
-          read: allow
-          edit: allow
-          write: allow
-          bash: allow
-
     # ── OpenCode (pipe mode) ───────────────────────────────────────
     opencode-cli:
       command: opencode
       args: ["run"]
       description: "OpenCode agent (pipe mode)"
 
-    # ── Gemini (ACP) ───────────────────────────────────────────────
-    # Model injected as: gemini -m <model> --experimental-acp
-    gemini:
-      command: gemini
-      args: ["--experimental-acp"]
-      description: "Google Gemini CLI (ACP)"
-      protocol: acp
-      # model: "gemini-2.5-pro"
-
     # ── Gemini (pipe mode) ─────────────────────────────────────────
-    gemini-cli:
+    gemini:
       command: gemini
       args: ["-p"]
       description: "Google Gemini CLI (pipe mode)"
@@ -1450,20 +1383,10 @@ agent:
       protocol: codex-sdk
       # model: "o3"
 
-    # ── Codex (ACP, legacy) ──────────────────────────────────────
-    # Model injected as: codex --model <model> app-server
-    codex-acp:
-      command: codex
-      args: ["app-server"]
-      description: "OpenAI Codex CLI (ACP, legacy)"
-      protocol: acp
-      # model: "o3"
-
-    # ── Cursor (ACP) ───────────────────────────────────────────────
-    # Model injected as: cursor --model <model> acp
+    # ── Cursor (pipe mode) ─────────────────────────────────────────
+    # Model injected as: cursor --model <model> -p
     cursor:
       command: cursor
-      args: ["acp"]
-      description: "Cursor AI editor (ACP)"
-      protocol: acp
+      args: ["-p"]
+      description: "Cursor AI editor (pipe mode)"
       # model: "claude-sonnet-4-5"

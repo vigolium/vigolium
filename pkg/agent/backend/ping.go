@@ -24,7 +24,7 @@ func Ping(ctx context.Context, agentDef config.AgentDef, cmdPath string) (string
 		// Claude Code CLI supports lightweight single-shot print mode.
 		return pingCLIPrint(ctx, cmdPath, agentDef.Env)
 	default:
-		// All other protocols (acp, codex-sdk, opencode-sdk, pipe) — use stdin/stdout.
+		// All other protocols (codex-sdk, opencode-sdk, pipe) — use stdin/stdout.
 		return pingPipe(ctx, agentDef)
 	}
 }

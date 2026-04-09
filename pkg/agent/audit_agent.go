@@ -81,7 +81,7 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 		}
 	}
 
-	binary, args, err := buildAuditAgentCommand(platform, pluginDir, r.cfg.Mode, r.cfg.SourcePath)
+	binary, args, stdinPrompt, err := buildAuditAgentCommand(platform, pluginDir, r.cfg.Mode, r.cfg.SourcePath)
 	if err != nil {
 		return err
 	}
@@ -107,6 +107,9 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if stdinPrompt != "" {
+		cmd.Stdin = strings.NewReader(stdinPrompt)
+	}
 
 	var outputBuf syncBuffer
 	if r.cfg.StreamWriter != nil {
@@ -628,12 +631,12 @@ func copyDir(src, dest string) {
 
 // buildAuditAgentCommand resolves the CLI binary and builds the argument list
 // for launching archon-audit on the given platform.
-func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binary string, args []string, err error) {
+func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binary string, args []string, stdinPrompt string, err error) {
 	switch platform {
 	case archon.PlatformCodex:
 		binary, err = exec.LookPath("codex")
 		if err != nil {
-			return "", nil, fmt.Errorf("codex CLI not found in PATH: %w", err)
+			return "", nil, "", fmt.Errorf("codex CLI not found in PATH: %w", err)
 		}
 		// Codex uses AGENTS.md dispatch — run with the audit skill prompt.
 		// The agents-dispatch.md is installed as AGENTS.md in pluginDir.
@@ -647,7 +650,7 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binar
 	case archon.PlatformOpenCode:
 		binary, err = exec.LookPath("opencode")
 		if err != nil {
-			return "", nil, fmt.Errorf("opencode CLI not found in PATH: %w", err)
+			return "", nil, "", fmt.Errorf("opencode CLI not found in PATH: %w", err)
 		}
 		// OpenCode uses the same plugin structure as Claude but with its own agent format.
 		command := "/archon-audit:archon:" + mode
@@ -660,18 +663,19 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binar
 	default: // PlatformClaude
 		binary, err = exec.LookPath("claude")
 		if err != nil {
-			return "", nil, fmt.Errorf("claude CLI not found in PATH: %w", err)
+			return "", nil, "", fmt.Errorf("claude CLI not found in PATH: %w", err)
 		}
 		command := "/archon-audit:archon:" + mode
 		args = []string{
 			"--print",
 			"--dangerously-skip-permissions",
 			"--plugin-dir", pluginDir,
-			"-p", command,
+			"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
 		}
+		stdinPrompt = command
 	}
 
-	return binary, args, nil
+	return binary, args, stdinPrompt, nil
 }
 
 // --- Public API ---

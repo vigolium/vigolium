@@ -1,6 +1,0 @@
-{"#select":{"columns":[
-   {"name":"src","kind":"Entity"}
-  ,{"kind":"String"}]
- ,"tuples":[
-   [{"label":"ControlFlowNode for event"},"Serverless event | fixtures/sam-app/hello_world/app.py:6"]]
- }}

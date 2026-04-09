@@ -2358,7 +2358,7 @@ The hash fragment is used to set innerHTML without encoding.`,
 			FindingCount: 2,
 			RecordCount:  18,
 			SavedCount:   2,
-			SessionID:    "acp-sess-a1b2c3d4",
+			SessionID:    "agent-sess-a1b2c3d4",
 			PromptSent:   "Test the API endpoint https://example.com/api/v1/products for SQL injection vulnerabilities. Use both error-based and time-based techniques.",
 			AgentRawOutput: `I'll systematically test the /api/v1/products endpoint for SQL injection.
 
@@ -2498,7 +2498,7 @@ AWS access key ID found: AKIAIOSFODNN7EXAMPLE (appears to be test/example key)`,
 			FindingCount: 2,
 			RecordCount:  12,
 			SavedCount:   2,
-			SessionID:    "acp-sess-e5f6g7h8",
+			SessionID:    "agent-sess-e5f6g7h8",
 			AgentRawOutput: `I'll test the authentication endpoint for common vulnerabilities.
 
 ## Step 1: Baseline request

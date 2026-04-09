@@ -1,1 +1,0 @@
-{"version":"1.156.0","results":[],"errors":[{"code":2,"level":"error","type":"SemgrepError","message":"Invalid scanning root: /Users/tuan.v.tran/AuditSource/grafana/pkg/services/alerting"}],"paths":{"scanned":[]},"engine_requested":"OSS","skipped_rules":[],"profiling_results":[]}

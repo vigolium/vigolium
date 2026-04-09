@@ -1,7 +1,0 @@
-paths-ignore:
-  - "**/.git/**"
-  - "**/build/**"
-  - "**/autodoc/**"
-  - "**/changelog/**"
-  - "**/.ci/**"
-  - "**/scripts/**"

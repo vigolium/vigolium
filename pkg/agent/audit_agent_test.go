@@ -250,7 +250,7 @@ func TestAuditAgentConfig_Platform(t *testing.T) {
 func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 	// This test only verifies the args structure, not that the binary exists.
 	// We skip if claude is not in PATH.
-	binary, args, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source")
+	binary, args, stdinPrompt, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source")
 	if err != nil {
 		t.Skipf("claude not in PATH: %v", err)
 	}
@@ -258,19 +258,35 @@ func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 		t.Error("expected non-empty binary")
 	}
 	// Check key args are present
-	found := false
+	foundPlugin := false
+	foundAllowed := false
 	for _, a := range args {
 		if a == "--plugin-dir" {
-			found = true
+			foundPlugin = true
+		}
+		if a == "--allowedTools" {
+			foundAllowed = true
 		}
 	}
-	if !found {
+	if !foundPlugin {
 		t.Error("expected --plugin-dir in claude args")
+	}
+	if !foundAllowed {
+		t.Error("expected --allowedTools in claude args")
+	}
+	// Slash command must NOT be in args (piped via stdin)
+	for _, a := range args {
+		if a == "-p" {
+			t.Error("-p flag should not be in claude args; slash command should be piped via stdin")
+		}
+	}
+	if stdinPrompt != "/archon-audit:archon:deep" {
+		t.Errorf("expected stdinPrompt = /archon-audit:archon:deep, got %q", stdinPrompt)
 	}
 }
 
 func TestBuildAuditAgentCommand_Codex(t *testing.T) {
-	binary, args, err := buildAuditAgentCommand("codex", "/tmp/plugin", "lite", "/tmp/source")
+	binary, args, _, err := buildAuditAgentCommand("codex", "/tmp/plugin", "lite", "/tmp/source")
 	if err != nil {
 		t.Skipf("codex not in PATH: %v", err)
 	}
@@ -289,7 +305,7 @@ func TestBuildAuditAgentCommand_Codex(t *testing.T) {
 }
 
 func TestBuildAuditAgentCommand_OpenCode(t *testing.T) {
-	binary, args, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source")
+	binary, args, _, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source")
 	if err != nil {
 		t.Skipf("opencode not in PATH: %v", err)
 	}

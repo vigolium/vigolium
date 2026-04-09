@@ -1,1 +1,0 @@
-{"version":"1.156.0","results":[],"errors":[{"code":2,"level":"error","type":"SemgrepError","message":"Inter-file analysis can only take a single target (for multiple files pass a directory)"}],"paths":{"scanned":[]},"engine_requested":"OSS","skipped_rules":[],"profiling_results":[]}
