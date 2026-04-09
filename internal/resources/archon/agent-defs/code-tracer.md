@@ -36,10 +36,10 @@ write and run a narrow QL query:
 ```bash
 codeql query run \
   --database=archon/codeql-artifacts/db/ \
-  --output=/tmp/on-demand.bqrs \
+  --output=archon/tmp/on-demand.bqrs \
   -- archon/codeql-queries/on-demand-<slug>.ql
 
-codeql bqrs decode --format=json /tmp/on-demand.bqrs
+codeql bqrs decode --format=json archon/tmp/on-demand.bqrs
 ```
 
 Store reusable queries at `archon/codeql-queries/on-demand-<slug>.ql`.

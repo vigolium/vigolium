@@ -410,6 +410,101 @@ func (db *DeleteBuilder) DeleteFindings(ctx context.Context, dryRun bool) (int64
 	return rowsAffected, nil
 }
 
+// cleanableTable defines a table that can be cleaned via `db clean --table`.
+type cleanableTable struct {
+	SQLName      string
+	CascadeFirst []string // tables to DELETE FROM before the main table
+}
+
+// AllowedCleanTables maps user-facing table names to their SQL table name
+// and any dependent tables that must be cleaned first.
+var AllowedCleanTables = map[string]cleanableTable{
+	"http_records":      {SQLName: "http_records", CascadeFirst: []string{"finding_records"}},
+	"findings":          {SQLName: "findings", CascadeFirst: []string{"finding_records"}},
+	"finding_records":   {SQLName: "finding_records"},
+	"scans":             {SQLName: "scans"},
+	"agent_runs":        {SQLName: "agent_runs"},
+	"oast_interactions":  {SQLName: "oast_interactions"},
+	"source_repos":      {SQLName: "source_repos"},
+	"scan_logs":         {SQLName: "scan_logs"},
+	"session_hostnames": {SQLName: "session_hostnames"},
+	"scopes":            {SQLName: "scopes"},
+}
+
+// DeleteTable deletes all rows from a specific table.
+func (db *DeleteBuilder) DeleteTable(ctx context.Context, tableName string, dryRun bool) (int64, error) {
+	entry, ok := AllowedCleanTables[tableName]
+	if !ok {
+		return 0, fmt.Errorf("table %q is not allowed for cleaning", tableName)
+	}
+
+	var count int64
+	if err := db.db.NewRaw("SELECT COUNT(*) FROM " + entry.SQLName).Scan(ctx, &count); err != nil {
+		return 0, fmt.Errorf("failed to count rows in %s: %w", entry.SQLName, err)
+	}
+
+	if dryRun || count == 0 {
+		return count, nil
+	}
+
+	for _, dep := range entry.CascadeFirst {
+		if _, err := db.db.ExecContext(ctx, "DELETE FROM "+dep); err != nil {
+			return 0, fmt.Errorf("failed to clean cascade table %s: %w", dep, err)
+		}
+	}
+
+	if _, err := db.db.ExecContext(ctx, "DELETE FROM "+entry.SQLName); err != nil {
+		return 0, fmt.Errorf("failed to delete from %s: %w", entry.SQLName, err)
+	}
+
+	return count, nil
+}
+
+// allTablesDeleteOrder is the deletion order respecting dependencies.
+var allTablesDeleteOrder = []string{
+	"finding_records",
+	"findings",
+	"http_records",
+	"oast_interactions",
+	"scan_logs",
+	"session_hostnames",
+	"agent_runs",
+	"source_repos",
+	"scopes",
+	"scans",
+}
+
+// DeleteAllTables deletes all data from every data table.
+func (db *DeleteBuilder) DeleteAllTables(ctx context.Context, dryRun bool) (map[string]int64, error) {
+	counts := make(map[string]int64, len(allTablesDeleteOrder))
+	for _, tbl := range allTablesDeleteOrder {
+		var count int64
+		if err := db.db.NewRaw("SELECT COUNT(*) FROM " + tbl).Scan(ctx, &count); err != nil {
+			return nil, fmt.Errorf("failed to count %s: %w", tbl, err)
+		}
+		counts[tbl] = count
+	}
+
+	if dryRun {
+		return counts, nil
+	}
+
+	for _, tbl := range allTablesDeleteOrder {
+		if counts[tbl] > 0 {
+			if _, err := db.db.ExecContext(ctx, "DELETE FROM "+tbl); err != nil {
+				return nil, fmt.Errorf("failed to delete from %s: %w", tbl, err)
+			}
+		}
+	}
+
+	return counts, nil
+}
+
+// AllTablesDeleteOrder returns the ordered list of cleanable table names.
+func AllTablesDeleteOrder() []string {
+	return allTablesDeleteOrder
+}
+
 // FindingsQueryBuilder builds filtered queries for the findings table
 type FindingsQueryBuilder struct {
 	db      *DB

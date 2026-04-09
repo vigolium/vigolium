@@ -11,11 +11,15 @@ import (
 
 // HarnessConfig represents a platform's frontmatter.yaml configuration.
 type HarnessConfig struct {
-	Format          string                    `yaml:"format"`
-	AgentNamePrefix string                    `yaml:"agent_name_prefix,omitempty"`
-	Defaults        map[string]any            `yaml:"defaults"`
-	Overrides       map[string]map[string]any `yaml:"overrides,omitempty"`
-	Exclude         []string                  `yaml:"exclude,omitempty"`
+	Format              string                    `yaml:"format"`
+	AgentNamePrefix     string                    `yaml:"agent_name_prefix,omitempty"`
+	DispatchFile        string                    `yaml:"dispatch_file,omitempty"`
+	SubagentPreamble    string                    `yaml:"subagent_preamble_file,omitempty"`
+	Defaults            map[string]any            `yaml:"defaults"`
+	SubagentDefaults    map[string]any            `yaml:"subagent_defaults,omitempty"`
+	Overrides           map[string]map[string]any `yaml:"overrides,omitempty"`
+	SubagentOverrides   map[string]map[string]any `yaml:"subagent_overrides,omitempty"`
+	Exclude             []string                  `yaml:"exclude,omitempty"`
 }
 
 // CanonicalAgent holds a parsed canonical agent .md file.

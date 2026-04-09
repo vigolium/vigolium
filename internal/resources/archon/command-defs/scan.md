@@ -188,7 +188,7 @@ Spawn a **single chamber** with 3 agents (not 4 — drop Code Tracer, Synthesize
 
 > **Chamber Synthesizer** (lead):
 > `subagent_type: "archon:chamber-synthesizer"`, `name: "chamber-synth-lite"`
-> Prompt: "SCAN MODE — You are the Synthesizer for a single lite Review Chamber. Threat cluster: ALL identified threats. NNN range: p8-001 to p8-049. State: archon/audit-state.json. Workspace: archon/chamber-workspace/lite-chamber/debate.md. Deep Probe pre-validated hypotheses: <list from probe-summary.md>. LITE RULES: (1) You perform code tracing yourself instead of delegating to a Code Tracer. (2) Max 2 debate rounds total (1 ideation+challenge round, 1 optional follow-up for ambiguous findings). (3) Your Ideator is ideator-lite, Advocate is advocate-lite. Use SendMessage to coordinate."
+> Prompt: "SCAN MODE — You are the Synthesizer for a single lite Review Chamber. Threat cluster: ALL identified threats. NNN range: s5-001 to s5-049. State: archon/audit-state.json. Workspace: archon/chamber-workspace/lite-chamber/debate.md. Deep Probe pre-validated hypotheses: <list from probe-summary.md>. LITE RULES: (1) You perform code tracing yourself instead of delegating to a Code Tracer. (2) Max 2 debate rounds total (1 ideation+challenge round, 1 optional follow-up for ambiguous findings). (3) Your Ideator is ideator-lite, Advocate is advocate-lite. Use SendMessage to coordinate."
 
 > **Attack Ideator**:
 > `subagent_type: "archon:attack-ideator"`, `name: "ideator-lite"`
@@ -200,13 +200,18 @@ Spawn a **single chamber** with 3 agents (not 4 — drop Code Tracer, Synthesize
 
 Wait for the chamber to close.
 
-**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to all `archon/findings-draft/p8-*.md` files with `Verdict: VALID`. Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for scan mode.
+**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to all `archon/findings-draft/s5-*.md` files with `Verdict: VALID`. Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for scan mode.
 
 Mark T5 complete.
 
 ### Phase L6: PoC Building + Report (T6)
 
-**Draft promotion**: Collect all `archon/findings-draft/` files with `Verdict: VALID`. Assign severity-prefixed IDs (`C1`, `H1`, `M1`). Drop all Low severity findings.
+**Draft promotion**: Collect all `archon/findings-draft/s5-*.md` files with `Verdict: VALID`. Assign severity-prefixed IDs (`C1`, `H1`, `M1`). Drop all Low severity findings.
+
+**Finding consolidation**: For each confirmed finding with assigned ID:
+1. `mkdir -p archon/findings/<ID>-<slug>/evidence/`
+2. Copy the finding draft: `cp archon/findings-draft/s5-<NNN>-<slug>.md archon/findings/<ID>-<slug>/draft.md`
+3. Read the `Debate:` field from the draft frontmatter. If it contains a path (e.g., `archon/chamber-workspace/lite-chamber/debate.md`), copy it: `cp <debate-path> archon/findings/<ID>-<slug>/debate.md 2>/dev/null`
 
 **PoC Building**: For each confirmed finding, spawn `archon:poc-builder` with `run_in_background: true`. Each receives: finding draft path and assigned ID.
 
@@ -215,6 +220,18 @@ Wait for all PoC builders.
 **Report Assembly**: Spawn `archon:report-assembler` (foreground) with the following additional instruction:
 
 > "SCAN MODE: This is a scan audit report. Add a note in the Executive Summary: 'This report was generated using scan audit mode. Phases skipped: commit archaeology, patch bypass analysis, spec gap analysis, variant analysis, and cold verification. For comprehensive coverage, run a full audit with /archon:deep.' Skip the chamber workspace appendix. Reduce consistency checks to: finding ID cross-reference and orphan detection only."
+
+**Post-audit cleanup**: After report-assembler completes and reports consistency checks passed, delete intermediate working artifacts:
+```bash
+rm -rf archon/findings-draft/
+rm -rf archon/probe-workspace/
+rm -rf archon/chamber-workspace/
+rm -rf archon/codeql-artifacts/
+rm -rf archon/codeql-queries/
+rm -rf archon/semgrep-rules/
+rm -rf archon/semgrep-res/
+```
+Retained: `archon/audit-state.json`, `archon/knowledge-base-report.md`, `archon/findings/`, `archon/final-audit-report.md`. If consistency checks failed, skip cleanup and report the failures to the user first.
 
 Mark T6 complete. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
 

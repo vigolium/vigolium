@@ -267,9 +267,38 @@ Wait for all variant hunters. Delete CodeQL database: `rm -rf archon/codeql-arti
 
 Draft promotion: collect all `archon/findings-draft/` files with `Verdict: VALID`. Assign severity-prefixed IDs (`C1`, `H1`, `M1`). Drop all Low severity findings.
 
+**Finding consolidation**: For each confirmed finding with assigned ID:
+1. `mkdir -p archon/findings/<ID>-<slug>/evidence/`
+2. Copy the finding draft: `cp archon/findings-draft/<phase>-<NNN>-<slug>.md archon/findings/<ID>-<slug>/draft.md`
+3. Copy the adversarial review if it exists: `cp archon/adversarial-reviews/<slug>-review.md archon/findings/<ID>-<slug>/adversarial-review.md 2>/dev/null`
+4. Read the `Debate:` field from the draft frontmatter. If it contains a path (e.g., `archon/chamber-workspace/<chamber-id>/debate.md`), copy it: `cp <debate-path> archon/findings/<ID>-<slug>/debate.md 2>/dev/null`
+5. For Phase 10 variant drafts (`p10-*` files): read `Origin-Finding` and `Origin-Pattern` fields from the draft. Resolve `Origin-Finding` to the promoted parent ID by matching the origin path against the assigned ID map. Write `archon/findings/<ID>-<slug>/metadata.json`:
+   ```json
+   {
+     "is_variant": true,
+     "origin_finding_id": "<promoted parent ID, e.g. H1>",
+     "origin_finding_draft": "<original Origin-Finding path>",
+     "origin_pattern": "<Origin-Pattern value>"
+   }
+   ```
+
 For each confirmed finding: spawn `archon:poc-builder` with `run_in_background: true`. Each receives: finding draft path and assigned ID.
 
 Wait for all PoC builders. Spawn `archon:report-assembler` (foreground) to produce `archon/final-audit-report.md`.
+
+**Post-audit cleanup**: After report-assembler completes and reports consistency checks passed, delete intermediate working artifacts:
+```bash
+rm -rf archon/findings-draft/
+rm -rf archon/adversarial-reviews/
+rm -rf archon/probe-workspace/
+rm -rf archon/chamber-workspace/
+rm -rf archon/codeql-artifacts/
+rm -rf archon/codeql-queries/
+rm -rf archon/semgrep-rules/
+rm -rf archon/semgrep-res/
+rm -f archon/attack-pattern-registry.json
+```
+Retained: `archon/audit-state.json`, `archon/knowledge-base-report.md`, `archon/findings/`, `archon/final-audit-report.md`. If consistency checks failed, skip cleanup and report the failures to the user first.
 
 Mark T11 complete. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
 
@@ -306,7 +335,7 @@ Phase 9 (P9-LITE): Stage 1 inline (fp-check). Stage 2: spawn cold verifier per C
 
 Phase 10: spawn one `archon:variant-hunter` per confirmed finding with `run_in_background: true`.
 
-Phase 11: spawn one `archon:poc-builder` per finding with `run_in_background: true`, then `archon:report-assembler` (foreground).
+Phase 11: perform finding consolidation (same steps as Swarm Mode Step 11 — create finding directories, copy drafts, adversarial reviews, debate transcripts, and variant metadata). Then spawn one `archon:poc-builder` per finding with `run_in_background: true`, then `archon:report-assembler` (foreground). After report assembly, run post-audit cleanup (same as Swarm Mode).
 
 **Parallelism in solo mode**:
 - After Phase 3: spawn Phase 4 (`archon:static-analyzer`), Phase 5 (probe team), and Phase 6 (`archon:spec-gap-analyst`) in a single message with `run_in_background: true`.

@@ -18,6 +18,8 @@ const (
 	PlatformClaude   = "claude"
 	PlatformCodex    = "codex"
 	PlatformOpenCode = "opencode"
+	PlatformByteSec  = "bytesec"
+	PlatformTraeCLI  = "traecli"
 )
 
 // ExtractArchonHarness extracts the embedded archon-audit content (agents, commands,
@@ -201,8 +203,8 @@ func installExtras(baseDir, platform string) error {
 		return installClaudeExtras(baseDir)
 	case PlatformCodex:
 		return installCodexExtras(baseDir)
-	case PlatformOpenCode:
-		// OpenCode has no special extras beyond agents/commands/skills.
+	case PlatformOpenCode, PlatformByteSec, PlatformTraeCLI:
+		// These platforms have no special extras beyond agents/commands/skills.
 		return nil
 	default:
 		return installClaudeExtras(baseDir)
@@ -224,8 +226,9 @@ func installClaudeExtras(baseDir string) error {
 	return os.WriteFile(filepath.Join(pluginDir, "plugin.json"), pluginJSON, 0o644)
 }
 
-// installCodexExtras writes the AGENTS.md dispatch block for the Codex platform.
-// Codex uses a central AGENTS.md file to route audit phases to typed subagents.
+// installCodexExtras writes the AGENTS.md dispatch block and subagent preamble
+// for the Codex platform. Codex uses a central AGENTS.md file to route audit
+// phases to typed subagents, and a subagent-preamble.md for output chunking rules.
 func installCodexExtras(baseDir string) error {
 	dispatchData, err := archonres.HarnessesFS.ReadFile("harnesses/codex/agents-dispatch.md")
 	if err != nil {
@@ -234,7 +237,20 @@ func installCodexExtras(baseDir string) error {
 
 	content := RenameStrings(string(dispatchData))
 	destFile := filepath.Join(baseDir, "AGENTS.md")
-	return os.WriteFile(destFile, []byte(content), 0o644)
+	if err := os.WriteFile(destFile, []byte(content), 0o644); err != nil {
+		return err
+	}
+
+	// Extract subagent preamble if present (used for output chunking instructions).
+	preambleData, err := archonres.HarnessesFS.ReadFile("harnesses/codex/subagent-preamble.md")
+	if err == nil {
+		preambleDest := filepath.Join(baseDir, "subagent-preamble.md")
+		if err := os.WriteFile(preambleDest, preambleData, 0o644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // embeddedArchonHash computes a hash of a representative embedded file

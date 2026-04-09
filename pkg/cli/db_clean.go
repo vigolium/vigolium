@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,9 +30,9 @@ var (
 	cleanStatus   []int
 	cleanSeverity string
 	cleanDryRun   bool
-	cleanVacuum   bool
 	cleanOrphans  bool
 	cleanFindings bool
+	cleanTable    string
 )
 
 func init() {
@@ -45,11 +46,11 @@ func init() {
 	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level")
 
 	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be deleted without deleting")
-	dbCleanCmd.Flags().BoolVar(&cleanVacuum, "vacuum", false, "Reclaim disk space after deletion (SQLite)")
 
 	dbCleanCmd.Flags().BoolVar(&cleanOrphans, "orphans", false, "Delete findings with no matching HTTP record")
 
 	dbCleanCmd.Flags().BoolVar(&cleanFindings, "findings-only", false, "Delete findings only, keep HTTP records")
+	dbCleanCmd.Flags().StringVar(&cleanTable, "table", "", "Delete all rows from a specific table (e.g., http_records, findings, scans)")
 }
 
 func runDBClean(cmd *cobra.Command, args []string) error {
@@ -57,7 +58,7 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 
 	// When --force is used without any filter flags, delete the database file and recreate it
 	noFilters := !cleanAll && cleanHost == "" && cleanScanUUID == "" && cleanBefore == "" &&
-		len(cleanStatus) == 0 && cleanSeverity == "" && !cleanOrphans && !cleanFindings
+		len(cleanStatus) == 0 && cleanSeverity == "" && !cleanOrphans && !cleanFindings && cleanTable == ""
 	if globalForce && noFilters {
 		return resetDatabase()
 	}
@@ -75,6 +76,17 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 
 	if cleanFindings {
 		return cleanFindingsOnly(ctx, db)
+	}
+
+	if cleanTable != "" {
+		return cleanSpecificTable(ctx, db)
+	}
+
+	if cleanAll {
+		if !globalForce {
+			return fmt.Errorf("--all requires --force flag for safety")
+		}
+		return cleanAllTables(ctx, db)
 	}
 
 	// Build filters
@@ -100,13 +112,6 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 		SearchTerm:  dbSearch,
 	}
 
-	if cleanAll {
-		if !globalForce {
-			return fmt.Errorf("--all requires --force flag for safety")
-		}
-		filters = database.QueryFilters{}
-	}
-
 	delBuilder := database.NewDeleteBuilder(db, filters)
 
 	count, err := delBuilder.DeleteRecords(ctx, true)
@@ -120,9 +125,6 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 	}
 
 	msg := fmt.Sprintf("This will delete %d record(s)", count)
-	if cleanAll {
-		msg += " (ALL RECORDS)"
-	}
 	if cleanHost != "" {
 		msg += fmt.Sprintf(" from host: %s", cleanHost)
 	}
@@ -160,14 +162,101 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%s %s\n", terminal.SuccessSymbol(), terminal.Green(fmt.Sprintf("Deleted %d record(s) successfully.", deleted)))
 
-	if cleanVacuum && db.Driver() == "sqlite" {
-		fmt.Printf("\n%s Running VACUUM to reclaim disk space...\n", terminal.InfoSymbol())
-		if _, err := db.ExecContext(ctx, "VACUUM"); err != nil {
-			return fmt.Errorf("failed to run VACUUM: %w", err)
+	runVacuum(ctx, db)
+	return nil
+}
+
+func cleanSpecificTable(ctx context.Context, db *database.DB) error {
+	if _, ok := database.AllowedCleanTables[cleanTable]; !ok {
+		allowed := make([]string, 0, len(database.AllowedCleanTables))
+		for k := range database.AllowedCleanTables {
+			allowed = append(allowed, k)
 		}
-		fmt.Printf("%s %s\n", terminal.SuccessSymbol(), terminal.Green("VACUUM completed successfully."))
+		sort.Strings(allowed)
+		return fmt.Errorf("table %q is not allowed for cleaning. Allowed tables: %s", cleanTable, strings.Join(allowed, ", "))
 	}
 
+	delBuilder := database.NewDeleteBuilder(db, database.QueryFilters{})
+	count, err := delBuilder.DeleteTable(ctx, cleanTable, true)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		fmt.Printf("%s Table %q is already empty.\n", terminal.InfoSymbol(), cleanTable)
+		return nil
+	}
+
+	fmt.Printf("%s %s\n", terminal.WarningSymbol(),
+		terminal.Yellow(fmt.Sprintf("This will delete %d row(s) from table %q.", count, cleanTable)))
+
+	if cleanDryRun {
+		fmt.Printf("\n%s Dry-run mode: No records were deleted.\n", terminal.InfoSymbol())
+		return nil
+	}
+
+	if !globalForce {
+		fmt.Print("\nProceed? (type 'yes' to confirm): ")
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		if strings.TrimSpace(strings.ToLower(response)) != "yes" {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	deleted, err := delBuilder.DeleteTable(ctx, cleanTable, false)
+	if err != nil {
+		return fmt.Errorf("failed to clean table %q: %w", cleanTable, err)
+	}
+
+	fmt.Printf("\n%s %s\n", terminal.SuccessSymbol(),
+		terminal.Green(fmt.Sprintf("Deleted %d row(s) from table %q.", deleted, cleanTable)))
+
+	runVacuum(ctx, db)
+	return nil
+}
+
+func cleanAllTables(ctx context.Context, db *database.DB) error {
+	delBuilder := database.NewDeleteBuilder(db, database.QueryFilters{})
+	counts, err := delBuilder.DeleteAllTables(ctx, true)
+	if err != nil {
+		return fmt.Errorf("failed to count records: %w", err)
+	}
+
+	var total int64
+	for _, c := range counts {
+		total += c
+	}
+
+	if total == 0 {
+		fmt.Printf("%s All data tables are already empty.\n", terminal.InfoSymbol())
+		return nil
+	}
+
+	fmt.Printf("%s %s\n", terminal.WarningSymbol(),
+		terminal.Yellow("This will delete ALL data from the following tables:"))
+	for _, tbl := range database.AllTablesDeleteOrder() {
+		if c := counts[tbl]; c > 0 {
+			fmt.Printf("  - %-20s %d row(s)\n", tbl, c)
+		}
+	}
+	fmt.Printf("  %s Total: %d row(s)\n", terminal.InfoSymbol(), total)
+
+	if cleanDryRun {
+		fmt.Printf("\n%s Dry-run mode: No records were deleted.\n", terminal.InfoSymbol())
+		return nil
+	}
+
+	_, err = delBuilder.DeleteAllTables(ctx, false)
+	if err != nil {
+		return fmt.Errorf("failed to delete all records: %w", err)
+	}
+
+	fmt.Printf("\n%s %s\n", terminal.SuccessSymbol(),
+		terminal.Green(fmt.Sprintf("Deleted %d row(s) from all data tables.", total)))
+
+	runVacuum(ctx, db)
 	return nil
 }
 
@@ -273,6 +362,19 @@ func cleanFindingsOnly(ctx context.Context, db *database.DB) error {
 	deleted, _ := result.RowsAffected()
 	fmt.Printf("%s %s\n", terminal.SuccessSymbol(), terminal.Green(fmt.Sprintf("Deleted %d finding(s) successfully.", deleted)))
 	return nil
+}
+
+// runVacuum reclaims disk space after deletion. Only applies to SQLite.
+func runVacuum(ctx context.Context, db *database.DB) {
+	if db.Driver() != "sqlite" {
+		return
+	}
+	fmt.Printf("%s Running VACUUM to reclaim disk space...\n", terminal.InfoSymbol())
+	if _, err := db.ExecContext(ctx, "VACUUM"); err != nil {
+		zap.L().Warn("VACUUM failed", zap.Error(err))
+		return
+	}
+	fmt.Printf("%s %s\n", terminal.SuccessSymbol(), terminal.Green("VACUUM completed."))
 }
 
 // resetDatabase deletes the SQLite database file and recreates it with a fresh schema.

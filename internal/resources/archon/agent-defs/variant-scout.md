@@ -35,9 +35,9 @@ If a detection signature exists in the attack pattern registry, run it:
 ```bash
 codeql query run \
   --database=archon/codeql-artifacts/db/ \
-  --output=/tmp/variant-search.bqrs \
+  --output=archon/tmp/variant-search.bqrs \
   -- archon/codeql-queries/on-demand-variant-<slug>.ql
-codeql bqrs decode --format=json /tmp/variant-search.bqrs
+codeql bqrs decode --format=json archon/tmp/variant-search.bqrs
 ```
 
 ### 3. Sibling Component Check

@@ -220,17 +220,24 @@ check_existing_installation() {
 	fi
 
 	if [[ -n "$existing_binary" ]]; then
-		local old_version=""
-		local old_build=""
-		# Try to get the current version
-		old_version=$("$existing_binary" version 2>/dev/null | grep 'Version:' || echo "")
-		old_build=$("$existing_binary" version 2>/dev/null | grep 'Build:' || echo "")
+		warn "Detected existing vigolium installation at $existing_binary"
 
-		if [[ -n "$old_version" && -n "$old_build" ]]; then
-			warn "Detected existing vigolium installation at $existing_binary (${old_version} - ${old_build})"
-		else
-			warn "Detected existing vigolium installation at $existing_binary"
+		# Try to get current version info
+		local version_output
+		version_output=$("$existing_binary" version 2>/dev/null || true)
+		if [[ -n "$version_output" ]]; then
+			local old_version old_build old_commit
+			old_version=$(echo "$version_output" | grep 'Version:' || true)
+			old_build=$(echo "$version_output" | grep 'Build:' || true)
+			old_commit=$(echo "$version_output" | grep 'Commit:' || true)
+			if [[ -n "$old_version" || -n "$old_build" || -n "$old_commit" ]]; then
+				log "Existing binary info:"
+				[[ -n "$old_version" ]] && echo -e "  ${YELLOW}${old_version}${NC}"
+				[[ -n "$old_build" ]] && echo -e "  ${YELLOW}${old_build}${NC}"
+				[[ -n "$old_commit" ]] && echo -e "  ${YELLOW}${old_commit}${NC}"
+			fi
 		fi
+
 		log "Will replace with the new version..."
 	fi
 }

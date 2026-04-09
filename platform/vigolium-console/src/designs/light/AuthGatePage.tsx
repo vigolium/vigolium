@@ -291,6 +291,8 @@ export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps)
               <a href="https://vigolium.com" target="_blank" rel="noopener noreferrer" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[website]</a>
               <span>·</span>
               <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[docs]</a>
+              <span>·</span>
+              <a href="/showcases" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[showcases]</a>
             </div>
           </div>
         </div>

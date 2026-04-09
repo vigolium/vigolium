@@ -107,6 +107,9 @@ self.__SERVER_FILES_MANIFEST={
       }
     },
     "outputFileTracingRoot": "/Users/j3ssie/Desktop/external/vigolium/platform/vigolium-console",
+    "allowedDevOrigins": [
+      "host.docker.internal"
+    ],
     "cacheComponents": false,
     "cacheLife": {
       "default": {

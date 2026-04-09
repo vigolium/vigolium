@@ -1,23 +1,35 @@
 format: toml
 agent_name_prefix: "archon:"
+dispatch_file: "agents-dispatch.md"
+subagent_preamble_file: "subagent-preamble.md"
 defaults:
-  model: "gpt-5.3-codex"
+  model: "gpt-5.4"
   model_reasoning_effort: "medium"
   sandbox_mode: "workspace-write"
 
-overrides:
+subagent_defaults:
+  model: "gpt-5.4"
+  model_reasoning_effort: "medium"
+  sandbox_mode: "workspace-write"
+
+subagent_overrides:
   static-analyzer:
     sandbox_mode: "danger-full-access"
 
-# Agents present in the full 23-agent roster but absent from codex (17 toml files).
+# Agents absent from codex's current installed roster.
 # Codex has: advisory-hunter, attack-ideator, backward-reasoner, chamber-synthesizer,
 #   code-tracer, devils-advocate, enrichment-filter, evidence-harvester,
 #   knowledge-base-builder, patch-bypass-checker, poc-builder, probe-strategist,
 #   report-assembler, spec-gap-analyst, static-analyzer, variant-hunter, variant-scout
 exclude:
+  - confirm-reporter
   - code-anatomist
   - cold-verifier
   - commit-archaeologist
   - contradiction-reasoner
   - causal-verifier
   - deep-auditor
+  - env-detective
+  - env-provisioner
+  - poc-executor
+  - test-mapper

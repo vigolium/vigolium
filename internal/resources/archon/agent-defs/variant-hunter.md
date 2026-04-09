@@ -34,9 +34,9 @@ Write and run a CodeQL query that searches for the same AST-level structure:
 ```bash
 codeql query run \
   --database=archon/codeql-artifacts/db/ \
-  --output=/tmp/variant.bqrs \
+  --output=archon/tmp/variant.bqrs \
   -- archon/codeql-queries/variant-<slug>.ql
-codeql bqrs decode --format=json /tmp/variant.bqrs
+codeql bqrs decode --format=json archon/tmp/variant.bqrs
 ```
 
 ### 3. Flow Shape Search

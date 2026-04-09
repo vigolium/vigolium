@@ -35,6 +35,9 @@ CLI_PKG=github.com/vigolium/vigolium/pkg/cli
 LDFLAGS=-ldflags "-s -w -X $(CLI_PKG).Version=$(VERSION) -X $(CLI_PKG).Commit=$(COMMIT_HASH) -X $(CLI_PKG).BuildTime=$(BUILD_TIME)"
 INGESTOR_LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT_HASH) -X main.buildTime=$(BUILD_TIME)"
 
+# R2 CDN prefix for release uploads
+R2_PREFIX=vigolium-e3171d5bbee2aba698f96aa21568933e
+
 # Default target
 all: build
 
@@ -582,19 +585,20 @@ release:
 		--exclude='.env.local' \
 		.
 	@echo "$(PREFIX) Cleaning old files on R2..."
-	@mc rm --recursive --force r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/ || true
+	@mc rm --recursive --force r2/vigolium-dist/$(R2_PREFIX)/ || true
 	@echo "$(PREFIX) Uploading to R2..."
-	mc cp build/dist/*.tar.gz r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
-	mc cp build/dist/checksums.txt r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
-	mc cp build/scripts/install.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
-	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/dist/*.tar.gz r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/dist/checksums.txt r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/dist/metadata.json r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(R2_PREFIX)/
 	@echo "$(PREFIX) Release uploaded successfully!"
 
 # Sync scripts to R2 CDN without rebuilding
 cdn-sync:
 	@echo "$(PREFIX) Syncing scripts to R2 CDN..."
-	mc cp build/scripts/install.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
-	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(CLOUDFLARE_R2_VIGOLIUM_PREFIX)/
+	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(R2_PREFIX)/
 	@echo "$(PREFIX) CDN sync complete"
 
 # Clean build artifacts

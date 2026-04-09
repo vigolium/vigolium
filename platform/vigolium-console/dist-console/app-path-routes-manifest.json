@@ -38,6 +38,8 @@
   "/scope/page": "/scope",
   "/select-project/page": "/select-project",
   "/settings/[[...tab]]/page": "/settings/[[...tab]]",
+  "/showcases/[slug]/route": "/showcases/[slug]",
+  "/showcases/route": "/showcases",
   "/source-repos/[[...id]]/page": "/source-repos/[[...id]]",
   "/team/page": "/team",
   "/unauthorized/page": "/unauthorized"

@@ -141,8 +141,7 @@ func runExportHTML() error {
 	if err := output.GenerateHTMLReport(items, topExportOutput, meta); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "%s HTML report written to %s (%d records)\n",
-		terminal.InfoSymbol(), terminal.Cyan(topExportOutput), len(items))
+	printExportStats("html", topExportOutput, items)
 	return nil
 }
 
@@ -209,11 +208,39 @@ func runExportJSONL() error {
 		}
 	}
 
-	if topExportOutput != "" {
-		fmt.Fprintf(os.Stderr, "%s JSONL written to %s (%d records)\n",
-			terminal.InfoSymbol(), terminal.Cyan(topExportOutput), len(items))
-	}
+	printExportStats("jsonl", topExportOutput, items)
 	return nil
+}
+
+func printExportStats(format, outputPath string, items []any) {
+	counts := make(map[string]int)
+	for _, item := range items {
+		if env, ok := item.(exportEnvelope); ok {
+			counts[env.Type]++
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%s Export summary (format: %s)\n", terminal.InfoSymbol(), terminal.Cyan(format))
+	if outputPath != "" {
+		fmt.Fprintf(os.Stderr, "  Output: %s\n", terminal.Cyan(outputPath))
+	}
+
+	// Print counts in a stable order
+	typeOrder := []struct{ key, label string }{
+		{"http_record", "HTTP records"},
+		{"finding", "Findings"},
+		{"scan", "Scans"},
+		{"module", "Modules"},
+		{"oast_interaction", "OAST interactions"},
+		{"source_repo", "Source repos"},
+		{"scope", "Scopes"},
+	}
+	for _, t := range typeOrder {
+		if c, ok := counts[t.key]; ok && c > 0 {
+			fmt.Fprintf(os.Stderr, "  %-20s %d\n", t.label, c)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Total", len(items))
 }
 
 // queryExportData queries all enabled tables and returns a slice of exportEnvelope

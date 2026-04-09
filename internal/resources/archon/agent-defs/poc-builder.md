@@ -20,13 +20,15 @@ Read the finding draft. Extract:
 - Attacker starting position and required capabilities
 - Reproduction steps (from the draft or debate transcript)
 
-### 2. Create Finding Directory
+### 2. Verify Finding Directory
 
-```bash
-mkdir -p archon/findings/<ID>-<slug>/evidence/
-```
+The orchestrator has already created `archon/findings/<ID>-<slug>/` during draft promotion and populated it with:
+- `draft.md` — the original finding draft
+- `adversarial-review.md` — cold verification review (if exists, deep mode only)
+- `debate.md` — chamber debate transcript (if exists)
+- `metadata.json` — variant provenance (for Phase 10 variant findings only)
 
-Copy the finding draft as the basis for the final report.
+Verify the directory exists. If missing, create it: `mkdir -p archon/findings/<ID>-<slug>/evidence/`
 
 ### 3. Build the PoC Script
 

@@ -29,6 +29,7 @@ const workosMiddleware = hasWorkOSKeys
           '/api/github/callback',
           '/api/config-check',
           '/unauthorized',
+          '/showcases',
         ],
       },
     })
@@ -41,6 +42,11 @@ export default async function proxy(req: NextRequest) {
 
   // Allow config-check endpoint through without auth so the UI can detect missing config
   if (req.nextUrl.pathname === '/api/config-check' || req.nextUrl.pathname === '/api/config-check/') {
+    return NextResponse.next();
+  }
+
+  // Allow showcases routes through without auth (key-gated server-side)
+  if (req.nextUrl.pathname.startsWith('/showcases')) {
     return NextResponse.next();
   }
 

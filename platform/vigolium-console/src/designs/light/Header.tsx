@@ -62,7 +62,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
             {isStaticBuild ? '> VIGOLIUM' : '> VIGOLIUM CLOUD CONSOLE'}
           </span>
           {isStaticBuild && serverInfo && (
-            <span className="hidden sm:inline" style={{ color: 'var(--v-text-muted)' }}>[<span style={{ color: '#ff8c00' }}>open-source</span> {serverInfo.version}]</span>
+            <span className="hidden sm:inline" style={{ color: 'var(--v-text-muted)' }}>[<span style={{ color: '#ff8c00' }}>workbench</span> {serverInfo.version}]</span>
           )}
           <div className="relative" ref={dropdownRef}>
             <button

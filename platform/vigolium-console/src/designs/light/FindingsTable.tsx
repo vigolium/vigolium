@@ -36,6 +36,50 @@ function DateRenderer({ value }: { value: string }) {
   return <span className="text-xs text-[#708e8e]">{formatDate(value)}</span>;
 }
 
+const HASH_COLORS = [
+  '#00845a', // green
+  '#0068b8', // blue
+  '#c04600', // orange
+  '#8839b0', // purple
+  '#007a7a', // teal
+  '#c02040', // red
+  '#a06000', // amber
+  '#4a8c00', // olive
+  '#9050d0', // violet
+  '#2878c0', // sky
+];
+
+function hashColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return HASH_COLORS[Math.abs(hash) % HASH_COLORS.length];
+}
+
+function RepoNameRenderer({ value }: { value: string }) {
+  if (!value) return null;
+  return (
+    <span className="text-xs font-medium" style={{ color: hashColor(value) }}>
+      {value}
+    </span>
+  );
+}
+
+function TagsRenderer({ value }: { value: string[] }) {
+  if (!value || value.length === 0) return null;
+  return (
+    <span className="text-xs">
+      {value.map((tag, i) => (
+        <span key={tag}>
+          {i > 0 && <span className="text-[#708e8e]">, </span>}
+          <span style={{ color: hashColor(tag) }}>{tag}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function FindingsTable() {
   const [params, setParams] = useState<FindingsQueryParams>({
     limit: PAGE_SIZE,
@@ -63,7 +107,7 @@ export default function FindingsTable() {
       { field: 'module_name', headerName: 'MODULE', flex: 1, minWidth: 140 },
       { field: 'module_type', headerName: 'TYPE', width: 80 },
       { field: 'finding_source', headerName: 'SOURCE', width: 120 },
-      { field: 'repo_name', headerName: 'REPO', width: 140 },
+      { field: 'repo_name', headerName: 'REPO', width: 140, cellRenderer: RepoNameRenderer },
       { field: 'source_file', headerName: 'FILE', width: 160 },
       { field: 'description', headerName: 'DESCRIPTION', flex: 2, minWidth: 180 },
       {
@@ -77,7 +121,7 @@ export default function FindingsTable() {
         field: 'tags',
         headerName: 'TAGS',
         width: 120,
-        valueFormatter: (p) => (p.value as string[])?.join(', ') || '',
+        cellRenderer: TagsRenderer,
       },
       { field: 'found_at', headerName: 'TIME', width: 120, cellRenderer: DateRenderer },
     ],

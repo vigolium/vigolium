@@ -407,6 +407,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/showcases/[slug]/route.cloud.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/showcases/[slug]">> = Specific
+  const handler = {} as typeof import("../../src/app/showcases/[slug]/route.cloud.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/showcases/route.cloud.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/showcases">> = Specific
+  const handler = {} as typeof import("../../src/app/showcases/route.cloud.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 
 
 

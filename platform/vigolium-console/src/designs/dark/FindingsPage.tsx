@@ -149,6 +149,42 @@ function DateRenderer({ value }: { value: string }) {
   return <span className="text-xs text-[#918175]">{formatDate(value)}</span>;
 }
 
+const HASH_COLORS = [
+  '#7fd962', '#68a8e4', '#e4a868', '#c678dd', '#56b6c2',
+  '#e06c75', '#d19a66', '#98c379', '#e5c07b', '#61afef',
+];
+
+function hashColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return HASH_COLORS[Math.abs(hash) % HASH_COLORS.length];
+}
+
+function RepoNameRenderer({ value }: { value: string }) {
+  if (!value) return null;
+  return (
+    <span className="text-xs font-medium" style={{ color: hashColor(value) }}>
+      {value}
+    </span>
+  );
+}
+
+function TagsRenderer({ value }: { value: string[] }) {
+  if (!value || value.length === 0) return null;
+  return (
+    <span className="text-xs">
+      {value.map((tag, i) => (
+        <span key={tag}>
+          {i > 0 && <span className="text-[#918175]">, </span>}
+          <span style={{ color: hashColor(tag) }}>{tag}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function FindingsPage({ initialId }: { initialId?: number | null }) {
   const [params, setParams] = useState<FindingsQueryParams>({
     limit: PAGE_SIZE,
@@ -227,11 +263,11 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
         field: 'tags',
         headerName: 'TAGS',
         width: 140,
-        valueFormatter: (p) => (p.value as string[])?.join(', ') || '',
+        cellRenderer: TagsRenderer,
       },
       { field: 'scan_uuid', headerName: 'SCAN_ID', width: 100 },
       { field: 'finding_source', headerName: 'SOURCE', width: 120 },
-      { field: 'repo_name', headerName: 'REPO', width: 140 },
+      { field: 'repo_name', headerName: 'REPO', width: 140, cellRenderer: RepoNameRenderer },
       { field: 'source_file', headerName: 'FILE', width: 160 },
       { field: 'found_at', headerName: 'TIME', width: 120, cellRenderer: DateRenderer },
     ],

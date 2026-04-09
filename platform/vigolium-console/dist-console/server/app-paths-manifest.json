@@ -38,6 +38,8 @@
   "/scope/page": "app/scope/page.js",
   "/select-project/page": "app/select-project/page.js",
   "/settings/[[...tab]]/page": "app/settings/[[...tab]]/page.js",
+  "/showcases/[slug]/route": "app/showcases/[slug]/route.js",
+  "/showcases/route": "app/showcases/route.js",
   "/source-repos/[[...id]]/page": "app/source-repos/[[...id]]/page.js",
   "/team/page": "app/team/page.js",
   "/unauthorized/page": "app/unauthorized/page.js"

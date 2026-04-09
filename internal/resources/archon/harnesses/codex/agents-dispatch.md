@@ -8,9 +8,11 @@ The user's prompt specifies the audit mode. Follow EXACTLY one pipeline:
 - **"Full deep mode"** or **"all 10 phases"** → use **Full 10-Phase Audit** below
 - **"Scan mode: L1-L6"** → use **Scan/Lite Audit Mode** (6 phases) below
 - **"Lite mode: Q0-Q2"** → use **Scan/Lite Audit Mode** (6 phases) below
+- **"Confirm mode"** or **"confirm findings"** → use **Confirmation Mode** (6 phases V1-V6) below
 - If no mode is specified → default to **Full 10-Phase Audit**
 
 Do NOT use the lite/scan pipeline when the user requests a full or deep audit.
+Do NOT use the confirmation pipeline unless the user explicitly requests confirmation/verification of existing findings.
 
 ## SpawnAgent Rules (CRITICAL — prevents truncation errors)
 
@@ -100,7 +102,7 @@ If `archon/audit-state.json` exists, ask the user before proceeding:
 
 1. Create or checkout the `audit` branch: `git checkout audit 2>/dev/null || git checkout -b audit`
 2. `mkdir -p archon/`
-3. Initialize `archon/audit-state.json` — append a new entry with `"mode": "full"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, and phases P1–P10 set to `pending`. Never remove earlier entries.
+3. Initialize `archon/audit-state.json` — append a new entry with `"mode": "full"`, `"repository": "<org/repo or folder name>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, and phases P1–P10 set to `pending`. Never remove earlier entries. Derive `repository` from `git remote get-url origin` (strip host prefix), falling back to `basename $(pwd)`.
 4. Update `.gitignore` with SAST artifact exclusions.
 
 ### P1: Intelligence Gathering
@@ -275,7 +277,7 @@ If `archon/audit-state.json` exists, ask the user before proceeding:
 
 1. Create or checkout the `audit` branch: `git checkout audit 2>/dev/null || git checkout -b audit`
 2. `mkdir -p archon/`
-3. Initialize `archon/audit-state.json` — append a new entry with `"mode": "lite"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, and phases L1–L6 set to `pending`. Never remove earlier entries.
+3. Initialize `archon/audit-state.json` — append a new entry with `"mode": "lite"`, `"repository": "<org/repo or folder name>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, and phases L1–L6 set to `pending`. Never remove earlier entries. Derive `repository` from `git remote get-url origin` (strip host prefix), falling back to `basename $(pwd)`.
 4. Update `.gitignore` with SAST artifact exclusions.
 
 ### L1: Intelligence Gathering
@@ -347,4 +349,78 @@ Read `audits[-1].phases` to find the first phase not `complete`:
 - `pending`: run normally.
 
 Continue sequentially through L6.
+---
+
+# Confirmation Mode (6-Phase Pipeline: V1-V6)
+
+When the user's prompt contains "Confirm mode", "confirm findings", or "verify findings",
+use this pipeline. It reads existing findings from a completed audit, boots the target
+application, executes PoC scripts, and falls back to generated test cases.
+
+**Prerequisites**: A completed audit must exist (`archon/audit-state.json` with at least one
+entry where `status: "complete"` and `archon/findings/` must contain finding directories).
+
+## Confirmation Agents
+
+| Phase | Agent | Role |
+|-------|-------|------|
+| V2 -- Environment Discovery | `archon:env-detective` | Scan repo for Dockerfile, docker-compose, Makefile, test frameworks |
+| V3 -- Environment Provisioning | `archon:env-provisioner` | Start the app, run healthchecks, output connection details |
+| V4 -- PoC Execution | `archon:poc-executor` | Run existing PoC scripts against live environment |
+| V5 -- Test Fallback | `archon:test-mapper` | Generate and run reproducer tests for unconfirmed findings |
+| V6 -- Report | `archon:confirm-reporter` | Compile confirmation report with per-finding verdicts |
+
+## Confirmation Execution Plan
+
+### Pre-Flight
+
+1. Verify `archon/audit-state.json` exists with a completed audit. Abort if not.
+2. Verify `archon/findings/` has at least one finding. Abort if not.
+3. `mkdir -p archon/confirm-workspace/`
+4. Check if user prompt includes a target URL. If yes, set `REMOTE_TARGET` and skip V2/V3.
+
+### V1: Findings Inventory (inline — no agent needed)
+
+Scan `archon/findings/*/report.md`. For each finding, record: ID, slug, severity,
+vulnerability class, PoC script path (if exists). Write inventory to
+`archon/confirm-workspace/findings-inventory.json`. Sort by severity (CRITICAL first).
+
+### V2: Environment Discovery (skip if REMOTE_TARGET)
+
+Spawn `archon:env-detective` with prompt:
+> `"V2: Discover app startup methods and test infrastructure. Output: archon/confirm-workspace/env-strategies.json"`
+
+Wait for completion.
+
+### V3: Environment Provisioning (skip if REMOTE_TARGET)
+
+Spawn `archon:env-provisioner` with prompt:
+> `"V3: Start app using archon/confirm-workspace/env-strategies.json. Output: archon/confirm-workspace/env-connection.json"`
+
+Wait for completion. If failed, skip V4 and run V5 for ALL findings.
+
+### V4: PoC Execution
+
+For each finding with a PoC script, spawn `archon:poc-executor` **sequentially**:
+> `"V4: Execute PoC for <ID>-<slug>. Connection: archon/confirm-workspace/env-connection.json"`
+
+Spawn one, wait, then next. Collect confirmed vs unconfirmed lists.
+
+### V5: Test-Based Fallback (skip if REMOTE_TARGET)
+
+For each unconfirmed finding + findings without PoCs, spawn `archon:test-mapper` **sequentially**:
+> `"V5: Generate reproducer test for <ID>-<slug>. Strategies: archon/confirm-workspace/env-strategies.json"`
+
+Spawn one, wait, then next.
+
+### V6: Confirmation Report
+
+Spawn `archon:confirm-reporter` with prompt:
+> `"V6: Compile confirmation report. Output: archon/confirmation-report.md"`
+
+### Cleanup
+
+After V6, read `archon/confirm-workspace/env-connection.json` and execute `cleanup_cmd`
+to tear down containers/processes. Update `audits[-1].confirmation.status` to `complete`.
+
 # END archon-audit

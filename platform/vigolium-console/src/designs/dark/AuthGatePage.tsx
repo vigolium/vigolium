@@ -217,6 +217,8 @@ export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps)
               <a href="https://vigolium.com" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[website]</a>
               <span>·</span>
               <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[docs]</a>
+              <span>·</span>
+              <a href="/showcases" className="text-[var(--v-accent)] hover:underline">[showcases]</a>
             </div>
           </div>
         </div>

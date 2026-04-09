@@ -54,6 +54,14 @@
       "namedRegex": "^/settings(?:/(?<nxtPtab>.+?))?(?:/)?$"
     },
     {
+      "page": "/showcases/[slug]",
+      "regex": "^/showcases/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/showcases/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
       "page": "/source-repos/[[...id]]",
       "regex": "^/source\\-repos(?:/(.+?))?(?:/)?$",
       "routeKeys": {
@@ -266,6 +274,12 @@
       "regex": "^/select\\-project(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/select\\-project(?:/)?$"
+    },
+    {
+      "page": "/showcases",
+      "regex": "^/showcases(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/showcases(?:/)?$"
     },
     {
       "page": "/team",

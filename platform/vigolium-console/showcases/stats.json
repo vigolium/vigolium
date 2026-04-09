@@ -1,0 +1,172 @@
+{
+  "generated_at": "2026-04-09T19:18:37.811311+00:00",
+  "project_count": 20,
+  "summary": {
+    "total": 400,
+    "critical": 7,
+    "high": 123,
+    "medium": 268
+  },
+  "projects": [
+    {
+      "project": "argo-cd",
+      "coding_agent": "Unknown",
+      "total": 29,
+      "critical": 0,
+      "high": 9,
+      "medium": 20
+    },
+    {
+      "project": "bifrost",
+      "coding_agent": "Claude Code",
+      "total": 12,
+      "critical": 0,
+      "high": 2,
+      "medium": 10
+    },
+    {
+      "project": "buildbot",
+      "coding_agent": "Claude Code",
+      "total": 6,
+      "critical": 0,
+      "high": 2,
+      "medium": 4
+    },
+    {
+      "project": "caddy",
+      "coding_agent": "Claude Code",
+      "total": 3,
+      "critical": 0,
+      "high": 2,
+      "medium": 1
+    },
+    {
+      "project": "dify",
+      "coding_agent": "Claude Code",
+      "total": 9,
+      "critical": 0,
+      "high": 1,
+      "medium": 8
+    },
+    {
+      "project": "discourse",
+      "coding_agent": "Claude Code",
+      "total": 30,
+      "critical": 0,
+      "high": 0,
+      "medium": 30
+    },
+    {
+      "project": "discourse-packs-sdk",
+      "coding_agent": "Claude Code",
+      "total": 14,
+      "critical": 0,
+      "high": 6,
+      "medium": 8
+    },
+    {
+      "project": "fleet",
+      "coding_agent": "Unknown",
+      "total": 26,
+      "critical": 1,
+      "high": 6,
+      "medium": 19
+    },
+    {
+      "project": "fosite",
+      "coding_agent": "Unknown",
+      "total": 10,
+      "critical": 0,
+      "high": 4,
+      "medium": 6
+    },
+    {
+      "project": "grafana",
+      "coding_agent": "Unknown",
+      "total": 39,
+      "critical": 0,
+      "high": 13,
+      "medium": 26
+    },
+    {
+      "project": "harbor",
+      "coding_agent": "Unknown",
+      "total": 6,
+      "critical": 0,
+      "high": 0,
+      "medium": 6
+    },
+    {
+      "project": "immich",
+      "coding_agent": "Claude Code",
+      "total": 10,
+      "critical": 3,
+      "high": 7,
+      "medium": 0
+    },
+    {
+      "project": "jenkins",
+      "coding_agent": "Claude Code",
+      "total": 19,
+      "critical": 0,
+      "high": 3,
+      "medium": 16
+    },
+    {
+      "project": "jupyterhub",
+      "coding_agent": "Unknown",
+      "total": 37,
+      "critical": 3,
+      "high": 12,
+      "medium": 22
+    },
+    {
+      "project": "langfuse",
+      "coding_agent": "Unknown",
+      "total": 23,
+      "critical": 0,
+      "high": 6,
+      "medium": 17
+    },
+    {
+      "project": "oauth2-proxy",
+      "coding_agent": "Unknown",
+      "total": 34,
+      "critical": 0,
+      "high": 4,
+      "medium": 28
+    },
+    {
+      "project": "ollama",
+      "coding_agent": "Claude Code",
+      "total": 43,
+      "critical": 0,
+      "high": 34,
+      "medium": 9
+    },
+    {
+      "project": "sentry",
+      "coding_agent": "Unknown",
+      "total": 23,
+      "critical": 0,
+      "high": 9,
+      "medium": 14
+    },
+    {
+      "project": "traefik",
+      "coding_agent": "Claude Code",
+      "total": 2,
+      "critical": 0,
+      "high": 0,
+      "medium": 2
+    },
+    {
+      "project": "vault",
+      "coding_agent": "Unknown",
+      "total": 25,
+      "critical": 0,
+      "high": 3,
+      "medium": 22
+    }
+  ]
+}
