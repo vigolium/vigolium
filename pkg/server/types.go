@@ -730,35 +730,39 @@ type AgentRunStatusResponse struct {
 
 // AgentSessionSummary is a lightweight representation of an agent run for list responses.
 type AgentSessionSummary struct {
-	UUID         string   `json:"uuid"`
-	Mode         string   `json:"mode"`
-	Status       string   `json:"status"`
-	AgentName    string   `json:"agent_name,omitempty"`
-	TemplateID   string   `json:"template_id,omitempty"`
-	TargetURL    string   `json:"target_url,omitempty"`
-	VulnType     string   `json:"vuln_type,omitempty"`
-	InputType    string   `json:"input_type,omitempty"`
-	CurrentPhase string   `json:"current_phase,omitempty"`
-	PhasesRun    []string `json:"phases_run,omitempty"`
-	FindingCount int      `json:"finding_count,omitempty"`
-	RecordCount  int      `json:"record_count,omitempty"`
-	SavedCount   int      `json:"saved_count,omitempty"`
-	ErrorMessage string   `json:"error_message,omitempty"`
-	DurationMs   int64    `json:"duration_ms,omitempty"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	UUID          string   `json:"uuid"`
+	Mode          string   `json:"mode"`
+	Status        string   `json:"status"`
+	AgentName     string   `json:"agent_name,omitempty"`
+	TemplateID    string   `json:"template_id,omitempty"`
+	TargetURL     string   `json:"target_url,omitempty"`
+	SourcePath    string   `json:"source_path,omitempty"`
+	SessionDir    string   `json:"session_dir,omitempty"`
+	VulnType      string   `json:"vuln_type,omitempty"`
+	InputType     string   `json:"input_type,omitempty"`
+	ParentRunUUID string   `json:"parent_run_uuid,omitempty"`
+	CurrentPhase  string   `json:"current_phase,omitempty"`
+	PhasesRun     []string `json:"phases_run,omitempty"`
+	FindingCount  int      `json:"finding_count,omitempty"`
+	RecordCount   int      `json:"record_count,omitempty"`
+	SavedCount    int      `json:"saved_count,omitempty"`
+	ErrorMessage  string   `json:"error_message,omitempty"`
+	DurationMs    int64    `json:"duration_ms,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 // AgentSessionDetail is the full representation of an agent run including debug fields.
 type AgentSessionDetail struct {
 	AgentSessionSummary
-	InputRaw       string   `json:"input_raw,omitempty"`
-	ModuleNames    []string `json:"module_names,omitempty"`
-	SessionID      string   `json:"session_id,omitempty"`
-	PromptSent     string   `json:"prompt_sent,omitempty"`
-	AgentRawOutput string   `json:"agent_raw_output,omitempty"`
-	AttackPlan     string   `json:"attack_plan,omitempty"`
-	TriageResult   string   `json:"triage_result,omitempty"`
-	ResultJSON     string   `json:"result_json,omitempty"`
+	InputRaw       string                `json:"input_raw,omitempty"`
+	ModuleNames    []string              `json:"module_names,omitempty"`
+	SessionID      string                `json:"session_id,omitempty"`
+	PromptSent     string                `json:"prompt_sent,omitempty"`
+	AgentRawOutput string                `json:"agent_raw_output,omitempty"`
+	AttackPlan     string                `json:"attack_plan,omitempty"`
+	TriageResult   string                `json:"triage_result,omitempty"`
+	ResultJSON     string                `json:"result_json,omitempty"`
+	ChildRuns      []*AgentSessionDetail `json:"child_runs,omitempty"`
 }

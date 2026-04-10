@@ -400,6 +400,11 @@ type AgentRun struct {
 	// Agent session ID (for resume)
 	SessionID string `bun:"session_id,nullzero" json:"session_id,omitempty"`
 
+	// Filesystem path to the session directory holding agent artifacts
+	// (output.md, audit-stream.jsonl, extensions/, etc.). Populated by the
+	// server handlers so API clients can locate run outputs.
+	SessionDir string `bun:"session_dir,nullzero" json:"session_dir,omitempty"`
+
 	// Debug (stored as JSON text blobs)
 	AttackPlan     string `bun:"attack_plan,nullzero" json:"attack_plan,omitempty"`
 	TriageResult   string `bun:"triage_result,nullzero" json:"triage_result,omitempty"`

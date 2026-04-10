@@ -49,7 +49,7 @@ verify that the credentials work. Use --no-validate to skip.
 
 Examples:
   vigolium session load auth-config.yaml --host example.com
-  vigolium session load ~/.vigolium/agent-sessions/agt-xxx/session-config.json
+  vigolium session load ~/.vigolium/agent-sessions/<uuid>/session-config.json
   vigolium session load sessions.json --no-validate
   cat session-config.json | vigolium session load
   cat login-req.txt | vigolium session load

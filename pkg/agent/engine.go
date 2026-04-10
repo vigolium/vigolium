@@ -225,6 +225,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			Model:        agentDef.Model,
 			SessionID:    opts.SessionID,
 			SessionDir:   opts.SessionDir,
+			Phase:        opts.Phase,
 		}
 		if e.settings != nil {
 			sdkCfg.Guardrails = e.settings.Agent.Guardrails

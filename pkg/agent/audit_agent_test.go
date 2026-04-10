@@ -206,7 +206,7 @@ func TestCopyDir(t *testing.T) {
 
 func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 	cfg := config.AuditAgentConfig{} // disabled by default
-	runner, err := StartAuditAgent(context.TODO(), cfg, "/some/source", "/some/session", "proj-1", "scan-1", "", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "/some/source", "/some/session", "proj-1", "scan-1", "", nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -218,7 +218,7 @@ func TestStartAuditAgent_DisabledReturnsNil(t *testing.T) {
 func TestStartAuditAgent_NoSourceReturnsNil(t *testing.T) {
 	enabled := true
 	cfg := config.AuditAgentConfig{Enable: &enabled}
-	runner, err := StartAuditAgent(context.TODO(), cfg, "", "/some/session", "proj-1", "scan-1", "", nil)
+	runner, err := StartAuditAgent(context.TODO(), cfg, "", "/some/session", "proj-1", "scan-1", "", nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -250,7 +250,7 @@ func TestAuditAgentConfig_Platform(t *testing.T) {
 func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 	// This test only verifies the args structure, not that the binary exists.
 	// We skip if claude is not in PATH.
-	binary, args, stdinPrompt, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source")
+	binary, args, stdinPrompt, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source", false)
 	if err != nil {
 		t.Skipf("claude not in PATH: %v", err)
 	}
@@ -284,8 +284,36 @@ func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 	}
 }
 
+func TestBuildAuditAgentCommand_ClaudeStream(t *testing.T) {
+	_, args, _, err := buildAuditAgentCommand("claude", "/tmp/plugin", "deep", "/tmp/source", true)
+	if err != nil {
+		t.Skipf("claude not in PATH: %v", err)
+	}
+	// Stream mode must emit stream-json + --verbose + --include-partial-messages.
+	want := map[string]bool{
+		"--output-format":           false,
+		"stream-json":               false,
+		"--verbose":                 false,
+		"--include-partial-messages": false,
+	}
+	for _, a := range args {
+		if _, ok := want[a]; ok {
+			want[a] = true
+		}
+	}
+	for flag, seen := range want {
+		if !seen {
+			t.Errorf("stream mode missing expected arg %q in %v", flag, args)
+		}
+	}
+	// Slash command still last.
+	if args[len(args)-1] != "/archon-audit:archon:deep" {
+		t.Errorf("expected last arg = /archon-audit:archon:deep, got %q", args[len(args)-1])
+	}
+}
+
 func TestBuildAuditAgentCommand_Codex(t *testing.T) {
-	binary, args, _, err := buildAuditAgentCommand("codex", "/tmp/plugin", "lite", "/tmp/source")
+	binary, args, _, err := buildAuditAgentCommand("codex", "/tmp/plugin", "lite", "/tmp/source", false)
 	if err != nil {
 		t.Skipf("codex not in PATH: %v", err)
 	}
@@ -304,7 +332,7 @@ func TestBuildAuditAgentCommand_Codex(t *testing.T) {
 }
 
 func TestBuildAuditAgentCommand_OpenCode(t *testing.T) {
-	binary, args, _, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source")
+	binary, args, _, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source", false)
 	if err != nil {
 		t.Skipf("opencode not in PATH: %v", err)
 	}
@@ -330,5 +358,94 @@ func TestResolveAuditAgentConfig_PreservesPlatform(t *testing.T) {
 	}
 	if result.Platform != "codex" {
 		t.Errorf("expected platform 'codex' to be preserved, got %q", result.Platform)
+	}
+}
+
+// TestReadCurrentState_SessionDirFallback verifies that Status() can recover
+// the audit state after monitor() has removed SourcePath/archon/ — the CLI
+// summary is the primary consumer and runs after cleanup.
+func TestReadCurrentState_SessionDirFallback(t *testing.T) {
+	sourceDir := t.TempDir()
+	sessionDir := t.TempDir()
+
+	// Only write the state file into the session dir, not the source dir.
+	state := `{"audits":[{"audit_id":"t1","status":"complete","phases":{"Q0":{"status":"complete"},"Q1":{"status":"complete"},"Q2":{"status":"complete"}}}]}`
+	archonSessionDir := filepath.Join(sessionDir, "archon-audit")
+	if err := os.MkdirAll(archonSessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archonSessionDir, "audit-state.json"), []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &AuditAgentRunner{
+		cfg:  AuditAgentConfig{SourcePath: sourceDir, SessionDir: sessionDir},
+		done: make(chan struct{}),
+	}
+	close(runner.done) // simulate post-completion
+
+	got := runner.readCurrentState()
+	if got == nil {
+		t.Fatal("expected state from session-dir fallback, got nil")
+	}
+	if len(got.Audits) != 1 || got.Audits[0].Status != "complete" {
+		t.Fatalf("unexpected state: %+v", got)
+	}
+
+	status := runner.Status()
+	if status.CompletedPhases != 3 || status.TotalPhases != 3 {
+		t.Errorf("expected 3/3 phases, got %d/%d", status.CompletedPhases, status.TotalPhases)
+	}
+	if status.Status != "complete" {
+		t.Errorf("expected status 'complete', got %q", status.Status)
+	}
+}
+
+// TestImportArchonFindings_StatsWithoutRepo verifies that findings are still
+// parsed and counted even when no DB repository is configured, so the CLI
+// summary can show what the agent produced.
+func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
+	sessionDir := t.TempDir()
+	archonDir := filepath.Join(sessionDir, "archon-audit")
+	findingsDir := filepath.Join(archonDir, "findings")
+	if err := os.MkdirAll(findingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Minimal state file so ParseAuditFolder doesn't error.
+	stateJSON := `{"audits":[{"audit_id":"t1","mode":"lite","status":"complete","phases":{}}]}`
+	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two promoted findings: one critical, one high.
+	writeFinding := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(findingsDir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFinding("C1.md", "## Q1-001: Hardcoded key\n\n- **Severity**: Critical\n- **File**: app.py\n- **Line**: 10\n- **Verdict**: VALID\n")
+	writeFinding("H1.md", "## Q2-001: SQLi\n\n- **Severity**: High\n- **File**: api.py\n- **Line**: 42\n- **Verdict**: VALID\n")
+
+	runner := &AuditAgentRunner{
+		cfg:          AuditAgentConfig{SessionDir: sessionDir},
+		done:         make(chan struct{}),
+		agentRunUUID: "test-run",
+	}
+
+	runner.importArchonFindings(context.TODO())
+
+	stats := runner.FindingStats()
+	if stats.Parsed != 2 {
+		t.Errorf("expected Parsed=2, got %d", stats.Parsed)
+	}
+	if stats.Saved != 0 {
+		t.Errorf("expected Saved=0 (no repo), got %d", stats.Saved)
+	}
+	if got := stats.BySeverity["critical"]; got != 1 {
+		t.Errorf("expected 1 critical, got %d", got)
+	}
+	if got := stats.BySeverity["high"]; got != 1 {
+		t.Errorf("expected 1 high, got %d", got)
 	}
 }

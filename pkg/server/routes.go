@@ -138,6 +138,7 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/agent/status/:id", handlers.HandleAgentRunStatus)
 	viewer.Get("/agent/sessions", handlers.HandleAgentSessionList)
 	viewer.Get("/agent/sessions/:id", handlers.HandleAgentSessionDetail)
+	viewer.Get("/agent/sessions/:id/logs", handlers.HandleAgentSessionLogs)
 	viewer.Get("/diagnostics", handlers.HandleDiagnostics)
 
 	// --- Generic database API (read-only for viewer) ---

@@ -229,7 +229,9 @@ func TestDetectEffectiveRoot(t *testing.T) {
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(subDir, "main.go"), []byte("package main"), 0o644)
+	if err := os.WriteFile(filepath.Join(subDir, "main.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := detectEffectiveRoot(dir)
 	if err != nil {
@@ -241,8 +243,12 @@ func TestDetectEffectiveRoot(t *testing.T) {
 
 	// Case 2: Multiple entries — returns dir itself
 	dir2 := t.TempDir()
-	os.MkdirAll(filepath.Join(dir2, "src"), 0o755)
-	os.MkdirAll(filepath.Join(dir2, "lib"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir2, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir2, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	got2, err := detectEffectiveRoot(dir2)
 	if err != nil {
@@ -254,8 +260,12 @@ func TestDetectEffectiveRoot(t *testing.T) {
 
 	// Case 3: Single dir + file — returns dir itself
 	dir3 := t.TempDir()
-	os.MkdirAll(filepath.Join(dir3, "app"), 0o755)
-	os.WriteFile(filepath.Join(dir3, "README.md"), []byte("hello"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir3, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir3, "README.md"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	got3, err := detectEffectiveRoot(dir3)
 	if err != nil {
@@ -282,20 +292,30 @@ func TestExtractZip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fw.Write([]byte("package main\nfunc main() {}\n"))
+	if _, err := fw.Write([]byte("package main\nfunc main() {}\n")); err != nil {
+		t.Fatal(err)
+	}
 
 	fw2, err := zw.Create("myapp/lib/utils.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fw2.Write([]byte("package lib\n"))
+	if _, err := fw2.Write([]byte("package lib\n")); err != nil {
+		t.Fatal(err)
+	}
 
-	zw.Close()
-	zf.Close()
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zf.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Extract
 	destDir := filepath.Join(tmpDir, "extracted")
-	os.MkdirAll(destDir, 0o755)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := extractZip(zipPath, destDir); err != nil {
 		t.Fatal(err)
 	}
@@ -325,29 +345,43 @@ func TestExtractTarGz(t *testing.T) {
 	tw := tar.NewWriter(gw)
 
 	// Add directory
-	tw.WriteHeader(&tar.Header{
+	if err := tw.WriteHeader(&tar.Header{
 		Name:     "myapp/",
 		Typeflag: tar.TypeDir,
 		Mode:     0o755,
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Add file
 	content := []byte("package main\nfunc main() {}\n")
-	tw.WriteHeader(&tar.Header{
+	if err := tw.WriteHeader(&tar.Header{
 		Name:     "myapp/main.go",
 		Typeflag: tar.TypeReg,
 		Mode:     0o644,
 		Size:     int64(len(content)),
-	})
-	tw.Write(content)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
 
-	tw.Close()
-	gw.Close()
-	f.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Extract
 	destDir := filepath.Join(tmpDir, "extracted")
-	os.MkdirAll(destDir, 0o755)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := extractTarGz(tgzPath, destDir); err != nil {
 		t.Fatal(err)
 	}
@@ -401,12 +435,24 @@ func TestResolveSource_Archive(t *testing.T) {
 
 	// Create a zip archive
 	zipPath := filepath.Join(tmpDir, "source.zip")
-	zf, _ := os.Create(zipPath)
+	zf, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	zw := zip.NewWriter(zf)
-	fw, _ := zw.Create("app/main.go")
-	fw.Write([]byte("package main"))
-	zw.Close()
-	zf.Close()
+	fw, err := zw.Create("app/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write([]byte("package main")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zf.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	resolved, err := ResolveSource(zipPath, sessionDir)
 	if err != nil {

@@ -176,7 +176,7 @@ echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vi
 vigolium agent autopilot -t https://example.com --dry-run
 
 # Resume a previous session
-vigolium agent autopilot --resume ~/.vigolium/agent-sessions/agt-abc123
+vigolium agent autopilot --resume ~/.vigolium/agent-sessions/<uuid>
 
 # With MCP servers
 vigolium agent autopilot -t https://example.com --mcp-enabled \
@@ -326,9 +326,9 @@ The master agent produces a plan with three tiers of custom checks (lightest fir
   "false_positives": 2,
   "iterations": 2,
   "duration": "3m45s",
-  "agent_run_uuid": "agt-...",
+  "agent_run_uuid": "...",
   "session_id": "...",
-  "session_dir": "~/.vigolium/agent-sessions/agt-abc123"
+  "session_dir": "~/.vigolium/agent-sessions/<uuid>"
 }
 ```
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -232,7 +233,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Create session directory for agent artifacts
-	autopilotRunID := "agt-" + uuid.New().String()
+	autopilotRunID := uuid.New().String()
 	sessionDir, sdErr := agent.EnsureSessionDir(sessionsDir, autopilotRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
@@ -450,8 +451,37 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 	// Wire browser
 	cfg.BrowserEnabled = settings.Agent.Browser.IsEnabled()
 
+	// Persist a parent autopilot AgentRun row whose UUID matches the session
+	// dir basename, so `vigolium agent sessions` lists the run with a UUID
+	// that resolves directly to ~/.vigolium/agent-sessions/<uuid>/.
+	startedAt := time.Now()
+	parentRunUUID := ""
+	if sessionDir != "" {
+		parentRunUUID = filepath.Base(sessionDir)
+	}
+	if repo != nil && parentRunUUID != "" {
+		parentRun := &database.AgentRun{
+			UUID:        parentRunUUID,
+			ProjectUUID: projectUUID,
+			ScanUUID:    globalScanID,
+			Mode:        "autopilot",
+			AgentName:   autopilotAgent,
+			TargetURL:   autopilotTarget,
+			SourcePath:  autopilotSource,
+			SessionDir:  sessionDir,
+			Status:      "running",
+			StartedAt:   startedAt,
+		}
+		if err := repo.CreateAgentRun(ctx, parentRun); err != nil {
+			zap.L().Debug("Failed to create parent autopilot AgentRun", zap.Error(err))
+		}
+	}
+
+	cfg.ParentRunUUID = parentRunUUID
+
 	runner := agent.NewAutopilotPipelineRunner(engine, repo)
 	result, err := runner.RunAutonomous(ctx, cfg)
+	finalizeAutopilotParentRun(repo, parentRunUUID, sessionDir, startedAt, result, err)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("autopilot session timed out after %s", autopilotTimeout)
@@ -459,11 +489,89 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		return fmt.Errorf("autopilot session failed: %w", err)
 	}
 
+	printAutopilotSummary(result, cfg.SessionDir)
+
+	return nil
+}
+
+// finalizeAutopilotParentRun reads the existing parent AgentRun row and updates
+// it with completion state — status, duration, finding count, raw output. The
+// Get/mutate/Update pattern preserves any fields the archon child runner may
+// have written between create and finalize.
+func finalizeAutopilotParentRun(repo *database.Repository, runUUID, sessionDir string, startedAt time.Time, result *agent.AutopilotPipelineResult, runErr error) {
+	if repo == nil || runUUID == "" {
+		return
+	}
+	ctx := context.Background()
+	run, err := repo.GetAgentRun(ctx, runUUID)
+	if err != nil || run == nil {
+		zap.L().Debug("finalizeAutopilotParentRun: run not found", zap.String("uuid", runUUID), zap.Error(err))
+		return
+	}
+	now := time.Now()
+	run.CompletedAt = now
+	run.DurationMs = now.Sub(startedAt).Milliseconds()
+	if runErr != nil {
+		run.Status = "failed"
+		run.ErrorMessage = runErr.Error()
+	} else {
+		run.Status = "completed"
+	}
+	if result != nil {
+		run.FindingCount = result.ArchonFindingsCount
+		if result.SessionDir != "" {
+			run.SessionDir = result.SessionDir
+		}
+	}
+	if sessionDir != "" {
+		if data, readErr := os.ReadFile(filepath.Join(sessionDir, "output.md")); readErr == nil {
+			run.AgentRawOutput = string(data)
+		}
+	}
+	if err := repo.UpdateAgentRun(ctx, run); err != nil {
+		zap.L().Debug("finalizeAutopilotParentRun: update failed", zap.String("uuid", runUUID), zap.Error(err))
+	}
+}
+
+// printAutopilotSummary renders the final block shown after an autopilot run:
+// duration, session dir, target, source, and (when present) the archon findings
+// breakdown with colored severity counts.
+func printAutopilotSummary(result *agent.AutopilotPipelineResult, fallbackSessionDir string) {
 	fmt.Fprintf(os.Stderr, "\n%s Autonomous autopilot session complete (%s)\n",
 		terminal.SuccessSymbol(),
 		result.Duration.Round(time.Second))
 
-	return nil
+	bullet := terminal.Purple(terminal.SymbolInfo)
+
+	sessionDir := result.SessionDir
+	if sessionDir == "" {
+		sessionDir = fallbackSessionDir
+	}
+	if sessionDir != "" {
+		fmt.Fprintf(os.Stderr, "  %s Session: %s\n", bullet, terminal.Cyan(sessionDir))
+	}
+
+	if autopilotTarget != "" {
+		fmt.Fprintf(os.Stderr, "  %s Target:  %s\n", bullet, terminal.Orange(autopilotTarget))
+	} else {
+		fmt.Fprintf(os.Stderr, "  %s Target:  %s\n", bullet, terminal.Gray("none (source-only)"))
+	}
+
+	if autopilotSource != "" {
+		fmt.Fprintf(os.Stderr, "  %s Source:  %s\n", bullet, terminal.Orange(autopilotSource))
+	}
+
+	if result.ArchonFindingsCount > 0 {
+		flag := terminal.Purple(terminal.SymbolFlag)
+		fmt.Fprintf(os.Stderr, "  %s Findings: %s parsed, %s imported\n",
+			flag,
+			terminal.HiTeal(fmt.Sprintf("%d", result.ArchonFindingsCount)),
+			terminal.HiTeal(fmt.Sprintf("%d", result.ArchonFindingsSaved)))
+		stats := agent.FindingStats{BySeverity: result.ArchonFindingsBySeverity}
+		if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
+			fmt.Fprintf(os.Stderr, "    %s %s\n", terminal.Gray(terminal.SymbolDot), breakdown)
+		}
+	}
 }
 
 // runAutopilotFromPrompt parses a natural language prompt and runs autopilot for each extracted app.
@@ -553,7 +661,7 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 	}()
 
 	return runMultiAppFanOut(ctx, intent, func(ctx context.Context, idx int, app agent.AppIntent) error {
-		runID := "agt-" + uuid.New().String()
+		runID := uuid.New().String()
 		sessionDir, _ := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), runID)
 
 		// Write PID file for orphan detection

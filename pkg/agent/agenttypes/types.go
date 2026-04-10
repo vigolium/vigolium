@@ -65,6 +65,10 @@ type Options struct {
 
 	// Retry: when non-nil, retries transient agent failures with exponential backoff.
 	Retry *RetryConfig `json:"-"`
+
+	// Phase groups backend diagnostic lines under a phase tag in the console
+	// (e.g. "autopilot"). Empty keeps the default unprefixed format.
+	Phase string `json:"-"`
 }
 
 // Result holds the outcome of an agent run.

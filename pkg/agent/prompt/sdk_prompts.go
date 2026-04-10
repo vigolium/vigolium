@@ -84,9 +84,22 @@ func SystemPromptFilename(agentCommand string) string {
 	return "AGENTS.md"
 }
 
-// PrintSystemPromptInfo prints a user-visible message about where the system prompt
-// was loaded from and where it was written.
-func PrintSystemPromptInfo(loadedFrom, writtenTo string) {
+// PrintSystemPromptInfo prints where the system prompt was loaded from and
+// where it was written. A non-empty phase groups the lines under a multi-phase
+// pipeline (e.g. autopilot); empty phase keeps the default unprefixed format
+// used by single-phase commands like `agent query`.
+func PrintSystemPromptInfo(loadedFrom, writtenTo, phase string) {
+	if phase != "" {
+		prefix := terminal.PhasePrefix(phase)
+		fmt.Fprintf(os.Stderr, "%s %s %s\n",
+			prefix, terminal.Bold("system prompt:"), terminal.Gray(loadedFrom))
+		if writtenTo != "" {
+			fmt.Fprintf(os.Stderr, "%s %s %s\n",
+				prefix, terminal.Bold("written to:"), terminal.Gray(terminal.ShortenHome(writtenTo)))
+		}
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "%s System prompt: %s\n",
 		terminal.InfoSymbol(), terminal.Gray(loadedFrom))
 	if writtenTo != "" {

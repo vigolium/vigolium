@@ -44,39 +44,46 @@ var (
 
 // findingColumnDef defines a displayable column for the findings table.
 type findingColumnDef struct {
-	name    string
+	name    string // key used by --columns/--exclude-columns
+	header  string // optional display header; falls back to name when empty
 	extract func(*database.Finding) string
 	maxLen  int
 }
 
 var allFindingColumns = []findingColumnDef{
-	{"ID", func(f *database.Finding) string { return fmt.Sprintf("%d", f.ID) }, 6},
-	{"SEVERITY", func(f *database.Finding) string { return colorSeverity(f.Severity) }, 10},
-	{"CONFIDENCE", func(f *database.Finding) string { return f.Confidence }, 10},
-	{"MODULE", func(f *database.Finding) string { return truncate(f.ModuleName, 30) }, 30},
-	{"MODULE_ID", func(f *database.Finding) string { return truncate(f.ModuleID, 30) }, 30},
-	{"SHORT_DESC", func(f *database.Finding) string { return truncate(f.ModuleShort, 40) }, 40},
-	{"DESCRIPTION", func(f *database.Finding) string { return truncate(f.Description, 50) }, 50},
-	{"TYPE", func(f *database.Finding) string { return colorModuleType(f.ModuleType) }, 12},
-	{"SOURCE", func(f *database.Finding) string { return f.FindingSource }, 20},
-	{"MATCHED_AT", func(f *database.Finding) string {
+	{"ID", "", func(f *database.Finding) string { return fmt.Sprintf("%d", f.ID) }, 6},
+	{"SEVERITY", "", func(f *database.Finding) string { return colorSeverity(f.Severity) }, 10},
+	{"CONFIDENCE", "", func(f *database.Finding) string { return f.Confidence }, 10},
+	{"MODULE", "", func(f *database.Finding) string { return truncate(f.ModuleName, 30) }, 30},
+	{"MODULE_ID", "", func(f *database.Finding) string { return truncate(f.ModuleID, 30) }, 30},
+	{"SHORT_DESC", "", func(f *database.Finding) string { return truncate(f.ModuleShort, 40) }, 40},
+	{"DESCRIPTION", "", func(f *database.Finding) string { return truncate(f.Description, 50) }, 50},
+	{"TYPE", "", func(f *database.Finding) string { return colorModuleType(f.ModuleType) }, 12},
+	{"SOURCE", "", func(f *database.Finding) string { return f.FindingSource }, 20},
+	{"HOST_REPO", "SERVER/REPO NAME", func(f *database.Finding) string {
+		if f.ModuleType == database.ModuleTypeWhitebox && f.RepoName != "" {
+			return truncate(f.RepoName, 40)
+		}
+		return truncate(f.Hostname, 40)
+	}, 40},
+	{"MATCHED_AT", "", func(f *database.Finding) string {
 		return truncate(strings.Join(f.MatchedAt, ", "), 50)
 	}, 50},
-	{"FOUND_AT", func(f *database.Finding) string {
+	{"FOUND_AT", "", func(f *database.Finding) string {
 		return f.FoundAt.Format("2006-01-02 15:04")
 	}, 16},
-	{"SCAN_UUID", func(f *database.Finding) string {
+	{"SCAN_UUID", "", func(f *database.Finding) string {
 		if len(f.ScanUUID) > 8 {
 			return f.ScanUUID[:8]
 		}
 		return f.ScanUUID
 	}, 8},
-	{"TAGS", func(f *database.Finding) string {
+	{"TAGS", "", func(f *database.Finding) string {
 		return truncate(strings.Join(f.Tags, ", "), 30)
 	}, 30},
 }
 
-var defaultFindingColumnNames = []string{"ID", "SEVERITY", "MODULE", "SHORT_DESC", "TYPE", "SOURCE", "MATCHED_AT"}
+var defaultFindingColumnNames = []string{"ID", "SEVERITY", "MODULE", "SHORT_DESC", "TYPE", "SOURCE", "HOST_REPO", "MATCHED_AT"}
 
 var findingCmd = &cobra.Command{
 	Use:     "finding [search-term]",
@@ -378,7 +385,11 @@ func findingDisplayTable(db *database.DB, ctx context.Context, findings []*datab
 	headers := make([]string, len(cols))
 	weights := make([]int, len(cols))
 	for i, c := range cols {
-		headers[i] = c.name
+		if c.header != "" {
+			headers[i] = c.header
+		} else {
+			headers[i] = c.name
+		}
 		weights[i] = c.maxLen
 	}
 

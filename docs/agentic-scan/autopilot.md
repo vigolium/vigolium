@@ -471,7 +471,7 @@ GET /api/agent/status/:id
 Each autopilot run creates a session directory:
 
 ```
-~/.vigolium/agent-sessions/agt-<uuid>/
+~/.vigolium/agent-sessions/<uuid>/
 ├── output.md                    # Raw agent output
 ├── archon-audit/                # (if --archon enabled)
 │   ├── audit-state.json         # Archon phase state + timing

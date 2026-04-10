@@ -200,20 +200,21 @@ Spawn a **single chamber** with 3 agents (not 4 — drop Code Tracer, Synthesize
 
 Wait for the chamber to close.
 
-**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to all `archon/findings-draft/s5-*.md` files with `Verdict: VALID`. Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for scan mode.
+**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to every `*.md` file under `archon/findings-draft/` with `Verdict: VALID` (the chamber synthesizer writes drafts with a `p8-` prefix regardless of the NNN range it was given, so do not filter by prefix — iterate the whole directory). Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for scan mode.
 
 Mark T5 complete.
 
 ### Phase L6: PoC Building + Report (T6)
 
-**Draft promotion**: Collect all `archon/findings-draft/s5-*.md` files with `Verdict: VALID`. Assign severity-prefixed IDs (`C1`, `H1`, `M1`). Drop all Low severity findings.
+**Finding consolidation**: Run the consolidation helper — it reads every draft in `archon/findings-draft/`, keeps the `Verdict: VALID` drafts with `Severity-Original` in {CRITICAL, HIGH, MEDIUM}, assigns deterministic severity-prefixed IDs (`C1`, `H1`, `M1`, …), creates `archon/findings/<ID>-<slug>/evidence/`, copies `draft.md` and `debate.md` (resolved from the draft's `Debate:` field), and emits a manifest.
 
-**Finding consolidation**: For each confirmed finding with assigned ID:
-1. `mkdir -p archon/findings/<ID>-<slug>/evidence/`
-2. Copy the finding draft: `cp archon/findings-draft/s5-<NNN>-<slug>.md archon/findings/<ID>-<slug>/draft.md`
-3. Read the `Debate:` field from the draft frontmatter. If it contains a path (e.g., `archon/chamber-workspace/lite-chamber/debate.md`), copy it: `cp <debate-path> archon/findings/<ID>-<slug>/debate.md 2>/dev/null`
+```bash
+python3 ~/.config/archon-audit/skills/audit/scripts/consolidate_drafts.py archon
+```
 
-**PoC Building**: For each confirmed finding, spawn `archon:poc-builder` with `run_in_background: true`. Each receives: finding draft path and assigned ID.
+The script writes `archon/findings-draft/consolidation-manifest.json`. If it exits non-zero, STOP — report the failure to the user and do not proceed to PoC building or report assembly.
+
+**PoC Building**: Read `archon/findings-draft/consolidation-manifest.json`. For each entry in its `findings` array, spawn `archon:poc-builder` with `run_in_background: true`, passing the entry's `draft_path` as the finding draft path and its `id` as the assigned ID.
 
 Wait for all PoC builders.
 

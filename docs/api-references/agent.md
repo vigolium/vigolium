@@ -13,6 +13,7 @@ The agent API provides three run modes that mirror the `vigolium agent` CLI subc
 | `GET /api/agent/status/:id`      | —                           | Get run status by ID                     |
 | `GET /api/agent/sessions`        | `vigolium agent sessions`   | Paginated session history from DB        |
 | `GET /api/agent/sessions/:id`    | —                           | Full session detail with debug fields    |
+| `GET /api/agent/sessions/:id/logs`| —                          | Raw console `run.log` (plain text or SSE tail)|
 
 All run modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
 
@@ -981,6 +982,67 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 | `400`  | Missing session ID       |
 | `404`  | Session not found        |
 | `503`  | Database not configured  |
+
+---
+
+## GET /api/agent/sessions/:id/logs — Agent Session Console Logs
+
+Returns the raw `run.log` file for a session — the same live console stream the CLI user sees when running `vigolium agent autopilot/swarm/query`. ANSI colors are preserved by default so browser terminal emulators (xterm.js, etc.) render it exactly like the CLI. Works while the run is in progress *and* after it finishes.
+
+The endpoint operates in two modes, selected via the `Accept` header:
+
+- **Plain text** (default, any Accept except `text/event-stream`): `text/plain; charset=utf-8` dump of the entire `run.log` at request time.
+- **Server-Sent Events** (`Accept: text/event-stream`): tails the file and emits each new byte range as a `chunk` event. Exits with a `done` event when the run reaches a terminal status (`completed`, `failed`, `cancelled`, `timeout`, `error`), the client disconnects, or a 2-hour safety backstop fires.
+
+**Query parameters:**
+
+| Name    | Type    | Description                                                                 |
+|---------|---------|-----------------------------------------------------------------------------|
+| `strip` | bool    | If truthy (`1`, `true`, `yes`, `y`, `on`), strip ANSI escape sequences server-side. Default: false (preserve ANSI). |
+
+**Examples:**
+
+```bash
+# Plain text dump (ANSI preserved — pipe into less -R or an xterm widget)
+curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-.../logs
+
+# Plain text, ANSI stripped for a clean terminal / log tool
+curl -s 'http://localhost:9002/api/agent/sessions/agt-550e8400-.../logs?strip=1'
+
+# Live tail via SSE
+curl -N -H 'Accept: text/event-stream' \
+  http://localhost:9002/api/agent/sessions/agt-550e8400-.../logs
+
+# Live tail with stripped chunks
+curl -N -H 'Accept: text/event-stream' \
+  'http://localhost:9002/api/agent/sessions/agt-550e8400-.../logs?strip=1'
+```
+
+**SSE event shape** (reuses the streaming-run `sseEvent` type):
+
+```json
+{"type":"chunk","text":"◆ Phase [source-analysis] - analyze source code...\n"}
+{"type":"chunk","text":"❯ source-analysis │ routes discovered count=42\n"}
+{"type":"done"}
+```
+
+On a read error the stream emits `{"type":"error","error":"..."}` and closes.
+
+**Notes:**
+
+- The endpoint reads `run.log` from the session directory recorded on the DB row (`session_dir`). For rows created before that field was persisted, it falls back to `<sessions_dir>/<run_id>/run.log`.
+- All three agent modes (query, autopilot, swarm) write `run.log` when started via the REST API, so the endpoint works uniformly across modes.
+- Structured data (findings, attack plan, triage result, final raw output blob) still lives on `GET /api/agent/sessions/:id` — this endpoint is the *unstructured* console stream only.
+- When ANSI stripping is enabled on the SSE path, an escape sequence that happens to span a read boundary may leak through as a cosmetic artifact. The plain-text path is not affected.
+
+**Error responses:**
+
+| Status | Condition                                  |
+|--------|--------------------------------------------|
+| `400`  | Missing session ID                         |
+| `404`  | Session not found, or `run.log` missing    |
+| `500`  | Failed to read `run.log` from disk         |
+| `503`  | Database not configured                    |
 
 ---
 

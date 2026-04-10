@@ -19,7 +19,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/archon/claudestream"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
 )
 
@@ -41,8 +43,41 @@ type AuditAgentRunner struct {
 	err       error
 	cancelled bool
 
-	lastStateHash string // cached hash for change detection in syncLoop
+	lastStateHash string           // cached hash for change detection in syncLoop
 	syncedFiles   map[string]int64 // filename → size, for incremental sync
+
+	// Populated by importArchonFindings after monitor() completes.
+	findingStats FindingStats
+}
+
+// FindingStats summarises the archon findings imported by a single audit run.
+type FindingStats struct {
+	Parsed     int            // total findings parsed from the session dir
+	Saved      int            // findings successfully persisted to the database
+	BySeverity map[string]int // count by normalized severity (critical/high/medium/low/info)
+}
+
+// SeverityBreakdownString renders a colored "critical:N  high:N  ..." string in
+// descending severity order. Buckets with zero count are skipped. Returns ""
+// when no findings were counted.
+func (s FindingStats) SeverityBreakdownString() string {
+	order := []struct {
+		name  string
+		color func(string) string
+	}{
+		{"critical", terminal.Red},
+		{"high", terminal.Orange},
+		{"medium", terminal.Yellow},
+		{"low", terminal.Cyan},
+		{"info", terminal.Gray},
+	}
+	var parts []string
+	for _, b := range order {
+		if n := s.BySeverity[b.name]; n > 0 {
+			parts = append(parts, b.color(fmt.Sprintf("%s:%d", b.name, n)))
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 // NewAuditAgentRunner creates a new runner for the background archon-audit.
@@ -81,7 +116,10 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 		}
 	}
 
-	binary, args, stdinPrompt, err := buildAuditAgentCommand(platform, pluginDir, r.cfg.Mode, r.cfg.SourcePath)
+	// Stream-json rendering is Claude-only; other platforms ignore it.
+	streamJSON := r.cfg.Stream && platform == archon.PlatformClaude && r.cfg.StreamWriter != nil
+
+	binary, args, stdinPrompt, err := buildAuditAgentCommand(platform, pluginDir, r.cfg.Mode, r.cfg.SourcePath, streamJSON)
 	if err != nil {
 		return err
 	}
@@ -112,7 +150,28 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	}
 
 	var outputBuf syncBuffer
-	if r.cfg.StreamWriter != nil {
+	var streamPipe io.ReadCloser
+	var streamRawLog *os.File
+
+	if streamJSON {
+		// Claude stream-json: decode via claudestream, tee raw JSONL to session dir,
+		// and still capture into outputBuf for the fallback-output path in monitor().
+		pipe, pipeErr := cmd.StdoutPipe()
+		if pipeErr != nil {
+			return fmt.Errorf("stdout pipe: %w", pipeErr)
+		}
+		streamPipe = pipe
+
+		if r.cfg.SessionDir != "" {
+			rawPath := filepath.Join(r.cfg.SessionDir, "audit-stream.jsonl")
+			_ = os.MkdirAll(filepath.Dir(rawPath), 0o755)
+			if f, err := os.OpenFile(rawPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+				streamRawLog = f
+			} else {
+				zap.L().Debug("Failed to open audit-stream.jsonl", zap.Error(err))
+			}
+		}
+	} else if r.cfg.StreamWriter != nil {
 		cmd.Stdout = io.MultiWriter(&outputBuf, r.cfg.StreamWriter)
 	} else {
 		cmd.Stdout = &outputBuf
@@ -120,12 +179,35 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd.Stderr = &outputBuf
 
 	if err := cmd.Start(); err != nil {
+		if streamRawLog != nil {
+			_ = streamRawLog.Close()
+		}
 		return fmt.Errorf("failed to start archon-audit: %w", err)
 	}
 
 	r.mu.Lock()
 	r.cmd = cmd
 	r.mu.Unlock()
+
+	// Launch the stream-json decoder goroutine now that the child has started.
+	if streamJSON {
+		go func() {
+			defer func() {
+				if streamRawLog != nil {
+					_ = streamRawLog.Close()
+				}
+			}()
+			opts := claudestream.Options{}
+			if streamRawLog != nil {
+				opts.RawLog = io.MultiWriter(&outputBuf, streamRawLog)
+			} else {
+				opts.RawLog = &outputBuf
+			}
+			if err := claudestream.Stream(streamPipe, r.cfg.StreamWriter, opts); err != nil {
+				zap.L().Debug("claudestream decoder exited with error", zap.Error(err))
+			}
+		}()
+	}
 
 	// Create child AgentRun record
 	r.createAgentRun(ctx)
@@ -374,11 +456,8 @@ func (r *AuditAgentRunner) syncFolderFull() {
 }
 
 // importArchonFindings parses the archon output from session dir and imports findings.
+// Populates r.findingStats so the CLI summary can report what was persisted.
 func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
-	if r.repo == nil {
-		return
-	}
-
 	// Parse from session dir (synced copy) or fall back to source dir
 	var archonDir string
 	if r.cfg.SessionDir != "" {
@@ -400,22 +479,53 @@ func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
 
 	findings := archon.BuildFindings(result.RawFindings, auditID, r.agentRunUUID, r.cfg.ProjectUUID, result.RepoName)
 
-	var saved int
+	stats := FindingStats{
+		Parsed:     len(findings),
+		BySeverity: make(map[string]int, len(findings)),
+	}
 	for _, f := range findings {
-		f.ScanUUID = r.cfg.ScanUUID
-		if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
-			continue
-		}
-		if f.ID > 0 {
-			saved++
+		stats.BySeverity[f.Severity]++
+	}
+
+	// Persist when a repository is available — otherwise we still want Parsed
+	// and BySeverity on the runner so the CLI summary can render counts.
+	if r.repo != nil {
+		for _, f := range findings {
+			f.ScanUUID = r.cfg.ScanUUID
+			if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
+				continue
+			}
+			if f.ID > 0 {
+				stats.Saved++
+			}
 		}
 	}
 
-	if saved > 0 {
+	r.mu.Lock()
+	r.findingStats = stats
+	r.mu.Unlock()
+
+	if stats.Parsed > 0 {
 		zap.L().Info("Imported archon audit findings",
-			zap.Int("parsed", len(findings)),
-			zap.Int("saved", saved))
+			zap.Int("parsed", stats.Parsed),
+			zap.Int("saved", stats.Saved))
 	}
+}
+
+// FindingStats returns the summary of findings parsed and imported by this
+// audit run. Only populated after monitor() has completed.
+func (r *AuditAgentRunner) FindingStats() FindingStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stats := r.findingStats
+	if stats.BySeverity != nil {
+		cp := make(map[string]int, len(stats.BySeverity))
+		for k, v := range stats.BySeverity {
+			cp[k] = v
+		}
+		stats.BySeverity = cp
+	}
+	return stats
 }
 
 func (r *AuditAgentRunner) updateAgentRunProgress(stateData []byte) {
@@ -473,13 +583,17 @@ func (r *AuditAgentRunner) finalizeAgentRun(ctx context.Context, processErr erro
 	run.CompletedAt = time.Now()
 	run.DurationMs = run.CompletedAt.Sub(run.StartedAt).Milliseconds()
 
-	if processErr != nil && !r.cancelled {
+	switch {
+	case processErr == nil:
+		// Process exited cleanly — always "completed", even if Cancel() was
+		// racily invoked after the process had already finished successfully.
+		run.Status = "completed"
+	case r.cancelled || ctx.Err() != nil:
+		// Explicit cancel or parent context cancellation (SIGINT/timeout).
+		run.Status = "cancelled"
+	default:
 		run.Status = "failed"
 		run.ErrorMessage = processErr.Error()
-	} else if r.cancelled {
-		run.Status = "cancelled"
-	} else {
-		run.Status = "completed"
 	}
 
 	// Load final state for result_json
@@ -566,16 +680,30 @@ func (r *AuditAgentRunner) isRunning() bool {
 }
 
 func (r *AuditAgentRunner) readCurrentState() *archon.AuditState {
-	src := filepath.Join(r.cfg.SourcePath, "archon", "audit-state.json")
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return nil
+	// Try the source dir first (authoritative while the audit is running),
+	// then fall back to the synced copy in the session dir. The fallback
+	// matters after monitor() removes SourcePath/archon on cleanup: by the
+	// time Status() is called from the CLI summary, only the session copy
+	// remains.
+	candidates := []string{
+		filepath.Join(r.cfg.SourcePath, "archon", "audit-state.json"),
 	}
-	var state archon.AuditState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil
+	if r.cfg.SessionDir != "" {
+		candidates = append(candidates, filepath.Join(r.cfg.SessionDir, "archon-audit", "audit-state.json"))
 	}
-	return &state
+
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var state archon.AuditState
+		if err := json.Unmarshal(data, &state); err != nil {
+			continue
+		}
+		return &state
+	}
+	return nil
 }
 
 // --- Process management helpers ---
@@ -630,8 +758,10 @@ func copyDir(src, dest string) {
 // --- Platform command builders ---
 
 // buildAuditAgentCommand resolves the CLI binary and builds the argument list
-// for launching archon-audit on the given platform.
-func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binary string, args []string, stdinPrompt string, err error) {
+// for launching archon-audit on the given platform. When stream is true and
+// the platform is Claude, the command emits stream-json events on stdout so
+// the caller can render a live activity feed via claudestream.
+func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string, stream bool) (binary string, args []string, stdinPrompt string, err error) {
 	switch platform {
 	case archon.PlatformCodex:
 		binary, err = exec.LookPath("codex")
@@ -666,12 +796,24 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binar
 			return "", nil, "", fmt.Errorf("claude CLI not found in PATH: %w", err)
 		}
 		command := "/archon-audit:archon:" + mode
-		args = []string{
-			"--print",
-			"--dangerously-skip-permissions",
-			"--plugin-dir", pluginDir,
-			"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
-			command,
+		if stream {
+			args = []string{
+				"--plugin-dir", pluginDir,
+				"--dangerously-skip-permissions",
+				"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
+				"--output-format", "stream-json",
+				"--verbose",
+				"--include-partial-messages",
+				"--print", command,
+			}
+		} else {
+			args = []string{
+				"--print",
+				"--dangerously-skip-permissions",
+				"--plugin-dir", pluginDir,
+				"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
+				command,
+			}
 		}
 	}
 
@@ -682,7 +824,9 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string) (binar
 
 // StartAuditAgent creates and starts a background archon-audit.
 // Returns nil runner when disabled or no source path.
-func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository) (*AuditAgentRunner, error) {
+// When streamWriter is non-nil, audit output is streamed in real-time; for
+// the Claude platform this enables stream-json rendering via claudestream.
+func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer) (*AuditAgentRunner, error) {
 	if !agentCfg.IsEnabled() || sourcePath == "" {
 		return nil, nil
 	}
@@ -697,6 +841,8 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sour
 		ScanUUID:      scanUUID,
 		ParentRunUUID: parentRunUUID,
 		SyncInterval:  time.Duration(agentCfg.EffectiveSyncInterval()) * time.Second,
+		StreamWriter:  streamWriter,
+		Stream:        streamWriter != nil,
 	}
 
 	runner := NewAuditAgentRunner(cfg, repo)
@@ -710,7 +856,9 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sour
 // startAuditAgentBackground is a shared helper that starts the archon-audit and returns
 // the runner and a cleanup function. Logs startup success/failure via the provided logFn.
 // Returns nil runner and nil cleanup when the audit agent is not started.
-func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, logFn func(msg string)) (*AuditAgentRunner, func()) {
+// When streamWriter is non-nil, audit output is streamed live (same rendering
+// as the standalone `vigolium agent archon` command).
+func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer, logFn func(msg string)) (*AuditAgentRunner, func()) {
 	if auditCfg == nil || !auditCfg.IsEnabled() || sourcePath == "" {
 		return nil, nil
 	}
@@ -727,7 +875,7 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 		}
 	}
 
-	runner, err := StartAuditAgent(ctx, *auditCfg, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID, repo)
+	runner, err := StartAuditAgent(ctx, *auditCfg, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID, repo, streamWriter)
 	if err != nil {
 		zap.L().Warn("Failed to start background archon-audit, continuing without it", zap.Error(err))
 		if logFn != nil {
@@ -743,13 +891,16 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 		logFn(fmt.Sprintf("started (%s mode)", auditCfg.EffectiveMode()))
 	}
 
-	cleanup := func() {
-		if runner.isRunning() {
-			runner.Cancel()
-			<-runner.Done()
-		}
+	// wait blocks until the archon runner's monitor goroutine has fully exited.
+	// Callers use this to wait for a parallel archon-audit to finish naturally —
+	// do NOT call Cancel() here or a fast-finishing parent pipeline would abort
+	// a still-running archon and mark it as "cancelled" in the DB. When the
+	// parent ctx is cancelled (SIGINT/timeout), exec.CommandContext already
+	// kills the subprocess and the monitor will complete on its own.
+	wait := func() {
+		<-runner.Done()
 	}
-	return runner, cleanup
+	return runner, wait
 }
 
 // ResolveAuditAgentConfig determines whether archon-audit should run.

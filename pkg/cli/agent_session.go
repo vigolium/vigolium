@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/archon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -20,11 +22,13 @@ var (
 	sessionMode   string
 	sessionLimit  int
 	sessionOffset int
+	sessionTail   int
+	sessionFull   bool
 )
 
 var agentSessionCmd = &cobra.Command{
 	Use:     "session [uuid]",
-	Aliases: []string{"sessions"},
+	Aliases: []string{"sessions", "sess"},
 	Short:   "List agent run sessions or show session details",
 	Long:    "Without arguments, lists all agent run sessions. With a UUID argument, shows detailed session information.",
 	RunE:    runAgentSession,
@@ -36,6 +40,8 @@ func init() {
 	agentSessionCmd.Flags().StringVar(&sessionMode, "mode", "", "Filter by mode (query, autopilot, pipeline, swarm)")
 	agentSessionCmd.Flags().IntVarP(&sessionLimit, "limit", "n", 50, "Maximum number of records to display")
 	agentSessionCmd.Flags().IntVarP(&sessionOffset, "offset", "o", 0, "Number of records to skip")
+	agentSessionCmd.Flags().IntVar(&sessionTail, "tail", 50, "Number of raw output lines to show (0=none, -1=all)")
+	agentSessionCmd.Flags().BoolVar(&sessionFull, "full", false, "Show full raw output (shortcut for --tail -1)")
 }
 
 func runAgentSession(cmd *cobra.Command, args []string) error {
@@ -92,6 +98,16 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		min(sessionOffset+len(runs), int(total)),
 		total)
 
+	// Build a child-run lookup: parent UUID → child modes
+	childModes := make(map[string][]string)
+	for _, r := range runs {
+		if children, err := repo.GetChildAgentRuns(ctx, r.UUID); err == nil {
+			for _, child := range children {
+				childModes[r.UUID] = append(childModes[r.UUID], child.Mode)
+			}
+		}
+	}
+
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "UUID", "MODE", "STATUS", "TARGET", "FINDINGS", "RECORDS", "PHASE", "DURATION", "CREATED")
 	for _, r := range runs {
 		status := r.Status
@@ -116,19 +132,33 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		}
 
 		target := r.TargetURL
+		if target == "" && r.SourcePath != "" {
+			target = terminal.ShortenHome(r.SourcePath)
+		}
 		if len(target) > 40 {
 			target = target[:37] + "..."
 		}
 
 		uuid := r.UUID
 
+		mode := terminal.Cyan(r.Mode)
+		if modes, ok := childModes[r.UUID]; ok && len(modes) > 0 {
+			mode += terminal.Gray(" +") + terminal.Gray(strings.Join(modes, ","))
+		}
+
 		phase := r.CurrentPhase
+		if phase == "" && len(r.PhasesRun) > 0 {
+			phase = strings.Join(r.PhasesRun, " → ")
+		}
+		if len(phase) > 30 {
+			phase = phase[:27] + "..."
+		}
 
 		created := r.CreatedAt.Format("2006-01-02 15:04")
 
 		tbl.AddRow(
 			terminal.Gray(uuid),
-			terminal.Cyan(r.Mode),
+			mode,
 			status,
 			target,
 			fmt.Sprintf("%d", r.FindingCount),
@@ -162,20 +192,13 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		return encoder.Encode(run)
 	}
 
-	// Header
-	status := run.Status
-	switch status {
-	case "completed":
-		status = terminal.Green(status)
-	case "running":
-		status = terminal.Cyan(status)
-	case "failed":
-		status = terminal.Red(status)
-	case "cancelled":
-		status = terminal.Yellow(status)
-	case "pending":
-		status = terminal.Gray(status)
+	tailLines := sessionTail
+	if sessionFull {
+		tailLines = -1
 	}
+
+	// Header
+	status := colorRunStatus(run.Status)
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n",
 		terminal.Aqua(terminal.SymbolSparkle),
@@ -200,6 +223,15 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 	}
 	if run.SourcePath != "" {
 		fmt.Fprintf(os.Stderr, "  %-19s %s\n", terminal.Gray("Source:"), terminal.ShortenHome(run.SourcePath))
+	}
+	if run.ParentRunUUID != "" {
+		fmt.Fprintf(os.Stderr, "  %-19s %s\n", terminal.Gray("Parent run:"), terminal.Gray(run.ParentRunUUID))
+	}
+	if run.VulnType != "" {
+		fmt.Fprintf(os.Stderr, "  %-19s %s\n", terminal.Gray("Vuln type:"), terminal.Cyan(run.VulnType))
+	}
+	if run.RetryCount > 0 {
+		fmt.Fprintf(os.Stderr, "  %-19s %d\n", terminal.Gray("Retries:"), run.RetryCount)
 	}
 
 	// Timing
@@ -237,24 +269,42 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Phases run:"), strings.Join(coloredPhases, terminal.Gray(" → ")))
 	}
 
+	// Input
+	if run.InputRaw != "" {
+		fmt.Fprintf(os.Stderr, "\n  %s %s\n", terminal.Aqua(terminal.SymbolInfo), terminal.BoldAqua("Input"))
+		if run.InputType != "" {
+			fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Type:"), terminal.Cyan(run.InputType))
+		}
+		inputDisplay := run.InputRaw
+		if len(inputDisplay) > 500 {
+			inputDisplay = inputDisplay[:500] + "…"
+		}
+		for _, line := range strings.Split(inputDisplay, "\n") {
+			fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray(line))
+		}
+	}
+
 	// Prompt sent
 	if run.PromptSent != "" {
 		fmt.Fprintf(os.Stderr, "\n  %s %s\n", terminal.Aqua(terminal.SymbolInfo), terminal.BoldAqua("Prompt"))
 		prompt := run.PromptSent
-		// Trim outer JSON quotes if stored as JSON string
 		if strings.HasPrefix(prompt, "\"") {
 			var unquoted string
 			if json.Unmarshal([]byte(prompt), &unquoted) == nil {
 				prompt = unquoted
 			}
 		}
-		// Show first 500 chars with truncation
 		if len(prompt) > 500 {
 			prompt = prompt[:500] + "…"
 		}
 		for _, line := range strings.Split(prompt, "\n") {
 			fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray(line))
 		}
+	}
+
+	// Archon audit stats (direct archon run)
+	if run.Mode == "archon" {
+		printArchonAuditStats(run)
 	}
 
 	// Attack plan (pipeline/swarm)
@@ -264,9 +314,6 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 
 	// Session auth (from session_hostnames table)
 	printSessionAuth(ctx, repo, run)
-
-	// Extensions (from session directory)
-	printSessionExtensions(run)
 
 	// Token usage
 	if len(run.TokenUsage) > 0 {
@@ -313,8 +360,348 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		}
 	}
 
+	// Session directory listing
+	sessionDir := resolveSessionDir(run)
+	printSessionDirListing(sessionDir)
+
+	// Extensions (from session directory)
+	printSessionExtensions(run)
+
+	// Raw output
+	printSessionRawOutput(run, sessionDir, tailLines)
+
+	// Child runs (e.g. archon sub-runs spawned by autopilot)
+	if children, childErr := repo.GetChildAgentRuns(ctx, run.UUID); childErr == nil && len(children) > 0 {
+		for _, child := range children {
+			printChildRunDetail(child, tailLines)
+		}
+	}
+
 	fmt.Fprintln(os.Stderr)
 	return nil
+}
+
+// colorRunStatus returns a colored agent run status string.
+func colorRunStatus(status string) string {
+	switch status {
+	case "completed":
+		return terminal.Green(status)
+	case "running":
+		return terminal.Cyan(status)
+	case "failed":
+		return terminal.Red(status)
+	case "cancelled":
+		return terminal.Yellow(status)
+	case "pending":
+		return terminal.Gray(status)
+	default:
+		return status
+	}
+}
+
+// printChildRunDetail renders a child run's details inline within its parent's detail view.
+func printChildRunDetail(child *database.AgentRun, tailLines int) {
+	uuidShort := child.UUID
+	if len(uuidShort) > 8 {
+		uuidShort = uuidShort[:8] + "…"
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
+		terminal.Aqua(terminal.SymbolSparkle2),
+		terminal.BoldAqua("Child Run: "+child.Mode),
+		terminal.Gray("("+uuidShort+")"))
+
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("UUID:"), terminal.Gray(child.UUID))
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Agent:"), child.AgentName)
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Status:"), colorRunStatus(child.Status))
+	if child.SourcePath != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Source:"), terminal.ShortenHome(child.SourcePath))
+	}
+
+	// Timing
+	if !child.StartedAt.IsZero() {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Started:"), child.StartedAt.Format("2006-01-02 15:04:05"))
+	}
+	if !child.CompletedAt.IsZero() {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Completed:"), child.CompletedAt.Format("2006-01-02 15:04:05"))
+	}
+	if child.DurationMs > 0 {
+		d := time.Duration(child.DurationMs) * time.Millisecond
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Duration:"), d.Round(time.Second).String())
+	}
+
+	// Results
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Findings:"), colorFindingCount(child.FindingCount))
+	if child.CurrentPhase != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Current phase:"), terminal.Cyan(child.CurrentPhase))
+	}
+	if len(child.PhasesRun) > 0 {
+		coloredPhases := make([]string, len(child.PhasesRun))
+		for i, p := range child.PhasesRun {
+			coloredPhases[i] = terminal.Cyan(p)
+		}
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Phases run:"), strings.Join(coloredPhases, terminal.Gray(" → ")))
+	}
+
+	// Archon-specific stats
+	if child.Mode == "archon" {
+		printArchonAuditStats(child)
+	}
+
+	// Error
+	if child.ErrorMessage != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Error:"), terminal.Red(child.ErrorMessage))
+	}
+
+	// Session directory listing
+	childSessionDir := resolveSessionDir(child)
+	printSessionDirListing(childSessionDir)
+
+	// Raw output
+	printSessionRawOutput(child, childSessionDir, tailLines)
+}
+
+// resolveSessionDir returns the session directory path for a run,
+// preferring the DB-stored path and falling back to convention.
+func resolveSessionDir(run *database.AgentRun) string {
+	if run.SessionDir != "" {
+		return run.SessionDir
+	}
+	sessionsDir := resolveSessionsDir()
+	if sessionsDir == "" {
+		return ""
+	}
+	return filepath.Join(sessionsDir, run.UUID)
+}
+
+// printSessionDirListing lists all files in the session directory with sizes.
+func printSessionDirListing(sessionDir string) {
+	if sessionDir == "" {
+		return
+	}
+	info, err := os.Stat(sessionDir)
+	if err != nil || !info.IsDir() {
+		return
+	}
+
+	type fileEntry struct {
+		relPath string
+		size    int64
+	}
+
+	var files []fileEntry
+	_ = filepath.WalkDir(sessionDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(sessionDir, path)
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		files = append(files, fileEntry{relPath: rel, size: fi.Size()})
+		return nil
+	})
+
+	if len(files) == 0 {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
+		terminal.Aqua(terminal.SymbolInfo),
+		terminal.BoldAqua("Session Directory"),
+		terminal.Gray(fmt.Sprintf("(%d file%s)", len(files), pluralSuffix(len(files)))))
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Path:"), terminal.Gray(terminal.ShortenHome(sessionDir)))
+
+	for _, f := range files {
+		fmt.Fprintf(os.Stderr, "    %s %-50s %s\n",
+			terminal.Gray("-"),
+			terminal.Cyan(f.relPath),
+			terminal.Gray(formatFileSize(f.size)))
+	}
+}
+
+// printSessionRawOutput shows the tail of the agent's raw output.
+func printSessionRawOutput(run *database.AgentRun, sessionDir string, tailLines int) {
+	if tailLines == 0 {
+		return
+	}
+
+	// Try multiple sources for raw output
+	var content string
+
+	// 1. DB field
+	if run.AgentRawOutput != "" {
+		content = run.AgentRawOutput
+	}
+
+	// 2. Session directory files (prefer these as they may be more complete)
+	if sessionDir != "" {
+		for _, name := range []string{"output.md", "output.txt", "archon-audit-output.md"} {
+			if data, err := os.ReadFile(filepath.Join(sessionDir, name)); err == nil && len(data) > 0 {
+				content = string(data)
+				break
+			}
+		}
+	}
+
+	if content == "" {
+		return
+	}
+
+	lines := strings.Split(content, "\n")
+	// Trim trailing empty lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return
+	}
+
+	totalLines := len(lines)
+	truncated := false
+	if tailLines > 0 && totalLines > tailLines {
+		lines = lines[totalLines-tailLines:]
+		truncated = true
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
+		terminal.Aqua(terminal.SymbolInfo),
+		terminal.BoldAqua("Raw Output"),
+		terminal.Gray(fmt.Sprintf("(%d line%s total)", totalLines, pluralSuffix(totalLines))))
+
+	if truncated {
+		fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray(fmt.Sprintf("… showing last %d lines (use --full for all) …", tailLines)))
+	}
+	for _, line := range lines {
+		fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray(line))
+	}
+}
+
+// printArchonAuditStats parses and displays archon audit state from ResultJSON.
+func printArchonAuditStats(run *database.AgentRun) {
+	if run.ResultJSON == "" {
+		return
+	}
+
+	var state archon.AuditState
+	if err := json.Unmarshal([]byte(run.ResultJSON), &state); err != nil || len(state.Audits) == 0 {
+		return
+	}
+
+	audit := state.Audits[0]
+
+	fmt.Fprintf(os.Stderr, "\n  %s %s\n",
+		terminal.Aqua(terminal.SymbolInfo),
+		terminal.BoldAqua("Archon Audit"))
+
+	// Metadata
+	if audit.Commit != "" {
+		commitShort := audit.Commit
+		if len(commitShort) > 7 {
+			commitShort = commitShort[:7]
+		}
+		commitDisplay := terminal.Cyan(commitShort)
+		if audit.Branch != "" {
+			commitDisplay += terminal.Gray(" (") + terminal.Cyan(audit.Branch) + terminal.Gray(")")
+		}
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Commit:"), commitDisplay)
+	}
+	if repo := audit.EffectiveRepo(); repo != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Repo:"), terminal.Cyan(repo))
+	}
+	if audit.Mode != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit mode:"), terminal.HiTeal(audit.Mode))
+	}
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit status:"), colorRunStatus(audit.Status))
+
+	if !audit.CompletedAt.IsZero() && !audit.StartedAt.IsZero() {
+		d := audit.CompletedAt.Sub(audit.StartedAt).Round(time.Second)
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit duration:"), d.String())
+	}
+
+	// Phase breakdown
+	if len(audit.Phases) > 0 {
+		fmt.Fprintf(os.Stderr, "\n    %s\n", terminal.Gray("Phases:"))
+
+		var phaseKeys []string
+		for k := range audit.Phases {
+			phaseKeys = append(phaseKeys, k)
+		}
+		sort.Strings(phaseKeys)
+
+		for _, k := range phaseKeys {
+			p := audit.Phases[k]
+			phaseStatus := p.Status
+			var statusColor func(string) string
+			switch phaseStatus {
+			case "complete":
+				statusColor = terminal.Green
+			case "in_progress":
+				statusColor = terminal.Cyan
+			case "failed":
+				statusColor = terminal.Red
+			default:
+				statusColor = terminal.Gray
+			}
+
+			dur := ""
+			if !p.CompletedAt.IsZero() && !audit.StartedAt.IsZero() {
+				dur = terminal.Gray(fmt.Sprintf(" %s", p.CompletedAt.Format("15:04:05")))
+			}
+
+			fmt.Fprintf(os.Stderr, "      %-12s %s%s\n",
+				terminal.Gray(k),
+				statusColor(phaseStatus),
+				dur)
+		}
+	}
+
+	// Finding severity breakdown from session directory
+	sessionDir := resolveSessionDir(run)
+	if sessionDir != "" {
+		archonDir := filepath.Join(sessionDir, "archon-audit")
+		if imp, err := archon.ParseAuditFolder(archonDir); err == nil && len(imp.RawFindings) > 0 {
+			bySev := make(map[string]int)
+			for _, f := range imp.RawFindings {
+				sev := strings.ToLower(f.Severity)
+				if sev == "" {
+					sev = "info"
+				}
+				bySev[sev]++
+			}
+
+			stats := agent.FindingStats{
+				Parsed:     len(imp.RawFindings),
+				BySeverity: bySev,
+			}
+
+			fmt.Fprintf(os.Stderr, "\n    %s %s\n",
+				terminal.Purple(terminal.SymbolFlag),
+				fmt.Sprintf("Findings: %s parsed", terminal.HiTeal(fmt.Sprintf("%d", stats.Parsed))))
+
+			if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
+				fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray(terminal.SymbolDot), breakdown)
+			}
+		}
+	}
+
+	// Notable reports present
+	if sessionDir != "" {
+		archonDir := filepath.Join(sessionDir, "archon-audit")
+		var reports []string
+		for _, name := range []string{"knowledge-base-report.md", "final-audit-report.md", "commit-recon-report.md", "attack-pattern-registry.json"} {
+			if _, err := os.Stat(filepath.Join(archonDir, name)); err == nil {
+				reports = append(reports, name)
+			}
+		}
+		if len(reports) > 0 {
+			fmt.Fprintf(os.Stderr, "\n    %s\n", terminal.Gray("Reports:"))
+			for _, r := range reports {
+				fmt.Fprintf(os.Stderr, "      %s %s\n", terminal.Gray("-"), terminal.Cyan(r))
+			}
+		}
+	}
 }
 
 // printSessionPlan parses and displays the attack plan / swarm plan from JSON.
@@ -566,4 +953,16 @@ func pluralSuffix(count int) string {
 		return ""
 	}
 	return "s"
+}
+
+// formatFileSize returns a human-readable file size string.
+func formatFileSize(bytes int64) string {
+	switch {
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }

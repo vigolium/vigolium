@@ -1860,8 +1860,10 @@ func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode
 	}
 
 	// Count total matching rows (without LIMIT/OFFSET).
+	// Exclude child runs (those with a parent) from the default listing.
 	countQ := r.db.NewSelect().Model((*AgentRun)(nil)).
-		Where("project_uuid = ?", projectUUID)
+		Where("project_uuid = ?", projectUUID).
+		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')")
 	if mode != "" {
 		countQ = countQ.Where("mode = ?", mode)
 	}
@@ -1870,6 +1872,7 @@ func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode
 	var runs []*AgentRun
 	q := r.db.NewSelect().Model(&runs).
 		Where("project_uuid = ?", projectUUID).
+		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')").
 		OrderExpr("created_at DESC").
 		Limit(limit).
 		Offset(offset)
@@ -1887,6 +1890,19 @@ func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode
 		total = len(runs)
 	}
 	return runs, int64(total), nil
+}
+
+// GetChildAgentRuns returns agent runs whose ParentRunUUID matches the given UUID.
+func (r *Repository) GetChildAgentRuns(ctx context.Context, parentUUID string) ([]*AgentRun, error) {
+	var runs []*AgentRun
+	err := r.db.NewSelect().Model(&runs).
+		Where("parent_run_uuid = ?", parentUUID).
+		OrderExpr("created_at ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get child agent runs: %w", err)
+	}
+	return runs, nil
 }
 
 // DeleteOldAgentRuns removes completed/failed agent runs older than the given duration.

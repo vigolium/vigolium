@@ -439,6 +439,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			error_message TEXT,
 			result_json TEXT,
 			session_id TEXT,
+			session_dir TEXT,
 			started_at TIMESTAMP,
 			completed_at TIMESTAMP,
 			duration_ms INTEGER DEFAULT 0,
@@ -653,6 +654,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "agent_runs", "retry_count", "INTEGER DEFAULT 0")
 	db.addColumnIfNotExists(ctx, "agent_runs", "parent_run_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "agent_runs", "input_record_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agent_runs", "session_dir", "TEXT")
 
 	// OAST Interactions
 	db.addColumnIfNotExists(ctx, "oast_interactions", "finding_id", "INTEGER")

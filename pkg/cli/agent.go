@@ -189,7 +189,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create session directory for agent artifacts
-	queryRunID := "agt-" + uuid.New().String()
+	queryRunID := uuid.New().String()
 	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), queryRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))

@@ -98,6 +98,12 @@ func InfoSymbol() string {
 	return Cyan(SymbolInfo)
 }
 
+// PhasePrefix returns the muted "❯ phase │" prefix used by agent phase output
+// lines. Callers append their own space + message.
+func PhasePrefix(phase string) string {
+	return Muted(SymbolChevron + " " + phase + " " + SymbolPipe)
+}
+
 // WarningSymbol returns a colored warning symbol
 func WarningSymbol() string {
 	return Yellow(SymbolWarning)

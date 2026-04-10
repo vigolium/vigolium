@@ -317,7 +317,7 @@ func extractZip(archivePath, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open zip: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		target := filepath.Join(destDir, f.Name) //nolint:gosec // archive path validated below
@@ -344,16 +344,16 @@ func extractZip(archivePath, destDir string) error {
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return err
 		}
 		if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // bounded by archive entry
-			out.Close()
-			rc.Close()
+			_ = out.Close()
+			_ = rc.Close()
 			return err
 		}
-		out.Close()
-		rc.Close()
+		_ = out.Close()
+		_ = rc.Close()
 	}
 	return nil
 }
@@ -364,13 +364,13 @@ func extractTarGz(archivePath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	return extractTar(gz, destDir)
 }
@@ -381,7 +381,7 @@ func extractTarBz2(archivePath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return extractTar(bzip2.NewReader(f), destDir)
 }
@@ -433,10 +433,10 @@ func extractTar(r io.Reader, destDir string) error {
 				return err
 			}
 			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // bounded by tar entry
-				out.Close()
+				_ = out.Close()
 				return err
 			}
-			out.Close()
+			_ = out.Close()
 		case tar.TypeSymlink:
 			// Resolve symlink target to prevent escaping destDir
 			linkTarget := filepath.Join(filepath.Dir(target), hdr.Linkname)
@@ -494,7 +494,7 @@ func githubAPIGet(url, token, accept string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Cap response body to prevent memory exhaustion
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxPatchBytes)+1024))

@@ -143,7 +143,9 @@ type ArchonFinding struct {
 
 // ParseAuditFolder parses an archon output folder and returns the import data.
 // It tolerates a missing audit-state.json (e.g. when the archon process was
-// cancelled before completing). Findings are still parsed from findings-draft/.
+// cancelled before completing). Findings are read from findings/ (promoted,
+// severity-prefixed IDs) when present and otherwise fall back to
+// findings-draft/ (intermediate p/l/q-prefixed IDs).
 func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 	statePath := filepath.Join(folderPath, "audit-state.json")
 
@@ -160,10 +162,16 @@ func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 		}
 	}
 
-	findingsDir := filepath.Join(folderPath, "findings-draft")
-	findings, err := parseFindingsDir(findingsDir)
+	// Prefer findings/ (promoted, post-audit) over findings-draft/ (intermediate).
+	findings, err := parsePromotedFindings(filepath.Join(folderPath, "findings"))
 	if err != nil {
-		return nil, fmt.Errorf("parse findings-draft: %w", err)
+		return nil, fmt.Errorf("parse findings: %w", err)
+	}
+	if len(findings) == 0 {
+		findings, err = parseFindingsDir(filepath.Join(folderPath, "findings-draft"))
+		if err != nil {
+			return nil, fmt.Errorf("parse findings-draft: %w", err)
+		}
 	}
 
 	// Nothing to import if both state and findings are empty.
@@ -318,8 +326,17 @@ func parseFindingsDir(dir string) ([]*ArchonFinding, error) {
 // findingFileRegex matches archon finding filenames like p7-001-slug.md or p8-002-slug.cold-verify.md
 var findingFileRegex = regexp.MustCompile(`^p(\d+)-(\d+)-(.+?)(?:\.cold-verify)?\.md$`)
 
-// liteFindingFileRegex matches lite-mode filenames like l1-001.md or l2-003.md (no slug).
+// liteFindingFileRegex matches legacy lite-mode filenames like l1-001.md or l2-003.md (no slug).
 var liteFindingFileRegex = regexp.MustCompile(`^l(\d+)-(\d+)\.md$`)
+
+// quickFindingFileRegex matches current lite-mode filenames like q1-001.md or q2-009.md.
+// Lite mode phases are Q0 (recon), Q1 (secrets scan), Q2 (fast SAST); only Q1/Q2 emit findings.
+var quickFindingFileRegex = regexp.MustCompile(`^q(\d+)-(\d+)\.md$`)
+
+// promotedFindingRegex matches severity-prefixed promoted finding names.
+// Matches both directory entries (C1-sqli-user-lookup) and flat files (C1.md, H2-weak-jwt.md).
+// Group 1: severity letter (C/H/M/L), Group 2: sequence, Group 3: optional slug.
+var promotedFindingRegex = regexp.MustCompile(`^([CHML])(\d+)(?:-(.+?))?$`)
 
 func parseFindingFile(path string) (*ArchonFinding, error) {
 	data, err := os.ReadFile(path)
@@ -353,7 +370,7 @@ func parseFindingFile(path string) (*ArchonFinding, error) {
 		return af, nil
 	}
 
-	// Try lite-mode pattern: l<phase>-<seq>.md
+	// Try legacy lite-mode pattern: l<phase>-<seq>.md
 	if m := liteFindingFileRegex.FindStringSubmatch(filename); m != nil {
 		phase := m[1]
 		seq := m[2]
@@ -369,7 +386,199 @@ func parseFindingFile(path string) (*ArchonFinding, error) {
 		return af, nil
 	}
 
+	// Try current lite-mode pattern: q<phase>-<seq>.md
+	if m := quickFindingFileRegex.FindStringSubmatch(filename); m != nil {
+		phase := m[1]
+		seq := m[2]
+		findingID := fmt.Sprintf("Q%s-%s", phase, seq)
+
+		af := &ArchonFinding{
+			FindingID: findingID,
+			Phase:     phase,
+			Sequence:  seq,
+			Filename:  filename,
+		}
+		parseLiteFinding(af, content)
+		return af, nil
+	}
+
 	return nil, nil // not a finding file
+}
+
+// parsePromotedFindings reads the archon/findings/ directory where confirmed
+// findings have been promoted out of findings-draft/ with severity-prefixed IDs
+// (C1, H2, M3, ...). Two layouts are supported:
+//
+//   - Directory per finding: findings/C1-sqli-user-lookup/{draft.md, report.md, poc.*, evidence/}
+//   - Flat files: findings/C1.md + findings/C1-poc.md (test-fixture shape)
+//
+// Returns nil without error when the directory does not exist.
+func parsePromotedFindings(dir string) ([]*ArchonFinding, error) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var findings []*ArchonFinding
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			if af := parsePromotedFindingDir(filepath.Join(dir, name), name); af != nil {
+				findings = append(findings, af)
+			}
+			continue
+		}
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		// Skip PoC companion files — they share an ID with the primary finding.
+		base := strings.TrimSuffix(name, ".md")
+		if strings.HasSuffix(base, "-poc") {
+			continue
+		}
+		if af := parsePromotedFindingFile(filepath.Join(dir, name), base); af != nil {
+			findings = append(findings, af)
+		}
+	}
+
+	// Sort for deterministic ordering: severity C > H > M > L, then numeric sequence.
+	sort.SliceStable(findings, func(i, j int) bool {
+		return promotedSortKey(findings[i]) < promotedSortKey(findings[j])
+	})
+	return findings, nil
+}
+
+// promotedSortKey builds a string sort key that orders C* < H* < M* < L* and
+// then pads the sequence number so C2 < C10.
+func promotedSortKey(af *ArchonFinding) string {
+	rank := "9"
+	if len(af.FindingID) > 0 {
+		switch af.FindingID[0] {
+		case 'C':
+			rank = "0"
+		case 'H':
+			rank = "1"
+		case 'M':
+			rank = "2"
+		case 'L':
+			rank = "3"
+		}
+	}
+	return rank + fmt.Sprintf("%06s", af.Sequence) + af.FindingID
+}
+
+// parsePromotedFindingDir parses a findings/<ID>-<slug>/ directory by reading
+// draft.md (metadata) and optionally appending report.md to the body.
+func parsePromotedFindingDir(dirPath, entryName string) *ArchonFinding {
+	m := promotedFindingRegex.FindStringSubmatch(entryName)
+	if m == nil {
+		return nil
+	}
+
+	draftPath := filepath.Join(dirPath, "draft.md")
+	data, err := os.ReadFile(draftPath)
+	if err != nil {
+		// No draft — try report.md as the sole source.
+		data, err = os.ReadFile(filepath.Join(dirPath, "report.md"))
+		if err != nil {
+			return nil
+		}
+	}
+
+	af := newPromotedArchonFinding(m, entryName)
+	af.Filename = entryName + "/draft.md"
+	parseLiteFinding(af, string(data))
+
+	// Append report.md if it exists and isn't already the body source.
+	if report, err := os.ReadFile(filepath.Join(dirPath, "report.md")); err == nil && len(report) > 0 {
+		if !strings.Contains(af.Body, string(report)) {
+			af.Body = af.Body + "\n\n---\n\n" + string(report)
+		}
+	}
+
+	// Directory name wins over any Q-prefixed ID the content-level parser
+	// might have derived from a "## Q1-001:" header inside draft.md.
+	restorePromotedIdentity(af, m)
+	return af
+}
+
+// parsePromotedFindingFile parses a flat findings/<ID>[-<slug>].md file.
+func parsePromotedFindingFile(path, base string) *ArchonFinding {
+	m := promotedFindingRegex.FindStringSubmatch(base)
+	if m == nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	af := newPromotedArchonFinding(m, base)
+	af.Filename = base + ".md"
+	parseLiteFinding(af, string(data))
+	restorePromotedIdentity(af, m)
+	return af
+}
+
+// newPromotedArchonFinding creates an ArchonFinding seeded with the promoted
+// ID/slug/severity from a regex match against the dir or file name.
+func newPromotedArchonFinding(m []string, entryName string) *ArchonFinding {
+	sevLetter := m[1]
+	seq := m[2]
+	slug := ""
+	if len(m) > 3 {
+		slug = m[3]
+	}
+	return &ArchonFinding{
+		FindingID: sevLetter + seq,
+		Phase:     "lite",
+		Sequence:  seq,
+		Slug:      slug,
+		Severity:  severityFromLetter(sevLetter),
+	}
+}
+
+// restorePromotedIdentity re-asserts the directory/file-derived FindingID,
+// slug, and severity after parseLiteFinding has run, since the lite-finding
+// content parser may overwrite them from inline "## Q1-001:" style headers.
+func restorePromotedIdentity(af *ArchonFinding, m []string) {
+	sevLetter := m[1]
+	seq := m[2]
+	slug := ""
+	if len(m) > 3 {
+		slug = m[3]
+	}
+
+	af.FindingID = sevLetter + seq
+	af.Sequence = seq
+	af.Phase = "lite"
+	if slug != "" {
+		af.Slug = slug
+	}
+	// Ensure severity comes from the promoted ID when content is silent.
+	if af.Severity == "" {
+		af.Severity = severityFromLetter(sevLetter)
+	}
+}
+
+// severityFromLetter maps the C/H/M/L prefix of a promoted finding ID to a
+// severity word that toDBFinding will normalize.
+func severityFromLetter(letter string) string {
+	switch letter {
+	case "C":
+		return "Critical"
+	case "H":
+		return "High"
+	case "M":
+		return "Medium"
+	case "L":
+		return "Low"
+	}
+	return ""
 }
 
 // parsePhase7Finding parses the Phase 7 table-header format.
@@ -497,8 +706,9 @@ func parseFrontmatterFinding(af *ArchonFinding, content string) {
 // liteBoldFieldRegex matches markdown bold list items: - **Key**: Value
 var liteBoldFieldRegex = regexp.MustCompile(`-\s*\*\*(.+?)\*\*:\s*(.+)`)
 
-// liteHeadingRegex matches lite finding headings: ## l2-001: Title
-var liteHeadingRegex = regexp.MustCompile(`^##\s+l\d+-\d+:\s*(.+)`)
+// liteHeadingRegex matches lite finding headings: "## l2-001: Title" or
+// the current "## Q1-001: Title" (case-insensitive on the L/Q prefix).
+var liteHeadingRegex = regexp.MustCompile(`(?mi)^##\s+[lq]\d+-\d+:\s*(.+)`)
 
 // parseLiteFinding parses the lite-mode markdown format with bold list items.
 func parseLiteFinding(af *ArchonFinding, content string) {

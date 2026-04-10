@@ -326,7 +326,7 @@ echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vi
 vigolium agent autopilot -t https://example.com --dry-run
 
 # Resume a previous session
-vigolium agent autopilot --resume ~/.vigolium/agent-sessions/agt-abc123
+vigolium agent autopilot --resume ~/.vigolium/agent-sessions/<uuid>
 
 # With MCP servers
 vigolium agent autopilot -t https://example.com --mcp-enabled \

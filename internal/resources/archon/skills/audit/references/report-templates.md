@@ -17,6 +17,7 @@ audit is always the last entry.
       "audit_id": "<YYYY-MM-DDTHH:MM:SSZ>",
       "commit": "<git SHA>",
       "branch": "<branch name>",
+      "repository": "<org/repo or folder name>",
       "started_at": "<ISO 8601 timestamp>",
       "completed_at": "<ISO 8601 timestamp or null if in progress>",
       "status": "complete | in_progress | failed",
@@ -41,6 +42,7 @@ audit is always the last entry.
 Field notes:
 - `audit_id`: ISO 8601 timestamp of when the audit started; unique identifier for the run
 - `commit`: HEAD commit SHA at audit start; used for incremental re-audit diffing
+- `repository`: org/repo slug from git remote origin (e.g. `org/reponame`), or working directory basename if no remote is configured
 - `status` (audit-level): overall status of the audit run
 - `findings_count`: number of candidate findings at phase completion (0 for phases that do not generate findings)
 - `reports_generated`: list of KB sections or artifact files written during this phase

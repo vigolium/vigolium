@@ -244,7 +244,7 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	// Create agent run record — use pre-assigned UUID if provided (e.g. from CLI session dir)
 	runUUID := cfg.RunUUID
 	if runUUID == "" {
-		runUUID = "agt-" + uuid.New().String()
+		runUUID = uuid.New().String()
 	}
 	agentRun := &database.AgentRun{
 		UUID:        runUUID,
@@ -320,11 +320,14 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	browserEnabled := s.engine != nil && s.engine.settings != nil && s.engine.settings.Agent.Browser.IsEnabled()
 	CopySkillsToSessionDir(sessionDir, browserEnabled)
 
-	// Start background archon-audit when configured and source is available
-	if _, cleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", s.repo, func(msg string) {
+	// Start background archon-audit when configured and source is available.
+	// The returned wait func blocks until archon's monitor goroutine exits;
+	// deferring it lets the swarm pipeline wait for archon to finish naturally
+	// so its final status is persisted correctly.
+	if _, wait := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", s.repo, cfg.StreamWriter, func(msg string) {
 		fmt.Fprintf(os.Stderr, "%s archon: %s\n", terminal.InfoSymbol(), msg)
-	}); cleanup != nil {
-		defer cleanup()
+	}); wait != nil {
+		defer wait()
 	}
 
 	// Checkpoint/resume support

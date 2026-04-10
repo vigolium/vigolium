@@ -73,7 +73,7 @@ func doRequest(app *fiber.App, projectUUID, userEmail string) (int, string) {
 	if err != nil {
 		return 0, err.Error()
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(body)
 }
@@ -222,7 +222,7 @@ func TestProjectAccessMiddleware_PublicPathsSkipped(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != 200 {
 			t.Errorf("expected 200 for public path %s, got %d", path, resp.StatusCode)
 		}

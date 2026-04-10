@@ -320,7 +320,7 @@ Archon-audit writes output to the source directory under `archon/`, which is syn
 ### Session Directory (persistent)
 
 ```
-~/.vigolium/agent-sessions/agt-<uuid>/
+~/.vigolium/agent-sessions/<uuid>/
 ├── archon-audit/                     # Synced from source
 │   ├── audit-state.json
 │   ├── findings-draft/

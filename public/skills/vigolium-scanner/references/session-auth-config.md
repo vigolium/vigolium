@@ -101,7 +101,7 @@ vigolium session load auth-config.yaml --host example.com
 cat session-config.json | vigolium session load
 
 # Load agent-generated session config (auto-detected from path)
-vigolium session load ~/.vigolium/agent-sessions/agt-xxx/session-config.json
+vigolium session load ~/.vigolium/agent-sessions/<uuid>/session-config.json
 
 # Load a raw HTTP login request (auto-discovers tokens from response)
 cat login-req.txt | vigolium session load --name admin --host example.com

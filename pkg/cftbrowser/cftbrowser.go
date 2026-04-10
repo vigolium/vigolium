@@ -158,7 +158,7 @@ func fetchDownloadInfo(ctx context.Context) (version, downloadURL string, err er
 	if err != nil {
 		return "", "", fmt.Errorf("failed to fetch CfT API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("CfT API returned status %d", resp.StatusCode)
@@ -189,7 +189,7 @@ func fetchDownloadInfo(ctx context.Context) (version, downloadURL string, err er
 func EnsureBrowser(ctx context.Context) (string, error) {
 	if !IsSupported() {
 		return "", fmt.Errorf(
-			"Chrome for Testing is not available for %s/%s — install Chromium manually (e.g. apt install chromium)",
+			"chrome for Testing is not available for %s/%s — install Chromium manually (e.g. apt install chromium)",
 			runtime.GOOS, runtime.GOARCH,
 		)
 	}
@@ -242,7 +242,7 @@ func EnsureBrowser(ctx context.Context) (string, error) {
 		fmt.Println("failed")
 		return "", fmt.Errorf("download failed: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Print downloaded size.
 	if info, statErr := os.Stat(tmpFile); statErr == nil {
@@ -393,14 +393,14 @@ func verifyBrowser(binPath string) error {
 			fmt.Println("  Install them with:")
 			fmt.Printf("    sudo apt-get install -y %s\n", strings.Join(deps, " "))
 			fmt.Println()
-			return fmt.Errorf("Chrome binary missing shared libraries — install deps with: sudo apt-get install -y %s",
+			return fmt.Errorf("chrome binary missing shared libraries — install deps with: sudo apt-get install -y %s",
 				strings.Join(deps, " "))
 		}
 
-		return fmt.Errorf("Chrome binary failed: %s", output)
+		return fmt.Errorf("chrome binary failed: %s", output)
 	}
 
-	return fmt.Errorf("Chrome binary verification failed: %s (exit: %v)", output, err)
+	return fmt.Errorf("chrome binary verification failed: %s (exit: %v)", output, err)
 }
 
 // downloadToTemp downloads a URL to a temporary file, returning its path.
@@ -414,7 +414,7 @@ func downloadToTemp(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download returned status %d", resp.StatusCode)
@@ -436,11 +436,13 @@ func downloadToTemp(ctx context.Context, url string) (string, error) {
 
 	written, err := io.Copy(tmp, reader)
 	if err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return "", err
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
 
 	// Clear the progress line.
 	if resp.ContentLength > 0 {
@@ -482,7 +484,7 @@ func extractZipFile(zipPath, dest string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open zip: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		path := filepath.Join(dest, f.Name)
@@ -513,13 +515,13 @@ func extractSingleFile(f *zip.File, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open %s in zip: %w", f.Name, err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 	if err != nil {
 		return fmt.Errorf("failed to create %s: %w", destPath, err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, rc); err != nil {
 		return fmt.Errorf("failed to write %s: %w", destPath, err)

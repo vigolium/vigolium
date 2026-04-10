@@ -26,7 +26,7 @@ When `--source` is provided, swarm runs a **consolidated 4-call source analysis*
                                        v
               +------------------------------------------------+
               |             SwarmRunner.Run()                    |
-              |  - Create agent_runs DB record (agt-<uuid>)    |
+              |  - Create agent_runs DB record (uuid)            |
               |  - Create session directory for artifacts       |
               |  - Execute multi-phase pipeline                 |
               +------------------------------------------------+
@@ -713,7 +713,7 @@ Extensions from all sources (source analysis, SAST review, plan agent) are merge
 - Extensions → validated with `ValidateExtensionSyntax()`, invalid ones repaired via `RepairExtensionsWithLLM()`
 
 ```
-~/.vigolium/agent-sessions/agt-abc123/extensions/
+~/.vigolium/agent-sessions/<uuid>/extensions/
 ├── custom-json-sqli.js
 ├── custom-auth-bypass.js
 ├── qc-auth-bypass.js        (generated from quick_check)
@@ -1086,7 +1086,7 @@ type TriageResult struct {
 Every swarm run creates a session directory (configurable via `agent.sessions_dir`, defaults to `~/.vigolium/agent-sessions/<run-id>/`). The session directory stores all artifacts from the run for debugging and auditability:
 
 ```
-~/.vigolium/agent-sessions/agt-abc123/
+~/.vigolium/agent-sessions/<uuid>/
 ├── inputs.json                    # Normalized input records (JSON array)
 ├── source-analysis-prompt.md      # Rendered source analysis explore prompts (if --source)
 ├── source-analysis-output.md      # Raw source analysis output (explore + format phases)

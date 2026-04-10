@@ -49,8 +49,9 @@ type AutopilotPipelineConfig struct {
 	SessionsDir string
 	SessionDir  string
 
-	ProjectUUID string
-	ScanUUID    string
+	ProjectUUID  string
+	ScanUUID     string
+	ParentRunUUID string
 
 	StreamWriter     io.Writer
 	ProgressCallback func(phase string, message string)
@@ -95,7 +96,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 
 	// Auto-create session directory when not provided (e.g. API path)
 	if cfg.SessionDir == "" && cfg.SessionsDir != "" {
-		runID := "agt-" + uuid.New().String()
+		runID := uuid.New().String()
 		sessionDir, sdErr := EnsureSessionDir(cfg.SessionsDir, runID)
 		if sdErr != nil {
 			zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
@@ -115,9 +116,12 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	}
 
 	// Step 1: Start archon-audit in parallel (does not wait for completion)
-	archonLogFn := func(msg string) { printPhaseLine("archon", msg) }
-	archonRunner, archonCleanup := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", r.repo, archonLogFn)
-	// archonCleanup is called explicitly below (not deferred) so we can
+	if cfg.Archon != nil && cfg.Archon.IsEnabled() && cfg.SourcePath != "" {
+		printPhaseHeader(agenttypes.AutopilotPhaseArchon, "comprehensive security audits on repository and focusing on uncovering exploitable vulnerabilities with high accuracy")
+	}
+	archonLogFn := func(msg string) { printPhaseLine(agenttypes.AutopilotPhaseArchon, msg) }
+	archonRunner, archonWait := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentRunUUID, r.repo, cfg.StreamWriter, archonLogFn)
+	// archonWait is called explicitly below (not deferred) so we can
 	// run a fallback import after the archon process has fully stopped.
 
 	archonRunning := archonRunner != nil
@@ -164,9 +168,11 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		SessionDir:   cfg.SessionDir,
 		DryRun:       cfg.DryRun,
 		ShowPrompt:   cfg.ShowPrompt,
+		Phase:        agenttypes.AutopilotPhaseAutopilot,
 	}
 
-	printPhaseLine("autopilot", "starting autonomous agent session")
+	printPhaseHeader(agenttypes.AutopilotPhaseAutopilot, "autonomous agent that probes the target and consumes archon findings as they arrive")
+	printPhaseLine(agenttypes.AutopilotPhaseAutopilot, "starting autonomous agent session")
 	emitProgress(&cfg, "autopilot", "starting autonomous agent session")
 
 	// Wrap stream writer with progress tracking
@@ -192,8 +198,8 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	}
 
 	// Wait for archon to finish before importing findings.
-	if archonCleanup != nil {
-		archonCleanup()
+	if archonWait != nil {
+		archonWait()
 	}
 
 	// Update archon findings count with final tally (archon may have produced
@@ -208,12 +214,25 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	// The monitor goroutine attempts this too, but context cancellation or
 	// timing issues can cause that import to silently fail. SaveFindingDirect
 	// uses hash-based dedup so double-imports are harmless.
-	if archonRunning && r.repo != nil && cfg.SessionDir != "" {
-		stats := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID)
-		result.ArchonFindingsCount = stats.parsed
-		if stats.parsed > 0 {
-			archonLogFn(fmt.Sprintf("imported %d findings (%d new, %d already existed)",
-				stats.parsed, stats.saved, stats.parsed-stats.saved))
+	if archonRunning && cfg.SessionDir != "" {
+		var stats FindingStats
+		if archonRunner != nil {
+			stats = archonRunner.FindingStats()
+		}
+		if r.repo != nil {
+			fallback := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID)
+			stats = mergeFindingStats(stats, fallback)
+		}
+		if stats.Parsed > 0 {
+			result.ArchonFindingsCount = stats.Parsed
+			result.ArchonFindingsSaved = stats.Saved
+			result.ArchonFindingsBySeverity = stats.BySeverity
+			msg := fmt.Sprintf("imported %d findings (%d new, %d already existed)",
+				stats.Parsed, stats.Saved, stats.Parsed-stats.Saved)
+			if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
+				msg += " — " + breakdown
+			}
+			archonLogFn(msg)
 		}
 	}
 
@@ -230,21 +249,16 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	return result, nil
 }
 
-type archonImportStats struct {
-	parsed int
-	saved  int
-}
-
 // importArchonFindings parses archon output from the session directory and saves
 // findings to the database. Uses context.Background() to avoid issues with
 // parent context cancellation.
-func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, scanUUID string) archonImportStats {
+func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, scanUUID string) FindingStats {
 	archonDir := filepath.Join(sessionDir, "archon-audit")
 
 	result, err := archon.ParseAuditFolder(archonDir)
 	if err != nil {
 		zap.L().Debug("Archon import: no findings to import", zap.Error(err))
-		return archonImportStats{}
+		return FindingStats{}
 	}
 
 	auditID := ""
@@ -254,8 +268,15 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 
 	findings := archon.BuildFindings(result.RawFindings, auditID, "", projectUUID, result.RepoName)
 
+	stats := FindingStats{
+		Parsed:     len(findings),
+		BySeverity: make(map[string]int, len(findings)),
+	}
+	for _, f := range findings {
+		stats.BySeverity[f.Severity]++
+	}
+
 	ctx := context.Background()
-	var saved int
 	for _, f := range findings {
 		f.ScanUUID = scanUUID
 		if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
@@ -264,17 +285,44 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 			continue
 		}
 		if f.ID > 0 {
-			saved++
+			stats.Saved++
 		}
 	}
 
-	if saved > 0 {
+	if stats.Saved > 0 {
 		zap.L().Info("Imported archon findings",
-			zap.Int("parsed", len(findings)),
-			zap.Int("saved", saved))
+			zap.Int("parsed", stats.Parsed),
+			zap.Int("saved", stats.Saved))
 	}
 
-	return archonImportStats{parsed: len(findings), saved: saved}
+	return stats
+}
+
+// mergeFindingStats combines two FindingStats sources, picking the larger
+// Parsed/Saved counts and unioning BySeverity (max per bucket). Used when the
+// autopilot runner's in-monitor import and the pipeline's fallback re-import
+// each see a partial view of the findings set.
+func mergeFindingStats(a, b FindingStats) FindingStats {
+	out := FindingStats{
+		Parsed:     a.Parsed,
+		Saved:      a.Saved,
+		BySeverity: map[string]int{},
+	}
+	for k, v := range a.BySeverity {
+		out.BySeverity[k] = v
+	}
+	if b.Parsed > out.Parsed {
+		out.Parsed = b.Parsed
+	}
+	if b.Saved > out.Saved {
+		out.Saved = b.Saved
+	}
+	for k, v := range b.BySeverity {
+		if v > out.BySeverity[k] {
+			out.BySeverity[k] = v
+		}
+	}
+	return out
 }
 
 // runMockMode writes a sample audit-state.json with a mock finding and returns

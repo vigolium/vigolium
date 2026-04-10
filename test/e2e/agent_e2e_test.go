@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -166,7 +167,10 @@ func TestAgentAPI_Run_InlinePrompt(t *testing.T) {
 	readJSON(t, resp, &body)
 	assert.NotEmpty(t, body.RunID)
 	assert.Equal(t, "running", body.Status)
-	assert.Contains(t, body.RunID, "agt-")
+	// RunID is now a bare UUID (no agt- prefix) so it matches the session dir
+	// name 1:1 — `~/.vigolium/agent-sessions/<run_id>/`.
+	_, parseErr := uuid.Parse(body.RunID)
+	assert.NoError(t, parseErr, "run_id should be a valid UUID")
 
 	// Poll for completion
 	var status server.AgentRunStatusResponse

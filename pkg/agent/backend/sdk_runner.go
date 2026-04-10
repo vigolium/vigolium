@@ -32,6 +32,7 @@ type SDKRunConfig struct {
 	Guardrails         config.AutopilotGuardrails // guardrails for SDK autonomous mode
 	SessionDir         string   // session directory for saving stderr logs
 	BrowserEnabled     bool     // when true, allow agent-browser via Bash; when false, block it
+	Phase              string   // phase tag for console diagnostics; empty uses default format
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -180,7 +181,7 @@ func BuildSDKOptions(agentDef config.AgentDef, cfg SDKRunConfig) *claudesdk.Opti
 					zap.String("filename", filename), zap.Error(writeErr))
 				opts.AppendSystemPrompt = cfg.AppendSystemPrompt
 			} else {
-				prompt.PrintSystemPromptInfo(cfg.SystemPromptSource, writtenPath)
+				prompt.PrintSystemPromptInfo(cfg.SystemPromptSource, writtenPath, cfg.Phase)
 
 				if isClaude {
 					// Claude Code auto-discovers CLAUDE.md — set CWD to prompt dir,
@@ -207,7 +208,7 @@ func BuildSDKOptions(agentDef config.AgentDef, cfg SDKRunConfig) *claudesdk.Opti
 		} else {
 			// No session dir — pass inline
 			if cfg.SystemPromptSource != "" {
-				prompt.PrintSystemPromptInfo(cfg.SystemPromptSource, "")
+				prompt.PrintSystemPromptInfo(cfg.SystemPromptSource, "", cfg.Phase)
 			}
 			opts.AppendSystemPrompt = cfg.AppendSystemPrompt
 		}

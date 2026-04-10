@@ -164,8 +164,8 @@ func BuildCodexAgent(agent *CanonicalAgent, cfg *HarnessConfig) ([]byte, error) 
 		prefix = "archon:"
 	}
 
-	buf.WriteString(fmt.Sprintf("name = %q\n", prefix+agent.Basename))
-	buf.WriteString(fmt.Sprintf("description = %q\n", agent.Description))
+	fmt.Fprintf(&buf, "name = %q\n", prefix+agent.Basename)
+	fmt.Fprintf(&buf, "description = %q\n", agent.Description)
 
 	// Write remaining config keys in sorted order
 	keys := make([]string, 0, len(merged))
@@ -178,13 +178,13 @@ func BuildCodexAgent(agent *CanonicalAgent, cfg *HarnessConfig) ([]byte, error) 
 		v := merged[k]
 		switch val := v.(type) {
 		case string:
-			buf.WriteString(fmt.Sprintf("%s = %q\n", k, val))
+			fmt.Fprintf(&buf, "%s = %q\n", k, val)
 		case bool:
-			buf.WriteString(fmt.Sprintf("%s = %v\n", k, val))
+			fmt.Fprintf(&buf, "%s = %v\n", k, val)
 		case int:
-			buf.WriteString(fmt.Sprintf("%s = %d\n", k, val))
+			fmt.Fprintf(&buf, "%s = %d\n", k, val)
 		case float64:
-			buf.WriteString(fmt.Sprintf("%s = %v\n", k, val))
+			fmt.Fprintf(&buf, "%s = %v\n", k, val)
 		}
 	}
 

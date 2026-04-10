@@ -381,7 +381,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create session directory upfront so callbacks can write to it
-	swarmRunID := "agt-" + uuid.New().String()
+	swarmRunID := uuid.New().String()
 	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), swarmRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
@@ -1096,7 +1096,7 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 	}
 
 	return runMultiAppFanOut(ctx, intent, func(ctx context.Context, idx int, app agent.AppIntent) error {
-		runID := "agt-" + uuid.New().String()
+		runID := uuid.New().String()
 		sessionDir, _ := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), runID)
 
 		instruction := mergeIntentInstruction(swarmInstruction, swarmInstructionFile, app)

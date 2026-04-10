@@ -27,10 +27,18 @@ const (
 
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
 type AutopilotPipelineResult struct {
-	ArchonFindingsCount int
-	Duration            time.Duration
-	SessionDir          string
+	ArchonFindingsCount      int
+	ArchonFindingsSaved      int
+	ArchonFindingsBySeverity map[string]int
+	Duration                 time.Duration
+	SessionDir               string
 }
+
+// AutopilotPhase constants for the agent autopilot mode console output.
+const (
+	AutopilotPhaseArchon    = "archon"
+	AutopilotPhaseAutopilot = "autopilot"
+)
 
 // SwarmPhase constants for the agent swarm mode.
 // Phases prefixed with "native-" are executed by native Go code without AI agent involvement.
@@ -158,6 +166,11 @@ type AuditAgentConfig struct {
 
 	SyncInterval time.Duration // how often to sync audit-state.json (default: 30s)
 	StreamWriter io.Writer     // optional: stream audit output in real-time
+
+	// Stream enables Claude's stream-json output format and live rendering via
+	// the claudestream package. Only meaningful for the "claude" platform and
+	// when StreamWriter is non-nil. Other platforms ignore this flag.
+	Stream bool
 }
 
 // AuditAgentStatus summarizes the current state of the background audit.

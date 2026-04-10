@@ -103,10 +103,16 @@ func installAgents(baseDir, platform string, cfg *HarnessConfig) error {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		agent, err := ParseCanonicalAgent(d.Name(), data)
+		// Derive basename from relative path: "agent-defs/vigolium/audit.md" → "vigolium-audit"
+		relPath := strings.TrimPrefix(path, "agent-defs/")
+		basename := strings.TrimSuffix(relPath, ".md")
+		basename = strings.ReplaceAll(basename, "/", "-")
+
+		agent, err := ParseCanonicalAgent(basename+".md", data)
 		if err != nil {
 			return err
 		}
+		agent.Basename = basename
 
 		if IsExcluded(agent.Basename, cfg) {
 			return nil

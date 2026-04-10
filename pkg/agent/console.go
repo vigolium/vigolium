@@ -22,8 +22,19 @@ var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // The message text is printed in bold, and key=value pairs are colorized
 // (key in muted, value in cyan).
 func printPhaseLine(phaseTag, message string) {
-	prefix := terminal.Muted(terminal.SymbolChevron+" "+phaseTag+" "+terminal.SymbolPipe) + " "
-	fmt.Fprintf(os.Stderr, "%s%s\n", prefix, colorizeMessage(message))
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.PhasePrefix(phaseTag), colorizeMessage(message))
+}
+
+// printPhaseHeader emits a one-line banner above a group of phase lines:
+//
+//	◆ Phase [source-analysis] - analyze source code for routes and auth
+//
+// Emit once per phase, immediately before the first printPhaseLine call.
+func printPhaseHeader(phase, description string) {
+	fmt.Fprintf(os.Stderr, "%s Phase [%s] %s\n",
+		terminal.InfoSymbol(),
+		terminal.BoldOrange(phase),
+		terminal.Muted("- "+description))
 }
 
 // printPhasePromptLine prints a prompt template line in phase output style:
@@ -32,10 +43,9 @@ func printPhaseLine(phaseTag, message string) {
 //
 // The prompt name is colored orange and the path is muted.
 func printPhasePromptLine(phaseTag, promptName, promptPath string) {
-	prefix := terminal.Muted(terminal.SymbolChevron+" "+phaseTag+" "+terminal.SymbolPipe) + " "
 	line := terminal.Bold("prompt: ") + terminal.Orange(promptName) + " " +
 		terminal.Muted("(path="+promptPath+")")
-	fmt.Fprintf(os.Stderr, "%s%s\n", prefix, line)
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.PhasePrefix(phaseTag), line)
 }
 
 // colorizeMessage applies color to a phase-line message body.
@@ -75,31 +85,6 @@ func colorizeMessage(msg string) string {
 	}
 
 	return colored + "  " + strings.Join(coloredTokens, " ")
-}
-
-// formatStatusSummary returns a colorized parenthesized summary of HTTP status
-// code counts, e.g. "(2xx: 35, 4xx: 12, no-response: 3)".
-func formatStatusSummary(s2xx, s3xx, s4xx, s5xx, noResp int64) string {
-	var parts []string
-	if s2xx > 0 {
-		parts = append(parts, terminal.Green(fmt.Sprintf("2xx: %d", s2xx)))
-	}
-	if s3xx > 0 {
-		parts = append(parts, terminal.Cyan(fmt.Sprintf("3xx: %d", s3xx)))
-	}
-	if s4xx > 0 {
-		parts = append(parts, terminal.Yellow(fmt.Sprintf("4xx: %d", s4xx)))
-	}
-	if s5xx > 0 {
-		parts = append(parts, terminal.Red(fmt.Sprintf("5xx: %d", s5xx)))
-	}
-	if noResp > 0 {
-		parts = append(parts, terminal.Muted(fmt.Sprintf("no-response: %d", noResp)))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return terminal.Muted("(") + strings.Join(parts, terminal.Muted(", ")) + terminal.Muted(")")
 }
 
 // highlightNumbers bolds the text and colorizes standalone numbers in cyan.

@@ -219,7 +219,7 @@ vigolium agent autopilot -t https://example.com --focus "authentication bypass"
 Autopilot supports checkpointing. If interrupted, resume from where it left off:
 
 ```bash
-vigolium agent autopilot --resume ~/.vigolium/agent-sessions/agt-abc123-def456
+vigolium agent autopilot --resume ~/.vigolium/agent-sessions/<uuid>
 ```
 
 ### Timeout and Limits

@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -227,7 +229,7 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 	}
 
 	h.agentMu.Lock()
-	runID := "agt-" + uuid.New().String()
+	runID := uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
 		Mode:   "autopilot",
@@ -247,6 +249,14 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 		agentName = h.settings.Agent.DefaultAgent
 	}
 	h.persistAgentRun(runID, "autopilot", agentName)
+	// Populate the request-time fields right away so the session detail
+	// endpoint shows meaningful info while the run is in progress.
+	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		run.ProjectUUID = projectUUID
+		run.TargetURL = req.Target
+		run.SourcePath = req.SourcePath
+		run.InputRaw = req.Instruction
+	})
 
 	if req.Stream {
 		return h.handleAutopilotSSE(c, runID, req, projectUUID, timeout)
@@ -263,7 +273,8 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 
 // buildAutopilotPipelineConfig creates an AutopilotPipelineConfig from an autopilot request.
 // projectUUID should be pre-resolved by the caller (from request body or X-Project-UUID header).
-func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, projectUUID string) agent.AutopilotPipelineConfig {
+// parentRunUUID is the UUID of the parent AgentRun row so child runs (archon) can reference it.
+func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, projectUUID, parentRunUUID string) agent.AutopilotPipelineConfig {
 	agentName := req.Agent
 	if agentName == "" {
 		agentName = h.settings.Agent.DefaultAgent
@@ -292,18 +303,19 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 	}
 
 	cfg := agent.AutopilotPipelineConfig{
-		TargetURL:   req.Target,
-		SourcePath:  sourcePath,
-		Files:       files,
-		Instruction: req.Instruction,
-		Focus:       req.Focus,
-		AgentName:   agentName,
-		MaxCommands: maxCmds,
-		DryRun:      req.DryRun,
-		SessionsDir: h.settings.Agent.EffectiveSessionsDir(),
-		ProjectUUID: projectUUID,
-		ScanUUID:    req.ScanUUID,
-		DiffContext: diffCtx,
+		TargetURL:     req.Target,
+		SourcePath:    sourcePath,
+		Files:         files,
+		Instruction:   req.Instruction,
+		Focus:         req.Focus,
+		AgentName:     agentName,
+		MaxCommands:   maxCmds,
+		DryRun:        req.DryRun,
+		SessionsDir:   h.settings.Agent.EffectiveSessionsDir(),
+		ProjectUUID:   projectUUID,
+		ScanUUID:      req.ScanUUID,
+		ParentRunUUID: parentRunUUID,
+		DiffContext:   diffCtx,
 	}
 
 	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), sourcePath, h.settings.Agent.Archon); auditCfg != nil {
@@ -336,7 +348,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		cfg := h.buildAutopilotPipelineConfig(req, projectUUID)
+		cfg := h.buildAutopilotPipelineConfig(req, projectUUID, runID)
 
 		// Set up stream writer pipe.
 		pr, pw := io.Pipe()
@@ -417,7 +429,50 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cfg := h.buildAutopilotPipelineConfig(req, projectUUID)
+	cfg := h.buildAutopilotPipelineConfig(req, projectUUID, runID)
+
+	// Pre-create the session directory with runID as its name so the API
+	// session UUID matches the filesystem artifact directory. This mirrors
+	// what the CLI does via its own session-dir wiring and lets API clients
+	// find output.md, audit-stream.jsonl, etc. from the run ID alone.
+	sessionDir, sessionErr := agent.EnsureSessionDir(h.settings.Agent.EffectiveSessionsDir(), runID)
+	if sessionErr != nil {
+		zap.L().Warn("Failed to pre-create session dir", zap.String("run_id", runID), zap.Error(sessionErr))
+	} else {
+		cfg.SessionDir = sessionDir
+	}
+
+	// Open a stream log file in the session dir so users can tail live
+	// autopilot + archon output via `tail -f {session_dir}/run.log`. The CLI
+	// writes the same stream to os.Stdout; the server has no terminal, so we
+	// persist it to disk instead. A non-nil StreamWriter also forces
+	// archon-audit down the Claude stream-json branch (the non-stream branch
+	// collides with the variadic --allowedTools flag).
+	var streamCloser io.Closer
+	if sessionDir != "" {
+		logPath := filepath.Join(sessionDir, "run.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			cfg.StreamWriter = f
+			streamCloser = f
+		} else {
+			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			cfg.StreamWriter = io.Discard
+		}
+	} else {
+		cfg.StreamWriter = io.Discard
+	}
+	if streamCloser != nil {
+		defer streamCloser.Close()
+	}
+
+	// Enrich the DB record with the config we just resolved so API clients
+	// can see source_path / target_url / session_dir while the run is still
+	// in progress (before the completion update fires).
+	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		run.SourcePath = cfg.SourcePath
+		run.TargetURL = cfg.TargetURL
+		run.SessionDir = sessionDir
+	})
 
 	runner := agent.NewAutopilotPipelineRunner(h.agentEngine, h.repo)
 	result, runErr := runner.RunAutonomous(ctx, cfg)
@@ -435,6 +490,14 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 		status.Status = "failed"
 		status.Error = runErr.Error()
 		status.CompletedAt = &now
+		// Persist the failure to the DB, preserving the source/target/session
+		// fields that the enrichment step wrote earlier.
+		h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+			run.Status = "failed"
+			run.ErrorMessage = runErr.Error()
+			run.CompletedAt = now
+			run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
+		})
 		zap.L().Error("Autopilot run failed",
 			zap.String("run_id", runID),
 			zap.Error(runErr))
@@ -443,14 +506,53 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 
 	status.Status = "completed"
 	status.CompletedAt = &now
-	status.FindingCount = result.ArchonFindingsCount
+	if result != nil {
+		status.FindingCount = result.ArchonFindingsCount
+	}
 
-	// Persist to DB
-	h.persistAgentRunCompleted(runID, status)
+	// Persist the completed state plus the artifacts the CLI would have shown
+	// live: agent raw output (from output.md) and session dir summary.
+	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		run.Status = "completed"
+		run.CompletedAt = now
+		run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
+		if result != nil {
+			run.FindingCount = result.ArchonFindingsCount
+			if result.SessionDir != "" {
+				run.SessionDir = result.SessionDir
+			}
+		}
+		if sessionDir != "" {
+			if data, err := os.ReadFile(filepath.Join(sessionDir, "output.md")); err == nil {
+				run.AgentRawOutput = string(data)
+			}
+		}
+	})
 
 	zap.L().Info("Autopilot run completed",
 		zap.String("run_id", runID),
-		zap.Int("archon_findings", result.ArchonFindingsCount))
+		zap.String("session_dir", sessionDir),
+		zap.Int("archon_findings", status.FindingCount))
+}
+
+// enrichAgentRunRecord loads the agent_runs row for runID, applies mutate,
+// and writes it back. Used by background handlers to populate fields like
+// source_path / target_url / session_dir / agent_raw_output that the
+// lightweight persistAgentRun helpers don't cover.
+func (h *Handlers) enrichAgentRunRecord(runID string, mutate func(run *database.AgentRun)) {
+	if h.repo == nil || mutate == nil {
+		return
+	}
+	ctx := context.Background()
+	run, err := h.repo.GetAgentRun(ctx, runID)
+	if err != nil || run == nil {
+		zap.L().Debug("enrichAgentRunRecord: run not found", zap.String("run_id", runID), zap.Error(err))
+		return
+	}
+	mutate(run)
+	if err := h.repo.UpdateAgentRun(ctx, run); err != nil {
+		zap.L().Debug("enrichAgentRunRecord: update failed", zap.String("run_id", runID), zap.Error(err))
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +762,7 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 	}
 
 	h.agentMu.Lock()
-	runID := "agt-" + uuid.New().String()
+	runID := uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
 		Mode:   "swarm",
@@ -1118,6 +1220,52 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	defer cancel()
 
 	cfg := h.buildSwarmConfig(req, projectUUID)
+	// Pin the swarm runner's DB record UUID to our runID so its internal
+	// CreateAgentRun/UpdateAgentRun calls land on the same row the API
+	// already returned to the client. Without this, the swarm runner picks
+	// its own UUID and the session detail endpoint shows an empty record.
+	cfg.RunUUID = runID
+
+	// Pre-create the session dir under runID so it lines up with the API
+	// session UUID and SwarmRunner won't auto-allocate a different one.
+	sessionDir, sessionErr := agent.EnsureSessionDir(h.settings.Agent.EffectiveSessionsDir(), runID)
+	if sessionErr != nil {
+		zap.L().Warn("Failed to pre-create session dir", zap.String("run_id", runID), zap.Error(sessionErr))
+	} else {
+		cfg.SessionDir = sessionDir
+	}
+
+	// Stream live agent output to a log file in the session dir so users can
+	// `tail -f {session_dir}/run.log`. Non-nil writer is also required to
+	// keep archon-audit on the working Claude stream-json branch.
+	var streamCloser io.Closer
+	if sessionDir != "" {
+		logPath := filepath.Join(sessionDir, "run.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			cfg.StreamWriter = f
+			streamCloser = f
+		} else {
+			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			cfg.StreamWriter = io.Discard
+		}
+	} else {
+		cfg.StreamWriter = io.Discard
+	}
+	if streamCloser != nil {
+		defer streamCloser.Close()
+	}
+
+	// Populate the row with request-time + session-dir info before kicking
+	// off the run, so the session detail endpoint shows useful state during
+	// in-progress queries.
+	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		run.ProjectUUID = projectUUID
+		run.SourcePath = cfg.SourcePath
+		run.SessionDir = sessionDir
+		if len(cfg.Inputs) > 0 {
+			run.InputRaw = cfg.Inputs[0]
+		}
+	})
 
 	// Wire phase callback for status updates
 	cfg.PhaseCallback = func(phase string) {
@@ -1130,6 +1278,24 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 
 	swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
 	result, runErr := swarmRunner.Run(ctx, cfg)
+
+	// SwarmRunner's own UpdateAgentRun (swarm.go ~L290) writes back a fresh
+	// struct that omits source_path / session_dir / target_url, so we
+	// re-enrich the row to restore them and capture the swarm summary.
+	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		if cfg.SourcePath != "" {
+			run.SourcePath = cfg.SourcePath
+		}
+		if sessionDir != "" {
+			run.SessionDir = sessionDir
+		}
+		if result != nil {
+			if data, err := json.Marshal(result); err == nil {
+				run.ResultJSON = string(data)
+			}
+			run.FindingCount = result.TotalFindings
+		}
+	})
 
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
@@ -1153,13 +1319,16 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 
 	status.Status = "completed"
 	status.CompletedAt = &now
-	status.FindingCount = result.TotalFindings
-	status.SwarmResult = result
+	if result != nil {
+		status.FindingCount = result.TotalFindings
+		status.SwarmResult = result
+	}
 	h.persistAgentRunCompleted(runID, status)
 
 	zap.L().Info("Agent swarm completed",
 		zap.String("run_id", runID),
-		zap.Int("findings", result.TotalFindings))
+		zap.String("session_dir", sessionDir),
+		zap.Int("findings", status.FindingCount))
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,7 +1343,7 @@ func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts age
 	}
 
 	h.agentMu.Lock()
-	runID := "agt-" + uuid.New().String()
+	runID := uuid.New().String()
 	h.agentRunStatus[runID] = &AgentRunStatusResponse{
 		RunID:  runID,
 		Mode:   mode,
@@ -1290,6 +1459,36 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// Pre-create the session dir and persist it on the DB row so the
+	// /api/agent/sessions/:id/logs endpoint can find run.log for query
+	// sessions too. Mirrors the autopilot/swarm wiring above.
+	sessionDir, sessionErr := agent.EnsureSessionDir(h.settings.Agent.EffectiveSessionsDir(), runID)
+	if sessionErr != nil {
+		zap.L().Warn("Failed to pre-create session dir", zap.String("run_id", runID), zap.Error(sessionErr))
+	} else {
+		opts.SessionDir = sessionDir
+		h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+			run.SessionDir = sessionDir
+		})
+	}
+
+	var streamCloser io.Closer
+	if sessionDir != "" {
+		logPath := filepath.Join(sessionDir, "run.log")
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			opts.StreamWriter = f
+			streamCloser = f
+		} else {
+			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			opts.StreamWriter = io.Discard
+		}
+	} else {
+		opts.StreamWriter = io.Discard
+	}
+	if streamCloser != nil {
+		defer streamCloser.Close()
+	}
 
 	result, err := h.agentEngine.Run(ctx, opts)
 
@@ -1531,28 +1730,201 @@ func (h *Handlers) HandleAgentSessionDetail(c fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(agentRunToSessionDetail(run))
+	detail := agentRunToSessionDetail(run)
+
+	// Attach child runs (e.g. archon sub-runs spawned by autopilot)
+	if children, childErr := h.repo.GetChildAgentRuns(c.Context(), runID); childErr == nil && len(children) > 0 {
+		for _, child := range children {
+			detail.ChildRuns = append(detail.ChildRuns, agentRunToSessionDetail(child))
+		}
+	}
+
+	return c.JSON(detail)
+}
+
+// reANSIEscape matches ANSI CSI color/style sequences so they can be stripped
+// for plain-text readers that don't render a terminal.
+var reANSIEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripANSI returns s with ANSI color/style escape sequences removed.
+func stripANSI(s string) string {
+	return reANSIEscape.ReplaceAllString(s, "")
+}
+
+// parseBoolParam interprets common truthy query values. Empty → false.
+func parseBoolParam(v string) bool {
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	}
+	return false
+}
+
+// HandleAgentSessionLogs serves the raw run.log console stream for an agent
+// session. With Accept: text/event-stream it tails the file as SSE until the
+// run reaches a terminal status; otherwise it returns the full file as
+// text/plain. ANSI colors are preserved by default so clients that render a
+// terminal (xterm.js, etc.) see what the CLI user would see; pass ?strip=1
+// to get plain text with escape sequences removed.
+func (h *Handlers) HandleAgentSessionLogs(c fiber.Ctx) error {
+	if h.repo == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	runID := c.Params("id")
+	if runID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "missing session id",
+		})
+	}
+
+	run, err := h.repo.GetAgentRun(c.Context(), runID)
+	if err != nil || run == nil {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error: ErrAgentNotFound.Error(),
+		})
+	}
+
+	// Prefer the session dir recorded on the row; fall back to the
+	// conventional path so runs created before SessionDir was persisted
+	// still work.
+	sessionDir := run.SessionDir
+	if sessionDir == "" {
+		sessionDir = filepath.Join(h.settings.Agent.EffectiveSessionsDir(), runID)
+	}
+	logPath := filepath.Join(sessionDir, "run.log")
+
+	info, statErr := os.Stat(logPath)
+	if statErr != nil || info.IsDir() {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error: "run.log not found for this session",
+		})
+	}
+
+	strip := parseBoolParam(c.Query("strip"))
+
+	if strings.Contains(c.Get("Accept"), "text/event-stream") {
+		return h.streamAgentSessionLog(c, runID, logPath, strip)
+	}
+
+	data, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to read run.log: " + readErr.Error(),
+		})
+	}
+	if strip {
+		data = []byte(stripANSI(string(data)))
+	}
+	c.Set("Content-Type", "text/plain; charset=utf-8")
+	return c.Send(data)
+}
+
+// streamAgentSessionLog tails run.log and emits each new byte range as an SSE
+// "chunk" event. Exits on client disconnect (detected via a failed SSE write)
+// or once the agent run row enters a terminal status, at which point a "done"
+// event is emitted. When strip is true, ANSI escape sequences are removed from
+// each chunk before it is forwarded.
+func (h *Handlers) streamAgentSessionLog(c fiber.Ctx, runID, logPath string, strip bool) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	// Disable proxy buffering so chunks reach the client promptly.
+	c.Set("X-Accel-Buffering", "no")
+
+	isDone := func() bool {
+		run, err := h.repo.GetAgentRun(context.Background(), runID)
+		if err != nil || run == nil {
+			return true
+		}
+		return isTerminalAgentStatus(run.Status)
+	}
+
+	return c.SendStreamWriter(func(w *bufio.Writer) {
+		tailSessionLog(w, logPath, isDone, 500*time.Millisecond, 2*time.Hour, strip)
+	})
+}
+
+// isTerminalAgentStatus reports whether an agent_runs.status value indicates
+// the run has finished and no more bytes will be appended to run.log.
+func isTerminalAgentStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled", "timeout", "error":
+		return true
+	}
+	return false
+}
+
+// tailSessionLog reads logPath and writes SSE chunk events into w, polling for
+// new bytes every pollInterval until isDone reports the run has finished. A
+// safetyTimeout backstop prevents the loop from running forever if isDone is
+// buggy or a client that hung up never triggers a write error. When strip is
+// true, ANSI escape sequences are removed from each chunk before emission.
+func tailSessionLog(w *bufio.Writer, logPath string, isDone func() bool, pollInterval, safetyTimeout time.Duration, strip bool) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		_ = writeSSE(w, sseEvent{Type: "error", Error: err.Error()})
+		return
+	}
+	defer f.Close()
+
+	deadline := time.Now().Add(safetyTimeout)
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			text := string(buf[:n])
+			if strip {
+				text = stripANSI(text)
+			}
+			if err := writeSSE(w, sseEvent{Type: "chunk", Text: text}); err != nil {
+				// Client disconnected or writer broken — stop silently.
+				return
+			}
+		}
+		if readErr != nil && readErr != io.EOF {
+			_ = writeSSE(w, sseEvent{Type: "error", Error: readErr.Error()})
+			return
+		}
+		if n == 0 {
+			if isDone() {
+				_ = writeSSE(w, sseEvent{Type: "done"})
+				return
+			}
+			if time.Now().After(deadline) {
+				_ = writeSSE(w, sseEvent{Type: "done"})
+				return
+			}
+			time.Sleep(pollInterval)
+		}
+	}
 }
 
 // agentRunToSessionSummary converts a database AgentRun to a lightweight session summary.
 func agentRunToSessionSummary(run *database.AgentRun) *AgentSessionSummary {
 	s := &AgentSessionSummary{
-		UUID:         run.UUID,
-		Mode:         run.Mode,
-		Status:       run.Status,
-		AgentName:    run.AgentName,
-		TemplateID:   run.TemplateID,
-		TargetURL:    run.TargetURL,
-		VulnType:     run.VulnType,
-		InputType:    run.InputType,
-		CurrentPhase: run.CurrentPhase,
-		PhasesRun:    run.PhasesRun,
-		FindingCount: run.FindingCount,
-		RecordCount:  run.RecordCount,
-		SavedCount:   run.SavedCount,
-		ErrorMessage: run.ErrorMessage,
-		DurationMs:   run.DurationMs,
-		CreatedAt:    run.CreatedAt,
+		UUID:          run.UUID,
+		Mode:          run.Mode,
+		Status:        run.Status,
+		AgentName:     run.AgentName,
+		TemplateID:    run.TemplateID,
+		TargetURL:     run.TargetURL,
+		SourcePath:    run.SourcePath,
+		SessionDir:    run.SessionDir,
+		VulnType:      run.VulnType,
+		InputType:     run.InputType,
+		ParentRunUUID: run.ParentRunUUID,
+		CurrentPhase:  run.CurrentPhase,
+		PhasesRun:     run.PhasesRun,
+		FindingCount:  run.FindingCount,
+		RecordCount:   run.RecordCount,
+		SavedCount:    run.SavedCount,
+		ErrorMessage:  run.ErrorMessage,
+		DurationMs:    run.DurationMs,
+		CreatedAt:     run.CreatedAt,
 	}
 	if !run.StartedAt.IsZero() {
 		s.StartedAt = &run.StartedAt
