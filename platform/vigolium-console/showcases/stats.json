@@ -1,20 +1,34 @@
 {
-  "generated_at": "2026-04-09T19:18:37.811311+00:00",
-  "project_count": 20,
+  "generated_at": "2026-04-10T15:29:32.076248+00:00",
+  "project_count": 26,
   "summary": {
-    "total": 400,
-    "critical": 7,
-    "high": 123,
-    "medium": 268
+    "total": 546,
+    "critical": 13,
+    "high": 167,
+    "medium": 361
   },
   "projects": [
+    {
+      "project": "airflow",
+      "coding_agent": "Claude Code",
+      "total": 30,
+      "critical": 0,
+      "high": 2,
+      "medium": 28,
+      "project_desc": "Platform to programmatically author, schedule and monitor workflows",
+      "project_link": "https://github.com/apache/airflow",
+      "github_stars": "44k+"
+    },
     {
       "project": "argo-cd",
       "coding_agent": "Unknown",
       "total": 29,
       "critical": 0,
       "high": 9,
-      "medium": 20
+      "medium": 20,
+      "project_desc": "Declarative GitOps continuous delivery tool for Kubernetes",
+      "project_link": "https://github.com/argoproj/argo-cd",
+      "github_stars": "22k+"
     },
     {
       "project": "bifrost",
@@ -22,7 +36,10 @@
       "total": 12,
       "critical": 0,
       "high": 2,
-      "medium": 10
+      "medium": 10,
+      "project_desc": "Unified gateway for routing requests across LLM providers",
+      "project_link": "https://github.com/maximhq/bifrost",
+      "github_stars": "3k+"
     },
     {
       "project": "buildbot",
@@ -30,7 +47,10 @@
       "total": 6,
       "critical": 0,
       "high": 2,
-      "medium": 4
+      "medium": 4,
+      "project_desc": "Python-based continuous integration testing framework",
+      "project_link": "https://github.com/buildbot/buildbot",
+      "github_stars": "5k+"
     },
     {
       "project": "caddy",
@@ -38,7 +58,10 @@
       "total": 3,
       "critical": 0,
       "high": 2,
-      "medium": 1
+      "medium": 1,
+      "project_desc": "Fast and extensible multi-platform HTTP/1-2-3 web server with automatic HTTPS",
+      "project_link": "https://github.com/caddyserver/caddy",
+      "github_stars": "71k+"
     },
     {
       "project": "dify",
@@ -46,7 +69,10 @@
       "total": 9,
       "critical": 0,
       "high": 1,
-      "medium": 8
+      "medium": 8,
+      "project_desc": "Open-source LLM app development platform with agentic AI workflow",
+      "project_link": "https://github.com/langgenius/dify",
+      "github_stars": "137k+"
     },
     {
       "project": "discourse",
@@ -54,7 +80,10 @@
       "total": 30,
       "critical": 0,
       "high": 0,
-      "medium": 30
+      "medium": 30,
+      "project_desc": "Community discussion platform built for the next decade of the Internet",
+      "project_link": "https://github.com/discourse/discourse",
+      "github_stars": "46k+"
     },
     {
       "project": "discourse-packs-sdk",
@@ -62,7 +91,10 @@
       "total": 14,
       "critical": 0,
       "high": 6,
-      "medium": 8
+      "medium": 8,
+      "project_desc": "SDK for building Coda Packs \u2014 extensions that integrate with third-party services",
+      "project_link": "https://github.com/coda/packs-sdk",
+      "github_stars": "107"
     },
     {
       "project": "fleet",
@@ -70,7 +102,10 @@
       "total": 26,
       "critical": 1,
       "high": 6,
-      "medium": 19
+      "medium": 19,
+      "project_desc": "Open-source platform for IT and security teams managing devices",
+      "project_link": "https://github.com/fleetdm/fleet",
+      "github_stars": "6k+"
     },
     {
       "project": "fosite",
@@ -78,7 +113,10 @@
       "total": 10,
       "critical": 0,
       "high": 4,
-      "medium": 6
+      "medium": 6,
+      "project_desc": "Extensible security-first OAuth 2.0 and OpenID Connect SDK for Go",
+      "project_link": "https://github.com/ory/fosite",
+      "github_stars": "2k+"
     },
     {
       "project": "grafana",
@@ -86,15 +124,21 @@
       "total": 39,
       "critical": 0,
       "high": 13,
-      "medium": 26
+      "medium": 26,
+      "project_desc": "Open and composable observability and data visualization platform",
+      "project_link": "https://github.com/grafana/grafana",
+      "github_stars": "73k+"
     },
     {
       "project": "harbor",
-      "coding_agent": "Unknown",
-      "total": 6,
-      "critical": 0,
-      "high": 0,
-      "medium": 6
+      "coding_agent": "Claude Code",
+      "total": 16,
+      "critical": 1,
+      "high": 3,
+      "medium": 12,
+      "project_desc": "Open-source trusted cloud native registry for container images and Helm charts",
+      "project_link": "https://github.com/goharbor/harbor",
+      "github_stars": "28k+"
     },
     {
       "project": "immich",
@@ -102,7 +146,10 @@
       "total": 10,
       "critical": 3,
       "high": 7,
-      "medium": 0
+      "medium": 0,
+      "project_desc": "High-performance self-hosted photo and video management solution",
+      "project_link": "https://github.com/immich-app/immich",
+      "github_stars": "97k+"
     },
     {
       "project": "jenkins",
@@ -110,7 +157,21 @@
       "total": 19,
       "critical": 0,
       "high": 3,
-      "medium": 16
+      "medium": 16,
+      "project_desc": "Open-source automation server for building, deploying, and automating projects",
+      "project_link": "https://github.com/jenkinsci/jenkins",
+      "github_stars": "25k+"
+    },
+    {
+      "project": "jupyter",
+      "coding_agent": "Claude Code",
+      "total": 9,
+      "critical": 0,
+      "high": 0,
+      "medium": 9,
+      "project_desc": "Jupyter Interactive Notebook",
+      "project_link": "https://github.com/jupyter/notebook",
+      "github_stars": "13k+"
     },
     {
       "project": "jupyterhub",
@@ -118,7 +179,21 @@
       "total": 37,
       "critical": 3,
       "high": 12,
-      "medium": 22
+      "medium": 22,
+      "project_desc": "Multi-user server for Jupyter notebooks",
+      "project_link": "https://github.com/jupyterhub/jupyterhub",
+      "github_stars": "8k+"
+    },
+    {
+      "project": "keycloak",
+      "coding_agent": "Claude Code",
+      "total": 27,
+      "critical": 0,
+      "high": 5,
+      "medium": 22,
+      "project_desc": "Open-source identity and access management for modern applications",
+      "project_link": "https://github.com/keycloak/keycloak",
+      "github_stars": "33k+"
     },
     {
       "project": "langfuse",
@@ -126,7 +201,10 @@
       "total": 23,
       "critical": 0,
       "high": 6,
-      "medium": 17
+      "medium": 17,
+      "project_desc": "Open-source LLM engineering platform for observability and evaluation",
+      "project_link": "https://github.com/langfuse/langfuse",
+      "github_stars": "24k+"
     },
     {
       "project": "oauth2-proxy",
@@ -134,7 +212,10 @@
       "total": 34,
       "critical": 0,
       "high": 4,
-      "medium": 28
+      "medium": 28,
+      "project_desc": "Reverse proxy providing authentication with Google, Azure, and other providers",
+      "project_link": "https://github.com/oauth2-proxy/oauth2-proxy",
+      "github_stars": "14k+"
     },
     {
       "project": "ollama",
@@ -142,15 +223,54 @@
       "total": 43,
       "critical": 0,
       "high": 34,
-      "medium": 9
+      "medium": 9,
+      "project_desc": "Get up and running with large language models locally",
+      "project_link": "https://github.com/ollama/ollama",
+      "github_stars": "168k+"
+    },
+    {
+      "project": "ragflow",
+      "coding_agent": "Claude Code",
+      "total": 37,
+      "critical": 5,
+      "high": 23,
+      "medium": 9,
+      "project_desc": "Open-source RAG engine based on deep document understanding",
+      "project_link": "https://github.com/infiniflow/ragflow",
+      "github_stars": "77k+"
+    },
+    {
+      "project": "redash",
+      "coding_agent": "Claude Code",
+      "total": 24,
+      "critical": 0,
+      "high": 9,
+      "medium": 15,
+      "project_desc": "Connect to any data source, visualize and share your data",
+      "project_link": "https://github.com/getredash/redash",
+      "github_stars": "28k+"
     },
     {
       "project": "sentry",
-      "coding_agent": "Unknown",
-      "total": 23,
+      "coding_agent": "Claude Code",
+      "total": 18,
       "critical": 0,
-      "high": 9,
-      "medium": 14
+      "high": 11,
+      "medium": 7,
+      "project_desc": "Developer-first error tracking and performance monitoring platform",
+      "project_link": "https://github.com/getsentry/sentry",
+      "github_stars": "43k+"
+    },
+    {
+      "project": "sonnet",
+      "coding_agent": "Claude Code",
+      "total": 16,
+      "critical": 0,
+      "high": 0,
+      "medium": 13,
+      "project_desc": "TensorFlow-based neural network library by DeepMind",
+      "project_link": "https://github.com/deepmind/sonnet",
+      "github_stars": "9k+"
     },
     {
       "project": "traefik",
@@ -158,15 +278,21 @@
       "total": 2,
       "critical": 0,
       "high": 0,
-      "medium": 2
+      "medium": 2,
+      "project_desc": "Modern HTTP reverse proxy and load balancer for microservices",
+      "project_link": "https://github.com/traefik/traefik",
+      "github_stars": "62k+"
     },
     {
       "project": "vault",
-      "coding_agent": "Unknown",
-      "total": 25,
+      "coding_agent": "Claude Code",
+      "total": 23,
       "critical": 0,
       "high": 3,
-      "medium": 22
+      "medium": 20,
+      "project_desc": "Tool for secrets management, encryption as a service, and privileged access management",
+      "project_link": "https://github.com/hashicorp/vault",
+      "github_stars": "35k+"
     }
   ]
 }

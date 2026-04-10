@@ -10,6 +10,9 @@ interface ProjectStats {
   critical: number;
   high: number;
   medium: number;
+  project_desc?: string;
+  project_link?: string;
+  github_stars?: string;
 }
 
 interface StatsData {
@@ -38,6 +41,13 @@ export async function GET(req: NextRequest) {
   // Pre-sort by total descending for initial render
   const sortedProjects = stats.projects.sort((a, b) => b.total - a.total);
 
+  // Derive owner/repo from GitHub URL (e.g. https://github.com/apache/airflow -> apache/airflow)
+  const deriveRepoName = (link?: string): string => {
+    if (!link) return '';
+    const m = link.match(/github\.com\/([^/]+\/[^/?#]+)/i);
+    return m ? m[1] : '';
+  };
+
   // Embed project data as JSON for client-side sort/search
   const projectsJSON = JSON.stringify(sortedProjects.map((p) => ({
     project: p.project,
@@ -46,6 +56,10 @@ export async function GET(req: NextRequest) {
     critical: p.critical,
     high: p.high,
     medium: p.medium,
+    desc: p.project_desc || '',
+    repo: deriveRepoName(p.project_link),
+    link: p.project_link || '',
+    stars: p.github_stars || '',
   })));
 
   const html = `<!DOCTYPE html>
@@ -57,7 +71,7 @@ export async function GET(req: NextRequest) {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #f5f0e8; color: #2c2c2c; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; min-height: 100vh; }
-    .container { max-width: 960px; margin: 0 auto; padding: 48px 24px; }
+    .container { max-width: 1280px; margin: 0 auto; padding: 48px 24px; }
     .header { text-align: center; margin-bottom: 40px; }
     .header img { height: 80px; width: 80px; border-radius: 12px; border: 1px solid rgba(232,123,53,0.4); margin-bottom: 16px; animation: logo-glow 3s ease-in-out infinite; }
     @keyframes logo-glow {
@@ -97,13 +111,19 @@ export async function GET(req: NextRequest) {
     .pagination button:disabled { color: #b0a898; cursor: default; }
     .pagination button.active { background: #d5cfc4; font-weight: 600; }
     table { width: 100%; border-collapse: collapse; background: #ebe6dd; border: 1px solid #d5cfc4; }
-    thead th { padding: 12px 14px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b6b; border-bottom: 2px solid #d5cfc4; background: #e2dcd2; cursor: pointer; user-select: none; white-space: nowrap; }
+    thead th { padding: 12px 14px; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b6b; border-bottom: 2px solid #d5cfc4; background: #e2dcd2; cursor: pointer; user-select: none; white-space: nowrap; }
     thead th:hover { color: #2c2c2c; }
-    thead th:nth-child(n+2) { text-align: center; }
     thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
     tbody tr:hover { background: #e2dcd2; }
-    tbody td { padding: 10px 14px; border-bottom: 1px solid #d5cfc4; }
-    tbody td:nth-child(n+2) { text-align: center; }
+    tbody td { padding: 12px 14px; border-bottom: 1px solid #d5cfc4; vertical-align: middle; text-align: center; }
+    tbody td.project-cell { min-width: 240px; white-space: nowrap; }
+    tbody td.project-cell .repo-line { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
+    tbody td.project-cell .repo-name { font-weight: 600; color: #2c6fad; }
+    tbody td.project-cell .stars { color: #9a9080; font-weight: 400; font-size: 12px; }
+    tbody td.project-cell .gh-icon { display: inline-flex; align-items: center; color: #6b6b6b; }
+    tbody td.project-cell .gh-icon:hover { color: #2c2c2c; }
+    tbody td.project-cell .gh-icon svg { width: 16px; height: 16px; display: block; }
+    tbody td.desc-cell { color: #4a4a4a; font-size: 13px; max-width: 380px; line-height: 1.5; text-align: left; }
     a { color: #2c6fad; text-decoration: none; font-weight: 500; }
     a:hover { text-decoration: underline !important; }
     .no-results { text-align: center; padding: 24px; color: #9a9080; }
@@ -155,6 +175,7 @@ export async function GET(req: NextRequest) {
       <thead>
         <tr>
           <th data-col="project" data-type="string">Project <span class="sort-arrow"></span></th>
+          <th data-col="desc" data-type="string" style="text-align:left">Description <span class="sort-arrow"></span></th>
           <th data-col="total" data-type="number">Total <span class="sort-arrow"></span></th>
           <th data-col="critical" data-type="number">Critical <span class="sort-arrow"></span></th>
           <th data-col="high" data-type="number">High <span class="sort-arrow"></span></th>
@@ -176,6 +197,15 @@ export async function GET(req: NextRequest) {
       var searchTerm = '';
       var perPage = 25;
       var currentPage = 1;
+
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
 
       function badge(val, bg, fg) {
         if (val > 0) return '<span style="background:' + bg + ';color:' + fg + ';padding:1px 6px;border-radius:3px;font-size:12px">' + val + '</span>';
@@ -206,11 +236,20 @@ export async function GET(req: NextRequest) {
 
         var tbody = document.getElementById('tbody');
         if (filtered.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="no-results">No matching projects</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" class="no-results">No matching projects</td></tr>';
         } else {
+          var ghIcon = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
           tbody.innerHTML = pageItems.map(function(p) {
+            var label = p.repo || p.project;
+            var projectCell = '<div class="repo-line">'
+              + '<a class="repo-name" href="/showcases/' + p.slug + keySuffix + '">' + esc(label) + '</a>'
+              + (p.stars ? '<span class="stars">(' + esc(p.stars) + ' stars)</span>' : '')
+              + (p.link ? '<a class="gh-icon" href="' + esc(p.link) + '" target="_blank" rel="noopener noreferrer" aria-label="View ' + esc(label) + ' on GitHub" title="View on GitHub">' + ghIcon + '</a>' : '')
+              + '</div>';
+            var descCell = p.desc ? esc(p.desc) : '<span style="color:#b0a898">—</span>';
             return '<tr>'
-              + '<td><a href="/showcases/' + p.slug + keySuffix + '">' + p.project + '</a></td>'
+              + '<td class="project-cell">' + projectCell + '</td>'
+              + '<td class="desc-cell">' + descCell + '</td>'
               + '<td style="font-weight:600;color:#2c2c2c">' + p.total + '</td>'
               + '<td>' + badge(p.critical, '#dc2626', '#fff') + '</td>'
               + '<td>' + badge(p.high, '#e87b35', '#fff') + '</td>'
