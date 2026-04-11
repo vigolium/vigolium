@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Mail, Github, KeyRound, ShieldOff } from 'lucide-react';
 import Layout from './Layout';
+import { trackEvent } from '@/lib/posthogClient';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -218,7 +219,7 @@ export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps)
               <span>·</span>
               <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[docs]</a>
               <span>·</span>
-              <a href="/showcases" className="text-[var(--v-accent)] hover:underline">[showcases]</a>
+              <a href="/showcases" onClick={() => trackEvent('showcases_link_clicked', { location: 'authgate_dark' })} className="text-[var(--v-accent)] hover:underline">[showcases]</a>
             </div>
           </div>
         </div>

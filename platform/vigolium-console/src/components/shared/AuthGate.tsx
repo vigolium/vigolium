@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { getToken, setToken, clearAuth, checkServerInfo, getBaseUrl, onAuthRequired, login, fetchUserInfo } from '@/api/client';
 import { getScheme, applySchemeVars, DEFAULT_DARK_SCHEME } from '@/lib/colorSchemes';
+import { trackEvent } from '@/lib/posthogClient';
 
 interface AuthGateProps {
   children: ReactNode;
@@ -276,7 +277,7 @@ export default function AuthGate({ children }: AuthGateProps) {
           <span className="text-[var(--v-text-muted)]">·</span>
           <a href="https://docs.vigolium.com/" target="_blank" rel="noopener noreferrer" className="text-[var(--v-accent)] hover:underline">[docs]</a>
           <span className="text-[var(--v-text-muted)]">·</span>
-          <a href="/showcases" className="text-[var(--v-accent)] hover:underline">[showcases]</a>
+          <a href="/showcases" onClick={() => trackEvent('showcases_link_clicked', { location: 'authgate_shared' })} className="text-[var(--v-accent)] hover:underline">[showcases]</a>
         </div>
         <p className="text-[var(--v-text-muted)] text-sm text-center mt-2">
           Crafted with <span className="text-[var(--v-error)]">&lt;3</span> by{' '}

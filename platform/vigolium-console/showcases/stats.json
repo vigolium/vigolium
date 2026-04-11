@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-04-10T15:29:32.076248+00:00",
-  "project_count": 26,
+  "generated_at": "2026-04-11T11:30:30.064606+00:00",
+  "project_count": 32,
   "summary": {
-    "total": 546,
-    "critical": 13,
-    "high": 167,
-    "medium": 361
+    "total": 713,
+    "critical": 11,
+    "high": 235,
+    "medium": 467
   },
   "projects": [
     {
@@ -21,11 +21,11 @@
     },
     {
       "project": "argo-cd",
-      "coding_agent": "Unknown",
-      "total": 29,
-      "critical": 0,
-      "high": 9,
-      "medium": 20,
+      "coding_agent": "Claude Code",
+      "total": 40,
+      "critical": 2,
+      "high": 10,
+      "medium": 28,
       "project_desc": "Declarative GitOps continuous delivery tool for Kubernetes",
       "project_link": "https://github.com/argoproj/argo-cd",
       "github_stars": "22k+"
@@ -64,6 +64,17 @@
       "github_stars": "71k+"
     },
     {
+      "project": "code-server",
+      "coding_agent": "Claude Code",
+      "total": 15,
+      "critical": 0,
+      "high": 1,
+      "medium": 14,
+      "project_desc": "Run VS Code on any machine anywhere and access it via a browser",
+      "project_link": "https://github.com/coder/code-server",
+      "github_stars": "77k+"
+    },
+    {
       "project": "dify",
       "coding_agent": "Claude Code",
       "total": 9,
@@ -98,18 +109,18 @@
     },
     {
       "project": "fleet",
-      "coding_agent": "Unknown",
-      "total": 26,
-      "critical": 1,
-      "high": 6,
-      "medium": 19,
+      "coding_agent": "Claude Code",
+      "total": 43,
+      "critical": 0,
+      "high": 20,
+      "medium": 23,
       "project_desc": "Open-source platform for IT and security teams managing devices",
       "project_link": "https://github.com/fleetdm/fleet",
       "github_stars": "6k+"
     },
     {
       "project": "fosite",
-      "coding_agent": "Unknown",
+      "coding_agent": "Claude Code",
       "total": 10,
       "critical": 0,
       "high": 4,
@@ -119,12 +130,23 @@
       "github_stars": "2k+"
     },
     {
-      "project": "grafana",
-      "coding_agent": "Unknown",
+      "project": "gradio",
+      "coding_agent": "Claude Code",
       "total": 39,
       "critical": 0,
-      "high": 13,
-      "medium": 26,
+      "high": 22,
+      "medium": 17,
+      "project_desc": "Build and share delightful machine learning apps, all in Python",
+      "project_link": "https://github.com/gradio-app/gradio",
+      "github_stars": "42k+"
+    },
+    {
+      "project": "grafana",
+      "coding_agent": "Claude Code",
+      "total": 26,
+      "critical": 0,
+      "high": 7,
+      "medium": 19,
       "project_desc": "Open and composable observability and data visualization platform",
       "project_link": "https://github.com/grafana/grafana",
       "github_stars": "73k+"
@@ -175,11 +197,11 @@
     },
     {
       "project": "jupyterhub",
-      "coding_agent": "Unknown",
-      "total": 37,
-      "critical": 3,
-      "high": 12,
-      "medium": 22,
+      "coding_agent": "Claude Code",
+      "total": 16,
+      "critical": 0,
+      "high": 2,
+      "medium": 14,
       "project_desc": "Multi-user server for Jupyter notebooks",
       "project_link": "https://github.com/jupyterhub/jupyterhub",
       "github_stars": "8k+"
@@ -196,23 +218,45 @@
       "github_stars": "33k+"
     },
     {
-      "project": "langfuse",
-      "coding_agent": "Unknown",
+      "project": "kubeflow",
+      "coding_agent": "Claude Code",
+      "total": 30,
+      "critical": 0,
+      "high": 4,
+      "medium": 26,
+      "project_desc": "Machine learning toolkit for Kubernetes",
+      "project_link": "https://github.com/kubeflow/kubeflow",
+      "github_stars": "15k+"
+    },
+    {
+      "project": "llama_index",
+      "coding_agent": "Claude Code",
+      "total": 32,
+      "critical": 0,
+      "high": 8,
+      "medium": 24,
+      "project_desc": "Data framework for building LLM applications over private or domain-specific data",
+      "project_link": "https://github.com/run-llama/llama_index",
+      "github_stars": "48k+"
+    },
+    {
+      "project": "metaflow",
+      "coding_agent": "Claude Code",
       "total": 23,
       "critical": 0,
       "high": 6,
       "medium": 17,
-      "project_desc": "Open-source LLM engineering platform for observability and evaluation",
-      "project_link": "https://github.com/langfuse/langfuse",
-      "github_stars": "24k+"
+      "project_desc": "Human-centric framework for real-life data science and ML",
+      "project_link": "https://github.com/Netflix/metaflow",
+      "github_stars": "10k+"
     },
     {
       "project": "oauth2-proxy",
-      "coding_agent": "Unknown",
-      "total": 34,
+      "coding_agent": "Claude Code",
+      "total": 46,
       "critical": 0,
-      "high": 4,
-      "medium": 28,
+      "high": 11,
+      "medium": 35,
       "project_desc": "Reverse proxy providing authentication with Google, Azure, and other providers",
       "project_link": "https://github.com/oauth2-proxy/oauth2-proxy",
       "github_stars": "14k+"
@@ -264,13 +308,35 @@
     {
       "project": "sonnet",
       "coding_agent": "Claude Code",
-      "total": 16,
+      "total": 11,
       "critical": 0,
       "high": 0,
-      "medium": 13,
+      "medium": 11,
       "project_desc": "TensorFlow-based neural network library by DeepMind",
       "project_link": "https://github.com/deepmind/sonnet",
       "github_stars": "9k+"
+    },
+    {
+      "project": "spark",
+      "coding_agent": "Claude Code",
+      "total": 21,
+      "critical": 0,
+      "high": 11,
+      "medium": 10,
+      "project_desc": "Unified analytics engine for large-scale data processing",
+      "project_link": "https://github.com/apache/spark",
+      "github_stars": "43k+"
+    },
+    {
+      "project": "strapi",
+      "coding_agent": "Claude Code",
+      "total": 29,
+      "critical": 0,
+      "high": 16,
+      "medium": 13,
+      "project_desc": "Leading open-source headless CMS \u2014 100% JavaScript/TypeScript and fully customizable",
+      "project_link": "https://github.com/strapi/strapi",
+      "github_stars": "71k+"
     },
     {
       "project": "traefik",

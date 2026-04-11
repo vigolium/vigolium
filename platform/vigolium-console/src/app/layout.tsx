@@ -5,8 +5,9 @@ import { useState } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { ProjectProvider } from '@/contexts/ProjectContext';
-import { isStaticBuild } from '@/lib/buildMode';
+import { isStaticBuild, isCloudBuild } from '@/lib/buildMode';
 import AuthGate from '@/components/shared/AuthGate';
+import PostHogTracker from '@/components/shared/PostHogTracker';
 import './globals.css';
 
 const title = isStaticBuild ? 'Vigolium Workbench' : 'Vigolium Cloud Console';
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased">
         <QueryClientProvider client={queryClient}>
           {isStaticBuild ? <AuthGate>{inner}</AuthGate> : inner}
+          {isCloudBuild && <PostHogTracker />}
         </QueryClientProvider>
       </body>
     </html>

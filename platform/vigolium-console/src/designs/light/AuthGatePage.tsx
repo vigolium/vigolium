@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Mail, Github, KeyRound, ShieldOff } from 'lucide-react';
 import Layout from './Layout';
+import { trackEvent } from '@/lib/posthogClient';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -292,7 +293,7 @@ export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps)
               <span>·</span>
               <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[docs]</a>
               <span>·</span>
-              <a href="/showcases" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[showcases]</a>
+              <a href="/showcases" onClick={() => trackEvent('showcases_link_clicked', { location: 'authgate_light' })} className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[showcases]</a>
             </div>
           </div>
         </div>
