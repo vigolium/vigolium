@@ -616,7 +616,7 @@ func printArchonAuditStats(run *database.AgentRun) {
 	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit status:"), colorRunStatus(audit.Status))
 
 	if !audit.CompletedAt.IsZero() && !audit.StartedAt.IsZero() {
-		d := audit.CompletedAt.Sub(audit.StartedAt).Round(time.Second)
+		d := audit.CompletedAt.Sub(audit.StartedAt.Time).Round(time.Second)
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit duration:"), d.String())
 	}
 

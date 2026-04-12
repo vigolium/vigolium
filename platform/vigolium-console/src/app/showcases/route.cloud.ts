@@ -6,6 +6,16 @@ import { buildPostHogSnippet } from '@/lib/posthogSnippet';
 const SHOWCASES_ENABLED = process.env.VIGOLIUM_SHOWCASES_ENABLED === 'true';
 const POSTHOG_SNIPPET = buildPostHogSnippet({ capturePageview: true });
 
+interface ProjectSize {
+  audited_commit?: string;
+  commit_count?: number;
+  primary_language?: string;
+  languages?: Record<string, number>;
+  loc?: number;
+  text_file_count?: number;
+  last_refreshed_at?: string;
+}
+
 interface ProjectStats {
   project: string;
   total: number;
@@ -15,12 +25,19 @@ interface ProjectStats {
   project_desc?: string;
   project_link?: string;
   github_stars?: string;
+  project_size?: ProjectSize;
 }
 
 interface StatsData {
   generated_at: string;
   project_count: number;
-  summary: { total: number; critical: number; high: number; medium: number };
+  summary: {
+    project_count: number;
+    files: number;
+    loc: number;
+    commits: number;
+    findings: { total: number; critical: number; high: number; medium: number };
+  };
   projects: ProjectStats[];
 }
 
@@ -62,12 +79,22 @@ export async function GET(req: NextRequest) {
     repo: deriveRepoName(p.project_link),
     link: p.project_link || '',
     stars: p.github_stars || '',
+    lang: p.project_size?.primary_language || '',
+    loc: p.project_size?.loc || 0,
+    files: p.project_size?.text_file_count || 0,
+    commits: p.project_size?.commit_count || 0,
   })));
 
-  const totalFindings = stats.summary.total;
-  const critPct = totalFindings > 0 ? (stats.summary.critical / totalFindings * 100) : 0;
-  const highPct = totalFindings > 0 ? (stats.summary.high / totalFindings * 100) : 0;
-  const medPct = totalFindings > 0 ? (stats.summary.medium / totalFindings * 100) : 0;
+  const totalFindings = stats.summary.findings.total;
+  const critPct = totalFindings > 0 ? (stats.summary.findings.critical / totalFindings * 100) : 0;
+  const highPct = totalFindings > 0 ? (stats.summary.findings.high / totalFindings * 100) : 0;
+  const medPct = totalFindings > 0 ? (stats.summary.findings.medium / totalFindings * 100) : 0;
+
+  // Format large numbers with commas
+  const fmtNum = (n: number) => n.toLocaleString('en-US');
+  const summaryFiles = fmtNum(stats.summary.files);
+  const summaryLoc = fmtNum(stats.summary.loc);
+  const summaryCommits = fmtNum(stats.summary.commits);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -134,7 +161,7 @@ export async function GET(req: NextRequest) {
       font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
       min-height: 100vh;
     }
-    .container { max-width: 1280px; margin: 0 auto; padding: 56px 24px 48px; }
+    .container { max-width: 1440px; margin: 0 auto; padding: 56px 24px 48px; }
 
     /* Hero */
     .hero { text-align: center; margin-bottom: 24px; }
@@ -208,7 +235,6 @@ export async function GET(req: NextRequest) {
       display: flex;
       height: 10px;
       background: var(--border);
-      margin-bottom: 12px;
       overflow: hidden;
     }
     .insight-bar .seg-crit { background: #dc2626; }
@@ -218,6 +244,7 @@ export async function GET(req: NextRequest) {
       display: flex;
       justify-content: center;
       gap: 24px;
+      margin-bottom: 14px;
       font-size: 12px;
       color: var(--text-soft);
       text-transform: uppercase;
@@ -231,6 +258,17 @@ export async function GET(req: NextRequest) {
     .insight-legend .dot-high { background: #e87b35; }
     .insight-legend .dot-med { background: #d4a017; }
     .insight-legend strong { color: var(--text); font-weight: 700; font-size: 13px; }
+
+    .insight-stats {
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--text-soft);
+      flex-wrap: wrap;
+    }
+    .insight-stats strong { color: var(--text); font-weight: 700; font-size: 14px; }
 
     .insight-meta {
       margin-top: 14px;
@@ -294,13 +332,14 @@ export async function GET(req: NextRequest) {
     .dropdown-item.active { background: var(--border); font-weight: 600; }
 
     /* Table */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { width: 100%; border-collapse: collapse; background: var(--bg-panel); border: 1px solid var(--border); }
-    thead th { padding: 12px 14px; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-soft); border-bottom: 2px solid var(--border); background: var(--bg-hover); cursor: pointer; user-select: none; white-space: nowrap; }
+    thead th { padding: 10px 10px; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-soft); border-bottom: 2px solid var(--border); background: var(--bg-hover); cursor: pointer; user-select: none; white-space: nowrap; }
     thead th:hover { color: var(--text); }
     thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
     tbody tr:hover { background: var(--bg-hover); }
-    tbody td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: center; }
-    tbody td.project-cell { min-width: 240px; white-space: nowrap; }
+    tbody td { padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: center; }
+    tbody td.project-cell { white-space: nowrap; }
     tbody td.project-cell .repo-line { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
     tbody td.project-cell .repo-name { font-weight: 600; color: var(--link); }
     tbody td.project-cell .stars { color: var(--text-muted); font-weight: 400; font-size: 12px; }
@@ -321,6 +360,17 @@ export async function GET(req: NextRequest) {
     .pagination button:disabled { color: var(--text-faint); cursor: default; }
     .pagination button.active { background: var(--border); font-weight: 600; }
 
+    /* Mid-size: hide language, files, commits — keep LOC */
+    @media (max-width: 1100px) {
+      .col-hide-md { display: none; }
+    }
+
+    /* Mobile: only show project + total */
+    @media (max-width: 640px) {
+      .col-desc, .col-size, .col-severity { display: none; }
+      .container { padding: 32px 12px 32px; }
+    }
+
   </style>
 </head>
 <body>
@@ -333,18 +383,23 @@ export async function GET(req: NextRequest) {
 
     <div class="insight">
       <div class="insight-top">
-        <div class="big">${stats.summary.total}</div>
-        <div class="ctx">findings across <strong>${stats.project_count}</strong> projects</div>
+        <div class="big">${totalFindings}</div>
+        <div class="ctx">findings across <strong>${stats.summary.project_count}</strong> projects</div>
+      </div>
+      <div class="insight-legend">
+        <span><span class="dot dot-crit"></span><strong>${stats.summary.findings.critical}</strong> Critical</span>
+        <span><span class="dot dot-high"></span><strong>${stats.summary.findings.high}</strong> High</span>
+        <span><span class="dot dot-med"></span><strong>${stats.summary.findings.medium}</strong> Medium</span>
       </div>
       <div class="insight-bar">
         <div class="seg-crit" style="width:${critPct.toFixed(2)}%"></div>
         <div class="seg-high" style="width:${highPct.toFixed(2)}%"></div>
         <div class="seg-med" style="width:${medPct.toFixed(2)}%"></div>
       </div>
-      <div class="insight-legend">
-        <span><span class="dot dot-crit"></span><strong>${stats.summary.critical}</strong> Critical</span>
-        <span><span class="dot dot-high"></span><strong>${stats.summary.high}</strong> High</span>
-        <span><span class="dot dot-med"></span><strong>${stats.summary.medium}</strong> Medium</span>
+      <div class="insight-stats">
+        <span><strong>${summaryFiles}</strong> files</span>
+        <span><strong>${summaryLoc}</strong> lines of code</span>
+        <span><strong>${summaryCommits}</strong> commits</span>
       </div>
       <div class="insight-meta">
         Generated ${new Date(stats.generated_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -385,19 +440,25 @@ export async function GET(req: NextRequest) {
       </div>
     </div>
 
+    <div class="table-wrap">
     <table>
       <thead>
         <tr>
           <th data-col="project" data-type="string">Project <span class="sort-arrow"></span></th>
-          <th data-col="desc" data-type="string" style="text-align:left">Description <span class="sort-arrow"></span></th>
+          <th data-col="desc" data-type="string" class="col-desc" style="text-align:left">Description <span class="sort-arrow"></span></th>
+          <th data-col="lang" data-type="string" class="col-size col-hide-md">Language <span class="sort-arrow"></span></th>
+          <th data-col="loc" data-type="number" class="col-size">LOC <span class="sort-arrow"></span></th>
+          <th data-col="files" data-type="number" class="col-size col-hide-md">Files <span class="sort-arrow"></span></th>
+          <th data-col="commits" data-type="number" class="col-size col-hide-md">Commits <span class="sort-arrow"></span></th>
           <th data-col="total" data-type="number">Total <span class="sort-arrow"></span></th>
-          <th data-col="critical" data-type="number">Critical <span class="sort-arrow"></span></th>
-          <th data-col="high" data-type="number">High <span class="sort-arrow"></span></th>
-          <th data-col="medium" data-type="number">Medium <span class="sort-arrow"></span></th>
+          <th data-col="critical" data-type="number" class="col-severity">Critical <span class="sort-arrow"></span></th>
+          <th data-col="high" data-type="number" class="col-severity">High <span class="sort-arrow"></span></th>
+          <th data-col="medium" data-type="number" class="col-severity">Medium <span class="sort-arrow"></span></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    </div>
     <div class="pagination" id="pagination"></div>
   </div>
 
@@ -425,10 +486,59 @@ export async function GET(req: NextRequest) {
         return '<span style="color:var(--text-faint)">0</span>';
       }
 
+      var langColors = {
+        'Python': '#3572A5',
+        'Go': '#00ADD8',
+        'JavaScript': '#f1e05a',
+        'TypeScript': '#3178c6',
+        'Java': '#b07219',
+        'Kotlin': '#A97BFF',
+        'Ruby': '#701516',
+        'Rust': '#dea584',
+        'C': '#555555',
+        'C++': '#f34b7d',
+        'C#': '#178600',
+        'PHP': '#4F5D95',
+        'Swift': '#F05138',
+        'Dart': '#00B4AB',
+        'Scala': '#c22d40',
+        'Shell': '#89e051',
+        'Lua': '#000080',
+        'R': '#198CE7',
+        'Elixir': '#6e4a7e',
+        'Haskell': '#5e5086',
+        'Clojure': '#db5855',
+        'Erlang': '#B83998',
+        'Julia': '#a270ba',
+        'Perl': '#0298c3',
+        'OCaml': '#3be133',
+        'Zig': '#ec915c',
+        'Nim': '#ffc200',
+        'V': '#4f87c4',
+        'Objective-C': '#438eff',
+      };
+
+      function langBadge(lang) {
+        if (!lang) return '<span style="color:var(--text-faint)">—</span>';
+        var color = langColors[lang] || '#8b8b8b';
+        return '<span style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">'
+          + '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';display:inline-block;flex-shrink:0"></span>'
+          + '<span style="font-size:13px;color:var(--text-alt)">' + esc(lang) + '</span>'
+          + '</span>';
+      }
+
+      function fmtK(n) {
+        if (!n) return '<span style="color:var(--text-faint)">—</span>';
+        if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/\\.0$/, '') + 'K';
+        return String(n);
+      }
+
       function getFiltered() {
         var filtered = projects.filter(function(p) {
           return p.project.toLowerCase().indexOf(searchTerm) !== -1
-            || (p.desc && p.desc.toLowerCase().indexOf(searchTerm) !== -1);
+            || (p.desc && p.desc.toLowerCase().indexOf(searchTerm) !== -1)
+            || (p.lang && p.lang.toLowerCase().indexOf(searchTerm) !== -1);
         });
         filtered.sort(function(a, b) {
           var va = a[sortCol], vb = b[sortCol];
@@ -450,7 +560,7 @@ export async function GET(req: NextRequest) {
 
         var tbody = document.getElementById('tbody');
         if (filtered.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="no-results">No matching projects</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="10" class="no-results">No matching projects</td></tr>';
         } else {
           var ghIcon = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
           tbody.innerHTML = pageItems.map(function(p) {
@@ -463,11 +573,15 @@ export async function GET(req: NextRequest) {
             var descCell = p.desc ? esc(p.desc) : '<span style="color:var(--text-faint)">—</span>';
             return '<tr>'
               + '<td class="project-cell">' + projectCell + '</td>'
-              + '<td class="desc-cell">' + descCell + '</td>'
+              + '<td class="desc-cell col-desc">' + descCell + '</td>'
+              + '<td class="col-size col-hide-md" style="white-space:nowrap">' + langBadge(p.lang) + '</td>'
+              + '<td class="col-size" style="font-size:13px;color:var(--text-alt);white-space:nowrap">' + fmtK(p.loc) + '</td>'
+              + '<td class="col-size col-hide-md" style="font-size:13px;color:var(--text-alt);white-space:nowrap">' + fmtK(p.files) + '</td>'
+              + '<td class="col-size col-hide-md" style="font-size:13px;color:var(--text-alt);white-space:nowrap">' + fmtK(p.commits) + '</td>'
               + '<td style="font-weight:600;color:var(--text)">' + p.total + '</td>'
-              + '<td>' + badge(p.critical, '#dc2626', '#fff') + '</td>'
-              + '<td>' + badge(p.high, '#e87b35', '#fff') + '</td>'
-              + '<td>' + badge(p.medium, '#d4a017', '#fff') + '</td>'
+              + '<td class="col-severity">' + badge(p.critical, '#dc2626', '#fff') + '</td>'
+              + '<td class="col-severity">' + badge(p.high, '#e87b35', '#fff') + '</td>'
+              + '<td class="col-severity">' + badge(p.medium, '#d4a017', '#fff') + '</td>'
               + '</tr>';
           }).join('');
         }

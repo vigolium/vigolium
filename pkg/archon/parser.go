@@ -16,6 +16,32 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
+// flexTime wraps time.Time with lenient JSON unmarshaling that accepts both
+// RFC3339 ("2006-01-02T15:04:05Z07:00") and date-only ("2006-01-02") formats.
+// LLM-generated audit-state.json files frequently emit date-only strings.
+type flexTime struct {
+	time.Time
+}
+
+func (ft *flexTime) UnmarshalJSON(data []byte) error {
+	s := strings.Trim(string(data), `"`)
+	if s == "" || s == "null" {
+		ft.Time = time.Time{}
+		return nil
+	}
+	// Try RFC3339 first.
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	// Fall back to date-only.
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	return fmt.Errorf("flexTime: cannot parse %q", s)
+}
+
 // AuditImport holds the parsed result of an archon output folder.
 type AuditImport struct {
 	RawFindings []*ArchonFinding
@@ -37,8 +63,8 @@ type AuditEntry struct {
 	Repository  string                `json:"repository,omitempty"`  // alternate key used by lite/scan modes
 	RepoURL     string                `json:"repo_url,omitempty"`    // optional full repo URL
 	Mode        string                `json:"mode,omitempty"`        // audit mode: lite, scan, deep
-	StartedAt   time.Time             `json:"started_at"`
-	CompletedAt time.Time             `json:"completed_at"`
+	StartedAt   flexTime              `json:"started_at"`
+	CompletedAt flexTime              `json:"completed_at"`
 	Status      string                `json:"status"`
 	Phases      map[string]PhaseEntry `json:"phases"`
 }
@@ -56,7 +82,7 @@ func (e AuditEntry) EffectiveRepo() string {
 // or a structured object. We accept both and normalise to map[string]interface{}.
 type PhaseEntry struct {
 	Status      string                 `json:"status"`
-	CompletedAt time.Time              `json:"completed_at"`
+	CompletedAt flexTime               `json:"completed_at"`
 	Summary     map[string]interface{} `json:"-"` // populated by custom unmarshal
 	SummaryRaw  json.RawMessage        `json:"summary,omitempty"`
 }
@@ -67,7 +93,7 @@ func (p *PhaseEntry) UnmarshalJSON(data []byte) error {
 	// Use an alias to avoid infinite recursion.
 	type Alias struct {
 		Status      string          `json:"status"`
-		CompletedAt time.Time       `json:"completed_at"`
+		CompletedAt flexTime        `json:"completed_at"`
 		Summary     json.RawMessage `json:"summary,omitempty"`
 	}
 	var a Alias
@@ -210,7 +236,7 @@ func BuildAgentRun(state *AuditState, folderPath, projectUUID string) *database.
 	}
 
 	// Duration
-	durationMs := audit.CompletedAt.Sub(audit.StartedAt).Milliseconds()
+	durationMs := audit.CompletedAt.Sub(audit.StartedAt.Time).Milliseconds()
 
 	// Store full audit-state as result_json
 	stateBytes, _ := json.Marshal(state)
@@ -237,8 +263,8 @@ func BuildAgentRun(state *AuditState, folderPath, projectUUID string) *database.
 		PhasesRun:   phases,
 		FindingCount: findingCount,
 		SourcePath:  folderPath,
-		StartedAt:   audit.StartedAt,
-		CompletedAt: audit.CompletedAt,
+		StartedAt:   audit.StartedAt.Time,
+		CompletedAt: audit.CompletedAt.Time,
 		DurationMs:  durationMs,
 		ResultJSON:  string(stateBytes),
 		AttackPlan:  attackPlan,

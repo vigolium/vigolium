@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,6 +299,35 @@ func TestPhaseEntryUnmarshalMixed(t *testing.T) {
 	var p4 PhaseEntry
 	require.NoError(t, json.Unmarshal([]byte(data), &p4))
 	assert.Nil(t, p4.Summary)
+}
+
+func TestFlexTimeDateOnly(t *testing.T) {
+	// Phase entries with date-only completed_at (common in LLM-generated audit-state.json)
+	data := `{"status":"complete","completed_at":"2026-04-11"}`
+	var p PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p))
+	assert.Equal(t, 2026, p.CompletedAt.Year())
+	assert.Equal(t, time.Month(4), p.CompletedAt.Month())
+	assert.Equal(t, 11, p.CompletedAt.Day())
+
+	// RFC3339 still works
+	data = `{"status":"complete","completed_at":"2026-04-11T10:30:00Z"}`
+	var p2 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p2))
+	assert.Equal(t, 10, p2.CompletedAt.Hour())
+
+	// AuditEntry with date-only
+	entryJSON := `{"audit_id":"test","started_at":"2026-04-11","completed_at":"2026-04-12","status":"complete","phases":{}}`
+	var entry AuditEntry
+	require.NoError(t, json.Unmarshal([]byte(entryJSON), &entry))
+	assert.Equal(t, 11, entry.StartedAt.Day())
+	assert.Equal(t, 12, entry.CompletedAt.Day())
+
+	// Empty/null completed_at is tolerated
+	data = `{"status":"pending"}`
+	var p3 PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p3))
+	assert.True(t, p3.CompletedAt.IsZero())
 }
 
 func TestMapConfidence(t *testing.T) {
