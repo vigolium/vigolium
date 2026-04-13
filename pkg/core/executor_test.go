@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -87,15 +88,15 @@ type trackingPassiveModule struct {
 	findings []*output.ResultEvent
 }
 
-func (m *trackingPassiveModule) ID() string                      { return m.id }
-func (m *trackingPassiveModule) Name() string                    { return m.id }
-func (m *trackingPassiveModule) Description() string             { return "" }
-func (m *trackingPassiveModule) ShortDescription() string        { return "" }
-func (m *trackingPassiveModule) ConfirmationCriteria() string    { return "" }
-func (m *trackingPassiveModule) Severity() severity.Severity     { return 0 }
-func (m *trackingPassiveModule) Confidence() severity.Confidence { return 0 }
-func (m *trackingPassiveModule) ScanScopes() modules.ScanScope   { return modkit.ScanScopeRequest }
-func (m *trackingPassiveModule) Tags() []string                  { return nil }
+func (m *trackingPassiveModule) ID() string                                     { return m.id }
+func (m *trackingPassiveModule) Name() string                                   { return m.id }
+func (m *trackingPassiveModule) Description() string                            { return "" }
+func (m *trackingPassiveModule) ShortDescription() string                       { return "" }
+func (m *trackingPassiveModule) ConfirmationCriteria() string                   { return "" }
+func (m *trackingPassiveModule) Severity() severity.Severity                    { return 0 }
+func (m *trackingPassiveModule) Confidence() severity.Confidence                { return 0 }
+func (m *trackingPassiveModule) ScanScopes() modules.ScanScope                  { return modkit.ScanScopeRequest }
+func (m *trackingPassiveModule) Tags() []string                                 { return nil }
 func (m *trackingPassiveModule) CanProcess(_ *httpmsg.HttpRequestResponse) bool { return true }
 func (m *trackingPassiveModule) Scope() modules.PassiveScanScope {
 	return modkit.PassiveScanScopeBoth
@@ -235,6 +236,43 @@ func TestFeedbackChannel(t *testing.T) {
 	_ = resultCount
 }
 
+func TestParamFindingLocationKeyNormalization(t *testing.T) {
+	item, _ := makeTestItem("example.com", "/users?id=1", "<html>body</html>")
+	got := paramFindingLocationKeyFromItem(item.Request)
+	if got != "https://example.com/users" {
+		t.Fatalf("paramFindingLocationKeyFromItem() = %q, want %q", got, "https://example.com/users")
+	}
+
+	result := &output.ResultEvent{
+		URL:              "https://example.com/users?id=1",
+		Matched:          "https://example.com/users?id=1",
+		FuzzingParameter: "id",
+	}
+	if key := paramFindingLocationKeyFromResult(result); key != got {
+		t.Fatalf("paramFindingLocationKeyFromResult() = %q, want %q", key, got)
+	}
+}
+
+func TestContextualPassiveModuleTimeout(t *testing.T) {
+	mod := &contextualPassiveModule{id: "contextual-timeout"}
+	e, _ := newTestExecutor(ExecutorConfig{
+		ScopeMatcher:         nil,
+		PassiveModuleTimeout: 20 * time.Millisecond,
+	}, []modules.PassiveModule{mod})
+
+	item, _ := makeTestItem("example.com", "/slow", "<html>slow</html>")
+	e.processItem(context.Background(), item)
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if mod.cancelled.Load() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("contextual passive module should observe cancellation")
+}
+
 // feedbackPassiveModule injects a new request via the feeder on first call.
 type feedbackPassiveModule struct {
 	id     string
@@ -242,15 +280,15 @@ type feedbackPassiveModule struct {
 	fed    atomic.Bool
 }
 
-func (m *feedbackPassiveModule) ID() string                      { return m.id }
-func (m *feedbackPassiveModule) Name() string                    { return m.id }
-func (m *feedbackPassiveModule) Description() string             { return "" }
-func (m *feedbackPassiveModule) ShortDescription() string        { return "" }
-func (m *feedbackPassiveModule) ConfirmationCriteria() string    { return "" }
-func (m *feedbackPassiveModule) Severity() severity.Severity     { return 0 }
-func (m *feedbackPassiveModule) Confidence() severity.Confidence { return 0 }
-func (m *feedbackPassiveModule) ScanScopes() modules.ScanScope   { return modkit.ScanScopeRequest }
-func (m *feedbackPassiveModule) Tags() []string                  { return nil }
+func (m *feedbackPassiveModule) ID() string                                     { return m.id }
+func (m *feedbackPassiveModule) Name() string                                   { return m.id }
+func (m *feedbackPassiveModule) Description() string                            { return "" }
+func (m *feedbackPassiveModule) ShortDescription() string                       { return "" }
+func (m *feedbackPassiveModule) ConfirmationCriteria() string                   { return "" }
+func (m *feedbackPassiveModule) Severity() severity.Severity                    { return 0 }
+func (m *feedbackPassiveModule) Confidence() severity.Confidence                { return 0 }
+func (m *feedbackPassiveModule) ScanScopes() modules.ScanScope                  { return modkit.ScanScopeRequest }
+func (m *feedbackPassiveModule) Tags() []string                                 { return nil }
 func (m *feedbackPassiveModule) CanProcess(_ *httpmsg.HttpRequestResponse) bool { return true }
 func (m *feedbackPassiveModule) Scope() modules.PassiveScanScope {
 	return modkit.PassiveScanScopeBoth
@@ -273,6 +311,39 @@ func (m *feedbackPassiveModule) ScanPerRequest(ctx *httpmsg.HttpRequestResponse,
 	return nil, nil
 }
 func (m *feedbackPassiveModule) ScanPerHost(_ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	return nil, nil
+}
+
+type contextualPassiveModule struct {
+	id        string
+	cancelled atomic.Bool
+}
+
+func (m *contextualPassiveModule) ID() string                                     { return m.id }
+func (m *contextualPassiveModule) Name() string                                   { return m.id }
+func (m *contextualPassiveModule) Description() string                            { return "" }
+func (m *contextualPassiveModule) ShortDescription() string                       { return "" }
+func (m *contextualPassiveModule) ConfirmationCriteria() string                   { return "" }
+func (m *contextualPassiveModule) Severity() severity.Severity                    { return 0 }
+func (m *contextualPassiveModule) Confidence() severity.Confidence                { return 0 }
+func (m *contextualPassiveModule) ScanScopes() modules.ScanScope                  { return modkit.ScanScopeRequest }
+func (m *contextualPassiveModule) Tags() []string                                 { return nil }
+func (m *contextualPassiveModule) CanProcess(_ *httpmsg.HttpRequestResponse) bool { return true }
+func (m *contextualPassiveModule) Scope() modules.PassiveScanScope {
+	return modkit.PassiveScanScopeBoth
+}
+func (m *contextualPassiveModule) ScanPerRequest(_ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	return nil, nil
+}
+func (m *contextualPassiveModule) ScanPerHost(_ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	return nil, nil
+}
+func (m *contextualPassiveModule) ScanPerRequestContext(ctx context.Context, _ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	<-ctx.Done()
+	m.cancelled.Store(true)
+	return nil, ctx.Err()
+}
+func (m *contextualPassiveModule) ScanPerHostContext(_ context.Context, _ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
 	return nil, nil
 }
 

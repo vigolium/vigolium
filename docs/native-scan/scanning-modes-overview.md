@@ -12,7 +12,7 @@ Vigolium supports multiple scanning modes depending on what you have available: 
 | **Whitebox** | URL + source code | `vigolium scan -t URL --source ./app --strategy whitebox` | SAST route extraction + discovery + known-issue-scan + audit |
 | **Whitebox (remote)** | URL + git repo | `vigolium scan -t URL --source-url GIT_URL --strategy whitebox` | Same as whitebox, clones the repo first |
 | **SAST-only** | Source code | `vigolium scan -t URL --source ./app --only sast` | Static analysis only, no dynamic scanning |
-| **Agent** | Source code + AI backend | `vigolium agent --prompt-template X --repo ./app` | AI-powered code review |
+| **Agent** | Source code + AI backend | `vigolium agent query --prompt-template X --source ./app` | AI-powered code review |
 | **Extension** | URL + JS/YAML extensions | `vigolium run extension -t URL --ext script.js` | Run only custom extension modules |
 | **Full Combined** | URL + source code + AI backend | Multi-step (see [full-scan.md](full-scan.md)) | SAST + agent + dynamic for maximum coverage |
 
@@ -35,7 +35,7 @@ Do you have application source code?
     │   │   └── Remote repo? ──────────── vigolium scan -t URL --source-url GIT_URL --strategy whitebox
     │   │
     │   └── Yes
-    │       ├── One-shot code review? ──── vigolium agent --prompt-template security-code-review --repo ./app
+    │       ├── One-shot code review? ──── vigolium agent query --prompt-template security-code-review --source ./app
     │       └── Full combined scan? ────── See full-scan.md
 ```
 
@@ -76,7 +76,6 @@ Several phases have short aliases that work with `--only` and `--skip`:
 | `deparos` | `discovery` |
 | `discover` | `discovery` |
 | `spitolas` | `spidering` |
-| `dynamic-assessment` | `audit` |
 | `ext` | `extension` |
 
 ## Phase Control: `--only` and `--skip`
@@ -96,16 +95,13 @@ vigolium scan -t https://example.com --source ./app --only sast
 
 # Run only audit (skip all discovery)
 vigolium scan -t https://example.com --only audit
-# Legacy alias also works:
-# vigolium scan -t https://example.com --only dynamic-assessment
-
 # Run only custom extensions (skip built-in modules)
 vigolium scan -t https://example.com --only extension
 # Or using the alias:
 vigolium scan -t https://example.com --only ext
 ```
 
-Valid values: `ingestion`, `discovery` (`deparos`), `spidering` (`spitolas`), `external-harvest`, `known-issue-scan`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
+Valid values: `ingestion`, `discovery` (`deparos`, `discover`), `spidering` (`spitolas`), `external-harvest`, `known-issue-scan`, `sast`, `audit`, `extension` (`ext`)
 
 ### `--skip <phase>` — Skip Specific Phases
 
@@ -119,7 +115,7 @@ vigolium scan -t https://example.com --skip spidering
 vigolium scan -t https://example.com --skip discovery --skip known-issue-scan
 ```
 
-Valid values: `discovery` (`deparos`), `external-harvest`, `spidering` (`spitolas`), `known-issue-scan`, `sast`, `audit` (`dynamic-assessment`), `extension` (`ext`)
+Valid values: `discovery` (`deparos`, `discover`), `external-harvest`, `spidering` (`spitolas`), `known-issue-scan`, `sast`, `audit`, `extension` (`ext`)
 
 ### `vigolium run <phase>` Shortcut
 

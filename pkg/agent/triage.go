@@ -40,6 +40,7 @@ type TriageLoopConfig struct {
 	MaxFindingsPerRound       int // max findings loaded per triage round; 0 = default 5000
 	ResumeFromRound           int // skip triage rounds before this (0 = start from beginning)
 	ProgressCallback          func(ProgressEvent)
+	InitialFindingIDFloor     int64 // when >0, only findings newer than this ID are triaged in follow-up rounds
 
 	// Scan callback for rescans
 	ScanFunc ScanFunc
@@ -98,6 +99,7 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 	}
 
 	startRound := cfg.ResumeFromRound
+	currentFindingFloor := cfg.InitialFindingIDFloor
 	if startRound > 0 {
 		zap.L().Info("Resuming triage loop from round",
 			zap.Int("resume_from", startRound))
@@ -118,8 +120,9 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 				findingsLimit = 5000
 			}
 			roundFindings, findErr := database.NewFindingsQueryBuilder(cfg.Repository.DB(), database.QueryFilters{
-				ProjectUUID: cfg.ProjectUUID,
-				Limit:       findingsLimit,
+				ProjectUUID:    cfg.ProjectUUID,
+				FindingIDAfter: currentFindingFloor,
+				Limit:          findingsLimit,
 			}).Execute(ctx)
 			if findErr == nil && len(roundFindings) > cfg.MaxFindingsPerTriageBatch {
 				for i := 0; i < len(roundFindings); i += cfg.MaxFindingsPerTriageBatch {
@@ -178,6 +181,9 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			var appendParts []string
 			if round > 0 {
 				appendParts = append(appendParts, fmt.Sprintf("## Context\n\nThis is triage round %d (after rescan). Focus on new findings from the latest scan.", round+1))
+			}
+			if currentFindingFloor > 0 {
+				appendParts = append(appendParts, fmt.Sprintf("## Delta Scope\n\nReview only findings with id > %d. Older findings were already triaged in previous rounds.", currentFindingFloor))
 			}
 			if findingBatches != nil {
 				ids := findingBatches[batchIdx]
@@ -304,6 +310,9 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 
 			req := aggregateFollowUps(merged.FollowUps)
 			req.ExtensionDir = cfg.ExtensionDir // carry extensions from initial scan into rescans
+			if cfg.Repository != nil && cfg.ProjectUUID != "" {
+				currentFindingFloor = currentMaxFindingID(ctx, cfg.Repository, cfg.ProjectUUID)
+			}
 			if err := cfg.ScanFunc(ctx, req); err != nil {
 				zap.L().Error("Rescan failed, continuing with triage results",
 					zap.Int("round", round+1),
@@ -363,4 +372,20 @@ func aggregateFollowUps(followUps []FollowUpScan) ScanRequest {
 		TargetURLs: targetURLs,
 		IsRescan:   true,
 	}
+}
+
+func currentMaxFindingID(ctx context.Context, repo *database.Repository, projectUUID string) int64 {
+	if repo == nil || projectUUID == "" {
+		return 0
+	}
+	var maxID int64
+	if err := repo.DB().NewSelect().
+		Model((*database.Finding)(nil)).
+		ColumnExpr("COALESCE(MAX(id), 0)").
+		Where("project_uuid = ?", projectUUID).
+		Scan(ctx, &maxID); err != nil {
+		zap.L().Debug("Failed to query current max finding id", zap.Error(err))
+		return 0
+	}
+	return maxID
 }

@@ -337,7 +337,7 @@ vigolium run spa -t https://example.com --spa-severities critical,high
 > Run static analysis on my Go app, filter for gin-related rules
 ```
 ```bash
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --sast-adhoc /path/to/app --rule gin
 ```
 
 **Run only external harvest (Wayback, Common Crawl, OTX):**
@@ -372,7 +372,6 @@ vigolium run ext -t https://example.com --ext ./custom-check.js
 |-------|-------------|
 | `deparos`, `discover` | `discovery` |
 | `spitolas` | `spidering` |
-| `dynamic-assessment` | `audit` |
 | `ext` | `extension` |
 
 ---
@@ -541,7 +540,7 @@ vigolium ingest -t https://example.com -I burp -i export.xml --disable-fetch-res
 > Review my source code for security vulnerabilities
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 ```
 
 **Endpoint discovery from source:**
@@ -549,7 +548,7 @@ vigolium agent --prompt-template security-code-review --source ./src
 > Find all API endpoints in my source code
 ```
 ```bash
-vigolium agent --prompt-template endpoint-discovery --source ./src
+vigolium agent query --prompt-template endpoint-discovery --source ./src
 ```
 
 **Review specific files only:**
@@ -557,7 +556,7 @@ vigolium agent --prompt-template endpoint-discovery --source ./src
 > Review only auth.go and middleware.go for security issues
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --files "src/auth.go,src/middleware.go"
 ```
 
@@ -566,7 +565,7 @@ vigolium agent --prompt-template security-code-review --source ./src \
 > Code review, but focus on authentication and authorization
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --append "Focus specifically on authentication and authorization vulnerabilities"
 ```
 
@@ -575,7 +574,7 @@ vigolium agent --prompt-template security-code-review --source ./src \
 > Run the agent with my own prompt template
 ```
 ```bash
-vigolium agent --prompt-file custom-prompt.md --source ./src
+vigolium agent query --prompt-file custom-prompt.md --source ./src
 ```
 
 **Select a specific agent backend:**
@@ -583,7 +582,7 @@ vigolium agent --prompt-file custom-prompt.md --source ./src
 > Use the Claude backend for code review
 ```
 ```bash
-vigolium agent --agent claude --prompt-template security-code-review --source ./src
+vigolium agent query --agent claude --prompt-template security-code-review --source ./src
 ```
 
 **Dry-run to preview the rendered prompt:**
@@ -591,7 +590,7 @@ vigolium agent --agent claude --prompt-template security-code-review --source ./
 > Show me what prompt would be sent to the agent
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src --dry-run
+vigolium agent query --prompt-template security-code-review --source ./src --dry-run
 ```
 
 **Save agent output to a file:**
@@ -599,7 +598,7 @@ vigolium agent --prompt-template security-code-review --source ./src --dry-run
 > Save the review results to a JSON file
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --output review-results.json
 ```
 
@@ -1208,7 +1207,7 @@ vigolium source ls
 > Run static analysis on the source code
 ```
 ```bash
-vigolium run sast --repo /path/to/app
+vigolium run sast --sast-adhoc /path/to/app
 ```
 
 **SAST with rule filtering:**
@@ -1216,7 +1215,7 @@ vigolium run sast --repo /path/to/app
 > Run SAST, only gin-related rules
 ```
 ```bash
-vigolium run sast --repo /path/to/app --rule gin
+vigolium run sast --sast-adhoc /path/to/app --rule gin
 ```
 
 ---
@@ -1482,7 +1481,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Import my Burp export and scan it" | `vigolium scan -I burp -i export.xml` |
 | "Scan my OpenAPI spec with auth" | `vigolium scan -I openapi -i spec.yaml -t <url> --spec-header "Authorization: Bearer ..."` |
 | "Only run XSS modules" | `vigolium scan -t <url> --module-tag xss` |
-| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --source ./src` |
+| "Review my code for security issues" | `vigolium agent query --prompt-template security-code-review --source ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
 | "Run the full AI pipeline" | `vigolium agent swarm --discover -t <url>` |
 | "Show me all critical findings" | `vigolium finding --severity critical` |

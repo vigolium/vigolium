@@ -175,32 +175,21 @@ vigolium agent swarm -t https://example.com --skip source-analysis --skip native
 vigolium agent swarm -t https://example.com --start-from plan
 ```
 
-## Autopilot: Autonomous Multi-Class Assessment
+## Autopilot: Autonomous Assessment
 
-Autopilot runs a 5-phase specialist pipeline that autonomously scans for multiple vulnerability classes in parallel:
+Autopilot uses an Archon-first workflow and then launches a single autonomous operator session over prepared context:
 
 ```bash
 vigolium agent autopilot -t https://example.com
 ```
 
-### Phases
+### Flow
 
-1. **Recon** - map the attack surface (endpoints, tech stack, auth flows)
-2. **Vulnerability Analysis** - parallel specialists identify potential vulns per class
-3. **Native Scan** - execute targeted scans based on analysis
-4. **Exploit Verification** - confirm findings with proof-of-concept attempts
-5. **Report** - generate a structured security report
-
-### Selecting Specialists
-
-By default, autopilot runs all specialists. Focus on specific vulnerability classes:
-
-```bash
-vigolium agent autopilot -t https://example.com \
-  --specialists injection,xss,auth
-```
-
-Available specialists: `injection`, `xss`, `auth`, `ssrf`, `authz`.
+1. **Prepare** - resolve target, source, diff, and session artifacts
+2. **Archon** - when source is present, run whitebox analysis first
+3. **Plan** - build native context, priorities, and budgets
+4. **Execute** - let the operator agent recon, validate, and report
+5. **Verify** - keep only findings backed by artifacts and evidence
 
 ### With Source Code
 

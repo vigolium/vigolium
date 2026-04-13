@@ -19,13 +19,13 @@ Run a built-in or custom prompt template against source code:
 
 ```bash
 # Security code review
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 
 # Endpoint discovery from a Django project
-vigolium agent --prompt-template endpoint-discovery --source ~/projects/django-app
+vigolium agent query --prompt-template endpoint-discovery --source ~/projects/django-app
 
 # Review specific files only
-vigolium agent --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
+vigolium agent query --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
 ```
 
 ### Custom Prompt File
@@ -33,7 +33,7 @@ vigolium agent --prompt-template injection-sinks --source ./src --files db/query
 Use your own Markdown prompt file with YAML frontmatter:
 
 ```bash
-vigolium agent --prompt-file my-prompt.md --source ./src
+vigolium agent query --prompt-file my-prompt.md --source ./src
 ```
 
 ### Freeform Questions
@@ -60,7 +60,7 @@ echo "explain CSRF" | vigolium agent query --stdin
 Render the full prompt without sending it to the agent -- useful for debugging templates:
 
 ```bash
-vigolium agent --prompt-template endpoint-discovery --source ./src --dry-run
+vigolium agent query --prompt-template endpoint-discovery --source ./src --dry-run
 ```
 
 ### List Templates and Agents
@@ -74,21 +74,21 @@ vigolium agent --list-agents
 
 ```bash
 # Code review with additional focus instructions
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --append "Pay special attention to deserialization and file upload handling"
 
 # Save agent output to a file
-vigolium agent --prompt-template security-code-review --source ./src --output review-results.json
+vigolium agent query --prompt-template security-code-review --source ./src --output review-results.json
 
 # Scope to a specific project
-vigolium agent --prompt-template security-code-review --source ./src --project my-api
+vigolium agent query --prompt-template security-code-review --source ./src --project my-api
 
 # Chain with jq to extract high-severity findings
-vigolium agent --prompt-template security-code-review --source ./src --json \
+vigolium agent query --prompt-template security-code-review --source ./src --json \
   | jq '.[] | select(.severity == "high")'
 
 # Detect hardcoded secrets in config files
-vigolium agent --prompt-template secret-detection --source ./src --files config/,deploy/
+vigolium agent query --prompt-template secret-detection --source ./src --files config/,deploy/
 ```
 
 ## Key Flags

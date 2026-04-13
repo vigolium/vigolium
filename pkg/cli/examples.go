@@ -30,7 +30,7 @@ func printFullExamples() {
 		"vigolium scan -t https://example.com --only extension --ext custom-check.js",
 		"vigolium scan -t https://example.com --project-name my-project",
 		"vigolium scan -t https://example.com --oast-url https://interact.sh/abc123",
-		"vigolium scan -t https://example.com --spa-tags cve,misconfig --spa-severities critical,high",
+		"vigolium scan -t https://example.com --known-issue-scan-tags cve,misconfig --known-issue-scan-severities critical,high",
 	})
 
 	printSection("Running Single Phases", []string{
@@ -39,8 +39,8 @@ func printFullExamples() {
 		"vigolium run audit -t https://example.com",
 		"vigolium run audit -t https://example.com --module-tag spring",
 		"vigolium run external-harvest -t https://example.com",
-		"vigolium run spa -t https://example.com",
-		"vigolium run spa -t https://example.com --spa-tags cve --spa-severities critical,high",
+		"vigolium run known-issue-scan -t https://example.com",
+		"vigolium run known-issue-scan -t https://example.com --known-issue-scan-tags cve --known-issue-scan-severities critical,high",
 		"vigolium run sast --sast-adhoc /path/to/app",
 		"vigolium run sast --sast-adhoc /path/to/app --rule gin",
 		"vigolium run extension -t https://example.com --ext custom-check.js",
@@ -64,7 +64,7 @@ func printFullExamples() {
 
 	printSection("Server", []string{
 		"vigolium server",
-		"vigolium server --host 0.0.0.0 --port 8443",
+		"vigolium server --host 0.0.0.0 --service-port 8443",
 		"vigolium server --no-auth",
 		"vigolium server -t https://example.com --scan-on-receive",
 	})
@@ -101,12 +101,12 @@ func printFullExamples() {
 		"vigolium ext docs",
 		"vigolium ext preset",
 		`vigolium ext eval 'vigolium.log("hello")'`,
-		"vigolium ext eval -f script.js",
+		"vigolium ext eval --ext-file script.js",
 	})
 
 	printSection("Scope & Source", []string{
 		"vigolium scope view",
-		"vigolium scope set origin.mode strict",
+		"vigolium scope set host.include '*.example.com'",
 		"vigolium source ls",
 		"vigolium source add --hostname api.example.com --path ./api-source",
 		"vigolium source scan 1",

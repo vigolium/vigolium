@@ -57,11 +57,12 @@ type Options struct {
 	SessionID string `json:"-"`
 
 	// Autopilot mode
-	Autopilot     bool   // enable autonomous scanning
-	MaxCommands   int    // max agent turns (0 = default 100)
-	Effort        string // SDK effort level override (e.g. "low", "medium", "high"); empty = default
-	SessionWeight int    `json:"-"` // session weight for pool scheduling (0 = default)
-	SessionDir    string `json:"-"` // session directory for artifacts (SDK: CLAUDE.md written here for system prompt)
+	Autopilot      bool   // enable autonomous scanning
+	MaxCommands    int    // max agent turns (0 = default 100)
+	Effort         string // SDK effort level override (e.g. "low", "medium", "high"); empty = default
+	BrowserEnabled bool   `json:"-"` // allow browser tooling/prompting for this run
+	SessionWeight  int    `json:"-"` // session weight for pool scheduling (0 = default)
+	SessionDir     string `json:"-"` // session directory for artifacts (SDK: CLAUDE.md written here for system prompt)
 
 	// Retry: when non-nil, retries transient agent failures with exponential backoff.
 	Retry *RetryConfig `json:"-"`
@@ -241,7 +242,7 @@ const (
 // ExploitationEvidence records proof that a finding is exploitable.
 type ExploitationEvidence struct {
 	FindingRef  string   `json:"finding_ref"`
-	Status      string   `json:"status"`      // "exploited", "blocked", "false_positive"
+	Status      string   `json:"status"` // "exploited", "blocked", "false_positive"
 	VulnClass   string   `json:"vuln_class"`
 	Payload     string   `json:"payload"`
 	Request     string   `json:"request"`

@@ -1,6 +1,6 @@
 # Archon-Audit
 
-Archon-audit is Vigolium's embedded **multi-phase whitebox security audit engine**. It runs as a background process alongside swarm or autopilot, performing deep source code analysis with 24 specialized AI agents and adversarial review chambers. Findings are automatically ingested into the Vigolium database alongside native scanner results.
+Archon-audit is Vigolium's embedded **multi-phase whitebox security audit engine**. In swarm it runs as a background process alongside the main scan; in autopilot it runs first, then its output is prepared into stable operator context before the autonomous agent starts. Findings are automatically ingested into the Vigolium database alongside native scanner results.
 
 Archon-audit replaces the legacy vig-audit-agent with richer finding formats (YAML frontmatter, adversarial verdicts, cold-verify overlays) and a more capable multi-phase pipeline.
 
@@ -30,8 +30,8 @@ vigolium agent swarm -t https://example.com --source ./src --archon
 # Swarm with deep 11-phase audit
 vigolium agent swarm -t https://example.com --source ./src --archon deep
 
-# Autopilot with background archon-audit
-vigolium agent autopilot -t https://example.com --source ./src --archon scan
+# Autopilot with archon-audit first
+vigolium agent autopilot -t https://example.com --source ./src --archon-mode scan
 
 # Explicitly disable (overrides config)
 vigolium agent swarm -t https://example.com --source ./src --archon off
@@ -51,11 +51,12 @@ When `--archon` is set and `--source` is provided:
 1. Vigolium extracts the embedded archon-audit harness (agents, commands, skills) to `~/.vigolium/archon-audit/`
 2. A **separate Claude Code process** is launched with the archon plugin, targeting the source directory
 3. The archon agent runs its own multi-phase pipeline independently
-4. Every 30 seconds (configurable), `archon/audit-state.json` and `archon/findings-draft/` are synced from the source directory to the Vigolium session directory under `archon-audit/`
+4. Audit state and findings are copied into the Vigolium session directory
 5. Progress is tracked in a child `AgentRun` record (mode=`archon`) linked to the parent run
 6. When the audit completes, findings are parsed and ingested into the Vigolium database
-7. The `<source>/archon/` directory is removed (copy preserved in session directory)
-8. If Vigolium finishes first, the archon process is gracefully cancelled via SIGTERM (10s grace period)
+7. In autopilot, Archon output is then prepared into stable context and a native plan before the operator starts
+8. The `<source>/archon/` directory is removed (copy preserved in session directory)
+9. If a foreground run is cancelled first, the archon process is gracefully cancelled via SIGTERM (10s grace period)
 
 ```
 +---------------------------------------------------------------+
@@ -252,10 +253,10 @@ Archon output from external runs can be imported directly without running swarm 
 vigolium import /path/to/archon-output-harbor/
 ```
 
-The folder must contain `audit-state.json` and `findings-draft/`. The import:
+The folder must contain `audit-state.json` and `findings/`. The import:
 
 1. Parses `audit-state.json` for phase tracking and metadata
-2. Reads all finding files from `findings-draft/`
+2. Reads all finding files from `findings/`
 3. Applies cold-verify overlays (if `*.cold-verify.md` files exist)
 4. Creates an `AgentRun` record (mode=`archon`)
 5. Saves findings with deduplication (skips duplicates by finding hash)
@@ -304,7 +305,7 @@ Archon-audit writes output to the source directory under `archon/`, which is syn
 <source_path>/
 └── archon/
     ├── audit-state.json              # Phase progress tracking
-    ├── findings-draft/               # Per-finding markdown files
+    ├── findings/                     # Per-finding markdown files
     │   ├── p7-001-open-redirect.md   # Phase 7 finding
     │   ├── p8-001-ssrf-webhook.md    # Phase 8 finding
     │   ├── p8-001-ssrf.cold-verify.md  # Cold verification overlay
@@ -323,7 +324,7 @@ Archon-audit writes output to the source directory under `archon/`, which is syn
 ~/.vigolium/agent-sessions/<uuid>/
 ├── archon-audit/                     # Synced from source
 │   ├── audit-state.json
-│   ├── findings-draft/
+│   ├── findings/
 │   ├── final-audit-report.md
 │   ├── attack-pattern-registry.json
 │   └── ...

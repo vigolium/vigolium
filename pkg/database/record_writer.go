@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/maphash"
 	"sync"
@@ -93,13 +94,18 @@ type RecordWriter struct {
 	flushErrors atomic.Int64
 	batchCount  atomic.Int64
 
+	ctx    context.Context
 	cancel context.CancelFunc
+	closed atomic.Bool
 	wg     sync.WaitGroup
 }
 
 // hashSeed is a package-level seed for consistent host hashing within
 // a process lifetime.
 var hashSeed = maphash.MakeSeed()
+
+// ErrRecordWriterClosed is returned when writes are attempted after shutdown starts.
+var ErrRecordWriterClosed = errors.New("record writer is closed")
 
 // NewRecordWriter creates and starts a RecordWriter.
 // Call Close() to flush remaining records and stop the background goroutines.
@@ -112,6 +118,7 @@ func NewRecordWriter(repo *Repository, cfg RecordWriterConfig) *RecordWriter {
 		repo:   repo,
 		cfg:    cfg,
 		shards: make([]*writerShard, cfg.Shards),
+		ctx:    ctx,
 		cancel: cancel,
 	}
 
@@ -135,6 +142,9 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	if rr == nil || rr.Request() == nil {
 		return "", fmt.Errorf("invalid HttpRequestResponse")
 	}
+	if w.closed.Load() {
+		return "", ErrRecordWriterClosed
+	}
 
 	record := &HTTPRecord{}
 	if err := record.FromHttpRequestResponse(rr); err != nil {
@@ -152,6 +162,8 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 
 	select {
 	case shard.ch <- req:
+	case <-w.ctx.Done():
+		return "", ErrRecordWriterClosed
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -212,6 +224,9 @@ func (w *RecordWriter) SaveRecordBatch(ctx context.Context, records []*httpmsg.H
 
 // Close stops accepting new writes, flushes remaining records, and returns.
 func (w *RecordWriter) Close() {
+	if !w.closed.CompareAndSwap(false, true) {
+		return
+	}
 	w.cancel()
 	w.wg.Wait()
 }

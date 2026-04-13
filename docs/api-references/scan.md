@@ -171,7 +171,6 @@ Per-phase `max_duration` overrides in the YAML config take precedence over the f
 |----------------------|--------------------------|
 | `discovery`          | `deparos`, `discover`    |
 | `spidering`          | `spitolas`               |
-| `audit`              | `dynamic-assessment`     |
 | `extension`          | `ext`                    |
 | `ingestion`          | —                        |
 | `external-harvest`   | —                        |

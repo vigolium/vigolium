@@ -24,12 +24,12 @@ import (
 
 // Prompt formatting thresholds and limits.
 const (
-	findingsTierFullDetail    = 15   // ≤ this count: full detail per finding
-	findingsTierSummaryTable  = 40   // ≤ this count: table + critical/high detail; above: table + top N
-	findingsTopNDetail        = 10   // number of findings shown in full detail for large sets
-	maxBodyExcerptChars       = 500  // max chars from finding body in full-detail view
-	maxTitleChars             = 47   // max title length in summary table
-	maxKnowledgeBaseChars     = 4000 // max chars of knowledge base included in prompt
+	findingsTierFullDetail   = 15   // ≤ this count: full detail per finding
+	findingsTierSummaryTable = 40   // ≤ this count: table + critical/high detail; above: table + top N
+	findingsTopNDetail       = 10   // number of findings shown in full detail for large sets
+	maxBodyExcerptChars      = 500  // max chars from finding body in full-detail view
+	maxTitleChars            = 47   // max title length in summary table
+	maxKnowledgeBaseChars    = 4000 // max chars of knowledge base included in prompt
 )
 
 // AutopilotPipelineConfig configures the autopilot pipeline.
@@ -49,14 +49,14 @@ type AutopilotPipelineConfig struct {
 	SessionsDir string
 	SessionDir  string
 
-	ProjectUUID  string
-	ScanUUID     string
+	ProjectUUID   string
+	ScanUUID      string
 	ParentRunUUID string
 
 	StreamWriter     io.Writer
 	ProgressCallback func(phase string, message string)
 
-	// Archon enables the archon-audit run in parallel with the autonomous agent.
+	// Archon enables the archon-audit run before the autonomous operator starts.
 	Archon *config.AuditAgentConfig
 
 	// BrowserEnabled indicates whether agent-browser is available for the agent.
@@ -65,6 +65,10 @@ type AutopilotPipelineConfig struct {
 	// DiffContext holds parsed diff information for focused scanning.
 	// When set, the agent prompt includes changed file list and patch content.
 	DiffContext *agenttypes.DiffContext
+
+	ContextBundle *AutopilotContextBundle
+	Plan          *AutopilotExecutionPlan
+	Artifacts     AutopilotArtifactSpec
 }
 
 // AutopilotPipelineRunner orchestrates the autopilot pipeline.
@@ -84,9 +88,9 @@ type archonContext struct {
 }
 
 // RunAutonomous executes the autopilot pipeline:
-// 1. Start archon-audit in parallel (if configured) — does NOT block
-// 2. Build prompt with live-findings instructions so agent can read findings as they arrive
-// 3. Launch autonomous agent with full tool access
+// 1. Run archon-audit first when source context is available
+// 2. Freeze context into native plan + artifacts
+// 3. Launch the autonomous operator agent with full tool access
 func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
 	start := time.Now()
 
@@ -109,36 +113,75 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		SessionDir: cfg.SessionDir,
 	}
 
+	spec, artifactErr := prepareAutopilotArtifacts(cfg.SessionDir)
+	if artifactErr != nil {
+		zap.L().Warn("Failed to prepare autopilot artifact directories", zap.Error(artifactErr))
+		result.Warnings = append(result.Warnings, "failed to prepare some artifact directories")
+	}
+	cfg.Artifacts = spec
+	result.ArtifactsDir = filepath.Dir(spec.BriefPath)
+
 	// Mock mode: write sample audit-state.json and return immediately.
 	// No subprocess is launched, no main agent runs.
 	if cfg.Archon != nil && cfg.Archon.EffectiveMode() == "mock" {
 		return r.runMockMode(cfg, result, start)
 	}
 
-	// Step 1: Start archon-audit in parallel (does not wait for completion)
+	// Step 1: Run archon first and freeze its output before starting the operator agent.
+	archonStatus := "skipped"
 	if cfg.Archon != nil && cfg.Archon.IsEnabled() && cfg.SourcePath != "" {
 		printPhaseHeader(agenttypes.AutopilotPhaseArchon, "comprehensive security audits on repository and focusing on uncovering exploitable vulnerabilities with high accuracy")
 	}
 	archonLogFn := func(msg string) { printPhaseLine(agenttypes.AutopilotPhaseArchon, msg) }
-	archonRunner, archonWait := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentRunUUID, r.repo, cfg.StreamWriter, archonLogFn)
-	// archonWait is called explicitly below (not deferred) so we can
-	// run a fallback import after the archon process has fully stopped.
-
-	archonRunning := archonRunner != nil
+	archonRunner, archonWait, archonErr := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentRunUUID, r.repo, cfg.StreamWriter, archonLogFn)
 	var archonCtx *archonContext
-	if archonRunning {
-		archonLogFn("running in parallel — agent will check for findings as they arrive")
-		emitProgress(&cfg, "archon", "running archon-audit in parallel")
-		// Load any pre-existing findings (e.g. from a resumed session)
+	if archonErr != nil {
+		result.Degraded = true
+		result.Warnings = append(result.Warnings, fmt.Sprintf("archon failed to start, continuing without source audit context: %v", archonErr))
+		archonStatus = "failed_to_start"
+	}
+	if archonRunner != nil {
+		archonStatus = "completed"
+		archonLogFn("running archon before operator startup")
+		emitProgress(&cfg, "archon", "running archon before autonomous execution")
+		if archonWait != nil {
+			archonWait()
+		}
 		archonCtx = loadArchonContext(cfg.SessionDir)
 		if archonCtx != nil && len(archonCtx.Findings) > 0 {
 			result.ArchonFindingsCount = len(archonCtx.Findings)
-			archonLogFn(fmt.Sprintf("loaded %d pre-existing findings", len(archonCtx.Findings)))
+			archonLogFn(fmt.Sprintf("loaded %d frozen findings", len(archonCtx.Findings)))
 		}
 	}
 
-	// Step 2: Build prompt (includes live-findings monitoring instructions when archon is running)
-	prompt := buildAutonomousPrompt(cfg, archonCtx, archonRunning)
+	if archonRunner != nil && cfg.SessionDir != "" {
+		var stats FindingStats
+		stats = archonRunner.FindingStats()
+		if r.repo != nil {
+			fallback := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID)
+			stats = mergeFindingStats(stats, fallback)
+		}
+		if stats.Parsed > 0 {
+			result.ArchonFindingsCount = stats.Parsed
+			result.ArchonFindingsSaved = stats.Saved
+			result.ArchonFindingsBySeverity = stats.BySeverity
+		}
+	}
+
+	bundle := buildAutopilotContextBundle(cfg, archonCtx, archonStatus, result.Warnings)
+	cfg.ContextBundle = &bundle
+	cfg.BrowserEnabled = cfg.BrowserEnabled && (bundle.BrowserDecision == "browser_required" || bundle.BrowserDecision == "browser_recommended")
+	plan := buildAutopilotPlan(cfg, bundle, spec)
+	cfg.Plan = &plan
+	result.BrowserDecision = bundle.BrowserDecision
+	writeBrowserStateArtifacts(spec, bundle, plan)
+
+	// Step 2: Build prompt from frozen context and plan.
+	prompt := buildAutonomousPrompt(cfg, archonCtx, false)
+	if err := writeAutopilotArtifacts(spec, bundle, plan, prompt); err != nil {
+		zap.L().Warn("Failed to write autopilot context artifacts", zap.Error(err))
+		result.Warnings = append(result.Warnings, "failed to write some autopilot context artifacts")
+	}
 
 	// Use medium effort for scan/deep archon modes, low otherwise.
 	effort := "low"
@@ -151,27 +194,28 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 
 	autopilotSessionID := uuid.New().String()
 	opts := Options{
-		AgentName:    cfg.AgentName,
-		PromptInline: prompt,
-		SourcePath:   cfg.SourcePath,
-		Files:        cfg.Files,
-		TargetURL:    cfg.TargetURL,
-		Source:       "autopilot",
-		Autopilot:    true,
-		MaxCommands:  cfg.MaxCommands,
-		Effort:       effort,
-		StreamWriter: cfg.StreamWriter,
-		ScanUUID:     cfg.ScanUUID,
-		ProjectUUID:  cfg.ProjectUUID,
-		SessionKey:   "autopilot-autonomous",
-		SessionID:    autopilotSessionID,
-		SessionDir:   cfg.SessionDir,
-		DryRun:       cfg.DryRun,
-		ShowPrompt:   cfg.ShowPrompt,
-		Phase:        agenttypes.AutopilotPhaseAutopilot,
+		AgentName:      cfg.AgentName,
+		PromptInline:   prompt,
+		SourcePath:     cfg.SourcePath,
+		Files:          cfg.Files,
+		TargetURL:      cfg.TargetURL,
+		Source:         "autopilot",
+		Autopilot:      true,
+		MaxCommands:    cfg.MaxCommands,
+		Effort:         effort,
+		BrowserEnabled: cfg.BrowserEnabled,
+		StreamWriter:   cfg.StreamWriter,
+		ScanUUID:       cfg.ScanUUID,
+		ProjectUUID:    cfg.ProjectUUID,
+		SessionKey:     "autopilot-autonomous",
+		SessionID:      autopilotSessionID,
+		SessionDir:     cfg.SessionDir,
+		DryRun:         cfg.DryRun,
+		ShowPrompt:     cfg.ShowPrompt,
+		Phase:          agenttypes.AutopilotPhaseAutopilot,
 	}
 
-	printPhaseHeader(agenttypes.AutopilotPhaseAutopilot, "autonomous agent that probes the target and consumes archon findings as they arrive")
+	printPhaseHeader(agenttypes.AutopilotPhaseAutopilot, "autonomous agent that executes against the prepared whitebox context and native plan")
 	printPhaseLine(agenttypes.AutopilotPhaseAutopilot, "starting autonomous agent session")
 	emitProgress(&cfg, "autopilot", "starting autonomous agent session")
 
@@ -195,53 +239,23 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	// Save raw output to session directory
 	if cfg.SessionDir != "" && agentResult != nil && agentResult.RawOutput != "" {
 		_ = os.WriteFile(filepath.Join(cfg.SessionDir, "output.md"), []byte(agentResult.RawOutput), 0644)
-	}
-
-	// Wait for archon to finish before importing findings.
-	if archonWait != nil {
-		archonWait()
-	}
-
-	// Update archon findings count with final tally (archon may have produced
-	// more findings while the autonomous agent was running in parallel)
-	if archonRunning {
-		if finalCtx := loadArchonContext(cfg.SessionDir); finalCtx != nil && len(finalCtx.Findings) > 0 {
-			result.ArchonFindingsCount = len(finalCtx.Findings)
+		if cfg.Artifacts.BriefPath != "" {
+			_ = os.WriteFile(filepath.Join(filepath.Dir(cfg.Artifacts.BriefPath), "output.md"), []byte(agentResult.RawOutput), 0644)
 		}
 	}
 
-	// Import archon findings from the session directory into the database.
-	// The monitor goroutine attempts this too, but context cancellation or
-	// timing issues can cause that import to silently fail. SaveFindingDirect
-	// uses hash-based dedup so double-imports are harmless.
-	if archonRunning && cfg.SessionDir != "" {
-		var stats FindingStats
-		if archonRunner != nil {
-			stats = archonRunner.FindingStats()
-		}
-		if r.repo != nil {
-			fallback := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID)
-			stats = mergeFindingStats(stats, fallback)
-		}
-		if stats.Parsed > 0 {
-			result.ArchonFindingsCount = stats.Parsed
-			result.ArchonFindingsSaved = stats.Saved
-			result.ArchonFindingsBySeverity = stats.BySeverity
-			msg := fmt.Sprintf("imported %d findings (%d new, %d already existed)",
-				stats.Parsed, stats.Saved, stats.Parsed-stats.Saved)
-			if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
-				msg += " — " + breakdown
-			}
-			archonLogFn(msg)
-		}
-	}
-
-	// Print archon completion status after import is done.
 	if archonRunner != nil {
 		if status := archonRunner.Status(); status != nil {
 			archonLogFn(fmt.Sprintf("%d/%d phases completed (status: %s)",
 				status.CompletedPhases, status.TotalPhases, status.Status))
 		}
+	}
+
+	verification := verifyAutopilotArtifacts(spec)
+	result.VerifiedFindingCount = verification.ConfirmedCount
+	result.Warnings = append(result.Warnings, verification.Warnings...)
+	if len(result.Warnings) > 0 {
+		result.Degraded = true
 	}
 
 	emitProgress(&cfg, "autopilot", "autonomous session completed")
@@ -444,8 +458,7 @@ func loadArchonContext(sessionDir string) *archonContext {
 }
 
 // buildAutonomousPrompt constructs the mission brief for an autonomous autopilot session.
-// Handles four modes: source-only, target-only, source+target, and with/without archon findings.
-// When archonRunning is true, the agent is told to monitor for live findings from archon.
+// Handles source-only, target-only, source+target, and prepared source context.
 func buildAutonomousPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
 	sourceOnly := cfg.TargetURL == "" && cfg.SourcePath != ""
 	if sourceOnly {
@@ -487,7 +500,7 @@ func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archo
 	// Source-only recommended approach
 	b.WriteString("## Recommended Approach\n\n")
 	if archonRunning && !hasFindings {
-		b.WriteString("An archon-audit is running in parallel. Start your own analysis immediately:\n\n")
+		b.WriteString("A source audit has completed and the prepared context is ready. Start your own analysis from that prepared context:\n\n")
 	}
 	if hasFindings {
 		b.WriteString("1. **Review audit findings** — Prioritize by severity, read the cited source locations\n")
@@ -558,12 +571,8 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 
 	// Recommended approach
 	b.WriteString("## Recommended Approach\n\n")
-	if archonRunning && !hasFindings {
-		b.WriteString("An archon-audit is running in parallel on the source code. Start your own scanning immediately:\n\n")
-	}
-
 	if hasFindings {
-		b.WriteString("The archon audit has already mapped the codebase. Focus on validation and exploitation:\n\n")
+		b.WriteString("The frozen Archon audit has already mapped the codebase. Focus on validation and exploitation:\n\n")
 		b.WriteString("1. **Review audit findings** — Prioritize by severity and confidence\n")
 		if cfg.BrowserEnabled {
 			b.WriteString("2. **Authenticate if needed** — If findings require authenticated access, use `agent-browser` to log in and capture session credentials\n")
@@ -630,8 +639,8 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 	return b.String()
 }
 
-// writeCommonSections writes focus, instruction, archon findings, knowledge base, and
-// live archon monitoring sections that are shared between source-only and target prompts.
+// writeCommonSections writes focus, instruction, context, plan, findings, knowledge base,
+// and artifact instructions shared between source-only and target prompts.
 func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) {
 	hasFindings := ac != nil && len(ac.Findings) > 0
 
@@ -645,6 +654,45 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		b.WriteString("## Custom Instructions\n\n")
 		b.WriteString(cfg.Instruction)
 		b.WriteString("\n\n")
+	}
+
+	if cfg.ContextBundle != nil {
+		b.WriteString("## Whitebox Context\n\n")
+		for _, p := range cfg.ContextBundle.Priorities {
+			fmt.Fprintf(b, "- %s\n", p)
+		}
+		if cfg.ContextBundle.BrowserDecision != "" {
+			fmt.Fprintf(b, "\n- Browser policy: `%s`", cfg.ContextBundle.BrowserDecision)
+			if cfg.ContextBundle.BrowserReason != "" {
+				fmt.Fprintf(b, " — %s", cfg.ContextBundle.BrowserReason)
+			}
+			b.WriteString("\n")
+		}
+		if len(cfg.ContextBundle.Warnings) > 0 {
+			b.WriteString("\n### Warnings\n\n")
+			for _, w := range cfg.ContextBundle.Warnings {
+				fmt.Fprintf(b, "- %s\n", w)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	if cfg.Plan != nil {
+		b.WriteString("## Native Plan\n\n")
+		for _, task := range cfg.Plan.Tasks {
+			fmt.Fprintf(b, "%d. **%s** — %s\n", task.Priority, task.Type, task.Reason)
+		}
+		b.WriteString("\n### Budgets\n\n")
+		for _, key := range []string{"auth", "recon", "validate", "extension", "report"} {
+			if v, ok := cfg.Plan.Budgets[key]; ok {
+				fmt.Fprintf(b, "- `%s`: %d\n", key, v)
+			}
+		}
+		b.WriteString("\n### Stop Criteria\n\n")
+		for _, c := range cfg.Plan.StopCriteria {
+			fmt.Fprintf(b, "- %s\n", c)
+		}
+		b.WriteString("\n")
 	}
 
 	// Diff context section
@@ -677,7 +725,7 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		b.WriteString("Review them and decide what action to take for each.\n\n")
 
 		if cfg.SessionDir != "" {
-			fmt.Fprintf(b, "> Full finding details: `%s/archon-audit/findings-draft/`\n\n", cfg.SessionDir)
+			fmt.Fprintf(b, "> Full finding details: `%s/archon/`\n\n", cfg.SessionDir)
 		}
 
 		b.WriteString(formatArchonFindings(ac.Findings))
@@ -695,15 +743,17 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		b.WriteString("\n\n")
 	}
 
-	// Live archon monitoring section (when archon is running in parallel)
-	if archonRunning && cfg.SessionDir != "" {
-		b.WriteString("## Live Security Audit (archon-audit)\n\n")
-		b.WriteString("An archon-audit is running **in parallel** on the source code. Findings are synced to:\n\n")
-		fmt.Fprintf(b, "```\n%s/archon-audit/findings-draft/\n```\n\n", cfg.SessionDir)
-		b.WriteString("Check this directory periodically — new findings appear as the audit progresses:\n\n")
-		fmt.Fprintf(b, "```bash\nls %s/archon-audit/findings-draft/\ncat %s/archon-audit/audit-state.json\n```\n\n", cfg.SessionDir, cfg.SessionDir)
-		b.WriteString("As findings arrive, review and exploit them alongside your own discovery work.\n")
-		b.WriteString("Start with your own reconnaissance while waiting for audit results.\n\n")
+	if cfg.Artifacts.BriefPath != "" {
+		b.WriteString("## Required Artifacts\n\n")
+		b.WriteString("You must keep the operator artifacts up to date while you work.\n\n")
+		fmt.Fprintf(b, "- Confirmed findings: `%s`\n", cfg.Artifacts.FindingsPath)
+		fmt.Fprintf(b, "- Dismissed findings: `%s`\n", cfg.Artifacts.DismissedPath)
+		fmt.Fprintf(b, "- Visited endpoints: `%s`\n", cfg.Artifacts.VisitedEndpointsPath)
+		fmt.Fprintf(b, "- Auth state: `%s`\n", cfg.Artifacts.AuthStatePath)
+		fmt.Fprintf(b, "- Auth headers/cookies: `%s`\n", cfg.Artifacts.AuthHeadersPath)
+		fmt.Fprintf(b, "- Browser session state: `%s`\n", cfg.Artifacts.BrowserSessionPath)
+		fmt.Fprintf(b, "- Evidence directory: `%s`\n\n", cfg.Artifacts.EvidenceDir)
+		b.WriteString("Every retained finding must include reproducible evidence. If you cannot support a finding with evidence, move it to the dismissed artifact.\n\n")
 	}
 }
 
@@ -753,7 +803,7 @@ func formatArchonFindings(findings []*archon.ArchonFinding) string {
 	for i := 0; i < count; i++ {
 		writeFullFinding(&b, sorted[i])
 	}
-	fmt.Fprintf(&b, "\n> %d additional findings available. Read individual files from the findings-draft directory.\n", len(sorted)-count)
+	fmt.Fprintf(&b, "\n> %d additional findings available. Read the persisted Archon finding files in the session artifacts.\n", len(sorted)-count)
 	return b.String()
 }
 

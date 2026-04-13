@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 )
 
 var scopeCmd = &cobra.Command{
@@ -32,7 +32,7 @@ func init() {
 }
 
 func runScopeView(cmd *cobra.Command, args []string) error {
-	settings, err := config.LoadSettings("")
+	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -76,7 +76,7 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ConfigFilePath()))
+	fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(effectiveConfigPath())))
 
 	return nil
 }

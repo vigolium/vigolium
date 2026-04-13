@@ -1,8 +1,8 @@
 # Agent Autopilot
 
-Autopilot is Vigolium's **fully autonomous agentic scan mode**. An AI agent with full CLI tool access (Bash, Read, Grep, Glob, Edit, Write) drives the entire vulnerability scanning workflow — reconnaissance, scanning, exploitation, and reporting — in a single command.
+Autopilot is Vigolium's **fully autonomous agentic scan mode**. An AI agent with full CLI tool access (Bash, Read, Grep, Glob, Edit, Write) drives the vulnerability assessment workflow — reconnaissance, scanning, exploitation, and reporting — in a single command.
 
-When `--source` is provided, archon-audit runs **automatically in parallel** with the autonomous agent. The agent begins scanning immediately while archon audits the source code, picking up findings as they arrive in the session directory. Use `--no-archon` to disable this behavior.
+When `--source` is provided, archon-audit runs **first**. Autopilot prepares Archon output into a native context bundle and execution plan, then launches the autonomous operator agent against that prepared context. Use `--no-archon` to disable this behavior.
 
 ## Architecture Overview
 
@@ -24,21 +24,31 @@ When `--source` is provided, archon-audit runs **automatically in parallel** wit
                  |  - Preflight: verify agent backend reachable       |
                  +---------------------------------------------------+
                                           |
-                         +----------------+----------------+
-                         |                                 |
-                         v                                 v
-           +---------------------------+     +---------------------------+
-           | ARCHON-AUDIT (parallel)   |     | AUTONOMOUS AGENT SESSION  |
-           | (auto when --source set)  |     |                           |
-           |                           |     | - Full SDK tool access    |
-           | - Launches as background  |     | - Starts immediately      |
-           |   process                 |     | - Runs vigolium CLI, curl |
-           | - Syncs findings to       |---->| - Monitors findings-draft |
-           |   session dir every 30s   |     |   for new archon findings |
-           | - Imports findings to DB  |     | - Exploits findings as    |
-           |                           |     |   they arrive             |
-           +---------------------------+     | - Output → output.md     |
-                                             +---------------------------+
+                                          |
+                                          v
+                 +---------------------------------------------------+
+                 |                ARCHON-AUDIT FIRST                 |
+                 |  - Runs on source before operator startup         |
+                 |  - Imports findings to DB                         |
+                 |  - Produces isolated archon artifacts             |
+                 +---------------------------------------------------+
+                                          |
+                                          v
+                 +---------------------------------------------------+
+                 |      NATIVE CONTEXT + PLAN PREPARATION            |
+                 |  - Build stable context bundle                    |
+                 |  - Decide browser/auth strategy                   |
+                 |  - Write plan + artifact manifest                 |
+                 +---------------------------------------------------+
+                                          |
+                                          v
+                 +---------------------------------------------------+
+                 |           AUTONOMOUS AGENT SESSION                |
+                 |  - Full SDK tool access                           |
+                 |  - Executes against prepared context              |
+                 |  - Produces evidence-backed artifacts             |
+                 |  - Output → autopilot/output.md                  |
+                 +---------------------------------------------------+
 ```
 
 When `--source` is not provided, archon is skipped and the agent receives a generic security assessment brief. Use `--no-archon` to disable archon even with source.
@@ -51,7 +61,7 @@ When `--source` is not provided, archon is skipped and the agent receives a gene
 # Basic autonomous scan (no source, no archon — agent drives everything)
 vigolium agent autopilot -t https://example.com
 
-# Source-aware scan (archon runs automatically in parallel)
+# Source-aware scan (archon runs first)
 vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app
 
 # Deep archon audit mode (11-phase) for maximum coverage
@@ -177,14 +187,14 @@ When no `--source` is provided, archon is skipped and autopilot launches a singl
 4. **Verification** — confirm findings with curl, test related endpoints
 5. **Reporting** — summarize vulnerabilities with evidence
 
-### With Source (Parallel Archon + Agent)
+### With Source (Archon-First)
 
-When `--source` is provided, archon-audit launches **in parallel** with the autonomous agent:
+When `--source` is provided, archon-audit runs **before** the autonomous agent:
 
-- **Archon-audit** runs as a background process on the source code, syncing findings to the session directory every 30 seconds
-- **The autonomous agent** starts immediately — it begins reconnaissance and scanning without waiting for archon
-- As archon findings arrive, the agent picks them up by reading `<session-dir>/archon-audit/findings-draft/`
-- The agent's prompt includes instructions on where to find and how to monitor live findings
+- **Archon-audit** runs on the source first and writes its own isolated artifacts
+- **Autopilot** converts Archon output into a stable whitebox context bundle and native plan
+- **The autonomous agent** starts only after that context is prepared
+- The operator works from stable Archon and autopilot artifacts
 
 The agent reviews each archon finding and decides what action to take:
 
@@ -196,7 +206,7 @@ The agent reviews each archon finding and decides what action to take:
 
 ### Source-Only Mode
 
-When `--source` is provided without `--target`, autopilot runs in code review mode. Archon still runs in parallel, and the agent performs static analysis, data flow tracing, and vulnerability assessment on the source code without sending network traffic.
+When `--source` is provided without `--target`, autopilot runs in code review mode. Archon still runs first, and the agent performs static analysis, data flow tracing, and vulnerability assessment on the source code without sending network traffic.
 
 ### Finding Prompt Formatting
 
@@ -206,9 +216,9 @@ Archon findings are formatted in the agent prompt using a tiered approach based 
 |---------------|--------|
 | 0-15 | Full detail per finding (ID, severity, verdict, PoC status, locations, body excerpt) |
 | 16-40 | Summary table for all + full detail for critical/high only |
-| 41+ | Summary table for all + full detail for top 10 by severity + pointer to findings-draft directory |
+| 41+ | Summary table for all + full detail for top 10 by severity + pointer to the persisted Archon finding files |
 
-The agent always has access to the full finding files via `cat <session-dir>/archon-audit/findings-draft/<filename>.md`.
+The operator can still inspect the persisted Archon finding files directly from the session artifacts when needed.
 
 ---
 
@@ -281,7 +291,7 @@ vigolium agent autopilot "scan all source code from ~/src/crAPI, ~/src/DVWA"
 
 ## Archon-Audit Integration
 
-When `--source` is provided, archon-audit runs **automatically in parallel** with the autonomous agent. The agent starts immediately while archon audits the source code in the background, syncing findings to the session directory every 30 seconds. Use `--no-archon` to disable, or `--archon-mode` to select the audit depth.
+When `--source` is provided, archon-audit runs **before** the autonomous agent. Autopilot prepares the resulting whitebox context into stable artifacts and a native plan, then starts the operator session. Use `--no-archon` to disable, or `--archon-mode` to select the audit depth.
 
 ### Archon Modes
 
@@ -294,27 +304,25 @@ When `--source` is provided, archon-audit runs **automatically in parallel** wit
 ### Data Flow
 
 ```
-archon-audit runs in parallel
+archon-audit runs first
         |
-        | (syncs every 30s)
         v
-session/archon-audit/
+session/archon/
 ├── audit-state.json         --> phase completion status
-├── findings-draft/          --> agent reads these as they appear
-│   ├── p7-001-slug.md       --> SAST enrichment findings
-│   ├── p8-001-slug.md       --> chamber debate findings
-│   ├── p10-001-slug.md      --> variant analysis findings
-│   └── ...
+├── findings/                --> persisted finding markdown files
 └── knowledge-base-report.md --> architecture, threat model, attack surface
         |
-        | (agent monitors this directory)
         v
-Agent reads findings via:
-  ls <session-dir>/archon-audit/findings-draft/
-  cat <session-dir>/archon-audit/*.md
+session/autopilot/
+├── context.json             --> stable whitebox context bundle
+├── plan.json                --> native execution plan
+├── findings.json            --> confirmed findings artifact
+├── dismissed.json           --> dismissed findings artifact
+├── auth-state.json          --> auth status artifact
+└── browser-session.json     --> browser-derived session artifact
 ```
 
-Any pre-existing findings (e.g., from a resumed session) are loaded at startup and included in the initial prompt via `loadArchonContext()` with tiered formatting.
+Any pre-existing Archon findings are loaded before the operator starts and included in the prepared context bundle.
 
 ### Finding Fields Available to the Agent
 
@@ -472,12 +480,22 @@ Each autopilot run creates a session directory:
 
 ```
 ~/.vigolium/agent-sessions/<uuid>/
-├── output.md                    # Raw agent output
-├── archon-audit/                # (if --archon enabled)
+├── output.md                    # Raw top-level operator output
+├── archon/                      # (if source + archon enabled)
 │   ├── audit-state.json         # Archon phase state + timing
-│   ├── findings-draft/          # Raw finding markdown files
+│   ├── findings/                # Persisted finding markdown files
 │   ├── knowledge-base-report.md # Architecture + threat model
 │   └── ...                      # Other archon artifacts
+├── autopilot/
+│   ├── context.json             # Stable whitebox context bundle
+│   ├── brief.md                 # Operator mission brief
+│   ├── plan.json                # Native execution plan
+│   ├── output.md                # Operator output for this run
+│   ├── findings.json            # Confirmed findings artifact
+│   ├── dismissed.json           # Dismissed findings artifact
+│   ├── auth-state.json          # Auth/session state artifact
+│   ├── browser-session.json     # Browser-derived session artifact
+│   └── evidence/                # Evidence files
 └── CLAUDE.md                    # System prompt (SDK mode)
 ```
 

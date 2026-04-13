@@ -51,9 +51,9 @@ func (cc *countCache) Get(db *database.DB) (records, findings int64) {
 
 // scanState tracks a running scan for a specific project.
 type scanState struct {
-	running  bool
-	runner   *runner.Runner
-	scanID   string
+	running bool
+	runner  *runner.Runner
+	scanID  string
 }
 
 // queuedScan represents a scan waiting in a per-project queue.
@@ -95,8 +95,8 @@ type Handlers struct {
 
 	// Agent run state for API-triggered agent runs
 	agentMu        sync.Mutex
-	agentHeavySem  chan struct{}                       // counting semaphore for heavy runs (autopilot/swarm)
-	agentLightSem  chan struct{}                       // counting semaphore for light runs (query/chat)
+	agentHeavySem  chan struct{} // counting semaphore for heavy runs (autopilot/swarm)
+	agentLightSem  chan struct{} // counting semaphore for light runs (query/chat)
 	agentRunStatus map[string]*AgentRunStatusResponse
 
 	// Background cleanup for completed agent run statuses
@@ -180,46 +180,6 @@ func (h *Handlers) agentDBCleanupLoop() {
 			}
 		}
 	}
-}
-
-// persistAgentRun creates an agent_runs DB record for a new agent run.
-func (h *Handlers) persistAgentRun(runID, mode, agentName string) {
-	if h.repo == nil {
-		return
-	}
-	run := &database.AgentRun{
-		UUID:      runID,
-		Mode:      mode,
-		AgentName: agentName,
-		Status:    "running",
-		StartedAt: time.Now(),
-	}
-	if err := h.repo.CreateAgentRun(context.Background(), run); err != nil {
-		zap.L().Debug("Failed to persist agent run", zap.String("run_id", runID), zap.Error(err))
-	}
-}
-
-// persistAgentRunCompleted updates the DB record for a completed agent run.
-func (h *Handlers) persistAgentRunCompleted(runID string, status *AgentRunStatusResponse) {
-	if h.repo == nil {
-		return
-	}
-	run := &database.AgentRun{
-		UUID:         runID,
-		Status:       status.Status,
-		AgentName:    status.AgentName,
-		TemplateID:   status.TemplateID,
-		FindingCount: status.FindingCount,
-		RecordCount:  status.RecordCount,
-		SavedCount:   status.SavedCount,
-		ErrorMessage: status.Error,
-		CurrentPhase: status.CurrentPhase,
-		PhasesRun:    status.PhasesRun,
-	}
-	if status.CompletedAt != nil {
-		run.CompletedAt = *status.CompletedAt
-	}
-	_ = h.repo.UpdateAgentRun(context.Background(), run)
 }
 
 // HandleHealth handles GET /health.

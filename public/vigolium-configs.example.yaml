@@ -1275,9 +1275,10 @@ agent:
   # --------------------------------------------------------------------------
   # Archon Audit Integration
   # --------------------------------------------------------------------------
-  # Background security audit agent. When enabled and --source is provided,
-  # agent modes (swarm, autopilot) launch archon-audit as a parallel agent
-  # for deep code-level security analysis alongside the main scan.
+  # Source security audit agent. When enabled and --source is provided,
+  # swarm launches archon-audit in the background, while autopilot runs
+  # archon-audit first and then starts the autonomous operator using the
+  # prepared whitebox context.
   archon:
     # Enable archon-audit integration.
     # Default: false

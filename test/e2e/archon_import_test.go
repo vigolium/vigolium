@@ -29,6 +29,9 @@ func exportDir() string {
 
 func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	harborDir := filepath.Join(archonTestdataDir(), "archon-output-harbor")
+	if _, err := os.Stat(filepath.Join(harborDir, "audit-state.json")); os.IsNotExist(err) {
+		t.Skipf("harbor archon fixture not present in this checkout: %s", harborDir)
+	}
 
 	// Parse the archon output folder
 	result, err := archon.ParseAuditFolder(harborDir)

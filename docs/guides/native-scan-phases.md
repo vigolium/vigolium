@@ -150,7 +150,6 @@ Several phases accept shorthand aliases:
 | `deparos`, `discover` | `discovery` |
 | `spitolas` | `spidering` |
 | `ext` | `extension` |
-| `dynamic-assessment` | `audit` |
 
 ## Chaining Phases Manually
 

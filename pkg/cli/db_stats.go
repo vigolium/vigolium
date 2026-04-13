@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 )
 
 var dbStatsCmd = &cobra.Command{
@@ -42,9 +42,16 @@ func runDBStats(cmd *cobra.Command, args []string) error {
 	}
 
 	return runWithWatch(func() error {
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
+
 		// Build filters
 		filters := database.QueryFilters{
+			ProjectUUID: projectUUID,
 			HostPattern: statsHost,
+			ScanUUID:    statsScanUUID,
 		}
 
 		// Get statistics
@@ -56,7 +63,7 @@ func runDBStats(cmd *cobra.Command, args []string) error {
 
 		// Get top hosts if detailed mode
 		if statsDetailed {
-			topHosts, err := db.GetTopHosts(ctx, 10)
+			topHosts, err := db.GetTopHosts(ctx, filters, 10)
 			if err == nil {
 				stats.TopHosts = topHosts
 			}

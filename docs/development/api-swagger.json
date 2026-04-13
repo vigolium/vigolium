@@ -1376,7 +1376,7 @@
       "post": {
         "tags": ["Agent"],
         "summary": "Run autopilot agent",
-        "description": "Starts an autonomous autopilot agent scan with multi-agent specialist pipeline. The agent gets full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) via the SDK protocol. Supports warm session pooling, MCP servers, specialist pipelines, and session resume. Returns 409 if a heavy agent is already running for the project.",
+        "description": "Starts an autonomous autopilot agent scan. When source is provided, autopilot runs Archon first, prepares native context and planning artifacts, and then launches a single operator session with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) via the SDK protocol. Supports warm session pooling, MCP servers, and session resume. Returns 409 if a heavy agent is already running for the project.",
         "operationId": "agentRunAutopilot",
         "parameters": [
           {

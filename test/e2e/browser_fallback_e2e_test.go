@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	browserFallbackDockerfile          = "test/e2e/testdata/browser-fallback/Dockerfile"
+	browserFallbackDockerfile           = "test/e2e/testdata/browser-fallback/Dockerfile"
 	browserFallbackNoChromiumDockerfile = "test/e2e/testdata/browser-fallback/Dockerfile.no-chromium"
 	browserFallbackSnapStubDockerfile   = "test/e2e/testdata/browser-fallback/Dockerfile.snap-stub"
 	browserFallbackCfTDockerfile        = "test/e2e/testdata/browser-fallback/Dockerfile.cft-download"
@@ -40,9 +40,10 @@ func TestBrowserFallback_SystemChromium(t *testing.T) {
 	}
 
 	// Determine which platforms to test based on host architecture.
-	// Native arch always runs; cross-arch only if QEMU/buildx is available.
+	// Native arch always runs. Cross-arch runs are opt-in because availability
+	// of buildx/QEMU does not guarantee they finish within normal CI/E2E budgets.
 	platforms := []string{fmt.Sprintf("linux/%s", runtime.GOARCH)}
-	if crossPlatformAvailable(t) {
+	if os.Getenv("VIGOLIUM_E2E_CROSS_ARCH") == "1" && crossPlatformAvailable(t) {
 		switch runtime.GOARCH {
 		case "arm64":
 			platforms = append(platforms, "linux/amd64")
@@ -57,9 +58,7 @@ func TestBrowserFallback_SystemChromium(t *testing.T) {
 	for _, platform := range platforms {
 		platform := platform
 		t.Run(platform, func(t *testing.T) {
-			t.Parallel()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), browserFallbackTimeout(platform))
 			defer cancel()
 
 			imageName := fmt.Sprintf("%s:%s", browserFallbackImageBase, strings.ReplaceAll(platform, "/", "-"))
@@ -91,6 +90,13 @@ func TestBrowserFallback_SystemChromium(t *testing.T) {
 			assert.Contains(t, output, "Spidering", "spidering phase should have started")
 		})
 	}
+}
+
+func browserFallbackTimeout(platform string) time.Duration {
+	if strings.Contains(platform, runtime.GOARCH) {
+		return 15 * time.Minute
+	}
+	return 25 * time.Minute
 }
 
 // TestBrowserFallback_SnapStub verifies that vigolium detects and skips
@@ -272,7 +278,7 @@ func buildImageWithDockerfile(ctx context.Context, t *testing.T, repoRoot, image
 	require.NoError(t, err, "docker build failed for %s", platform)
 }
 
-// TestCfTDownload_Doctor verifies that `vigolium doctor` downloads Chrome
+// TestCfTDownload_Doctor verifies that `vigolium doctor --fix` downloads Chrome
 // for Testing when no system chromium is installed. Only runs on linux/amd64
 // since CfT has no linux/arm64 builds.
 func TestCfTDownload_Doctor(t *testing.T) {
@@ -291,9 +297,9 @@ func TestCfTDownload_Doctor(t *testing.T) {
 	buildImageWithDockerfile(ctx, t, repoRoot, imageName, platform, browserFallbackCfTDockerfile)
 	t.Cleanup(func() { removeImage(imageName) })
 
-	// Run `vigolium doctor` — should download Chrome for Testing.
+	// Run `vigolium doctor --fix` — should download Chrome for Testing.
 	stdout, stderr := runDocker(ctx, t, imageName, platform,
-		"vigolium", "doctor", "--verbose")
+		"vigolium", "doctor", "--fix", "--verbose")
 	output := stdout + "\n" + stderr
 
 	// Should show CfT download progress.
@@ -312,7 +318,7 @@ func TestCfTDownload_Doctor(t *testing.T) {
 	t.Logf("Doctor output:\n%s", output)
 }
 
-// TestCfTDownload_Spidering verifies that after `vigolium doctor` downloads
+// TestCfTDownload_Spidering verifies that after `vigolium doctor --fix` downloads
 // Chrome for Testing, spidering can use the cached binary. Only linux/amd64.
 func TestCfTDownload_Spidering(t *testing.T) {
 	if testing.Short() {
@@ -330,9 +336,9 @@ func TestCfTDownload_Spidering(t *testing.T) {
 	buildImageWithDockerfile(ctx, t, repoRoot, imageName, platform, browserFallbackCfTDockerfile)
 	t.Cleanup(func() { removeImage(imageName) })
 
-	// Step 1: Run doctor to download Chrome for Testing.
+	// Step 1: Run doctor --fix to download Chrome for Testing.
 	doctorOut, doctorErr := runDocker(ctx, t, imageName, platform,
-		"vigolium", "doctor")
+		"vigolium", "doctor", "--fix")
 	t.Logf("Doctor output:\n%s\n%s", doctorOut, doctorErr)
 
 	// Step 2: Run spidering using the same cached CfT browser.
@@ -347,7 +353,7 @@ func TestCfTDownload_Spidering(t *testing.T) {
 		"--platform", platform,
 		"-v", volumeName + ":/root/.cache/vigolium",
 		imageName,
-		"vigolium", "doctor",
+		"vigolium", "doctor", "--fix",
 	}
 	cmd := exec.CommandContext(ctx, "docker", doctorArgs...)
 	var dBuf bytes.Buffer

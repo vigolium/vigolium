@@ -75,7 +75,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
 
 ## POST /api/agent/run/autopilot — Autonomous Scanning Session
 
-Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands. When `--source` is provided, archon-audit runs automatically in parallel.
+Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands. When `source` is provided, archon-audit runs first, native context and planning artifacts are prepared, and then the autonomous operator session starts.
 
 **Request body:**
 

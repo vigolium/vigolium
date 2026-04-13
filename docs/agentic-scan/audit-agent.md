@@ -1,6 +1,6 @@
 # Audit Agent
 
-The audit agent runs a **deep, multi-phase security audit** of application source code in the background while Vigolium's primary agentic scan (swarm or autopilot) runs in the foreground. It is powered by [vig-audit-agent](https://github.com/vigolium/vig-audit-agent), a multi-agent framework with 23 specialized agents and adversarial review chambers designed to eliminate false positives.
+The audit agent runs a **deep, multi-phase security audit** of application source code. In swarm it runs in the background while the main scan continues; in autopilot it runs before the autonomous operator starts, so the operator receives prepared whitebox context instead of polling live audit output. It is powered by [vig-audit-agent](https://github.com/vigolium/vig-audit-agent), a multi-agent framework with 23 specialized agents and adversarial review chambers designed to eliminate false positives.
 
 The audit agent is complementary to Vigolium's native scanning — Vigolium handles network-level vulnerability detection (injection, XSS, SSRF, etc.) while the audit agent performs deep static analysis, threat modeling, and adversarial validation of findings.
 
@@ -27,7 +27,7 @@ vigolium agent swarm -t https://example.com --source ./src --audit-agent
 # Run swarm with full 11-phase audit
 vigolium agent swarm -t https://example.com --source ./src --audit-agent full
 
-# Run autopilot with background audit agent
+# Run autopilot with audit agent first
 vigolium agent autopilot -t https://example.com --source ./src --audit-agent
 
 # Explicitly disable (overrides config)
@@ -42,12 +42,12 @@ The audit agent requires `--source` to be set — it audits source code, not net
 
 When `--audit-agent` is set and `--source` is provided:
 
-1. Vigolium starts its normal scan pipeline (swarm phases or autopilot)
-2. In parallel, a **separate Claude Code process** is launched with the vig-audit-agent plugin, targeting the source directory
-3. The audit agent runs its own multi-phase pipeline independently (intelligence gathering, SAST, deep bug hunting, false positive elimination, etc.)
-4. Every 30 seconds (configurable), `security/audit-state.json` is synced from the source directory to the Vigolium session directory under `audit-agent/`
-5. When the audit completes, findings from `security/findings/*.md` are parsed and ingested into the Vigolium database
-6. If Vigolium finishes first, the audit agent is gracefully cancelled via SIGTERM
+1. Vigolium launches a **separate Claude Code process** with the vig-audit-agent plugin, targeting the source directory
+2. The audit agent runs its own multi-phase pipeline independently (intelligence gathering, SAST, deep bug hunting, false positive elimination, etc.)
+3. Audit state and findings are copied into the Vigolium session directory under `audit-agent/`
+4. When the audit completes, findings from `security/findings/*.md` are parsed and ingested into the Vigolium database
+5. In swarm, the main scan continues in parallel with the audit agent
+6. In autopilot, the autonomous operator starts only after the audit output has been prepared into stable context
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

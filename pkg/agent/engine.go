@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -211,147 +212,146 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 			runPrompt = "Please provide your full response.\n\n" + prompt
 		}
 
-	switch agentDef.EffectiveProtocol() {
-	case "sdk":
-		// SDK protocol: full Claude Code CLI tools via JSON-lines protocol.
-		cwd := "."
-		if opts.SourcePath != "" {
-			cwd = opts.SourcePath
-		}
-		sdkCfg := backend.SDKRunConfig{
-			Cwd:          cwd,
-			StreamWriter: opts.StreamWriter,
-			McpServers:   agentDef.McpServers,
-			Model:        agentDef.Model,
-			SessionID:    opts.SessionID,
-			SessionDir:   opts.SessionDir,
-			Phase:        opts.Phase,
-		}
-		if e.settings != nil {
-			sdkCfg.Guardrails = e.settings.Agent.Guardrails
-			sdkCfg.BrowserEnabled = e.settings.Agent.Browser.IsEnabled()
-		}
-
-		// Autopilot: SDK agent runs vigolium commands via unrestricted Bash.
-		// Set MaxTurns high for multi-step execution.
-		if opts.Autopilot {
-			sdkCfg.MaxTurns = opts.MaxCommands * 3
-			if sdkCfg.MaxTurns <= 0 {
-				sdkCfg.MaxTurns = 300
-			}
-			sdkCfg.Effort = "low"
-			if opts.Effort != "" {
-				sdkCfg.Effort = opts.Effort
-			}
-
-			// Inject vigolium toolkit reference — written to CLAUDE.md/AGENTS.md in
-			// session dir to avoid passing multi-KB --append-system-prompt CLI arg.
-			sysPrompt, promptSource := agentprompt.LoadSDKAutopilotSystemPrompt()
+		switch agentDef.EffectiveProtocol() {
+		case "sdk":
+			// SDK protocol: full Claude Code CLI tools via JSON-lines protocol.
+			cwd := "."
 			if opts.SourcePath != "" {
-				sysPrompt += "\n\nApplication source code is available at: " + opts.SourcePath
+				cwd = opts.SourcePath
 			}
-			// Conditionally append browser capabilities when agent-browser is enabled
-			if e.settings != nil && e.settings.Agent.Browser.IsEnabled() {
-				if browserSection := agentprompt.LoadBrowserPromptSection(); browserSection != "" {
-					sysPrompt += "\n\n" + browserSection
+			sdkCfg := backend.SDKRunConfig{
+				Cwd:          cwd,
+				StreamWriter: opts.StreamWriter,
+				McpServers:   agentDef.McpServers,
+				Model:        agentDef.Model,
+				SessionID:    opts.SessionID,
+				SessionDir:   opts.SessionDir,
+				Phase:        opts.Phase,
+			}
+			if e.settings != nil {
+				sdkCfg.Guardrails = e.settings.Agent.Guardrails
+				sdkCfg.BrowserEnabled = opts.BrowserEnabled || e.settings.Agent.Browser.IsEnabled()
+			}
+
+			// Autopilot: SDK agent runs vigolium commands via unrestricted Bash.
+			// Set MaxTurns high for multi-step execution.
+			if opts.Autopilot {
+				sdkCfg.MaxTurns = opts.MaxCommands * 3
+				if sdkCfg.MaxTurns <= 0 {
+					sdkCfg.MaxTurns = 300
+				}
+				sdkCfg.Effort = "low"
+				if opts.Effort != "" {
+					sdkCfg.Effort = opts.Effort
+				}
+
+				// Inject vigolium toolkit reference — written to CLAUDE.md/AGENTS.md in
+				// session dir to avoid passing multi-KB --append-system-prompt CLI arg.
+				sysPrompt, promptSource := agentprompt.LoadSDKAutopilotSystemPrompt()
+				if opts.SourcePath != "" {
+					sysPrompt += "\n\nApplication source code is available at: " + opts.SourcePath
+				}
+				// Conditionally append browser capabilities when agent-browser is enabled
+				if sdkCfg.BrowserEnabled {
+					if browserSection := agentprompt.LoadBrowserPromptSection(); browserSection != "" {
+						sysPrompt += "\n\n" + browserSection
+					}
+				}
+
+				sdkCfg.AppendSystemPrompt = sysPrompt
+				sdkCfg.SystemPromptSource = promptSource
+
+				// Use session dir for the prompt file when available
+				if opts.SessionDir != "" {
+					sdkCfg.SystemPromptDir = opts.SessionDir
+				}
+
+				// Copy skills to session dir for agent discovery
+				CopySkillsToSessionDir(opts.SessionDir, sdkCfg.BrowserEnabled)
+			}
+
+			// Additional directories for source path access (non-autopilot or fallback)
+			if opts.SourcePath != "" {
+				sdkCfg.AdditionalDirs = append(sdkCfg.AdditionalDirs, opts.SourcePath)
+				if !opts.Autopilot {
+					if sdkCfg.AppendSystemPrompt != "" {
+						sdkCfg.AppendSystemPrompt += "\n\n"
+					}
+					sdkCfg.AppendSystemPrompt += "Application source code is available at: " + opts.SourcePath
 				}
 			}
 
-			sdkCfg.AppendSystemPrompt = sysPrompt
-			sdkCfg.SystemPromptSource = promptSource
-
-			// Use session dir for the prompt file when available
-			if opts.SessionDir != "" {
-				sdkCfg.SystemPromptDir = opts.SessionDir
-			}
-
-			// Copy skills to session dir for agent discovery
-			browserEnabled := e.settings != nil && e.settings.Agent.Browser.IsEnabled()
-			CopySkillsToSessionDir(opts.SessionDir, browserEnabled)
-		}
-
-		// Additional directories for source path access (non-autopilot or fallback)
-		if opts.SourcePath != "" {
-			sdkCfg.AdditionalDirs = append(sdkCfg.AdditionalDirs, opts.SourcePath)
-			if !opts.Autopilot {
-				if sdkCfg.AppendSystemPrompt != "" {
-					sdkCfg.AppendSystemPrompt += "\n\n"
+			var ar runResult
+			if e.sdkPool != nil {
+				poolKey := opts.AgentName
+				if opts.SessionKey != "" {
+					poolKey = opts.SessionKey
 				}
-				sdkCfg.AppendSystemPrompt += "Application source code is available at: " + opts.SourcePath
+				ar, runErr = e.sdkPool.Prompt(ctx, opts.AgentName, runPrompt, sdkCfg, poolKey, opts.SessionWeight)
+			} else {
+				ar, runErr = backend.RunAgenticSDK(ctx, *agentDef, runPrompt, sdkCfg)
 			}
-		}
-
-		var ar runResult
-		if e.sdkPool != nil {
-			poolKey := opts.AgentName
-			if opts.SessionKey != "" {
-				poolKey = opts.SessionKey
+			stdout, sessionID = ar.Stdout, ar.SessionID
+		case "codex-sdk":
+			// Codex SDK protocol: native JSON-RPC v2 over stdio via `codex app-server`.
+			cwd := "."
+			if opts.SourcePath != "" {
+				cwd = opts.SourcePath
 			}
-			ar, runErr = e.sdkPool.Prompt(ctx, opts.AgentName, runPrompt, sdkCfg, poolKey, opts.SessionWeight)
-		} else {
-			ar, runErr = backend.RunAgenticSDK(ctx, *agentDef, runPrompt, sdkCfg)
-		}
-		stdout, sessionID = ar.Stdout, ar.SessionID
-	case "codex-sdk":
-		// Codex SDK protocol: native JSON-RPC v2 over stdio via `codex app-server`.
-		cwd := "."
-		if opts.SourcePath != "" {
-			cwd = opts.SourcePath
-		}
-		codexCfg := backend.CodexRunConfig{
-			Cwd:          cwd,
-			StreamWriter: opts.StreamWriter,
-			Model:        agentDef.Model,
-			Sandbox:      codexsdk.SandboxModeDanger_full_access,
-		}
-
-		// Source path context in instructions
-		if opts.SourcePath != "" {
-			codexCfg.DeveloperInstructions = "Application source code is available at: " + opts.SourcePath
-		}
-
-		var ar runResult
-		if e.codexPool != nil {
-			poolKey := opts.AgentName
-			if opts.SessionKey != "" {
-				poolKey = opts.SessionKey
+			codexCfg := backend.CodexRunConfig{
+				Cwd:          cwd,
+				StreamWriter: opts.StreamWriter,
+				Model:        agentDef.Model,
+				Sandbox:      codexsdk.SandboxModeDanger_full_access,
 			}
-			ar, runErr = e.codexPool.Prompt(ctx, opts.AgentName, runPrompt, codexCfg, poolKey, opts.SessionWeight)
-		} else {
-			ar, runErr = backend.RunCodexSDK(ctx, *agentDef, runPrompt, codexCfg)
-		}
-		stdout, sessionID = ar.Stdout, ar.SessionID
-	case "opencode-sdk":
-		// OpenCode SDK protocol: REST API + SSE streaming via local daemon.
-		cwd := "."
-		if opts.SourcePath != "" {
-			cwd = opts.SourcePath
-		}
-		osCfg := backend.OpenCodeRunConfig{
-			Cwd:          cwd,
-			StreamWriter: opts.StreamWriter,
-			Model:        agentDef.Model,
-		}
 
-		// Source path context in system prompt
-		if opts.SourcePath != "" {
-			osCfg.SystemPrompt = "Application source code is available at: " + opts.SourcePath
-		}
-
-		var ar runResult
-		if e.opencodePool != nil {
-			poolKey := opts.AgentName
-			if opts.SessionKey != "" {
-				poolKey = opts.SessionKey
+			// Source path context in instructions
+			if opts.SourcePath != "" {
+				codexCfg.DeveloperInstructions = "Application source code is available at: " + opts.SourcePath
 			}
-			ar, runErr = e.opencodePool.Prompt(ctx, opts.AgentName, runPrompt, osCfg, poolKey, opts.SessionWeight)
-		} else {
-			ar, runErr = backend.RunOpenCodeSDK(ctx, *agentDef, runPrompt, osCfg)
+
+			var ar runResult
+			if e.codexPool != nil {
+				poolKey := opts.AgentName
+				if opts.SessionKey != "" {
+					poolKey = opts.SessionKey
+				}
+				ar, runErr = e.codexPool.Prompt(ctx, opts.AgentName, runPrompt, codexCfg, poolKey, opts.SessionWeight)
+			} else {
+				ar, runErr = backend.RunCodexSDK(ctx, *agentDef, runPrompt, codexCfg)
+			}
+			stdout, sessionID = ar.Stdout, ar.SessionID
+		case "opencode-sdk":
+			// OpenCode SDK protocol: REST API + SSE streaming via local daemon.
+			cwd := "."
+			if opts.SourcePath != "" {
+				cwd = opts.SourcePath
+			}
+			osCfg := backend.OpenCodeRunConfig{
+				Cwd:          cwd,
+				StreamWriter: opts.StreamWriter,
+				Model:        agentDef.Model,
+			}
+
+			// Source path context in system prompt
+			if opts.SourcePath != "" {
+				osCfg.SystemPrompt = "Application source code is available at: " + opts.SourcePath
+			}
+
+			var ar runResult
+			if e.opencodePool != nil {
+				poolKey := opts.AgentName
+				if opts.SessionKey != "" {
+					poolKey = opts.SessionKey
+				}
+				ar, runErr = e.opencodePool.Prompt(ctx, opts.AgentName, runPrompt, osCfg, poolKey, opts.SessionWeight)
+			} else {
+				ar, runErr = backend.RunOpenCodeSDK(ctx, *agentDef, runPrompt, osCfg)
+			}
+			stdout, sessionID = ar.Stdout, ar.SessionID
+		default:
+			stdout, stderr, runErr = backend.RunAgent(ctx, *agentDef, runPrompt, opts.StreamWriter)
 		}
-		stdout, sessionID = ar.Stdout, ar.SessionID
-	default:
-		stdout, stderr, runErr = backend.RunAgent(ctx, *agentDef, runPrompt, opts.StreamWriter)
-	}
 
 		if runErr != nil {
 			return execResult{stdout, stderr, sessionID}, runErr
@@ -588,7 +588,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 	// --- Wave 1: Explore (reads source code once, produces notes for routes + auth) ---
 	var exploreOutput string
-	var routesExploreOutput, sessionExploreOutput string
+	var sections sourceExploreSections
 
 	{
 		printPhaseLine("source-analysis", "running source exploration (routes + auth)")
@@ -596,7 +596,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 		exploreSessionID := uuid.New().String()
 		opts := Options{
-			AgentName:      cfg.AgentName,
+			AgentName: cfg.AgentName,
 
 			PromptTemplate: exploreTemplate,
 			TargetURL:      cfg.TargetURL,
@@ -636,8 +636,10 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 		exploreOutput = result.RawOutput
 
-		// Split the unified output into route and session sections for Wave 2.
-		routesExploreOutput, sessionExploreOutput = splitExploreSections(exploreOutput)
+		// Split the unified output into a structured intermediate representation
+		// so downstream phases don't manipulate raw marker-delimited text directly.
+		sections = extractSourceExploreSections(exploreOutput)
+		writeSourceExploreSections(cfg.SessionDir, sections)
 	}
 
 	if cfg.DryRun {
@@ -664,11 +666,11 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 	// Prepare per-topic explore contexts for format calls (truncated to 48KB each).
 	const maxSplitExploreBytes = 48 * 1024
-	routesExploreContext := routesExploreOutput
+	routesExploreContext := sections.Routes
 	if len(routesExploreContext) > maxSplitExploreBytes {
 		routesExploreContext = routesExploreContext[:maxSplitExploreBytes] + "\n\n... (truncated)"
 	}
-	sessionExploreContext := sessionExploreOutput
+	sessionExploreContext := sections.Session
 	if len(sessionExploreContext) > maxSplitExploreBytes {
 		sessionExploreContext = sessionExploreContext[:maxSplitExploreBytes] + "\n\n... (truncated)"
 	}
@@ -697,14 +699,14 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		// via multi-turn, avoiding 48KB truncation of the appended notes.
 		formatRoutesSessionKey := "sa-format-routes"
 		formatRoutesAppend := "## Route Analysis Notes\n\n" + routesExploreContext
-		if canReuseExploreSession && routesExploreOutput != "" {
+		if canReuseExploreSession && sections.Routes != "" {
 			formatRoutesSessionKey = "sa-explore" // reuse explore session
 			formatRoutesAppend = ""               // context is in-session
 		}
 
 		formatRoutesSessionID := uuid.New().String()
 		opts := Options{
-			AgentName:      cfg.AgentName,
+			AgentName: cfg.AgentName,
 
 			PromptTemplate: formatRoutesTemplate,
 			TargetURL:      cfg.TargetURL,
@@ -767,7 +769,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 		formatSessionSessionID := uuid.New().String()
 		opts := Options{
-			AgentName:      cfg.AgentName,
+			AgentName: cfg.AgentName,
 
 			PromptTemplate: formatSessionTemplate,
 			TargetURL:      cfg.TargetURL,
@@ -827,7 +829,7 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 
 		extSessionID := uuid.New().String()
 		extOpts := Options{
-			AgentName:      cfg.AgentName,
+			AgentName: cfg.AgentName,
 
 			PromptTemplate: extensionsTemplate,
 			TargetURL:      cfg.TargetURL,
@@ -900,6 +902,36 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 	// by injecting it into the post-processing flow.
 	merged.SessionExploreNotes = sessionExploreNotesOrFallback(sessionExploreContext, exploreContext)
 	return e.postProcessSourceAnalysisWithMerged(ctx, cfg, merged, combinedRaw, combinedPrompt)
+}
+
+type sourceExploreSections struct {
+	Routes  string `json:"routes"`
+	Session string `json:"session"`
+	Raw     string `json:"raw"`
+}
+
+func extractSourceExploreSections(output string) sourceExploreSections {
+	routes, session := splitExploreSections(output)
+	return sourceExploreSections{
+		Routes:  routes,
+		Session: session,
+		Raw:     output,
+	}
+}
+
+func writeSourceExploreSections(sessionDir string, sections sourceExploreSections) {
+	if sessionDir == "" {
+		return
+	}
+	data, err := json.MarshalIndent(sections, "", "  ")
+	if err != nil {
+		zap.L().Warn("Failed to marshal source explore sections", zap.Error(err))
+		return
+	}
+	path := filepath.Join(sessionDir, "swarm-source-explore-sections.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		zap.L().Warn("Failed to write source explore sections", zap.Error(err))
+	}
 }
 
 // sessionExploreNotesOrFallback returns the session explore context if available,
@@ -1548,4 +1580,3 @@ func detectLanguage(files []string) string {
 	}
 	return best
 }
-

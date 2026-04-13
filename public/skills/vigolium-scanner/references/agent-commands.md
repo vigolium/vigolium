@@ -27,7 +27,7 @@ The parent command only supports `--list-templates` and `--list-agents` flags �
 
 | Subcommand | Description |
 |------------|-------------|
-| `autopilot` | Autonomous scanning with multi-agent specialist pipeline |
+| `autopilot` | Autonomous scanning with a single operator session over prepared context |
 | `query` | Single-shot prompt execution with template-based or inline prompts |
 | `session` | List or inspect agent run sessions |
 | `swarm` | AI-guided vulnerability scanning with native scan support |
@@ -131,7 +131,7 @@ vigolium agent query --prompt-template security-code-review --source ./src \
 
 Launch an AI agent that autonomously discovers, scans, and triages vulnerabilities by driving the vigolium CLI. With SDK protocol (default), the agent gets full coding agent tools (Read, Grep, Glob, Bash, Edit, Write).
 
-Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists handle recon, per-vulnerability-class code analysis, native scanning, and exploit verification in parallel.
+Autopilot runs a **single autonomous operator session**. When source is available, Archon runs first, the whitebox context is prepared natively, and then one operator agent handles recon, validation, scanning, exploit attempts, and reporting.
 
 ### agent autopilot flags
 
@@ -150,7 +150,6 @@ Autopilot runs a **multi-agent specialist pipeline**. Dedicated specialists hand
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
 | `--source` | — | string | — | Path to application source code for source-aware scanning |
-| `--specialists` | — | []string | — | Vulnerability classes for specialist pipeline (injection, xss, auth, ssrf, authz) |
 | `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
 | `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
 
@@ -163,8 +162,8 @@ vigolium agent autopilot -t https://example.com
 # With source code context and focus area
 vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 
-# With specialist pipeline (parallel vulnerability-class analysis)
-vigolium agent autopilot -t https://example.com --specialists injection,xss,auth
+# Source-aware autonomous scan
+vigolium agent autopilot -t https://example.com --source ./src --focus "auth bypass"
 
 # Custom limits
 vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m

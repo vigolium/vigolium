@@ -19,12 +19,11 @@ type XSSScanFinding struct {
 	ReflectionLocation ReflectionLocation
 	EvidenceSummary    string
 	// AnalysisResult          *AnalysisResult // from engine_types.go
-	ReflectionPointInfo *ReflectionPointCoreInfo    // from reflection_point_base.go
-	HTTPTransaction     *localUtils.HTTPTransaction // Keep for backward compatibility but will be nil after cleanup
-	scanFlags           int                         // Flags
-	variantCode         byte                        // Variant
+	ReflectionPointInfo *ReflectionPointCoreInfo // from reflection_point_base.go
+	scanFlags           int                      // Flags
+	variantCode         byte                     // Variant
 
-	// Copied data from HTTPTransaction for callback access after cleanup
+	// Copied data from the HTTP transaction for callback access after cleanup.
 	RequestRaw         []byte // Raw request bytes
 	ResponseBody       []byte
 	ResponseHeaders    http.Header
@@ -199,7 +198,6 @@ func BuildXSSScanFinding(
 		ReflectionLocation:  reflectionInfo.location,
 		EvidenceSummary:     evidenceDetails,
 		ReflectionPointInfo: reflectionInfo,
-		HTTPTransaction:     transaction, // Keep for backward compatibility, but will be nil after cleanup
 		RequestRaw:          requestRaw,
 		ResponseBody:        responseBody,
 		ResponseHeaders:     responseHeaders,

@@ -858,9 +858,9 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sour
 // Returns nil runner and nil cleanup when the audit agent is not started.
 // When streamWriter is non-nil, audit output is streamed live (same rendering
 // as the standalone `vigolium agent archon` command).
-func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer, logFn func(msg string)) (*AuditAgentRunner, func()) {
+func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer, logFn func(msg string)) (*AuditAgentRunner, func(), error) {
 	if auditCfg == nil || !auditCfg.IsEnabled() || sourcePath == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Clean up stale archon/ dir from a previous crashed run.
@@ -881,10 +881,10 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 		if logFn != nil {
 			logFn(fmt.Sprintf("archon-audit failed to start: %v", err))
 		}
-		return nil, nil
+		return nil, nil, err
 	}
 	if runner == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	if logFn != nil {
@@ -900,7 +900,7 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 	wait := func() {
 		<-runner.Done()
 	}
-	return runner, wait
+	return runner, wait, nil
 }
 
 // ResolveAuditAgentConfig determines whether archon-audit should run.

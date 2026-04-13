@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -23,6 +24,15 @@ type PassiveModule interface {
 
 	// ScanPerHost performs passive analysis once per unique host.
 	ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *ScanContext) ([]*output.ResultEvent, error)
+}
+
+// ContextualPassiveModule is an optional interface for passive modules that
+// support cancellation and timeout propagation through context.
+// Modules can implement this incrementally without breaking the legacy
+// PassiveModule interface.
+type ContextualPassiveModule interface {
+	ScanPerRequestContext(ctx context.Context, item *httpmsg.HttpRequestResponse, scanCtx *ScanContext) ([]*output.ResultEvent, error)
+	ScanPerHostContext(ctx context.Context, item *httpmsg.HttpRequestResponse, scanCtx *ScanContext) ([]*output.ResultEvent, error)
 }
 
 // Flusher is an optional interface for passive modules that buffer data

@@ -58,9 +58,9 @@ The agent runs commands like scan-url, finding, traffic via its terminal
 capabilities to discover endpoints, scan for vulnerabilities, review
 results, and iterate until done.
 
-When --source is provided, archon-audit runs automatically in parallel
-with the autonomous agent. The agent begins scanning immediately while
-archon audits the source code, picking up findings as they arrive.
+When --source is provided, archon-audit runs before the autonomous agent.
+Autopilot prepares the source audit into a stable context bundle and native
+plan, then launches the operator against that prepared context.
 Use --no-archon to disable this behavior.
 
 Supports natural language prompts as a positional argument:
@@ -309,7 +309,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	// Archon
 	if !autopilotNoArchon && autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "  %s Archon: %s %s\n", terminal.Purple(terminal.SymbolInfo),
-			terminal.HiGreen(autopilotArchonMode+" mode"), terminal.Muted("(parallel whitebox audit)"))
+			terminal.HiGreen(autopilotArchonMode+" mode"), terminal.Muted("(source audit first)"))
 	} else if autopilotNoArchon && autopilotSource != "" {
 		fmt.Fprintf(os.Stderr, "  %s Archon: %s\n", terminal.Purple(terminal.SymbolInfo),
 			terminal.Muted("disabled (--no-archon)"))
@@ -519,8 +519,14 @@ func finalizeAutopilotParentRun(repo *database.Repository, runUUID, sessionDir s
 	}
 	if result != nil {
 		run.FindingCount = result.ArchonFindingsCount
+		if result.VerifiedFindingCount > 0 {
+			run.FindingCount = result.VerifiedFindingCount
+		}
 		if result.SessionDir != "" {
 			run.SessionDir = result.SessionDir
+		}
+		if len(result.Warnings) > 0 {
+			run.ErrorMessage = strings.Join(result.Warnings, "\n")
 		}
 	}
 	if sessionDir != "" {
@@ -570,6 +576,18 @@ func printAutopilotSummary(result *agent.AutopilotPipelineResult, fallbackSessio
 		stats := agent.FindingStats{BySeverity: result.ArchonFindingsBySeverity}
 		if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
 			fmt.Fprintf(os.Stderr, "    %s %s\n", terminal.Gray(terminal.SymbolDot), breakdown)
+		}
+	}
+	if result.VerifiedFindingCount > 0 {
+		fmt.Fprintf(os.Stderr, "  %s Verified: %s\n", bullet, terminal.HiTeal(fmt.Sprintf("%d", result.VerifiedFindingCount)))
+	}
+	if result.BrowserDecision != "" {
+		fmt.Fprintf(os.Stderr, "  %s Browser: %s\n", bullet, terminal.HiBlue(result.BrowserDecision))
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Fprintf(os.Stderr, "  %s Warnings: %d\n", bullet, len(result.Warnings))
+		for _, w := range result.Warnings {
+			fmt.Fprintf(os.Stderr, "    %s %s\n", terminal.WarningSymbol(), w)
 		}
 	}
 }

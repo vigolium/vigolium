@@ -247,7 +247,6 @@ Flags specific to `vigolium agent autopilot`.
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
 | `--source` | — | string | — | Path to application source code |
-| `--specialists` | — | []string | — | Vulnerability classes for specialist pipeline |
 | `--target` | `-t` | string | — | Target URL |
 | `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
 

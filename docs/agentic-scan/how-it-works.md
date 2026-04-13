@@ -11,7 +11,7 @@ Agentic scanning uses AI agents to assist or drive the vulnerability scanning pr
 - **Generate custom payloads** as JavaScript extensions tailored to specific endpoints
 - **Triage results** to separate true positives from false positives
 
-Native scanning and agentic scanning are complementary. In swarm mode, for example, AI handles the strategic decisions (planning, extension generation, triage) while native Go code handles the heavy lifting (discovery, spidering, HTTP scanning). In autopilot mode, the AI agent drives the entire workflow through a multi-agent specialist pipeline.
+Native scanning and agentic scanning are complementary. In swarm mode, for example, AI handles the strategic decisions (planning, extension generation, triage) while native Go code handles the heavy lifting (discovery, spidering, HTTP scanning). In autopilot mode, a single autonomous operator agent drives the workflow over prepared native context and artifacts.
 
 ## Communication Protocols
 
@@ -114,7 +114,7 @@ agent:
     max_sessions: 2     # maximum concurrent pooled sessions
 ```
 
-Swarm mode forces warm session pooling on regardless of this setting, since it makes multiple AI calls (plan, triage) within a single run. Autopilot also enables it for its multi-agent specialist pipeline.
+Swarm mode forces warm session pooling on regardless of this setting, since it makes multiple AI calls (plan, triage) within a single run. Autopilot also enables it so the operator session can reuse SDK subprocess state efficiently.
 
 ## Session Artifacts
 
@@ -142,10 +142,10 @@ The `--files` flag narrows the source context to specific files or directories (
 
 ```bash
 # Full source context
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 
 # Narrow to specific files
-vigolium agent --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
+vigolium agent query --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
 ```
 
 ## Three Modes at a Glance

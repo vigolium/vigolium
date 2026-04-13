@@ -30,6 +30,11 @@ type AutopilotPipelineResult struct {
 	ArchonFindingsCount      int
 	ArchonFindingsSaved      int
 	ArchonFindingsBySeverity map[string]int
+	VerifiedFindingCount     int
+	Degraded                 bool
+	Warnings                 []string
+	BrowserDecision          string
+	ArtifactsDir             string
 	Duration                 time.Duration
 	SessionDir               string
 }

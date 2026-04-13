@@ -21,7 +21,6 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/agent/backend"
-	"github.com/vigolium/vigolium/pkg/agent/extensions"
 	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
@@ -42,7 +41,7 @@ type SwarmConfig struct {
 	// Source analysis
 	SourcePath  string                  // path to application source code (triggers source analysis phase)
 	Files       []string                // specific files to include (relative to SourcePath)
-	DiffContext *agenttypes.DiffContext  // non-nil when --diff or --last-commits was provided
+	DiffContext *agenttypes.DiffContext // non-nil when --diff or --last-commits was provided
 
 	// Custom instruction
 	Instruction string // user-provided custom instruction appended to agent prompts
@@ -195,6 +194,13 @@ type SwarmRunner struct {
 	repo   *database.Repository
 }
 
+type swarmRecordStats struct {
+	Initial   int
+	Source    int
+	SAST      int
+	Discovery int
+}
+
 // NewSwarmRunner creates a swarm runner.
 func NewSwarmRunner(engine *Engine, repo *database.Repository) *SwarmRunner {
 	return &SwarmRunner{
@@ -227,7 +233,7 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 
 	// Set up context cache for DB enrichment across phases
 	if s.engine != nil {
-		s.engine.SetContextCache(agentprompt.NewContextCache(0))
+		s.engine.SetContextCache(agentprompt.NewContextCache(30 * time.Second))
 	}
 
 	if cfg.MaxIterations <= 0 {
@@ -282,6 +288,9 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if err != nil {
 		agentRun.Status = "failed"
 		agentRun.ErrorMessage = err.Error()
+	} else if result.Degraded {
+		agentRun.Status = "completed_with_warnings"
+		agentRun.ErrorMessage = strings.Join(result.Warnings, "\n")
 	} else {
 		agentRun.Status = "completed"
 	}
@@ -298,886 +307,58 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	return result, nil
 }
 
-func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult) error {
-	phaseTimings := make(map[string]time.Duration)
-
-	// Use pre-created session directory or create one
-	sessionDir := cfg.SessionDir
-	if cfg.ResumeDir != "" {
-		sessionDir = cfg.ResumeDir
-	}
-	if sessionDir == "" {
-		var sdErr error
-		sessionDir, sdErr = EnsureSessionDir(cfg.SessionsDir, agentRun.UUID)
-		if sdErr != nil {
-			zap.L().Warn("Failed to create session dir, falling back to temp dirs", zap.Error(sdErr))
-		}
-	}
-	result.SessionDir = sessionDir
-	cfg.SessionDir = sessionDir // ensure downstream functions can access the resolved session dir
-
-	// Copy skills to session dir for agent discovery
-	browserEnabled := s.engine != nil && s.engine.settings != nil && s.engine.settings.Agent.Browser.IsEnabled()
-	CopySkillsToSessionDir(sessionDir, browserEnabled)
-
-	// Start background archon-audit when configured and source is available.
-	// The returned wait func blocks until archon's monitor goroutine exits;
-	// deferring it lets the swarm pipeline wait for archon to finish naturally
-	// so its final status is persisted correctly.
-	if _, wait := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", s.repo, cfg.StreamWriter, func(msg string) {
-		fmt.Fprintf(os.Stderr, "%s archon: %s\n", terminal.InfoSymbol(), msg)
-	}); wait != nil {
-		defer wait()
-	}
-
-	// Checkpoint/resume support
-	var checkpoint *SwarmCheckpoint
-	if cfg.ResumeDir != "" {
-		cp, cpErr := loadCheckpoint(cfg.ResumeDir)
-		if cpErr != nil {
-			zap.L().Warn("Failed to load checkpoint, starting fresh", zap.Error(cpErr))
-		} else {
-			checkpoint = cp
-			zap.L().Info("Resuming from checkpoint",
-				zap.String("last_phase", cp.LastPhase()),
-				zap.Strings("completed", cp.CompletedPhases))
-		}
-	}
-
-	// completedPhases accumulates phases as they complete, used for checkpoint writes.
-	var completedPhases []string
-
-	// Phase 1: Normalize inputs
-	phaseStart := time.Now()
-	agentRun.CurrentPhase = SwarmPhaseNormalize
-	s.persistPhase(ctx, agentRun)
-
-	records, targetURL, err := s.normalizeInputs(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("input normalization failed: %w", err)
-	}
-
-	if targetURL != "" {
-		agentRun.TargetURL = targetURL
-	}
-	agentRun.InputType = string(cfg.InputType)
-	if agentRun.InputType == "" && len(cfg.Inputs) > 0 {
-		agentRun.InputType = string(agentinput.DetectInputType(cfg.Inputs[0]))
-	}
-
-	// Probe records that don't have responses to enrich them with live data
-	probeRecordsWithConfig(ctx, records, cfg.probeConfig())
-
-	// Save records to DB
-	var recordUUIDs []string
-	if s.repo != nil {
-		for _, rr := range records {
-			savedUUID, saveErr := s.repo.SaveRecord(ctx, rr, "agent-swarm", cfg.ProjectUUID)
-			if saveErr != nil {
-				zap.L().Debug("Failed to save input record", zap.Error(saveErr))
-				continue
-			}
-			recordUUIDs = append(recordUUIDs, savedUUID)
-		}
-		agentRun.RecordCount = len(recordUUIDs)
-		result.TotalRecords = len(recordUUIDs)
-	}
-
-	// Save normalized inputs to session dir
-	writeInputsToSessionDir(sessionDir, records, cfg.SourcePath)
-	phaseTimings[SwarmPhaseNormalize] = time.Since(phaseStart)
-	completedPhases = append(completedPhases, SwarmPhaseNormalize)
-	zap.L().Info("Agent swarm phase completed", zap.String("phase", SwarmPhaseNormalize), zap.Int("records", len(records)))
-
-	fmt.Fprintf(os.Stderr, "%s Phase [%s] %s input records\n",
-		terminal.InfoSymbol(),
-		terminal.BoldOrange(SwarmPhaseNormalize),
-		terminal.Orange(fmt.Sprintf("%d", len(records))))
-
-	// Phase 0.5: Browser-based auth (captures session cookies before any scanning).
-	// Runs only when both --browser and --auth flags are set.
-	if cfg.Auth && cfg.Browser && !phaseCompleted(checkpoint, SwarmPhaseAuth) {
-		phaseStart = time.Now()
-		agentRun.CurrentPhase = SwarmPhaseAuth
-		s.persistPhase(ctx, agentRun)
-		s.emitPhase(cfg, SwarmPhaseAuth)
-
-		authConfigPath, authErr := s.runAuthPhase(ctx, cfg, targetURL, sessionDir)
-		if authErr != nil {
-			zap.L().Warn("Auth phase failed, continuing without browser auth", zap.Error(authErr))
-			printPhaseLine(SwarmPhaseAuth, fmt.Sprintf("failed: %v", authErr))
-		} else if authConfigPath != "" {
-			printPhaseLine(SwarmPhaseAuth, fmt.Sprintf("auth config saved: %s", terminal.ShortenHome(authConfigPath)))
-		}
-
-		phaseTimings[SwarmPhaseAuth] = time.Since(phaseStart)
-		completedPhases = append(completedPhases, SwarmPhaseAuth)
-	}
-
-	// Phase 1.5: Agentic source analysis (LLM explores codebase first).
-	// Phase 1.6: Native SAST (ast-grep route extraction + secret detection).
-	//
-	// These run sequentially — source analysis first, then SAST — so that:
-	// 1. LLM-discovered routes with rich parameters, headers, and auth are ingested first
-	// 2. Session config (auth tokens) from source analysis is available for SAST probing
-	// 3. ast-grep routes that overlap with LLM routes get deduplicated in favor of richer records
-	var sourceExtensions []GeneratedExtension
-	if cfg.SourcePath != "" && !phaseCompleted(checkpoint, SwarmPhaseSourceAnalysis) {
-		phaseStart = time.Now()
-		agentRun.CurrentPhase = SwarmPhaseSourceAnalysis
-		s.persistPhase(ctx, agentRun)
-
-		var saRecords []*httpmsg.HttpRequestResponse
-		var saNotesSlice []string
-		var saExtensions []GeneratedExtension
-		var sastRecords []*httpmsg.HttpRequestResponse
-		var sastNotesSlice []string
-		var sastExtensions []GeneratedExtension
-		var discoveredSessionConfig *AgentSessionConfig
-
-		// --- Phase 1.5: Agentic source analysis ---
-		s.emitPhase(cfg, SwarmPhaseSourceAnalysis)
-
-		saCfg := SourceAnalysisConfig{
-			AgentName:      cfg.AgentName,
-			TargetURL:      targetURL,
-			SourcePath:     cfg.SourcePath,
-			Files:          cfg.Files,
-			Instruction:    cfg.Instruction,
-			SessionKey:     SwarmPhaseSourceAnalysis,
-			DryRun:         cfg.DryRun,
-			ShowPrompt:     cfg.ShowPrompt,
-			ScanUUID:       cfg.ScanUUID,
-			ProjectUUID:    cfg.ProjectUUID,
-			StreamWriter:   cfg.StreamWriter,
-			SessionDir:     sessionDir,
-			MaxConcurrency: cfg.SAMaxConcurrency,
-		}
-
-		// Run source analysis with retry on transient errors
-		type saResultBundle struct {
-			result         *SourceAnalysisResult
-			rawOutput      string
-			renderedPrompt string
-		}
-		saBundle, saErr := retryAgentCall(ctx, RetryConfig{MaxRetries: 1}, func(ctx context.Context, _ int) (saResultBundle, error) {
-			r, raw, prompt, err := s.engine.RunSourceAnalysisParallel(ctx, saCfg)
-			return saResultBundle{r, raw, prompt}, err
-		})
-		saResult := saBundle.result
-		saRawOutput := saBundle.rawOutput
-		saRenderedPrompt := saBundle.renderedPrompt
-
-		writePromptToSessionDir(sessionDir, "source-analysis-prompt.md", saRenderedPrompt)
-		if sessionDir != "" && saRawOutput != "" {
-			outputPath := filepath.Join(sessionDir, "source-analysis-output.md")
-			_ = os.WriteFile(outputPath, []byte(saRawOutput), 0644)
-			printPhaseLine("source-analysis", fmt.Sprintf("%s output: %s",
-				terminal.SymbolStart, terminal.ShortenHome(outputPath)))
-		}
-
-		if saErr != nil {
-			zap.L().Warn("Source analysis failed, continuing with input records only", zap.Error(saErr))
-		} else if saResult != nil {
-			printPhaseLine("source-analysis", fmt.Sprintf("result: %d http_records, %d extensions  has_session_config=%v",
-				len(saResult.HTTPRecords), len(saResult.Extensions), saResult.SessionConfig != nil))
-
-			filteredRecords, filteredNotes := filterSourceRecordsByHostname(saResult.HTTPRecords, targetURL)
-			if len(filteredRecords) > 0 {
-				printPhaseLine("source-analysis", fmt.Sprintf("appending source-discovered routes  total=%d hostname_matched=%d",
-					len(saResult.HTTPRecords), len(filteredRecords)))
-				saRecords = filteredRecords
-				saNotesSlice = filteredNotes
-			}
-			if len(saResult.Extensions) > 0 {
-				saExtensions = append(saExtensions, saResult.Extensions...)
-			}
-			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-				vr := backend.ValidateSessionConfigDetailed(saResult.SessionConfig)
-
-				if len(vr.Invalid) > 0 {
-					printPhaseLine("source-analysis", fmt.Sprintf("session config: %d valid, %d invalid — attempting LLM repair",
-						len(vr.Valid), len(vr.Invalid)))
-					// Build a config from invalid entries for repair
-					invalidCfg := &AgentSessionConfig{}
-					for _, inv := range vr.Invalid {
-						invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
-					}
-					repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, RepairConfig{
-						AgentName:    cfg.AgentName,
-						ShowPrompt:   cfg.ShowPrompt,
-						ExploreNotes: saResult.SessionExploreNotes,
-					})
-					if repaired != nil {
-						printPhaseLine("source-analysis", fmt.Sprintf("LLM repaired %d session entries", len(repaired.Sessions)))
-						vr.Valid = append(vr.Valid, repaired.Sessions...)
-					} else if len(vr.Valid) == 0 {
-						printPhaseLine("source-analysis", "LLM session config repair failed, continuing without auth")
-					}
-				}
-
-				if len(vr.Valid) > 0 {
-					saResult.SessionConfig = &AgentSessionConfig{Sessions: vr.Valid}
-				} else {
-					saResult.SessionConfig = nil
-				}
-			}
-			if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-				writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
-				discoveredSessionConfig = saResult.SessionConfig
-
-				// Convert login flow URLs into HTTP records so they are ingested
-				// into the http_records table alongside source-discovered routes.
-				loginRecords := backend.SessionConfigToHTTPRecords(saResult.SessionConfig)
-				if len(loginRecords) > 0 {
-					loginFiltered, loginNotes := filterSourceRecordsByHostname(loginRecords, targetURL)
-					if len(loginFiltered) > 0 {
-						printPhaseLine("source-analysis", fmt.Sprintf("appending login endpoint records  count=%d", len(loginFiltered)))
-						saRecords = append(saRecords, loginFiltered...)
-						saNotesSlice = append(saNotesSlice, loginNotes...)
-					}
-				}
-			}
-			if cfg.SourceAnalysisCallback != nil {
-				if cbErr := cfg.SourceAnalysisCallback(saResult); cbErr != nil {
-					zap.L().Warn("Source analysis callback failed", zap.Error(cbErr))
-				}
-			}
-		}
-
-		// Hydrate session config immediately after source analysis so that
-		// both the source-discovered records AND the subsequent SAST phase
-		// can use real auth tokens for probing.
-		var authHeaders map[string]string
-		if discoveredSessionConfig != nil {
-			authHeaders = hydrateSessionConfig(discoveredSessionConfig)
-			if len(authHeaders) > 0 {
-				printPhaseLine("source-analysis", fmt.Sprintf("hydrated auth headers  count=%d", len(authHeaders)))
-			}
-
-			// Persist hydrated session config to SessionHostname table so the
-			// normal route ingest phase and future scans can reuse these sessions.
-			if s.repo != nil && targetURL != "" {
-				hostname := hostnameFromURL(targetURL)
-				if hostname != "" {
-					rows := backend.AgentSessionConfigToSessionHostnames(
-						discoveredSessionConfig, cfg.ProjectUUID, cfg.ScanUUID, hostname, "agent-swarm-source",
-					)
-					if len(authHeaders) > 0 {
-						now := time.Now()
-						for _, r := range rows {
-							r.HydratedAt = &now
-						}
-					}
-					if len(rows) > 0 {
-						if shErr := s.repo.SaveSessionHostnames(ctx, rows); shErr != nil {
-							zap.L().Warn("Failed to persist session config to database", zap.Error(shErr))
-						} else {
-							printPhaseLine("source-analysis", fmt.Sprintf("persisted session config  hostname=%s sessions=%d", hostname, len(rows)))
-						}
-					}
-				}
-			}
-		}
-
-		// Fallback: load auth headers from session_hostnames DB table
-		// when source analysis didn't discover any session config.
-		if len(authHeaders) == 0 && s.repo != nil && targetURL != "" {
-			hostname := hostnameFromURL(targetURL)
-			if hostname != "" {
-				dbRows, dbErr := s.repo.GetSessionHostnamesByHostname(ctx, cfg.ProjectUUID, hostname)
-				if dbErr == nil && len(dbRows) > 0 {
-					authHeaders = backend.AuthHeadersFromSessionHostnames(dbRows)
-					if len(authHeaders) > 0 {
-						printPhaseLine("source-analysis", fmt.Sprintf("loaded auth headers from DB  hostname=%s count=%d", hostname, len(authHeaders)))
-					}
-				}
-			}
-		}
-
-		// Print session/auth stats
-		if discoveredSessionConfig != nil && len(discoveredSessionConfig.Sessions) > 0 {
-			sessionCount := len(discoveredSessionConfig.Sessions)
-			authCount := len(authHeaders)
-			if authCount > 0 {
-				printPhaseLine("source-analysis", fmt.Sprintf("%s sessions: %d discovered, %d auth tokens obtained",
-					terminal.SymbolBullet, sessionCount, authCount))
-			} else {
-				printPhaseLine("source-analysis", fmt.Sprintf("%s sessions: %d discovered, no auth tokens obtained",
-					terminal.SymbolBullet, sessionCount))
-			}
-		}
-
-		// Replace hardcoded auth headers in source-discovered records with session headers.
-		if len(authHeaders) > 0 && len(saRecords) > 0 {
-			backend.ReplaceAuthHeadersInHTTPRR(saRecords, authHeaders)
-		}
-
-		// Validate, auth-inject, probe, and save source-analysis records to DB
-		// before running SAST so they are available for deduplication.
-		s.validateProbeAndSave(ctx, saRecords, saNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, cfg.probeConfig())
-
-		if len(saRecords) > 0 {
-			printPhaseLine("source-analysis", fmt.Sprintf("%s source analysis routes: %d %s",
-				terminal.SymbolBullet, len(saRecords), formatRouteStatusSummary(saRecords)))
-		}
-
-		// --- Phase 1.55: AI Code Audit (conditional, only if --code-audit) ---
-		// Runs after source analysis so it can use the discovered routes and auth flows
-		// as context, avoiding redundant codebase reads. Produces findings directly.
-		if cfg.CodeAudit && !phaseCompleted(checkpoint, SwarmPhaseCodeAudit) {
-			s.emitPhase(cfg, SwarmPhaseCodeAudit)
-
-			// When source analysis ran successfully, reuse the explore session
-			// so the code audit agent has full codebase context without re-reading.
-			reuseExploreSession := saRawOutput != ""
-			codeAuditFindings, caErr := s.runCodeAudit(ctx, cfg, targetURL, sessionDir, saRawOutput, reuseExploreSession)
-			if caErr != nil {
-				zap.L().Warn("Code audit failed, continuing", zap.Error(caErr))
-			} else if codeAuditFindings > 0 {
-				printPhaseLine("code-audit", fmt.Sprintf("%s %d findings saved to database",
-					terminal.SymbolBullet, codeAuditFindings))
-			} else {
-				printPhaseLine("code-audit", "no findings")
-			}
-			completedPhases = append(completedPhases, SwarmPhaseCodeAudit)
-		}
-
-		// --- Phase 1.6: Native SAST (runs after source analysis) ---
-		// The SourceAnalysisCallback has already written the auth config file,
-		// so SASTFunc picks it up via the shared pointer. ast-grep probes now
-		// run with real auth tokens and LLM-discovered routes are already in DB
-		// for deduplication.
-		if cfg.SASTFunc != nil {
-			s.emitPhase(cfg, SwarmPhaseSAST)
-
-			if sastErr := cfg.SASTFunc(ctx); sastErr != nil {
-				zap.L().Warn("SAST phase failed, continuing without SAST results", zap.Error(sastErr))
-			} else {
-				s.emitPhase(cfg, SwarmPhaseSASTReview)
-				sastReviewResult := s.runSASTReview(ctx, cfg, targetURL, sessionDir)
-				if sastReviewResult != nil {
-					if len(sastReviewResult.HTTPRecords) > 0 {
-						validatedRecords, validatedNotes := filterSourceRecordsByHostname(sastReviewResult.HTTPRecords, targetURL)
-						if len(validatedRecords) > 0 {
-							printPhaseLine("source-analysis", fmt.Sprintf("appending SAST-review validated routes  count=%d", len(validatedRecords)))
-							sastRecords = validatedRecords
-							sastNotesSlice = validatedNotes
-						}
-					}
-					if len(sastReviewResult.Extensions) > 0 {
-						sastExtensions = append(sastExtensions, sastReviewResult.Extensions...)
-					}
-				}
-			}
-		}
-
-		// Merge results
-		records = append(records, saRecords...)
-		records = append(records, sastRecords...)
-		result.TotalRecords = len(records)
-		sourceExtensions = append(sourceExtensions, saExtensions...)
-		sourceExtensions = append(sourceExtensions, sastExtensions...)
-
-		// Validate, auth-inject, probe, and save SAST-review records to DB
-		s.validateProbeAndSave(ctx, sastRecords, sastNotesSlice, authHeaders, "agent-swarm-source", cfg.ProjectUUID, cfg.probeConfig())
-
-		// Re-probe unprobed ast-grep records. The native SAST runner probes via
-		// httpRequester.Execute which goes through clustering/rate-limiting middleware
-		// and may silently fail. Use a simple HTTP client as fallback.
-		if s.repo != nil && targetURL != "" {
-			hostname := hostnameFromURL(targetURL)
-			if hostname != "" {
-				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders, "agent-swarm-source")
-				s.reprobeUnprobedRecords(ctx, cfg.ProjectUUID, hostname, authHeaders, "ast-grep")
-			}
-		}
-
-		// Print combined stats
-		if len(saRecords) > 0 || len(sastRecords) > 0 {
-			allRoutes := append(saRecords, sastRecords...)
-			printPhaseLine("source-analysis", fmt.Sprintf("%s routes discovered: %d (source-analysis: %d, sast: %d) %s",
-				terminal.SymbolBullet, len(allRoutes), len(saRecords), len(sastRecords),
-				formatRouteStatusSummary(allRoutes)))
-		}
-
-		// Write source-discovered extensions to session dir immediately as artifacts.
-		// These will be merged with plan-phase extensions later, but writing them now
-		// ensures they are preserved even if subsequent phases fail.
-		if sessionDir != "" && len(sourceExtensions) > 0 {
-			writeSourceExtensionsToSessionDir(sourceExtensions, sessionDir)
-		}
-
-		phaseTimings[SwarmPhaseSourceAnalysis] = time.Since(phaseStart)
-		completedPhases = append(completedPhases, SwarmPhaseSourceAnalysis)
-
-		printPhaseLine("source-analysis", fmt.Sprintf("%s completed — %d routes, %d extensions in %s",
-			terminal.SymbolSuccess, len(saRecords)+len(sastRecords), len(sourceExtensions),
-			phaseTimings[SwarmPhaseSourceAnalysis].Round(time.Second)))
-
-		// Write checkpoint after source analysis
-		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases: completedPhases,
-			TargetURL:       targetURL,
-			RecordCount:     len(records),
-			Timestamp:       time.Now(),
-		}); cpErr != nil {
-			zap.L().Warn("Failed to write checkpoint after source analysis", zap.Error(cpErr))
-		}
-	}
-
-	// Early exit for --source-analysis-only
-	if cfg.SourceAnalysisOnly {
-		result.TotalRecords = len(records)
-		result.PhaseTimings = phaseTimings
-		return nil
-	}
-
-	// Early exit: source-only mode (no target URL — skip dynamic phases)
-	if targetURL == "" && cfg.SourcePath != "" {
-		fmt.Fprintf(os.Stderr, "%s Source-only analysis complete. Skipping dynamic phases (no --target).\n",
-			terminal.InfoSymbol())
-		result.TotalRecords = len(records)
-		result.PhaseTimings = phaseTimings
-		return nil
-	}
-
-	// Phase 1.7: Optional discovery (when DiscoverFunc is provided)
-	if cfg.DiscoverFunc != nil && !phaseCompleted(checkpoint, SwarmPhaseDiscover) {
-		phaseStart = time.Now()
-		s.emitPhase(cfg, SwarmPhaseDiscover)
-		agentRun.CurrentPhase = SwarmPhaseDiscover
-		s.persistPhase(ctx, agentRun)
-
-		if discoverErr := cfg.DiscoverFunc(ctx); discoverErr != nil {
-			zap.L().Warn("Discovery phase failed, continuing with input records", zap.Error(discoverErr))
-		} else if s.repo != nil {
-			// Query discovered records from DB and merge with existing records
-			discoveredRecords := s.queryDiscoveredRecords(ctx, cfg, targetURL)
-			if len(discoveredRecords) > 0 {
-				zap.L().Info("Merging discovered records from discovery phase",
-					zap.Int("discovered", len(discoveredRecords)),
-					zap.Int("existing", len(records)))
-				records = deduplicateRecords(append(records, discoveredRecords...))
-				result.TotalRecords = len(records)
-			}
-		}
-		phaseTimings[SwarmPhaseDiscover] = time.Since(phaseStart)
-		completedPhases = append(completedPhases, SwarmPhaseDiscover)
-
-		fmt.Fprintf(os.Stderr, "  %s Total records after discovery: %s\n",
-			terminal.Cyan(terminal.SymbolBullet),
-			terminal.Orange(fmt.Sprintf("%d", len(records))))
-	}
-
-	// Filter records for plan phase: select the most interesting ones to keep context focused.
-	// When records are filtered, a compact summary of ALL records is generated so the plan
-	// agent still sees the full API surface at a glance.
-	planRecords := selectPlanRecords(records, cfg.MaxPlanRecords)
-	var recordSummary string
-	if len(planRecords) < len(records) {
-		recordSummary = buildRecordSummary(records)
-		zap.L().Info("Filtered records for plan phase",
-			zap.Int("total", len(records)),
-			zap.Int("selected", len(planRecords)))
-		fmt.Fprintf(os.Stderr, "  %s Selected %s of %s records for planning (most interesting, summary of all included)\n",
-			terminal.Cyan(terminal.SymbolBullet),
-			terminal.Orange(fmt.Sprintf("%d", len(planRecords))),
-			terminal.Orange(fmt.Sprintf("%d", len(records))))
-	}
-
-	// Phase 2: Master agent — analyze and plan (batched if > 5 records)
-	phaseStart = time.Now()
-	var plan *SwarmPlan
-	var sessionID string
-	var masterRawOutput string
-	var masterRenderedPrompt string
-	var sessionIDs []string
-	var batchProv *BatchProvenance
-
-	// Resume: restore plan from checkpoint if available
-	if checkpoint != nil && phaseCompleted(checkpoint, SwarmPhasePlan) && checkpoint.Plan != nil {
-		plan = checkpoint.Plan
-		zap.L().Info("Restored plan from checkpoint",
-			zap.Int("module_tags", len(plan.ModuleTags)))
-	} else {
-		s.emitPhase(cfg, SwarmPhasePlan)
-		agentRun.CurrentPhase = SwarmPhasePlan
-		s.persistPhase(ctx, agentRun)
-
-		if len(planRecords) <= cfg.MasterBatchSize {
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, err = s.runMasterAgent(ctx, cfg, planRecords, targetURL, recordSummary)
-		} else {
-			zap.L().Info("Batching master agent calls",
-				zap.Int("records", len(planRecords)),
-				zap.Int("batch_size", cfg.MasterBatchSize),
-				zap.Int("batches", (len(planRecords)+cfg.MasterBatchSize-1)/cfg.MasterBatchSize))
-			plan, sessionID, masterRawOutput, masterRenderedPrompt, sessionIDs, batchProv, err = s.runMasterAgentBatched(ctx, cfg, planRecords, targetURL, cfg.MasterBatchSize, recordSummary)
-		}
-
-		// Save rendered prompt and raw output to session dir regardless of parse success
-		writePromptToSessionDir(sessionDir, "master-prompt.md", masterRenderedPrompt)
-		if sessionDir != "" && masterRawOutput != "" {
-			_ = os.WriteFile(filepath.Join(sessionDir, "master-output.md"), []byte(masterRawOutput), 0644)
-		}
-
-		if err != nil {
-			return fmt.Errorf("master agent failed: %w", err)
-		}
-	}
-	phaseTimings[SwarmPhasePlan] = time.Since(phaseStart)
-
-	if plan != nil {
-		extCount := len(plan.Extensions) + len(plan.QuickChecks) + len(plan.Snippets)
-		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-			terminal.Aqua(terminal.SymbolSuccess),
-			terminal.Aqua("Plan"),
-			terminal.Muted(fmt.Sprintf("completed — %d extensions, %d focus areas in %s",
-				extCount, len(plan.FocusAreas),
-				phaseTimings[SwarmPhasePlan].Round(time.Second))))
-	}
-
-	result.SessionID = sessionID
-	result.SessionIDs = sessionIDs
-
-	// Log plan summary (all modules run by default, MODULE_TAGS/IDs are informational only)
-	if plan != nil {
-		zap.L().Info("Swarm plan summary",
-			zap.Int("focus_areas", len(plan.FocusAreas)),
-			zap.Int("extensions", len(plan.Extensions)),
-			zap.Int("quick_checks", len(plan.QuickChecks)),
-			zap.Bool("needs_extensions", plan.NeedsExtensions),
-			zap.String("needs_extensions_reason", plan.NeedsExtensionsReason))
-
-		// Print plan stats to console
-		fmt.Fprintf(os.Stderr, "  %s Total HTTP records: %s\n",
-			terminal.Cyan(terminal.SymbolBullet),
-			terminal.Orange(fmt.Sprintf("%d", len(records))))
-		if len(plan.ModuleTags) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s Module tags: %s\n",
-				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Cyan(strings.Join(plan.ModuleTags, ", ")))
-		}
-		if len(plan.FocusAreas) > 0 {
-			fmt.Fprintf(os.Stderr, "  %s Focus areas: %s\n",
-				terminal.Cyan(terminal.SymbolBullet),
-				strings.Join(plan.FocusAreas, ", "))
-		}
-		if plan.NeedsExtensionsReason != "" {
-			decision := "no"
-			if plan.NeedsExtensions {
-				decision = "yes"
-			}
-			fmt.Fprintf(os.Stderr, "  %s Needs extensions: %s — %s\n",
-				terminal.Cyan(terminal.SymbolBullet),
-				terminal.Orange(decision),
-				plan.NeedsExtensionsReason)
-		}
-	}
-
-	if cfg.DryRun {
-		result.SwarmPlan = plan
-		result.PhaseTimings = phaseTimings
-		return nil
-	}
-
-	result.SwarmPlan = plan
-	result.BatchProvenance = batchProv
-	agentRun.SessionID = sessionID
-	if plan != nil {
-		planJSON, _ := json.Marshal(plan)
-		agentRun.AttackPlan = string(planJSON)
-
-		// Write plan to session dir for inspection
-		if sessionDir != "" {
-			_ = os.WriteFile(filepath.Join(sessionDir, "swarm-plan.json"), planJSON, 0644)
-		}
-
-		completedPhases = append(completedPhases, SwarmPhasePlan)
-
-		// Write checkpoint after planning
-		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases: completedPhases,
-			TargetURL:       targetURL,
-			RecordCount:     len(records),
-			Plan:            plan,
-			Timestamp:       time.Now(),
-		}); cpErr != nil {
-			zap.L().Warn("Failed to write checkpoint after plan phase", zap.Error(cpErr))
-		}
-	}
-
-	// Phase 3: Generate and write extensions (quick_checks + snippets + full extensions)
-	// Merge source-analysis extensions with plan extensions by filename (plan wins on collision)
-	phaseStart = time.Now()
-	var allExtensions []GeneratedExtension
-	var extensionRenames map[string]string
-	if plan != nil {
-		// Lint and convert quick_checks into full JS extensions
-		if len(plan.QuickChecks) > 0 {
-			var validQCs []QuickCheck
-			for _, qc := range plan.QuickChecks {
-				issues := extensions.LintQuickCheck(qc)
-				hasErr := false
-				for _, iss := range issues {
-					if iss.Severity == "error" {
-						hasErr = true
-						zap.L().Warn("Dropping invalid quick_check",
-							zap.String("id", qc.ID), zap.String("issue", iss.Message))
-					}
-				}
-				if !hasErr {
-					validQCs = append(validQCs, qc)
-				}
-			}
-			if len(validQCs) > 0 {
-				qcExts := extensions.GenerateQuickCheckExtensions(validQCs)
-				plan.Extensions = append(plan.Extensions, qcExts...)
-				zap.L().Info("Generated quick check extensions", zap.Int("count", len(qcExts)))
-			}
-			if dropped := len(plan.QuickChecks) - len(validQCs); dropped > 0 {
-				zap.L().Warn("Dropped invalid quick checks", zap.Int("dropped", dropped))
-			}
-		}
-		// Lint and convert snippets into full JS extensions
-		if len(plan.Snippets) > 0 {
-			var validSnips []Snippet
-			for _, snip := range plan.Snippets {
-				issues := extensions.LintSnippet(snip)
-				hasErr := false
-				for _, iss := range issues {
-					if iss.Severity == "error" {
-						hasErr = true
-						zap.L().Warn("Dropping invalid snippet",
-							zap.String("id", snip.ID), zap.String("issue", iss.Message))
-					}
-				}
-				if !hasErr {
-					validSnips = append(validSnips, snip)
-				}
-			}
-			if len(validSnips) > 0 {
-				snipExts := extensions.GenerateSnippetExtensions(validSnips)
-				plan.Extensions = append(plan.Extensions, snipExts...)
-				zap.L().Info("Generated snippet extensions", zap.Int("count", len(snipExts)))
-			}
-			if dropped := len(plan.Snippets) - len(validSnips); dropped > 0 {
-				zap.L().Warn("Dropped invalid snippets", zap.Int("dropped", dropped))
-			}
-		}
-		mergeResult := mergeExtensionsTracked(sourceExtensions, plan.Extensions)
-		allExtensions = mergeResult.Extensions
-		extensionRenames = mergeResult.Renames
-		if len(extensionRenames) > 0 {
-			for orig, renamed := range extensionRenames {
-				fmt.Fprintf(os.Stderr, "  %s Extension renamed: %s → %s (collision with different code)\n",
-					terminal.Yellow(terminal.SymbolBullet), orig, renamed)
-			}
-		}
-	} else if len(sourceExtensions) > 0 {
-		allExtensions = sourceExtensions
-	}
-
-	// Validate extension syntax before writing to disk
-	preValidationCount := len(allExtensions)
-	if preValidationCount > 0 {
-		validExts, invalidExts := extensions.ValidateExtensionSyntax(allExtensions)
-		allExtensions = validExts
-
-		// Attempt LLM repair for invalid extensions.
-		// Pass plan context so garbled extensions can be regenerated from intent.
-		if len(invalidExts) > 0 {
-			rc := RepairConfig{
-				AgentName:  cfg.AgentName,
-				ShowPrompt: cfg.ShowPrompt,
-				TargetURL:  targetURL,
-			}
-			if plan != nil {
-				rc.FocusAreas = plan.FocusAreas
-				rc.ModuleTags = plan.ModuleTags
-			}
-			repaired := RepairExtensionsWithLLM(ctx, s.engine, invalidExts, rc)
-			if len(repaired) > 0 {
-				// Re-validate repaired extensions to catch repair failures
-				validRepaired, stillBroken := extensions.ValidateExtensionSyntax(repaired)
-				if len(stillBroken) > 0 {
-					zap.L().Warn("Some LLM-repaired extensions still invalid, dropping",
-						zap.Int("dropped", len(stillBroken)))
-				}
-				zap.L().Info("LLM repaired extensions",
-					zap.Int("repaired", len(validRepaired)),
-					zap.Int("still_invalid", len(invalidExts)-len(validRepaired)))
-				allExtensions = append(allExtensions, validRepaired...)
-			}
-		}
-
-		if len(allExtensions) == 0 {
-			zap.L().Error("All generated extensions failed syntax validation",
-				zap.Int("dropped", preValidationCount))
-			fmt.Fprintf(os.Stderr, "%s All %d generated extensions failed syntax validation — scanning without custom extensions\n",
-				terminal.WarningSymbol(), preValidationCount)
-		} else if len(allExtensions) < preValidationCount {
-			zap.L().Warn("Some extensions failed syntax validation",
-				zap.Int("valid", len(allExtensions)),
-				zap.Int("dropped", preValidationCount-len(allExtensions)))
-		}
-	}
-
-	var extensionDir string
-	if len(allExtensions) > 0 {
-		s.emitPhase(cfg, SwarmPhaseExtension)
-		agentRun.CurrentPhase = SwarmPhaseExtension
-		s.persistPhase(ctx, agentRun)
-
-		dir, writeErr := writeExtensionsToDir(allExtensions, sessionDir)
-		if writeErr != nil {
-			zap.L().Warn("Failed to write generated extensions", zap.Error(writeErr))
-		} else {
-			extensionDir = dir
-		}
-
-		// Print extension stats
-		sourceExtCount := len(sourceExtensions)
-		planExtCount := len(allExtensions) - sourceExtCount
-		if planExtCount < 0 {
-			planExtCount = 0
-		}
-		fmt.Fprintf(os.Stderr, "  %s Extensions: %s generated (source: %s, plan: %s)\n",
-			terminal.Cyan(terminal.SymbolBullet),
-			terminal.BoldYellow(fmt.Sprintf("%d", len(allExtensions))),
-			terminal.Orange(fmt.Sprintf("%d", sourceExtCount)),
-			terminal.Orange(fmt.Sprintf("%d", planExtCount)))
-		for _, ext := range allExtensions {
-			fmt.Fprintf(os.Stderr, "    %s %s %s\n",
-				terminal.Gray("-"),
-				terminal.BoldCyan(ext.Filename+":"),
-				ext.Reason)
-		}
-	}
-	phaseTimings[SwarmPhaseExtension] = time.Since(phaseStart)
-	completedPhases = append(completedPhases, SwarmPhaseExtension)
-
-	// Phase 4: Execute scan (full scan with all modules by default)
-	if cfg.ScanFunc != nil && !phaseCompleted(checkpoint, SwarmPhaseScan) {
-		phaseStart = time.Now()
-		s.emitPhase(cfg, SwarmPhaseScan)
-		agentRun.CurrentPhase = SwarmPhaseScan
-		s.persistPhase(ctx, agentRun)
-
-		scanReq := ScanRequest{ExtensionDir: extensionDir}
-		if plan != nil {
-			scanReq.ModuleTags = plan.ModuleTags
-			scanReq.ModuleIDs = plan.ModuleIDs
-		}
-		if err := cfg.ScanFunc(ctx, scanReq); err != nil {
-			// Log the error but continue — a partial scan failure (e.g. session
-			// init on an auto-generated auth config) should not abort the entire
-			// swarm. Triage and report phases can still process any findings
-			// that were collected before the error.
-			zap.L().Warn("Scan phase encountered an error, continuing with remaining phases", zap.Error(err))
-			printPhaseLine(string(SwarmPhaseScan), fmt.Sprintf("scan error (non-fatal): %v", err))
-		}
-		phaseTimings[SwarmPhaseScan] = time.Since(phaseStart)
-		completedPhases = append(completedPhases, SwarmPhaseScan)
-		// Invalidate context cache — native scan produced new findings
-		if s.engine != nil {
-			s.engine.InvalidateContextCache()
-		}
-
-		// Print scan phase completion with finding count
-		scanFindings := 0
-		if s.repo != nil {
-			counts, countErr := database.CountFindingsBySeverity(ctx, s.repo.DB(), cfg.ProjectUUID)
-			if countErr == nil {
-				for _, c := range counts {
-					scanFindings += int(c)
-				}
-			}
-		}
-		scanSummary := fmt.Sprintf("completed — %d findings in %s",
-			scanFindings, phaseTimings[SwarmPhaseScan].Round(time.Second))
-		if len(allExtensions) > 0 {
-			scanSummary += fmt.Sprintf(" (%d custom extensions loaded)", len(allExtensions))
-		}
-		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-			terminal.Aqua(terminal.SymbolSuccess),
-			terminal.Aqua("Native scan"),
-			terminal.Muted(scanSummary))
-
-		// Write checkpoint after scan
-		if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
-			CompletedPhases:  completedPhases,
-			TargetURL:        targetURL,
-			RecordCount:      len(records),
-			Plan:             plan,
-			ExtensionDir:     extensionDir,
-			Timestamp:        time.Now(),
-			ExtensionRenames: extensionRenames,
-		}); cpErr != nil {
-			zap.L().Warn("Failed to write checkpoint after scan phase", zap.Error(cpErr))
-		}
-	}
-
-	// Phase 5-6: Triage loop (skippable via --skip triage)
-	triageSkipped := PhaseSkipped(cfg.SkipPhases, SwarmPhaseTriage)
-	if triageSkipped {
-		zap.L().Info("Skipping triage and rescan phases (--skip triage)")
-		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-			terminal.Aqua(terminal.SymbolSuccess),
-			terminal.Aqua("Triage"),
-			terminal.Muted("skipped"))
-	} else {
-		phaseStart = time.Now()
-		s.emitPhase(cfg, SwarmPhaseTriage)
-		agentRun.CurrentPhase = SwarmPhaseTriage
-		s.persistPhase(ctx, agentRun)
-
-		completedPhases = append(completedPhases, SwarmPhaseTriage)
-		if err := s.runTriageLoop(ctx, cfg, agentRun, result, sessionDir, extensionDir, checkpoint, extensionRenames, completedPhases); err != nil {
-			zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
-		}
-		phaseTimings[SwarmPhaseTriage] = time.Since(phaseStart)
-
-		triageSummary := fmt.Sprintf("completed — %d confirmed, %d false positives, %d iterations in %s",
-			result.Confirmed, result.FalsePositives, result.Iterations,
-			phaseTimings[SwarmPhaseTriage].Round(time.Second))
-		fmt.Fprintf(os.Stderr, "%s %s  %s\n",
-			terminal.Aqua(terminal.SymbolSuccess),
-			terminal.Aqua("Triage"),
-			terminal.Muted(triageSummary))
-	}
-
-	// Count total findings with severity breakdown
-	if s.repo != nil {
-		counts, countErr := database.CountFindingsBySeverity(ctx, s.repo.DB(), cfg.ProjectUUID)
-		if countErr == nil {
-			total := 0
-			sevCounts := make(map[string]int, len(counts))
-			for sev, c := range counts {
-				total += int(c)
-				sevCounts[sev] = int(c)
-			}
-			result.TotalFindings = total
-			result.SeverityCounts = sevCounts
-		}
-	}
-
-	// Set phase timings on result
-	result.PhaseTimings = phaseTimings
-
-	// Log session directory for user inspection
-	if sessionDir != "" {
-		zap.L().Info("Agent session artifacts", zap.String("session_dir", sessionDir))
-	}
-
-	return nil
-}
-
 func (s *SwarmRunner) emitPhase(cfg SwarmConfig, phase string) {
 	if cfg.PhaseCallback != nil {
 		cfg.PhaseCallback(phase)
 	}
 	printPhaseLine(phase, fmt.Sprintf("phase started: %s", phase))
+}
+
+func (s *SwarmRunner) addWarning(result *SwarmResult, format string, args ...interface{}) {
+	if result == nil {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	result.Degraded = true
+	result.Warnings = append(result.Warnings, msg)
+}
+
+func (s *SwarmRunner) currentMaxFindingID(ctx context.Context, projectUUID string) int64 {
+	if s.repo == nil || projectUUID == "" {
+		return 0
+	}
+	var maxID int64
+	if err := s.repo.DB().NewSelect().
+		Model((*database.Finding)(nil)).
+		ColumnExpr("COALESCE(MAX(id), 0)").
+		Where("project_uuid = ?", projectUUID).
+		Scan(ctx, &maxID); err != nil {
+		zap.L().Debug("Failed to query max finding id", zap.Error(err))
+		return 0
+	}
+	return maxID
+}
+
+func (s *SwarmRunner) writeSwarmCheckpoint(sessionDir string, projectUUID string, completedPhases []string, targetURL string, recordCount int, plan *SwarmPlan, extensionDir string, triageRound int, extensionRenames map[string]string, result *SwarmResult, stats swarmRecordStats) error {
+	cp := &SwarmCheckpoint{
+		CompletedPhases:  append([]string(nil), completedPhases...),
+		TargetURL:        targetURL,
+		RecordCount:      recordCount,
+		Plan:             plan,
+		ExtensionDir:     extensionDir,
+		Timestamp:        time.Now(),
+		TriageRound:      triageRound,
+		ExtensionRenames: extensionRenames,
+		InitialRecords:   stats.Initial,
+		SourceRecords:    stats.Source,
+		SASTRecords:      stats.SAST,
+		DiscoveryRecords: stats.Discovery,
+	}
+	if result != nil {
+		cp.LastFindingID = s.currentMaxFindingID(context.Background(), projectUUID)
+		cp.Warnings = append(cp.Warnings, result.Warnings...)
+	}
+	return writeCheckpoint(sessionDir, cp)
 }
 
 // phaseCompleted returns true if the given phase is in the checkpoint's completed list.
@@ -2273,7 +1454,7 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 	}()
 
 	// Collect all results, then merge plans once at the end to avoid O(n²) intermediate merges.
-	var plans []*SwarmPlan
+	var orderedResults []batchResult
 	var lastSessionID string
 	var allSessionIDs []string
 	var allRawOutputs []string
@@ -2289,10 +1470,19 @@ func (s *SwarmRunner) runMasterAgentBatched(ctx context.Context, cfg SwarmConfig
 			}
 			continue
 		}
+		orderedResults = append(orderedResults, r)
 		if r.sessionID != "" {
 			lastSessionID = r.sessionID
 			allSessionIDs = append(allSessionIDs, r.sessionID)
 		}
+	}
+
+	sort.Slice(orderedResults, func(i, j int) bool {
+		return orderedResults[i].batchNum < orderedResults[j].batchNum
+	})
+
+	var plans []*SwarmPlan
+	for _, r := range orderedResults {
 		if r.rawOutput != "" {
 			allRawOutputs = append(allRawOutputs, r.rawOutput)
 		}
@@ -2433,10 +1623,13 @@ func sortedKeys(s map[string]bool) []string {
 func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string, extensionDir string, checkpoint *SwarmCheckpoint, extensionRenames map[string]string, completedPhases []string) error {
 	// Determine triage resume point from checkpoint
 	triageResumeRound := 0
+	triageFindingFloor := int64(0)
 	if checkpoint != nil && checkpoint.TriageRound > 0 {
 		triageResumeRound = checkpoint.TriageRound
+		triageFindingFloor = checkpoint.LastFindingID
 		zap.L().Info("Resuming triage from checkpoint",
-			zap.Int("resume_round", triageResumeRound))
+			zap.Int("resume_round", triageResumeRound),
+			zap.Int64("finding_floor", triageFindingFloor))
 	}
 
 	triageCfg := TriageLoopConfig{
@@ -2461,6 +1654,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		ScanFunc:                  cfg.ScanFunc,
 		SessionDir:                sessionDir,
 		ExtensionDir:              extensionDir,
+		InitialFindingIDFloor:     triageFindingFloor,
 		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
 			agentRun.CurrentPhase = SwarmPhaseRescan
@@ -2471,16 +1665,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 			}
 		},
 		OnTriageRoundComplete: func(round int) {
-			if cpErr := writeCheckpoint(sessionDir, &SwarmCheckpoint{
-				CompletedPhases:  completedPhases,
-				TargetURL:        agentRun.TargetURL,
-				RecordCount:      result.TotalRecords,
-				Plan:             result.SwarmPlan,
-				ExtensionDir:     extensionDir,
-				TriageRound:      round + 1, // next round to resume from
-				ExtensionRenames: extensionRenames,
-				Timestamp:        time.Now(),
-			}); cpErr != nil {
+			if cpErr := s.writeSwarmCheckpoint(sessionDir, cfg.ProjectUUID, completedPhases, agentRun.TargetURL, result.TotalRecords, result.SwarmPlan, extensionDir, round+1, extensionRenames, result, swarmRecordStats{}); cpErr != nil {
 				zap.L().Warn("Failed to write checkpoint after triage round", zap.Int("round", round), zap.Error(cpErr))
 			}
 		},
@@ -2509,241 +1694,6 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 // runSASTReview spawns a sub-agent to review SAST findings and validate extracted routes.
 // It queries SAST findings from the database, formats them for the agent, and parses
 // the response as a SourceAnalysisResult (validated routes + optional extensions).
-func (s *SwarmRunner) runSASTReview(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string) *SourceAnalysisResult {
-	if s.repo == nil {
-		zap.L().Warn("SAST review skipped: no database repository")
-		return nil
-	}
-
-	// Query SAST findings from DB
-	sastFindings, err := database.NewFindingsQueryBuilder(s.repo.DB(), database.QueryFilters{
-		ProjectUUID: cfg.ProjectUUID,
-		ModuleType:  database.ModuleTypeSAST,
-		Limit:       200,
-	}).Execute(ctx)
-	if err != nil {
-		zap.L().Warn("Failed to query SAST findings", zap.Error(err))
-		return nil
-	}
-
-	// Also query code-audit findings if they exist, so the SAST review
-	// can validate them alongside SAST findings.
-	codeAuditModuleID := "agent-" + SwarmPromptCodeAudit
-	allAgentFindings, caErr := database.NewFindingsQueryBuilder(s.repo.DB(), database.QueryFilters{
-		ProjectUUID: cfg.ProjectUUID,
-		ModuleType:  database.ModuleTypeAgent,
-		Limit:       100,
-	}).Execute(ctx)
-	if caErr != nil {
-		zap.L().Debug("Failed to query agent findings for SAST review", zap.Error(caErr))
-	}
-	for _, f := range allAgentFindings {
-		if f.ModuleID == codeAuditModuleID {
-			sastFindings = append(sastFindings, f)
-		}
-	}
-
-	if len(sastFindings) == 0 {
-		zap.L().Info("No SAST findings to review")
-		return nil
-	}
-
-	// Format findings for the agent prompt
-	var findingsSummary strings.Builder
-	for i, f := range sastFindings {
-		if i > 0 {
-			findingsSummary.WriteString("\n---\n")
-		}
-		fmt.Fprintf(&findingsSummary, "### Finding %d\n", i+1)
-		fmt.Fprintf(&findingsSummary, "- **Module**: %s (%s)\n", f.ModuleName, f.ModuleID)
-		fmt.Fprintf(&findingsSummary, "- **Severity**: %s\n", f.Severity)
-		fmt.Fprintf(&findingsSummary, "- **Source**: %s\n", f.FindingSource)
-		if f.Description != "" {
-			fmt.Fprintf(&findingsSummary, "- **Description**: %s\n", f.Description)
-		}
-		if len(f.MatchedAt) > 0 {
-			fmt.Fprintf(&findingsSummary, "- **Matched at**: %s\n", strings.Join(f.MatchedAt, ", "))
-		}
-		if len(f.Tags) > 0 {
-			fmt.Fprintf(&findingsSummary, "- **Tags**: %s\n", strings.Join(f.Tags, ", "))
-		}
-	}
-
-	// Also query SAST-extracted routes from DB (these were ingested by the SAST phase)
-	hostname := hostnameFromURL(targetURL)
-	var routesSummary string
-	if hostname != "" {
-		dbRecords, recErr := s.repo.GetRecordsByHostname(ctx, cfg.ProjectUUID, hostname, 100)
-		if recErr == nil && len(dbRecords) > 0 {
-			var rs strings.Builder
-			for i, rec := range dbRecords {
-				if i >= 100 {
-					fmt.Fprintf(&rs, "\n... and %d more routes", len(dbRecords)-100)
-					break
-				}
-				fmt.Fprintf(&rs, "- %s %s\n", rec.Method, rec.URL)
-			}
-			routesSummary = rs.String()
-		}
-	}
-
-	sastReviewSessionID := uuid.New().String()
-	opts := Options{
-		AgentName:      cfg.AgentName,
-		PromptTemplate: SwarmPromptSASTReview,
-		TargetURL:      targetURL,
-		Hostname:       hostname,
-		SourcePath:     cfg.SourcePath,
-		Instruction:    cfg.Instruction,
-		SessionKey:     SwarmPhaseSASTReview,
-		SessionID:      sastReviewSessionID,
-		DryRun:         cfg.DryRun,
-		ShowPrompt:     cfg.ShowPrompt,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		StreamWriter:   cfg.StreamWriter,
-	}
-
-	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
-		"SASTFindings":     findingsSummary.String(),
-		"SASTFindingCount": fmt.Sprintf("%d", len(sastFindings)),
-		"DiscoveredRoutes": routesSummary,
-	})
-	if runErr != nil {
-		zap.L().Warn("SAST review agent failed", zap.Error(runErr))
-		return nil
-	}
-
-	WriteSDKSessionEntry(sessionDir, SDKSessionEntry{
-		SessionID: sastReviewSessionID,
-		Phase:     SwarmPhaseSASTReview,
-		AgentName: cfg.AgentName,
-		Timestamp: time.Now(),
-	})
-
-	// Save prompt and output to session dir
-	writePromptToSessionDir(sessionDir, "sast-review-prompt.md", agentResult.RenderedPrompt)
-	if sessionDir != "" && agentResult.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "sast-review-output.md"), []byte(agentResult.RawOutput), 0644)
-	}
-
-	if cfg.DryRun {
-		return nil
-	}
-
-	// Parse as SourceAnalysisResult (validated routes + optional extensions).
-	// ParseSourceAnalysisResult now handles multi-block output and falls back to
-	// extracting extensions even when JSON parsing fails entirely.
-	saResult, parseErr := parsing.ParseSourceAnalysisResult(agentResult.RawOutput)
-	if parseErr != nil {
-		zap.L().Warn("Failed to parse SAST review result", zap.Error(parseErr))
-		return nil
-	}
-
-	zap.L().Info("SAST review completed",
-		zap.Int("validated_routes", len(saResult.HTTPRecords)),
-		zap.Int("extensions", len(saResult.Extensions)))
-
-	// Write extensions to session dir immediately as .js files.
-	// This ensures they are persisted as artifacts even if subsequent phases fail
-	// or the caller doesn't handle the returned extensions.
-	if sessionDir != "" && len(saResult.Extensions) > 0 {
-		writeSourceExtensionsToSessionDir(saResult.Extensions, sessionDir)
-	}
-
-	// Validate and write session config to session dir if the SAST review produced one
-	if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-		vr := backend.ValidateSessionConfigDetailed(saResult.SessionConfig)
-		if len(vr.Invalid) > 0 {
-			invalidCfg := &AgentSessionConfig{}
-			for _, inv := range vr.Invalid {
-				invalidCfg.Sessions = append(invalidCfg.Sessions, inv.Entry)
-			}
-			repaired := RepairInvalidSessionConfig(ctx, s.engine, invalidCfg, targetURL, RepairConfig{
-				AgentName:  cfg.AgentName,
-				ShowPrompt: cfg.ShowPrompt,
-			})
-			if repaired != nil {
-				vr.Valid = append(vr.Valid, repaired.Sessions...)
-			}
-		}
-		if len(vr.Valid) > 0 {
-			saResult.SessionConfig = &AgentSessionConfig{Sessions: vr.Valid}
-		} else {
-			saResult.SessionConfig = nil
-		}
-	}
-	if sessionDir != "" && saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-		writeSessionConfigToDir(saResult.SessionConfig, sessionDir)
-	}
-
-	return saResult
-}
-
-// runCodeAudit performs an AI-driven security code audit that identifies business logic flaws,
-// data flow vulnerabilities, and framework misconfigurations that static analysis tools miss.
-// It receives source analysis output as context (routes, auth flows) to avoid redundant codebase reads.
-// Findings are saved directly to the database with module_type "agent-code-audit".
-// runAuthPhase executes the browser-based authentication phase using agent-browser.
-// The agent navigates to the target, performs login, and captures session cookies/tokens
-// into an auth-config.yaml file in the session directory.
-func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string) (string, error) {
-	hostname := hostnameFromURL(targetURL)
-
-	extra := map[string]string{
-		"TargetURL": targetURL,
-		"Hostname":  hostname,
-	}
-	if cfg.Credentials != "" {
-		extra["Credentials"] = cfg.Credentials
-	}
-
-	authSessionID := uuid.New().String()
-	opts := Options{
-		AgentName:      cfg.AgentName,
-		PromptTemplate: SwarmPromptAuth,
-		TargetURL:      targetURL,
-		Hostname:       hostname,
-		Instruction:    cfg.Instruction,
-		SessionKey:     SwarmPhaseAuth,
-		SessionID:      authSessionID,
-		SessionDir:     sessionDir,
-		DryRun:         cfg.DryRun,
-		ShowPrompt:     cfg.ShowPrompt,
-		ScanUUID:       cfg.ScanUUID,
-		ProjectUUID:    cfg.ProjectUUID,
-		StreamWriter:   cfg.StreamWriter,
-		Autopilot:      true,
-		MaxCommands:    30, // auth phase is bounded
-	}
-
-	agentResult, runErr := s.engine.RunWithExtra(ctx, opts, extra)
-	if runErr != nil {
-		return "", fmt.Errorf("auth phase agent failed: %w", runErr)
-	}
-
-	WriteSDKSessionEntry(sessionDir, SDKSessionEntry{
-		SessionID: authSessionID,
-		Phase:     SwarmPhaseAuth,
-		AgentName: cfg.AgentName,
-		Timestamp: time.Now(),
-	})
-
-	// Save prompt and output to session dir
-	writePromptToSessionDir(sessionDir, "auth-prompt.md", agentResult.RenderedPrompt)
-	if sessionDir != "" && agentResult.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "auth-output.md"), []byte(agentResult.RawOutput), 0644)
-	}
-
-	// Check if agent wrote auth-config.yaml to session dir
-	authConfigPath := filepath.Join(sessionDir, "auth-config.yaml")
-	if _, err := os.Stat(authConfigPath); err == nil {
-		return authConfigPath, nil
-	}
-
-	return "", nil
-}
-
 func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetURL string, sessionDir string, sourceAnalysisNotes string, reuseExploreSession bool) (int, error) {
 	if s.repo == nil {
 		return 0, fmt.Errorf("code audit skipped: no database repository")
@@ -2858,9 +1808,9 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 // probes them for live responses, and saves them to the database.
 // Records that fail the first probe are retried once.
 // The optional notes slice (aligned 1:1 with records) is persisted as remarks.
-func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string, pc ProbeConfig) {
+func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpmsg.HttpRequestResponse, notes []string, authHeaders map[string]string, source, projectUUID string, pc ProbeConfig) []string {
 	if len(records) == 0 {
-		return
+		return nil
 	}
 
 	var valid []*httpmsg.HttpRequestResponse
@@ -2909,6 +1859,7 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 	}
 	if s.repo != nil && len(valid) > 0 {
 		var savedCount int
+		var savedUUIDs []string
 		remarksMap := make(map[string][]string)
 		for i, rr := range valid {
 			savedUUID, saveErr := s.repo.SaveRecord(ctx, rr, source, projectUUID)
@@ -2916,6 +1867,7 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 				zap.L().Debug("Failed to save record", zap.String("source", source), zap.Error(saveErr))
 			} else {
 				savedCount++
+				savedUUIDs = append(savedUUIDs, savedUUID)
 				if i < len(validNotes) && validNotes[i] != "" && savedUUID != "" {
 					remarksMap[savedUUID] = []string{validNotes[i]}
 				}
@@ -2929,7 +1881,9 @@ func (s *SwarmRunner) validateProbeAndSave(ctx context.Context, records []*httpm
 				zap.L().Warn("Failed to append remarks from agent notes", zap.Error(err))
 			}
 		}
+		return savedUUIDs
 	}
+	return nil
 }
 
 // ProbeConfig holds tuning parameters for HTTP record probing.

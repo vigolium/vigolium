@@ -23,11 +23,11 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
-	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
+	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/harvester"
@@ -49,13 +49,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/projectdiscovery/useragent"
 	"github.com/samber/lo"
+	"github.com/vigolium/vigolium/pkg/knownissuescan"
 	secret_detect "github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/notify"
 	"github.com/vigolium/vigolium/pkg/notify/discord"
 	"github.com/vigolium/vigolium/pkg/notify/telegram"
 	"github.com/vigolium/vigolium/pkg/output"
-	"github.com/vigolium/vigolium/pkg/knownissuescan"
-	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -632,11 +631,14 @@ func logModuleMetrics(metrics map[string]corestats.ModuleStatsSnapshot) {
 	}
 }
 
-// RunNativeScan orchestrates the 5-phase scan pipeline:
+// RunNativeScan orchestrates the native scan plan:
 //
+//	HeuristicsCheck   — optional root-page probe to optimize downstream phase selection
 //	ExternalHarvest   — harvest URLs from external intelligence sources (opt-in)
 //	Spidering         — browser-based crawling (opt-in)
+//	SAST              — source-driven route extraction (opt-in)
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
+//	Seed              — ingest CLI targets when discovery is skipped but DB-backed phases still need records
 //	KnownIssueScan    — nuclei + kingfisher batch (opt-in via --known-issue-scan)
 //	Audit             — modules + extensions scan DB records
 //
@@ -844,23 +846,23 @@ func (r *Runner) logConfigSnapshot() {
 	passiveCount := len(modules.GetPassiveModules())
 
 	meta := map[string]interface{}{
-		"project_uuid":      opts.ProjectUUID,
-		"targets":           opts.Targets,
-		"strategy":          strategy,
-		"scanning_profile":  opts.ScanningProfile,
-		"concurrency":       opts.Concurrency,
-		"rate_limit":        rateLimit,
-		"max_per_host":      opts.MaxPerHost,
-		"heuristics_check":  opts.HeuristicsCheck,
-		"scope_origin_mode": opts.ScopeOriginMode,
-		"active_modules":    activeCount,
-		"passive_modules":   passiveCount,
-		"spidering_enabled": opts.SpideringEnabled,
-		"discovery_enabled": opts.DiscoverEnabled,
+		"project_uuid":             opts.ProjectUUID,
+		"targets":                  opts.Targets,
+		"strategy":                 strategy,
+		"scanning_profile":         opts.ScanningProfile,
+		"concurrency":              opts.Concurrency,
+		"rate_limit":               rateLimit,
+		"max_per_host":             opts.MaxPerHost,
+		"heuristics_check":         opts.HeuristicsCheck,
+		"scope_origin_mode":        opts.ScopeOriginMode,
+		"active_modules":           activeCount,
+		"passive_modules":          passiveCount,
+		"spidering_enabled":        opts.SpideringEnabled,
+		"discovery_enabled":        opts.DiscoverEnabled,
 		"known_issue_scan_enabled": opts.KnownIssueScanEnabled,
-		"sast_enabled":      opts.SASTEnabled,
-		"external_harvest":  opts.ExternalHarvestEnabled,
-		"skip_dynamic":      opts.SkipAudit,
+		"sast_enabled":             opts.SASTEnabled,
+		"external_harvest":         opts.ExternalHarvestEnabled,
+		"skip_dynamic":             opts.SkipAudit,
 	}
 	r.scanLogger.InfoWithMeta("config", "scan configuration snapshot", meta)
 }
@@ -969,8 +971,31 @@ func (r *Runner) RunNativeScan() error {
 		}
 	}()
 
-	// HeuristicsCheck — probe CLI target root pages to decide phase eligibility
-	if r.options.HeuristicsCheck != "none" && r.options.HeuristicsCheck != "" {
+	plan := BuildNativeScanPlan(r.options)
+	for _, step := range plan.Steps {
+		if !step.Enabled {
+			continue
+		}
+		if err := r.executeNativePhase(ctx, infra, step.Phase); err != nil {
+			return err
+		}
+	}
+	if r.options.SkipIngestion && !(r.options.KnownIssueScanEnabled || !r.options.SkipAudit) {
+		zap.L().Info("Discovery skipped, no downstream phases need DB records")
+		r.scanLogger.Info("discovery", "skipped, no downstream phases need DB records")
+	}
+	if r.options.SkipAudit {
+		zap.L().Info("Audit skipped by scanning strategy")
+		r.scanLogger.Info("audit", "skipped by scanning strategy")
+	}
+
+	r.scanLogger.Info("", "scan finished")
+	return nil
+}
+
+func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phase NativePhase) error {
+	switch phase {
+	case PhaseHeuristicsCheck:
 		r.setPhaseTag("heuristics")
 		r.scanLogger.Info("heuristics", "phase started")
 		results, err := r.runHeuristicsCheckPhase(ctx, infra)
@@ -981,10 +1006,7 @@ func (r *Runner) RunNativeScan() error {
 			r.heuristicsResults = results
 			r.scanLogger.Info("heuristics", "phase completed")
 		}
-	}
-
-	// ExternalHarvest — harvest from external sources (opt-in)
-	if r.options.ExternalHarvestEnabled {
+	case PhaseExternalHarvest:
 		r.setPhaseTag("harvest")
 		r.scanLogger.Info("harvest", "phase started")
 		if err := r.runExternalHarvestPhase(ctx, infra); err != nil {
@@ -993,10 +1015,7 @@ func (r *Runner) RunNativeScan() error {
 		} else {
 			r.scanLogger.Info("harvest", "phase completed")
 		}
-	}
-
-	// Spidering — browser-based crawling (opt-in)
-	if r.options.SpideringEnabled {
+	case PhaseSpidering:
 		r.setPhaseTag("spider")
 		r.scanLogger.Info("spidering", "phase started")
 		if err := r.runSpideringPhase(ctx, infra); err != nil {
@@ -1005,10 +1024,7 @@ func (r *Runner) RunNativeScan() error {
 		} else {
 			r.scanLogger.Info("spidering", "phase completed")
 		}
-	}
-
-	// SAST — ast-grep route extraction from source code (opt-in)
-	if r.options.SASTEnabled {
+	case PhaseSAST:
 		r.setPhaseTag("sast")
 		r.scanLogger.Info("sast", "phase started")
 		if err := r.runSASTPhase(ctx, infra); err != nil {
@@ -1017,10 +1033,7 @@ func (r *Runner) RunNativeScan() error {
 		} else {
 			r.scanLogger.Info("sast", "phase completed")
 		}
-	}
-
-	// Discovery — ingest input + deparos discovery (unless skipped)
-	if !r.options.SkipIngestion {
+	case PhaseDiscovery:
 		r.setPhaseTag("discovery")
 		r.scanLogger.Info("discovery", "phase started")
 		if err := r.runDiscoveryPhase(ctx, infra); err != nil {
@@ -1028,9 +1041,6 @@ func (r *Runner) RunNativeScan() error {
 			return fmt.Errorf("discovery phase failed: %w", err)
 		}
 		r.scanLogger.Info("discovery", "phase completed")
-
-		// Hard dedup now happens in-memory before DB import (inside DeparosDiscoverySource).
-		// Only soft-deduplicate deparos records with similar responses under same path prefix.
 		if r.repository != nil {
 			softDeleted, statusCodes, softErr := r.repository.DeduplicateSoftDeparosRecords(ctx, r.options.ProjectUUID)
 			if softErr != nil {
@@ -1045,25 +1055,15 @@ func (r *Runner) RunNativeScan() error {
 				r.scanLogger.Info("discovery", fmt.Sprintf("soft-deduplicated %d similar records", softDeleted))
 			}
 		}
-	} else {
-		// Discovery skipped — still seed CLI targets if KnownIssueScan or DA will run
-		needsDBRecords := r.options.KnownIssueScanEnabled || !r.options.SkipAudit
-		if needsDBRecords {
-			r.setPhaseTag("seed")
-			r.scanLogger.Info("seed", "seeding CLI targets")
-			if err := r.seedCLITargets(ctx, infra); err != nil {
-				r.scanLogger.Error("seed", "CLI target seeding failed: "+err.Error())
-				return fmt.Errorf("CLI target seeding failed: %w", err)
-			}
-			r.scanLogger.Info("seed", "seeding completed")
-		} else {
-			zap.L().Info("Discovery skipped, no downstream phases need DB records")
-			r.scanLogger.Info("discovery", "skipped, no downstream phases need DB records")
+	case PhaseSeed:
+		r.setPhaseTag("seed")
+		r.scanLogger.Info("seed", "seeding CLI targets")
+		if err := r.seedCLITargets(ctx, infra); err != nil {
+			r.scanLogger.Error("seed", "CLI target seeding failed: "+err.Error())
+			return fmt.Errorf("CLI target seeding failed: %w", err)
 		}
-	}
-
-	// KnownIssueScan — opt-in via --known-issue-scan or yaml known_issue_scan.enabled
-	if r.options.KnownIssueScanEnabled {
+		r.scanLogger.Info("seed", "seeding completed")
+	case PhaseKnownIssueScan:
 		r.setPhaseTag("known-issue-scan")
 		r.scanLogger.Info("known-issue-scan", "phase started")
 		if err := r.runKnownIssueScanPhase(ctx, infra); err != nil {
@@ -1071,14 +1071,9 @@ func (r *Runner) RunNativeScan() error {
 			r.scanLogger.Error("known-issue-scan", "phase failed: "+err.Error())
 		} else {
 			r.scanLogger.Info("known-issue-scan", "phase completed")
-
-			// Deduplicate findings after KnownIssueScan phase
 			r.deduplicateFindings(ctx, "KnownIssueScan")
 		}
-	}
-
-	// Audit — runs if modules exist and not skipped by strategy
-	if !r.options.SkipAudit {
+	case PhaseAudit:
 		r.setPhaseTag("audit")
 		activeModules, passiveModules := r.resolveAllModules(infra)
 		if len(activeModules) > 0 || len(passiveModules) > 0 {
@@ -1096,12 +1091,7 @@ func (r *Runner) RunNativeScan() error {
 			zap.L().Info("No modules to execute")
 			r.scanLogger.Info("audit", "skipped, no modules to execute")
 		}
-	} else {
-		zap.L().Info("Audit skipped by scanning strategy")
-		r.scanLogger.Info("audit", "skipped by scanning strategy")
 	}
-
-	r.scanLogger.Info("", "scan finished")
 	return nil
 }
 
@@ -1502,349 +1492,6 @@ func (r *Runner) targetHostnames() []string {
 // runDiscoveryPhase ingests all input into the database without running modules.
 // It combines the original input source with deparos content discovery (if enabled),
 // expanding deparos targets with hosts discovered by prior phases (ExternalHarvest, Spidering).
-func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error {
-	phaseStart := time.Now()
-
-	// Build the composite input source locally (avoid mutating r.inputSource)
-	var sources []source.InputSource
-	var discoveryTargets []string // merged deparos targets for verbose printing
-
-	// Add deparos content discovery source if enabled.
-	var discoverSrc *source.DeparosDiscoverySource
-	if r.options.DiscoverEnabled && len(r.options.Targets) > 0 {
-		// Expand deparos targets with hosts from prior phases
-		additionalTargets, err := r.getInScopeHostURLs(ctx, infra.scopeMatcher)
-		if err != nil {
-			zap.L().Warn("Discovery: failed to get DB hosts for deparos expansion", zap.Error(err))
-		}
-
-		// When enrich_targets is enabled, also include paths from prior phases
-		enrichTargets := false
-		if r.settings != nil {
-			enrichTargets = r.settings.Discovery.EnrichTargets
-		}
-		if enrichTargets && r.repository != nil {
-			pathTargets, pathErr := r.repository.GetDistinctPaths(ctx, r.options.ProjectUUID)
-			if pathErr != nil {
-				zap.L().Warn("Discovery: failed to get DB paths for enrichment", zap.Error(pathErr))
-			} else if len(pathTargets) > 0 {
-				pathURLs := buildDiscoveryTargetsFromPaths(pathTargets)
-				additionalTargets = dedupTargets(additionalTargets, pathURLs)
-				zap.L().Info("Discovery: enriched targets with paths from prior phases",
-					zap.Int("path_targets", len(pathURLs)))
-			}
-		}
-
-		discoveryTargets = dedupTargets(r.options.Targets, additionalTargets)
-		deparosCfg := r.buildDeparosConfig(additionalTargets)
-		discoverSrc, err = source.NewDeparosDiscoverySource(deparosCfg)
-		if err != nil {
-			zap.L().Warn("Failed to initialize deparos discovery", zap.Error(err))
-		} else {
-			sources = append(sources, discoverSrc)
-		}
-	} else {
-		discoveryTargets = r.options.Targets
-	}
-
-	// Always include the original input source
-	sources = append(sources, r.inputSource)
-
-	// Build the final composite source
-	var compositeSource source.InputSource
-	if len(sources) == 1 {
-		compositeSource = sources[0]
-	} else {
-		compositeSource = source.NewMultiSource(sources[0], sources[1])
-	}
-
-	r.printPhaseStart("Discovery", "ingest inputs and discover directories, files, and hidden endpoints via Deparos content discovery")
-	r.printPhaseDetail(fmt.Sprintf("Sources: deparos-discover=%s",
-		terminal.HiTeal(fmt.Sprintf("%v", r.options.DiscoverEnabled))))
-
-	speedDetail := fmt.Sprintf("Speed: concurrency=%s, max-per-host=%s",
-		terminal.HiBlue(fmt.Sprintf("%d", r.options.Concurrency)),
-		terminal.HiBlue(fmt.Sprintf("%d", r.options.MaxPerHost)))
-	if r.settings != nil {
-		discPace := r.settings.ScanningPace.ResolvePhase("discovery")
-		if discPace.MaxDuration > 0 {
-			speedDetail += fmt.Sprintf(", max-duration=%s", terminal.HiTeal(discPace.MaxDuration.String()))
-		}
-		if discPace.DurationFactor > 0 {
-			speedDetail += fmt.Sprintf(" (duration_factor=%s)", terminal.HiBlue(fmt.Sprintf("%.1f", discPace.DurationFactor)))
-		}
-	}
-	r.printPhaseDetail(speedDetail)
-	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
-	r.printVerboseTargets(discoveryTargets)
-
-	enrichTargetsEnabled := false
-	if r.settings != nil {
-		enrichTargetsEnabled = r.settings.Discovery.EnrichTargets
-	}
-	if !enrichTargetsEnabled && !r.options.Silent {
-		fmt.Fprintf(os.Stderr, "  %s enrich discovery targets with discovered paths via %s\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config discovery.enrich_targets=true"))
-	}
-
-	zap.L().Info("Discovery: ingesting input into database")
-
-	// Create batched record writer for throughput (same pattern as audit phase)
-	var discoveryRecordWriter *database.RecordWriter
-	if r.repository != nil {
-		discoveryRecordWriter = database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
-	}
-
-	executorCfg := core.ExecutorConfig{
-		Workers:       r.options.Concurrency,
-		Services:      infra.svc,
-		HTTPRequester: infra.httpRequester,
-		Repository:    r.repository,
-		RecordWriter:  discoveryRecordWriter,
-		ScanUUID:      infra.scanUUID,
-		ScopeMatcher:  infra.scopeMatcher,
-		PauseCtrl:     r.pauseCtrl,
-		OnTraffic:     r.makeOnTraffic("discovery"),
-		OnResult: func(result *output.ResultEvent) {
-			// Discovery phase has no modules, but OnResult still needed for DB storage
-			if err := r.output.Write(result); err != nil {
-				zap.L().Error("Failed to write result", zap.Error(err))
-			}
-		},
-	}
-
-	// Optionally run passive modules during discovery for early fingerprinting/secrets.
-	var discoveryPassive []modules.PassiveModule
-	if r.settings != nil && len(r.settings.Discovery.PassiveModuleTags) > 0 {
-		ids := modules.ResolveModuleTags(r.settings.Discovery.PassiveModuleTags)
-		if len(ids) > 0 {
-			discoveryPassive = modules.GetPassiveModulesByIDs(ids)
-			if len(discoveryPassive) > 0 {
-				zap.L().Info("Discovery: passive modules enabled",
-					zap.Int("count", len(discoveryPassive)),
-					zap.Strings("tags", r.settings.Discovery.PassiveModuleTags))
-			}
-		}
-	}
-
-	executor := core.NewExecutor(executorCfg, compositeSource, nil, discoveryPassive)
-	_, err := executor.Execute(ctx)
-
-	// Flush remaining batched records
-	if discoveryRecordWriter != nil {
-		discoveryRecordWriter.Close()
-	}
-
-	if err != nil {
-		return err
-	}
-
-	// Increment processed_count for discovery phase
-	if r.repository != nil && executor.Processed() > 0 {
-		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, executor.Processed()); err != nil {
-			zap.L().Warn("Discovery: failed to increment processed count", zap.Error(err))
-		}
-	}
-
-	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("Discovery", fmt.Sprintf("completed — %s items ingested (deparos=%s) in %s",
-		terminal.Orange(fmt.Sprintf("%d", executor.Processed())),
-		terminal.HiTeal(fmt.Sprintf("%v", r.options.DiscoverEnabled)),
-		terminal.HiPurple(fmtDuration(elapsed))))
-	zap.L().Info("Discovery: completed", zap.Int64("processed", executor.Processed()))
-
-	// Print discovery status code stats
-	if discoverSrc != nil {
-		stats := discoverSrc.Stats()
-		if stats.TotalDiscovered > 0 {
-			r.printPhaseFeedback("Discovery", fmt.Sprintf("discovered %s records — %s",
-				terminal.Orange(fmt.Sprintf("%d", stats.TotalDiscovered)),
-				formatStatusCodeArray(stats.AllCodes)))
-		}
-		if stats.HardDedupRemoved > 0 {
-			r.printPhaseFeedback("Discovery", fmt.Sprintf("deduplicated %s redundant records — %s",
-				terminal.Orange(fmt.Sprintf("%d", stats.HardDedupRemoved)),
-				formatStatusCodeArray(stats.DedupedCodes)))
-		}
-	}
-
-	return nil
-}
-
-// seedCLITargets ingests CLI targets into the database without running deparos or modules.
-// This is used when discovery is skipped but downstream phases (KnownIssueScan, Audit)
-// need DB records to operate on.
-func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
-	r.printPhaseStart("Seed", "ingest CLI targets into database (discovery skipped)")
-
-	executorCfg := core.ExecutorConfig{
-		Workers:       r.options.Concurrency,
-		Services:      infra.svc,
-		HTTPRequester: infra.httpRequester,
-		Repository:    r.repository,
-		ScanUUID:      infra.scanUUID,
-		ScopeMatcher:  infra.scopeMatcher,
-		PauseCtrl:     r.pauseCtrl,
-		OnTraffic:     r.makeOnTraffic("seed"),
-		OnResult: func(result *output.ResultEvent) {
-			if err := r.output.Write(result); err != nil {
-				zap.L().Error("Failed to write result", zap.Error(err))
-			}
-		},
-	}
-
-	executor := core.NewExecutor(executorCfg, r.inputSource, nil, nil)
-	_, err := executor.Execute(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Increment processed_count for seed phase
-	if r.repository != nil && executor.Processed() > 0 {
-		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, executor.Processed()); err != nil {
-			zap.L().Warn("Seed: failed to increment processed count", zap.Error(err))
-		}
-	}
-
-	zap.L().Info("Seed: CLI targets ingested", zap.Int64("processed", executor.Processed()))
-	r.printPhaseComplete("Seed", fmt.Sprintf("completed — %s items ingested",
-		terminal.Orange(fmt.Sprintf("%d", executor.Processed()))))
-	return nil
-}
-
-// runSpideringPhase runs browser-based crawling using spitolas.
-// Captured traffic is stored in vigolium's HTTPRecord table via RepositoryWriter.
-// Targets are merged from CLI targets and in-scope hosts discovered by prior phases.
-func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error {
-	if r.repository == nil {
-		return fmt.Errorf("spidering requires a database repository")
-	}
-
-	phaseStart := time.Now()
-	r.printPhaseStart("Spidering", "browser-based crawling to discover dynamic content and API endpoints")
-
-	settingsCfg := r.settings.Spidering
-	maxDuration := settingsCfg.MaxDurationParsed()
-	if r.options.SpideringMaxDuration > 0 {
-		maxDuration = r.options.SpideringMaxDuration
-	}
-
-	// Merge CLI targets with in-scope hosts from prior phases (ExternalHarvest)
-	targets := r.options.Targets
-	dbHosts, err := r.getInScopeHostURLs(ctx, infra.scopeMatcher)
-	if err != nil {
-		zap.L().Warn("Spidering: failed to get DB hosts", zap.Error(err))
-	}
-	targets = dedupTargets(targets, dbHosts)
-	zap.L().Info("Spidering: merged targets",
-		zap.Int("cli", len(r.options.Targets)),
-		zap.Int("from_db", len(dbHosts)),
-		zap.Int("total", len(targets)))
-
-	// Filter targets by heuristics results (only CLI targets are filtered)
-	if r.heuristicsResults != nil {
-		before := len(targets)
-		targets = filterTargetsByHeuristics(targets, r.heuristicsResults, func(hr *HeuristicsResult) bool {
-			return hr.SkipSpidering
-		})
-		if skipped := before - len(targets); skipped > 0 {
-			zap.L().Info("Spidering: targets filtered by heuristics",
-				zap.Int("skipped", skipped), zap.Int("remaining", len(targets)))
-		}
-		if len(targets) == 0 {
-			r.printPhaseComplete("Spidering", "skipped — all targets excluded by heuristics check")
-			return nil
-		}
-	}
-
-	configDetail := fmt.Sprintf("Config: max-duration=%s, strategy=%s, headless=%s",
-		terminal.HiTeal(maxDuration.String()),
-		terminal.HiTeal(settingsCfg.Strategy),
-		terminal.HiTeal(fmt.Sprintf("%v", settingsCfg.Headless)))
-	if r.settings != nil {
-		spiderPace := r.settings.ScanningPace.ResolvePhase("spidering")
-		if spiderPace.DurationFactor > 0 {
-			configDetail += fmt.Sprintf(" (duration_factor=%s)", terminal.HiBlue(fmt.Sprintf("%.1f", spiderPace.DurationFactor)))
-		}
-	}
-	r.printPhaseDetail(configDetail)
-	r.printTargetDetail(r.formatTargetCounts(ctx, len(targets)))
-	r.printVerboseTargets(targets)
-
-	var totalStates, totalActions, totalRecords int
-	for _, target := range targets {
-		zap.L().Info("Spidering target", zap.String("target", target))
-
-		cfg := spitolas.SpiderConfig{
-			TargetURL:           target,
-			MaxDepth:            settingsCfg.MaxDepth,
-			MaxStates:           settingsCfg.MaxStates,
-			MaxDuration:         maxDuration,
-			MaxConsecutiveFails: settingsCfg.MaxConsecutiveFails,
-			Headless:            settingsCfg.Headless,
-			BrowserCount:        settingsCfg.BrowserCount,
-			Strategy:            settingsCfg.Strategy,
-			IncludeResponseBody: settingsCfg.IncludeResponseBody,
-			IncludeHeaders:      true,
-			Silent:              r.options.Silent,
-			Verbose:             r.options.Verbose,
-			BrowserEngine:       settingsCfg.BrowserEngine,
-			BrowserPath:         settingsCfg.BrowserPath,
-			NoCDP:               settingsCfg.NoCDP,
-			NoForms:             settingsCfg.NoForms,
-			ProxyURL:            r.options.ProxyURL,
-		}
-
-		// Apply scope filter to skip out-of-scope traffic before saving to DB
-		if infra.scopeMatcher != nil && !infra.scopeMatcher.IsPassAll() {
-			sm := infra.scopeMatcher
-			cfg.ScopeFilter = func(host, path string) bool {
-				return sm.InScopeRequest(host, path, "", "")
-			}
-		}
-
-		// Use RecordWriter to serialize and batch database writes, avoiding
-		// SQLite SQLITE_BUSY errors under concurrent CDP event ingestion.
-		rw := database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
-		timeoutCtx, cancel := context.WithTimeout(ctx, maxDuration)
-		result, err := spitolas.RunSpider(timeoutCtx, cfg, rw)
-		cancel()
-		rw.Close()
-
-		if err != nil {
-			zap.L().Error("Spidering failed",
-				zap.String("target", target), zap.Error(err))
-			continue
-		}
-
-		totalStates += result.StatesDiscovered
-		totalActions += result.ActionsExecuted
-		totalRecords += result.RecordsSaved
-
-		zap.L().Info("Spidering completed for target",
-			zap.String("target", target),
-			zap.Int("states", result.StatesDiscovered),
-			zap.Int("actions", result.ActionsExecuted),
-			zap.Int("records_saved", result.RecordsSaved))
-	}
-
-	// Increment processed_count for spidering phase
-	if r.repository != nil && totalRecords > 0 {
-		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, int64(totalRecords)); err != nil {
-			zap.L().Warn("Spidering: failed to increment processed count", zap.Error(err))
-		}
-	}
-
-	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("Spidering", fmt.Sprintf("completed — %s records, %s states, %s actions in %s",
-		terminal.Orange(fmt.Sprintf("%d", totalRecords)),
-		terminal.Orange(fmt.Sprintf("%d", totalStates)),
-		terminal.Orange(fmt.Sprintf("%d", totalActions)),
-		terminal.HiPurple(fmtDuration(elapsed))))
-	return nil
-}
-
 // runKnownIssueScanPhase orchestrates nuclei + kingfisher batch scanning.
 func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) error {
 	phaseStart := time.Now()
@@ -2175,92 +1822,59 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		zap.L().Warn("Audit: failed to reset scan cursor", zap.Error(err))
 	}
 
+	var recordWriter *database.RecordWriter
+	if r.repository != nil {
+		recordWriter = database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
+		defer recordWriter.Close()
+	}
+
+	baseExecutorCfg := core.ExecutorConfig{
+		Workers:              daConcurrency,
+		Services:             infra.svc,
+		HTTPRequester:        infra.httpRequester,
+		Repository:           r.repository,
+		RecordWriter:         recordWriter,
+		ScanUUID:             infra.scanUUID,
+		ScopeMatcher:         infra.scopeMatcher,
+		SkipBaseline:         true,
+		PauseCtrl:            r.pauseCtrl,
+		MaxFindingsPerModule: r.options.MaxFindingsPerModule,
+		MaxDuration:          auditMaxDuration,
+		ParallelPassive:      auditParallelPassive,
+		FeedbackDrainTimeout: auditFeedbackDrain,
+		IPCache:              ipCache,
+		OnTraffic:            r.makeOnTrafficVerbose("audit"),
+		OnResult: func(result *output.ResultEvent) {
+			if err := r.output.Write(result); err != nil {
+				zap.L().Error("Failed to write result", zap.Error(err))
+			}
+		},
+	}
+	if oastService != nil {
+		baseExecutorCfg.OASTProvider = oastService
+		baseExecutorCfg.OASTService = oastService
+	}
+	if infra.hookChain != nil {
+		baseExecutorCfg.Hooks = infra.hookChain
+	}
+
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
-		roundStart := time.Now()
-		dbSource := database.NewOneShotDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
-			WithHostnames(inScopeHostnames)
-
-		// Create batched record writer for throughput
-		var recordWriter *database.RecordWriter
-		if r.repository != nil {
-			recordWriter = database.NewRecordWriter(r.repository, database.RecordWriterConfig{})
-		}
-
-		executorCfg := core.ExecutorConfig{
-			Workers:              daConcurrency,
-			Services:             infra.svc,
-			HTTPRequester:        infra.httpRequester,
-			Repository:           r.repository,
-			RecordWriter:         recordWriter,
-			ScanUUID:             infra.scanUUID,
-			ScopeMatcher:         infra.scopeMatcher,
-			SkipBaseline:         true,
-			PauseCtrl:            r.pauseCtrl,
-			MaxFindingsPerModule: r.options.MaxFindingsPerModule,
-			MaxDuration:          auditMaxDuration,
-			ParallelPassive:      auditParallelPassive,
-			FeedbackDrainTimeout: auditFeedbackDrain,
-			IPCache:              ipCache,
-			OnTraffic:            r.makeOnTrafficVerbose("audit"),
-			OnResult: func(result *output.ResultEvent) {
-				if err := r.output.Write(result); err != nil {
-					zap.L().Error("Failed to write result", zap.Error(err))
-				}
-			},
-		}
-		if oastService != nil {
-			executorCfg.OASTProvider = oastService
-			executorCfg.OASTService = oastService
-		}
-		if infra.hookChain != nil {
-			executorCfg.Hooks = infra.hookChain
-		}
-
-		executor := core.NewExecutor(executorCfg, dbSource, activeModules, passiveModules)
-		if oastService != nil {
-			oastService.SetRequestUUIDResolver(executor.ResolveRequestUUID)
-		}
-		_, err := executor.Execute(ctx)
-
-		// Close the batched record writer to flush remaining records
-		if recordWriter != nil {
-			recordWriter.Close()
-		}
-
-		// Log per-module metrics for this round
-		if metrics := executor.ModuleMetrics(); len(metrics) > 0 {
-			logModuleMetrics(metrics)
-		}
-
-		// Log request clustering stats for this round
-		if c := infra.httpRequester.Clusterer(); c != nil {
-			c.LogStats()
-		}
-
+		processed, err := r.runAuditRound(ctx, infra, round, inScopeHostnames, activeModules, passiveModules, baseExecutorCfg, oastService)
 		if err != nil {
 			zap.L().Error("Audit: executor error", zap.Error(err), zap.Int("round", round))
 			break
 		}
 
-		roundElapsed := time.Since(roundStart)
-		r.printPhaseComplete("Audit",
-			fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", executor.Processed())), terminal.HiPurple(fmtDuration(roundElapsed))))
-		zap.L().Info("Audit: round completed",
-			zap.Int("round", round+1),
-			zap.Int64("processed", executor.Processed()))
-
 		// Deduplicate findings after each audit round
 		r.deduplicateFindings(ctx, "Audit")
 
-		// Check for newly discovered records by reading the current cursor from the scan record.
 		if round < maxFeedbackRounds-1 {
-			currentScan, scanErr := r.repository.GetScanByUUID(ctx, infra.scanUUID)
-			if scanErr != nil {
-				break
-			}
-			newCount, countErr := r.repository.CountRecordsAfterCursor(ctx, currentScan.CursorAt, currentScan.CursorUUID, inScopeHostnames...)
+			newCount, countErr := r.countRemainingAuditRecords(ctx, infra.scanUUID, inScopeHostnames)
 			if countErr != nil || newCount == 0 {
+				if countErr != nil {
+					zap.L().Debug("Audit: failed to count remaining records", zap.Error(countErr))
+				}
 				break
 			}
 			r.printPhaseFeedback("Audit",
@@ -2268,12 +1882,64 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 			zap.L().Info("Audit: new records discovered, starting next round",
 				zap.Int64("new_records", newCount))
 		}
+
+		if processed == 0 {
+			break
+		}
 	}
 
 	elapsed := time.Since(phaseStart)
 	r.printPhaseComplete("Audit", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 
 	return nil
+}
+
+func (r *Runner) runAuditRound(
+	ctx context.Context,
+	infra *phaseInfra,
+	round int,
+	inScopeHostnames []string,
+	activeModules []modules.ActiveModule,
+	passiveModules []modules.PassiveModule,
+	baseCfg core.ExecutorConfig,
+	oastService *oast.Service,
+) (int64, error) {
+	roundStart := time.Now()
+	dbSource := database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
+		WithHostnames(inScopeHostnames)
+
+	executor := core.NewExecutor(baseCfg, dbSource, activeModules, passiveModules)
+	if oastService != nil {
+		oastService.SetRequestUUIDResolver(executor.ResolveRequestUUID)
+	}
+	_, err := executor.Execute(ctx)
+
+	if metrics := executor.ModuleMetrics(); len(metrics) > 0 {
+		logModuleMetrics(metrics)
+	}
+	if c := infra.httpRequester.Clusterer(); c != nil {
+		c.LogStats()
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	processed := executor.Processed()
+	roundElapsed := time.Since(roundStart)
+	r.printPhaseComplete("Audit",
+		fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", processed)), terminal.HiPurple(fmtDuration(roundElapsed))))
+	zap.L().Info("Audit: round completed",
+		zap.Int("round", round+1),
+		zap.Int64("processed", processed))
+	return processed, nil
+}
+
+func (r *Runner) countRemainingAuditRecords(ctx context.Context, scanUUID string, hostnames []string) (int64, error) {
+	currentScan, err := r.repository.GetScanByUUID(ctx, scanUUID)
+	if err != nil {
+		return 0, err
+	}
+	return r.repository.CountRecordsAfterCursor(ctx, currentScan.CursorAt, currentScan.CursorUUID, hostnames...)
 }
 
 // resolveAllModules combines getModulesToExecute() with JS extension modules.
@@ -2342,22 +2008,37 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 		}
 	}
 
-	// Sort by severity (lowest first)
+	// Sort by execution priority to keep scheduling policy aligned with the executor.
 	if len(activeModules) > 0 {
-		sort.Slice(activeModules, func(i, j int) bool {
-			return activeModules[i].Severity() < activeModules[j].Severity()
-		})
+		sortActiveModulesByPriority(activeModules)
 		zap.L().Info("Active modules to execute", zap.Int("count", len(activeModules)))
 	}
 
 	if len(passiveModules) > 0 {
-		sort.Slice(passiveModules, func(i, j int) bool {
-			return passiveModules[i].Severity() < passiveModules[j].Severity()
-		})
+		sortPassiveModulesByPriority(passiveModules)
 		zap.L().Info("Passive modules to execute", zap.Int("count", len(passiveModules)))
 	}
 
 	return activeModules, passiveModules
+}
+
+func sortActiveModulesByPriority(mods []modules.ActiveModule) {
+	sort.SliceStable(mods, func(i, j int) bool {
+		return moduleExecutionPriority(mods[i]) < moduleExecutionPriority(mods[j])
+	})
+}
+
+func sortPassiveModulesByPriority(mods []modules.PassiveModule) {
+	sort.SliceStable(mods, func(i, j int) bool {
+		return moduleExecutionPriority(mods[i]) < moduleExecutionPriority(mods[j])
+	})
+}
+
+func moduleExecutionPriority(m modules.Module) int {
+	if prioritized, ok := m.(modules.Prioritized); ok {
+		return prioritized.Priority()
+	}
+	return 100
 }
 
 // isAllModules returns true when the list is empty or contains only "all".
@@ -3265,7 +2946,6 @@ func (r *Runner) runSASTPhase(ctx context.Context, infra *phaseInfra) error {
 	return nil
 }
 
-
 // sourceRepoInfo holds source repo metadata for the SAST phase.
 type sourceRepoInfo struct {
 	path     string
@@ -4068,7 +3748,6 @@ func severityFromString(s string) severity.Severity {
 		return severity.Info
 	}
 }
-
 
 // buildRouteRequest creates an HttpRequestResponse enriched with query/body parameters
 // from an ast-grep Route. For GET/HEAD/DELETE, params become query string values.

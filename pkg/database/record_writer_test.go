@@ -24,8 +24,10 @@ func newTestDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	sqldb.SetMaxOpenConns(4)
-	sqldb.SetMaxIdleConns(4)
+	// SQLite `:memory:` databases are per-connection, so tests must pin to a
+	// single connection or later queries will observe a different empty database.
+	sqldb.SetMaxOpenConns(1)
+	sqldb.SetMaxIdleConns(1)
 
 	bunDB := bun.NewDB(sqldb, sqlitedialect.New())
 	db := &DB{DB: bunDB, driver: "sqlite"}
@@ -271,6 +273,27 @@ func TestRecordWriter_GracefulShutdown(t *testing.T) {
 	// Even with early close, the majority should be persisted
 	if count == 0 {
 		t.Fatal("No records persisted — shutdown drain is broken")
+	}
+}
+
+func TestRecordWriter_WriteAfterClose(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+
+	writer := NewRecordWriter(repo, RecordWriterConfig{
+		BufferSize:    32,
+		BatchSize:     8,
+		FlushInterval: 10 * time.Millisecond,
+		Shards:        1,
+	})
+	writer.Close()
+
+	_, err := writer.Write(context.Background(), makeTestRequest(1), "closed", "")
+	if err == nil {
+		t.Fatal("expected write after Close to fail")
+	}
+	if err != ErrRecordWriterClosed {
+		t.Fatalf("expected ErrRecordWriterClosed, got %v", err)
 	}
 }
 

@@ -12,6 +12,34 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 )
 
+const debugFingerprintTargetURL = "http://testphp.vulnweb.com/"
+
+func requireReachableDebugHost(t *testing.T, targetURL string) *url.URL {
+	t.Helper()
+
+	baseURL, err := url.Parse(targetURL)
+	if err != nil {
+		t.Fatalf("Failed to parse URL: %v", err)
+	}
+
+	probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, baseURL.String(), nil)
+	if err != nil {
+		t.Fatalf("Failed to create reachability probe: %v", err)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Skipf("Skipping external debug test: %s is unreachable: %v", baseURL.Host, err)
+	}
+	resp.Body.Close()
+
+	return baseURL
+}
+
 // TestFingerprintLearningAndComparison runs against testphp.vulnweb.com
 // to debug why 404s are not filtered.
 //
@@ -20,11 +48,7 @@ func TestFingerprintLearningAndComparison(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	targetURL := "http://testphp.vulnweb.com/"
-	baseURL, err := url.Parse(targetURL)
-	if err != nil {
-		t.Fatalf("Failed to parse URL: %v", err)
-	}
+	baseURL := requireReachableDebugHost(t, debugFingerprintTargetURL)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	learner := NewLearner(client, nil)
@@ -206,11 +230,7 @@ func TestSignatureMatchDebug(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	targetURL := "http://testphp.vulnweb.com/"
-	baseURL, err := url.Parse(targetURL)
-	if err != nil {
-		t.Fatalf("Failed to parse URL: %v", err)
-	}
+	baseURL := requireReachableDebugHost(t, debugFingerprintTargetURL)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	learner := NewLearner(client, nil)

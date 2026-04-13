@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -103,25 +104,25 @@ func (db *DB) GetStats(ctx context.Context, filters QueryFilters) (*DatabaseStat
 		},
 	}
 
-	if err := db.getRecordCounts(ctx, stats); err != nil {
+	if err := db.getRecordCounts(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getFindingsStats(ctx, stats); err != nil {
+	if err := db.getFindingsStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getHTTPMethodStats(ctx, stats); err != nil {
+	if err := db.getHTTPMethodStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getStatusCodeStats(ctx, stats); err != nil {
+	if err := db.getStatusCodeStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getPerformanceStats(ctx, stats); err != nil {
+	if err := db.getPerformanceStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getDateRangeStats(ctx, stats); err != nil {
+	if err := db.getDateRangeStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
-	if err := db.getScanSessionStats(ctx, stats); err != nil {
+	if err := db.getScanSessionStats(ctx, stats, filters); err != nil {
 		return nil, err
 	}
 
@@ -129,16 +130,17 @@ func (db *DB) GetStats(ctx context.Context, filters QueryFilters) (*DatabaseStat
 }
 
 // getRecordCounts gets counts of all record types
-func (db *DB) getRecordCounts(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getRecordCounts(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	// Count HTTP records
-	count, err := db.NewSelect().Model((*HTTPRecord)(nil)).Count(ctx)
+	recordQuery := db.scopedRecordsQuery(filters)
+	count, err := recordQuery.Count(ctx)
 	if err != nil {
 		return err
 	}
 	stats.Records.HTTPRecords = int64(count)
 
 	// Count records with response
-	count, err = db.NewSelect().Model((*HTTPRecord)(nil)).Where("has_response = ?", true).Count(ctx)
+	count, err = db.scopedRecordsQuery(filters).Where("has_response = ?", true).Count(ctx)
 	if err != nil {
 		return err
 	}
@@ -150,7 +152,7 @@ func (db *DB) getRecordCounts(ctx context.Context, stats *DatabaseStats) error {
 	}
 
 	// Count findings
-	count, err = db.NewSelect().Model((*Finding)(nil)).Count(ctx)
+	count, err = db.countScopedFindings(ctx, filters)
 	if err != nil {
 		return err
 	}
@@ -160,17 +162,16 @@ func (db *DB) getRecordCounts(ctx context.Context, stats *DatabaseStats) error {
 }
 
 // getFindingsStats gets finding statistics by severity
-func (db *DB) getFindingsStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getFindingsStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	type severityCount struct {
 		Severity string
 		Count    int64
 	}
 
 	var results []severityCount
-	err := db.NewSelect().
-		Model((*Finding)(nil)).
+	err := db.scopedFindingsQuery(filters).
 		Column("severity").
-		ColumnExpr("COUNT(*) AS count").
+		ColumnExpr("COUNT(DISTINCT f.id) AS count").
 		Group("severity").
 		Scan(ctx, &results)
 	if err != nil {
@@ -186,15 +187,14 @@ func (db *DB) getFindingsStats(ctx context.Context, stats *DatabaseStats) error 
 }
 
 // getHTTPMethodStats gets HTTP method distribution
-func (db *DB) getHTTPMethodStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getHTTPMethodStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	type methodCount struct {
 		Method string
 		Count  int64
 	}
 
 	var results []methodCount
-	err := db.NewSelect().
-		Model((*HTTPRecord)(nil)).
+	err := db.scopedRecordsQuery(filters).
 		Column("method").
 		ColumnExpr("COUNT(*) AS count").
 		Group("method").
@@ -212,15 +212,14 @@ func (db *DB) getHTTPMethodStats(ctx context.Context, stats *DatabaseStats) erro
 }
 
 // getStatusCodeStats gets status code distribution (from http_records directly)
-func (db *DB) getStatusCodeStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getStatusCodeStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	type statusCount struct {
 		StatusCode int
 		Count      int64
 	}
 
 	var results []statusCount
-	err := db.NewSelect().
-		Model((*HTTPRecord)(nil)).
+	err := db.scopedRecordsQuery(filters).
 		Column("status_code").
 		ColumnExpr("COUNT(*) AS count").
 		Where("has_response = ?", true).
@@ -249,7 +248,7 @@ func (db *DB) getStatusCodeStats(ctx context.Context, stats *DatabaseStats) erro
 }
 
 // getPerformanceStats gets response time statistics (from http_records directly)
-func (db *DB) getPerformanceStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getPerformanceStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	type perfStats struct {
 		Avg float64
 		Min int64
@@ -257,8 +256,7 @@ func (db *DB) getPerformanceStats(ctx context.Context, stats *DatabaseStats) err
 	}
 
 	var result perfStats
-	err := db.NewSelect().
-		Model((*HTTPRecord)(nil)).
+	err := db.scopedRecordsQuery(filters).
 		ColumnExpr("AVG(response_time_ms) AS avg").
 		ColumnExpr("MIN(response_time_ms) AS min").
 		ColumnExpr("MAX(response_time_ms) AS max").
@@ -279,47 +277,23 @@ func (db *DB) getPerformanceStats(ctx context.Context, stats *DatabaseStats) err
 		p95Idx := withResp * 95 / 100
 		p99Idx := withResp * 99 / 100
 
-		type pRow struct {
-			ResponseTimeMs int64 `bun:"response_time_ms"`
-			RN             int64 `bun:"rn"`
-		}
-		var pRows []pRow
-		err = db.NewRaw(`
-			SELECT response_time_ms, rn FROM (
-			    SELECT response_time_ms,
-			           ROW_NUMBER() OVER (ORDER BY response_time_ms ASC) AS rn
-			    FROM http_records
-			    WHERE has_response = 1
-			) sub
-			WHERE rn IN (?, ?, ?)
-		`, p50Idx, p95Idx, p99Idx).Scan(ctx, &pRows)
-		if err == nil {
-			for _, r := range pRows {
-				switch r.RN {
-				case p50Idx:
-					stats.Performance.P50ResponseTime = r.ResponseTimeMs
-				case p95Idx:
-					stats.Performance.P95ResponseTime = r.ResponseTimeMs
-				case p99Idx:
-					stats.Performance.P99ResponseTime = r.ResponseTimeMs
-				}
-			}
-		}
+		stats.Performance.P50ResponseTime = db.responseTimeAt(ctx, filters, int(p50Idx))
+		stats.Performance.P95ResponseTime = db.responseTimeAt(ctx, filters, int(p95Idx))
+		stats.Performance.P99ResponseTime = db.responseTimeAt(ctx, filters, int(p99Idx))
 	}
 
 	return nil
 }
 
 // getDateRangeStats gets date range information
-func (db *DB) getDateRangeStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getDateRangeStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	type dateRange struct {
 		First time.Time
 		Last  time.Time
 	}
 
 	var result dateRange
-	err := db.NewSelect().
-		Model((*HTTPRecord)(nil)).
+	err := db.scopedRecordsQuery(filters).
 		ColumnExpr("MIN(sent_at) AS first").
 		ColumnExpr("MAX(sent_at) AS last").
 		Scan(ctx, &result)
@@ -337,14 +311,20 @@ func (db *DB) getDateRangeStats(ctx context.Context, stats *DatabaseStats) error
 }
 
 // getScanSessionStats gets statistics for scan sessions from the scans table
-func (db *DB) getScanSessionStats(ctx context.Context, stats *DatabaseStats) error {
+func (db *DB) getScanSessionStats(ctx context.Context, stats *DatabaseStats, filters QueryFilters) error {
 	var scans []Scan
-	err := db.NewSelect().
+	query := db.NewSelect().
 		Model(&scans).
 		Column("uuid", "name", "status", "processed_count", "scan_mode").
 		OrderExpr("created_at DESC").
-		Limit(10).
-		Scan(ctx)
+		Limit(10)
+	if filters.ProjectUUID != "" {
+		query.Where("project_uuid = ?", filters.ProjectUUID)
+	}
+	if filters.ScanUUID != "" {
+		query.Where("uuid = ?", filters.ScanUUID)
+	}
+	err := query.Scan(ctx)
 	if err != nil {
 		return err
 	}
@@ -363,46 +343,82 @@ func (db *DB) getScanSessionStats(ctx context.Context, stats *DatabaseStats) err
 }
 
 // GetTopHosts retrieves top hosts by request count with finding counts in a single query.
-func (db *DB) GetTopHosts(ctx context.Context, limit int) ([]HostStats, error) {
-	type hostWithFindings struct {
+func (db *DB) GetTopHosts(ctx context.Context, filters QueryFilters, limit int) ([]HostStats, error) {
+	type hostRow struct {
 		Scheme       string `bun:"scheme"`
 		Hostname     string `bun:"hostname"`
 		Port         int    `bun:"port"`
 		RequestCount int64  `bun:"request_count"`
-		FindingCount int64  `bun:"finding_count"`
 	}
 
-	var rows []hostWithFindings
-	err := db.NewRaw(`
-		SELECT hosts.scheme, hosts.hostname, hosts.port, hosts.request_count,
-		       COALESCE(fc.finding_count, 0) AS finding_count
-		FROM (
-		    SELECT scheme, hostname, port, COUNT(*) AS request_count
-		    FROM http_records
-		    GROUP BY scheme, hostname, port
-		    ORDER BY request_count DESC
-		    LIMIT ?
-		) AS hosts
-		LEFT JOIN (
-		    SELECT r.scheme, r.hostname, r.port, COUNT(DISTINCT f.id) AS finding_count
-		    FROM finding_records fr
-		    JOIN findings f ON f.id = fr.finding_id
-		    JOIN http_records r ON r.uuid = fr.record_uuid
-		    GROUP BY r.scheme, r.hostname, r.port
-		) AS fc ON fc.scheme = hosts.scheme
-		       AND fc.hostname = hosts.hostname
-		       AND fc.port = hosts.port
-	`, limit).Scan(ctx, &rows)
+	var rows []hostRow
+	err := db.scopedRecordsQuery(filters).
+		Column("scheme", "hostname", "port").
+		ColumnExpr("COUNT(*) AS request_count").
+		Group("scheme", "hostname", "port").
+		OrderExpr("request_count DESC").
+		Limit(limit).
+		Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
 	}
 
 	hostStats := make([]HostStats, 0, len(rows))
 	for _, r := range rows {
-		hostStats = append(hostStats, HostStats(r))
+		findingFilters := filters
+		findingFilters.HostPattern = r.Hostname
+		findingCount, err := db.countScopedFindings(ctx, findingFilters)
+		if err != nil {
+			return nil, err
+		}
+		hostStats = append(hostStats, HostStats{
+			Scheme:       r.Scheme,
+			Hostname:     r.Hostname,
+			Port:         r.Port,
+			RequestCount: r.RequestCount,
+			FindingCount: int64(findingCount),
+		})
 	}
 
 	return hostStats, nil
+}
+
+func (db *DB) scopedRecordsQuery(filters QueryFilters) *bun.SelectQuery {
+	query := db.NewSelect().Model((*HTTPRecord)(nil))
+	qb := NewQueryBuilder(db, filters)
+	qb.applyFilters(query)
+	return query
+}
+
+func (db *DB) scopedFindingsQuery(filters QueryFilters) *bun.SelectQuery {
+	query := db.NewSelect().Model((*Finding)(nil))
+	fqb := NewFindingsQueryBuilder(db, filters)
+	fqb.applyFindingFilters(query)
+	return query
+}
+
+func (db *DB) countScopedFindings(ctx context.Context, filters QueryFilters) (int, error) {
+	return db.scopedFindingsQuery(filters).
+		ColumnExpr("DISTINCT f.id").
+		Count(ctx)
+}
+
+func (db *DB) responseTimeAt(ctx context.Context, filters QueryFilters, offset int) int64 {
+	if offset < 1 {
+		offset = 1
+	}
+	var value int64
+	err := db.scopedRecordsQuery(filters).
+		Column("response_time_ms").
+		Where("has_response = ?", true).
+		Order("response_time_ms ASC").
+		Limit(1).
+		Offset(offset-1).
+		Scan(ctx, &value)
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 // FormatStats formats statistics as a human-readable string

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"net/url"
 	goruntime "runtime"
 	"sort"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	urlutil "github.com/projectdiscovery/utils/url"
+	"github.com/sourcegraph/conc"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/core/stats"
@@ -25,8 +28,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 	"github.com/vigolium/vigolium/pkg/work"
-	urlutil "github.com/projectdiscovery/utils/url"
-	"github.com/sourcegraph/conc"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +36,7 @@ import (
 //   - small:  responses up to 1 MiB  (most responses)
 //   - medium: responses up to 4 MiB  (large pages, API responses)
 //   - large:  responses up to 16 MiB (very large payloads)
+//
 // Responses exceeding 16 MiB are allocated directly and not pooled.
 const (
 	poolTierSmall  = 1 << 20  // 1 MiB
@@ -93,14 +95,14 @@ func putResponseBuffer(buf []byte) {
 		mediumResponsePool.Put(&buf)
 	case c <= poolTierLarge:
 		largeResponsePool.Put(&buf)
-	// c > poolTierLarge: let GC collect it
+		// c > poolTierLarge: let GC collect it
 	}
 }
 
 // moduleFindingTracker tracks finding count and one-time warning for a single module.
 type moduleFindingTracker struct {
-	count   atomic.Int64
-	warned  sync.Once
+	count  atomic.Int64
+	warned sync.Once
 }
 
 // HookRunner transforms requests before scanning and filters results after scanning.
@@ -118,33 +120,34 @@ type OASTFlusher interface {
 
 // ExecutorConfig configures the Executor behavior.
 type ExecutorConfig struct {
-	Workers           int
-	OnResult          func(*output.ResultEvent)
-	OnTraffic         func(method, url string, statusCode int, contentType string) // Optional: called for each processed item
-	Services          *services.Services
-	HTTPRequester     *http.Requester
-	Repository        *database.Repository // Optional: database storage
-	RecordWriter      *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
-	ScanUUID          string
-	ProjectUUID       string// Optional: scan session UUID
-	Hooks             HookRunner           // Optional: pre/post hooks
-	ScopeMatcher      *config.ScopeMatcher // Optional: scope filtering
-	ScopeOnIngest     bool                 // When true, skip both save and scan for out-of-scope items
-	StaticFileMatcher *config.ScopeMatcher // Optional: always-on static file filtering (independent of ScopeMatcher)
-	SkipBaseline      bool                 // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
-	OASTProvider          modkit.OASTProvider  // Optional: OAST callback URL generator for blind vuln detection
-	OASTService           OASTFlusher          // Optional: OAST service to flush after scanning
-	PauseCtrl             *PauseController     // Optional: cooperative pause/resume controller
-	MaxFindingsPerModule  int                  // When > 0, suppress findings after this many per module
-	MaxDuration           time.Duration        // When > 0, cancel execution after this duration
-	FeedbackDrainTimeout  time.Duration        // Idle timeout for draining feedback after source EOF (default: 100ms)
-	IPCacheSize           int                  // LRU cache size for parsed insertion points (default: 4096)
-	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint] // Optional: shared IP cache (if nil, a new one is created)
-	ParallelPassive       bool                 // When true, run passive per-request modules concurrently
-	PassiveModuleTimeout  time.Duration        // Timeout per passive module call (default: 5s). 0 uses default.
-	AdaptiveWorkers       bool                 // When true, dynamically scale worker count based on queue depth
-	MinWorkers            int                  // Floor for adaptive scaling (default: 2)
-	MaxWorkers            int                  // Ceiling for adaptive scaling (default: Workers*4)
+	Workers              int
+	OnResult             func(*output.ResultEvent)
+	OnTraffic            func(method, url string, statusCode int, contentType string) // Optional: called for each processed item
+	Services             *services.Services
+	HTTPRequester        *http.Requester
+	Repository           *database.Repository   // Optional: database storage
+	RecordWriter         *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
+	ScanUUID             string
+	ProjectUUID          string                                       // Optional: scan session UUID
+	Hooks                HookRunner                                   // Optional: pre/post hooks
+	ScopeMatcher         *config.ScopeMatcher                         // Optional: scope filtering
+	ScopeOnIngest        bool                                         // When true, skip both save and scan for out-of-scope items
+	StaticFileMatcher    *config.ScopeMatcher                         // Optional: always-on static file filtering (independent of ScopeMatcher)
+	SkipBaseline         bool                                         // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
+	OASTProvider         modkit.OASTProvider                          // Optional: OAST callback URL generator for blind vuln detection
+	OASTService          OASTFlusher                                  // Optional: OAST service to flush after scanning
+	PauseCtrl            *PauseController                             // Optional: cooperative pause/resume controller
+	MaxFindingsPerModule int                                          // When > 0, suppress findings after this many per module
+	MaxDuration          time.Duration                                // When > 0, cancel execution after this duration
+	FeedbackDrainTimeout time.Duration                                // Idle timeout for draining feedback after source EOF (default: 100ms)
+	IPCacheSize          int                                          // LRU cache size for parsed insertion points (default: 4096)
+	IPCache              *lru.Cache[string, []httpmsg.InsertionPoint] // Optional: shared IP cache (if nil, a new one is created)
+	ParallelPassive      bool                                         // When true, run passive per-request modules concurrently
+	PassiveModuleTimeout time.Duration                                // Timeout per passive module call (default: 5s). 0 uses default.
+	AdaptiveWorkers      bool                                         // When true, dynamically scale worker count based on queue depth
+	MinWorkers           int                                          // Floor for adaptive scaling (default: 2)
+	MaxWorkers           int                                          // Ceiling for adaptive scaling (default: Workers*4)
+	ActiveTaskLimit      int                                          // Max concurrent active module tasks across host/request/IP scopes
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -215,13 +218,14 @@ type Executor struct {
 	inFlight atomic.Int64
 
 	// Adaptive worker scaling
-	activeWorkers atomic.Int32  // current number of active workers
+	activeWorkers atomic.Int32 // current number of active workers
 	minWorkers    int
 	maxWorkers    int
 
 	// Feedback channel: modules can inject discovered requests back into the pipeline
-	feedbackCh chan *work.WorkItem
-	feeder     *executorFeeder // tracks feedback drop metrics
+	feedbackCh    chan *work.WorkItem
+	feeder        *executorFeeder // tracks feedback drop metrics
+	activeTaskSem chan struct{}
 }
 
 // NewExecutor creates a new Executor with the given configuration.
@@ -281,6 +285,15 @@ func NewExecutor(
 		ipCache:        ipCache,
 		feedbackCh:     make(chan *work.WorkItem, cfg.Workers*16),
 	}
+
+	activeTaskLimit := cfg.ActiveTaskLimit
+	if activeTaskLimit <= 0 {
+		activeTaskLimit = cfg.Workers * 8
+		if activeTaskLimit < 32 {
+			activeTaskLimit = 32
+		}
+	}
+	e.activeTaskSem = make(chan struct{}, activeTaskLimit)
 
 	// Wire risk score updater, remarks annotator, and request UUID resolver into ScanContext
 	if e.scanCtx != nil && cfg.Repository != nil {
@@ -407,22 +420,36 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	e.feedItems(ctx, itemCh)
 
 	// After source EOF, drain remaining feedback items from in-flight workers.
-	// Wait until all workers finish (inFlight == 0) and the feedback channel is empty,
-	// rather than using a fixed idle timeout that could miss late feedback.
+	// Wait until all workers finish (inFlight == 0) and the feedback channel is empty.
+	// When FeedbackDrainTimeout is configured, require the executor to remain idle
+	// for that duration before completing the drain.
 	drainTick := time.NewTicker(50 * time.Millisecond)
 	defer drainTick.Stop()
+	idleTimeout := e.cfg.FeedbackDrainTimeout
+	var idleSince time.Time
 drainLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			break drainLoop
 		case fb := <-e.feedbackCh:
+			idleSince = time.Time{}
 			if !e.sendItem(ctx, fb, itemCh) {
 				break drainLoop
 			}
 		case <-drainTick.C:
-			// All workers idle and no pending feedback => done
-			if e.inFlight.Load() == 0 && len(e.feedbackCh) == 0 {
+			if e.inFlight.Load() != 0 || len(e.feedbackCh) != 0 {
+				idleSince = time.Time{}
+				continue
+			}
+			if idleTimeout <= 0 {
+				break drainLoop
+			}
+			if idleSince.IsZero() {
+				idleSince = time.Now()
+				continue
+			}
+			if time.Since(idleSince) >= idleTimeout {
 				break drainLoop
 			}
 		}
@@ -459,7 +486,7 @@ drainLoop:
 				}
 				r.ModuleType = database.ModuleTypePassive
 				r.FindingSource = database.FindingSourceAudit
-				e.emitResult(r)
+				e.emitResult(ctx, r)
 			}
 		}
 	}
@@ -717,43 +744,10 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 	default:
 	}
 
-	// Fetch baseline response (skip if SkipBaseline and response already attached)
 	var httpResp *httpmsg.HttpResponse
-	if e.cfg.SkipBaseline && req.Response() != nil {
-		// Response already present from DB source — skip HTTP fetch
-		httpResp = req.Response()
-	} else {
-		respChain, _, err := e.httpClient.Execute(req, http.Options{})
-		if err != nil {
-			zap.L().Debug("Failed to fetch baseline response, skipping item",
-				zap.String("url", req.Target()),
-				zap.Error(err))
-			return // Skip item - httpClient already tracked host error
-		}
-
-		// Block/WAF detection — check before copying response to avoid wasted work
-		if blockErr := infra.GetBlockDetectionValidator().Validate(respChain); blockErr != nil {
-			respChain.Close()
-			zap.L().Debug("Block detected, skipping item",
-				zap.String("url", req.Target()),
-				zap.Error(blockErr))
-			if e.statsTracker != nil {
-				e.statsTracker.IncrementBlocked()
-			}
-			return
-		}
-
-		// Extract full response (headers + body) and close immediately
-		// CRITICAL: Copy bytes before Close() - buffer is returned to pool
-		fullResp := respChain.FullResponse().Bytes()
-		rawResponseCopy := getResponseBuffer(len(fullResp))
-		copy(rawResponseCopy, fullResp)
-		respChain.Close()
-
-		pooledBuf = rawResponseCopy // Track for deferred return to pool
-
-		httpResp = httpmsg.NewHttpResponse(rawResponseCopy)
-		req = req.WithResponse(httpResp)
+	req, httpResp, pooledBuf, ok := e.fetchBaselineResponse(ctx, req)
+	if !ok {
+		return
 	}
 
 	// Notify traffic callback
@@ -762,20 +756,9 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		e.cfg.OnTraffic(req.Request().Method(), req.Target(), httpResp.StatusCode(), ct)
 	}
 
-	// Run pre-hooks (may transform request or signal to skip)
-	if e.hooks != nil {
-		hooked, err := e.hooks.RunPreHooks(req)
-		if err != nil {
-			zap.L().Debug("Pre-hook error, skipping item",
-				zap.String("url", req.Target()), zap.Error(err))
-			return
-		}
-		if hooked == nil {
-			zap.L().Debug("Pre-hook filtered out item",
-				zap.String("url", req.Target()))
-			return
-		}
-		req = hooked
+	req, ok = e.applyPreHooks(req)
+	if !ok {
+		return
 	}
 
 	// Body size enforcement — truncate oversized bodies but defer drop/skip
@@ -835,18 +818,7 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		)
 	}
 
-	// Phase 1: Passive modules (no network I/O — run on ALL records
-	// regardless of scope/body-size gates since they are read-only).
-	// Scope-aware passive modules are excluded for out-of-scope items.
-	// Pre-filter eligible modules once to avoid redundant CanProcess calls.
-	eligiblePerHost := e.filterEligiblePassive(e.perHostPassive, req, &filter)
-	eligiblePerRequest := e.filterEligiblePassive(e.perRequestPassive, req, &filter)
-	if !inScope {
-		eligiblePerHost = filterNonScopeAware(eligiblePerHost)
-		eligiblePerRequest = filterNonScopeAware(eligiblePerRequest)
-	}
-	e.runPassivePerHostFiltered(req, eligiblePerHost)
-	e.runPassivePerRequestFiltered(req, eligiblePerRequest)
+	e.runPassiveStage(ctx, req, &filter, inScope)
 
 	// Body size gate — drop/skip only affects active modules
 	if bodySizeAction == config.BodySizeDrop {
@@ -855,48 +827,118 @@ func (e *Executor) processItem(ctx context.Context, item *work.WorkItem) {
 		return
 	}
 	if bodySizeAction == config.BodySizeSkipScan {
-		e.saveToDatabase(item, req)
+		e.saveToDatabase(ctx, item, req)
 		return
 	}
 	skipActive := bodySizeAction == config.BodySizePassiveOnly
 
-	// Scope check + database save (single pass)
-	// inScope was pre-computed above for passive module filtering.
-	if e.cfg.ScopeMatcher != nil {
-		if req.Service() == nil {
-			return
-		}
-
-		if !inScope && e.cfg.ScopeOnIngest {
-			return // ScopeOnIngest: drop entirely (no save, no scan)
-		}
-
-		e.saveToDatabase(item, req)
-
-		if !inScope {
-			return // Saved but not scanned
-		}
-	} else {
-		e.saveToDatabase(item, req)
+	if !e.persistAndCheckScope(ctx, item, req, inScope) {
+		return
 	}
 
 	elig := computeEligibility(req)
 
-	// Phase 2: Active modules (network I/O — run categories in parallel)
-	// Skipped when body size gate is set to passive-only.
-	// conc.WaitGroup automatically catches panics per goroutine and re-panics
-	// on Wait(), which is caught by the top-level recoverFromPanic("processItem").
 	if !skipActive {
-		var g conc.WaitGroup
-		e.runActivePerHost(req, &filter, &elig, &g)
-		e.runActivePerRequest(req, &filter, &elig, &g)
-		e.runActivePerInsertionPoint(req, &filter, &elig, &g)
-		g.Wait()
+		e.runActiveStage(ctx, req, &filter, &elig)
 	}
 }
 
+func (e *Executor) fetchBaselineResponse(ctx context.Context, req *httpmsg.HttpRequestResponse) (*httpmsg.HttpRequestResponse, *httpmsg.HttpResponse, []byte, bool) {
+	if e.cfg.SkipBaseline && req.Response() != nil {
+		return req, req.Response(), nil, true
+	}
+
+	respChain, _, err := e.httpClient.Execute(req, http.Options{})
+	if err != nil {
+		zap.L().Debug("Failed to fetch baseline response, skipping item",
+			zap.String("url", req.Target()),
+			zap.Error(err))
+		return nil, nil, nil, false
+	}
+
+	if blockErr := infra.GetBlockDetectionValidator().Validate(respChain); blockErr != nil {
+		respChain.Close()
+		zap.L().Debug("Block detected, skipping item",
+			zap.String("url", req.Target()),
+			zap.Error(blockErr))
+		if e.statsTracker != nil {
+			e.statsTracker.IncrementBlocked()
+		}
+		return nil, nil, nil, false
+	}
+
+	fullResp := respChain.FullResponse().Bytes()
+	rawResponseCopy := getResponseBuffer(len(fullResp))
+	copy(rawResponseCopy, fullResp)
+	respChain.Close()
+
+	httpResp := httpmsg.NewHttpResponse(rawResponseCopy)
+	return req.WithResponse(httpResp), httpResp, rawResponseCopy, true
+}
+
+func (e *Executor) applyPreHooks(req *httpmsg.HttpRequestResponse) (*httpmsg.HttpRequestResponse, bool) {
+	if e.hooks == nil {
+		return req, true
+	}
+
+	hooked, err := e.hooks.RunPreHooks(req)
+	if err != nil {
+		zap.L().Debug("Pre-hook error, skipping item",
+			zap.String("url", req.Target()), zap.Error(err))
+		return nil, false
+	}
+	if hooked == nil {
+		zap.L().Debug("Pre-hook filtered out item",
+			zap.String("url", req.Target()))
+		return nil, false
+	}
+	return hooked, true
+}
+
+func (e *Executor) runPassiveStage(ctx context.Context, req *httpmsg.HttpRequestResponse, filter *moduleFilter, inScope bool) {
+	eligiblePerHost := e.filterEligiblePassive(e.perHostPassive, req, filter)
+	eligiblePerRequest := e.filterEligiblePassive(e.perRequestPassive, req, filter)
+	if !inScope {
+		eligiblePerHost = filterNonScopeAware(eligiblePerHost)
+		eligiblePerRequest = filterNonScopeAware(eligiblePerRequest)
+	}
+	e.runPassivePerHostFiltered(ctx, req, eligiblePerHost)
+	e.runPassivePerRequestFiltered(ctx, req, eligiblePerRequest)
+}
+
+func (e *Executor) persistAndCheckScope(ctx context.Context, item *work.WorkItem, req *httpmsg.HttpRequestResponse, inScope bool) bool {
+	if e.cfg.ScopeMatcher != nil {
+		if req.Service() == nil {
+			return false
+		}
+
+		if !inScope && e.cfg.ScopeOnIngest {
+			return false
+		}
+
+		e.saveToDatabase(ctx, item, req)
+		if !inScope {
+			return false
+		}
+		return true
+	}
+
+	e.saveToDatabase(ctx, item, req)
+	return true
+}
+
+func (e *Executor) runActiveStage(ctx context.Context, req *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility) {
+	// conc.WaitGroup automatically catches panics per goroutine and re-panics
+	// on Wait(), which is caught by the top-level recoverFromPanic("processItem").
+	var g conc.WaitGroup
+	e.runActivePerHost(ctx, req, filter, elig, &g)
+	e.runActivePerRequest(ctx, req, filter, elig, &g)
+	e.runActivePerInsertionPoint(ctx, req, filter, elig, &g)
+	g.Wait()
+}
+
 // saveToDatabase stores the request/response record in the database if enabled.
-func (e *Executor) saveToDatabase(item *work.WorkItem, req *httpmsg.HttpRequestResponse) {
+func (e *Executor) saveToDatabase(ctx context.Context, item *work.WorkItem, req *httpmsg.HttpRequestResponse) {
 	if e.repo == nil {
 		return
 	}
@@ -910,9 +952,9 @@ func (e *Executor) saveToDatabase(item *work.WorkItem, req *httpmsg.HttpRequestR
 	var recordUUID string
 	var err error
 	if e.recordWriter != nil {
-		recordUUID, err = e.recordWriter.Write(context.Background(), req, "scanner", e.projectUUID)
+		recordUUID, err = e.recordWriter.Write(ctx, req, "scanner", e.projectUUID)
 	} else {
-		recordUUID, err = e.repo.SaveRecord(context.Background(), req, "scanner", e.projectUUID)
+		recordUUID, err = e.repo.SaveRecord(ctx, req, "scanner", e.projectUUID)
 	}
 	if err != nil {
 		zap.L().Debug("Failed to save record to database", zap.Error(err))
@@ -949,7 +991,8 @@ func (e *Executor) passiveModuleTimeout() time.Duration {
 
 // runPassiveWithTimeout executes a passive module scan function with a timeout guard.
 func (e *Executor) runPassiveWithTimeout(
-	scanFn func() ([]*output.ResultEvent, error),
+	ctx context.Context,
+	scanFn func(context.Context) ([]*output.ResultEvent, error),
 	module modules.PassiveModule,
 	item *httpmsg.HttpRequestResponse,
 ) []*output.ResultEvent {
@@ -961,6 +1004,9 @@ func (e *Executor) runPassiveWithTimeout(
 		}
 	}
 
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	type result struct {
 		events []*output.ResultEvent
 		err    error
@@ -969,12 +1015,9 @@ func (e *Executor) runPassiveWithTimeout(
 	start := time.Now()
 	ch := make(chan result, 1)
 	go func() {
-		events, err := scanFn()
+		events, err := scanFn(callCtx)
 		ch <- result{events, err}
 	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 
 	select {
 	case r := <-ch:
@@ -986,7 +1029,7 @@ func (e *Executor) runPassiveWithTimeout(
 			return nil
 		}
 		return r.events
-	case <-timer.C:
+	case <-callCtx.Done():
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		zap.L().Warn("Passive module timed out — skipping",
 			zap.String("module", module.ID()),
@@ -997,7 +1040,7 @@ func (e *Executor) runPassiveWithTimeout(
 }
 
 // runPassivePerHostFiltered runs pre-filtered passive modules (CanProcess already checked).
-func (e *Executor) runPassivePerHostFiltered(item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
+func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
 	host := ""
 	if svc := item.Service(); svc != nil {
 		host = svc.Host()
@@ -1011,17 +1054,21 @@ func (e *Executor) runPassivePerHostFiltered(item *httpmsg.HttpRequestResponse, 
 		}
 
 		results := e.runPassiveWithTimeout(
-			func() ([]*output.ResultEvent, error) {
+			ctx,
+			func(runCtx context.Context) ([]*output.ResultEvent, error) {
+				if contextual, ok := module.(modules.ContextualPassiveModule); ok {
+					return contextual.ScanPerHostContext(runCtx, item, e.scanCtx)
+				}
 				return module.ScanPerHost(item, e.scanCtx)
 			},
 			module, item,
 		)
-		e.processResults(results, module, item)
+		e.processResults(ctx, results, module, item)
 	}
 }
 
 // runPassivePerRequestFiltered runs pre-filtered passive modules (CanProcess already checked).
-func (e *Executor) runPassivePerRequestFiltered(item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
+func (e *Executor) runPassivePerRequestFiltered(ctx context.Context, item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
 	if len(eligible) == 0 {
 		return
 	}
@@ -1032,12 +1079,16 @@ func (e *Executor) runPassivePerRequestFiltered(item *httpmsg.HttpRequestRespons
 			mod := module
 			g.Go(func() {
 				results := e.runPassiveWithTimeout(
-					func() ([]*output.ResultEvent, error) {
+					ctx,
+					func(runCtx context.Context) ([]*output.ResultEvent, error) {
+						if contextual, ok := mod.(modules.ContextualPassiveModule); ok {
+							return contextual.ScanPerRequestContext(runCtx, item, e.scanCtx)
+						}
 						return mod.ScanPerRequest(item, e.scanCtx)
 					},
 					mod, item,
 				)
-				e.processResults(results, mod, item)
+				e.processResults(ctx, results, mod, item)
 			})
 		}
 		g.Wait()
@@ -1046,12 +1097,16 @@ func (e *Executor) runPassivePerRequestFiltered(item *httpmsg.HttpRequestRespons
 
 	for _, module := range eligible {
 		results := e.runPassiveWithTimeout(
-			func() ([]*output.ResultEvent, error) {
+			ctx,
+			func(runCtx context.Context) ([]*output.ResultEvent, error) {
+				if contextual, ok := module.(modules.ContextualPassiveModule); ok {
+					return contextual.ScanPerRequestContext(runCtx, item, e.scanCtx)
+				}
 				return module.ScanPerRequest(item, e.scanCtx)
 			},
 			module, item,
 		)
-		e.processResults(results, module, item)
+		e.processResults(ctx, results, module, item)
 	}
 }
 
@@ -1061,7 +1116,7 @@ func isLevelDBClosed(err error) bool {
 	return strings.Contains(err.Error(), "leveldb: closed")
 }
 
-func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerHost(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perHostActive) == 0 {
 		return
 	}
@@ -1086,7 +1141,7 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 		}
 
 		mod := module // capture loop variable
-		g.Go(func() {
+		e.goActiveTask(g, func() {
 			start := time.Now()
 			results, err := mod.ScanPerHost(item, e.httpClient, e.scanCtx)
 			e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
@@ -1102,12 +1157,12 @@ func (e *Executor) runActivePerHost(item *httpmsg.HttpRequestResponse, filter *m
 				}
 				return
 			}
-			e.processResults(results, mod, item)
+			e.processResults(ctx, results, mod, item)
 		})
 	}
 }
 
-func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerRequest(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perRequestActive) == 0 {
 		return
 	}
@@ -1121,7 +1176,7 @@ func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter
 		}
 
 		mod := module // capture loop variable
-		g.Go(func() {
+		e.goActiveTask(g, func() {
 			start := time.Now()
 			results, err := mod.ScanPerRequest(item, e.httpClient, e.scanCtx)
 			e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
@@ -1137,12 +1192,12 @@ func (e *Executor) runActivePerRequest(item *httpmsg.HttpRequestResponse, filter
 				}
 				return
 			}
-			e.processResults(results, mod, item)
+			e.processResults(ctx, results, mod, item)
 		})
 	}
 }
 
-func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerInsertionPoint(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perIPActive) == 0 {
 		return
 	}
@@ -1167,7 +1222,7 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 	// Pre-compute host+path for cross-module finding dedup
 	itemHostPath := ""
 	if e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
-		itemHostPath = item.Target()
+		itemHostPath = paramFindingLocationKeyFromItem(item)
 	}
 
 	for _, ip := range allPoints {
@@ -1190,7 +1245,7 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 			}
 
 			mod, pt := module, ip // capture loop variables
-			g.Go(func() {
+			e.goActiveTask(g, func() {
 				start := time.Now()
 				results, err := mod.ScanPerInsertionPoint(item, pt, e.httpClient, e.scanCtx)
 				e.moduleMetrics.Record(mod.ID(), time.Since(start), len(results), err)
@@ -1208,13 +1263,21 @@ func (e *Executor) runActivePerInsertionPoint(item *httpmsg.HttpRequestResponse,
 					}
 					return
 				}
-				e.processResults(results, mod, item)
+				e.processResults(ctx, results, mod, item)
 			})
 		}
 	}
 }
 
-func (e *Executor) processResults(results []*output.ResultEvent, m modules.Module, item *httpmsg.HttpRequestResponse) {
+func (e *Executor) goActiveTask(g *conc.WaitGroup, fn func()) {
+	e.activeTaskSem <- struct{}{}
+	g.Go(func() {
+		defer func() { <-e.activeTaskSem }()
+		fn()
+	})
+}
+
+func (e *Executor) processResults(ctx context.Context, results []*output.ResultEvent, m modules.Module, item *httpmsg.HttpRequestResponse) {
 	moduleType := database.ModuleTypeActive
 	if _, ok := m.(modules.PassiveModule); ok {
 		moduleType = database.ModuleTypePassive
@@ -1239,15 +1302,14 @@ func (e *Executor) processResults(results []*output.ResultEvent, m modules.Modul
 			}
 		}
 
-		e.emitResult(result)
+		e.emitResult(ctx, result)
 
 		// Cross-module finding dedup: mark (URL, param, vuln_class) as found
 		// so that lower-priority modules with the same vuln class can skip.
 		if vc, ok := m.(modules.VulnClassifier); ok && e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
 			param := result.FuzzingParameter
 			if param != "" {
-				hostPath := result.Host + result.Matched
-				e.scanCtx.ParamFindings.MarkFound(hostPath, param, vc.VulnClass())
+				e.scanCtx.ParamFindings.MarkFound(paramFindingLocationKeyFromResult(result), param, vc.VulnClass())
 			}
 		}
 	}
@@ -1273,7 +1335,7 @@ func (e *Executor) moduleFindingAllowed(moduleID string) bool {
 	return true
 }
 
-func (e *Executor) emitResult(result *output.ResultEvent) {
+func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent) {
 	// Run post-hooks (may modify or drop result)
 	if e.hooks != nil {
 		hooked, err := e.hooks.RunPostHooks(result)
@@ -1318,9 +1380,9 @@ func (e *Executor) emitResult(result *output.ResultEvent) {
 					findingRR = findingRR.WithResponse(httpmsg.NewHttpResponse([]byte(result.Response)))
 					var err error
 					if e.recordWriter != nil {
-						recordUUID, err = e.recordWriter.Write(context.Background(), findingRR, "finding", e.projectUUID)
+						recordUUID, err = e.recordWriter.Write(ctx, findingRR, "finding", e.projectUUID)
 					} else {
-						recordUUID, err = e.repo.SaveRecord(context.Background(), findingRR, "finding", e.projectUUID)
+						recordUUID, err = e.repo.SaveRecord(ctx, findingRR, "finding", e.projectUUID)
 					}
 					if err != nil {
 						zap.L().Warn("Failed to save finding http_record", zap.Error(err))
@@ -1336,7 +1398,7 @@ func (e *Executor) emitResult(result *output.ResultEvent) {
 			}
 		}
 
-		if err := e.repo.SaveFinding(context.Background(), result, recordUUIDs, e.scanUUID, e.projectUUID); err != nil {
+		if err := e.repo.SaveFinding(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID); err != nil {
 			zap.L().Debug("Failed to save finding to database", zap.Error(err))
 		}
 	}
@@ -1477,6 +1539,56 @@ func filterNonScopeAware(mods []modules.PassiveModule) []modules.PassiveModule {
 		out = append(out, m)
 	}
 	return out
+}
+
+func paramFindingLocationKeyFromItem(item *httpmsg.HttpRequestResponse) string {
+	if item == nil {
+		return ""
+	}
+	if urlx, err := item.URL(); err == nil && urlx != nil {
+		return normalizeParamFindingLocation(urlx.Scheme, urlx.Host, urlx.Path)
+	}
+	if item.Request() != nil {
+		host, _ := httpmsg.GetHeaderValue(item.Request().Raw(), "Host")
+		return normalizeParamFindingLocation("", host, item.Request().Path())
+	}
+	return ""
+}
+
+func paramFindingLocationKeyFromResult(result *output.ResultEvent) string {
+	if result == nil {
+		return ""
+	}
+	if result.URL != "" {
+		if parsed, err := url.Parse(result.URL); err == nil {
+			return normalizeParamFindingLocation(parsed.Scheme, parsed.Host, parsed.Path)
+		}
+	}
+	if result.Matched != "" {
+		if parsed, err := url.Parse(result.Matched); err == nil && parsed.Host != "" {
+			return normalizeParamFindingLocation(parsed.Scheme, parsed.Host, parsed.Path)
+		}
+	}
+	if result.Request != "" {
+		host, _ := httpmsg.GetHeaderValue([]byte(result.Request), "Host")
+		path, _ := httpmsg.GetPath([]byte(result.Request))
+		return normalizeParamFindingLocation(result.Scheme, host, path)
+	}
+	return normalizeParamFindingLocation(result.Scheme, result.Host, "")
+}
+
+func normalizeParamFindingLocation(scheme, host, path string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if scheme == "" {
+		return host + path
+	}
+	return scheme + "://" + host + path
 }
 
 // moduleFilter provides O(1) module-enable lookups via a map.

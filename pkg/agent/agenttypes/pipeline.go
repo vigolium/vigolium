@@ -259,22 +259,24 @@ type ProgressEvent struct {
 
 // SwarmResult holds the outcome of an agent swarm run.
 type SwarmResult struct {
-	SwarmPlan       *SwarmPlan             `json:"swarm_plan,omitempty"`
-	TriageResults   []*TriageResult        `json:"triage_results,omitempty"`
-	TotalFindings   int                    `json:"total_findings"`
-	TotalRecords    int                    `json:"total_records"`
-	SeverityCounts  map[string]int         `json:"severity_counts,omitempty"` // critical, high, medium, low, info
-	Confirmed       int                    `json:"confirmed"`
-	FalsePositives  int                    `json:"false_positives"`
-	Iterations      int                    `json:"iterations"`
-	Duration        time.Duration          `json:"duration"`
-	AgentRunUUID    string                 `json:"agent_run_uuid"`
-	SessionID       string                 `json:"session_id,omitempty"`  // last session ID (for single or last batch)
-	SessionIDs      []string              `json:"session_ids,omitempty"` // all session IDs when batched (>5 records); nil for single-batch runs
-	SessionDir      string                 `json:"session_dir,omitempty"`
+	SwarmPlan       *SwarmPlan               `json:"swarm_plan,omitempty"`
+	TriageResults   []*TriageResult          `json:"triage_results,omitempty"`
+	TotalFindings   int                      `json:"total_findings"`
+	TotalRecords    int                      `json:"total_records"`
+	SeverityCounts  map[string]int           `json:"severity_counts,omitempty"` // critical, high, medium, low, info
+	Confirmed       int                      `json:"confirmed"`
+	FalsePositives  int                      `json:"false_positives"`
+	Iterations      int                      `json:"iterations"`
+	Duration        time.Duration            `json:"duration"`
+	AgentRunUUID    string                   `json:"agent_run_uuid"`
+	SessionID       string                   `json:"session_id,omitempty"`  // last session ID (for single or last batch)
+	SessionIDs      []string                 `json:"session_ids,omitempty"` // all session IDs when batched (>5 records); nil for single-batch runs
+	SessionDir      string                   `json:"session_dir,omitempty"`
 	PhaseTimings    map[string]time.Duration `json:"phase_timings,omitempty"`
-	TokenUsage      TokenUsage             `json:"token_usage,omitempty"`
-	BatchProvenance *BatchProvenance        `json:"batch_provenance,omitempty"` // only set when plan was merged from multiple batches
+	TokenUsage      TokenUsage               `json:"token_usage,omitempty"`
+	BatchProvenance *BatchProvenance         `json:"batch_provenance,omitempty"` // only set when plan was merged from multiple batches
+	Degraded        bool                     `json:"degraded,omitempty"`
+	Warnings        []string                 `json:"warnings,omitempty"`
 }
 
 // SwarmCheckpoint captures swarm pipeline state for checkpoint/resume.
@@ -287,6 +289,12 @@ type SwarmCheckpoint struct {
 	Timestamp        time.Time         `json:"timestamp"`
 	TriageRound      int               `json:"triage_round,omitempty"`      // last completed triage round (0-indexed)
 	ExtensionRenames map[string]string `json:"extension_renames,omitempty"` // original filename -> renamed filename
+	LastFindingID    int64             `json:"last_finding_id,omitempty"`
+	Warnings         []string          `json:"warnings,omitempty"`
+	InitialRecords   int               `json:"initial_records,omitempty"`
+	SourceRecords    int               `json:"source_records,omitempty"`
+	SASTRecords      int               `json:"sast_records,omitempty"`
+	DiscoveryRecords int               `json:"discovery_records,omitempty"`
 }
 
 // LastPhase returns the last completed phase, or "" if none.

@@ -60,10 +60,10 @@ var (
 	swarmBrowser             bool
 	swarmAuth                bool
 	swarmCredentials         string
-	swarmArchon          string
-	swarmDiff            string
-	swarmLastCommits     int
-	swarmIntensity       string
+	swarmArchon              string
+	swarmDiff                string
+	swarmLastCommits         int
+	swarmIntensity           string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -262,14 +262,14 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	{
 		changed := map[string]bool{
 			"discover":          cmd.Flags().Changed("discover"),
-			"code-audit":       cmd.Flags().Changed("code-audit"),
-			"triage":           cmd.Flags().Changed("triage"),
-			"max-iterations":   cmd.Flags().Changed("max-iterations"),
-			"archon":           cmd.Flags().Changed("archon"),
-			"max-plan-records": cmd.Flags().Changed("max-plan-records"),
-			"master-batch-size":  cmd.Flags().Changed("master-batch-size"),
-			"batch-concurrency":  cmd.Flags().Changed("batch-concurrency"),
-			"probe-concurrency":  cmd.Flags().Changed("probe-concurrency"),
+			"code-audit":        cmd.Flags().Changed("code-audit"),
+			"triage":            cmd.Flags().Changed("triage"),
+			"max-iterations":    cmd.Flags().Changed("max-iterations"),
+			"archon":            cmd.Flags().Changed("archon"),
+			"max-plan-records":  cmd.Flags().Changed("max-plan-records"),
+			"master-batch-size": cmd.Flags().Changed("master-batch-size"),
+			"batch-concurrency": cmd.Flags().Changed("batch-concurrency"),
+			"probe-concurrency": cmd.Flags().Changed("probe-concurrency"),
 			"browser":           cmd.Flags().Changed("browser"),
 			"auth":              cmd.Flags().Changed("auth"),
 			"swarm-duration":    cmd.Flags().Changed("swarm-duration"),
@@ -504,16 +504,24 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	}
 
 	// Wire scan callback with auth config support
-	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo, swarmOnlyPhase, swarmSkipPhases, &generatedAuthConfig)
+	phaseCfg := swarmNativePhaseConfig{
+		Target:      swarmTarget,
+		ProjectUUID: projectUUID,
+		ScanUUID:    globalScanID,
+		ConfigPath:  globalConfig,
+		Verbose:     globalVerbose,
+	}
+
+	cfg.ScanFunc = buildAgentSwarmScanFunc(settings, repo, phaseCfg, swarmOnlyPhase, swarmSkipPhases, &generatedAuthConfig)
 
 	// Wire optional discovery callback
 	if swarmDiscover {
-		cfg.DiscoverFunc = buildSwarmDiscoverFunc(settings, repo, &generatedAuthConfig)
+		cfg.DiscoverFunc = buildSwarmDiscoverFunc(settings, repo, phaseCfg, &generatedAuthConfig)
 	}
 
 	// Wire SAST callback automatically when --source is provided (unless --skip-sast)
 	if swarmSource != "" && !swarmSkipSAST {
-		cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, swarmSource, &generatedAuthConfig)
+		cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, phaseCfg, swarmSource, &generatedAuthConfig)
 	}
 
 	// Set up timeout
@@ -728,22 +736,26 @@ func buildSwarmInputs() ([]string, error) {
 	return inputs, nil
 }
 
+type swarmNativePhaseConfig struct {
+	Target      string
+	ProjectUUID string
+	ScanUUID    string
+	ConfigPath  string
+	Verbose     bool
+}
+
 // buildAgentSwarmScanFunc creates a callback that runs the scan.
 // When IsRescan=false, it runs a full scan (all phases, all modules) by default.
 // When IsRescan=true, it restricts to audit with targeted modules.
 // The onlyPhase and skipPhases parameters allow user control via --only/--skip flags.
 // authConfigPath points to a generated auth-config.yaml from source analysis (may be empty).
-func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
+func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
 	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
-		opts.Targets = []string{swarmTarget}
-		opts.ScanUUID = globalScanID
-		projectUUID, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
-		opts.ProjectUUID = projectUUID
-		opts.ConfigPath = globalConfig
+		opts.Targets = []string{phaseCfg.Target}
+		opts.ScanUUID = phaseCfg.ScanUUID
+		opts.ProjectUUID = phaseCfg.ProjectUUID
+		opts.ConfigPath = phaseCfg.ConfigPath
 		opts.HeuristicsCheck = "none"
 		opts.PassiveModules = []string{"all"}
 
@@ -761,8 +773,11 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 			opts.SkipIngestion = true
 			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
-			// Initial scan: full scan with all modules
-			opts.Modules = []string{"all"}
+			// Initial scan: honor the plan when it selected specific modules.
+			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
+			if len(opts.Modules) == 0 {
+				opts.Modules = []string{"all"}
+			}
 			// Apply user-specified phase control
 			if onlyPhase != "" {
 				opts.OnlyPhase = onlyPhase
@@ -773,7 +788,7 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		}
 
 		// Pass through verbose flag so audit traffic/finding lines are printed
-		opts.Verbose = globalVerbose
+		opts.Verbose = phaseCfg.Verbose
 
 		// Clone settings to avoid mutating shared config
 		settingsCopy := *settings
@@ -801,17 +816,13 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 // buildSwarmDiscoverFunc creates a callback that runs discovery + spidering
 // before the master agent planning phase. This expands the attack surface
 // by crawling/spidering the target and populating the database with HTTP records.
-func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository, authConfigPath *string) func(ctx context.Context) error {
+func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, authConfigPath *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		opts := types.DefaultOptions()
-		opts.Targets = []string{swarmTarget}
-		opts.ScanUUID = globalScanID
-		projectUUID, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
-		opts.ProjectUUID = projectUUID
-		opts.ConfigPath = globalConfig
+		opts.Targets = []string{phaseCfg.Target}
+		opts.ScanUUID = phaseCfg.ScanUUID
+		opts.ProjectUUID = phaseCfg.ProjectUUID
+		opts.ConfigPath = phaseCfg.ConfigPath
 		opts.OnlyPhase = "discovery"
 		opts.DiscoverEnabled = true
 		opts.SpideringEnabled = true
@@ -882,6 +893,12 @@ func printSwarmResult(result *agent.SwarmResult) {
 			result.Iterations)
 	}
 
+	if result.Degraded {
+		fmt.Fprintf(os.Stderr, "  %s %s warning(s)\n",
+			terminal.Gray("Warnings:"),
+			terminal.BoldYellow(fmt.Sprintf("%d", len(result.Warnings))))
+	}
+
 	// Session dir with plan file pointer
 	if result.SessionDir != "" {
 		shortDir := terminal.ShortenHome(result.SessionDir)
@@ -948,17 +965,13 @@ func splitFocusArea(area string) (string, string) {
 // buildSwarmSASTFunc creates a callback that runs the native SAST phase
 // (ast-grep route extraction, Kingfisher secret detection, third-party tools).
 // This is automatically wired when --source is provided.
-func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, sourcePath string, authConfigPath *string) func(ctx context.Context) error {
+func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, sourcePath string, authConfigPath *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		opts := types.DefaultOptions()
-		opts.Targets = []string{swarmTarget}
-		opts.ScanUUID = globalScanID
-		projectUUID, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
-		opts.ProjectUUID = projectUUID
-		opts.ConfigPath = globalConfig
+		opts.Targets = []string{phaseCfg.Target}
+		opts.ScanUUID = phaseCfg.ScanUUID
+		opts.ProjectUUID = phaseCfg.ProjectUUID
+		opts.ConfigPath = phaseCfg.ConfigPath
 		opts.SourcePath = sourcePath
 		opts.SASTEnabled = true
 		opts.OnlyPhase = "sast"
@@ -1133,33 +1146,41 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 
 		var generatedAuthConfig string
 
+		phaseCfg := swarmNativePhaseConfig{
+			Target:      app.Target,
+			ProjectUUID: projectUUID,
+			ScanUUID:    globalScanID,
+			ConfigPath:  globalConfig,
+			Verbose:     globalVerbose,
+		}
+
 		cfg := agent.SwarmConfig{
-			Inputs:       inputs,
-			Instruction:  instruction,
-			SourcePath:   app.SourcePath,
-			VulnType:     vulnType,
-			Focus:        focus,
+			Inputs:        inputs,
+			Instruction:   instruction,
+			SourcePath:    app.SourcePath,
+			VulnType:      vulnType,
+			Focus:         focus,
 			MaxIterations: swarmMaxIterations,
-			AgentName:    swarmAgentName,
-			ShowPrompt:   swarmShowPrompt,
-			CodeAudit:    codeAudit,
-			SkipPhases:   skipPhases,
-			SessionsDir:  settings.Agent.EffectiveSessionsDir(),
-			SessionDir:   sessionDir,
-			RunUUID:      runID,
-			ProjectUUID:  projectUUID,
-			ScanUUID:     globalScanID,
+			AgentName:     swarmAgentName,
+			ShowPrompt:    swarmShowPrompt,
+			CodeAudit:     codeAudit,
+			SkipPhases:    skipPhases,
+			SessionsDir:   settings.Agent.EffectiveSessionsDir(),
+			SessionDir:    sessionDir,
+			RunUUID:       runID,
+			ProjectUUID:   projectUUID,
+			ScanUUID:      globalScanID,
 		}
 
 		// Wire scan callback using per-app target (not the package-level swarmTarget)
-		cfg.ScanFunc = buildMultiAppSwarmScanFunc(settings, repo, app.Target, swarmOnlyPhase, swarmSkipPhases, &generatedAuthConfig)
+		cfg.ScanFunc = buildMultiAppSwarmScanFunc(settings, repo, phaseCfg, swarmOnlyPhase, swarmSkipPhases, &generatedAuthConfig)
 
 		if app.Discover && app.Target != "" {
-			cfg.DiscoverFunc = buildMultiAppSwarmDiscoverFunc(settings, repo, app.Target, &generatedAuthConfig)
+			cfg.DiscoverFunc = buildMultiAppSwarmDiscoverFunc(settings, repo, phaseCfg, &generatedAuthConfig)
 		}
 
 		if app.SourcePath != "" && !swarmSkipSAST {
-			cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, app.SourcePath, &generatedAuthConfig)
+			cfg.SASTFunc = buildSwarmSASTFunc(settings, repo, phaseCfg, app.SourcePath, &generatedAuthConfig)
 		}
 
 		swarmRunner := agent.NewSwarmRunner(engine, repo)
@@ -1169,19 +1190,15 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 }
 
 // buildMultiAppSwarmScanFunc is like buildAgentSwarmScanFunc but takes an explicit
-// target parameter instead of closing over the package-level swarmTarget.
+// per-run phase config instead of relying on package-level CLI globals.
 // This is necessary for multi-app fan-out where each goroutine has a different target.
-func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Repository, target string, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
+func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
 	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
-		opts.Targets = []string{target}
-		opts.ScanUUID = globalScanID
-		projectUUID, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
-		opts.ProjectUUID = projectUUID
-		opts.ConfigPath = globalConfig
+		opts.Targets = []string{phaseCfg.Target}
+		opts.ScanUUID = phaseCfg.ScanUUID
+		opts.ProjectUUID = phaseCfg.ProjectUUID
+		opts.ConfigPath = phaseCfg.ConfigPath
 		opts.HeuristicsCheck = "none"
 		opts.PassiveModules = []string{"all"}
 
@@ -1195,7 +1212,10 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 			opts.SkipIngestion = true
 			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
-			opts.Modules = []string{"all"}
+			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
+			if len(opts.Modules) == 0 {
+				opts.Modules = []string{"all"}
+			}
 			if onlyPhase != "" {
 				opts.OnlyPhase = onlyPhase
 			}
@@ -1204,7 +1224,7 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 			}
 		}
 
-		opts.Verbose = globalVerbose
+		opts.Verbose = phaseCfg.Verbose
 
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
@@ -1213,7 +1233,7 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Scanning %s with modules: %s\n",
-			terminal.GrbRed(terminal.SymbolSparkle), target,
+			terminal.GrbRed(terminal.SymbolSparkle), phaseCfg.Target,
 			summarizeModules(opts.Modules))
 
 		scanRunner, runErr := runner.New(opts)
@@ -1229,18 +1249,14 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 }
 
 // buildMultiAppSwarmDiscoverFunc is like buildSwarmDiscoverFunc but takes an explicit
-// target parameter instead of closing over the package-level swarmTarget.
-func buildMultiAppSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository, target string, authConfigPath *string) func(ctx context.Context) error {
+// per-run phase config instead of relying on package-level CLI globals.
+func buildMultiAppSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, authConfigPath *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		opts := types.DefaultOptions()
-		opts.Targets = []string{target}
-		opts.ScanUUID = globalScanID
-		projectUUID, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
-		opts.ProjectUUID = projectUUID
-		opts.ConfigPath = globalConfig
+		opts.Targets = []string{phaseCfg.Target}
+		opts.ScanUUID = phaseCfg.ScanUUID
+		opts.ProjectUUID = phaseCfg.ProjectUUID
+		opts.ConfigPath = phaseCfg.ConfigPath
 		opts.HeuristicsCheck = "none"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
@@ -1251,7 +1267,7 @@ func buildMultiAppSwarmDiscoverFunc(settings *config.Settings, repo *database.Re
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Discovery+spidering for %s (crawl, JS analysis, external harvesting)\n",
-			terminal.GrbRed(terminal.SymbolSparkle), target)
+			terminal.GrbRed(terminal.SymbolSparkle), phaseCfg.Target)
 
 		return runPhaseRunner(opts, settings, repo)
 	}

@@ -196,7 +196,7 @@ func TestAuditAgent_SwarmWithAuditAgent(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		Archon:  auditCfg,
+		Archon:      auditCfg,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -268,7 +268,7 @@ func TestAuditAgent_SkippedWhenNoSource(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		Archon:  &settings.Agent.Archon,
+		Archon:      &settings.Agent.Archon,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -323,7 +323,7 @@ func TestAuditAgent_SkippedWhenDisabled(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		Archon:  nil, // explicitly nil
+		Archon:      nil, // explicitly nil
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 	}
 
@@ -426,7 +426,7 @@ func TestAuditAgent_MockMode(t *testing.T) {
 	stateStr := string(data)
 	assert.Contains(t, stateStr, `"status": "complete"`, "state should be complete")
 	assert.Contains(t, stateStr, `"mock"`, "should have a mock phase")
-	assert.Contains(t, stateStr, `"Mock mode"`, "should have mock summary")
+	assert.Contains(t, stateStr, `Mock mode`, "should have mock summary")
 }
 
 // TestAuditAgent_MockResolveConfig verifies that mock is accepted by ResolveAuditAgentConfig.
@@ -529,7 +529,7 @@ func TestAuditAgent_CancelledMidRun(t *testing.T) {
 		AgentName:   agentName,
 		ProjectUUID: database.DefaultProjectUUID,
 		SessionDir:  sessionDir,
-		Archon:  &settings.Agent.Archon,
+		Archon:      &settings.Agent.Archon,
 		SkipPhases:  []string{"native-scan", "triage", "native-rescan"},
 		PhaseCallback: func(phase string) {
 			atomic.AddInt32(&auditPhaseLogged, 1)

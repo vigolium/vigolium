@@ -313,8 +313,8 @@ vigolium agent autopilot -t https://example.com
 # With source code context and focus area
 vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 
-# With specialist pipeline (parallel vulnerability-class analysis)
-vigolium agent autopilot -t https://example.com --specialists injection,xss,auth
+# Source-aware autonomous scan
+vigolium agent autopilot -t https://example.com --source ./src --focus "auth bypass"
 
 # Custom limits
 vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m

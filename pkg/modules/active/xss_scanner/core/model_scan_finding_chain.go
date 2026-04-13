@@ -2,8 +2,6 @@ package core
 
 import (
 	"fmt"
-
-	"github.com/vigolium/vigolium/pkg/modules/active/xss_scanner/utils"
 )
 
 // Severity levels for XSS findings
@@ -270,17 +268,6 @@ func ExtractInjectionEvidence(payload []byte, reflectionInfo *ReflectionPointCor
 	}
 
 	return evidence
-}
-
-// Helper to convert HTTPTransaction to raw request bytes
-func TransactionToRequestBytes(transaction *utils.HTTPTransaction) []byte {
-	if transaction == nil || transaction.GetRequest() == nil {
-		return nil
-	}
-
-	// This would need to be implemented based on your HTTPTransaction structure
-	// For now, return empty slice
-	return []byte{}
 }
 
 // InferSeverityFromStrategy infers severity level based on strategy type name.

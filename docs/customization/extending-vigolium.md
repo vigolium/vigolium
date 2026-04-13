@@ -401,11 +401,11 @@ Respond with JSON: {"findings": [...]}
 
 | Variable | Source | Description |
 |---|---|---|
-| `SourceCode` | Gathered from `--repo`/`--files` | Concatenated source code |
+| `SourceCode` | Gathered from `--source`/`--files` | Concatenated source code |
 | `Language` | Auto-detected | Primary language (Go, Python, JS, etc.) |
 | `Framework` | `--framework` flag | Framework hint |
 | `FilePath` | Gathered | Primary file path |
-| `RepoPath` | `--repo` flag | Repository root path |
+| `RepoPath` | `--source` flag | Repository root path |
 | `TargetURL` | `--target` flag | Target URL |
 | `Hostname` | Derived from target | Hostname for DB lookups |
 | `Endpoints` | `--endpoints` flag | Pre-discovered endpoints |
@@ -477,10 +477,10 @@ Place custom templates in `~/.vigolium/prompts/` or set `agent.templates_dir` in
 
 ```bash
 # Use a custom template
-vigolium agent --prompt-template my-custom-review --repo /path/to/source
+vigolium agent query --prompt-template my-custom-review --source /path/to/source
 
 # Dry-run to see the rendered prompt
-vigolium agent --prompt-template my-custom-review --repo /path/to/source --dry-run
+vigolium agent query --prompt-template my-custom-review --source /path/to/source --dry-run
 ```
 
 ### Pros
@@ -776,7 +776,7 @@ agent:
 
 Use it:
 ```bash
-vigolium agent --agent my-agent --prompt-template security-code-review --repo /path/to/code
+vigolium agent query --agent my-agent --prompt-template security-code-review --source /path/to/code
 ```
 
 ### Protocols

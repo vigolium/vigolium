@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
@@ -104,9 +104,16 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 		severities = strings.Split(cleanSeverity, ",")
 	}
 
+	projectUUID, err := resolveProjectUUID()
+	if err != nil {
+		return err
+	}
+
 	filters := database.QueryFilters{
+		ProjectUUID: projectUUID,
 		HostPattern: cleanHost,
 		StatusCodes: cleanStatus,
+		ScanUUID:    cleanScanUUID,
 		DateTo:      dateFrom,
 		Severity:    severities,
 		SearchTerm:  dbSearch,

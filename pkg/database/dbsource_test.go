@@ -67,6 +67,7 @@ func TestOneShotDBInputSource_ReturnsAllRecords(t *testing.T) {
 			t.Fatalf("Next(): %v", err)
 		}
 		got = append(got, item.RecordUUID)
+		item.Complete()
 	}
 
 	if len(got) != len(inserted) {
@@ -103,13 +104,14 @@ func TestOneShotDBInputSource_TimestampCollision(t *testing.T) {
 	source := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
 	count := 0
 	for {
-		_, err := source.Next(ctx)
+		item, err := source.Next(ctx)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			t.Fatalf("Next()[%d]: %v", count, err)
 		}
+		item.Complete()
 		count++
 	}
 
@@ -134,13 +136,14 @@ func TestAuditPhasePattern_SeedThenAudit(t *testing.T) {
 	// Simulate seed phase: read all records (advances cursor to end)
 	seed := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
 	for {
-		_, err := seed.Next(ctx)
+		item, err := seed.Next(ctx)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			t.Fatalf("seed Next(): %v", err)
 		}
+		item.Complete()
 	}
 	_ = seed.Close()
 
@@ -167,6 +170,7 @@ func TestAuditPhasePattern_SeedThenAudit(t *testing.T) {
 			t.Fatalf("audit Next(): %v", err)
 		}
 		auditUUIDs = append(auditUUIDs, item.RecordUUID)
+		item.Complete()
 	}
 
 	if len(auditUUIDs) != n {
@@ -232,13 +236,14 @@ func TestConcurrentWritesDuringCursorRead(t *testing.T) {
 	source := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
 	count := 0
 	for {
-		_, err := source.Next(ctx)
+		item, err := source.Next(ctx)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			t.Fatalf("Next()[%d]: %v", count, err)
 		}
+		item.Complete()
 		count++
 	}
 
@@ -246,5 +251,88 @@ func TestConcurrentWritesDuringCursorRead(t *testing.T) {
 
 	if count != n {
 		t.Errorf("concurrent: got %d, want %d", count, n)
+	}
+}
+
+func TestOneShotDBInputSource_CursorAdvancesOnlyOnComplete(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	scanUUID := createTestScan(t, repo)
+
+	host := "ack.example.com"
+	insertTestRecordsWithHost(t, repo, host, 2)
+
+	source := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
+	item, err := source.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next(): %v", err)
+	}
+
+	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
+	if !scan.CursorAt.IsZero() {
+		t.Fatalf("cursor advanced before Complete(): %v", scan.CursorAt)
+	}
+
+	item.Complete()
+
+	scan, _ = repo.GetScanByUUID(ctx, scanUUID)
+	if scan.CursorAt.IsZero() {
+		t.Fatal("cursor should advance after Complete()")
+	}
+}
+
+func TestRiskPrioritizedDBInputSource_DoesNotSkipNonRiskRecords(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	scanUUID := createTestScan(t, repo)
+
+	host := "priority.example.com"
+	inserted := insertTestRecordsWithHost(t, repo, host, 5)
+
+	// Make the newest record high risk to force out-of-order processing.
+	if err := repo.UpdateRiskScores(ctx, map[string]int{inserted[len(inserted)-1]: 10}); err != nil {
+		t.Fatalf("UpdateRiskScores: %v", err)
+	}
+
+	source := NewRiskPrioritizedDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
+	var got []string
+	for {
+		item, err := source.Next(ctx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next(): %v", err)
+		}
+		got = append(got, item.RecordUUID)
+		item.Complete()
+	}
+
+	if len(got) != len(inserted) {
+		t.Fatalf("got %d records, want %d", len(got), len(inserted))
+	}
+
+	seen := make(map[string]bool, len(got))
+	for _, uuid := range got {
+		seen[uuid] = true
+	}
+	for _, uuid := range inserted {
+		if !seen[uuid] {
+			t.Fatalf("missing UUID %s", uuid)
+		}
+	}
+
+	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
+	if scan.ProcessedCount != int64(len(inserted)) {
+		t.Fatalf("processed_count=%d, want %d", scan.ProcessedCount, len(inserted))
+	}
+	remaining, err := repo.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID, host)
+	if err != nil {
+		t.Fatalf("CountRecordsAfterCursor: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining=%d, want 0", remaining)
 	}
 }

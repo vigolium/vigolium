@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
-	"github.com/spf13/cobra"
 )
 
 var dbExportCmd = &cobra.Command{
@@ -113,6 +113,7 @@ func runDBExport(cmd *cobra.Command, args []string) error {
 			Methods:     exportMethods,
 			StatusCodes: exportStatus,
 			PathPattern: exportPath,
+			ScanUUID:    exportScanUUID,
 			Severity:    severities,
 			DateFrom:    dateFrom,
 			DateTo:      dateTo,

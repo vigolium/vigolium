@@ -124,13 +124,17 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 		return
 	}
 	db := repo.DB()
+	cacheScope := hostname
+	if data != nil && data.TargetURL != "" {
+		cacheScope = data.TargetURL
+	}
 
 	// Previous findings
 	if VariablesDeclared(templateVars, "PreviousFindings") {
 		limit := limits.EffectiveMaxFindings()
 		cached := false
 		if cache != nil {
-			if val, ok := cache.Get(hostname, "PreviousFindings", limit); ok {
+			if val, ok := cache.Get(cacheScope, "PreviousFindings", limit); ok {
 				data.PreviousFindings = val
 				cached = true
 			}
@@ -160,7 +164,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 				if b, err := json.Marshal(entries); err == nil {
 					data.PreviousFindings = string(b)
 					if cache != nil {
-						cache.Set(hostname, "PreviousFindings", limit, data.PreviousFindings)
+						cache.Set(cacheScope, "PreviousFindings", limit, data.PreviousFindings)
 					}
 				}
 			}
@@ -172,7 +176,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 		limit := limits.EffectiveMaxEndpoints()
 		cached := false
 		if cache != nil {
-			if val, ok := cache.Get(hostname, "DiscoveredEndpoints", limit); ok {
+			if val, ok := cache.Get(cacheScope, "DiscoveredEndpoints", limit); ok {
 				data.DiscoveredEndpoints = val
 				cached = true
 			}
@@ -199,7 +203,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 				if b, err := json.Marshal(entries); err == nil {
 					data.DiscoveredEndpoints = string(b)
 					if cache != nil {
-						cache.Set(hostname, "DiscoveredEndpoints", limit, data.DiscoveredEndpoints)
+						cache.Set(cacheScope, "DiscoveredEndpoints", limit, data.DiscoveredEndpoints)
 					}
 				}
 			}
@@ -210,7 +214,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 	if VariablesDeclared(templateVars, "ScanStats") {
 		cached := false
 		if cache != nil {
-			if val, ok := cache.Get(hostname, "ScanStats", 0); ok {
+			if val, ok := cache.Get(cacheScope, "ScanStats", 0); ok {
 				data.ScanStats = val
 				cached = true
 			}
@@ -227,7 +231,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 				if b, err := json.Marshal(stats); err == nil {
 					data.ScanStats = string(b)
 					if cache != nil {
-						cache.Set(hostname, "ScanStats", 0, data.ScanStats)
+						cache.Set(cacheScope, "ScanStats", 0, data.ScanStats)
 					}
 				}
 			}
@@ -239,7 +243,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 		limit := limits.EffectiveMaxHighRisk()
 		cached := false
 		if cache != nil {
-			if val, ok := cache.Get(hostname, "HighRiskEndpoints", limit); ok {
+			if val, ok := cache.Get(cacheScope, "HighRiskEndpoints", limit); ok {
 				data.HighRiskEndpoints = val
 				cached = true
 			}
@@ -272,7 +276,7 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 				if b, err := json.Marshal(entries); err == nil {
 					data.HighRiskEndpoints = string(b)
 					if cache != nil {
-						cache.Set(hostname, "HighRiskEndpoints", limit, data.HighRiskEndpoints)
+						cache.Set(cacheScope, "HighRiskEndpoints", limit, data.HighRiskEndpoints)
 					}
 				}
 			}

@@ -582,6 +582,14 @@ func (r *Repository) IncrementProcessedCount(ctx context.Context, scanUUID strin
 
 // AdvanceScanCursor updates the cursor position and increments ProcessedCount.
 func (r *Repository) AdvanceScanCursor(ctx context.Context, scanUUID string, recordCreatedAt time.Time, recordUUID string) error {
+	return r.AdvanceScanCursorBy(ctx, scanUUID, recordCreatedAt, recordUUID, 1)
+}
+
+// AdvanceScanCursorBy updates the cursor position and increments ProcessedCount by delta.
+func (r *Repository) AdvanceScanCursorBy(ctx context.Context, scanUUID string, recordCreatedAt time.Time, recordUUID string, delta int64) error {
+	if delta <= 0 {
+		delta = 1
+	}
 	// Format cursor_at to match SQLite's CURRENT_TIMESTAMP format (no timezone suffix).
 	// Go's time.Time serialization adds timezone info that breaks SQLite text comparison.
 	cursorAt := recordCreatedAt.UTC().Format("2006-01-02 15:04:05")
@@ -589,7 +597,7 @@ func (r *Repository) AdvanceScanCursor(ctx context.Context, scanUUID string, rec
 		Model((*Scan)(nil)).
 		Set("cursor_at = ?", cursorAt).
 		Set("cursor_uuid = ?", recordUUID).
-		Set("processed_count = processed_count + 1").
+		Set("processed_count = processed_count + ?", delta).
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Where("uuid = ?", scanUUID).
 		Exec(ctx)
@@ -1577,12 +1585,12 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		  AND matched_at != ''`
 
 	type findingRow struct {
-		ID                 int64  `bun:"id"`
-		Request            string `bun:"request"`
-		Response           string `bun:"response"`
+		ID                 int64    `bun:"id"`
+		Request            string   `bun:"request"`
+		Response           string   `bun:"response"`
 		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
-		RN                 int64  `bun:"rn"`
-		GroupKey           string `bun:"group_key"`
+		RN                 int64    `bun:"rn"`
+		GroupKey           string   `bun:"group_key"`
 	}
 
 	var rows []findingRow
@@ -1816,251 +1824,6 @@ func updateRiskScoreBatch(ctx context.Context, tx bun.Tx, scores map[string]int,
 	_, err := tx.ExecContext(ctx, caseSQL.String(), args...)
 	if err != nil {
 		return fmt.Errorf("failed to batch update risk_scores: %w", err)
-	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Agent Runs
-// ---------------------------------------------------------------------------
-
-// CreateAgentRun inserts a new agent run record.
-func (r *Repository) CreateAgentRun(ctx context.Context, run *AgentRun) error {
-	run.ProjectUUID = defaultProjectUUID(run.ProjectUUID)
-	if _, err := r.db.NewInsert().Model(run).Exec(ctx); err != nil {
-		return fmt.Errorf("failed to insert agent run: %w", err)
-	}
-	return nil
-}
-
-// GetAgentRun retrieves an agent run by UUID.
-func (r *Repository) GetAgentRun(ctx context.Context, uuid string) (*AgentRun, error) {
-	run := &AgentRun{}
-	err := r.db.NewSelect().Model(run).Where("uuid = ?", uuid).Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("agent run not found: %w", err)
-	}
-	return run, nil
-}
-
-// UpdateAgentRun updates an agent run record (full update by UUID).
-func (r *Repository) UpdateAgentRun(ctx context.Context, run *AgentRun) error {
-	_, err := r.db.NewUpdate().Model(run).Where("uuid = ?", run.UUID).Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to update agent run: %w", err)
-	}
-	return nil
-}
-
-// ListAgentRuns returns paginated agent runs for a project, ordered by created_at DESC.
-func (r *Repository) ListAgentRuns(ctx context.Context, projectUUID string, mode string, limit, offset int) ([]*AgentRun, int64, error) {
-	projectUUID = defaultProjectUUID(projectUUID)
-	if limit <= 0 {
-		limit = 50
-	}
-
-	// Count total matching rows (without LIMIT/OFFSET).
-	// Exclude child runs (those with a parent) from the default listing.
-	countQ := r.db.NewSelect().Model((*AgentRun)(nil)).
-		Where("project_uuid = ?", projectUUID).
-		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')")
-	if mode != "" {
-		countQ = countQ.Where("mode = ?", mode)
-	}
-	total, countErr := countQ.Count(ctx)
-
-	var runs []*AgentRun
-	q := r.db.NewSelect().Model(&runs).
-		Where("project_uuid = ?", projectUUID).
-		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')").
-		OrderExpr("created_at DESC").
-		Limit(limit).
-		Offset(offset)
-
-	if mode != "" {
-		q = q.Where("mode = ?", mode)
-	}
-
-	if err := q.Scan(ctx); err != nil {
-		return nil, 0, fmt.Errorf("failed to list agent runs: %w", err)
-	}
-
-	// Fall back to page size if count query failed.
-	if countErr != nil {
-		total = len(runs)
-	}
-	return runs, int64(total), nil
-}
-
-// GetChildAgentRuns returns agent runs whose ParentRunUUID matches the given UUID.
-func (r *Repository) GetChildAgentRuns(ctx context.Context, parentUUID string) ([]*AgentRun, error) {
-	var runs []*AgentRun
-	err := r.db.NewSelect().Model(&runs).
-		Where("parent_run_uuid = ?", parentUUID).
-		OrderExpr("created_at ASC").
-		Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get child agent runs: %w", err)
-	}
-	return runs, nil
-}
-
-// DeleteOldAgentRuns removes completed/failed agent runs older than the given duration.
-func (r *Repository) DeleteOldAgentRuns(ctx context.Context, olderThan time.Duration) (int, error) {
-	cutoff := time.Now().Add(-olderThan)
-	res, err := r.db.NewDelete().Model((*AgentRun)(nil)).
-		Where("status IN (?, ?)", "completed", "failed").
-		Where("completed_at < ?", cutoff).
-		Exec(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to delete old agent runs: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
-}
-
-// ---------------------------------------------------------------------------
-// Session Hostnames
-// ---------------------------------------------------------------------------
-
-// SaveSessionHostname upserts a single session hostname record.
-// Conflict key: (project_uuid, hostname, session_name).
-func (r *Repository) SaveSessionHostname(ctx context.Context, sh *SessionHostname) error {
-	if sh == nil {
-		return fmt.Errorf("invalid SessionHostname")
-	}
-	sh.ProjectUUID = defaultProjectUUID(sh.ProjectUUID)
-	now := time.Now()
-	sh.CreatedAt = now
-	sh.UpdatedAt = now
-
-	_, err := r.db.NewInsert().Model(sh).
-		On("CONFLICT (project_uuid, hostname, session_name) DO UPDATE").
-		Set("scan_uuid = EXCLUDED.scan_uuid").
-		Set("session_role = EXCLUDED.session_role").
-		Set("position = EXCLUDED.position").
-		Set("session_token = EXCLUDED.session_token").
-		Set("headers = EXCLUDED.headers").
-		Set("login_url = EXCLUDED.login_url").
-		Set("login_method = EXCLUDED.login_method").
-		Set("login_content_type = EXCLUDED.login_content_type").
-		Set("login_body = EXCLUDED.login_body").
-		Set("login_request = EXCLUDED.login_request").
-		Set("login_response = EXCLUDED.login_response").
-		Set("extract_rules = EXCLUDED.extract_rules").
-		Set("source = EXCLUDED.source").
-		Set("hydrated_at = EXCLUDED.hydrated_at").
-		Set("updated_at = CURRENT_TIMESTAMP").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to upsert session hostname: %w", err)
-	}
-	return nil
-}
-
-// SaveSessionHostnames batch-upserts session hostname records in a transaction.
-func (r *Repository) SaveSessionHostnames(ctx context.Context, rows []*SessionHostname) error {
-	if len(rows) == 0 {
-		return nil
-	}
-	return r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		for _, sh := range rows {
-			sh.ProjectUUID = defaultProjectUUID(sh.ProjectUUID)
-			now := time.Now()
-			sh.CreatedAt = now
-			sh.UpdatedAt = now
-
-			_, err := tx.NewInsert().Model(sh).
-				On("CONFLICT (project_uuid, hostname, session_name) DO UPDATE").
-				Set("scan_uuid = EXCLUDED.scan_uuid").
-				Set("session_role = EXCLUDED.session_role").
-				Set("position = EXCLUDED.position").
-				Set("session_token = EXCLUDED.session_token").
-				Set("headers = EXCLUDED.headers").
-				Set("login_url = EXCLUDED.login_url").
-				Set("login_method = EXCLUDED.login_method").
-				Set("login_content_type = EXCLUDED.login_content_type").
-				Set("login_body = EXCLUDED.login_body").
-				Set("login_request = EXCLUDED.login_request").
-				Set("login_response = EXCLUDED.login_response").
-				Set("extract_rules = EXCLUDED.extract_rules").
-				Set("source = EXCLUDED.source").
-				Set("hydrated_at = EXCLUDED.hydrated_at").
-				Set("updated_at = CURRENT_TIMESTAMP").
-				Exec(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to upsert session hostname %q: %w", sh.SessionName, err)
-			}
-		}
-		return nil
-	})
-}
-
-// GetSessionHostnamesByHostname returns session hostnames for a project+hostname, ordered by position.
-func (r *Repository) GetSessionHostnamesByHostname(ctx context.Context, projectUUID, hostname string) ([]*SessionHostname, error) {
-	var rows []*SessionHostname
-	err := r.db.NewSelect().
-		Model(&rows).
-		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
-		Where("hostname = ?", hostname).
-		Order("position ASC").
-		Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session hostnames: %w", err)
-	}
-	return rows, nil
-}
-
-// GetSessionHostnamesByProject returns all session hostnames for a project, ordered by hostname then position.
-func (r *Repository) GetSessionHostnamesByProject(ctx context.Context, projectUUID string) ([]*SessionHostname, error) {
-	var rows []*SessionHostname
-	err := r.db.NewSelect().
-		Model(&rows).
-		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
-		Order("hostname ASC", "position ASC").
-		Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session hostnames by project: %w", err)
-	}
-	return rows, nil
-}
-
-// GetSessionHostnamesByScan returns session hostnames for a project+scan, ordered by hostname then position.
-func (r *Repository) GetSessionHostnamesByScan(ctx context.Context, projectUUID, scanUUID string) ([]*SessionHostname, error) {
-	var rows []*SessionHostname
-	err := r.db.NewSelect().
-		Model(&rows).
-		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
-		Where("scan_uuid = ?", scanUUID).
-		Order("hostname ASC", "position ASC").
-		Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session hostnames by scan: %w", err)
-	}
-	return rows, nil
-}
-
-// DeleteSessionHostname deletes a single session hostname by ID.
-func (r *Repository) DeleteSessionHostname(ctx context.Context, id int64) error {
-	_, err := r.db.NewDelete().
-		Model((*SessionHostname)(nil)).
-		Where("id = ?", id).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to delete session hostname: %w", err)
-	}
-	return nil
-}
-
-// DeleteSessionHostnamesByHostname deletes all session hostnames for a project+hostname.
-func (r *Repository) DeleteSessionHostnamesByHostname(ctx context.Context, projectUUID, hostname string) error {
-	_, err := r.db.NewDelete().
-		Model((*SessionHostname)(nil)).
-		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
-		Where("hostname = ?", hostname).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to delete session hostnames: %w", err)
 	}
 	return nil
 }

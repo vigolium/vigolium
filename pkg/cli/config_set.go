@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
 )
 
 var configSetCmd = &cobra.Command{
@@ -34,8 +34,8 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load current settings
-	configPath := config.ConfigFilePath()
-	settings, err := config.LoadSettings("")
+	configPath := effectiveConfigPath()
+	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}

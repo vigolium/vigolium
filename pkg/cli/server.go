@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/core/network"
@@ -18,14 +19,13 @@ import (
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dedup"
-	"github.com/vigolium/vigolium/public"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/queue"
 	"github.com/vigolium/vigolium/pkg/server"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
-	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
 )
 
@@ -162,7 +162,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		if !globalSilent && len(serverOpts.APIKeys) == 0 {
 			fmt.Printf("  %s To view your API key: %s\n",
 				terminal.InfoSymbol(),
-				terminal.Cyan("vigolium config view server.auth_api_key --force"))
+				terminal.Cyan("vigolium config ls server.auth_api_key --force"))
 		}
 	}
 

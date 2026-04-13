@@ -6,7 +6,7 @@ Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, or any cust
 
 | Mode | Command | Scope | AI Calls | Best For |
 |------|---------|-------|----------|----------|
-| **Run/Query** | `vigolium agent` | Source code | 1 | Code review, endpoint discovery, SAST |
+| **Run/Query** | `vigolium agent query` | Source code | 1 | Code review, endpoint discovery, SAST |
 | **Autopilot** | `vigolium agent autopilot` | Entire target | Many | Agentic scan: exploratory scanning, ad-hoc research |
 | **Swarm** | `vigolium agent swarm` | Full target or specific endpoints | 2-4+ | Agentic scan: targeted testing, full-scope scanning with `--discover` |
 
@@ -14,7 +14,7 @@ Vigolium's agent mode integrates AI agents (Claude, Codex, OpenCode, or any cust
 
 ```bash
 # Code review — single AI call, structured findings
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 
 # Autonomous scanning — agent drives the CLI
 vigolium agent autopilot -t https://example.com
@@ -43,13 +43,13 @@ Single-shot prompt execution. Send a prompt template or inline prompt to an AI a
 
 ```bash
 # Template-based code review
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 
 # Review specific files
-vigolium agent --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
+vigolium agent query --prompt-template injection-sinks --source ./src --files db/query.go,api/handler.go
 
 # Custom prompt file
-vigolium agent --prompt-file my-prompt.md --source ./src
+vigolium agent query --prompt-file my-prompt.md --source ./src
 
 # Freeform question (no structured output)
 vigolium agent query "What are common JWT vulnerabilities?"
@@ -58,7 +58,7 @@ vigolium agent query "What are common JWT vulnerabilities?"
 echo "explain CSRF" | vigolium agent query --stdin
 
 # Dry run — render prompt without executing
-vigolium agent --prompt-template endpoint-discovery --source ./src --dry-run
+vigolium agent query --prompt-template endpoint-discovery --source ./src --dry-run
 
 # List available templates and agents
 vigolium agent --list-templates
@@ -69,28 +69,28 @@ vigolium agent --list-agents
 
 ```bash
 # Review only authentication-related files
-vigolium agent --prompt-template security-code-review --source ./src --files auth/login.go,auth/session.go,middleware/jwt.go
+vigolium agent query --prompt-template security-code-review --source ./src --files auth/login.go,auth/session.go,middleware/jwt.go
 
 # Discover API endpoints from a Django project
-vigolium agent --prompt-template endpoint-discovery --source ~/projects/django-app
+vigolium agent query --prompt-template endpoint-discovery --source ~/projects/django-app
 
 # Code review with additional focus instructions
-vigolium agent --prompt-template security-code-review --source ./src --append "Pay special attention to deserialization and file upload handling"
+vigolium agent query --prompt-template security-code-review --source ./src --append "Pay special attention to deserialization and file upload handling"
 
 # Save agent output to a file for later review
-vigolium agent --prompt-template security-code-review --source ./src --output review-results.json
+vigolium agent query --prompt-template security-code-review --source ./src --output review-results.json
 
 # Review source code from a specific project
-vigolium agent --prompt-template security-code-review --source ./src --project my-api
+vigolium agent query --prompt-template security-code-review --source ./src --project my-api
 
 # Chain with jq — extract only high-severity findings
-vigolium agent --prompt-template security-code-review --source ./src --json | jq '.[] | select(.severity == "high")'
+vigolium agent query --prompt-template security-code-review --source ./src --json | jq '.[] | select(.severity == "high")'
 
 # Quick inline question about a codebase
 vigolium agent query "What authentication mechanisms does this app use?" --source ./src
 
 # Detect hardcoded secrets in config files
-vigolium agent --prompt-template secret-detection --source ./src --files config/,deploy/
+vigolium agent query --prompt-template secret-detection --source ./src --files config/,deploy/
 ```
 
 **Key Flags:**
@@ -145,7 +145,7 @@ At least one of `prompt_template`, `prompt_file`, or `prompt` is required.
 
 ## Autopilot (Agentic Scan)
 
-Full autonomous control. The AI agent drives the vulnerability scanning workflow, deciding what to scan, interpreting results, and iterating. When `--archon` is provided with `--source`, autopilot runs an **archon-audit first**, then feeds the audit findings into the agent's prompt — the agent reviews whitebox findings and takes action: writing PoCs, running targeted scans, and investigating uncertain findings.
+Full autonomous control. The AI agent drives the vulnerability scanning workflow, deciding what to scan, interpreting results, and iterating. When `--source` is provided, autopilot runs an **archon-audit first** by default, then feeds the audit findings into the agent's prompt. Use `--no-archon` to disable this, or `--archon-mode` to choose the audit depth.
 
 See the full [Autopilot documentation](autopilot.md) for architecture diagrams, finding prompt formatting tiers, and detailed configuration.
 
@@ -153,8 +153,8 @@ See the full [Autopilot documentation](autopilot.md) for architecture diagrams, 
 
 - Spawns an AI agent with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write)
 - Agent decides its own workflow — discover, scan, review, iterate, report
-- **Archon-first** (optional, with `--archon`): runs archon-audit sequentially, waits for completion, then loads findings into the agent's prompt for exploitation and verification
-- Without `--archon`: agent receives a generic security assessment brief
+- **Archon-first** (default when `--source` is set): runs archon-audit sequentially, waits for completion, then loads findings into the agent's prompt for exploitation and verification
+- Without source, or with `--no-archon`: agent receives a generic security assessment brief
 
 ### CLI
 
@@ -163,10 +163,10 @@ See the full [Autopilot documentation](autopilot.md) for architecture diagrams, 
 vigolium agent autopilot -t https://example.com
 
 # Archon-first: deep whitebox audit, then agent exploits findings
-vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon deep
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon-mode deep
 
 # Quick archon audit (3-phase) before scanning
-vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app --archon
+vigolium agent autopilot -t http://localhost:3000 --source ~/projects/my-app
 
 # With focus area
 vigolium agent autopilot -t https://api.example.com --focus "auth bypass"
@@ -175,7 +175,7 @@ vigolium agent autopilot -t https://api.example.com --focus "auth bypass"
 vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 
 # Preview the prompt without executing
-vigolium agent autopilot -t https://example.com --source ./src --archon deep --dry-run
+vigolium agent autopilot -t https://example.com --source ./src --archon-mode deep --dry-run
 ```
 
 **Key Flags:**
@@ -185,14 +185,15 @@ vigolium agent autopilot -t https://example.com --source ./src --archon deep --d
 | `-t, --target` | — | Target URL (derived from `--input` if not set) |
 | `--source` | — | Path to application source code |
 | `--focus` | — | Focus area hint (e.g., "API injection") |
-| `--archon` | — | Run archon-audit before scanning: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Requires `--source` |
+| `--archon-mode` | `lite` | Archon audit mode: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Used when `--source` is set |
+| `--no-archon` | `false` | Disable automatic archon-audit even when `--source` is set |
 | `--timeout` | 6h | Maximum session duration |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
 | `--dry-run` | false | Render prompt without launching |
 
 ### Archon-Audit Integration
 
-When `--archon` is provided with `--source`, autopilot runs the archon-audit **sequentially** (not in parallel). The agent waits for the audit to complete, then receives an enriched prompt with the findings.
+When `--source` is provided, autopilot runs the archon-audit first by default. The operator session starts only after the audit output has been prepared into stable context and artifacts. Use `--no-archon` to skip this step.
 
 | Mode | Phases | Duration | Description |
 |------|--------|----------|-------------|
@@ -237,7 +238,7 @@ POST /api/agent/run/autopilot
 - **Research and experimentation** — trying creative attack strategies
 - You want **hands-off scanning** and don't mind variable runtime
 - **Source-aware scanning** — agent reads code, identifies sinks, crafts targeted attacks
-- **Deep whitebox + dynamic combo** — use `--archon deep --source` for comprehensive coverage from both code analysis and runtime testing
+- **Deep whitebox + dynamic combo** — use `--source ... --archon-mode deep` for comprehensive coverage from both code analysis and runtime testing
 
 ---
 
@@ -604,7 +605,7 @@ All three modes share a common execution engine (`pkg/agent/engine.go`). Query i
 
 Both are agentic scan modes. Autopilot agents get full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) for autonomous workflows. The tradeoff:
 
-- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and exploit archon findings with full coding agent capability. With `--archon`, the agent receives pre-analyzed whitebox findings and focuses on exploitation/verification.
+- **Autopilot advantage:** Can adapt strategy mid-scan, try creative approaches, and exploit archon findings with full coding agent capability. With `--source`, the agent receives pre-analyzed whitebox findings by default and focuses on exploitation/verification.
 - **Swarm advantage:** Agentic scan with native Go handling the scanning phases (faster, cheaper), AI only called at strategic points. Better for targeted scanning and CI pipelines.
 
 ### When Modes Genuinely Differ

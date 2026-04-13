@@ -156,13 +156,6 @@ func (runner *XSSCheckRunner) Scan(
 		finalDetectedReflection.CoreInfo(),
 		effectiveHTTPTransaction,
 	)
-
-	// Clear the HTTPTransaction reference in finding since we've copied all needed data
-	// This allows safe cleanup of the transaction while preserving data access for callbacks
-	if finding != nil {
-		finding.HTTPTransaction = nil
-	}
-
 	return finding
 }
 

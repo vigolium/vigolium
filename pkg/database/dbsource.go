@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +24,23 @@ type DBInputSource struct {
 	oneShot      bool // when true, return io.EOF instead of polling when no records remain
 	closed       atomic.Bool
 	hostnames    []string // when non-empty, only records matching these hostnames are returned
+	pageSize     int
+
+	mu             sync.Mutex
+	buffer         []*HTTPRecord
+	readCursorInit bool
+	readCursorAt   time.Time
+	readCursorUUID string
+	nextSeq        uint64
+	nextAckSeq     uint64
+	pendingBySeq   map[uint64]*cursorAck
+}
+
+type cursorAck struct {
+	seq       uint64
+	createdAt time.Time
+	uuid      string
+	acked     bool
 }
 
 // NewDBInputSource creates a new DBInputSource that polls for records after the scan cursor at the given interval.
@@ -44,6 +62,14 @@ func NewOneShotDBInputSource(db *DB, repo *Repository, scanUUID string) *DBInput
 		scanUUID: scanUUID,
 		oneShot:  true,
 	}
+}
+
+// WithPageSize sets the number of records fetched from the database per batch.
+func (s *DBInputSource) WithPageSize(pageSize int) *DBInputSource {
+	if pageSize > 0 {
+		s.pageSize = pageSize
+	}
+	return s
 }
 
 // WithHostnames sets a hostname filter so only records matching these hostnames are returned.
@@ -68,8 +94,7 @@ func (s *DBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 		default:
 		}
 
-		// Fetch next record after cursor
-		record, err := s.fetchNextRecord(ctx)
+		record, seq, err := s.nextBufferedRecord(ctx)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				if s.oneShot {
@@ -92,55 +117,140 @@ func (s *DBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 			}
 		}
 
-		// Convert record to HttpRequestResponse
-		rr, err := s.recordToHttpRequestResponse(record)
+		item, err := s.workItemFromRecord(record, seq)
 		if err != nil {
 			zap.L().Warn("DBInputSource: failed to convert record",
 				zap.String("uuid", record.UUID), zap.Error(err))
 			continue
 		}
-
-		item := work.NewWithModules(rr, nil)
-		item.RecordUUID = record.UUID
 		return item, nil
 	}
 }
 
-// fetchNextRecord finds the next record after the scan's current cursor position
-// and advances the cursor atomically within a single transaction.
-func (s *DBInputSource) fetchNextRecord(ctx context.Context) (*HTTPRecord, error) {
-	// Read current cursor
-	scan, err := s.repo.GetScanByUUID(ctx, s.scanUUID)
-	if err != nil {
-		return nil, err
+func (s *DBInputSource) nextBufferedRecord(ctx context.Context) (*HTTPRecord, uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.buffer) == 0 {
+		records, err := s.fetchNextBatch(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		s.buffer = records
 	}
 
-	// Select next record after cursor.
+	if len(s.buffer) == 0 {
+		return nil, 0, sql.ErrNoRows
+	}
+
+	record := s.buffer[0]
+	s.buffer = s.buffer[1:]
+	s.nextSeq++
+	if s.nextAckSeq == 0 {
+		s.nextAckSeq = 1
+	}
+	if s.pendingBySeq == nil {
+		s.pendingBySeq = make(map[uint64]*cursorAck)
+	}
+	s.pendingBySeq[s.nextSeq] = &cursorAck{
+		seq:       s.nextSeq,
+		createdAt: record.CreatedAt,
+		uuid:      record.UUID,
+	}
+	return record, s.nextSeq, nil
+}
+
+// fetchNextRecord finds the next record after the scan's current cursor position
+// and advances the cursor atomically within a single transaction.
+func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, error) {
+	if !s.readCursorInit {
+		scan, err := s.repo.GetScanByUUID(ctx, s.scanUUID)
+		if err != nil {
+			return nil, err
+		}
+		s.readCursorAt = scan.CursorAt
+		s.readCursorUUID = scan.CursorUUID
+		s.readCursorInit = true
+	}
+
+	// Select next records after cursor.
 	// Format cursor as plain string to match SQLite's CURRENT_TIMESTAMP format —
 	// bun serializes time.Time with timezone suffix that breaks text comparison.
-	record := &HTTPRecord{}
-	q := s.db.NewSelect().Model(record)
+	var records []*HTTPRecord
+	q := s.db.NewSelect().Model(&records)
 
-	if !scan.CursorAt.IsZero() {
-		cursorAt := scan.CursorAt.UTC().Format("2006-01-02 15:04:05")
+	if !s.readCursorAt.IsZero() {
+		cursorAt := s.readCursorAt.UTC().Format("2006-01-02 15:04:05")
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
-			cursorAt, cursorAt, scan.CursorUUID)
+			cursorAt, cursorAt, s.readCursorUUID)
 	}
 
 	if len(s.hostnames) > 0 {
 		q = q.Where("hostname IN (?)", bun.In(s.hostnames))
 	}
 
-	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(1).Scan(ctx); err != nil {
+	limit := s.pageSize
+	if limit <= 0 {
+		limit = 128
+	}
+	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(limit).Scan(ctx); err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	last := records[len(records)-1]
+	s.readCursorAt = last.CreatedAt
+	s.readCursorUUID = last.UUID
+
+	return records, nil
+}
+
+func (s *DBInputSource) workItemFromRecord(record *HTTPRecord, seq uint64) (*work.WorkItem, error) {
+	rr, err := s.recordToHttpRequestResponse(record)
+	if err != nil {
+		s.mu.Lock()
+		delete(s.pendingBySeq, seq)
+		if s.nextAckSeq == seq {
+			s.nextAckSeq++
+		}
+		s.mu.Unlock()
 		return nil, err
 	}
 
-	// Advance cursor (already handles timezone formatting)
-	if advErr := s.repo.AdvanceScanCursor(ctx, s.scanUUID, record.CreatedAt, record.UUID); advErr != nil {
-		zap.L().Warn("DBInputSource: failed to advance cursor", zap.Error(advErr))
-	}
+	var once sync.Once
+	item := work.NewWithCallback(rr, nil, func() {
+		once.Do(func() {
+			s.ack(seq)
+		})
+	})
+	item.RecordUUID = record.UUID
+	return item, nil
+}
 
-	return record, nil
+func (s *DBInputSource) ack(seq uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ack, ok := s.pendingBySeq[seq]
+	if !ok {
+		return
+	}
+	ack.acked = true
+
+	for {
+		head, ok := s.pendingBySeq[s.nextAckSeq]
+		if !ok || !head.acked {
+			break
+		}
+		delete(s.pendingBySeq, s.nextAckSeq)
+		s.nextAckSeq++
+		if err := s.repo.AdvanceScanCursorBy(context.Background(), s.scanUUID, head.createdAt, head.uuid, 1); err != nil {
+			zap.L().Warn("DBInputSource: failed to acknowledge cursor", zap.Error(err))
+			return
+		}
+	}
 }
 
 // recordToHttpRequestResponse converts an HTTPRecord back to HttpRequestResponse.
@@ -187,14 +297,19 @@ func (s *DBInputSource) Close() error {
 // RiskPrioritizedDBInputSource processes high-risk records first, then falls back
 // to normal cursor-based order. It implements source.InputSource.
 type RiskPrioritizedDBInputSource struct {
-	db           *DB
-	repo         *Repository
-	scanUUID     string
-	highRiskDone atomic.Bool
-	highRiskIdx  int
-	highRiskUUIDs []string
-	fallback     *DBInputSource
-	hostnames    []string // when non-empty, only records matching these hostnames are returned
+	db             *DB
+	repo           *Repository
+	scanUUID       string
+	hostnames      []string // when non-empty, only records matching these hostnames are returned
+	closed         atomic.Bool
+	mu             sync.Mutex
+	loaded         bool
+	index          int
+	uuids          []string
+	total          int
+	acked          int
+	commitCursorAt time.Time
+	commitCursorID string
 }
 
 // NewRiskPrioritizedDBInputSource creates a DBInputSource that processes
@@ -205,100 +320,153 @@ func NewRiskPrioritizedDBInputSource(db *DB, repo *Repository, scanUUID string) 
 		db:       db,
 		repo:     repo,
 		scanUUID: scanUUID,
-		fallback: &DBInputSource{
-			db:       db,
-			repo:     repo,
-			scanUUID: scanUUID,
-			oneShot:  true,
-		},
 	}
 }
 
 // WithHostnames sets a hostname filter so only records matching these hostnames are returned.
 func (s *RiskPrioritizedDBInputSource) WithHostnames(hostnames []string) *RiskPrioritizedDBInputSource {
 	s.hostnames = hostnames
-	s.fallback.hostnames = hostnames
 	return s
 }
 
 // Next returns records prioritized by risk_score, then falls back to cursor order.
 func (s *RiskPrioritizedDBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
-	if s.fallback.closed.Load() {
+	if s.closed.Load() {
 		return nil, io.EOF
 	}
 
-	// Phase 1: Serve high-risk records first
-	if !s.highRiskDone.Load() {
-		if s.highRiskUUIDs == nil {
-			// Lazy-load high-risk UUIDs on first call
-			uuids, err := s.loadHighRiskUUIDs(ctx)
-			if err != nil {
-				zap.L().Debug("RiskPrioritizedDBInputSource: failed to load high-risk UUIDs", zap.Error(err))
-				s.highRiskUUIDs = []string{}
-			} else {
-				s.highRiskUUIDs = uuids
-			}
+	s.mu.Lock()
+	if !s.loaded {
+		if err := s.loadSnapshotLocked(ctx); err != nil {
+			s.mu.Unlock()
+			return nil, err
 		}
-
-		for s.highRiskIdx < len(s.highRiskUUIDs) {
-			uuid := s.highRiskUUIDs[s.highRiskIdx]
-			s.highRiskIdx++
-
-			record, err := s.repo.GetRecordByUUID(ctx, uuid)
-			if err != nil {
-				continue
-			}
-
-			rr, err := recordToHttpRequestResponse(record)
-			if err != nil {
-				continue
-			}
-
-			// Advance cursor past this record so fallback won't re-process it
-			if advErr := s.repo.AdvanceScanCursor(ctx, s.scanUUID, record.CreatedAt, record.UUID); advErr != nil {
-				zap.L().Debug("RiskPrioritizedDBInputSource: failed to advance cursor", zap.Error(advErr))
-			}
-
-			item := work.NewWithModules(rr, nil)
-			item.RecordUUID = record.UUID
-			return item, nil
-		}
-
-		s.highRiskDone.Store(true)
+		s.loaded = true
 	}
+	for s.index < len(s.uuids) {
+		uuid := s.uuids[s.index]
+		s.index++
+		s.mu.Unlock()
 
-	// Phase 2: Fall back to normal cursor-based order
-	return s.fallback.Next(ctx)
+		record, err := s.repo.GetRecordByUUID(ctx, uuid)
+		if err != nil {
+			s.mu.Lock()
+			continue
+		}
+
+		rr, err := recordToHttpRequestResponse(record)
+		if err != nil {
+			s.mu.Lock()
+			continue
+		}
+
+		var once sync.Once
+		item := work.NewWithCallback(rr, nil, func() {
+			once.Do(func() {
+				s.ackSnapshotItem()
+			})
+		})
+		item.RecordUUID = record.UUID
+		return item, nil
+	}
+	s.mu.Unlock()
+	return nil, io.EOF
 }
 
-// loadHighRiskUUIDs queries records with risk_score > 0 ordered by risk_score DESC.
-func (s *RiskPrioritizedDBInputSource) loadHighRiskUUIDs(ctx context.Context) ([]string, error) {
+func (s *RiskPrioritizedDBInputSource) loadSnapshotLocked(ctx context.Context) error {
 	scan, err := s.repo.GetScanByUUID(ctx, s.scanUUID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var uuids []string
-	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid").
+	type cursorRow struct {
+		UUID      string    `bun:"uuid"`
+		CreatedAt time.Time `bun:"created_at"`
+	}
+
+	var ordered []cursorRow
+	orderedQ := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid", "created_at")
+
+	if !scan.CursorAt.IsZero() {
+		cursorAt := scan.CursorAt.UTC().Format("2006-01-02 15:04:05")
+		orderedQ = orderedQ.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
+			cursorAt, cursorAt, scan.CursorUUID)
+	}
+
+	if len(s.hostnames) > 0 {
+		orderedQ = orderedQ.Where("hostname IN (?)", bun.In(s.hostnames))
+	}
+
+	if err := orderedQ.OrderExpr("created_at ASC, uuid ASC").Scan(ctx, &ordered); err != nil {
+		return err
+	}
+	if len(ordered) == 0 {
+		return nil
+	}
+
+	var highRisk []string
+	riskQ := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid").
 		Where("risk_score > 0").
 		OrderExpr("risk_score DESC")
 
 	if !scan.CursorAt.IsZero() {
-		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
-			scan.CursorAt, scan.CursorAt, scan.CursorUUID)
+		cursorAt := scan.CursorAt.UTC().Format("2006-01-02 15:04:05")
+		riskQ = riskQ.Where("(created_at > ? OR (created_at = ? AND uuid > ?))",
+			cursorAt, cursorAt, scan.CursorUUID)
 	}
 
 	if len(s.hostnames) > 0 {
-		q = q.Where("hostname IN (?)", bun.In(s.hostnames))
+		riskQ = riskQ.Where("hostname IN (?)", bun.In(s.hostnames))
 	}
 
-	err = q.Scan(ctx, &uuids)
-	return uuids, err
+	if err := riskQ.Scan(ctx, &highRisk); err != nil {
+		return err
+	}
+
+	seen := make(map[string]struct{}, len(ordered))
+	s.uuids = make([]string, 0, len(ordered))
+	for _, uuid := range highRisk {
+		if _, ok := seen[uuid]; ok {
+			continue
+		}
+		seen[uuid] = struct{}{}
+		s.uuids = append(s.uuids, uuid)
+	}
+	for _, row := range ordered {
+		if _, ok := seen[row.UUID]; ok {
+			continue
+		}
+		seen[row.UUID] = struct{}{}
+		s.uuids = append(s.uuids, row.UUID)
+	}
+
+	last := ordered[len(ordered)-1]
+	s.commitCursorAt = last.CreatedAt
+	s.commitCursorID = last.UUID
+	s.total = len(s.uuids)
+	return nil
+}
+
+func (s *RiskPrioritizedDBInputSource) ackSnapshotItem() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.total == 0 {
+		return
+	}
+	s.acked++
+	if s.acked != s.total {
+		return
+	}
+	if err := s.repo.AdvanceScanCursorBy(context.Background(), s.scanUUID, s.commitCursorAt, s.commitCursorID, int64(s.total)); err != nil {
+		zap.L().Warn("RiskPrioritizedDBInputSource: failed to acknowledge snapshot", zap.Error(err))
+	}
 }
 
 // Close stops the source.
 func (s *RiskPrioritizedDBInputSource) Close() error {
-	return s.fallback.Close()
+	s.closed.Store(true)
+	return nil
 }
 
 // UUIDListDBInputSource iterates over a pre-defined list of HTTP record UUIDs,

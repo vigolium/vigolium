@@ -33,12 +33,13 @@ type QueryFilters struct {
 	Remarks      []string // Filter by multiple remarks (AND: record must have all)
 
 	// Finding filtering
-	FindingID     int      // Filter by finding ID
-	Severity      []string // Finding severity (critical, high, medium, low, info)
-	ModuleName    string   // Filter findings by module name
-	ModuleType    string   // Filter findings by module type (active, passive, nuclei, etc.)
-	FindingSource string   // Filter findings by source (audit, spa, agent, etc.)
-	RepoName      string   // Filter findings by repo name
+	FindingID      int      // Filter by finding ID
+	FindingIDAfter int64    // Filter findings with ID greater than this value
+	Severity       []string // Finding severity (critical, high, medium, low, info)
+	ModuleName     string   // Filter findings by module name
+	ModuleType     string   // Filter findings by module type (active, passive, nuclei, etc.)
+	FindingSource  string   // Filter findings by source (audit, spa, agent, etc.)
+	RepoName       string   // Filter findings by repo name
 
 	// Date range filtering
 	DateFrom *time.Time
@@ -424,7 +425,7 @@ var AllowedCleanTables = map[string]cleanableTable{
 	"finding_records":   {SQLName: "finding_records"},
 	"scans":             {SQLName: "scans"},
 	"agent_runs":        {SQLName: "agent_runs"},
-	"oast_interactions":  {SQLName: "oast_interactions"},
+	"oast_interactions": {SQLName: "oast_interactions"},
 	"source_repos":      {SQLName: "source_repos"},
 	"scan_logs":         {SQLName: "scan_logs"},
 	"session_hostnames": {SQLName: "session_hostnames"},
@@ -439,7 +440,7 @@ func (db *DeleteBuilder) DeleteTable(ctx context.Context, tableName string, dryR
 	}
 
 	var count int64
-	if err := db.db.NewRaw("SELECT COUNT(*) FROM " + entry.SQLName).Scan(ctx, &count); err != nil {
+	if err := db.db.NewRaw("SELECT COUNT(*) FROM "+entry.SQLName).Scan(ctx, &count); err != nil {
 		return 0, fmt.Errorf("failed to count rows in %s: %w", entry.SQLName, err)
 	}
 
@@ -479,7 +480,7 @@ func (db *DeleteBuilder) DeleteAllTables(ctx context.Context, dryRun bool) (map[
 	counts := make(map[string]int64, len(allTablesDeleteOrder))
 	for _, tbl := range allTablesDeleteOrder {
 		var count int64
-		if err := db.db.NewRaw("SELECT COUNT(*) FROM " + tbl).Scan(ctx, &count); err != nil {
+		if err := db.db.NewRaw("SELECT COUNT(*) FROM "+tbl).Scan(ctx, &count); err != nil {
 			return nil, fmt.Errorf("failed to count %s: %w", tbl, err)
 		}
 		counts[tbl] = count
@@ -558,6 +559,9 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	// Finding ID filtering
 	if fqb.filters.FindingID > 0 {
 		query.Where("f.id = ?", fqb.filters.FindingID)
+	}
+	if fqb.filters.FindingIDAfter > 0 {
+		query.Where("f.id > ?", fqb.filters.FindingIDAfter)
 	}
 
 	// Scan UUID filtering
@@ -639,7 +643,7 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 		}
 		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
 			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
-			WHERE fr2.finding_id = f.id AND `+pathCond+`)`)
+			WHERE fr2.finding_id = f.id AND ` + pathCond + `)`)
 	}
 
 	// Method filtering via associated HTTP records
