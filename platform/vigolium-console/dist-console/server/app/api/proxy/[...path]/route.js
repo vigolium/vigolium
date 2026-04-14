@@ -1,10 +1,10 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/proxy/[...path]/route.js")
-R.c("server/chunks/[root-of-the-server]__0a5e-.8._.js")
+R.c("server/chunks/[root-of-the-server]__0xcl9_6._.js")
 R.c("server/chunks/node_modules_next_03e_drb._.js")
 R.c("server/chunks/src_lib_access-session_ts_065o-n9._.js")
-R.c("server/chunks/[root-of-the-server]__0op9af~._.js")
-R.c("server/chunks/[root-of-the-server]__0oc_-og._.js")
 R.c("server/chunks/[root-of-the-server]__0gbgxty._.js")
+R.c("server/chunks/[root-of-the-server]__0.6bt.6._.js")
+R.c("server/chunks/[root-of-the-server]__0oc_-og._.js")
 R.c("server/chunks/_next-internal_server_app_api_proxy_[___path]_route_actions_0n.xh4s.js")
 R.m(90519)
 module.exports=R.m(90519).exports

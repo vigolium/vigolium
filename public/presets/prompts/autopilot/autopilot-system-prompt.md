@@ -64,7 +64,7 @@ cat /tmp/findings.json | vigolium finding load
 
 **6. Authentication & Sessions**
 
-Configure authenticated scanning by writing a session config JSON file and loading it:
+Configure authenticated scanning by using prepared session/auth artifacts when present. Only create or repair a session config yourself when preflight did not already prepare one:
 
 ```
 # Load session config from file
@@ -213,7 +213,8 @@ You decide your own workflow. Here's how to think about it:
 - Focus scanning on endpoints with user input (query params, POST bodies, headers)
 
 **Set up authentication early:**
-- If the app has login, create a session config and load it with `vigolium session load`
+- If prepared auth artifacts already exist, use them first before attempting manual login discovery
+- If the app has login and no prepared auth exists, create a session config and load it with `vigolium session load`
 - Use `vigolium session lint` to validate before loading
 - Primary role for scanning, compare role for IDOR/authorization testing
 

@@ -35,7 +35,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
         <h1 className="font-serif text-sm font-bold text-charcoal tracking-tight">
           {reportTitle || "Vigolium Report"}
         </h1>
-        <span className="text-[11px] text-text-muted font-sans tracking-wide">
+        <span className="hidden sm:inline text-[11px] text-text-muted font-sans tracking-wide">
           {date}
         </span>
       </div>
@@ -49,6 +49,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
               <button
                 key={id}
                 onClick={() => onTabChange(id)}
+                aria-label={count > 0 ? `${label} (${count})` : label}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-semibold tracking-wide uppercase transition-colors relative ${
                   isActive
                     ? "text-charcoal"
@@ -56,12 +57,18 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
                 }`}
               >
                 <Icon size={13} />
-                {label}
+                <span className="hidden sm:inline">{label}</span>
                 {count > 0 && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                     isActive ? "bg-terracotta/10 text-terracotta" : "bg-warm-border text-text-muted"
-                  }`}>
+                  } hidden sm:inline-flex`}>
                     {count}
+                  </span>
+                )}
+                {count > 0 && (
+                  <span className={`sm:hidden absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ${
+                    isActive ? "bg-terracotta" : "bg-text-muted"
+                  }`}>
                   </span>
                 )}
                 {isActive && (
@@ -75,13 +82,13 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
 
       <div className="flex-1" />
       <div className="flex items-center gap-1.5 text-[11px] font-sans">
-        <a href="https://www.vigolium.com/" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
+        <a href="https://www.vigolium.com/" aria-label="Website" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
           <ExternalLink size={12} />
-          Website
+          <span className="hidden sm:inline">Website</span>
         </a>
-        <a href="https://docs.vigolium.com/" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
+        <a href="https://docs.vigolium.com/" aria-label="Docs" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
           <BookOpen size={12} />
-          Docs
+          <span className="hidden sm:inline">Docs</span>
         </a>
         <ThemeSwitcher />
       </div>

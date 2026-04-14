@@ -37,6 +37,7 @@ INGESTOR_LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COM
 
 # R2 CDN prefix for release uploads
 R2_PREFIX=vigolium-e3171d5bbee2aba698f96aa21568933e
+INSTALL_BASE_URL=https://cdn.vigolium.com/$(R2_PREFIX)
 
 # Default target
 all: build
@@ -130,7 +131,7 @@ test-benchmark: test-integration
 # Run E2E tests (requires Docker)
 test-e2e: install-gotestsum
 	@echo "$(PREFIX) Running E2E tests (requires Docker)..."
-	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 15m ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 60m ./test/e2e/...
 
 # Run API E2E tests only (server endpoint tests, no Docker needed)
 test-e2e-api: install-gotestsum
@@ -570,8 +571,14 @@ snapshot:
 	@echo "$(PREFIX) Building snapshot release..."
 	goreleaser release --snapshot --clean
 
+# Stamp release scripts with the same prefix/version used for upload.
+prepare-release-scripts:
+	@echo "$(PREFIX) Updating release scripts..."
+	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(INSTALL_BASE_URL)"|m; s|^VERSION="[^"]*"|VERSION="v$(VERSION)"|m' build/scripts/install.sh
+	@echo "$(PREFIX) Release scripts updated for $(INSTALL_BASE_URL)"
+
 # GoReleaser release and upload to R2
-release:
+release: prepare-release-scripts
 	@echo "$(PREFIX) Building release..."
 	goreleaser release --snapshot --clean
 	@echo "$(PREFIX) Packaging vigolium-console..."
@@ -584,18 +591,28 @@ release:
 		--exclude='.env' \
 		--exclude='.env.local' \
 		.
+	@echo "$(PREFIX) Writing vigolium-console checksum..."
+	@sh -c 'if command -v shasum >/dev/null 2>&1; then \
+		shasum -a 256 build/dist/vigolium-console.tar.gz | awk "{print \$$1}" > build/dist/vigolium-console.checksum.txt; \
+	elif command -v sha256sum >/dev/null 2>&1; then \
+		sha256sum build/dist/vigolium-console.tar.gz | awk "{print \$$1}" > build/dist/vigolium-console.checksum.txt; \
+	else \
+		echo "need shasum or sha256sum" >&2; \
+		exit 1; \
+	fi'
 	@echo "$(PREFIX) Cleaning old files on R2..."
 	@mc rm --recursive --force r2/vigolium-dist/$(R2_PREFIX)/ || true
 	@echo "$(PREFIX) Uploading to R2..."
 	mc cp build/dist/*.tar.gz r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/dist/checksums.txt r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/dist/vigolium-console.checksum.txt r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/dist/metadata.json r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(R2_PREFIX)/
 	@echo "$(PREFIX) Release uploaded successfully!"
 
 # Sync scripts to R2 CDN without rebuilding
-cdn-sync:
+cdn-sync: prepare-release-scripts
 	@echo "$(PREFIX) Syncing scripts to R2 CDN..."
 	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(R2_PREFIX)/

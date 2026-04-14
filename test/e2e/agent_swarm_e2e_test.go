@@ -23,8 +23,8 @@ import (
 // Test flags for running swarm tests with real agents.
 // Usage: go test -v -tags=e2e -run TestSwarmRealAgent ./test/e2e/ -agent=opencode -target=http://localhost:3000
 var (
-	testAgentName = flag.String("agent", "", "Real agent name from vigolium-configs.yaml (e.g. opencode, codex, claude)")
-	testTargetURL = flag.String("target", "http://localhost:3000/", "Target URL for real agent tests")
+	testAgentName  = flag.String("agent", "", "Real agent name from vigolium-configs.yaml (e.g. opencode, codex, claude)")
+	testTargetURL  = flag.String("target", "http://localhost:3000/", "Target URL for real agent tests")
 	testConfigPath = flag.String("config", "", "Path to vigolium-configs.yaml (default: auto-discover)")
 )
 
@@ -1036,8 +1036,10 @@ func TestSwarmTwoPhasePlanOnly(t *testing.T) {
 }
 
 // TestSwarmTwoPhasePlanWithExtensions tests the full two-phase flow where:
-//   Phase 1: Plan agent outputs MODULE_TAGS + NEEDS_EXTENSIONS=yes
-//   Phase 2: Extension agent generates JS code + quick checks
+//
+//	Phase 1: Plan agent outputs MODULE_TAGS + NEEDS_EXTENSIONS=yes
+//	Phase 2: Extension agent generates JS code + quick checks
+//
 // Simulates: vigolium agent swarm <<< "POST /rest/user/login ..."
 func TestSwarmTwoPhasePlanWithExtensions(t *testing.T) {
 	if testing.Short() {
@@ -1833,18 +1835,18 @@ if echo "$INPUT" | grep -qi 'generate targeted JavaScript scanner extensions'; t
 EXT_EOF
 elif echo "$INPUT" | grep -qi 'documenting HTTP routes and endpoints'; then
   # Format-routes phase: output JSONL records
-  echo '` + "```jsonl" + `'
+  echo '`+"```jsonl"+`'
   cat <<'FORMAT_EOF'
 %s
 FORMAT_EOF
-  echo '` + "```" + `'
+  echo '`+"```"+`'
 elif echo "$INPUT" | grep -qi 'documenting authentication routes'; then
   # Format-session phase: output session_config JSON
-  echo '` + "```json" + `'
+  echo '`+"```json"+`'
   cat <<'SESSION_EOF'
 %s
 SESSION_EOF
-  echo '` + "```" + `'
+  echo '`+"```"+`'
 elif echo "$INPUT" | grep -qi 'explore the application source code'; then
   # Explore phase: output free-form notes
   cat <<'EXPLORE_EOF'
@@ -2162,6 +2164,77 @@ func TestSwarmSourceAnalysisFullPipeline(t *testing.T) {
 	t.Logf("Extensions: %d plan-phase (plan: %v)", len(plan.Extensions), foundIDOR)
 	t.Logf("Quick checks: %d", len(plan.QuickChecks))
 	t.Logf("Auth config: %s", generatedAuthConfigPath)
+}
+
+func TestSwarmSourceAnalysisAppliesPromptCredentialSets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping e2e test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	db, repo := setupTestDB(t)
+	_ = db
+
+	agentName := "fake-sa-creds"
+	script := fakeSourceAnalysisAgentScript(t)
+	settings := newSwarmTestSettings(t, agentName, script)
+
+	engine := agent.NewEngine(settings, repo)
+	engine.EnsureWarmSessions()
+	defer engine.Close()
+
+	swarmRunner := agent.NewSwarmRunner(engine, repo)
+
+	sourceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "server.js"), []byte("const express = require('express');"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "package.json"), []byte(`{"name":"juice-shop","version":"16.0.0"}`), 0o644))
+
+	sessionDir := t.TempDir()
+	var generatedAuthConfigPath string
+
+	cfg := agent.SwarmConfig{
+		Inputs:        []string{"http://localhost:3000/"},
+		SourcePath:    sourceDir,
+		AgentName:     agentName,
+		MaxIterations: 1,
+		ProjectUUID:   database.DefaultProjectUUID,
+		SessionDir:    sessionDir,
+		SkipPhases:    []string{"scan", "triage", "rescan"},
+		CredentialSets: []agenttypes.IntentCredentialSet{
+			{Name: "admin", Role: "primary", Username: "alt-admin@example.com", Password: "supersecret"},
+			{Name: "user", Role: "compare", Username: "alt-user@example.com", Password: "usersecret"},
+		},
+		SourceAnalysisCallback: func(saResult *agent.SourceAnalysisResult) error {
+			authPath, err := agent.WriteAuthConfigYAML(sessionDir, saResult.SessionConfig)
+			if err != nil {
+				return err
+			}
+			generatedAuthConfigPath = authPath
+			return nil
+		},
+	}
+
+	result, err := swarmRunner.Run(ctx, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	sessionConfigData, readErr := os.ReadFile(filepath.Join(sessionDir, "session-config.json"))
+	require.NoError(t, readErr, "expected session-config.json in session dir")
+	configStr := string(sessionConfigData)
+	assert.Contains(t, configStr, "alt-admin@example.com")
+	assert.Contains(t, configStr, "supersecret")
+	assert.Contains(t, configStr, "alt-user@example.com")
+	assert.Contains(t, configStr, "usersecret")
+	assert.NotContains(t, configStr, "admin@juice-sh.op")
+	assert.NotContains(t, configStr, "jim@juice-sh.op")
+
+	authConfigData, readErr := os.ReadFile(generatedAuthConfigPath)
+	require.NoError(t, readErr, "expected auth-config.yaml to be generated")
+	authStr := string(authConfigData)
+	assert.Contains(t, authStr, "alt-admin@example.com")
+	assert.Contains(t, authStr, "alt-user@example.com")
 }
 
 // TestSwarmSourceAnalysisWithSASTCallback tests that the SAST phase integrates
@@ -2666,9 +2739,9 @@ func TestSwarmPlanCodeFencedModuleIDs(t *testing.T) {
 
 // TestSwarmSASTReviewExtensionsWrittenToDisk tests the critical path: when a SAST review
 // agent produces ```javascript code blocks for extensions, those extensions must be:
-//   1. Extracted by ParseSourceAnalysisResult (even when JSON is garbled)
-//   2. Written as .js files to <sessionDir>/extensions/
-//   3. Session config (if present) written to session-config.json
+//  1. Extracted by ParseSourceAnalysisResult (even when JSON is garbled)
+//  2. Written as .js files to <sessionDir>/extensions/
+//  3. Session config (if present) written to session-config.json
 //
 // This reproduces the production bug where SAST review output contained 16 valid JS
 // extensions in fenced code blocks, but ParseSourceAnalysisResult returned "extensions": 0

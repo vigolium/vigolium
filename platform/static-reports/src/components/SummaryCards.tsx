@@ -64,16 +64,19 @@ export default function SummaryCards({ summary }: Props) {
       </div>
 
       {/* Severity breakdown row */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-4">
         {severityCards.map(({ label, count, color }) => (
-          <div key={label} className="flex items-center gap-3 border border-warm-border rounded-md px-4 py-3">
+          <div
+            key={label}
+            className="flex min-w-0 flex-col items-start gap-1 rounded-md border border-warm-border px-3 py-3 sm:px-4 md:flex-row md:items-center md:gap-3"
+          >
             <div
-              className="text-2xl font-serif font-bold"
+              className="text-2xl leading-none font-serif font-bold"
               style={{ color: count > 0 ? color : theme === "dark" ? "#4a4641" : "#ccc" }}
             >
               {count}
             </div>
-            <div className="text-xs font-sans text-text-muted uppercase tracking-wider font-semibold">
+            <div className="min-w-0 text-[10px] leading-tight font-sans font-semibold uppercase tracking-[0.16em] text-text-muted sm:text-xs md:tracking-wider">
               {label}
             </div>
           </div>

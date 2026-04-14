@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -183,6 +184,19 @@ func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetU
 	}
 	if cfg.Credentials != "" {
 		extra["Credentials"] = cfg.Credentials
+	}
+	if cfg.BrowserStartURL != "" {
+		extra["BrowserStartURL"] = cfg.BrowserStartURL
+	}
+	if len(cfg.FocusRoutes) > 0 {
+		if data, err := json.Marshal(cfg.FocusRoutes); err == nil {
+			extra["FocusRoutes"] = string(data)
+		}
+	}
+	if len(cfg.CredentialSets) > 0 {
+		if data, err := json.Marshal(cfg.CredentialSets); err == nil {
+			extra["CredentialSets"] = string(data)
+		}
 	}
 
 	authSessionID := uuid.New().String()

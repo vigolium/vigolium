@@ -23,7 +23,7 @@ type process struct {
 	reader *bufio.Reader
 	stderr bytes.Buffer
 
-	done     chan struct{} // closed when process exits
+	done      chan struct{} // closed when process exits
 	closeOnce sync.Once
 }
 
@@ -140,23 +140,37 @@ func (p *process) readLine(ctx context.Context) ([]byte, error) {
 	select {
 	case r := <-ch:
 		if r.err != nil {
+			if isProcessPipeClosedError(r.err) {
+				return nil, io.EOF
+			}
 			return nil, r.err
 		}
 		return bytes.TrimRight(r.data, "\n"), nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-p.done:
-		// Process exited — try to read any remaining data
-		select {
-		case r := <-ch:
-			if r.err != nil {
+		// Process exited — still wait for the in-flight read to drain any
+		// buffered stdout before reporting EOF.
+		r := <-ch
+		if r.err != nil {
+			if isProcessPipeClosedError(r.err) {
 				return nil, io.EOF
 			}
-			return bytes.TrimRight(r.data, "\n"), nil
-		default:
 			return nil, io.EOF
 		}
+		return bytes.TrimRight(r.data, "\n"), nil
 	}
+}
+
+func isProcessPipeClosedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "file already closed") || strings.Contains(msg, "closed pipe")
 }
 
 // writeLine writes a JSON message followed by a newline to stdin.

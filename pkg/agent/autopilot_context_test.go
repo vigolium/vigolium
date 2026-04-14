@@ -20,6 +20,37 @@ func TestDecideBrowserUsage(t *testing.T) {
 	}
 }
 
+func TestDecideBrowserUsageHonorsExplicitBrowserRequest(t *testing.T) {
+	cfg := AutopilotPipelineConfig{
+		TargetURL:        "https://example.com",
+		BrowserEnabled:   true,
+		BrowserRequested: true,
+		BrowserStartURL:  "https://example.com/login",
+		RequiresBrowser:  false,
+	}
+	mode, reason := decideBrowserUsage(cfg, AutopilotContextBundle{})
+	if mode != "browser_recommended" {
+		t.Fatalf("expected browser_recommended, got %q", mode)
+	}
+	if reason != "https://example.com/login" {
+		t.Fatalf("expected explicit browser_start_url reason, got %q", reason)
+	}
+}
+
+func TestBuildAutopilotPlanMarksPreparedAuth(t *testing.T) {
+	cfg := AutopilotPipelineConfig{
+		MaxCommands: 100,
+		TargetURL:   "https://example.com",
+		PreparedAuth: &AutopilotPreparedAuth{
+			Hydrated: true,
+		},
+	}
+	plan := buildAutopilotPlan(cfg, AutopilotContextBundle{}, AutopilotArtifactSpec{})
+	if !plan.AuthPrepared {
+		t.Fatal("expected auth_prepared=true")
+	}
+}
+
 func TestBuildAutopilotPlanUsesDiffAndAuthSignals(t *testing.T) {
 	cfg := AutopilotPipelineConfig{
 		MaxCommands:    100,

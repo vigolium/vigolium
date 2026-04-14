@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-04-12T11:34:12.360875+00:00",
-  "project_count": 47,
+  "generated_at": "2026-04-13T13:59:02.724868+00:00",
+  "project_count": 46,
   "summary": {
-    "project_count": 47,
-    "files": 266127,
-    "loc": 53316955,
-    "commits": 939607,
+    "project_count": 46,
+    "files": 263406,
+    "loc": 52902830,
+    "commits": 931160,
     "findings": {
-      "total": 1243,
-      "critical": 17,
-      "high": 368,
-      "medium": 858
+      "total": 1113,
+      "critical": 16,
+      "high": 323,
+      "medium": 774
     }
   },
   "projects": [
@@ -542,56 +542,22 @@
       }
     },
     {
-      "project": "gradio",
-      "coding_agent": "Claude Code",
-      "total": 39,
-      "critical": 0,
-      "high": 22,
-      "medium": 17,
-      "project_desc": "Build and share delightful machine learning apps, all in Python",
-      "project_link": "https://github.com/gradio-app/gradio",
-      "github_stars": "42k+",
-      "project_size": {
-        "audited_commit": "0dd1c79c75406d4609c79698987fadc624bb9035",
-        "commit_count": 8459,
-        "primary_language": "Python",
-        "languages": {
-          "Python": 3791849,
-          "TypeScript": 1754857,
-          "Svelte": 1733484,
-          "mdsvex": 227896,
-          "CSS": 95288,
-          "JavaScript": 68189,
-          "Jupyter Notebook": 32640,
-          "HTML": 18437,
-          "Shell": 4962,
-          "SCSS": 4955,
-          "Batchfile": 4734,
-          "MDX": 1681,
-          "Dockerfile": 641
-        },
-        "loc": 416050,
-        "text_file_count": 2730,
-        "last_refreshed_at": "2026-04-12T09:50:46.823701+00:00"
-      }
-    },
-    {
       "project": "grafana",
       "coding_agent": "Claude Code",
-      "total": 123,
-      "critical": 1,
-      "high": 27,
-      "medium": 95,
+      "total": 32,
+      "critical": 0,
+      "high": 4,
+      "medium": 28,
       "project_desc": "Open and composable observability and data visualization platform",
       "project_link": "https://github.com/grafana/grafana",
       "github_stars": "73k+",
       "project_size": {
-        "audited_commit": "935cc3ac48aae831646e295a9d01fd04a694163c",
-        "commit_count": 68051,
+        "audited_commit": "bb41ac0c85d854e32cb19874fb4b3f17163179a8",
+        "commit_count": 68063,
         "primary_language": "TypeScript",
         "languages": {
-          "TypeScript": 42675416,
-          "Go": 36602430,
+          "TypeScript": 42707946,
+          "Go": 36668970,
           "PLpgSQL": 3685858,
           "CUE": 580512,
           "Rich Text Format": 351017,
@@ -614,9 +580,9 @@
           "PowerShell": 367,
           "Assembly": 168
         },
-        "loc": 4354738,
-        "text_file_count": 21287,
-        "last_refreshed_at": "2026-04-12T09:51:08.068891+00:00"
+        "loc": 4356663,
+        "text_file_count": 21296,
+        "last_refreshed_at": "2026-04-13T13:56:47.769899+00:00"
       }
     },
     {
@@ -860,11 +826,15 @@
       "project_size": {
         "audited_commit": "43191530dd6a2bee6f0306e47eb2990ded63607f",
         "commit_count": 2595,
-        "primary_language": "",
-        "languages": {},
+        "primary_language": "Markdown",
+        "languages": {
+          "YAML": 3746,
+          "Markdown": 327378,
+          "SVG": 6135
+        },
         "loc": 3551,
         "text_file_count": 14,
-        "last_refreshed_at": "2026-04-12T09:51:59.416999+00:00"
+        "last_refreshed_at": "2026-04-13T13:59:02.719108+00:00"
       }
     },
     {

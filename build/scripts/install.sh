@@ -7,8 +7,8 @@ set -euo pipefail
 # Configuration
 VIGOLIUM_HOME="${VIGOLIUM_HOME:-$HOME/.vigolium}"
 BIN_DIR="$HOME/.local/bin"
-BASE_URL="https://cdn.vigolium.com/6813d66ecb9a55ab58d674accc4fd07c"
-VERSION="v0.0.1-alpha"
+BASE_URL="https://cdn.vigolium.com/vigolium-e3171d5bbee2aba698f96aa21568933e"
+VERSION="vv0.0.1-alpha"
 
 # Retry configuration
 MAX_RETRIES=6

@@ -41,6 +41,11 @@ var (
 	autopilotMcpServers      []string
 	autopilotMcpEnabled      bool
 	autopilotBrowser         bool
+	autopilotCredentials     string
+	autopilotAuthRequired    bool
+	autopilotRequiresBrowser bool
+	autopilotBrowserStartURL string
+	autopilotFocusRoutes     []string
 	autopilotNoArchon        bool
 	autopilotArchonMode      string
 	autopilotDiff            string
@@ -109,6 +114,11 @@ func init() {
 	f.StringSliceVar(&autopilotMcpServers, "mcp-server", nil, "MCP servers to attach (format: name=command,arg1,arg2 or name=http://url)")
 	f.BoolVar(&autopilotMcpEnabled, "mcp-enabled", false, "Enable MCP server passthrough to agent sessions")
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
+	f.StringVar(&autopilotCredentials, "credentials", "", "Credentials for auth preflight (e.g. 'admin/admin123, compare user/user123')")
+	f.BoolVar(&autopilotAuthRequired, "auth-required", false, "Require auth/session preparation before the autonomous operator starts")
+	f.BoolVar(&autopilotRequiresBrowser, "requires-browser", false, "Require browser-assisted auth/setup instead of HTTP-only preflight")
+	f.StringVar(&autopilotBrowserStartURL, "browser-start-url", "", "Explicit browser/login start URL for auth preflight")
+	f.StringSliceVar(&autopilotFocusRoutes, "focus-routes", nil, "Protected or browser-focused routes to prioritize after auth")
 	f.BoolVar(&autopilotNoArchon, "no-archon", false, "Disable automatic archon-audit (enabled by default when --source is set)")
 	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), deep (11-phase), or mock (sample output, no agent)")
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
@@ -426,21 +436,27 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 	projectUUID, _ := resolveProjectUUID()
 
 	cfg := agent.AutopilotPipelineConfig{
-		TargetURL:    autopilotTarget,
-		SourcePath:   autopilotSource,
-		Files:        autopilotFiles,
-		Instruction:  instruction,
-		Focus:        autopilotFocus,
-		AgentName:    autopilotAgent,
-		MaxCommands:  autopilotMaxCommands,
-		DryRun:       autopilotDryRun,
-		ShowPrompt:   autopilotShowPrompt,
-		SessionsDir:  settings.Agent.EffectiveSessionsDir(),
-		SessionDir:   sessionDir,
-		ProjectUUID:  projectUUID,
-		ScanUUID:     globalScanID,
-		StreamWriter: streamWriter,
-		DiffContext:  diffCtx,
+		TargetURL:        autopilotTarget,
+		SourcePath:       autopilotSource,
+		Files:            autopilotFiles,
+		Instruction:      instruction,
+		Focus:            autopilotFocus,
+		AgentName:        autopilotAgent,
+		MaxCommands:      autopilotMaxCommands,
+		DryRun:           autopilotDryRun,
+		ShowPrompt:       autopilotShowPrompt,
+		SessionsDir:      settings.Agent.EffectiveSessionsDir(),
+		SessionDir:       sessionDir,
+		ProjectUUID:      projectUUID,
+		ScanUUID:         globalScanID,
+		StreamWriter:     streamWriter,
+		DiffContext:      diffCtx,
+		Credentials:      autopilotCredentials,
+		AuthRequired:     autopilotAuthRequired,
+		BrowserRequested: autopilotBrowser || autopilotRequiresBrowser,
+		RequiresBrowser:  autopilotRequiresBrowser,
+		BrowserStartURL:  autopilotBrowserStartURL,
+		FocusRoutes:      append([]string(nil), autopilotFocusRoutes...),
 	}
 
 	// Wire archon (enabled by default when source is provided)
@@ -645,6 +661,21 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	if app.Browser {
 		autopilotBrowser = true
 	}
+	if app.Credentials != "" && autopilotCredentials == "" {
+		autopilotCredentials = app.Credentials
+	}
+	if app.AuthRequired {
+		autopilotAuthRequired = true
+	}
+	if app.RequiresBrowser {
+		autopilotRequiresBrowser = true
+	}
+	if app.BrowserStartURL != "" && autopilotBrowserStartURL == "" {
+		autopilotBrowserStartURL = app.BrowserStartURL
+	}
+	if len(app.FocusRoutes) > 0 && len(autopilotFocusRoutes) == 0 {
+		autopilotFocusRoutes = append([]string(nil), app.FocusRoutes...)
+	}
 	if app.MaxCommands > 0 && autopilotMaxCommands == defaultAutopilotMaxCommands {
 		autopilotMaxCommands = app.MaxCommands
 	}
@@ -737,19 +768,25 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 		}
 
 		cfg := agent.AutopilotPipelineConfig{
-			TargetURL:    app.Target,
-			SourcePath:   sourcePath,
-			Files:        files,
-			Instruction:  instruction,
-			Focus:        focus,
-			AgentName:    autopilotAgent,
-			MaxCommands:  maxCmds,
-			SessionsDir:  settings.Agent.EffectiveSessionsDir(),
-			SessionDir:   sessionDir,
-			ProjectUUID:  projectUUID,
-			ScanUUID:     globalScanID,
-			StreamWriter: streamWriter,
-			DiffContext:  diffCtx,
+			TargetURL:        app.Target,
+			SourcePath:       sourcePath,
+			Files:            files,
+			Instruction:      instruction,
+			Focus:            focus,
+			AgentName:        autopilotAgent,
+			MaxCommands:      maxCmds,
+			SessionsDir:      settings.Agent.EffectiveSessionsDir(),
+			SessionDir:       sessionDir,
+			ProjectUUID:      projectUUID,
+			ScanUUID:         globalScanID,
+			StreamWriter:     streamWriter,
+			DiffContext:      diffCtx,
+			Credentials:      firstNonEmptyString(app.Credentials, autopilotCredentials),
+			AuthRequired:     app.AuthRequired || autopilotAuthRequired,
+			BrowserRequested: app.Browser || autopilotBrowser || app.RequiresBrowser || autopilotRequiresBrowser,
+			RequiresBrowser:  app.RequiresBrowser || autopilotRequiresBrowser,
+			BrowserStartURL:  firstNonEmptyString(app.BrowserStartURL, autopilotBrowserStartURL),
+			FocusRoutes:      firstNonEmptySlice(app.FocusRoutes, autopilotFocusRoutes),
 		}
 
 		// Wire archon per-app
@@ -772,4 +809,22 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 		_, err := runner.RunAutonomous(ctx, cfg)
 		return err
 	})
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstNonEmptySlice(values ...[]string) []string {
+	for _, v := range values {
+		if len(v) > 0 {
+			return append([]string(nil), v...)
+		}
+	}
+	return nil
 }

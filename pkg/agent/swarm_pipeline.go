@@ -283,6 +283,11 @@ func (sourceAnalysisSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) 
 			saNotes = filteredNotes
 		}
 		saExtensions = append(saExtensions, saResult.Extensions...)
+		ps.cfg.CredentialSets = resolveIntentCredentialSets(ps.cfg.Credentials, ps.cfg.CredentialSets)
+		if len(ps.cfg.CredentialSets) > 0 && saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
+			saResult.SessionConfig = applyIntentCredentialsToSessionConfig(saResult.SessionConfig, ps.cfg.CredentialSets)
+			printPhaseLine("source-analysis", fmt.Sprintf("applied %d prompt credential set(s) to discovered login flows", len(ps.cfg.CredentialSets)))
+		}
 		if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
 			vr := backend.ValidateSessionConfigDetailed(saResult.SessionConfig)
 			if len(vr.Invalid) > 0 {

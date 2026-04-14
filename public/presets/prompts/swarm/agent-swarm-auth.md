@@ -13,6 +13,8 @@ You are a security testing assistant performing browser-based authentication aga
 
 - URL: {{.TargetURL}}
 - Hostname: {{.Hostname}}
+{{if .Extra.BrowserStartURL}}- Preferred login/start URL: {{.Extra.BrowserStartURL}}{{end}}
+{{if .Extra.FocusRoutes}}- Post-login focus routes: {{.Extra.FocusRoutes}}{{end}}
 
 ## Step 1 — Find the Login Page
 
@@ -22,6 +24,15 @@ Open the target and locate the login or sign-in page:
 agent-browser open "{{.TargetURL}}" --session-name auth-{{.Hostname}}
 agent-browser snapshot --json --session-name auth-{{.Hostname}}
 ```
+
+{{if .Extra.BrowserStartURL}}
+If a preferred login/start URL was provided, open it first instead of guessing:
+
+```bash
+agent-browser open "{{.Extra.BrowserStartURL}}" --session-name auth-{{.Hostname}}
+agent-browser snapshot --json --session-name auth-{{.Hostname}}
+```
+{{end}}
 
 Inspect the snapshot output for login links, forms, or navigation elements. If the landing page is not the login page, click through to find it:
 
@@ -39,12 +50,24 @@ Once on the login page, use the snapshot JSON to find input fields and their `@r
 - Any hidden fields (CSRF tokens are handled automatically by the browser)
 
 ## Step 3 — Fill Credentials and Submit
+{{if or .Extra.Credentials .Extra.CredentialSets}}
 {{if .Extra.Credentials}}
 Use the provided credentials:
 
 ```
 {{.Extra.Credentials}}
 ```
+{{end}}
+{{if .Extra.CredentialSets}}
+
+Structured credential sets are also available:
+
+```json
+{{.Extra.CredentialSets}}
+```
+
+Use the `primary` credentials first. If multiple accounts are provided, preserve any secondary `compare` account details for later authenticated scanning.
+{{end}}
 {{else}}
 Check the auth vault for stored credentials:
 
@@ -103,7 +126,8 @@ Write the captured credentials to `auth-config.yaml` in the session directory.
 
 ```yaml
 sessions:
-  - type: cookie
+  - name: browser_primary
+    role: primary
     headers:
       Cookie: "<all captured session cookies as key=value pairs joined by ; >"
 ```
@@ -112,7 +136,8 @@ sessions:
 
 ```yaml
 sessions:
-  - type: bearer
+  - name: browser_primary
+    role: primary
     headers:
       Authorization: "Bearer <token>"
 ```
@@ -121,7 +146,8 @@ sessions:
 
 ```yaml
 sessions:
-  - type: cookie
+  - name: browser_primary
+    role: primary
     headers:
       Cookie: "<cookies>"
       Authorization: "Bearer <token>"

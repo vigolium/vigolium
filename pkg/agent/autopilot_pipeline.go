@@ -61,6 +61,26 @@ type AutopilotPipelineConfig struct {
 
 	// BrowserEnabled indicates whether agent-browser is available for the agent.
 	BrowserEnabled bool
+	// BrowserRequested preserves explicit user intent even when heuristics are weak.
+	BrowserRequested bool
+	// RequiresBrowser means auth/setup should prefer browser assistance over HTTP-only preparation.
+	RequiresBrowser bool
+	// Credentials carries compact credentials extracted from the prompt or flag input.
+	Credentials string
+	// CredentialSets carries structured role/account pairs extracted from prompt input.
+	CredentialSets []agenttypes.IntentCredentialSet
+	// AuthRequired means auth should be prepared before operator launch.
+	AuthRequired bool
+	// BrowserStartURL is an explicit login/start URL for browser-based flows.
+	BrowserStartURL string
+	// FocusRoutes are protected or browser-focused routes named by the user.
+	FocusRoutes []string
+	// SessionConfig is the prepared session config for authenticated scanning.
+	SessionConfig *AgentSessionConfig
+	// AuthHeaders are hydrated headers ready for immediate use.
+	AuthHeaders map[string]string
+	// PreparedAuth summarizes the auth preparation outcome.
+	PreparedAuth *AutopilotPreparedAuth
 
 	// DiffContext holds parsed diff information for focused scanning.
 	// When set, the agent prompt includes changed file list and patch content.
@@ -168,13 +188,27 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		}
 	}
 
+	preparedAuth, authWarnings := r.prepareAutopilotAuth(ctx, &cfg)
+	if preparedAuth != nil {
+		cfg.PreparedAuth = preparedAuth
+	}
+	if len(authWarnings) > 0 {
+		result.Warnings = append(result.Warnings, authWarnings...)
+	}
+
 	bundle := buildAutopilotContextBundle(cfg, archonCtx, archonStatus, result.Warnings)
 	cfg.ContextBundle = &bundle
-	cfg.BrowserEnabled = cfg.BrowserEnabled && (bundle.BrowserDecision == "browser_required" || bundle.BrowserDecision == "browser_recommended")
+	if cfg.BrowserEnabled {
+		if cfg.BrowserRequested || cfg.RequiresBrowser {
+			cfg.BrowserEnabled = true
+		} else {
+			cfg.BrowserEnabled = bundle.BrowserDecision == "browser_required" || bundle.BrowserDecision == "browser_recommended"
+		}
+	}
 	plan := buildAutopilotPlan(cfg, bundle, spec)
 	cfg.Plan = &plan
 	result.BrowserDecision = bundle.BrowserDecision
-	writeBrowserStateArtifacts(spec, bundle, plan)
+	writePreparedAuthArtifacts(spec, bundle, plan, cfg.PreparedAuth, cfg.AuthHeaders, cfg.SessionConfig)
 
 	// Step 2: Build prompt from frozen context and plan.
 	prompt := buildAutonomousPrompt(cfg, archonCtx, false)
@@ -592,8 +626,22 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 		fmt.Fprintf(&b, "%d. **Report** — Summarize confirmed vulnerabilities with evidence and remediation\n\n", stepN+3)
 	} else {
 		stepN := 1
-		if cfg.BrowserEnabled {
+		if cfg.PreparedAuth != nil && cfg.PreparedAuth.Hydrated {
+			fmt.Fprintf(&b, "%d. **Use Prepared Authentication** — Start with the preflight auth artifacts that were already prepared:\n", stepN)
+			if cfg.Artifacts.SessionConfigPath != "" {
+				fmt.Fprintf(&b, "   - Session config: `%s`\n", cfg.Artifacts.SessionConfigPath)
+			}
+			if cfg.Artifacts.AuthHeadersPath != "" {
+				fmt.Fprintf(&b, "   - Hydrated headers/cookies: `%s`\n", cfg.Artifacts.AuthHeadersPath)
+			}
+			b.WriteString("   - Reuse this state before attempting any manual login flow\n")
+			b.WriteString("   - Only fall back to browser/manual auth if the prepared state is rejected by protected routes\n\n")
+			stepN++
+		} else if cfg.BrowserEnabled {
 			fmt.Fprintf(&b, "%d. **Authenticate** — If the target has a login page, use `agent-browser` to authenticate:\n", stepN)
+			if cfg.BrowserStartURL != "" {
+				fmt.Fprintf(&b, "   - Start at `%s`\n", cfg.BrowserStartURL)
+			}
 			b.WriteString("   - `agent-browser open <login-url> --session-name scan` to open the page\n")
 			b.WriteString("   - `agent-browser snapshot --json --session-name scan` to find form elements\n")
 			b.WriteString("   - Fill credentials, submit, then `agent-browser cookies --json --session-name scan`\n")
@@ -674,6 +722,18 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 				fmt.Fprintf(b, "- %s\n", w)
 			}
 		}
+		if cfg.ContextBundle.PreparedAuth != nil {
+			b.WriteString("\n### Prepared Authentication\n\n")
+			fmt.Fprintf(b, "- Requested: %t\n", cfg.ContextBundle.PreparedAuth.Requested)
+			fmt.Fprintf(b, "- Source: %s\n", firstNonEmpty(cfg.ContextBundle.PreparedAuth.Source, "none"))
+			fmt.Fprintf(b, "- Hydrated: %t\n", cfg.ContextBundle.PreparedAuth.Hydrated)
+			if cfg.ContextBundle.PreparedAuth.SessionConfig != "" {
+				fmt.Fprintf(b, "- Session config artifact: `%s`\n", cfg.ContextBundle.PreparedAuth.SessionConfig)
+			}
+			if len(cfg.ContextBundle.PreparedAuth.FocusRoutes) > 0 {
+				fmt.Fprintf(b, "- Focus routes: %s\n", strings.Join(cfg.ContextBundle.PreparedAuth.FocusRoutes, ", "))
+			}
+		}
 		b.WriteString("\n")
 	}
 
@@ -749,6 +809,7 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		fmt.Fprintf(b, "- Confirmed findings: `%s`\n", cfg.Artifacts.FindingsPath)
 		fmt.Fprintf(b, "- Dismissed findings: `%s`\n", cfg.Artifacts.DismissedPath)
 		fmt.Fprintf(b, "- Visited endpoints: `%s`\n", cfg.Artifacts.VisitedEndpointsPath)
+		fmt.Fprintf(b, "- Session config: `%s`\n", cfg.Artifacts.SessionConfigPath)
 		fmt.Fprintf(b, "- Auth state: `%s`\n", cfg.Artifacts.AuthStatePath)
 		fmt.Fprintf(b, "- Auth headers/cookies: `%s`\n", cfg.Artifacts.AuthHeadersPath)
 		fmt.Fprintf(b, "- Browser session state: `%s`\n", cfg.Artifacts.BrowserSessionPath)

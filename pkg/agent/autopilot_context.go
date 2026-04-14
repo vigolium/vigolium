@@ -23,6 +23,7 @@ type AutopilotContextBundle struct {
 	Priorities      []string                  `json:"priorities,omitempty"`
 	ArchonAvailable bool                      `json:"archon_available"`
 	ArchonStatus    string                    `json:"archon_status,omitempty"`
+	PreparedAuth    *AutopilotPreparedAuth    `json:"prepared_auth,omitempty"`
 	BrowserDecision string                    `json:"browser_decision,omitempty"`
 	BrowserReason   string                    `json:"browser_reason,omitempty"`
 	Warnings        []string                  `json:"warnings,omitempty"`
@@ -53,6 +54,7 @@ type AutopilotFindingSummary struct {
 
 type AutopilotExecutionPlan struct {
 	AuthRequired   bool                  `json:"auth_required"`
+	AuthPrepared   bool                  `json:"auth_prepared,omitempty"`
 	BrowserMode    string                `json:"browser_mode,omitempty"`
 	BrowserReason  string                `json:"browser_reason,omitempty"`
 	Budgets        map[string]int        `json:"budgets,omitempty"`
@@ -69,6 +71,21 @@ type AutopilotPlanTask struct {
 	Reason   string `json:"reason"`
 }
 
+type AutopilotPreparedAuth struct {
+	Requested       bool     `json:"requested"`
+	Source          string   `json:"source,omitempty"`
+	SessionConfig   string   `json:"session_config_path,omitempty"`
+	SessionCount    int      `json:"session_count,omitempty"`
+	Hydrated        bool     `json:"hydrated"`
+	HeaderCount     int      `json:"header_count,omitempty"`
+	AuthRequired    bool     `json:"auth_required"`
+	RequiresBrowser bool     `json:"requires_browser,omitempty"`
+	BrowserStartURL string   `json:"browser_start_url,omitempty"`
+	FocusRoutes     []string `json:"focus_routes,omitempty"`
+	ProtectedRoutes []string `json:"protected_routes,omitempty"`
+	Notes           []string `json:"notes,omitempty"`
+}
+
 type AutopilotArtifactSpec struct {
 	BriefPath            string `json:"brief_path"`
 	ContextPath          string `json:"context_path"`
@@ -77,6 +94,7 @@ type AutopilotArtifactSpec struct {
 	DismissedPath        string `json:"dismissed_path"`
 	VisitedEndpointsPath string `json:"visited_endpoints_path"`
 	ArtifactsPath        string `json:"artifacts_path"`
+	SessionConfigPath    string `json:"session_config_path"`
 	AuthStatePath        string `json:"auth_state_path"`
 	AuthHeadersPath      string `json:"auth_headers_path"`
 	BrowserSessionPath   string `json:"browser_session_path"`
@@ -119,6 +137,13 @@ func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *archonContext,
 		bundle.Routes = inferRoutesFromArchon(ac.Findings)
 		bundle.AuthFlows = inferAuthFlows(ac.Findings)
 	}
+	if cfg.PreparedAuth != nil {
+		copyAuth := *cfg.PreparedAuth
+		copyAuth.FocusRoutes = append([]string(nil), cfg.PreparedAuth.FocusRoutes...)
+		copyAuth.ProtectedRoutes = append([]string(nil), cfg.PreparedAuth.ProtectedRoutes...)
+		copyAuth.Notes = append([]string(nil), cfg.PreparedAuth.Notes...)
+		bundle.PreparedAuth = &copyAuth
+	}
 
 	bundle.Priorities = buildAutopilotPriorities(cfg, bundle)
 	modeDecision, modeReason := decideBrowserUsage(cfg, bundle)
@@ -130,7 +155,8 @@ func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *archonContext,
 func buildAutopilotPlan(cfg AutopilotPipelineConfig, bundle AutopilotContextBundle, spec AutopilotArtifactSpec) AutopilotExecutionPlan {
 	budgets := buildAutopilotBudgets(cfg.MaxCommands)
 	plan := AutopilotExecutionPlan{
-		AuthRequired:   len(bundle.AuthFlows) > 0 || strings.Contains(strings.ToLower(cfg.Focus), "auth"),
+		AuthRequired:   cfg.AuthRequired || len(bundle.AuthFlows) > 0 || strings.Contains(strings.ToLower(cfg.Focus), "auth"),
+		AuthPrepared:   cfg.PreparedAuth != nil && cfg.PreparedAuth.Hydrated,
 		BrowserMode:    bundle.BrowserDecision,
 		BrowserReason:  bundle.BrowserReason,
 		Budgets:        budgets,
@@ -184,6 +210,18 @@ func buildAutopilotPlan(cfg AutopilotPipelineConfig, bundle AutopilotContextBund
 }
 
 func decideBrowserUsage(cfg AutopilotPipelineConfig, bundle AutopilotContextBundle) (string, string) {
+	if cfg.RequiresBrowser {
+		if !cfg.BrowserEnabled {
+			return "browser_unavailable", "browser was explicitly required but tooling is disabled"
+		}
+		return "browser_required", firstNonEmpty(cfg.BrowserStartURL, "browser was explicitly required for auth setup")
+	}
+	if cfg.BrowserRequested {
+		if !cfg.BrowserEnabled {
+			return "browser_unavailable", "browser was explicitly requested but tooling is disabled"
+		}
+		return "browser_recommended", firstNonEmpty(cfg.BrowserStartURL, "browser was explicitly requested for this run")
+	}
 	if !cfg.BrowserEnabled {
 		return "browser_unavailable", "browser tooling is disabled for this run"
 	}
@@ -248,6 +286,9 @@ func buildStopCriteria(cfg AutopilotPipelineConfig, bundle AutopilotContextBundl
 	}
 	if len(bundle.AuthFlows) > 0 {
 		criteria = append(criteria, "Authentication has been established or explicitly ruled out")
+	}
+	if cfg.PreparedAuth != nil && cfg.PreparedAuth.Hydrated {
+		criteria = append(criteria, "Prepared authenticated headers have been exercised against protected routes")
 	}
 	if cfg.TargetURL == "" {
 		criteria = append(criteria, "No dynamic testing is attempted in source-only mode")
@@ -337,6 +378,12 @@ func buildAutopilotPriorities(cfg AutopilotPipelineConfig, bundle AutopilotConte
 	if len(bundle.AuthFlows) > 0 {
 		priorities = append(priorities, "Establish or rule out authentication before scanning protected routes")
 	}
+	if cfg.PreparedAuth != nil && cfg.PreparedAuth.Hydrated {
+		priorities = append(priorities, "Use prepared authenticated state before attempting manual login discovery")
+	}
+	if len(cfg.FocusRoutes) > 0 {
+		priorities = append(priorities, "Prioritize user-requested protected flows: "+strings.Join(cfg.FocusRoutes, ", "))
+	}
 	if cfg.TargetURL != "" {
 		priorities = append(priorities, "Use targeted HTTP scanning before writing custom extensions")
 	}
@@ -373,6 +420,7 @@ func prepareAutopilotArtifacts(sessionDir string) (AutopilotArtifactSpec, error)
 		DismissedPath:        filepath.Join(autopilotDir, "dismissed.json"),
 		VisitedEndpointsPath: filepath.Join(autopilotDir, "visited-endpoints.json"),
 		ArtifactsPath:        filepath.Join(autopilotDir, "artifacts.json"),
+		SessionConfigPath:    filepath.Join(autopilotDir, "session-config.json"),
 		AuthStatePath:        filepath.Join(autopilotDir, "auth-state.json"),
 		AuthHeadersPath:      filepath.Join(autopilotDir, "auth-headers.json"),
 		BrowserSessionPath:   filepath.Join(autopilotDir, "browser-session.json"),
@@ -413,6 +461,7 @@ func writeAutopilotArtifacts(spec AutopilotArtifactSpec, bundle AutopilotContext
 		"findings":          spec.FindingsPath,
 		"dismissed":         spec.DismissedPath,
 		"visited_endpoints": spec.VisitedEndpointsPath,
+		"session_config":    spec.SessionConfigPath,
 		"auth_state":        spec.AuthStatePath,
 		"auth_headers":      spec.AuthHeadersPath,
 		"browser_session":   spec.BrowserSessionPath,
@@ -568,20 +617,32 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func writeBrowserStateArtifacts(spec AutopilotArtifactSpec, bundle AutopilotContextBundle, plan AutopilotExecutionPlan) {
+func writePreparedAuthArtifacts(spec AutopilotArtifactSpec, bundle AutopilotContextBundle, plan AutopilotExecutionPlan, prepared *AutopilotPreparedAuth, headers map[string]string, sessionCfg *AgentSessionConfig) {
 	state := map[string]any{
 		"browser_mode":   plan.BrowserMode,
 		"browser_reason": plan.BrowserReason,
 		"auth_required":  plan.AuthRequired,
+		"auth_prepared":  plan.AuthPrepared,
 	}
-	headers := map[string]string{}
+	if prepared != nil {
+		state["prepared_auth"] = prepared
+	}
 	if bundle.BrowserDecision == "browser_required" || bundle.BrowserDecision == "browser_recommended" {
 		state["next_step"] = "Persist browser-derived cookies/tokens before scanning protected routes"
 	}
 	_ = writeJSONArtifact(spec.AuthStatePath, state)
 	_ = writeJSONArtifact(spec.AuthHeadersPath, headers)
-	_ = writeJSONArtifact(spec.BrowserSessionPath, map[string]any{
+	browserState := map[string]any{
 		"status": "pending",
 		"note":   "populate this artifact when browser-derived session state is captured",
-	})
+	}
+	if prepared != nil {
+		browserState["requires_browser"] = prepared.RequiresBrowser
+		browserState["browser_start_url"] = prepared.BrowserStartURL
+		browserState["focus_routes"] = prepared.FocusRoutes
+	}
+	_ = writeJSONArtifact(spec.BrowserSessionPath, browserState)
+	if sessionCfg != nil && spec.SessionConfigPath != "" {
+		_ = writeJSONArtifact(spec.SessionConfigPath, sessionCfg)
+	}
 }

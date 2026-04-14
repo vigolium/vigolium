@@ -22,11 +22,11 @@ type ServerConfig struct {
 	IdleTimeout          time.Duration
 	ShutdownTimeout      time.Duration
 	CORSAllowedOrigins   string
-	UserStore            *UserStore // File-based user store (nil = legacy auth only)
-	ScanQueueCapacity    int        // 0 = reject with 409 when busy (default), >0 = per-project queue depth
-	NoAgent              bool       // If true, disable all agent endpoints and warm sessions
-	ViewOnly             bool       // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
-	EnableMetrics        bool       // Enable Prometheus /metrics endpoint
+	UserStore            *UserStore    // File-based user store (nil = legacy auth only)
+	ScanQueueCapacity    int           // 0 = reject with 409 when busy (default), >0 = per-project queue depth
+	NoAgent              bool          // If true, disable all agent endpoints and warm sessions
+	ViewOnly             bool          // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
+	EnableMetrics        bool          // Enable Prometheus /metrics endpoint
 	NoSwagger            bool          // If true, disable Swagger UI and spec endpoint
 	Debug                bool          // Log raw request body, query params, and headers
 	AgentHeavyMax        int           // Max concurrent heavy agent runs (autopilot/swarm); 0 = default 5
@@ -41,11 +41,11 @@ type ServerConfig struct {
 // DefaultServerConfig returns sensible defaults.
 func DefaultServerConfig() ServerConfig {
 	return ServerConfig{
-		ServiceAddr:     ":9002",
-		ReadTimeout:     10 * time.Second,
-		WriteTimeout:    60 * time.Second,
-		IdleTimeout:     120 * time.Second,
-		ShutdownTimeout: 30 * time.Second,
+		ServiceAddr:        ":9002",
+		ReadTimeout:        10 * time.Second,
+		WriteTimeout:       60 * time.Second,
+		IdleTimeout:        120 * time.Second,
+		ShutdownTimeout:    30 * time.Second,
 		CORSAllowedOrigins: "",
 	}
 }
@@ -148,14 +148,14 @@ func (r *RunScanRequest) UnmarshalJSON(data []byte) error {
 // Scans existing HTTP records from the database with optional filtering.
 type ScanAllRecordsRequest struct {
 	// Record selection filters (all optional — omit all to scan everything)
-	Hostname   string   `json:"hostname,omitempty"`     // hostname filter (supports * wildcards)
-	Methods    []string `json:"methods,omitempty"`      // HTTP methods filter
-	Path       string   `json:"path,omitempty"`         // path filter (supports * wildcards)
-	StatusCodes []int   `json:"status_codes,omitempty"` // status code filter
-	Source     string   `json:"source,omitempty"`       // record source filter
-	Search     string   `json:"search,omitempty"`       // search across URL/path
-	MinRiskScore int    `json:"min_risk_score,omitempty"` // minimum risk score
-	Remark     string   `json:"remark,omitempty"`       // remark substring filter
+	Hostname     string   `json:"hostname,omitempty"`       // hostname filter (supports * wildcards)
+	Methods      []string `json:"methods,omitempty"`        // HTTP methods filter
+	Path         string   `json:"path,omitempty"`           // path filter (supports * wildcards)
+	StatusCodes  []int    `json:"status_codes,omitempty"`   // status code filter
+	Source       string   `json:"source,omitempty"`         // record source filter
+	Search       string   `json:"search,omitempty"`         // search across URL/path
+	MinRiskScore int      `json:"min_risk_score,omitempty"` // minimum risk score
+	Remark       string   `json:"remark,omitempty"`         // remark substring filter
 
 	// Force full rescan (ignore cursor, scan all matching records)
 	Force bool `json:"force"`
@@ -193,10 +193,10 @@ type ScanAllRecordsRequest struct {
 // ScanURLRequest is the request body for POST /api/scan-url.
 type ScanURLRequest struct {
 	URL       string            `json:"url"`
-	Method    string            `json:"method"`     // default GET
+	Method    string            `json:"method"` // default GET
 	Body      string            `json:"body"`
 	Headers   map[string]string `json:"headers"`
-	Modules   string            `json:"modules"`    // comma-separated module IDs
+	Modules   string            `json:"modules"` // comma-separated module IDs
 	NoPassive bool              `json:"no_passive"`
 }
 
@@ -216,14 +216,14 @@ type ScanResponse struct {
 	Message       string `json:"message,omitempty"`
 	RecordsToScan int64  `json:"records_to_scan,omitempty"`
 	TargetsCount  int    `json:"targets_count,omitempty"`
-	ScanMode string `json:"scan_mode,omitempty"` // "target", "full", "incremental", "sast"
-	Source   string `json:"source,omitempty"`
+	ScanMode      string `json:"scan_mode,omitempty"` // "target", "full", "incremental", "sast"
+	Source        string `json:"source,omitempty"`
 }
 
 // RepoUploadResponse is the response for POST /api/repos/upload.
 type RepoUploadResponse struct {
-	RepoID string `json:"repo_id"`
-	Source string `json:"source"`
+	RepoID  string `json:"repo_id"`
+	Source  string `json:"source"`
 	Message string `json:"message"`
 }
 
@@ -400,12 +400,12 @@ type ProjectHTTPRecordStats struct {
 
 // ProjectFindingStats holds finding counts with severity breakdown.
 type ProjectFindingStats struct {
-	Total    int64            `json:"total"`
-	Critical int64            `json:"critical"`
-	High     int64            `json:"high"`
-	Medium   int64            `json:"medium"`
-	Low      int64            `json:"low"`
-	Info     int64            `json:"info"`
+	Total    int64 `json:"total"`
+	Critical int64 `json:"critical"`
+	High     int64 `json:"high"`
+	Medium   int64 `json:"medium"`
+	Low      int64 `json:"low"`
+	Info     int64 `json:"info"`
 }
 
 // ProjectWithStats wraps a Project with its aggregated stats.
@@ -452,10 +452,10 @@ type AgentRunRequest struct {
 	PromptTemplate string   `json:"prompt_template,omitempty"`
 	PromptFile     string   `json:"prompt_file,omitempty"`
 	Prompt         string   `json:"prompt,omitempty"`
-	SourcePath     string   `json:"source,omitempty"`          // path to source code
+	SourcePath     string   `json:"source,omitempty"` // path to source code
 	Files          []string `json:"files,omitempty"`
 	Append         string   `json:"append,omitempty"`
-	Instruction    string   `json:"instruction,omitempty"`     // custom instruction appended to the prompt
+	Instruction    string   `json:"instruction,omitempty"` // custom instruction appended to the prompt
 	Source         string   `json:"source_label,omitempty"`
 	ScanUUID       string   `json:"scan_uuid,omitempty"`
 	Stream         bool     `json:"stream,omitempty"`
@@ -463,26 +463,33 @@ type AgentRunRequest struct {
 
 // AgentAutopilotRequest is the request body for POST /api/agent/run/autopilot.
 type AgentAutopilotRequest struct {
-	Prompt      string   `json:"prompt,omitempty"`              // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
-	Intensity   string   `json:"intensity,omitempty"`           // scan intensity preset: quick, balanced (default), deep
-	Target      string   `json:"target,omitempty"`              // target URL (derived from input if not set)
-	Input       string   `json:"input,omitempty"`               // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
-	Agent       string   `json:"agent,omitempty"`               // agent backend name
-	SourcePath  string   `json:"source,omitempty"`              // path to application source code
-	Files       []string `json:"files,omitempty"`               // specific files to include
-	Focus       string   `json:"focus,omitempty"`               // focus area hint
-	Instruction string   `json:"instruction,omitempty"`         // custom instruction appended to the prompt
-	Timeout     string   `json:"timeout,omitempty"`             // Go duration string, default "6h"
-	MaxCommands int      `json:"max_commands,omitempty"`        // max CLI commands, default 100
-	DryRun      bool     `json:"dry_run,omitempty"`             // render prompt without executing
-	Stream      bool     `json:"stream,omitempty"`              // enable SSE streaming
-	ScanUUID    string   `json:"scan_uuid,omitempty"`           // optional scan UUID
-	ProjectUUID string   `json:"project_uuid,omitempty"`        // project UUID for data scoping
-	Archon      string   `json:"archon,omitempty"`              // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "scan", "deep", "off"
-	NoArchon    bool     `json:"no_archon,omitempty"`           // disable automatic archon-audit (enabled by default when source is set)
-	ArchonMode  string   `json:"archon_mode,omitempty"`         // archon audit mode: "lite" (default), "scan", "deep"
-	Diff        string   `json:"diff,omitempty"`                // focus on changed code: PR URL, git ref range, or HEAD~N
-	LastCommits int      `json:"last_commits,omitempty"`        // focus on last N commits (shorthand for diff HEAD~N)
+	Prompt          string                      `json:"prompt,omitempty"`            // natural language scan prompt (parsed into target/source/focus when explicit fields are empty)
+	Intensity       string                      `json:"intensity,omitempty"`         // scan intensity preset: quick, balanced (default), deep
+	Target          string                      `json:"target,omitempty"`            // target URL (derived from input if not set)
+	Input           string                      `json:"input,omitempty"`             // raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically
+	Agent           string                      `json:"agent,omitempty"`             // agent backend name
+	SourcePath      string                      `json:"source,omitempty"`            // path to application source code
+	Files           []string                    `json:"files,omitempty"`             // specific files to include
+	Focus           string                      `json:"focus,omitempty"`             // focus area hint
+	Instruction     string                      `json:"instruction,omitempty"`       // custom instruction appended to the prompt
+	Timeout         string                      `json:"timeout,omitempty"`           // Go duration string, default "6h"
+	MaxCommands     int                         `json:"max_commands,omitempty"`      // max CLI commands, default 100
+	DryRun          bool                        `json:"dry_run,omitempty"`           // render prompt without executing
+	Stream          bool                        `json:"stream,omitempty"`            // enable SSE streaming
+	ScanUUID        string                      `json:"scan_uuid,omitempty"`         // optional scan UUID
+	ProjectUUID     string                      `json:"project_uuid,omitempty"`      // project UUID for data scoping
+	Archon          string                      `json:"archon,omitempty"`            // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "scan", "deep", "off"
+	NoArchon        bool                        `json:"no_archon,omitempty"`         // disable automatic archon-audit (enabled by default when source is set)
+	ArchonMode      string                      `json:"archon_mode,omitempty"`       // archon audit mode: "lite" (default), "scan", "deep"
+	Diff            string                      `json:"diff,omitempty"`              // focus on changed code: PR URL, git ref range, or HEAD~N
+	LastCommits     int                         `json:"last_commits,omitempty"`      // focus on last N commits (shorthand for diff HEAD~N)
+	Browser         bool                        `json:"browser,omitempty"`           // explicitly enable browser tooling
+	Credentials     string                      `json:"credentials,omitempty"`       // compact credential hint for preflight auth setup
+	CredentialSets  []agent.IntentCredentialSet `json:"credential_sets,omitempty"`   // structured roles/accounts for preflight auth setup
+	AuthRequired    bool                        `json:"auth_required,omitempty"`     // authenticate before scan
+	RequiresBrowser bool                        `json:"requires_browser,omitempty"`  // browser is required for login/auth setup
+	BrowserStartURL string                      `json:"browser_start_url,omitempty"` // explicit login/start URL for browser-based flows
+	FocusRoutes     []string                    `json:"focus_routes,omitempty"`      // protected/browser focus routes
 }
 
 // ResolvedNoArchon returns true when archon should be disabled, handling backward
@@ -529,37 +536,47 @@ type AgentSwarmRequest struct {
 	SkipSAST           bool     `json:"skip_sast,omitempty"`            // skip native SAST tools during source analysis
 
 	// Scanning parameters
-	VulnType           string   `json:"vuln_type,omitempty"`            // vulnerability type focus
-	Focus              string   `json:"focus,omitempty"`                // broad focus area hint (e.g. "API injection", "auth bypass")
-	Instruction        string   `json:"instruction,omitempty"`          // custom instruction appended to agent prompts
-	ModuleNames        []string `json:"module_names,omitempty"`         // explicit module IDs
-	OnlyPhase          string   `json:"only_phase,omitempty"`           // isolate a single phase
-	SkipPhases         []string `json:"skip_phases,omitempty"`          // skip specific phases
-	StartFrom          string   `json:"start_from,omitempty"`           // resume from a specific phase
-	MaxIterations      int      `json:"max_iterations,omitempty"`       // max triage-rescan rounds (default 3)
-	Discover           bool     `json:"discover,omitempty"`             // run discovery+spidering before master agent planning
-	CodeAudit          bool     `json:"code_audit,omitempty"`           // enable AI security code audit phase
-	Triage             bool     `json:"triage,omitempty"`               // enable AI triage and rescan phases (disabled by default)
-	Profile            string   `json:"profile,omitempty"`              // scanning profile name (e.g. "light", "thorough")
+	VulnType      string   `json:"vuln_type,omitempty"`      // vulnerability type focus
+	Focus         string   `json:"focus,omitempty"`          // broad focus area hint (e.g. "API injection", "auth bypass")
+	Instruction   string   `json:"instruction,omitempty"`    // custom instruction appended to agent prompts
+	ModuleNames   []string `json:"module_names,omitempty"`   // explicit module IDs
+	OnlyPhase     string   `json:"only_phase,omitempty"`     // isolate a single phase
+	SkipPhases    []string `json:"skip_phases,omitempty"`    // skip specific phases
+	StartFrom     string   `json:"start_from,omitempty"`     // resume from a specific phase
+	MaxIterations int      `json:"max_iterations,omitempty"` // max triage-rescan rounds (default 3)
+	Discover      bool     `json:"discover,omitempty"`       // run discovery+spidering before master agent planning
+	CodeAudit     bool     `json:"code_audit,omitempty"`     // enable AI security code audit phase
+	Triage        bool     `json:"triage,omitempty"`         // enable AI triage and rescan phases (disabled by default)
+	Profile       string   `json:"profile,omitempty"`        // scanning profile name (e.g. "light", "thorough")
 
 	// Agent selection
-	Agent              string   `json:"agent,omitempty"`                // agent backend name
+	Agent string `json:"agent,omitempty"` // agent backend name
+
+	// Auth/browser intent
+	Browser         bool                        `json:"browser,omitempty"`           // explicitly enable browser tooling
+	Auth            bool                        `json:"auth,omitempty"`              // explicitly run browser auth phase
+	Credentials     string                      `json:"credentials,omitempty"`       // compact credential hint
+	CredentialSets  []agent.IntentCredentialSet `json:"credential_sets,omitempty"`   // structured roles/accounts
+	AuthRequired    bool                        `json:"auth_required,omitempty"`     // authenticate before scan
+	RequiresBrowser bool                        `json:"requires_browser,omitempty"`  // browser is required for login/auth setup
+	BrowserStartURL string                      `json:"browser_start_url,omitempty"` // explicit login/start URL
+	FocusRoutes     []string                    `json:"focus_routes,omitempty"`      // protected/browser focus routes
 
 	// Concurrency tuning
-	BatchConcurrency    int           `json:"batch_concurrency,omitempty"`     // max parallel master agent batches (0 = auto)
-	MaxMasterRetries    int           `json:"max_master_retries,omitempty"`    // max master agent retries on parse failure (0 = default 3)
-	SAMaxConcurrency    int           `json:"sa_max_concurrency,omitempty"`    // max parallel source analysis sub-agents (0 = default 3)
-	MaxPlanRecords      int           `json:"max_plan_records,omitempty"`      // max records sent to plan agent (0 = default 10)
-	MasterBatchSize     int    `json:"master_batch_size,omitempty"`     // max records per master agent batch (0 = default 5)
-	ProbeConcurrency    int    `json:"probe_concurrency,omitempty"`     // max parallel probe requests (0 = default 10)
-	ProbeTimeout        string `json:"probe_timeout,omitempty"`         // per-request probe timeout as Go duration e.g. "10s" (0 = default 10s)
-	MaxProbeBodySize    int    `json:"max_probe_body,omitempty"`        // max response body size in bytes during probing (0 = default 2MB)
+	BatchConcurrency int    `json:"batch_concurrency,omitempty"`  // max parallel master agent batches (0 = auto)
+	MaxMasterRetries int    `json:"max_master_retries,omitempty"` // max master agent retries on parse failure (0 = default 3)
+	SAMaxConcurrency int    `json:"sa_max_concurrency,omitempty"` // max parallel source analysis sub-agents (0 = default 3)
+	MaxPlanRecords   int    `json:"max_plan_records,omitempty"`   // max records sent to plan agent (0 = default 10)
+	MasterBatchSize  int    `json:"master_batch_size,omitempty"`  // max records per master agent batch (0 = default 5)
+	ProbeConcurrency int    `json:"probe_concurrency,omitempty"`  // max parallel probe requests (0 = default 10)
+	ProbeTimeout     string `json:"probe_timeout,omitempty"`      // per-request probe timeout as Go duration e.g. "10s" (0 = default 10s)
+	MaxProbeBodySize int    `json:"max_probe_body,omitempty"`     // max response body size in bytes during probing (0 = default 2MB)
 
 	// Output control
-	DryRun      bool   `json:"dry_run,omitempty"`      // render prompts without executing
-	ShowPrompt  bool   `json:"show_prompt,omitempty"`   // include rendered prompts in output
-	Stream      bool   `json:"stream,omitempty"`        // enable SSE streaming
-	Timeout     string `json:"timeout,omitempty"`       // Go duration string
+	DryRun     bool   `json:"dry_run,omitempty"`     // render prompts without executing
+	ShowPrompt bool   `json:"show_prompt,omitempty"` // include rendered prompts in output
+	Stream     bool   `json:"stream,omitempty"`      // enable SSE streaming
+	Timeout    string `json:"timeout,omitempty"`     // Go duration string
 
 	// Project/scan scoping
 	ProjectUUID string `json:"project_uuid,omitempty"` // optional project UUID
@@ -569,8 +586,8 @@ type AgentSwarmRequest struct {
 	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
 
 	// Diff context
-	Diff        string `json:"diff,omitempty"`          // focus on changed code: PR URL, git ref range, or HEAD~N
-	LastCommits int    `json:"last_commits,omitempty"`  // focus on last N commits (shorthand for diff HEAD~N)
+	Diff        string `json:"diff,omitempty"`         // focus on changed code: PR URL, git ref range, or HEAD~N
+	LastCommits int    `json:"last_commits,omitempty"` // focus on last N commits (shorthand for diff HEAD~N)
 }
 
 // ResolvedNoArchon returns true when archon should be disabled.
@@ -637,12 +654,12 @@ type ChatMessage struct {
 
 // ChatCompletionResponse is an OpenAI-compatible chat completion response.
 type ChatCompletionResponse struct {
-	ID      string      `json:"id"`
-	Object  string      `json:"object"`
-	Created int64       `json:"created"`
-	Model   string      `json:"model"`
+	ID      string       `json:"id"`
+	Object  string       `json:"object"`
+	Created int64        `json:"created"`
+	Model   string       `json:"model"`
 	Choices []ChatChoice `json:"choices"`
-	Usage   *ChatUsage  `json:"usage,omitempty"`
+	Usage   *ChatUsage   `json:"usage,omitempty"`
 }
 
 // ChatChoice represents a single completion choice.
@@ -708,16 +725,16 @@ type ScanRecordsRequest struct {
 
 // AgentRunStatusResponse is the response for GET /api/agent/status/:id and GET /api/agent/status/list.
 type AgentRunStatusResponse struct {
-	RunID        string       `json:"run_id"`
-	Mode         string       `json:"mode"`   // "query", "autopilot", "pipeline"
-	Status       string       `json:"status"` // "running", "completed", "failed"
-	AgentName    string       `json:"agent_name,omitempty"`
-	TemplateID   string       `json:"template_id,omitempty"`
-	FindingCount int          `json:"finding_count,omitempty"`
-	RecordCount  int          `json:"record_count,omitempty"`
-	SavedCount   int          `json:"saved_count,omitempty"`
-	Error        string       `json:"error,omitempty"`
-	CompletedAt  *time.Time   `json:"completed_at,omitempty"`
+	RunID        string        `json:"run_id"`
+	Mode         string        `json:"mode"`   // "query", "autopilot", "pipeline"
+	Status       string        `json:"status"` // "running", "completed", "failed"
+	AgentName    string        `json:"agent_name,omitempty"`
+	TemplateID   string        `json:"template_id,omitempty"`
+	FindingCount int           `json:"finding_count,omitempty"`
+	RecordCount  int           `json:"record_count,omitempty"`
+	SavedCount   int           `json:"saved_count,omitempty"`
+	Error        string        `json:"error,omitempty"`
+	CompletedAt  *time.Time    `json:"completed_at,omitempty"`
 	Result       *agent.Result `json:"result,omitempty"`
 
 	// Phase progress fields
@@ -730,24 +747,24 @@ type AgentRunStatusResponse struct {
 
 // AgentSessionSummary is a lightweight representation of an agent run for list responses.
 type AgentSessionSummary struct {
-	UUID          string   `json:"uuid"`
-	Mode          string   `json:"mode"`
-	Status        string   `json:"status"`
-	AgentName     string   `json:"agent_name,omitempty"`
-	TemplateID    string   `json:"template_id,omitempty"`
-	TargetURL     string   `json:"target_url,omitempty"`
-	SourcePath    string   `json:"source_path,omitempty"`
-	SessionDir    string   `json:"session_dir,omitempty"`
-	VulnType      string   `json:"vuln_type,omitempty"`
-	InputType     string   `json:"input_type,omitempty"`
-	ParentRunUUID string   `json:"parent_run_uuid,omitempty"`
-	CurrentPhase  string   `json:"current_phase,omitempty"`
-	PhasesRun     []string `json:"phases_run,omitempty"`
-	FindingCount  int      `json:"finding_count,omitempty"`
-	RecordCount   int      `json:"record_count,omitempty"`
-	SavedCount    int      `json:"saved_count,omitempty"`
-	ErrorMessage  string   `json:"error_message,omitempty"`
-	DurationMs    int64    `json:"duration_ms,omitempty"`
+	UUID          string     `json:"uuid"`
+	Mode          string     `json:"mode"`
+	Status        string     `json:"status"`
+	AgentName     string     `json:"agent_name,omitempty"`
+	TemplateID    string     `json:"template_id,omitempty"`
+	TargetURL     string     `json:"target_url,omitempty"`
+	SourcePath    string     `json:"source_path,omitempty"`
+	SessionDir    string     `json:"session_dir,omitempty"`
+	VulnType      string     `json:"vuln_type,omitempty"`
+	InputType     string     `json:"input_type,omitempty"`
+	ParentRunUUID string     `json:"parent_run_uuid,omitempty"`
+	CurrentPhase  string     `json:"current_phase,omitempty"`
+	PhasesRun     []string   `json:"phases_run,omitempty"`
+	FindingCount  int        `json:"finding_count,omitempty"`
+	RecordCount   int        `json:"record_count,omitempty"`
+	SavedCount    int        `json:"saved_count,omitempty"`
+	ErrorMessage  string     `json:"error_message,omitempty"`
+	DurationMs    int64      `json:"duration_ms,omitempty"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`

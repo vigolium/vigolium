@@ -151,11 +151,35 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 			if len(app.Files) > 0 && len(req.Files) == 0 {
 				req.Files = app.Files
 			}
+			if app.Browser && !req.Browser {
+				req.Browser = true
+			}
+			if app.Credentials != "" && req.Credentials == "" {
+				req.Credentials = app.Credentials
+			}
+			if len(app.CredentialSets) > 0 && len(req.CredentialSets) == 0 {
+				req.CredentialSets = append([]agent.IntentCredentialSet(nil), app.CredentialSets...)
+			}
+			if app.AuthRequired && !req.AuthRequired {
+				req.AuthRequired = true
+			}
+			if app.RequiresBrowser && !req.RequiresBrowser {
+				req.RequiresBrowser = true
+			}
+			if app.BrowserStartURL != "" && req.BrowserStartURL == "" {
+				req.BrowserStartURL = app.BrowserStartURL
+			}
+			if len(app.FocusRoutes) > 0 && len(req.FocusRoutes) == 0 {
+				req.FocusRoutes = append([]string(nil), app.FocusRoutes...)
+			}
 			if app.MaxCommands > 0 && req.MaxCommands == 0 {
 				req.MaxCommands = app.MaxCommands
 			}
 			if app.Timeout != "" && req.Timeout == "" {
 				req.Timeout = app.Timeout
+			}
+			if app.Intensity != "" && req.Intensity == "" {
+				req.Intensity = app.Intensity
 			}
 		}
 	}
@@ -195,12 +219,13 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 			"timeout":      req.Timeout != "",
 			"archon-mode":  req.ArchonMode != "",
 			"no-archon":    req.NoArchon || req.Archon == "off",
-			"browser":      false,
+			"browser":      req.Browser || req.RequiresBrowser,
 		}
 		result := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
 			MaxCommands: req.MaxCommands,
 			Timeout:     parseDurationOrDefault(req.Timeout, 6*time.Hour),
 			ArchonMode:  req.ResolvedArchonMode(),
+			Browser:     req.Browser || req.RequiresBrowser,
 		}, changed)
 		if req.MaxCommands == 0 {
 			req.MaxCommands = result.MaxCommands
@@ -210,6 +235,9 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		}
 		if req.ArchonMode == "" && req.Archon == "" {
 			req.ArchonMode = result.ArchonMode
+		}
+		if !req.Browser {
+			req.Browser = result.Browser
 		}
 	}
 
@@ -281,19 +309,26 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 	}
 
 	cfg := agent.AutopilotPipelineConfig{
-		TargetURL:     req.Target,
-		SourcePath:    sourcePath,
-		Files:         files,
-		Instruction:   req.Instruction,
-		Focus:         req.Focus,
-		AgentName:     h.effectiveAgentName(req.Agent),
-		MaxCommands:   maxCmds,
-		DryRun:        req.DryRun,
-		SessionsDir:   h.settings.Agent.EffectiveSessionsDir(),
-		ProjectUUID:   projectUUID,
-		ScanUUID:      req.ScanUUID,
-		ParentRunUUID: parentRunUUID,
-		DiffContext:   diffCtx,
+		TargetURL:        req.Target,
+		SourcePath:       sourcePath,
+		Files:            files,
+		Instruction:      req.Instruction,
+		Focus:            req.Focus,
+		AgentName:        h.effectiveAgentName(req.Agent),
+		MaxCommands:      maxCmds,
+		DryRun:           req.DryRun,
+		SessionsDir:      h.settings.Agent.EffectiveSessionsDir(),
+		ProjectUUID:      projectUUID,
+		ScanUUID:         req.ScanUUID,
+		ParentRunUUID:    parentRunUUID,
+		DiffContext:      diffCtx,
+		Credentials:      req.Credentials,
+		CredentialSets:   append([]agent.IntentCredentialSet(nil), req.CredentialSets...),
+		AuthRequired:     req.AuthRequired,
+		BrowserRequested: req.Browser || req.RequiresBrowser,
+		RequiresBrowser:  req.RequiresBrowser,
+		BrowserStartURL:  req.BrowserStartURL,
+		FocusRoutes:      append([]string(nil), req.FocusRoutes...),
 	}
 
 	if auditCfg := agent.ResolveAuditAgentConfig(req.ResolvedNoArchon(), req.ResolvedArchonMode(), sourcePath, h.settings.Agent.Archon); auditCfg != nil {
@@ -301,6 +336,9 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 	}
 
 	cfg.BrowserEnabled = h.settings.Agent.Browser.IsEnabled()
+	if req.Browser {
+		cfg.BrowserEnabled = true
+	}
 
 	// Intensity-derived browser: deep intensity enables browser without mutating shared settings
 	if req.Intensity != "" {
@@ -589,6 +627,33 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			if len(app.Files) > 0 && len(req.Files) == 0 {
 				req.Files = app.Files
 			}
+			if app.Browser && !req.Browser {
+				req.Browser = true
+			}
+			if app.AuthRequired && !req.AuthRequired {
+				req.AuthRequired = true
+			}
+			if app.RequiresBrowser && !req.RequiresBrowser {
+				req.RequiresBrowser = true
+			}
+			if app.RequiresBrowser && !req.Auth {
+				req.Auth = true
+			}
+			if app.Credentials != "" && req.Credentials == "" {
+				req.Credentials = app.Credentials
+			}
+			if len(app.CredentialSets) > 0 && len(req.CredentialSets) == 0 {
+				req.CredentialSets = append([]agent.IntentCredentialSet(nil), app.CredentialSets...)
+			}
+			if app.BrowserStartURL != "" && req.BrowserStartURL == "" {
+				req.BrowserStartURL = app.BrowserStartURL
+			}
+			if len(app.FocusRoutes) > 0 && len(req.FocusRoutes) == 0 {
+				req.FocusRoutes = append([]string(nil), app.FocusRoutes...)
+			}
+			if app.Intensity != "" && req.Intensity == "" {
+				req.Intensity = app.Intensity
+			}
 		}
 	}
 
@@ -624,8 +689,8 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			"master-batch-size": req.MasterBatchSize != 0,
 			"batch-concurrency": req.BatchConcurrency != 0,
 			"probe-concurrency": req.ProbeConcurrency != 0,
-			"browser":           false,
-			"auth":              false,
+			"browser":           req.Browser || req.RequiresBrowser,
+			"auth":              req.Auth || req.AuthRequired || req.RequiresBrowser,
 			"swarm-duration":    req.Timeout != "",
 			"skip-sast":         req.SkipSAST,
 		}
@@ -639,8 +704,8 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			MasterBatchSize:  req.MasterBatchSize,
 			BatchConcurrency: req.BatchConcurrency,
 			ProbeConcurrency: req.ProbeConcurrency,
-			Browser:          false,
-			Auth:             false,
+			Browser:          req.Browser || req.RequiresBrowser,
+			Auth:             req.Auth || req.AuthRequired || req.RequiresBrowser,
 			SwarmDuration:    parseDurationOrDefault(req.Timeout, 12*time.Hour),
 			SkipSAST:         req.SkipSAST,
 		}, changed)
@@ -664,6 +729,12 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 		}
 		if req.ProbeConcurrency == 0 {
 			req.ProbeConcurrency = result.ProbeConcurrency
+		}
+		if !req.Browser {
+			req.Browser = result.Browser
+		}
+		if !req.Auth {
+			req.Auth = result.Auth
 		}
 		req.SkipSAST = result.SkipSAST
 		if req.Timeout == "" {
@@ -833,13 +904,40 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 		ShowPrompt:         req.ShowPrompt,
 		SourceAnalysisOnly: req.SourceAnalysisOnly,
 		CodeAudit:          req.CodeAudit,
-		Browser:            settings.Agent.Browser.IsEnabled() || swarmIntensityEnablesBrowser(req.Intensity),
+		Browser:            req.Browser || req.Auth || req.RequiresBrowser || settings.Agent.Browser.IsEnabled() || swarmIntensityEnablesBrowser(req.Intensity),
+		Auth:               req.Auth || req.AuthRequired || req.RequiresBrowser,
+		Credentials:        req.Credentials,
+		CredentialSets:     append([]agent.IntentCredentialSet(nil), req.CredentialSets...),
+		AuthRequired:       req.AuthRequired,
+		RequiresBrowser:    req.RequiresBrowser,
+		BrowserStartURL:    req.BrowserStartURL,
+		FocusRoutes:        append([]string(nil), req.FocusRoutes...),
 		MasterBatchSize:    req.MasterBatchSize,
 		ProbeConcurrency:   req.ProbeConcurrency,
 		MaxProbeBodySize:   req.MaxProbeBodySize,
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
 		ProjectUUID:        projectUUID,
 		ScanUUID:           req.ScanUUID,
+	}
+	if cfg.SessionDir == "" && cfg.SessionsDir != "" {
+		runID := uuid.New().String()
+		if sessionDir, err := agent.EnsureSessionDir(cfg.SessionsDir, runID); err == nil {
+			cfg.SessionDir = sessionDir
+			cfg.RunUUID = runID
+		}
+	}
+
+	var generatedAuthConfig string
+	cfg.SourceAnalysisCallback = func(saResult *agent.SourceAnalysisResult) error {
+		if saResult.SessionConfig == nil || len(saResult.SessionConfig.Sessions) == 0 || cfg.SessionDir == "" {
+			return nil
+		}
+		authPath, err := agent.WriteAuthConfigYAML(cfg.SessionDir, saResult.SessionConfig)
+		if err != nil {
+			return err
+		}
+		generatedAuthConfig = authPath
+		return nil
 	}
 
 	if req.ProbeTimeout != "" {
@@ -853,16 +951,16 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 	targetURL := h.resolveSwarmTargetURL(req)
 
 	// Wire scan callback using the server's runner infrastructure
-	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, projectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, settings)
+	cfg.ScanFunc = h.buildServerAgentSwarmFunc(targetURL, projectUUID, req.ScanUUID, req.OnlyPhase, req.SkipPhases, settings, &generatedAuthConfig)
 
 	// Wire optional discovery callback
 	if req.Discover {
-		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, projectUUID, req.ScanUUID, settings)
+		cfg.DiscoverFunc = h.buildServerSwarmDiscoverFunc(targetURL, projectUUID, req.ScanUUID, settings, &generatedAuthConfig)
 	}
 
 	// Wire SAST callback when source is provided (unless skip_sast)
 	if sourcePath != "" && !req.SkipSAST {
-		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, req.ScanUUID, settings)
+		cfg.SASTFunc = h.buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, req.ScanUUID, settings, &generatedAuthConfig)
 	}
 
 	// Handle --start-from via synthetic checkpoint
@@ -886,7 +984,7 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 // buildServerAgentSwarmFunc creates a callback that runs the scan.
 // When IsRescan=false, it runs a full scan (all phases, all modules) by default.
 // When IsRescan=true, it restricts to audit with targeted modules.
-func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, onlyPhase string, skipPhases []string, settings *config.Settings) agent.ScanFunc {
+func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, onlyPhase string, skipPhases []string, settings *config.Settings, authConfigPath *string) agent.ScanFunc {
 	return func(ctx context.Context, req agent.ScanRequest) error {
 		opts := types.DefaultOptions()
 		if targetURL != "" {
@@ -898,6 +996,10 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		opts.PassiveModules = []string{"all"}
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
+		}
 
 		if req.IsRescan {
 			// Triage rescans: targeted audit only
@@ -950,7 +1052,7 @@ func swarmIntensityEnablesBrowser(intensityStr string) bool {
 }
 
 // buildServerSwarmDiscoverFunc creates a callback that runs discovery+spidering.
-func (h *Handlers) buildServerSwarmDiscoverFunc(targetURL, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context) error {
+func (h *Handlers) buildServerSwarmDiscoverFunc(targetURL, projectUUID, scanUUID string, settings *config.Settings, authConfigPath *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		opts := types.DefaultOptions()
 		if targetURL != "" {
@@ -964,6 +1066,10 @@ func (h *Handlers) buildServerSwarmDiscoverFunc(targetURL, projectUUID, scanUUID
 		opts.HeuristicsCheck = "basic"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
+		}
 
 		scanRunner, err := runner.New(opts)
 		if err != nil {
@@ -979,7 +1085,7 @@ func (h *Handlers) buildServerSwarmDiscoverFunc(targetURL, projectUUID, scanUUID
 
 // buildServerSwarmSASTFunc creates a callback that runs the native SAST phase
 // (ast-grep route extraction, secret detection, third-party tools).
-func (h *Handlers) buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, scanUUID string, settings *config.Settings) func(ctx context.Context) error {
+func (h *Handlers) buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, scanUUID string, settings *config.Settings, authConfigPath *string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		opts := types.DefaultOptions()
 		if targetURL != "" {
@@ -995,6 +1101,10 @@ func (h *Handlers) buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, 
 		opts.HeuristicsCheck = "none"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
+		if authConfigPath != nil && *authConfigPath != "" {
+			opts.AuthConfigPath = *authConfigPath
+			opts.AuthConfigBestEffort = true
+		}
 
 		scanRunner, err := runner.New(opts)
 		if err != nil {

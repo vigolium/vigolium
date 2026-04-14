@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
-	"gopkg.in/yaml.v3"
 )
 
 // agent swarm command flags
@@ -60,6 +58,11 @@ var (
 	swarmBrowser             bool
 	swarmAuth                bool
 	swarmCredentials         string
+	swarmCredentialSets      []agent.IntentCredentialSet
+	swarmAuthRequired        bool
+	swarmRequiresBrowser     bool
+	swarmBrowserStartURL     string
+	swarmFocusRoutes         []string
 	swarmArchon              string
 	swarmDiff                string
 	swarmLastCommits         int
@@ -442,6 +445,11 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		Browser:            settings.Agent.Browser.IsEnabled(),
 		Auth:               swarmAuth,
 		Credentials:        swarmCredentials,
+		CredentialSets:     append([]agent.IntentCredentialSet(nil), swarmCredentialSets...),
+		AuthRequired:       swarmAuthRequired,
+		RequiresBrowser:    swarmRequiresBrowser,
+		BrowserStartURL:    swarmBrowserStartURL,
+		FocusRoutes:        append([]string(nil), swarmFocusRoutes...),
 		SessionsDir:        settings.Agent.EffectiveSessionsDir(),
 		SessionDir:         sessionDir,
 		RunUUID:            swarmRunID,
@@ -487,13 +495,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	// Wire source analysis callback to process session config into auth-config.yaml
 	cfg.SourceAnalysisCallback = func(saResult *agent.SourceAnalysisResult) error {
 		if saResult.SessionConfig != nil && len(saResult.SessionConfig.Sessions) > 0 {
-			yamlData, marshalErr := yaml.Marshal(convertSessionConfig(saResult.SessionConfig))
-			if marshalErr != nil {
-				return fmt.Errorf("failed to marshal session config: %w", marshalErr)
-			}
-			authPath := filepath.Join(sessionDir, "auth-config.yaml")
-			if writeErr := os.WriteFile(authPath, yamlData, 0644); writeErr != nil {
-				return fmt.Errorf("failed to write auth config: %w", writeErr)
+			authPath, writeErr := agent.WriteAuthConfigYAML(sessionDir, saResult.SessionConfig)
+			if writeErr != nil {
+				return writeErr
 			}
 			generatedAuthConfig = authPath
 			zap.L().Info("Generated auth config written",
@@ -1056,7 +1060,7 @@ func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
 	// Single app: populate flags and re-enter the main flow.
 	// Close the intent-parsing engine first so runAgentSwarm creates its own cleanly.
 	if len(intent.Apps) == 1 {
-		applyIntentToSwarmFlags(intent.Apps[0])
+		applyIntentToSwarmFlags(cmd, intent.Apps[0])
 		engine.Close()
 		return runAgentSwarm(cmd, nil)
 	}
@@ -1069,7 +1073,7 @@ func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
 }
 
 // applyIntentToSwarmFlags populates swarm package-level flags from an AppIntent.
-func applyIntentToSwarmFlags(app agent.AppIntent) {
+func applyIntentToSwarmFlags(cmd *cobra.Command, app agent.AppIntent) {
 	swarmTarget = app.Target
 	swarmSource = app.SourcePath
 	if app.Discover {
@@ -1090,8 +1094,30 @@ func applyIntentToSwarmFlags(app agent.AppIntent) {
 	if len(app.Files) > 0 && len(swarmFiles) == 0 {
 		swarmFiles = app.Files
 	}
-	if app.Browser {
+	if app.Browser || app.RequiresBrowser {
 		swarmBrowser = true
+	}
+	if app.AuthRequired || app.RequiresBrowser || app.Credentials != "" || len(app.CredentialSets) > 0 {
+		swarmAuthRequired = true
+	}
+	if app.RequiresBrowser {
+		swarmRequiresBrowser = true
+		swarmAuth = true
+	}
+	if app.Credentials != "" && swarmCredentials == "" {
+		swarmCredentials = app.Credentials
+	}
+	if len(app.CredentialSets) > 0 && len(swarmCredentialSets) == 0 {
+		swarmCredentialSets = append([]agent.IntentCredentialSet(nil), app.CredentialSets...)
+	}
+	if app.BrowserStartURL != "" && swarmBrowserStartURL == "" {
+		swarmBrowserStartURL = app.BrowserStartURL
+	}
+	if len(app.FocusRoutes) > 0 && len(swarmFocusRoutes) == 0 {
+		swarmFocusRoutes = append([]string(nil), app.FocusRoutes...)
+	}
+	if app.Intensity != "" && !cmd.Flags().Changed("intensity") {
+		swarmIntensity = app.Intensity
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s discover=%v\n",
 		terminal.SuccessSymbol(),
@@ -1164,12 +1190,44 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 			AgentName:     swarmAgentName,
 			ShowPrompt:    swarmShowPrompt,
 			CodeAudit:     codeAudit,
-			SkipPhases:    skipPhases,
-			SessionsDir:   settings.Agent.EffectiveSessionsDir(),
-			SessionDir:    sessionDir,
-			RunUUID:       runID,
-			ProjectUUID:   projectUUID,
-			ScanUUID:      globalScanID,
+			Browser:       swarmBrowser || app.Browser || app.RequiresBrowser,
+			Auth:          swarmAuth || app.RequiresBrowser,
+			Credentials: func() string {
+				if app.Credentials != "" {
+					return app.Credentials
+				}
+				return swarmCredentials
+			}(),
+			CredentialSets: func() []agent.IntentCredentialSet {
+				if len(app.CredentialSets) > 0 {
+					return append([]agent.IntentCredentialSet(nil), app.CredentialSets...)
+				}
+				return append([]agent.IntentCredentialSet(nil), swarmCredentialSets...)
+			}(),
+			AuthRequired: func() bool {
+				return swarmAuthRequired || app.AuthRequired || app.RequiresBrowser || app.Credentials != "" || len(app.CredentialSets) > 0
+			}(),
+			RequiresBrowser: func() bool {
+				return swarmRequiresBrowser || app.RequiresBrowser
+			}(),
+			BrowserStartURL: func() string {
+				if app.BrowserStartURL != "" {
+					return app.BrowserStartURL
+				}
+				return swarmBrowserStartURL
+			}(),
+			FocusRoutes: func() []string {
+				if len(app.FocusRoutes) > 0 {
+					return append([]string(nil), app.FocusRoutes...)
+				}
+				return append([]string(nil), swarmFocusRoutes...)
+			}(),
+			SkipPhases:  skipPhases,
+			SessionsDir: settings.Agent.EffectiveSessionsDir(),
+			SessionDir:  sessionDir,
+			RunUUID:     runID,
+			ProjectUUID: projectUUID,
+			ScanUUID:    globalScanID,
 		}
 
 		// Wire scan callback using per-app target (not the package-level swarmTarget)
@@ -1295,83 +1353,4 @@ func summarizeModules(mods []string) string {
 		return strings.Join(mods, ", ")
 	}
 	return fmt.Sprintf("%d modules", len(mods))
-}
-
-// sessionConfigYAML is the YAML-serializable session config format
-// matching pkg/session.SessionConfig.
-type sessionConfigYAML struct {
-	Sessions []sessionEntryYAML `yaml:"sessions"`
-}
-
-type sessionEntryYAML struct {
-	Name    string            `yaml:"name"`
-	Role    string            `yaml:"role"`
-	Headers map[string]string `yaml:"headers,omitempty"`
-	Login   *loginFlowYAML    `yaml:"login,omitempty"`
-}
-
-type loginFlowYAML struct {
-	URL         string            `yaml:"url"`
-	Method      string            `yaml:"method"`
-	ContentType string            `yaml:"content_type,omitempty"`
-	Body        string            `yaml:"body,omitempty"`
-	Extract     []extractRuleYAML `yaml:"extract,omitempty"`
-	Type        string            `yaml:"type,omitempty"`
-	TokenPath   string            `yaml:"token_path,omitempty"`
-	Expect      *expectYAML       `yaml:"expect,omitempty"`
-}
-
-type expectYAML struct {
-	Status       []int  `yaml:"status,omitempty"`
-	BodyContains string `yaml:"body_contains,omitempty"`
-}
-
-type extractRuleYAML struct {
-	Source  string `yaml:"source"`
-	Name    string `yaml:"name,omitempty"`
-	Path    string `yaml:"path,omitempty"`
-	ApplyAs string `yaml:"apply_as,omitempty"`
-	Pattern string `yaml:"pattern,omitempty"`
-	Group   int    `yaml:"group,omitempty"`
-}
-
-// convertSessionConfig converts agent session config to the YAML format expected by pkg/session.
-func convertSessionConfig(cfg *agent.AgentSessionConfig) sessionConfigYAML {
-	result := sessionConfigYAML{}
-	for _, s := range cfg.Sessions {
-		entry := sessionEntryYAML{
-			Name:    s.Name,
-			Role:    s.Role,
-			Headers: s.Headers,
-		}
-		if s.Login != nil {
-			login := &loginFlowYAML{
-				URL:         s.Login.URL,
-				Method:      s.Login.Method,
-				ContentType: s.Login.ContentType,
-				Body:        s.Login.Body,
-				Type:        s.Login.Type,
-				TokenPath:   s.Login.TokenPath,
-			}
-			if s.Login.Expect != nil {
-				login.Expect = &expectYAML{
-					Status:       s.Login.Expect.Status,
-					BodyContains: s.Login.Expect.BodyContains,
-				}
-			}
-			for _, e := range s.Login.Extract {
-				login.Extract = append(login.Extract, extractRuleYAML{
-					Source:  e.Source,
-					Name:    e.Name,
-					Path:    e.Path,
-					ApplyAs: e.ApplyAs,
-					Pattern: e.Pattern,
-					Group:   e.Group,
-				})
-			}
-			entry.Login = login
-		}
-		result.Sessions = append(result.Sessions, entry)
-	}
-	return result
 }

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +43,83 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 		Description: "Alternative fake agent for testing",
 	}
 	return env
+}
+
+func newAgentTestEnvWithBackendCommand(t *testing.T, command string) *agentTestEnv {
+	t.Helper()
+	db, repo := setupTestDB(t)
+
+	tmpDir := t.TempDir()
+	taskQueue, err := queue.NewDiskQueue(queue.DiskQueueConfig{
+		BaseDir:              tmpDir,
+		MaxRecordsPerSegment: 100,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = taskQueue.Close() })
+
+	port := getFreePort(t)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	settings := &config.Settings{
+		Agent: config.AgentConfig{
+			DefaultAgent: "fake-agent",
+			Backends: map[string]config.AgentDef{
+				"fake-agent": {
+					Command:     command,
+					Description: "Fake agent for testing",
+				},
+			},
+		},
+	}
+
+	cfg := server.ServerConfig{
+		ServiceAddr:          addr,
+		NoAuth:               true,
+		CORSAllowedOrigins:   "reflect-origin",
+		Version:              "test-agent-v0.0.1",
+		DisableFetchResponse: true,
+		WriteTimeout:         120 * time.Second,
+	}
+
+	srv := server.NewServer(cfg, taskQueue, db, repo, settings, nil)
+	go func() { _ = srv.Start() }()
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	apiURL := "http://" + addr
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(apiURL + "/health")
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return &agentTestEnv{
+		server:   srv,
+		url:      apiURL,
+		db:       db,
+		repo:     repo,
+		queue:    taskQueue,
+		settings: settings,
+	}
+}
+
+func fakeIntentAgentScript(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-intent-agent.sh")
+	content := `#!/bin/sh
+cat > /dev/null
+cat <<'JSON'
+{"apps":[{"target":"http://localhost:3005","source_path":"~/src/VAmPI","focus":"IDOR","instruction":"prioritize authenticated object access checks","discover":true,"code_audit":false,"archon":"scan","browser":true,"credentials":"admin/admin123, compare user/user123","credential_sets":[{"name":"admin","role":"primary","username":"admin","password":"admin123"},{"name":"user","role":"compare","username":"user","password":"user123"}],"auth_required":true,"requires_browser":true,"browser_start_url":"http://localhost:3005/login","focus_routes":["/books","/users"],"intensity":"deep"}]}
+JSON
+`
+	require.NoError(t, os.WriteFile(script, []byte(content), 0o755))
+	return script
 }
 
 // newAgentTestEnvWithConfig starts an API server with custom ServerConfig overrides.
@@ -144,6 +223,50 @@ func TestAgentAPI_Run_MissingPrompt(t *testing.T) {
 	var body server.ErrorResponse
 	readJSON(t, resp, &body)
 	assert.Contains(t, body.Error, "prompt")
+}
+
+func TestAgentAPI_SwarmPromptDryRun_ResolvesRichIntent(t *testing.T) {
+	env := newAgentTestEnvWithBackendCommand(t, fakeIntentAgentScript(t))
+
+	resp := env.post(t, "/api/agent/run/swarm", `{
+		"prompt": "scan VAmPI source at ~/src/VAmPI on localhost:3005 with admin/admin123, compare user/user123, focus on IDOR, use browser for login, run deep",
+		"dry_run": true
+	}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body map[string]json.RawMessage
+	readJSON(t, resp, &body)
+
+	var intent struct {
+		Apps []struct {
+			Target          string   `json:"target"`
+			SourcePath      string   `json:"source_path"`
+			Intensity       string   `json:"intensity"`
+			Credentials     string   `json:"credentials"`
+			AuthRequired    bool     `json:"auth_required"`
+			RequiresBrowser bool     `json:"requires_browser"`
+			BrowserStartURL string   `json:"browser_start_url"`
+			FocusRoutes     []string `json:"focus_routes"`
+			CredentialSets  []struct {
+				Role string `json:"role"`
+			} `json:"credential_sets"`
+		} `json:"apps"`
+	}
+	require.NoError(t, json.Unmarshal(body["intent"], &intent))
+	require.Len(t, intent.Apps, 1)
+
+	app := intent.Apps[0]
+	assert.Equal(t, "http://localhost:3005", app.Target)
+	assert.Equal(t, "/Users/j3ssie/src/VAmPI", app.SourcePath)
+	assert.Equal(t, "deep", app.Intensity)
+	assert.Equal(t, "admin/admin123, compare user/user123", app.Credentials)
+	assert.True(t, app.AuthRequired)
+	assert.True(t, app.RequiresBrowser)
+	assert.Equal(t, "http://localhost:3005/login", app.BrowserStartURL)
+	assert.Equal(t, []string{"/books", "/users"}, app.FocusRoutes)
+	require.Len(t, app.CredentialSets, 2)
+	assert.Equal(t, "primary", app.CredentialSets[0].Role)
+	assert.Equal(t, "compare", app.CredentialSets[1].Role)
 }
 
 func TestAgentAPI_Run_InvalidJSON(t *testing.T) {

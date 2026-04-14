@@ -50,6 +50,30 @@ func TestParseIntentJSON(t *testing.T) {
 		wantErr  bool
 	}{
 		{
+			name: "rich auth and browser fields",
+			raw: `{
+				"apps": [
+					{
+						"target": "http://localhost:3005",
+						"source_path": "~/Desktop/demo/VAmPI",
+						"archon": "deep",
+						"browser": true,
+						"credentials": "admin/admin123",
+						"credential_sets": [
+							{"name": "admin", "role": "primary", "username": "admin", "password": "admin123"},
+							{"name": "user", "role": "compare", "username": "user", "password": "user123"}
+						],
+						"auth_required": true,
+						"requires_browser": true,
+						"browser_start_url": "http://localhost:3005/login",
+						"focus_routes": ["/books", "/users"],
+						"intensity": "deep"
+					}
+				]
+			}`,
+			wantApps: 1,
+		},
+		{
 			name: "simple JSON",
 			raw: `{
 				"apps": [
@@ -63,8 +87,8 @@ func TestParseIntentJSON(t *testing.T) {
 			wantApps: 1,
 		},
 		{
-			name: "JSON in markdown fences",
-			raw: "```json\n" + `{"apps": [{"target": "http://localhost:3005", "source_path": "/src/app"}]}` + "\n```",
+			name:     "JSON in markdown fences",
+			raw:      "```json\n" + `{"apps": [{"target": "http://localhost:3005", "source_path": "/src/app"}]}` + "\n```",
 			wantApps: 1,
 		},
 		{
@@ -108,6 +132,25 @@ func TestParseIntentJSON(t *testing.T) {
 			}
 			if len(intent.Apps) != tt.wantApps {
 				t.Errorf("expected %d apps, got %d", tt.wantApps, len(intent.Apps))
+			}
+			if tt.name == "rich auth and browser fields" {
+				app := intent.Apps[0]
+				if app.Archon != "deep" {
+					t.Fatalf("expected archon=deep, got %q", app.Archon)
+				}
+				if !app.AuthRequired || !app.RequiresBrowser || !app.Browser {
+					t.Fatalf("expected auth/browser flags to be true, got auth=%v requires_browser=%v browser=%v",
+						app.AuthRequired, app.RequiresBrowser, app.Browser)
+				}
+				if app.BrowserStartURL != "http://localhost:3005/login" {
+					t.Fatalf("unexpected browser_start_url: %q", app.BrowserStartURL)
+				}
+				if app.Intensity != "deep" {
+					t.Fatalf("expected intensity=deep, got %q", app.Intensity)
+				}
+				if len(app.CredentialSets) != 2 {
+					t.Fatalf("expected 2 credential sets, got %d", len(app.CredentialSets))
+				}
 			}
 		})
 	}

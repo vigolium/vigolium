@@ -66,6 +66,11 @@ type SwarmConfig struct {
 	Browser            bool   // enable agent-browser integration (--browser)
 	Auth               bool   // run browser-based auth phase before discovery (--auth, requires Browser)
 	Credentials        string // optional credentials for browser auth phase (--credentials)
+	CredentialSets     []agenttypes.IntentCredentialSet
+	AuthRequired       bool
+	RequiresBrowser    bool
+	BrowserStartURL    string
+	FocusRoutes        []string
 
 	// Context truncation
 	MaxResponseBodyBytes int // max response body size in context; 0 = default 4096

@@ -139,21 +139,35 @@ func WithSessionsDir(dir string) IntentParseOption {
 	return func(c *IntentParseConfig) { c.SessionsDir = dir }
 }
 
+// IntentCredentialSet represents a role/credential pair extracted from a prompt.
+type IntentCredentialSet struct {
+	Name     string `json:"name,omitempty"`
+	Role     string `json:"role,omitempty"` // "primary" or "compare"
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
 // AppIntent holds parameters for a single application to scan.
 type AppIntent struct {
-	Target      string   `json:"target,omitempty"`       // URL if mentioned
-	SourcePath  string   `json:"source_path,omitempty"`  // filesystem path if mentioned
-	Focus       string   `json:"focus,omitempty"`        // vulnerability focus if mentioned
-	Instruction string   `json:"instruction,omitempty"`  // leftover context
-	Discover    bool     `json:"discover,omitempty"`     // implied by target + source combo
-	CodeAudit   bool     `json:"code_audit,omitempty"`   // implied by source-only
-	Archon      string   `json:"archon,omitempty"`       // "lite", "scan", "deep", or "" (background archon-audit)
-	Diff        string   `json:"diff,omitempty"`         // PR URL, git ref range (main...branch), or HEAD~N
-	Files       []string `json:"files,omitempty"`        // specific files to focus on (relative to source)
-	Browser     bool     `json:"browser,omitempty"`      // enable browser-based interaction
-	MaxCommands int      `json:"max_commands,omitempty"` // command limit override
-	Timeout     string   `json:"timeout,omitempty"`      // duration string (e.g. "2h", "30m")
-	Intensity   string   `json:"intensity,omitempty"`    // "quick", "balanced", "deep"
+	Target          string                `json:"target,omitempty"`            // URL if mentioned
+	SourcePath      string                `json:"source_path,omitempty"`       // filesystem path if mentioned
+	Focus           string                `json:"focus,omitempty"`             // vulnerability focus if mentioned
+	Instruction     string                `json:"instruction,omitempty"`       // leftover context
+	Discover        bool                  `json:"discover,omitempty"`          // implied by target + source combo
+	CodeAudit       bool                  `json:"code_audit,omitempty"`        // implied by source-only
+	Archon          string                `json:"archon,omitempty"`            // "lite", "scan", "deep", or "" (background archon-audit)
+	Diff            string                `json:"diff,omitempty"`              // PR URL, git ref range (main...branch), or HEAD~N
+	Files           []string              `json:"files,omitempty"`             // specific files to focus on (relative to source)
+	Browser         bool                  `json:"browser,omitempty"`           // enable browser-based interaction
+	MaxCommands     int                   `json:"max_commands,omitempty"`      // command limit override
+	Timeout         string                `json:"timeout,omitempty"`           // duration string (e.g. "2h", "30m")
+	Intensity       string                `json:"intensity,omitempty"`         // "quick", "balanced", "deep"
+	Credentials     string                `json:"credentials,omitempty"`       // compact credential hint, e.g. "admin/admin123"
+	CredentialSets  []IntentCredentialSet `json:"credential_sets,omitempty"`   // structured roles/accounts
+	AuthRequired    bool                  `json:"auth_required,omitempty"`     // explicit auth intent from prompt
+	RequiresBrowser bool                  `json:"requires_browser,omitempty"`  // explicit browser requirement from prompt
+	BrowserStartURL string                `json:"browser_start_url,omitempty"` // explicit login/start URL
+	FocusRoutes     []string              `json:"focus_routes,omitempty"`      // explicit auth/browser focus routes
 }
 
 // AuditAgentConfig configures a background archon-audit run.

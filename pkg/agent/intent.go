@@ -31,12 +31,19 @@ Return ONLY valid JSON (no markdown, no explanation). Use this exact schema:
       "instruction": "any other guidance",
       "discover": true,
       "code_audit": false,
-      "audit_agent": "lite",
+      "archon": "lite",
       "diff": "",
       "files": [],
       "browser": false,
+      "credentials": "",
+      "credential_sets": [],
+      "auth_required": false,
+      "requires_browser": false,
+      "browser_start_url": "",
+      "focus_routes": [],
       "max_commands": 0,
-      "timeout": ""
+      "timeout": "",
+      "intensity": ""
     }
   ]
 }
@@ -47,12 +54,19 @@ Rules:
 - If both target and source_path are present for an app, set "discover" to true.
 - If only source_path is present (no target URL), set "code_audit" to true.
 - "focus" captures vulnerability type hints (e.g. "auth bypass", "injection", "XSS").
-- "audit_agent" is "lite", "scan", or "deep" when the user mentions archon, audit agent, security audit, or background audit. "deep" for deep/thorough/comprehensive audit. "scan" for standard audit. Default to "lite" if mentioned without level. Leave empty if not mentioned.
+- "archon" is "lite", "scan", or "deep" when the user mentions archon, audit agent, security audit, or background audit. "deep" for deep/thorough/comprehensive audit. "scan" for standard audit. Default to "lite" if mentioned without level. Leave empty if not mentioned.
 - "diff" captures a diff reference: a PR/MR URL (e.g. "github.com/org/repo/pull/123", "gitlab.com/org/repo/-/merge_requests/45"), a git ref range (e.g. "main...feature-branch"), or HEAD~N. If user says "last N commits", produce "HEAD~N". Leave empty if not mentioned.
 - "files" is an array of specific file paths when the user mentions focusing on particular files (e.g. "focus on auth.go and middleware.go"). Paths are relative to the source root. Leave empty if not mentioned.
 - "browser" is true when the user mentions browser, browser-based testing, headless browser, or UI testing. Default false.
+- "credentials" is a compact credential string when the user gives direct credentials (e.g. "admin/admin123"). Leave empty if not mentioned.
+- "credential_sets" is an array of structured credential pairs when the user gives multiple roles/accounts. Use fields: "name", "role", "username", "password". Highest-privilege account should be role "primary", additional accounts role "compare".
+- "auth_required" is true when the user explicitly asks to authenticate, log in first, or scan protected/authenticated routes.
+- "requires_browser" is true when the user explicitly says the browser must be used for login or auth setup.
+- "browser_start_url" is a full URL when the user names a specific login/start page; otherwise leave empty.
+- "focus_routes" is an array of route paths when the user names flows or paths to prioritize after login (e.g. "/books", "/users", "/profile").
 - "max_commands" is a positive integer when the user mentions a command limit (e.g. "limit 200 commands", "max 50 steps"). Default 0 (meaning use system default).
 - "timeout" is a Go duration string when the user mentions a time limit (e.g. "2h", "30m", "1h30m"). Convert natural language: "2 hours" → "2h", "30 minutes" → "30m". Leave empty if not mentioned.
+- "intensity" is "quick", "balanced", or "deep" when the user mentions scan intensity. Leave empty if not mentioned.
 - "instruction" captures any remaining guidance that doesn't fit other fields.
 - When multiple source paths are listed, create one app entry per source path.
 - Expand ~ to the literal "~" character (do not resolve it).

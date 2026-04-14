@@ -86,11 +86,12 @@ type (
 
 // Intent types
 type (
-	ScanIntent        = agenttypes.ScanIntent
-	SetupCleanup      = agenttypes.SetupCleanup
-	AppIntent         = agenttypes.AppIntent
-	IntentParseOption = agenttypes.IntentParseOption
-	IntentParseConfig = agenttypes.IntentParseConfig
+	ScanIntent          = agenttypes.ScanIntent
+	SetupCleanup        = agenttypes.SetupCleanup
+	AppIntent           = agenttypes.AppIntent
+	IntentCredentialSet = agenttypes.IntentCredentialSet
+	IntentParseOption   = agenttypes.IntentParseOption
+	IntentParseConfig   = agenttypes.IntentParseConfig
 )
 
 // Input types
@@ -142,9 +143,9 @@ const (
 // Re-export functions with external consumers.
 var (
 	NormalizeSwarmPhase         = agenttypes.NormalizeSwarmPhase
-	PhaseSkipped               = agenttypes.PhaseSkipped
-	WithSessionsDir            = agenttypes.WithSessionsDir
-	ValidateIntensity          = agenttypes.ValidateIntensity
+	PhaseSkipped                = agenttypes.PhaseSkipped
+	WithSessionsDir             = agenttypes.WithSessionsDir
+	ValidateIntensity           = agenttypes.ValidateIntensity
 	NativeScanIntensityProfiles = agenttypes.NativeScanIntensityProfiles
 )
 

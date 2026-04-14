@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/agent/claudesdk"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
+	"github.com/vigolium/vigolium/pkg/agent/claudesdk"
 	"github.com/vigolium/vigolium/pkg/agent/prompt"
 	"go.uber.org/zap"
 )
@@ -21,18 +21,18 @@ type SDKRunConfig struct {
 	Cwd                string
 	StreamWriter       io.Writer
 	McpServers         []config.McpServerConfig
-	Model              string   // override model for this run
-	MaxTurns           int      // max agentic turns (0 = SDK default); set high for autopilot
-	AdditionalDirs     []string // extra directories the agent can access (--add-dir)
-	AppendSystemPrompt string   // appended to the default Claude Code system prompt (inline, use SystemPromptDir to avoid long CLI args)
-	SystemPromptSource string   // human-readable source description of where the system prompt was loaded from
-	Effort             string   // "low", "medium", "high"
-	SessionID          string   // pre-generated UUID for --session-id (enables persistence + resume)
-	SystemPromptDir    string   // when set, write system prompt to a file here and use as CWD (avoids huge --append-system-prompt arg)
+	Model              string                     // override model for this run
+	MaxTurns           int                        // max agentic turns (0 = SDK default); set high for autopilot
+	AdditionalDirs     []string                   // extra directories the agent can access (--add-dir)
+	AppendSystemPrompt string                     // appended to the default Claude Code system prompt (inline, use SystemPromptDir to avoid long CLI args)
+	SystemPromptSource string                     // human-readable source description of where the system prompt was loaded from
+	Effort             string                     // "low", "medium", "high"
+	SessionID          string                     // pre-generated UUID for --session-id (enables persistence + resume)
+	SystemPromptDir    string                     // when set, write system prompt to a file here and use as CWD (avoids huge --append-system-prompt arg)
 	Guardrails         config.AutopilotGuardrails // guardrails for SDK autonomous mode
-	SessionDir         string   // session directory for saving stderr logs
-	BrowserEnabled     bool     // when true, allow agent-browser via Bash; when false, block it
-	Phase              string   // phase tag for console diagnostics; empty uses default format
+	SessionDir         string                     // session directory for saving stderr logs
+	BrowserEnabled     bool                       // when true, allow agent-browser via Bash; when false, block it
+	Phase              string                     // phase tag for console diagnostics; empty uses default format
 }
 
 // RunAgenticSDK executes an AI agent using the Claude Agent SDK (JSON-lines protocol).
@@ -304,11 +304,15 @@ func collectSDKOutputStreaming(ctx context.Context, client *claudesdk.Client, st
 	var outputBuf strings.Builder
 	msgChan, errChan := client.ReceiveMessages(ctx)
 
-	for {
+	for msgChan != nil || errChan != nil {
 		select {
-		case msg := <-msgChan:
+		case msg, ok := <-msgChan:
+			if !ok {
+				msgChan = nil
+				continue
+			}
 			if msg == nil {
-				return outputBuf.String(), sessionID, nil
+				continue
 			}
 
 			switch m := msg.(type) {
@@ -342,15 +346,20 @@ func collectSDKOutputStreaming(ctx context.Context, client *claudesdk.Client, st
 				return outputBuf.String(), sessionID, nil
 			}
 
-		case err := <-errChan:
+		case err, ok := <-errChan:
+			if !ok {
+				errChan = nil
+				continue
+			}
 			if err != nil {
 				return outputBuf.String(), sessionID, fmt.Errorf("%w: %w", ErrSDKStreamError, err)
 			}
-			return outputBuf.String(), sessionID, nil
+			errChan = nil
 
 		case <-ctx.Done():
 			return outputBuf.String(), sessionID, ctx.Err()
 		}
 	}
-}
 
+	return outputBuf.String(), sessionID, nil
+}
