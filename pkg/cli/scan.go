@@ -929,7 +929,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.TipPrefix(),
 		terminal.HiCyan("vigolium traffic list"),
 		terminal.HiCyan("vigolium findings list"))
-	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Scan Configuration"))
+	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Native Scan Configuration"))
 	if opts.Stateless {
 		statelessLine := "Stateless mode: using temporary database"
 		if globalVerbose && settings.Database.SQLite.Path != "" {
