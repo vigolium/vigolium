@@ -72,11 +72,13 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // Sync tab → hash when activeTab changes
+  // Sync tab → hash when activeTab changes (statistics is default, no hash)
   useEffect(() => {
-    const desired = tabToHash[activeTab];
-    if (window.location.hash !== desired) {
-      history.replaceState(null, "", desired);
+    const desired = activeTab === "statistics" ? "" : tabToHash[activeTab];
+    const current = window.location.hash;
+    if (current !== desired) {
+      const url = desired || window.location.pathname + window.location.search;
+      history.replaceState(null, "", url);
     }
   }, [activeTab]);
 

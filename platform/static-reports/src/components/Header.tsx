@@ -30,7 +30,15 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
 
   return (
     <header className="px-4 flex items-stretch gap-0 border-b border-warm-border">
-      <div className="flex items-center gap-2.5 py-2.5">
+      <a
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          onTabChange?.("statistics");
+          history.replaceState(null, "", window.location.pathname + window.location.search);
+        }}
+        className="flex items-center gap-2.5 py-2.5 no-underline"
+      >
         <img src={logoUrl} alt="Vigolium" className="w-7 h-7 logo-glow" />
         <h1 className="font-serif text-sm font-bold text-charcoal tracking-tight">
           {reportTitle || "Vigolium Report"}
@@ -38,37 +46,34 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
         <span className="hidden sm:inline text-[11px] text-text-muted font-sans tracking-wide">
           {date}
         </span>
-      </div>
+      </a>
 
       {activeTab && onTabChange && (
         <nav className="flex ml-4 gap-0">
           {tabs.map(({ id, label, icon: Icon }) => {
             const isActive = activeTab === id;
             const count = id === "findings" ? findingsCount : id === "traffic" ? trafficCount : 0;
+            const hasData = count > 0;
             return (
               <button
                 key={id}
                 onClick={() => onTabChange(id)}
-                aria-label={count > 0 ? `${label} (${count})` : label}
+                aria-label={hasData ? `${label} (${count})` : label}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-semibold tracking-wide uppercase transition-colors relative ${
-                  isActive
+                  !hasData
+                    ? "text-text-muted/50 hover:text-text-muted"
+                    : isActive
                     ? "text-charcoal"
                     : "text-text-muted hover:text-charcoal"
                 }`}
               >
                 <Icon size={13} />
                 <span className="hidden sm:inline">{label}</span>
-                {count > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                {hasData && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded inline-flex ${
                     isActive ? "bg-terracotta/10 text-terracotta" : "bg-warm-border text-text-muted"
-                  } hidden sm:inline-flex`}>
-                    {count}
-                  </span>
-                )}
-                {count > 0 && (
-                  <span className={`sm:hidden absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ${
-                    isActive ? "bg-terracotta" : "bg-text-muted"
                   }`}>
+                    {count}
                   </span>
                 )}
                 {isActive && (
