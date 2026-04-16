@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"time"
@@ -190,6 +191,9 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.Confidence = event.Info.Confidence.String()
 	f.Tags = event.Info.Tags
 
+	f.URL = firstNonEmpty(event.URL, event.Matched)
+	f.Hostname = resolveFindingHostname(event.Host, event.URL, event.Matched)
+
 	if event.Matched != "" {
 		f.MatchedAt = []string{event.Matched}
 	}
@@ -206,6 +210,32 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.FoundAt = time.Now()
 
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// resolveFindingHostname picks the hostname for a finding, preferring the
+// explicit Host field on the event, then parsing the URL or matched-at value.
+func resolveFindingHostname(host, url, matched string) string {
+	if host != "" {
+		return host
+	}
+	for _, candidate := range []string{url, matched} {
+		if candidate == "" {
+			continue
+		}
+		if parsed, err := neturl.Parse(candidate); err == nil && parsed.Hostname() != "" {
+			return parsed.Hostname()
+		}
+	}
+	return ""
 }
 
 // extractResponseHTTPVersion extracts the HTTP version from the raw response status line.

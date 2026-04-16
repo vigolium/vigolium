@@ -26,6 +26,8 @@ type ServerConfig struct {
 	ScanQueueCapacity    int           // 0 = reject with 409 when busy (default), >0 = per-project queue depth
 	NoAgent              bool          // If true, disable all agent endpoints and warm sessions
 	ViewOnly             bool          // If true, only serve GET/viewer routes (no scanning, ingestion, or agent)
+	DemoOnly             bool          // If true, expose only the demo allowlist (subset of GET endpoints)
+	License              string        // Optional license tag surfaced in /server-info (configured in server.license)
 	EnableMetrics        bool          // Enable Prometheus /metrics endpoint
 	NoSwagger            bool          // If true, disable Swagger UI and spec endpoint
 	Debug                bool          // Log raw request body, query params, and headers
@@ -319,10 +321,12 @@ type ServerInfoResponse struct {
 	Uptime        string `json:"uptime"`
 	ServiceAddr   string `json:"service_addr"`
 	ProxyAddr     string `json:"proxy_addr,omitempty"`
-	DBDriver      string `json:"db_driver,omitempty"`
 	QueueDepth    int64  `json:"queue_depth"`
 	TotalRecords  int64  `json:"total_records"`
 	TotalFindings int64  `json:"total_findings"`
+	License       string `json:"license,omitempty"`
+	DemoOnly      bool   `json:"demo_only,omitempty"`
+	ViewOnly      bool   `json:"view_only,omitempty"`
 }
 
 // StatsResponse is the response for GET /api/stats.

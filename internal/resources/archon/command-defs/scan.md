@@ -6,7 +6,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, 
 
 ## Context
 
-- Current branch: !`git branch --show-current`
+- Git availability: !`git rev-parse --is-inside-work-tree >/dev/null 2>&1 && echo "Git worktree detected" || echo "No git worktree (plain directory target)"`
+- Current branch: !`git branch --show-current 2>/dev/null || echo "No git branch (plain directory target)"`
 - Existing audit state: !`cat archon/audit-state.json 2>/dev/null || echo "No existing audit state"`
 - Security directory: !`ls archon/ 2>/dev/null || echo "No security directory"`
 
@@ -15,6 +16,8 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, 
 Run a **scan** security audit of the current repository. Target scope: $ARGUMENTS
 
 This is a streamlined 6-phase pipeline that trades depth for speed. It produces the same output format as the full audit (`/archon:deep`) so findings are compatible with `/archon:diff` and `/archon:status`.
+
+This mode supports auditing a plain source folder with no `.git` directory or local history.
 
 ### What Scan Mode Skips
 
@@ -54,17 +57,30 @@ Do not proceed past the pre-flight check without an explicit user choice.
 
 ### Pre-Audit Setup
 
-1. Create or checkout the `audit` branch: `git checkout audit 2>/dev/null || git checkout -b audit`
-2. Create output directory: `mkdir -p archon/`
-3. Initialize `archon/audit-state.json` by appending a new entry (or creating the file):
+1. Detect whether Git history is available:
+   ```bash
+   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+     export ARCHON_GIT_AVAILABLE=true
+   else
+     export ARCHON_GIT_AVAILABLE=false
+   fi
+   ```
+2. If `ARCHON_GIT_AVAILABLE=true`, create or checkout the `audit` branch:
+   ```bash
+   git checkout audit 2>/dev/null || git checkout -b audit
+   ```
+   If `ARCHON_GIT_AVAILABLE=false`, skip branch creation and continue auditing the directory in place. Do NOT initialize a new repo just for the audit.
+3. Create output directory: `mkdir -p archon/`
+4. Initialize `archon/audit-state.json` by appending a new entry (or creating the file):
    ```json
    {
      "audits": [
        {
          "audit_id": "<ISO timestamp>",
-         "commit": "<HEAD SHA from: git rev-parse HEAD>",
-         "branch": "<current branch>",
-         "repository": "<org/repo from: git remote get-url origin 2>/dev/null | sed 's|.*://[^/]*/||;s|.*:||;s|\\.git$||' — fallback: basename $(pwd)>",
+         "commit": "<HEAD SHA from: git rev-parse HEAD, or null / \"nogit\" when Git is unavailable>",
+         "branch": "<current branch, or \"nogit\">",
+         "repository": "<value of $ARCHON_REPOSITORY env var, pre-computed by the CLI from git remote / package manifests / basename — substitute the literal string before writing>",
+         "history_available": "<true if Git worktree detected, else false>",
          "mode": "scan",
          "model": "<model name, e.g. opus-4.6, gpt-5.3-codex, sonnet-4.6>",
          "agent_sdk": "<platform name, e.g. claude-code, codex, bytesec, opencode, traecli>",
@@ -84,7 +100,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
    }
    ```
    If the file already exists, read it and append a new entry to the `audits` array rather than replacing the file. Never remove earlier entries.
-4. Update `.gitignore`: add the following entries if not already present:
+5. If `ARCHON_GIT_AVAILABLE=true`, update `.gitignore`: add the following entries if not already present:
    ```
    archon/codeql-artifacts/db/
    archon/codeql-artifacts/flow-paths-raw.sarif
@@ -94,6 +110,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
    archon/semgrep-res/
    archon/probe-workspace/
    ```
+   If `ARCHON_GIT_AVAILABLE=false`, skip `.gitignore` edits.
 
 ---
 

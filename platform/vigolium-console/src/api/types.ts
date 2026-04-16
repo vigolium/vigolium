@@ -31,10 +31,19 @@ export interface ServerInfoResponse {
   uptime: string;
   service_addr: string;
   proxy_addr?: string;
-  db_driver?: string;
   queue_depth: number;
   total_records: number;
   total_findings: number;
+  license?: string;
+  demo_only?: boolean;
+  view_only?: boolean;
+}
+
+export interface DemoStatusResponse {
+  active: boolean;
+  feature_enabled: boolean;
+  label?: string;
+  expires?: string;
 }
 
 export interface Finding {
@@ -910,8 +919,10 @@ export interface CurrentUser {
   name: string;
   email: string;
   role: string;
-  credits: number;
+  credits?: number;
   organization: { id: string; name: string } | null;
+  demo_label?: string;
+  demo_expires?: string;
 }
 
 // --- GitHub types ---

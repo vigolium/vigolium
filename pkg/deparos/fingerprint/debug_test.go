@@ -35,7 +35,7 @@ func requireReachableDebugHost(t *testing.T, targetURL string) *url.URL {
 	if err != nil {
 		t.Skipf("Skipping external debug test: %s is unreachable: %v", baseURL.Host, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return baseURL
 }

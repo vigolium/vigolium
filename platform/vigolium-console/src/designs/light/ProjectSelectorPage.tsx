@@ -1,15 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { FolderOpen, Plus, ArrowRight, Lock } from 'lucide-react';
 import Layout from './Layout';
 import { useProjectContext } from '@/contexts/ProjectContext';
 import { useCurrentUser } from '@/api/hooks';
+import { useDemoRouter } from '@/lib/useDemoHref';
 import type { Project } from '@/api/types';
 
 export default function ProjectSelectorPage() {
-  const router = useRouter();
+  const router = useDemoRouter();
   const { projects, isLoading, setProject, createProject } = useProjectContext();
   const { data: currentUser } = useCurrentUser();
 

@@ -45,7 +45,6 @@ These skills may only be re-invoked for application-level logic, DFD hotspots, a
 - `sharp-edges` -- reviewing APIs and cryptographic configurations outside library scope
 - `wooyun-legacy` -- broad web vulnerability techniques outside library scope
 - `zeroize-audit` -- C/C++/Rust applications handling secrets
-- `ffuf-web-fuzzing` -- dynamic testing for edge cases or unknown parameters
 
 ## Evidence Quality Bar
 

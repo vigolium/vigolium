@@ -44,6 +44,29 @@ Write a minimized exploit script at `archon/findings/<ID>-<slug>/poc.{py|sh|js}`
 - **Capture evidence** — save execution output to `evidence/`
 - **Label PoC-Status accurately** — `executed` | `theoretical` | `blocked`
 
+**Substitution variables** (use these instead of hard-coded URLs / tokens — confirm-mode poc-executor will fill them in):
+
+| Variable | What it expands to at confirm time |
+|----------|------------------------------------|
+| `{{BASE_URL}}` | Live `base_url` from `env-connection.json` (or `--target` URL) |
+| `{{HOST}}`, `{{PORT}}` | Parsed from `base_url` |
+| `{{TOKEN_admin}}`, `{{TOKEN_user}}`, `{{TOKEN_guest}}` | Bearer tokens for seeded test identities |
+| `{{EMAIL_admin}}`, `{{EMAIL_user}}`, `{{EMAIL_guest}}` | Emails of seeded identities |
+
+Do NOT bake `localhost:8080` or hardcoded credentials into the PoC. Use the variables above so the same PoC works against local Docker, a remote staging URL, and CI ephemeral environments without edits.
+
+**Structured output contract (CRITICAL)**:
+
+The PoC's LAST stdout line MUST be a single JSON object:
+
+```json
+{"status": "confirmed", "evidence": "<short marker the PoC observed>", "notes": "<optional>"}
+```
+
+Allowed `status` values: `confirmed`, `failed`, `inconclusive`. The `evidence` field should name the *thing observed* that proves exploitation — not the request itself, but the response artifact (e.g., `"admin role assigned to attacker session"`, `"DB error message containing query string"`, `"file /etc/passwd contents in HTTP body"`). poc-executor parses this line to assign `Confirm-Status` deterministically; without it, the executor falls back to fragile log heuristics and the verdict becomes unreliable.
+
+Always print the JSON line to stdout (not stderr) and make it the LAST output of the script. Earlier prints can be free-form for human readers.
+
 ### 4. Real-Environment Execution (CRITICAL/HIGH mandatory)
 
 For CRITICAL and HIGH findings, real-environment PoC execution is required.
@@ -77,13 +100,20 @@ For MEDIUM findings, `PoC-Status: theoretical` is acceptable with code-level evi
 Apply the vuln-report methodology (injected via skills) to write the individual finding report. Output goes to
 `archon/findings/<ID>-<slug>/report.md`.
 
-### 6. Update Finding Draft
+### 6. Update Finding Draft and Report
 
-Write back to the finding draft:
+Write back to the finding draft AND `archon/findings/<ID>-<slug>/report.md`:
 ```
 PoC-Status: executed | theoretical | blocked
 PoC-Block-Reason: <if blocked>
+Protocol: http | grpc | graphql | websocket | tcp | local | non-exploitable
+Auth-Required: yes | no
+Auth-Roles-Required: <comma-separated labels from env-detective auth-spec, e.g. "admin" or "admin,user", or "anonymous">
 ```
+
+These three fields drive the confirm-mode pipeline:
+- `Protocol` selects the right invoker (curl vs grpcurl vs wscat) and routes `non-exploitable` findings out of V4 entirely.
+- `Auth-Required` + `Auth-Roles-Required` tell poc-executor which `{{TOKEN_*}}` placeholders the PoC depends on so it can fail fast (with `blocked: auth-token-unavailable`) when seeding didn't produce that identity.
 
 ## Completion
 

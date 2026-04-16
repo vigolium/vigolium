@@ -17,19 +17,11 @@ subagent_overrides:
     sandbox_mode: "danger-full-access"
 
 # Agents absent from codex's current installed roster.
-# Codex has: advisory-hunter, attack-ideator, backward-reasoner, chamber-synthesizer,
-#   code-tracer, devils-advocate, enrichment-filter, evidence-harvester,
-#   knowledge-base-builder, patch-bypass-checker, poc-builder, probe-strategist,
-#   report-assembler, spec-gap-analyst, static-analyzer, variant-hunter, variant-scout
+# Confirmation-mode agents are intentionally included for `--mode confirm`.
 exclude:
-  - confirm-reporter
   - code-anatomist
   - cold-verifier
   - commit-archaeologist
   - contradiction-reasoner
   - causal-verifier
   - deep-auditor
-  - env-detective
-  - env-provisioner
-  - poc-executor
-  - test-mapper

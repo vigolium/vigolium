@@ -74,7 +74,7 @@ scanning_strategy:
   session:
     session_dir: ~/.vigolium/sessions/
     use_in_discovery: true       # apply session headers during discovery/spidering
-    compare_enabled: true        # cross-session IDOR/BOLA replay in audit
+    compare_enabled: true        # cross-session IDOR/BOLA replay in dynamic-assessment
     reauth_interval: ""          # e.g. "15m" to refresh tokens periodically
     reauth_on_status: []         # e.g. [401, 403]
     validate_url: ""             # URL to GET after login to verify credentials
@@ -84,7 +84,7 @@ scanning_strategy:
     discovery: true
     spidering: true
     known_issue_scan: true
-    audit: true
+    dynamic-assessment: true
     external_harvesting: false
     source_aware: false
 ```
@@ -97,7 +97,7 @@ Available strategies and their default phases:
 | discovery | - | yes | yes | yes |
 | spidering | - | yes | yes | - |
 | known_issue_scan | - | yes | yes | yes |
-| audit | yes | yes | yes | yes |
+| dynamic-assessment | yes | yes | yes | yes |
 | source_aware | - | - | - | yes |
 
 ### `scanning_pace`
@@ -123,7 +123,7 @@ scanning_pace:
     duration_factor: 3.0
   external_harvester:
     duration_factor: 0.2
-  audit:
+  dynamic-assessment:
     duration_factor: 1.0
     parallel_passive: true         # run passive modules in parallel
     feedback_drain_timeout: 500ms  # wait for feedback loop items
@@ -194,12 +194,12 @@ spidering:
   no_forms: false            # disable automatic form filling
 ```
 
-### `audit`
+### `dynamic-assessment`
 
 Controls which scanner modules run and JavaScript extension settings.
 
 ```yaml
-audit:
+dynamic-assessment:
   enabled_modules:
     active_modules: ["all"]    # ["all"] or list of module IDs
     passive_modules: ["all"]
@@ -482,7 +482,7 @@ notify:
 
 ## Scanning Profiles
 
-Scanning profiles are YAML files stored in `~/.vigolium/profiles/` that override subsets of the main config. They can tune any combination of: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `known_issue_scan`, `audit`, `external_harvester`, `mutation_strategy`, and `scope`.
+Scanning profiles are YAML files stored in `~/.vigolium/profiles/` that override subsets of the main config. They can tune any combination of: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `known_issue_scan`, `dynamic-assessment`, `external_harvester`, `mutation_strategy`, and `scope`.
 
 Apply a profile with:
 

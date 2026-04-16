@@ -373,7 +373,6 @@ Response:
   "uptime": "2h15m30s",
   "service_addr": "0.0.0.0:9002",
   "proxy_addr": "0.0.0.0:9003",
-  "db_driver": "sqlite",
   "queue_depth": 0,
   "total_records": 1542,
   "total_findings": 23

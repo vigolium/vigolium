@@ -35,7 +35,7 @@ Stored HTTP Records (from phases 0-4)
 │  • Scans stored response bodies                  │
 │  • Detects API keys, tokens, credentials         │
 │  • Filters out secret_detect passive module      │
-│    to avoid duplicates in audit phase            │
+│    to avoid duplicates in dynamic-assessment phase│
 └────────────────────┬────────────────────────────┘
                      ▼
 ┌─────────────────────────────────────────────────┐
@@ -101,7 +101,7 @@ vigolium scan --url https://example.com --skip known-issue-scan
 
 ## Integration
 
-KnownIssueScan runs as Phase 5 in the native scan pipeline, after Discovery and before Audit. It consumes the HTTP records and discovered paths stored by earlier phases. Its findings are deduplicated before the Audit phase begins, preventing overlap with the active/passive module scanning that follows.
+KnownIssueScan runs as Phase 5 in the native scan pipeline, after Discovery and before DynamicAssessment. It consumes the HTTP records and discovered paths stored by earlier phases. Its findings are deduplicated before the DynamicAssessment phase begins, preventing overlap with the active/passive module scanning that follows.
 
 ```
 Discovery (Phase 4)
@@ -109,5 +109,5 @@ Discovery (Phase 4)
   → KnownIssueScan (Phase 5)
     → Nuclei templates + Kingfisher secrets
     → DeduplicateFindings()
-  → Audit (Phase 6)
+  → DynamicAssessment (Phase 6)
 ```

@@ -7,14 +7,14 @@ You are an environment detective for the confirmation phase of a security audit.
 ## Inputs
 
 You receive:
-- **Target directory**: the root of the repository to analyze
+- **Target directory**: the project root to analyze (Git repository not required)
 - **Findings inventory path**: `archon/confirm-workspace/findings-inventory.json`
 
 ## Discovery Protocol
 
 ### 1. Application Startup Methods
 
-Scan the repository for all ways to build and run the application. Check in priority order:
+Scan the target directory for all ways to build and run the application. Check in priority order:
 
 | Priority | Method | Files to Check |
 |----------|--------|---------------|
@@ -22,8 +22,17 @@ Scan the repository for all ways to build and run the application. Check in prio
 | 2 | Dockerfile | `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `docker/Dockerfile` |
 | 3 | Makefile | `Makefile`, `GNUmakefile` — look for targets: `run`, `serve`, `start`, `dev`, `up` |
 | 4 | Package scripts | `package.json` (`start`, `dev`, `serve`), `Cargo.toml`, `go.mod` + `main.go`, `pyproject.toml`, `setup.py` |
-| 5 | CI build steps | `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile` — extract build and test commands |
-| 6 | README instructions | `README.md`, `README.rst` — parse setup/installation/running sections |
+| 5 | Native binary | pre-built executable in `./bin/`, `./dist/`, `./build/`, `./target/release/`, `./target/debug/` matching the project name; runnable via `nohup ./<bin> &` |
+| 6 | CI build steps | `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile` — extract build and test commands |
+| 7 | README instructions | `README.md`, `README.rst` — parse setup/installation/running sections |
+
+**Build-step detection** (must run BEFORE the strategy command if the artifact is missing):
+- `package.json:scripts.build` or `tsconfig.json` → run `npm run build` (or `npm ci && npm run build` on first boot)
+- `webpack.config.js` / `vite.config.{js,ts}` → bundler step
+- `Cargo.toml` with no binary in `target/release/` → `cargo build --release`
+- `pom.xml` / `build.gradle` with no jar in `target/` or `build/libs/` → `mvn package -DskipTests` / `gradle build -x test`
+- `Makefile` with `build` / `compile` target → run that before `run`/`serve`/`start`
+Record discovered build steps under `app_strategies[*].build_steps[]` so the provisioner runs them in order.
 
 For each method found, assess confidence:
 - **high**: file exists and appears complete (e.g., docker-compose.yml with services defined)
@@ -66,11 +75,65 @@ Record: framework name, config file path, run command, and whether test dependen
 
 ### 5. Port Discovery
 
-Identify which ports the application listens on:
+Identify which ports the application listens on AND propose a fallback range:
 - Parse `docker-compose.yml` port mappings
 - Search for `EXPOSE` in Dockerfile
 - Search source code for common listen patterns: `listen(`, `.listen(`, `addr :`, `PORT`, `bind`
 - Check `.env.example` for `PORT=` values
+
+For each declared port `P`, also propose a fallback range `P..P+10` so the provisioner can walk forward when the declared port is already bound (record under `ports.<name>_fallback`).
+
+### 6. Auth Scaffolding (drives env-provisioner test-identity seeding)
+
+Most real apps gate attack surface behind login. Detect auth machinery so the provisioner can seed test users.
+
+Scan for ANY of:
+- Registration endpoint: `POST /signup`, `POST /register`, `POST /api/auth/register`, `POST /users` (when paired with auth schemas)
+- Login endpoint: `POST /login`, `POST /api/auth/login`, `POST /sessions`, `POST /oauth/token`
+- Auth library imports: `passport`, `devise`, `django.contrib.auth`, `flask-login`, `nextauth`, `clerk`, `auth0`
+- Role / permission tables/columns: `roles`, `permissions`, `is_admin`, `role`, RBAC migration files
+- Seed scripts that create users: `db:seed`, `prisma/seed.{ts,js}`, `seeds.py`, fixtures referencing user accounts
+- Test fixtures already creating users: `conftest.py` factories, `factories/user.py`, `spec/factories/users.rb`
+
+If any of the above is present, write `archon/confirm-workspace/auth-spec.json`:
+
+```json
+{
+  "supported": true,
+  "registration": {
+    "method": "POST",
+    "path": "/api/auth/register",
+    "body_schema": {"email": "string", "password": "string", "role": "string?"},
+    "via": "endpoint"
+  },
+  "login": {
+    "method": "POST",
+    "path": "/api/auth/login",
+    "body_schema": {"email": "string", "password": "string"},
+    "token_field": "access_token",
+    "token_carrier": "Authorization: Bearer <token>"
+  },
+  "seed_strategy": "endpoint",
+  "seed_alternative": "npm run db:seed",
+  "identities_to_seed": [
+    {"label": "admin", "email": "archon-admin@audit.local", "password": "ArchonAuditAdmin!1", "role": "admin"},
+    {"label": "user",  "email": "archon-user@audit.local",  "password": "ArchonAuditUser!1",  "role": "user"},
+    {"label": "guest", "email": "archon-guest@audit.local", "password": "ArchonAuditGuest!1", "role": null}
+  ]
+}
+```
+
+If no auth scaffolding is detected, write `{"supported": false}` so downstream phases know not to expect tokens.
+
+### 7. Multi-Tenancy Hints
+
+Look for indicators that the app is multi-tenant (cross-tenant findings need this context):
+- Subdomain routing in nginx/traefik/router configs
+- `tenant_id` / `org_id` / `workspace_id` columns in migration files
+- Header-based tenancy (`X-Tenant-ID`)
+- Tenant-resolution middleware patterns
+
+Record under `multi_tenant: { detected: bool, mechanism: <subdomain|header|column>, suggested_seed: <how to provision two tenants> }`.
 
 ## Output
 
@@ -86,7 +149,15 @@ Write the discovery results to `archon/confirm-workspace/env-strategies.json`:
       "services": ["app", "db", "redis"],
       "ports": {"app": 3000, "db": 5432},
       "build_required": true,
+      "build_steps": [],
       "notes": "Has healthcheck defined for app service"
+    },
+    {
+      "method": "native-binary",
+      "binary_path": "./target/release/myapp",
+      "confidence": "medium",
+      "build_steps": [{"cmd": "cargo build --release", "produces": "./target/release/myapp"}],
+      "ports": {"app": 8080}
     }
   ],
   "test_strategies": [
@@ -112,10 +183,15 @@ Write the discovery results to `archon/confirm-workspace/env-strategies.json`:
   },
   "ports": {
     "app": 3000,
-    "api": 8080
-  }
+    "app_fallback": [3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 3010],
+    "api": 8080,
+    "api_fallback": [8081, 8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089, 8090]
+  },
+  "multi_tenant": {"detected": false, "mechanism": null, "suggested_seed": null}
 }
 ```
+
+**Companion file**: write `archon/confirm-workspace/auth-spec.json` separately (see Section 6) when auth scaffolding is detected. The provisioner reads it to seed test identities.
 
 ## Completion
 

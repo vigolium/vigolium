@@ -1,0 +1,11 @@
+[
+  {
+    "key": "replace-with-a-long-random-string",
+    "label": "default",
+    "expires": "2026-12-31"
+  },
+  {
+    "key": "another-long-random-string",
+    "label": "acme-demo"
+  }
+]

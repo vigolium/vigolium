@@ -240,7 +240,7 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 		opts.StreamWriter = io.Discard
 	}
 	if streamCloser != nil {
-		defer streamCloser.Close()
+		defer func() { _ = streamCloser.Close() }()
 	}
 
 	result, err := h.agentEngine.Run(ctx, opts)

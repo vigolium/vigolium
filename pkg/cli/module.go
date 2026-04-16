@@ -89,7 +89,7 @@ func loadEnabledModulesConfig() *config.EnabledModulesConfig {
 	if err != nil {
 		return config.DefaultEnabledModulesConfig()
 	}
-	return &settings.Audit.EnabledModules
+	return &settings.DynamicAssessment.EnabledModules
 }
 
 // isModuleEnabled checks whether a module ID is enabled given a list from config.

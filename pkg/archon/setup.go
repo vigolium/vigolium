@@ -50,7 +50,9 @@ func ExtractArchonHarnessForPlatform(baseDir, platform string) (string, error) {
 
 	_ = os.MkdirAll(baseDir, 0o755)
 
-	harnessPath := "harnesses/" + platform + "/frontmatter.yaml"
+	harnessName := SharedHarnessName(platform)
+	harnessDir := "harnesses/" + harnessName
+	harnessPath := harnessDir + "/frontmatter.yaml"
 	harnessData, err := archonres.HarnessesFS.ReadFile(harnessPath)
 	if err != nil {
 		return "", fmt.Errorf("read %s harness config: %w", platform, err)
@@ -59,17 +61,26 @@ func ExtractArchonHarnessForPlatform(baseDir, platform string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse %s harness config: %w", platform, err)
 	}
+	cfg.BaseDir = harnessDir
+
+	// Pre-load subagent preamble (Codex-only) when the harness names one.
+	if cfg.SubagentPreambleFile != "" {
+		preamblePath := harnessDir + "/" + cfg.SubagentPreambleFile
+		if data, err := archonres.HarnessesFS.ReadFile(preamblePath); err == nil {
+			cfg.SubagentPreamble = strings.TrimSpace(string(data))
+		}
+	}
 
 	if err := installAgents(baseDir, platform, cfg); err != nil {
 		return "", fmt.Errorf("install agents: %w", err)
 	}
-	if err := installCommands(baseDir); err != nil {
+	if err := installCommands(baseDir, platform); err != nil {
 		return "", fmt.Errorf("install commands: %w", err)
 	}
 	if err := installSkills(baseDir); err != nil {
 		return "", fmt.Errorf("install skills: %w", err)
 	}
-	if err := installExtras(baseDir, platform); err != nil {
+	if err := installExtras(baseDir, platform, cfg); err != nil {
 		return "", fmt.Errorf("install extras: %w", err)
 	}
 
@@ -140,8 +151,11 @@ func installAgents(baseDir, platform string, cfg *HarnessConfig) error {
 	})
 }
 
-// installCommands extracts command-defs as agent commands.
-func installCommands(baseDir string) error {
+// installCommands extracts command-defs as agent commands. When the platform's
+// shared harness ships a `commands/<file>.md` overlay, that overlay is appended
+// after the base command body so platform-specific orchestration rules can be
+// layered on without duplicating the canonical command definition.
+func installCommands(baseDir, platform string) error {
 	destDir := filepath.Join(baseDir, "commands", "archon")
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
@@ -152,6 +166,8 @@ func installCommands(baseDir string) error {
 		return err
 	}
 
+	overlayDir := "harnesses/" + SharedHarnessName(platform) + "/commands"
+
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
@@ -161,8 +177,16 @@ func installCommands(baseDir string) error {
 		if err != nil {
 			return err
 		}
+		base := string(data)
 
-		content := RenameStrings(string(data))
+		if overlayData, err := archonres.HarnessesFS.ReadFile(overlayDir + "/" + entry.Name()); err == nil {
+			overlay := strings.TrimSpace(string(overlayData))
+			if overlay != "" {
+				base = strings.TrimRight(base, "\n") + "\n\n" + overlay + "\n"
+			}
+		}
+
+		content := RenameStrings(base)
 		destFile := filepath.Join(destDir, entry.Name())
 		if err := os.WriteFile(destFile, []byte(content), 0o644); err != nil {
 			return err
@@ -203,12 +227,12 @@ func installSkills(baseDir string) error {
 }
 
 // installExtras writes platform-specific extras.
-func installExtras(baseDir, platform string) error {
+func installExtras(baseDir, platform string, cfg *HarnessConfig) error {
 	switch platform {
 	case PlatformClaude:
 		return installClaudeExtras(baseDir)
 	case PlatformCodex:
-		return installCodexExtras(baseDir)
+		return installCodexExtras(baseDir, cfg)
 	case PlatformOpenCode, PlatformByteSec, PlatformTraeCLI:
 		// These platforms have no special extras beyond agents/commands/skills.
 		return nil
@@ -235,10 +259,21 @@ func installClaudeExtras(baseDir string) error {
 // installCodexExtras writes the AGENTS.md dispatch block and subagent preamble
 // for the Codex platform. Codex uses a central AGENTS.md file to route audit
 // phases to typed subagents, and a subagent-preamble.md for output chunking rules.
-func installCodexExtras(baseDir string) error {
-	dispatchData, err := archonres.HarnessesFS.ReadFile("harnesses/codex/agents-dispatch.md")
+// The dispatch and preamble filenames come from the harness config (with sane
+// defaults), so harness changes don't require Go updates.
+func installCodexExtras(baseDir string, cfg *HarnessConfig) error {
+	harnessDir := cfg.BaseDir
+	if harnessDir == "" {
+		harnessDir = "harnesses/" + SharedHarnessName(PlatformCodex)
+	}
+
+	dispatchFile := cfg.DispatchFile
+	if dispatchFile == "" {
+		dispatchFile = "agents-dispatch.md"
+	}
+	dispatchData, err := archonres.HarnessesFS.ReadFile(harnessDir + "/" + dispatchFile)
 	if err != nil {
-		return fmt.Errorf("read codex agents-dispatch.md: %w", err)
+		return fmt.Errorf("read codex %s: %w", dispatchFile, err)
 	}
 
 	content := RenameStrings(string(dispatchData))
@@ -247,9 +282,11 @@ func installCodexExtras(baseDir string) error {
 		return err
 	}
 
-	// Extract subagent preamble if present (used for output chunking instructions).
-	preambleData, err := archonres.HarnessesFS.ReadFile("harnesses/codex/subagent-preamble.md")
-	if err == nil {
+	preambleFile := cfg.SubagentPreambleFile
+	if preambleFile == "" {
+		preambleFile = "subagent-preamble.md"
+	}
+	if preambleData, err := archonres.HarnessesFS.ReadFile(harnessDir + "/" + preambleFile); err == nil {
 		preambleDest := filepath.Join(baseDir, "subagent-preamble.md")
 		if err := os.WriteFile(preambleDest, preambleData, 0o644); err != nil {
 			return err

@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,7 +19,16 @@ type Sample struct {
 }
 
 // NewSampleFromRC creates a fingerprint sample from ResponseChain.
-// Uses ResponseChain's cached HTML parsing when available.
+//
+// When the response carries a request URL, the body is normalized via
+// NormalizeBody before any hashing or HTML parsing. This stabilizes hashes
+// across probes whose responses echo the requested URL (a common soft-404
+// pattern, e.g. Juice Shop's /ftp returning the path in every 403 body).
+//
+// HTML parsing in this path uses a fresh parse of the normalized bytes
+// rather than ResponseChain's cached parse, so HTML-derived attributes
+// (Title, VisibleText, WordCount, LineCount) reflect the normalized body.
+// The cached parse is left untouched for non-fingerprint consumers (spider).
 func NewSampleFromRC(rc *responsechain.ResponseChain) (*Sample, error) {
 	if rc == nil || !rc.Has() {
 		return nil, fmt.Errorf("invalid ResponseChain")
@@ -27,17 +37,31 @@ func NewSampleFromRC(rc *responsechain.ResponseChain) (*Sample, error) {
 	resp := rc.Response()
 	body := rc.BodyBytes()
 
+	// Apply path-aware normalization when the request URL is available.
+	if resp.Request != nil && resp.Request.URL != nil && len(body) > 0 {
+		if normalized := NormalizeBody(body, resp.Request.URL); !bytes.Equal(normalized, body) {
+			body = normalized
+		}
+	}
+
 	var htmlParsed *html.HTMLParsed
 
 	// Parse HTML if content type is HTML AND body is not empty
 	contentType := resp.Header.Get("Content-Type")
 	if len(body) > 0 && strings.Contains(strings.ToLower(contentType), "html") {
-		// Use ResponseChain's cached HTML parsing
-		node, err := rc.ParseHTML()
-		if err == nil && node != nil {
-			htmlParsed = html.ParseFromNode(node)
+		// Parse from normalized bytes when normalization changed the body;
+		// otherwise reuse ResponseChain's cached parse for performance.
+		if resp.Request != nil && resp.Request.URL != nil {
+			parser := html.NewParser()
+			if hp, err := parser.Parse(bytes.NewReader(body)); err == nil && hp != nil {
+				htmlParsed = hp
+			}
+		} else {
+			node, err := rc.ParseHTML()
+			if err == nil && node != nil {
+				htmlParsed = html.ParseFromNode(node)
+			}
 		}
-		// On parse error, htmlParsed stays nil - skip HTML attributes
 	}
 
 	return newSampleInternal(resp, htmlParsed, body)

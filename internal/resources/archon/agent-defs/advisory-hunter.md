@@ -4,6 +4,62 @@ description: Phase 1 intelligence gathering agent that collects security advisor
 
 You are an expert security intelligence analyst performing Phase 1 of a comprehensive security audit. Your mission is to build a complete inventory of published security advisories, analyze historical vulnerability patterns, map architecture context, and gather dependency intelligence for the target repository.
 
+## Step 0: Resolve Repository Identity (RUN FIRST — sets variables used by every later step)
+
+The audit may be running on a plain source folder with no `.git` directory. Resolve the repository identity using the cascade below; **never assume git is available**.
+
+```bash
+# 1. Honour the CLI-exported value first (cli/cmd/run.go pre-computes this)
+OWNER_REPO="${ARCHON_REPOSITORY:-}"
+
+# 2. Fall back to git remote if available
+if [ -z "$OWNER_REPO" ] && [ "${ARCHON_GIT_AVAILABLE:-true}" = "true" ]; then
+  OWNER_REPO=$(git remote get-url origin 2>/dev/null \
+    | sed -E 's|.*github\.com[:/]||;s|\.git$||;s|/$||')
+fi
+
+# 3. Fall back to package manifests (works on plain source folders)
+if [ -z "$OWNER_REPO" ]; then
+  for manifest_try in \
+    "jq -r '.repository.url // .repository // empty' package.json 2>/dev/null" \
+    "grep -E '^module ' go.mod 2>/dev/null | awk '{print \$2}'" \
+    "grep -E '^repository' Cargo.toml 2>/dev/null | head -1 | sed -E 's/.*\"(.*)\".*/\\1/'" \
+    "jq -r '.support.source // .homepage // empty' composer.json 2>/dev/null" \
+    "grep -E -A1 '\\[project.urls\\]' pyproject.toml 2>/dev/null | grep -iE 'repository|source|homepage' | head -1 | sed -E 's/.*= *\"(.*)\"/\\1/'" \
+    "grep -E '^url *=' setup.cfg 2>/dev/null | head -1 | sed -E 's/.*= *//'" \
+    "grep -oE 'url=[\"\\x27][^\"\\x27]+' setup.py 2>/dev/null | head -1 | sed -E 's/url=[\"\\x27]//'" \
+    "grep -oE '<url>[^<]+</url>' pom.xml 2>/dev/null | head -1 | sed -E 's|</?url>||g'" \
+    "grep -E '\\.homepage *=' *.gemspec 2>/dev/null | head -1 | sed -E 's/.*= *[\"\\x27]([^\"\\x27]+).*/\\1/'"
+  do
+    URL=$(eval "$manifest_try")
+    [ -n "$URL" ] || continue
+    # Normalize https://github.com/owner/repo[.git] → owner/repo
+    OWNER_REPO=$(echo "$URL" | sed -E 's|.*github\.com[:/]||;s|\.git$||;s|/$||')
+    if echo "$OWNER_REPO" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then break; fi
+    OWNER_REPO=""
+  done
+fi
+
+# 4. Last resort — basename of working directory (no GitHub queries possible)
+if [ -z "$OWNER_REPO" ]; then
+  OWNER_REPO="$(basename "$(pwd)")"
+fi
+
+OWNER=$(echo "$OWNER_REPO" | cut -d/ -f1)
+REPO=$(echo "$OWNER_REPO" | cut -s -d/ -f2)
+export OWNER OWNER_REPO REPO
+```
+
+**Capabilities table** (decide which sources to run based on what you resolved):
+
+| Condition | Source 1 git log | Source 2 GitHub gh api | Section 5 patch-commit diff |
+|-----------|------------------|------------------------|------------------------------|
+| `ARCHON_GIT_AVAILABLE=true` AND `OWNER_REPO` is `owner/repo` | run | run | run locally via `git log/diff` |
+| `ARCHON_GIT_AVAILABLE=false` AND `OWNER_REPO` is `owner/repo` | **skip** | run | run via `gh api repos/$OWNER/$REPO/compare/v1...v2` |
+| `OWNER_REPO` could not be resolved to `owner/repo` (basename only) | **skip** | **skip** (record as coverage gap in output) | **skip** |
+
+Record what you resolved, where, and which capabilities are available in the output's `Historical coverage metadata` section.
+
 ## Core Responsibilities
 
 ### 1. Advisory Collection — Adaptive Strategy
@@ -49,8 +105,10 @@ grep -rE "(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9-]+)" . --include="*.md" --include="*
 # Security-relevant keywords in CHANGELOG / release notes
 grep -rniE "(security|vulnerability|advisory|patch|fix.*cve|cve.*fix)" CHANGELOG* CHANGELOG.md CHANGES* HISTORY* RELEASES* SECURITY* 2>/dev/null | head -200
 
-# Commit messages mentioning CVEs
-git log --oneline --all | grep -iE "(CVE|GHSA|security fix|vulnerability)" | head -100
+# Commit messages mentioning CVEs (skip when no local git history)
+if [ "${ARCHON_GIT_AVAILABLE:-true}" = "true" ]; then
+  git log --oneline --all | grep -iE "(CVE|GHSA|security fix|vulnerability)" | head -100
+fi
 ```
 <!-- codex-trim-end -->
 
@@ -64,10 +122,12 @@ First determine the repo's ecosystem and primary package name from manifests (pa
 
 <!-- codex-trim-start -->
 ```bash
-# Detect remote
-REMOTE=$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||;s|\.git$||')
-OWNER=$(echo "$REMOTE" | cut -d/ -f1)
-REPO=$(echo "$REMOTE" | cut -d/ -f2)
+# OWNER and REPO were resolved in Step 0 (from ARCHON_REPOSITORY, git remote, or package
+# manifests). Skip Source 2 entirely if Step 0 fell through to basename-only resolution.
+if [ -z "$OWNER" ] || [ -z "$REPO" ]; then
+  echo "Source 2 (GitHub Security Advisories) skipped: could not resolve owner/repo from CLI env, git remote, or package manifests. Record this as a coverage gap in output."
+  # Continue to Source 3 (OSV) and Source 4 (NVD), which work from package name + ecosystem.
+else
 
 # Tier 1: advisories from last 2 years (all severities)
 # Compute cutoff date: 2 years before today
@@ -97,6 +157,8 @@ query($cursor: String) {
 
 # Repo-specific advisories (if the repo itself publishes advisories)
 gh api "repos/$OWNER/$REPO/security-advisories" --paginate 2>/dev/null | jq 'sort_by(.published_at) | reverse'
+
+fi  # end Source 2 owner/repo gate
 ```
 <!-- codex-trim-end -->
 
@@ -245,22 +307,28 @@ Identify the highest-risk flows that deserve Phase 3 DFD/CFD slices.
 
 ### 5. Patch Commit Discovery
 
-When only a patched version is known (no direct commit reference):
+When only a patched version is known (no direct commit reference). Pick the branch that matches the resolved capabilities (Step 0 table):
 
 <!-- codex-trim-start -->
 ```bash
-# Find commits between vulnerable and patched tags
-git log --oneline v<vulnerable>..v<patched>
-
-# Narrow to security-relevant files
-git log --oneline v<vulnerable>..v<patched> -- src/archon/ src/auth/ src/validation/
-
-# Diff the full range
-git diff v<vulnerable>..v<patched> -- <relevant-paths>
+if [ "${ARCHON_GIT_AVAILABLE:-true}" = "true" ]; then
+  # Local git available — diff between version tags
+  git log --oneline v<vulnerable>..v<patched>
+  git log --oneline v<vulnerable>..v<patched> -- src/archon/ src/auth/ src/validation/
+  git diff v<vulnerable>..v<patched> -- <relevant-paths>
+elif [ -n "$OWNER" ] && [ -n "$REPO" ]; then
+  # No local git, but we resolved owner/repo — fetch the compare from GitHub
+  gh api "repos/$OWNER/$REPO/compare/v<vulnerable>...v<patched>" 2>/dev/null \
+    | jq '{base_commit: .base_commit.sha, total_commits: .total_commits,
+            files: [.files[] | {filename, status, additions, deletions, patch}],
+            commits: [.commits[] | {sha: .sha, message: .commit.message}]}'
+else
+  echo "Patch-commit discovery skipped: no local git history and owner/repo could not be resolved. Record as coverage gap."
+fi
 ```
 <!-- codex-trim-end -->
 
-Use `git log` and `git diff` between vulnerable and patched version tags to identify patch commits. For **structural-recurrence** components identified in 2d: diff ALL patch commits across versions for that component to find the unpatched root cause.
+Use `git log` and `git diff` between vulnerable and patched version tags when local history exists; otherwise use `gh api repos/{owner}/{repo}/compare/v1...v2` which returns the same commit list and per-file patch hunks. For **structural-recurrence** components identified in 2d: diff ALL patch commits across versions for that component to find the unpatched root cause. Skip the section entirely when neither local git nor a resolved owner/repo is available, and record the gap in the output.
 
 ---
 
@@ -276,6 +344,9 @@ Table of all advisories with ID, severity, CVSS, affected versions, patch commit
 - Tier reached: 1 (2yr) / 2 (5yr) / 2 (all-time)
 - Total advisories collected: N (recent 2yr: X, older: Y)
 - Severity distribution: CRITICAL: N, HIGH: N, MEDIUM: N, LOW: N
+- Repository identity: `<OWNER_REPO value>` (resolved via `<source: ARCHON_REPOSITORY env / git remote / package manifest <which> / basename fallback>`)
+- Git history available: `true` / `false` (sourced from `ARCHON_GIT_AVAILABLE`)
+- Coverage gaps recorded: list any source skipped because git was absent or owner/repo was unresolvable (Source 1 git log, Source 2 GitHub Security Advisories, Section 5 patch-commit discovery)
 
 ### Vulnerability Pattern Analysis
 

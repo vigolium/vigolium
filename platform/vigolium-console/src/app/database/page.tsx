@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { isCloudBuild } from '@/lib/buildMode';
+import { useDemoRouter } from '@/lib/useDemoHref';
 import DarkDatabasePage from '@/designs/dark/DatabasePage';
 import LightDatabasePage from '@/designs/light/DatabasePage';
 
 export default function DatabaseRoute() {
   const { themeId } = useTheme();
-  const router = useRouter();
+  const router = useDemoRouter();
 
   useEffect(() => {
     // Database page is not available in cloud mode

@@ -1,0 +1,336 @@
+# Shared harness for OpenCode-family skill platforms.
+# OpenCode and ByteSec intentionally use the same frontmatter and command overlays.
+
+format: md
+defaults:
+  mode: "subagent"
+  color: "#0000CC"
+  permission:
+    edit: "allow"
+    bash:
+      "*": "allow"
+    question: "deny"
+    todowrite: "deny"
+    todoread: "deny"
+    plan_enter: "deny"
+    plan_exit: "deny"
+
+overrides:
+  # --- Phase 1 ---
+  advisory-hunter:
+    color: "#00CCCC"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  commit-archaeologist:
+    color: "#CCCC00"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 2 ---
+  patch-bypass-checker:
+    color: "#CC0000"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 3 ---
+  knowledge-base-builder:
+    color: "#00CC00"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 4 ---
+  static-analyzer:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "deny"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 5 (Deep Probe) ---
+  probe-strategist:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  code-anatomist:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "deny"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  backward-reasoner:
+    color: "#CC0000"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  contradiction-reasoner:
+    color: "#CC6600"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  causal-verifier:
+    color: "#00CCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  evidence-harvester:
+    # uses defaults (color #0000CC, edit allow, bash allow)
+    {}
+
+  # --- Phase 5A ---
+  authz-auditor:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 5B ---
+  state-concurrency-auditor:
+    color: "#CC0000"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 5C ---
+  cross-service-auditor:
+    color: "#CC6600"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 6 ---
+  spec-gap-analyst:
+    color: "#00CCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 7 ---
+  enrichment-filter:
+    color: "#00CC00"
+
+  deep-auditor:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 8 (Review Chamber) ---
+  chamber-synthesizer:
+    color: "#CC00CC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  attack-ideator:
+    color: "#CC0000"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  code-tracer:
+    # uses defaults (color #0000CC, edit allow, bash allow)
+    {}
+
+  devils-advocate:
+    color: "#CC6600"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  variant-scout:
+    color: "#00CCCC"
+    permission:
+      edit: "deny"
+      bash:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 9 ---
+  cold-verifier:
+    color: "#CCCCCC"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 10 ---
+  variant-hunter:
+    color: "#00CC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      task:
+        "*": "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 11 ---
+  poc-builder:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "allow"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  report-assembler:
+    color: "#CCCCCC"

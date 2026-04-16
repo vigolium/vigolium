@@ -236,7 +236,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |     +-- opts.Modules = ["all"]                                         |
   |     +-- opts.PassiveModules = ["all"]                                  |
   |     +-- opts.HeuristicsCheck = "none"                                  |
-  |     +-- settings.Audit.Extensions.CustomDir += extensionDir/*.js       |
+  |     +-- settings.DynamicAssessment.Extensions.CustomDir += extensionDir/*.js |
   |     +-- --only / --skip flags applied if specified                     |
   |                                                                        |
   |   Execution: runner.New(opts) --> RunNativeScan()                     |
@@ -266,7 +266,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
   |   |       |                                                            |
   |   |       v                                                            |
   |   |     RESCAN (Native Go)                                             |
-  |   |       +-- opts.OnlyPhase = "audit"                                 |
+  |   |       +-- opts.OnlyPhase = "dynamic-assessment"                    |
   |   |       +-- opts.SkipIngestion = true                                |
   |   |       +-- opts.Modules = resolveModules(follow-up tags + IDs)      |
   |   |       +-- ScanFunc(ctx, tags, ids, "", rescan=true)               |
@@ -725,7 +725,7 @@ The directory path is passed to the scan phase.
 
 ### Phase 4: native-scan (Native — No AI)
 
-The audit phase runs with:
+The dynamic-assessment phase runs with:
 
 - **All built-in modules** enabled by default (`opts.Modules = ["all"]`, `opts.PassiveModules = ["all"]`)
 - **Plus the generated extensions** loaded from the session extensions directory
@@ -789,7 +789,7 @@ Records persist for 24 hours (cleaned up by the background DB cleanup loop). Use
 | `focus` | string | No | Focus area hint for the agent (e.g., `API injection`, `auth bypass`). Broader than `vuln_type` |
 | `instruction` | string | No | Custom instruction appended to all agent prompts |
 | `module_names` | string[] | No | Explicit module IDs to include |
-| `scanning_phase` | string | No | Scan phase to run (default `audit`) |
+| `scanning_phase` | string | No | Scan phase to run (default `dynamic-assessment`) |
 | `max_iterations` | int | No | Max triage-rescan rounds (default 3) |
 | `agent` | string | No | Agent backend name |
 | `project_uuid` | string | No | Project UUID for data scoping |

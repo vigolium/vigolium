@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useDemoRouter } from '@/lib/useDemoHref';
 
 export default function TeamRedirect() {
-  const router = useRouter();
+  const router = useDemoRouter();
   useEffect(() => {
     router.replace('/settings/team');
   }, [router]);

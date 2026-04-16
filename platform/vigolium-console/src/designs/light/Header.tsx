@@ -46,9 +46,14 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
     setDropdownOpen(false);
   };
 
+  const isDemoUser = !isStaticBuild && currentUser?.role === 'demo';
+  const demoLabel = currentUser?.demo_label ?? '';
+
   const handleLogout = () => {
     if (isStaticBuild) {
       document.getElementById('vigolium-logout')?.click();
+    } else if (isDemoUser) {
+      window.location.href = '/api/demo/logout';
     } else {
       window.location.href = '/api/auth/logout';
     }
@@ -158,7 +163,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                   [Scanner server is offline]
                 </span>
               )}
-              {isConnected && currentUser && (
+              {isConnected && currentUser && !isDemoUser && (
                 <>
                   <a href="/billing" className="hidden md:inline-flex items-center gap-1" style={{ color: 'var(--v-accent)' }} title="Credits">
                     <Coins className="w-3 h-3" />
@@ -174,6 +179,23 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                   </a>
                 </>
               )}
+              {isConnected && isDemoUser && (
+                <span
+                  className="hidden md:inline-flex items-center border px-2 py-0.5"
+                  style={{
+                    color: '#b45309',
+                    borderColor: 'color-mix(in srgb, #d96b25 50%, transparent)',
+                    backgroundColor: 'color-mix(in srgb, #d96b25 8%, transparent)',
+                  }}
+                  title={
+                    demoLabel
+                      ? `demo_key: ${demoLabel}${currentUser?.demo_expires ? ` · expires ${currentUser.demo_expires}` : ''}`
+                      : 'demo session'
+                  }
+                >
+                  [Demo preview · read-only]
+                </span>
+              )}
             </>
           )}
 
@@ -182,7 +204,7 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
               onClick={handleLogout}
               className="v-header-btn-danger transition-colors"
             >
-              [LOG OUT]
+              {isDemoUser ? '[EXIT DEMO]' : '[LOG OUT]'}
             </button>
           )}
           <button

@@ -264,6 +264,7 @@ func TestCropImage(t *testing.T) {
 }
 
 func TestUseNode(t *testing.T) {
+	t.Skip("vendored rod library self-test: requires network access and Node.js v20 on PATH")
 	g := setup(t)
 
 	utils.UseNode(false)

@@ -33,40 +33,56 @@ var extensionMap = map[string]string{
 }
 
 // genericUnixPayloads are command injection payloads for Unix-like systems.
+// Sleep duration matches delaySeconds.
 var genericUnixPayloads = []string{
-	"; sleep 5",
-	"| sleep 5",
-	"$(sleep 5)",
-	"`sleep 5`",
-	"() { :;}; /bin/sleep 5", // Shellshock
-	"& sleep 5 &",
-	"|| sleep 5",
-	"&& sleep 5",
-	`'";sleep 5;#`,
-	`%0asleep 5%0a`,
+	"; sleep 10",
+	"| sleep 10",
+	"$(sleep 10)",
+	"`sleep 10`",
+	"() { :;}; /bin/sleep 10", // Shellshock
+	"& sleep 10 &",
+	"|| sleep 10",
+	"&& sleep 10",
+	`'";sleep 10;#`,
+	`%0asleep 10%0a`,
 }
 
 // windowsPayloads are command injection payloads for Windows systems.
 var windowsPayloads = []string{
-	"& ping -n 6 127.0.0.1",
-	"| ping -n 6 127.0.0.1",
-	"& timeout /T 5 /NOBREAK",
+	"& ping -n 11 127.0.0.1",
+	"| ping -n 11 127.0.0.1",
+	"& timeout /T 10 /NOBREAK",
 }
 
 // langPayloads maps language to specific command injection payloads.
 var langPayloads = map[string][]string{
-	"perl":   {"/bin/sleep 5|"},
-	"php":    {`"; sleep(5);"`},
-	"ruby":   {"#{`sleep 5`}"},
-	"java":   {"${T(java.lang.Thread).sleep(5000)}"},
-	"python": {"__import__('time').sleep(5)"},
+	"perl":   {"/bin/sleep 10|"},
+	"php":    {`"; sleep(10);"`},
+	"ruby":   {"#{`sleep 10`}"},
+	"java":   {"${T(java.lang.Thread).sleep(10000)}"},
+	"python": {"__import__('time').sleep(10)"},
 }
 
-// delaySeconds is the target delay in seconds for time-based detection.
-const delaySeconds = 5
-
-// confirmations is the number of retries to confirm vulnerability.
-const confirmations = 3
+// Time-delay detection tuning. Picked to keep false positives rare without
+// hammering the target with absurd sleep values (no `sleep 100`).
+//
+//   - delaySeconds:       payload sleep duration AND minimum response time
+//                         to count a probe as "slow". 10s comfortably
+//                         exceeds typical backend latency / network jitter.
+//   - baselineMaxSeconds: an unfuzzed (baseline) probe must complete under
+//                         this. Catches "server is just slow today" cases.
+//   - confirmSlowRounds:  number of times the slow payload must trigger
+//                         (initial + this many confirmations). 4 total
+//                         independent slow probes before declaring vuln.
+//
+// Note: pkg/http.Requester.Execute returns duration as whole seconds
+// (int(time.Since(start).Seconds())), so all comparisons here operate at
+// 1-second granularity. That's coarse but adequate for a 10s threshold.
+const (
+	delaySeconds       = 10
+	baselineMaxSeconds = 5
+	confirmSlowRounds  = 3
+)
 
 type Module struct {
 	modkit.BaseActiveModule
@@ -135,6 +151,11 @@ func (m *Module) ScanPerRequest(
 
 ipScan:
 	for _, ip := range points {
+		// Build a baseline request (same shape, original parameter value)
+		// to detect "server is just slow today" cases. Built once per IP
+		// and reused across payload attempts.
+		baselineReq, baselineOk := buildBaselineRequest(ctx, ip)
+
 		for _, payload := range payloads {
 			// Build fuzzed request with payload
 			fuzzedRaw := ip.BuildRequest([]byte(payload))
@@ -148,17 +169,27 @@ ipScan:
 			// Copy HttpService from original request
 			fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-			// Initial check
-			isVuln, sendErr := sendTimedRequest(fuzzedReq, httpClient)
-			if sendErr != nil || !isVuln {
+			// Probe 1: fuzzed must be slow.
+			isSlow, sendErr := sendTimedRequest(fuzzedReq, httpClient)
+			if sendErr != nil || !isSlow {
 				continue
 			}
 
-			// Confirm with additional requests
+			// Probe 2: baseline must be fast. Skips if baseline build failed.
+			if baselineOk {
+				baselineSlow, err := isResponseSlow(baselineReq, httpClient, baselineMaxSeconds)
+				if err != nil || baselineSlow {
+					// Server is generically slow; treat the slow fuzzed
+					// probe as inconclusive and move on to the next payload.
+					continue
+				}
+			}
+
+			// Probes 3..N: confirm fuzzed stays slow across multiple sends.
 			allConfirmed := true
-			for range confirmations {
-				isVuln, sendErr = sendTimedRequest(fuzzedReq, httpClient)
-				if sendErr != nil || !isVuln {
+			for range confirmSlowRounds {
+				isSlow, sendErr = sendTimedRequest(fuzzedReq, httpClient)
+				if sendErr != nil || !isSlow {
 					allConfirmed = false
 					break
 				}
@@ -177,6 +208,41 @@ ipScan:
 	}
 
 	return results, nil
+}
+
+// buildBaselineRequest constructs a request shaped like the fuzzed one but
+// with the original parameter value, used as a "server is fast" baseline.
+// Returns ok=false if construction fails (caller should skip the baseline
+// check rather than fail the whole scan).
+func buildBaselineRequest(ctx *httpmsg.HttpRequestResponse, ip httpmsg.InsertionPoint) (*httpmsg.HttpRequestResponse, bool) {
+	raw := ip.BuildRequest([]byte(ip.BaseValue()))
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return nil, false
+	}
+	return req.WithService(ctx.Service()), true
+}
+
+// isResponseSlow sends req and reports whether the response took at least
+// thresholdSeconds (whole seconds, matching the resolution of the underlying
+// http.Requester).
+func isResponseSlow(req *httpmsg.HttpRequestResponse, httpClient *http.Requester, thresholdSeconds int) (bool, error) {
+	resp, duration, err := httpClient.Execute(req, http.Options{IgnoreTimeoutTracking: true})
+	defer func() {
+		if resp != nil {
+			resp.Close()
+		}
+	}()
+	if err != nil {
+		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+			return false, nil
+		}
+		if strings.Contains(err.Error(), "timeout awaiting response headers") {
+			return true, nil
+		}
+		return false, err
+	}
+	return duration >= thresholdSeconds, nil
 }
 
 // getPayloadsForExtension returns payloads based on file extension.

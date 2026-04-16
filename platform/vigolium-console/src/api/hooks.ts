@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
-  apiGet, apiPost, apiPut, apiDelete, apiUpload, getProjectUUID,
+  apiGet, apiPost, apiPut, apiDelete, apiUpload, getProjectUUID, setDemoMode, assertNotDemo, withDemoKey,
 } from './client';
 import type {
   Project,
@@ -63,6 +64,7 @@ import type {
   DbRecordsQueryParams,
   DbMutationResponse,
   CurrentUser,
+  DemoStatusResponse,
   CreditBalance,
   CheckoutRequest,
   CheckoutResponse,
@@ -82,12 +84,25 @@ function projectKey(...parts: unknown[]): unknown[] {
   return [getProjectUUID() ?? 'default', ...parts];
 }
 
+// Demo session status (cloud only) — tells the UI whether the visitor is in demo mode
+export function useDemoStatus() {
+  return useQuery({
+    queryKey: ['demo-status'],
+    queryFn: async () => {
+      const res = await fetch(withDemoKey('/api/demo/status'));
+      if (!res.ok) return { active: false, feature_enabled: false } as DemoStatusResponse;
+      return res.json() as Promise<DemoStatusResponse>;
+    },
+    staleTime: 60_000,
+  });
+}
+
 // Current user from WorkOS session (server-side)
 export function useCurrentUser() {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['current-user'],
     queryFn: async () => {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch(withDemoKey('/api/auth/me'));
       if (!res.ok) {
         // Org membership gate: redirect to unauthorized page
         if (res.status === 403) {
@@ -103,6 +118,13 @@ export function useCurrentUser() {
     },
     staleTime: 5 * 60_000,
   });
+
+  // Keep the API client's demo flag in sync so mutations are gated client-side
+  useEffect(() => {
+    setDemoMode(query.data?.role === 'demo');
+  }, [query.data?.role]);
+
+  return query;
 }
 
 // Project CRUD hooks (not project-scoped — they manage projects themselves)
@@ -706,7 +728,7 @@ export function useCredits() {
   return useQuery({
     queryKey: ['billing', 'credits'],
     queryFn: async () => {
-      const res = await fetch('/api/billing/credits');
+      const res = await fetch(withDemoKey('/api/billing/credits'));
       if (!res.ok) throw new Error('Failed to fetch credits');
       return res.json() as Promise<CreditBalance>;
     },
@@ -718,7 +740,8 @@ export function useCredits() {
 export function useCreateCheckout() {
   return useMutation({
     mutationFn: async (req: CheckoutRequest) => {
-      const res = await fetch('/api/billing/checkout', {
+      assertNotDemo('/api/billing/checkout');
+      const res = await fetch(withDemoKey('/api/billing/checkout'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -736,7 +759,7 @@ export function usePaymentHistory() {
   return useQuery({
     queryKey: ['billing', 'history'],
     queryFn: async () => {
-      const res = await fetch('/api/billing/history');
+      const res = await fetch(withDemoKey('/api/billing/history'));
       if (!res.ok) throw new Error('Failed to fetch history');
       return res.json() as Promise<PaymentHistoryItem[]>;
     },
@@ -746,7 +769,8 @@ export function usePaymentHistory() {
 export function useCreatePortalSession() {
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/billing/portal', { method: 'POST' });
+      assertNotDemo('/api/billing/portal');
+      const res = await fetch(withDemoKey('/api/billing/portal'), { method: 'POST' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Portal session failed');
@@ -762,7 +786,7 @@ export function useTeamMembers() {
   return useQuery({
     queryKey: ['team', 'members'],
     queryFn: async () => {
-      const res = await fetch('/api/team/members');
+      const res = await fetch(withDemoKey('/api/team/members'));
       if (!res.ok) throw new Error('Failed to fetch members');
       return res.json() as Promise<TeamMember[]>;
     },
@@ -773,7 +797,8 @@ export function useInviteMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (req: InviteMemberRequest) => {
-      const res = await fetch('/api/team/invite', {
+      assertNotDemo('/api/team/invite');
+      const res = await fetch(withDemoKey('/api/team/invite'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -794,7 +819,8 @@ export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (membershipId: string) => {
-      const res = await fetch(`/api/team/members?membershipId=${membershipId}`, {
+      assertNotDemo('/api/team/members');
+      const res = await fetch(withDemoKey(`/api/team/members?membershipId=${membershipId}`), {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -815,7 +841,7 @@ export function useGitHubStatus() {
   return useQuery({
     queryKey: ['github', 'status'],
     queryFn: async () => {
-      const res = await fetch('/api/github/status');
+      const res = await fetch(withDemoKey('/api/github/status'));
       if (!res.ok) return { connected: false } as GitHubStatusResponse;
       return res.json() as Promise<GitHubStatusResponse>;
     },
@@ -827,7 +853,7 @@ export function useGitHubRepos(enabled = true) {
   return useQuery({
     queryKey: ['github', 'repos'],
     queryFn: async () => {
-      const res = await fetch('/api/github/repos');
+      const res = await fetch(withDemoKey('/api/github/repos'));
       if (!res.ok) throw new Error('Failed to fetch repos');
       return res.json() as Promise<GitHubReposResponse>;
     },
@@ -839,7 +865,8 @@ export function useGitHubRepos(enabled = true) {
 export function useGitHubCloneUrl() {
   return useMutation({
     mutationFn: async (req: GitHubCloneUrlRequest) => {
-      const res = await fetch('/api/github/clone-url', {
+      assertNotDemo('/api/github/clone-url');
+      const res = await fetch(withDemoKey('/api/github/clone-url'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -857,7 +884,8 @@ export function useGitHubDisconnect() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/github/disconnect', { method: 'POST' });
+      assertNotDemo('/api/github/disconnect');
+      const res = await fetch(withDemoKey('/api/github/disconnect'), { method: 'POST' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to disconnect');

@@ -187,7 +187,6 @@ func TestAPI_ServerInfo(t *testing.T) {
 	readJSON(t, resp, &body)
 	assert.Equal(t, "test-v0.0.1", body.Version)
 	assert.NotEmpty(t, body.Uptime)
-	assert.Contains(t, body.DBDriver, "sqlite")
 	assert.Equal(t, int64(0), body.TotalRecords)
 	assert.Equal(t, int64(0), body.TotalFindings)
 }

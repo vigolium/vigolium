@@ -1,13 +1,14 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
 import { getUserOrganization } from '@/lib/workos-server';
 import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
+import { validateDemoKey } from '@/lib/demoKeys';
 
 const requireOrg = process.env.REQUIRE_ORG_MEMBERSHIP === 'true';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     return NextResponse.json({
@@ -19,8 +20,25 @@ export async function GET() {
     });
   }
 
-  // Check for access-code session first (bypasses WorkOS entirely)
+  // Check for demo session first — strict URL param source of truth
+  const demoKey = req.nextUrl.searchParams.get('demo_key');
+  if (demoKey) {
+    const result = validateDemoKey(demoKey);
+    if (result.valid && result.label) {
+      return NextResponse.json({
+        name: `Demo: ${result.label}`,
+        email: `demo-${result.label}@vigolium.com`,
+        role: 'demo',
+        demo_label: result.label,
+        demo_expires: result.expires,
+        organization: null,
+      });
+    }
+  }
+
   const cookieStore = await cookies();
+
+  // Check for access-code session next (bypasses WorkOS entirely)
   const accessCookie = cookieStore.get(ACCESS_COOKIE_NAME);
   if (accessCookie?.value) {
     const payload = await verifyAccessSession(accessCookie.value);

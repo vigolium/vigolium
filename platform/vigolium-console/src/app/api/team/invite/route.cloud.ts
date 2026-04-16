@@ -1,8 +1,13 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserOrganization, inviteMember } from '@/lib/workos-server';
+import { isDemoRequest } from '@/lib/demoRequest';
 
 export async function POST(req: NextRequest) {
+  if (isDemoRequest(req)) {
+    return NextResponse.json({ error: 'Team management is disabled in demo mode' }, { status: 403 });
+  }
+
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     return NextResponse.json({ ok: true });

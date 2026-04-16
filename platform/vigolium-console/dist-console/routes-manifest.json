@@ -156,6 +156,24 @@
       "namedRegex": "^/api/config\\-check(?:/)?$"
     },
     {
+      "page": "/api/demo/login",
+      "regex": "^/api/demo/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/demo/login(?:/)?$"
+    },
+    {
+      "page": "/api/demo/logout",
+      "regex": "^/api/demo/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/demo/logout(?:/)?$"
+    },
+    {
+      "page": "/api/demo/status",
+      "regex": "^/api/demo/status(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/demo/status(?:/)?$"
+    },
+    {
       "page": "/api/github/callback",
       "regex": "^/api/github/callback(?:/)?$",
       "routeKeys": {},

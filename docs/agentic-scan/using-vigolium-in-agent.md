@@ -314,14 +314,14 @@ vigolium scan -t https://example.com --only discovery
 vigolium run spidering -t https://example.com
 ```
 
-**Run only audit (vulnerability scanning):**
+**Run only dynamic-assessment (vulnerability scanning):**
 ```
 > Skip discovery, just run the vulnerability modules
 ```
 ```bash
-vigolium run audit -t https://example.com
+vigolium run dynamic-assessment -t https://example.com
 # or
-vigolium scan -t https://example.com --only audit
+vigolium scan -t https://example.com --only dynamic-assessment
 ```
 
 **Run only SPA (security posture assessment via Nuclei):**
@@ -1419,10 +1419,10 @@ vigolium config set scope.origin.mode strict
 
 **Enable extensions globally:**
 ```
-> Enable extensions in audit
+> Enable extensions in dynamic-assessment
 ```
 ```bash
-vigolium config set audit.extensions.enabled true
+vigolium config set dynamic-assessment.extensions.enabled true
 ```
 
 **View scope rules:**

@@ -97,6 +97,19 @@ type EngineConfig struct {
 	EnableCookieJar         bool                `json:"enable_cookie_jar"`                  // Enable cookie jar for session persistence
 	ProxyURL                string              `json:"proxy_url"`                          // HTTP proxy URL for discovery requests
 	JSScanConcurrency       int                 `yaml:"jsscan_concurrency" json:"jsscan_concurrency"` // Max concurrent jsscan analyses (0 = runtime.NumCPU())
+	PrefixBreaker           PrefixBreakerConfig `json:"prefix_breaker"`                     // Per-prefix circuit breaker for soft-404 / trap directories
+}
+
+// PrefixBreakerConfig tunes the per-prefix discovery circuit breaker.
+// When responses under a given path prefix become overwhelmingly uniform
+// (same status, content-type, and length-bucket), the breaker trips and
+// further discovery probes / recursion under that prefix are skipped.
+type PrefixBreakerConfig struct {
+	Enabled        bool    `json:"enabled"`         // Master switch (default: true)
+	MinSamples     int     `json:"min_samples"`     // Observations required before trip is possible
+	TripRatio      float64 `json:"trip_ratio"`      // Share (0..1] of dominant tuple required to trip
+	PrefixSegments int     `json:"prefix_segments"` // Path segments forming the prefix key (1 = /ftp, 2 = /ftp/api)
+	LengthBucket   int64   `json:"length_bucket"`   // Body-length bucket width in bytes
 }
 
 // Enums.

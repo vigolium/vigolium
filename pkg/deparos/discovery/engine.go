@@ -128,6 +128,9 @@ type Engine struct {
 	testedDirectories *tracker.URLTracker
 	testedFiles       *tracker.URLTracker
 
+	// Per-prefix circuit breaker for soft-404 / trap directories
+	prefixBreaker *tracker.PrefixBreaker
+
 	// Request deduplication
 	requestCache  *reqcache.HMapCache
 	dedupBasePath string // Temp directory for dedup stores
@@ -193,6 +196,7 @@ type EngineMetrics struct {
 	ActiveWorkers    int32
 	InFlightItems    int32
 	QueueSize        int
+	PrefixesBroken   int // Number of path prefixes tripped by the breaker
 }
 
 // NewEngine creates discovery engine with configuration.
@@ -382,6 +386,13 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		observedFiles:      payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
 		testedDirectories:  testedDirsTracker,
 		testedFiles:        testedFilesTracker,
+		prefixBreaker: tracker.NewPrefixBreaker(tracker.BreakerConfig{
+			Enabled:        cfg.Engine.PrefixBreaker.Enabled,
+			MinSamples:     cfg.Engine.PrefixBreaker.MinSamples,
+			TripRatio:      cfg.Engine.PrefixBreaker.TripRatio,
+			PrefixSegments: cfg.Engine.PrefixBreaker.PrefixSegments,
+			LengthBucket:   cfg.Engine.PrefixBreaker.LengthBucket,
+		}),
 		taskHashes:         taskHashesDS,
 		seenExtensions:     seenExtensionsDS,
 		seenDiscoveredURLs: seenDiscoveredURLsDS,
@@ -684,6 +695,7 @@ func (e *Engine) newCallbacks() *Callbacks {
 		AddExtractedRequest:   e.AddExtractedRequest,
 		StoreJSScanRequests:   e.storeJSScanRequests,
 		ScopeChecker:          e.spiderScope,
+		PrefixBreaker:         e.prefixBreaker,
 	}
 }
 
@@ -1024,6 +1036,7 @@ func (e *Engine) GetMetrics() EngineMetrics {
 
 	metrics.QueueSize = e.taskQueue.Size()
 	metrics.UniqueTaskHashes = int(e.taskHashes.Size())
+	metrics.PrefixesBroken = e.prefixBreaker.TrippedCount()
 
 	// Get actual count from storage
 	if e.storage != nil {

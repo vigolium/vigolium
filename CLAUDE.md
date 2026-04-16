@@ -121,7 +121,7 @@ The SAST and source-aware scanning features use `--source` (persistent, DB-linke
 
 ### Phase Aliases
 
-Scan phases accept aliases: `deparos` = `discovery`, `discover` = `discovery`, `spitolas` = `spidering`, `ext` = `extension`. The legacy alias `dynamic-assessment` is also accepted for backward compatibility with `audit`. These work with `--only` and `--skip` flags.
+Scan phases accept aliases: `deparos` = `discovery`, `discover` = `discovery`, `spitolas` = `spidering`, `ext` = `extension`, `audit`/`dast`/`assessment` = `dynamic-assessment`. The canonical name for the module-based vulnerability scanning phase is `dynamic-assessment` (formerly `audit`). These work with `--only` and `--skip` flags.
 
 ### Output Formats
 

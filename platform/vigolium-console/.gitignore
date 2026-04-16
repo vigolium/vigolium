@@ -19,6 +19,9 @@ next-env.d.ts
 # showcase view keys (per-recipient secrets)
 config/showcases-view-keys.json
 
+# demo view keys (per-recipient secrets)
+config/demo-view-keys.json
+
 # editor
 .vscode/
 .idea/

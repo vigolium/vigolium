@@ -73,6 +73,24 @@ overrides:
     tools: "Glob, Grep, Read, Bash, Write"
     color: "green"
 
+  # --- Phase 5A ---
+  authz-auditor:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "magenta"
+    effort: "medium"
+
+  # --- Phase 5B ---
+  state-concurrency-auditor:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "red"
+    effort: "medium"
+
+  # --- Phase 5C ---
+  cross-service-auditor:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "orange"
+    effort: "medium"
+
   # --- Phase 6 ---
   spec-gap-analyst:
     tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch, Agent"

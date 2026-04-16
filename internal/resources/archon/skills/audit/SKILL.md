@@ -356,7 +356,6 @@ attack research:
 - `sharp-edges` — API design issues, dangerous configurations
 - `wooyun-legacy` — web vulnerability techniques
 - `zeroize-audit` — C/C++/Rust secret handling
-- `ffuf-web-fuzzing` — dynamic testing for edge cases
 
 **Context**: Read `references/chamber-protocol.md`, `references/creative-attack-modes.md`,
 `references/deep-analysis.md`, and `references/triage-and-prereqs.md`.

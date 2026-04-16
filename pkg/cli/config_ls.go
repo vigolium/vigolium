@@ -90,7 +90,7 @@ func sectionKeyColor(key string) func(string) string {
 		return terminal.Blue
 	case "notify":
 		return terminal.Yellow
-	case "audit":
+	case "dynamic-assessment":
 		return terminal.Green
 	case "mutation_strategy":
 		return terminal.Teal

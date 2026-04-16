@@ -7,6 +7,7 @@ import { isStaticBuild } from '@/lib/buildMode';
 import DarkAuthGate from '@/designs/dark/AuthGatePage';
 import LightAuthGate from '@/designs/light/AuthGatePage';
 import ConfigError from '@/components/shared/ConfigError';
+import DemoUnlockPage from '@/components/shared/DemoUnlockPage';
 
 interface ConfigIssue {
   key: string;
@@ -20,6 +21,8 @@ export default function LoginPage() {
   const [configIssues, setConfigIssues] = useState<ConfigIssue[] | null>(null);
   const [configOk, setConfigOk] = useState<boolean | null>(null);
   const [ssoDisabled, setSsoDisabled] = useState(false);
+  const [showcasesEnabled, setShowcasesEnabled] = useState(false);
+  const [demoFeatureEnabled, setDemoFeatureEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     // Static mode uses AuthGate in layout, not a separate login page
@@ -28,30 +31,41 @@ export default function LoginPage() {
       return;
     }
 
-    // Check server config on mount
-    fetch('/api/config-check')
-      .then((res) => res.json())
-      .then((data) => {
-        setConfigOk(data.ok);
-        setConfigIssues(data.issues || []);
-        setSsoDisabled(data.ssoDisabled ?? false);
-      })
-      .catch(() => {
-        // If config-check itself fails, assume config is broken
-        setConfigOk(false);
-        setConfigIssues([{ key: 'SERVER', severity: 'error', message: 'Could not reach the config-check endpoint. The server may be misconfigured.' }]);
+    // Check server config + demo status in parallel
+    Promise.all([
+      fetch('/api/config-check').then((res) => res.json()).catch(() => null),
+      fetch('/api/demo/status').then((res) => res.json()).catch(() => null),
+    ])
+      .then(([cfg, demo]) => {
+        if (cfg) {
+          setConfigOk(cfg.ok);
+          setConfigIssues(cfg.issues || []);
+          setSsoDisabled(cfg.ssoDisabled ?? false);
+          setShowcasesEnabled(cfg.showcasesEnabled ?? false);
+        } else {
+          setConfigOk(false);
+          setConfigIssues([{ key: 'SERVER', severity: 'error', message: 'Could not reach the config-check endpoint. The server may be misconfigured.' }]);
+        }
+        setDemoFeatureEnabled(demo?.feature_enabled === true);
       });
   }, [router]);
 
   if (isStaticBuild) return null;
+
+  // Still loading — show nothing briefly
+  if (configOk === null || demoFeatureEnabled === null) return null;
+
+  // Demo-only mode takes over the login screen with a read-only unlock UI
+  if (demoFeatureEnabled) {
+    return <DemoUnlockPage showcasesEnabled={showcasesEnabled} />;
+  }
 
   // Show config error page if there are critical issues
   if (configOk === false && configIssues) {
     return <ConfigError issues={configIssues} />;
   }
 
-  // Still loading config check — show nothing briefly
-  if (configOk === null) return null;
-
-  return themeId === 'dark' ? <DarkAuthGate ssoDisabled={ssoDisabled} /> : <LightAuthGate ssoDisabled={ssoDisabled} />;
+  return themeId === 'dark'
+    ? <DarkAuthGate ssoDisabled={ssoDisabled} showcasesEnabled={showcasesEnabled} />
+    : <LightAuthGate ssoDisabled={ssoDisabled} showcasesEnabled={showcasesEnabled} />;
 }

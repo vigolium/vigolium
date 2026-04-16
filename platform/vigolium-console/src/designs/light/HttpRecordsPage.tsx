@@ -5,6 +5,7 @@ import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, RowClickedEvent, SelectionChangedEvent } from 'ag-grid-community';
 import { Activity, Globe, Server, Search, RefreshCw, List, Layers, ChevronRight, ChevronDown, X } from 'lucide-react';
 import { useHttpRecords, useScanRecords, useDeleteHttpRecord } from '@/api/hooks';
+import { withDemoKey } from '@/api/client';
 import { useToast } from '@/contexts/ToastContext';
 import type { HTTPRecord, HttpRecordsQueryParams } from '@/api/types';
 
@@ -206,7 +207,7 @@ export default function HttpRecordsPage({ initialId }: { initialId?: string | nu
 
   const navigateToRecord = useCallback((uuid: string | null) => {
     setSelectedRecordUuid(uuid);
-    window.history.pushState(null, '', uuid !== null ? `/http-records/${uuid}` : '/http-records');
+    window.history.pushState(null, '', withDemoKey(uuid !== null ? `/http-records/${uuid}` : '/http-records'));
   }, []);
 
   const handleDeleteSelected = useCallback(async () => {

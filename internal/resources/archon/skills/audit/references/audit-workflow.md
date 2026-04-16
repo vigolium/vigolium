@@ -444,7 +444,7 @@ Before the Synthesizer writes any draft, apply 5-point check:
 ### Specialized Delegations
 
 Chambers may delegate to specialized skills for scope NOT covered by Phase 3 domain attack
-research: `insecure-defaults`, `sharp-edges`, `wooyun-legacy`, `zeroize-audit`, `ffuf-web-fuzzing`.
+research: `insecure-defaults`, `sharp-edges`, `wooyun-legacy`, `zeroize-audit`.
 
 See [Architecture and Project Attack Pattern Catalog](#architecture-and-project-attack-pattern-catalog) for specific attack patterns.
 

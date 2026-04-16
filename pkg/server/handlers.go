@@ -229,10 +229,12 @@ func (h *Handlers) HandleServerInfo(c fiber.Ctx) error {
 		ServiceAddr: h.config.ServiceAddr,
 		ProxyAddr:   h.config.IngestProxyAddr,
 		QueueDepth:  metrics.Depth,
+		License:     h.config.License,
+		DemoOnly:    h.config.DemoOnly,
+		ViewOnly:    h.config.ViewOnly,
 	}
 
 	if h.db != nil {
-		resp.DBDriver = h.db.Driver()
 		resp.TotalRecords, resp.TotalFindings = h.counts.Get(h.db)
 	}
 

@@ -397,7 +397,6 @@ func TestPg_API_ServerInfo(t *testing.T) {
 	var body server.ServerInfoResponse
 	readJSON(t, resp, &body)
 	assert.Equal(t, "test-pg-v0.0.1", body.Version)
-	assert.Contains(t, body.DBDriver, "postgres")
 }
 
 func TestPg_API_IngestAndQuery(t *testing.T) {

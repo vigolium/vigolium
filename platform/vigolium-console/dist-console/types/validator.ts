@@ -317,6 +317,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/demo/login/route.cloud.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/demo/login">> = Specific
+  const handler = {} as typeof import("../../src/app/api/demo/login/route.cloud.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/demo/logout/route.cloud.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/demo/logout">> = Specific
+  const handler = {} as typeof import("../../src/app/api/demo/logout/route.cloud.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/demo/status/route.cloud.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/demo/status">> = Specific
+  const handler = {} as typeof import("../../src/app/api/demo/status/route.cloud.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/github/callback/route.cloud.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/github/callback">> = Specific

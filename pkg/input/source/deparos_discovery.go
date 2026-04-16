@@ -72,6 +72,13 @@ type DeparosDiscoveryConfig struct {
 	ObservedMaxItems        int
 	DisableKingfisher       bool
 
+	// Per-prefix circuit breaker (zero values = use deparos defaults).
+	PrefixBreakerEnabled        *bool   // nil = default (true)
+	PrefixBreakerMinSamples     int     // 0 = default
+	PrefixBreakerTripRatio      float64 // 0 = default
+	PrefixBreakerPrefixSegments int     // 0 = default
+	PrefixBreakerLengthBucket   int64   // 0 = default
+
 	// Malformed path probe
 	EnableMalformedPathProbe bool
 
@@ -292,6 +299,23 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 		cfg.Engine.ObservedMaxItems = d.cfg.ObservedMaxItems
 	}
 	cfg.Engine.DisableKingfisher = d.cfg.DisableKingfisher
+
+	// Prefix breaker overrides — zero/nil values keep deparos defaults.
+	if d.cfg.PrefixBreakerEnabled != nil {
+		cfg.Engine.PrefixBreaker.Enabled = *d.cfg.PrefixBreakerEnabled
+	}
+	if d.cfg.PrefixBreakerMinSamples > 0 {
+		cfg.Engine.PrefixBreaker.MinSamples = d.cfg.PrefixBreakerMinSamples
+	}
+	if d.cfg.PrefixBreakerTripRatio > 0 {
+		cfg.Engine.PrefixBreaker.TripRatio = d.cfg.PrefixBreakerTripRatio
+	}
+	if d.cfg.PrefixBreakerPrefixSegments > 0 {
+		cfg.Engine.PrefixBreaker.PrefixSegments = d.cfg.PrefixBreakerPrefixSegments
+	}
+	if d.cfg.PrefixBreakerLengthBucket > 0 {
+		cfg.Engine.PrefixBreaker.LengthBucket = d.cfg.PrefixBreakerLengthBucket
+	}
 
 	// Malformed path probe
 	cfg.Filenames.EnableMalformedPathProbe = d.cfg.EnableMalformedPathProbe

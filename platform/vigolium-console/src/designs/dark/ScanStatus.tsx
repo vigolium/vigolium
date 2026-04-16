@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ScanStatusResponse, StatsResponse, Scan } from '@/api/types';
-import Link from 'next/link';
+import Link from '@/components/shared/DemoAwareLink';
 
 interface Props {
   scanStatus?: ScanStatusResponse;

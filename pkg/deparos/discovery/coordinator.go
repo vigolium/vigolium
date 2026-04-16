@@ -166,12 +166,20 @@ func (c *PayloadCoordinator) expandTask(ctx context.Context, task Task) {
 }
 
 // sendWorkItem sends a URL to workChan.
+// Skips queueing if the URL's prefix has been tripped by the breaker — saves
+// an HTTP request and a downstream worker slot for known-dead prefixes.
 func (c *PayloadCoordinator) sendWorkItem(
 	ctx context.Context,
 	task Task,
 	urlStr string,
 	depth uint16,
 ) {
+	if c.callbacks.PrefixBreaker != nil {
+		if u, err := url.Parse(urlStr); err == nil && c.callbacks.PrefixBreaker.IsDead(u) {
+			return
+		}
+	}
+
 	item := &WorkItem{
 		URL:       urlStr,
 		Depth:     depth,
@@ -224,6 +232,25 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 		return
 	}
 	defer rc.Close()
+
+	// Feed prefix breaker with this probe outcome. Done before any analyzer
+	// gating so soft-200 / soft-403 traps still register signal even when the
+	// fingerprinter classifies them out.
+	if cb.PrefixBreaker != nil {
+		resp := rc.Response()
+		body := rc.BodyBytes()
+		reason, tripped := cb.PrefixBreaker.Observe(req.URL, resp.StatusCode, resp.Header.Get("Content-Type"), int64(len(body)))
+		if tripped {
+			logger.Info("Prefix breaker tripped — stopping further probes under this prefix",
+				zap.String("host", reason.Host),
+				zap.String("prefix", reason.Prefix),
+				zap.Int("samples", reason.Samples),
+				zap.Int("dominant_status", reason.DominantStatus),
+				zap.String("dominant_content_type", reason.DominantCT),
+				zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
+				zap.Int("dominant_count", reason.DominantCount))
+		}
+	}
 
 	// JSFetchTask: custom validation (status 200 + JS content-type)
 	// Skip Analyzer + verification - just validate and process

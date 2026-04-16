@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
+	"github.com/vigolium/vigolium/pkg/deparos/discovery/tracker"
 	"github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
 	"github.com/vigolium/vigolium/pkg/deparos/reqcache"
@@ -124,6 +125,11 @@ type Callbacks struct {
 	// ScopeChecker validates if URLs are within scan scope.
 	// Used by redirect handler to filter out-of-scope redirect targets.
 	ScopeChecker *scope.Checker
+
+	// PrefixBreaker tracks per-prefix probe outcomes and stops further probing
+	// under prefixes that return overwhelmingly uniform responses (trap dirs
+	// like Juice Shop's /ftp). May be nil when disabled.
+	PrefixBreaker *tracker.PrefixBreaker
 }
 
 // copyBytes creates a copy of a byte slice.

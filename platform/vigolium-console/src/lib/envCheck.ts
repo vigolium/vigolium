@@ -13,6 +13,7 @@ export interface EnvCheckResult {
   ok: boolean;
   issues: EnvIssue[];
   ssoDisabled: boolean;
+  showcasesEnabled: boolean;
 }
 
 /** SSO is disabled when explicitly set OR when WorkOS keys are missing. */
@@ -21,9 +22,15 @@ export function isSSODisabled(): boolean {
   return !process.env.WORKOS_API_KEY || !process.env.WORKOS_CLIENT_ID;
 }
 
+/** Showcases listing is gated by its own feature flag. */
+export function isShowcasesEnabled(): boolean {
+  return process.env.VIGOLIUM_SHOWCASES_ENABLED === 'true';
+}
+
 export function checkCloudEnv(): EnvCheckResult {
   const issues: EnvIssue[] = [];
   const ssoDisabled = isSSODisabled();
+  const showcasesEnabled = isShowcasesEnabled();
 
   // WorkOS — required for SSO auth. When SSO is disabled (explicitly or by missing keys),
   // downgrade to warnings so the login page still renders with access-code auth.
@@ -55,5 +62,5 @@ export function checkCloudEnv(): EnvCheckResult {
   }
 
   const hasError = issues.some((i) => i.severity === 'error');
-  return { ok: !hasError, issues, ssoDisabled };
+  return { ok: !hasError, issues, ssoDisabled, showcasesEnabled };
 }

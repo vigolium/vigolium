@@ -176,19 +176,19 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	// Apply --ext / --ext-dir overrides before validation
 	if len(globalExtScripts) > 0 {
-		settings.Audit.Extensions.Enabled = true
-		settings.Audit.Extensions.CustomDir = append(
-			settings.Audit.Extensions.CustomDir,
+		settings.DynamicAssessment.Extensions.Enabled = true
+		settings.DynamicAssessment.Extensions.CustomDir = append(
+			settings.DynamicAssessment.Extensions.CustomDir,
 			globalExtScripts...,
 		)
 	}
 	if globalExtDir != "" {
-		settings.Audit.Extensions.Enabled = true
-		settings.Audit.Extensions.ExtensionDir = globalExtDir
+		settings.DynamicAssessment.Extensions.Enabled = true
+		settings.DynamicAssessment.Extensions.ExtensionDir = globalExtDir
 	}
 
 	// Validate extensions config
-	if err := settings.Audit.Extensions.Validate(); err != nil {
+	if err := settings.DynamicAssessment.Extensions.Validate(); err != nil {
 		return fmt.Errorf("invalid extensions configuration: %w", err)
 	}
 
@@ -247,8 +247,8 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		if phases.SourceAware {
 			scanOpts.SASTEnabled = true
 		}
-		if !phases.Audit {
-			scanOpts.SkipAudit = true
+		if !phases.DynamicAssessment {
+			scanOpts.SkipDynamicAssessment = true
 		}
 		zap.L().Debug("Applied scanning strategy", zap.String("strategy", strategyName))
 	}
@@ -267,7 +267,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := runner.ApplyNativePhaseSelection(scanOpts, func() {
-		settings.Audit.Extensions.Enabled = true
+		settings.DynamicAssessment.Extensions.Enabled = true
 	}); err != nil {
 		return err
 	}
@@ -901,7 +901,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	discoveryEnabled := opts.DiscoverEnabled
 	spideringEnabled := opts.SpideringEnabled
 	knownIssueScanEnabled := opts.KnownIssueScanEnabled
-	daEnabled := !opts.SkipAudit
+	daEnabled := !opts.SkipDynamicAssessment
 	ehEnabled := opts.ExternalHarvestEnabled
 
 	// Strategy name
@@ -963,7 +963,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		phaseLabel("Discovery", "discovery", discoveryEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("KnownIssueScan", "known-issue-scan", knownIssueScanEnabled),
-		phaseLabel("Audit", "audit", daEnabled),
+		phaseLabel("DynamicAssessment", "dynamic-assessment", daEnabled),
 		phaseLabel("SAST", "sast", sastEnabled))
 	if sastEnabled && opts.SASTAdhoc != "" {
 		fmt.Fprintf(os.Stderr, "  %s Repo: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.SASTAdhoc))
@@ -1006,8 +1006,8 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	modulesLine := fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", activeCount)),
 		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
-	if settings != nil && settings.Audit.Extensions.Enabled {
-		extCount := countExtensionFiles(&settings.Audit.Extensions)
+	if settings != nil && settings.DynamicAssessment.Extensions.Enabled {
+		extCount := countExtensionFiles(&settings.DynamicAssessment.Extensions)
 		modulesLine += fmt.Sprintf(" + %s extensions", terminal.HiTeal(fmt.Sprintf("%d", extCount)))
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), modulesLine)

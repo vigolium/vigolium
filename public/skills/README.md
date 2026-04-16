@@ -343,9 +343,9 @@ vigolium run spidering -t https://example.com
 > Skip discovery, just run the vulnerability modules
 ```
 ```bash
-vigolium run audit -t https://example.com
+vigolium run dynamic-assessment -t https://example.com
 # or
-vigolium scan -t https://example.com --only audit
+vigolium scan -t https://example.com --only dynamic-assessment
 ```
 
 **Run only SPA (security posture assessment via Nuclei):**

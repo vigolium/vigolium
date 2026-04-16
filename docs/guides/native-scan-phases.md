@@ -13,7 +13,7 @@ When you run a standard scan, phases execute in this order:
 3. **SAST** - static analysis of source code (requires `--source`)
 4. **Discovery** - content discovery via wordlists and fuzzing
 5. **Known Issue Scan** - template-based scanning with Nuclei/Kingfisher
-6. **Audit** - active and passive vulnerability scanning modules
+6. **DynamicAssessment** - active and passive vulnerability scanning modules
 
 A full scan with all phases enabled:
 
@@ -96,19 +96,19 @@ vigolium run known-issue-scan -t https://example.com \
   --known-issue-scan-tags cve,rce
 ```
 
-### Audit
+### DynamicAssessment
 
-Runs active and passive vulnerability scanning modules. This is the core scanning phase:
+Runs active and passive vulnerability scanning modules. This is the core scanning phase. CLI aliases: `audit`, `dast`, `assessment`.
 
 ```bash
-vigolium run audit -t https://example.com
+vigolium run dynamic-assessment -t https://example.com
 ```
 
 Select specific modules or tags:
 
 ```bash
-vigolium run audit -t https://example.com -m xss -m sqli
-vigolium run audit -t https://example.com --module-tag injection
+vigolium run dynamic-assessment -t https://example.com -m xss -m sqli
+vigolium run dast -t https://example.com --module-tag injection
 ```
 
 ### SAST (Static Analysis)
@@ -150,6 +150,7 @@ Several phases accept shorthand aliases:
 | `deparos`, `discover` | `discovery` |
 | `spitolas` | `spidering` |
 | `ext` | `extension` |
+| `audit`, `dast`, `assessment` | `dynamic-assessment` |
 
 ## Chaining Phases Manually
 
@@ -159,8 +160,8 @@ You can chain independent phase runs to build a custom pipeline. Each phase stor
 # Step 1: Discover endpoints
 vigolium run discovery -t https://example.com
 
-# Step 2: Audit only the discovered endpoints
-vigolium run audit -t https://example.com
+# Step 2: Dynamic-assessment against the discovered endpoints
+vigolium run dynamic-assessment -t https://example.com
 
 # Step 3: Run custom extensions against results
 vigolium run extension -t https://example.com --ext ./custom-check.js
@@ -182,7 +183,7 @@ scanning_pace:
   spidering:
     max_duration: 20m
 
-  audit:
+  dynamic-assessment:
     parallel_passive: true
 ```
 
@@ -208,7 +209,7 @@ vigolium run discovery -t https://api.example.com --scope-origin relaxed
 All phases respect authentication headers. Pass them with `-H`:
 
 ```bash
-vigolium run audit -t https://api.example.com \
+vigolium run dynamic-assessment -t https://api.example.com \
   -H 'Authorization: Bearer eyJhbGciOi...' \
   -H 'Cookie: session=abc123'
 ```
@@ -216,6 +217,6 @@ vigolium run audit -t https://api.example.com \
 For multi-session testing (e.g., IDOR detection), use session configs:
 
 ```bash
-vigolium run audit -t https://api.example.com \
+vigolium run dynamic-assessment -t https://api.example.com \
   --auth-config sessions.yaml
 ```

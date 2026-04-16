@@ -82,10 +82,17 @@ func NewDefaultConfig() *Config {
 			TestNoExtension: true,                    
 		},
 		Engine: EngineConfig{
-			CaseSensitivity:  CaseAutoDetect,  
-			DiscoveryThreads: 40,              
+			CaseSensitivity:  CaseAutoDetect,
+			DiscoveryThreads: 40,
 			Timeout:          10 * time.Second, // HTTP per-request timeout
 			ObservedMaxItems: 4000,             // Max items per observed provider
+			PrefixBreaker: PrefixBreakerConfig{
+				Enabled:        true,
+				MinSamples:     12,
+				TripRatio:      0.9,
+				PrefixSegments: 1,
+				LengthBucket:   256,
+			},
 		},
 		Modules: DefaultModuleConfig(),
 	}

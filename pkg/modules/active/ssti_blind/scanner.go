@@ -14,9 +14,31 @@ import (
 	"github.com/pkg/errors"
 )
 
-// timeThreshold is the minimum response time differential to consider
-// a time-delay injection confirmed.
-const timeThreshold = 2 * time.Second
+// Time-delay detection tuning.
+//
+// Blind SSTI via wall-clock timing is inherently noisy: a slow backend, GC
+// pause, or unrelated network jitter can produce multi-second responses on
+// non-vulnerable endpoints. The constants below are picked to make false
+// positives unlikely at the cost of a few extra HTTP requests:
+//
+//   - slowMinDuration: a "slow" probe must take at least this long to count.
+//     Bumped well above typical jitter (5xx errors, slow DBs).
+//   - fastMaxDuration: a "fast" probe must complete under this; otherwise
+//     we conclude the server is just slow and bail.
+//   - minSeparation:   the slowest slow-probe must beat the fastest baseline
+//     by this much. Catches the "server is consistently slow" case where
+//     both slow and fast cross slowMinDuration but the payload didn't help.
+//   - confirmSlowRounds / confirmFastRounds: how many probes of each kind
+//     to send before declaring a hit. Pattern is interleaved
+//     slow-fast-slow-fast-slow so any background load spike shows up as a
+//     fast-probe outlier and aborts the check.
+const (
+	slowMinDuration   = 6 * time.Second
+	fastMaxDuration   = 3 * time.Second
+	minSeparation     = 3 * time.Second
+	confirmSlowRounds = 3
+	confirmFastRounds = 2
+)
 
 // Module implements the blind SSTI active scanner.
 type Module struct {
@@ -123,41 +145,58 @@ func (m *Module) ScanPerInsertionPoint(
 	return results, nil
 }
 
-// testTimingPair implements triple verification: slow → fast → slow.
+// testTimingPair confirms a blind SSTI via interleaved slow/fast probes.
+//
+// Pattern (worst case): slow → fast → slow → fast → slow.
+// Early exits keep the cost low for non-vulnerable endpoints:
+//   - First slow under slowMinDuration → bail after 1 request.
+//   - Any baseline (fast) probe over fastMaxDuration → bail (server is slow).
+//   - Any subsequent slow under slowMinDuration → bail (inconsistent).
+//
+// Final decision requires ALL slow probes ≥ slowMinDuration AND
+// min(slow) − max(fast) ≥ minSeparation, so a uniformly slow backend
+// can't trigger a false positive.
 func (m *Module) testTimingPair(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	ip httpmsg.InsertionPoint,
 	slowPayload, fastPayload, engine string,
 ) (*output.ResultEvent, error) {
-	// Step 1: Send slow payload (should cause delay)
-	elapsed1, err := m.sendTimedPayload(ctx, httpClient, ip, slowPayload)
-	if err != nil {
-		return nil, err
+	slowTimes := make([]time.Duration, 0, confirmSlowRounds)
+	fastTimes := make([]time.Duration, 0, confirmFastRounds)
+
+	for i := 0; i < confirmSlowRounds; i++ {
+		elapsed, err := m.sendTimedPayload(ctx, httpClient, ip, slowPayload)
+		if err != nil {
+			return nil, err
+		}
+		if elapsed < slowMinDuration {
+			return nil, nil
+		}
+		slowTimes = append(slowTimes, elapsed)
+
+		// Interleave a baseline probe between slow probes (not after the last).
+		if i < confirmFastRounds {
+			fastElapsed, err := m.sendTimedPayload(ctx, httpClient, ip, fastPayload)
+			if err != nil {
+				return nil, err
+			}
+			if fastElapsed >= fastMaxDuration {
+				return nil, nil // Server is just slow today.
+			}
+			fastTimes = append(fastTimes, fastElapsed)
+		}
 	}
-	if elapsed1 < timeThreshold {
+
+	// Statistical separation: the slowest slow must beat the fastest baseline
+	// by at least minSeparation. Catches drift where everything got slower
+	// without the payload actually doing anything.
+	slowMin := minDuration(slowTimes)
+	fastMax := maxDuration(fastTimes)
+	if slowMin-fastMax < minSeparation {
 		return nil, nil
 	}
 
-	// Step 2: Send fast payload (should be quick)
-	elapsedFast, err := m.sendTimedPayload(ctx, httpClient, ip, fastPayload)
-	if err != nil {
-		return nil, err
-	}
-	if elapsedFast >= timeThreshold {
-		return nil, nil // Server is just slow
-	}
-
-	// Step 3: Send slow payload again (should cause delay again)
-	elapsed2, err := m.sendTimedPayload(ctx, httpClient, ip, slowPayload)
-	if err != nil {
-		return nil, err
-	}
-	if elapsed2 < timeThreshold {
-		return nil, nil // Inconsistent
-	}
-
-	// All checks passed — confirmed blind SSTI via time delay
 	fuzzedRaw := ip.BuildRequest([]byte(slowPayload))
 	return &output.ResultEvent{
 		Request:          string(fuzzedRaw),
@@ -166,11 +205,38 @@ func (m *Module) testTimingPair(
 		Info: output.Info{
 			Description: fmt.Sprintf(
 				"Blind SSTI detected via time-delay in %s template engine. "+
-					"Slow payload caused consistent delay while fast payload responded quickly.",
-				engine,
+					"Slow payload caused consistent delay across %d probes "+
+					"(min=%v) while %d baseline probes stayed fast (max=%v).",
+				engine, len(slowTimes), slowMin.Round(time.Millisecond),
+				len(fastTimes), fastMax.Round(time.Millisecond),
 			),
 		},
 	}, nil
+}
+
+// minDuration returns the smallest duration in d. Empty slice → 0.
+func minDuration(d []time.Duration) time.Duration {
+	if len(d) == 0 {
+		return 0
+	}
+	m := d[0]
+	for _, x := range d[1:] {
+		if x < m {
+			m = x
+		}
+	}
+	return m
+}
+
+// maxDuration returns the largest duration in d. Empty slice → 0.
+func maxDuration(d []time.Duration) time.Duration {
+	var m time.Duration
+	for _, x := range d {
+		if x > m {
+			m = x
+		}
+	}
+	return m
 }
 
 // sendTimedPayload sends a payload and returns the elapsed wall-clock duration.

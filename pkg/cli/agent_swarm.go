@@ -183,8 +183,8 @@ func init() {
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
 	f.DurationVar(&swarmTimeout, "swarm-duration", 12*time.Hour, "Maximum swarm duration (0 = unlimited)")
 	f.StringVar(&swarmProfile, "profile", "", "Scanning profile to use")
-	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, audit, external-harvest)")
-	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, audit, external-harvest, triage, rescan)")
+	f.StringVar(&swarmOnlyPhase, "only", "", "Run only this scanning phase (discovery, spidering, spa, dynamic-assessment, external-harvest)")
+	f.StringSliceVar(&swarmSkipPhases, "skip", nil, "Skip specific phases (discovery, spidering, spa, dynamic-assessment, external-harvest, triage, rescan)")
 	f.StringVar(&swarmStartFrom, "start-from", "", "Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage)")
 	f.StringVar(&swarmInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompts)")
 	f.StringVar(&swarmInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
@@ -750,7 +750,7 @@ type swarmNativePhaseConfig struct {
 
 // buildAgentSwarmScanFunc creates a callback that runs the scan.
 // When IsRescan=false, it runs a full scan (all phases, all modules) by default.
-// When IsRescan=true, it restricts to audit with targeted modules.
+// When IsRescan=true, it restricts to dynamic-assessment with targeted modules.
 // The onlyPhase and skipPhases parameters allow user control via --only/--skip flags.
 // authConfigPath points to a generated auth-config.yaml from source analysis (may be empty).
 func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repository, phaseCfg swarmNativePhaseConfig, onlyPhase string, skipPhases []string, authConfigPath *string) agent.ScanFunc {
@@ -772,8 +772,8 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 		}
 
 		if req.IsRescan {
-			// Triage rescans: targeted audit only
-			opts.OnlyPhase = "audit"
+			// Triage rescans: targeted dynamic-assessment only
+			opts.OnlyPhase = "dynamic-assessment"
 			opts.SkipIngestion = true
 			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
@@ -791,14 +791,14 @@ func buildAgentSwarmScanFunc(settings *config.Settings, repo *database.Repositor
 			}
 		}
 
-		// Pass through verbose flag so audit traffic/finding lines are printed
+		// Pass through verbose flag so dynamic-assessment traffic/finding lines are printed
 		opts.Verbose = phaseCfg.Verbose
 
 		// Clone settings to avoid mutating shared config
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
-			settingsCopy.Audit.Extensions.Enabled = true
-			settingsCopy.Audit.Extensions.ExtensionDir = req.ExtensionDir
+			settingsCopy.DynamicAssessment.Extensions.Enabled = true
+			settingsCopy.DynamicAssessment.Extensions.ExtensionDir = req.ExtensionDir
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Scanning with modules: %s\n",
@@ -981,9 +981,9 @@ func buildSwarmSASTFunc(settings *config.Settings, repo *database.Repository, ph
 		opts.OnlyPhase = "sast"
 		// Resolve OnlyPhase into concrete phase flags — the runner's RunNativeScan
 		// does NOT resolve OnlyPhase itself; that only happens in scan.go's CLI handler.
-		// Without these, the runner would also run discovery + audit after SAST.
+		// Without these, the runner would also run discovery + dynamic-assessment after SAST.
 		opts.SkipIngestion = true
-		opts.SkipAudit = true
+		opts.SkipDynamicAssessment = true
 		opts.HeuristicsCheck = "none"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
@@ -1266,7 +1266,7 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 		}
 
 		if req.IsRescan {
-			opts.OnlyPhase = "audit"
+			opts.OnlyPhase = "dynamic-assessment"
 			opts.SkipIngestion = true
 			opts.Modules = agent.ResolveModulesFromPlan(req.ModuleTags, req.ModuleIDs)
 		} else {
@@ -1286,8 +1286,8 @@ func buildMultiAppSwarmScanFunc(settings *config.Settings, repo *database.Reposi
 
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
-			settingsCopy.Audit.Extensions.Enabled = true
-			settingsCopy.Audit.Extensions.ExtensionDir = req.ExtensionDir
+			settingsCopy.DynamicAssessment.Extensions.Enabled = true
+			settingsCopy.DynamicAssessment.Extensions.ExtensionDir = req.ExtensionDir
 		}
 
 		fmt.Fprintf(os.Stderr, "%s Scanning %s with modules: %s\n",

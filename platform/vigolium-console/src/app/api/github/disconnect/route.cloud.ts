@@ -1,9 +1,14 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
 import { removeAccessToken, DEV_TOKEN_COOKIE } from '@/lib/github';
+import { isDemoRequest } from '@/lib/demoRequest';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  if (isDemoRequest(req)) {
+    return NextResponse.json({ error: 'GitHub is disabled in demo mode' }, { status: 403 });
+  }
+
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     const response = NextResponse.json({ ok: true });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import Link from 'next/link';
+import Link from '@/components/shared/DemoAwareLink';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -22,6 +22,11 @@ import {
 } from 'lucide-react';
 import { isStaticBuild } from '@/lib/buildMode';
 import { getHiddenPages } from '@/lib/nav-settings';
+import { useCurrentUser } from '@/api/hooks';
+import { useToast } from '@/contexts/ToastContext';
+
+const DEMO_DISABLED_PATHS = new Set(['/projects', '/billing', '/settings']);
+const DEMO_FORCE_SHOW = new Set(['/modules', '/extensions']);
 
 interface NavItem {
   href: string;
@@ -65,6 +70,8 @@ const CLOUD_NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: 'Scan',
     items: [
       { href: '/scope', label: 'SCOPE', icon: Target, group: 'blue' },
+      { href: '/modules', label: 'MODULES', icon: Blocks, group: 'blue' },
+      { href: '/extensions', label: 'EXTENSIONS', icon: Puzzle, group: 'blue' },
       { href: '/ingest', label: 'INGEST', icon: Import, group: 'orange' },
       { href: '/scan', label: 'NATIVE SCAN', icon: Radar, group: 'orange' },
       { href: '/agentic-scan', label: 'AGENTIC SCAN', icon: Bot, group: 'orange' },
@@ -88,6 +95,9 @@ const GROUP_VAR: Record<string, string> = {
 
 export default function Navigation() {
   const pathname = usePathname();
+  const { data: currentUser } = useCurrentUser();
+  const { toast } = useToast();
+  const isDemoUser = !isStaticBuild && currentUser?.role === 'demo';
 
   // Filter hidden pages in cloud mode
   const filteredGroups = useMemo(() => {
@@ -96,10 +106,19 @@ export default function Navigation() {
     return CLOUD_NAV_GROUPS
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => !hidden.has(item.href)),
+        items: group.items.filter((item) => {
+          if (isDemoUser && DEMO_FORCE_SHOW.has(item.href)) return true;
+          if (hidden.has(item.href)) return false;
+          return true;
+        }),
       }))
       .filter((group) => group.items.length > 0);
-  }, []);
+  }, [isDemoUser]);
+
+  const handleDemoBlock = (e: React.MouseEvent, label: string) => {
+    e.preventDefault();
+    toast(`${label} is disabled in demo mode`, 'info');
+  };
 
   if (isStaticBuild) {
     return (
@@ -144,18 +163,21 @@ export default function Navigation() {
               {group.items.map((item) => {
                 const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
                 const colorVar = `var(${GROUP_VAR[item.group]})`;
+                const isBlocked = isDemoUser && DEMO_DISABLED_PATHS.has(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={isBlocked ? (e) => handleDemoBlock(e, item.label) : undefined}
                     className={`flex items-center gap-1 transition-colors whitespace-nowrap px-1.5 py-0.5 ${
                       isActive ? 'font-bold' : 'v-nav-link'
-                    }`}
+                    } ${isBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                     style={isActive ? {
                       color: colorVar,
                       backgroundColor: `color-mix(in srgb, ${colorVar} 10%, transparent)`,
                     } : undefined}
-                    title={item.label}
+                    title={isBlocked ? `${item.label} is disabled in demo mode` : item.label}
+                    aria-disabled={isBlocked}
                   >
                     <item.icon className="w-3 h-3" />
                     <span className="hidden sm:inline">{item.label}</span>

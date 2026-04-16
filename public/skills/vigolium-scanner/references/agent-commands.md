@@ -390,7 +390,7 @@ vigolium agent swarm -t https://example.com/api/users --show-prompt
 vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stored
 
 # Control scanning phases
-vigolium agent swarm -t https://example.com --only audit
+vigolium agent swarm -t https://example.com --only dynamic-assessment
 vigolium agent swarm -t https://example.com --skip discovery,spidering
 
 # Preview master agent prompt

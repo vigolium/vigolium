@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import { useDemoRouter } from '@/lib/useDemoHref';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Prism from 'prismjs';
@@ -133,7 +134,7 @@ export default function SettingsPage({ initialTab }: { initialTab?: string }) {
   const validTab = tabs.includes(initialTab as never) ? initialTab as SettingsTab : defaultTab;
 
   const { schemeId, setScheme } = useTheme();
-  const router = useRouter();
+  const router = useDemoRouter();
   const pathname = usePathname();
   const [activeTab, setActiveTabState] = useState<SettingsTab>(validTab);
   const setActiveTab = useCallback((tab: SettingsTab) => {

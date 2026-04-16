@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Github, Lock, Globe, Search, Unplug, Loader2 } from 'lucide-react';
-import { useGitHubStatus, useGitHubRepos, useGitHubCloneUrl } from '@/api/hooks';
+import { useGitHubStatus, useGitHubRepos, useGitHubCloneUrl, useCurrentUser } from '@/api/hooks';
+import { useToast } from '@/contexts/ToastContext';
 
 interface GitHubRepoPickerProps {
   onSelect: (cloneUrl: string, repoFullName: string) => void;
@@ -12,8 +13,11 @@ interface GitHubRepoPickerProps {
 
 export default function GitHubRepoPicker({ onSelect, selectedRepo }: GitHubRepoPickerProps) {
   const pathname = usePathname();
+  const { data: currentUser } = useCurrentUser();
+  const isDemoUser = currentUser?.role === 'demo';
+  const { toast } = useToast();
   const { data: status } = useGitHubStatus();
-  const { data: reposData, isLoading: reposLoading } = useGitHubRepos(status?.connected === true);
+  const { data: reposData, isLoading: reposLoading } = useGitHubRepos(!isDemoUser && status?.connected === true);
   const cloneUrl = useGitHubCloneUrl();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -40,6 +44,21 @@ export default function GitHubRepoPicker({ onSelect, selectedRepo }: GitHubRepoP
       setGenerating(null);
     }
   };
+
+  if (isDemoUser) {
+    return (
+      <button
+        type="button"
+        onClick={() => toast('GitHub is disabled in demo mode', 'info')}
+        className="inline-flex items-center gap-1.5 px-2 py-1 text-xs border rounded opacity-60 cursor-not-allowed"
+        style={{ borderColor: 'var(--v-border)', color: 'var(--v-text-muted)' }}
+        title="GitHub is disabled in demo mode"
+      >
+        <Github className="w-3 h-3" />
+        GitHub (demo)
+      </button>
+    );
+  }
 
   if (!status?.connected) {
     return (

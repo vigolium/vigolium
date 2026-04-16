@@ -2,6 +2,7 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAndDeductCredits } from '@/lib/billing';
 import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
+import { validateDemoKey } from '@/lib/demoKeys';
 
 const SCAN_SERVER = process.env.VIGOLIUM_SCAN_SERVER || 'http://localhost:9002';
 const AUTH_API_KEY = process.env.VIGOLIUM_AUTH_API_KEY || '';
@@ -25,27 +26,45 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
   const { path } = await params;
   const apiPath = `/${path.join('/')}`;
   const target = new URL(apiPath, SCAN_SERVER);
-  target.search = req.nextUrl.search;
+  // Copy query, but strip demo_key before forwarding to the Go backend.
+  const forwardSearch = new URLSearchParams(req.nextUrl.search);
+  const demoKeyParam = forwardSearch.get('demo_key');
+  forwardSearch.delete('demo_key');
+  target.search = forwardSearch.toString() ? `?${forwardSearch.toString()}` : '';
 
   // Resolve user email for X-User-Email header injection
   let userEmail: string | null = null;
   let isAccessCodeUser = false;
+  let isDemoUser = false;
 
   if (!skipAuth) {
-    // Check access-code cookie first
-    const accessCookie = req.cookies.get(ACCESS_COOKIE_NAME);
-    if (accessCookie?.value) {
-      const payload = await verifyAccessSession(accessCookie.value);
-      if (payload) {
-        userEmail = payload.email;
-        isAccessCodeUser = true;
+    // Check ?demo_key= query — strict URL source of truth
+    if (demoKeyParam) {
+      const result = validateDemoKey(demoKeyParam);
+      if (result.valid && result.label) {
+        userEmail = `demo-${result.label}@vigolium.com`;
+        isDemoUser = true;
       } else {
-        return NextResponse.json({ error: 'Invalid access session' }, { status: 401 });
+        return NextResponse.json({ error: 'Invalid demo_key' }, { status: 401 });
+      }
+    }
+
+    // Check access-code cookie next
+    if (!isDemoUser) {
+      const accessCookie = req.cookies.get(ACCESS_COOKIE_NAME);
+      if (accessCookie?.value) {
+        const payload = await verifyAccessSession(accessCookie.value);
+        if (payload) {
+          userEmail = payload.email;
+          isAccessCodeUser = true;
+        } else {
+          return NextResponse.json({ error: 'Invalid access session' }, { status: 401 });
+        }
       }
     }
 
     // Fall back to WorkOS session for email
-    if (!isAccessCodeUser) {
+    if (!isAccessCodeUser && !isDemoUser) {
       try {
         const session = await withAuth();
         if (session.user) {
@@ -59,8 +78,8 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
 
   // Credit gate: check and deduct credits for scan endpoints (POST only)
   if (req.method === 'POST' && isGatedPath(apiPath) && !skipAuth) {
-    // Access-code users bypass credit checks (unlimited credits)
-    if (!isAccessCodeUser) {
+    // Demo and access-code users bypass credit checks (unlimited/read-only)
+    if (!isAccessCodeUser && !isDemoUser) {
       if (!userEmail) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }

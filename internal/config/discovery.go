@@ -50,14 +50,27 @@ type DiscoveryExtensionConfig struct {
 
 // DiscoveryEngineConfig controls discovery execution settings.
 type DiscoveryEngineConfig struct {
-	CaseSensitivity        string            `yaml:"case_sensitivity"`
-	Timeout                string            `yaml:"timeout"`
-	CustomHeaders          map[string]string `yaml:"custom_headers"`
-	EnableCookieJar        bool              `yaml:"enable_cookie_jar"`
-	MaxConsecutiveErrors   int               `yaml:"max_consecutive_errors"`
-	MaxConsecutiveWAFBlocks int              `yaml:"max_consecutive_waf_blocks"`
-	ObservedMaxItems       int               `yaml:"observed_max_items"`
-	DisableKingfisher      bool              `yaml:"disable_kingfisher"`
+	CaseSensitivity        string                       `yaml:"case_sensitivity"`
+	Timeout                string                       `yaml:"timeout"`
+	CustomHeaders          map[string]string            `yaml:"custom_headers"`
+	EnableCookieJar        bool                         `yaml:"enable_cookie_jar"`
+	MaxConsecutiveErrors   int                          `yaml:"max_consecutive_errors"`
+	MaxConsecutiveWAFBlocks int                         `yaml:"max_consecutive_waf_blocks"`
+	ObservedMaxItems       int                          `yaml:"observed_max_items"`
+	DisableKingfisher      bool                         `yaml:"disable_kingfisher"`
+	PrefixBreaker          DiscoveryPrefixBreakerConfig `yaml:"prefix_breaker"`
+}
+
+// DiscoveryPrefixBreakerConfig tunes the per-prefix circuit breaker that stops
+// discovery from recursing into trap directories (uniform 4xx / soft-200 sinks).
+// Pointer-bool semantics aren't used; absent YAML means use defaults from
+// pkg/deparos/config/defaults.go.
+type DiscoveryPrefixBreakerConfig struct {
+	Enabled        *bool   `yaml:"enabled"`         // nil = use deparos default (true)
+	MinSamples     int     `yaml:"min_samples"`     // 0 = use deparos default
+	TripRatio      float64 `yaml:"trip_ratio"`      // 0 = use deparos default
+	PrefixSegments int     `yaml:"prefix_segments"` // 0 = use deparos default
+	LengthBucket   int64   `yaml:"length_bucket"`   // 0 = use deparos default
 }
 
 // DefaultDiscoveryConfig returns default discovery configuration.

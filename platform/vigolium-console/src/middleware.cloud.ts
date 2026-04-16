@@ -4,15 +4,44 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const isStatic = process.env.NEXT_PUBLIC_BUILD_MODE === 'static';
 const skipAuth = isStatic || process.env.VIGOLIUM_SKIP_AUTH === 'true';
+const demoOnlyEnabled = process.env.VIGOLIUM_DEMO_ONLY === 'true';
 
 const hasWorkOSKeys = !!(process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID);
 
 const ACCESS_COOKIE_NAME = 'vigolium-access-session';
+const DEMO_COOKIE_NAME = 'vigolium-demo-session';
 
 function getAccessSecret(): Uint8Array {
   const secret =
     process.env.ACCESS_SESSION_SECRET || process.env.WORKOS_COOKIE_PASSWORD || '';
   return new TextEncoder().encode(secret);
+}
+
+/** SHA-256 hex digest — Edge-safe (SubtleCrypto). */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Paths always exempt from the demo gate (entry points + static callbacks). */
+const DEMO_ALLOW_LIST = new Set<string>([
+  '/login',
+  '/callback',
+  '/unauthorized',
+  '/api/config-check',
+  '/api/billing/webhook',
+  '/api/demo/login',
+  '/api/demo/status',
+  '/api/demo/logout',
+]);
+
+function isDemoAllowed(pathname: string): boolean {
+  if (DEMO_ALLOW_LIST.has(pathname)) return true;
+  if (pathname.startsWith('/showcases')) return true;
+  return false;
 }
 
 // Only initialize WorkOS middleware when keys are present to avoid cryptic SDK errors
@@ -48,6 +77,49 @@ export default async function proxy(req: NextRequest) {
   // Allow showcases routes through without auth (key-gated server-side)
   if (req.nextUrl.pathname.startsWith('/showcases')) {
     return NextResponse.next();
+  }
+
+  // ── Demo mode gate ─────────────────────────────────────────────────
+  // Strict URL-as-source-of-truth: every request must carry ?demo_key=<key>.
+  // The cookie is only a validation cache (bound to sha256(key)) — it never
+  // grants access when the URL param is missing.
+  if (demoOnlyEnabled) {
+    if (isDemoAllowed(req.nextUrl.pathname)) {
+      return NextResponse.next();
+    }
+
+    const urlDemoKey = req.nextUrl.searchParams.get('demo_key');
+
+    // No param → always redirect to /login (no cookie fallback)
+    if (!urlDemoKey) {
+      const returnTo = req.nextUrl.pathname + req.nextUrl.search;
+      const loginUrl = new URL('/login', req.url);
+      if (returnTo && returnTo !== '/') {
+        loginUrl.searchParams.set('return_to', returnTo);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Param present → check validation cache cookie
+    const demoCookie = req.cookies.get(DEMO_COOKIE_NAME);
+    if (demoCookie?.value) {
+      try {
+        const { payload } = await jwtVerify(demoCookie.value, getAccessSecret());
+        const cookieHash = typeof payload.keyHash === 'string' ? payload.keyHash : null;
+        const urlHash = await sha256Hex(urlDemoKey);
+        if (cookieHash && cookieHash === urlHash) {
+          return NextResponse.next();
+        }
+      } catch {
+        // invalid/expired — fall through to re-validation
+      }
+    }
+
+    // Needs server-side validation — hand off to Node route, preserve param in return_to
+    const loginUrl = new URL('/api/demo/login', req.url);
+    loginUrl.searchParams.set('demo_key', urlDemoKey);
+    loginUrl.searchParams.set('return_to', req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(loginUrl);
   }
 
   // Check for access-code session cookie — if valid, bypass WorkOS auth

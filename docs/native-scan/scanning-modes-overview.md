@@ -6,10 +6,10 @@ Vigolium supports multiple scanning modes depending on what you have available: 
 
 | Mode | What You Need | Command | What It Does |
 |------|---------------|---------|--------------|
-| **Lite** | URL | `vigolium scan -t URL --strategy lite` | Audit only, no discovery |
-| **Balanced** | URL | `vigolium scan -t URL` | Discovery + spidering + known-issue-scan + audit |
+| **Lite** | URL | `vigolium scan -t URL --strategy lite` | Dynamic-assessment only, no discovery |
+| **Balanced** | URL | `vigolium scan -t URL` | Discovery + spidering + known-issue-scan + dynamic-assessment |
 | **Deep** | URL | `vigolium scan -t URL --strategy deep` | Adds external harvesting to balanced |
-| **Whitebox** | URL + source code | `vigolium scan -t URL --source ./app --strategy whitebox` | SAST route extraction + discovery + known-issue-scan + audit |
+| **Whitebox** | URL + source code | `vigolium scan -t URL --source ./app --strategy whitebox` | SAST route extraction + discovery + known-issue-scan + dynamic-assessment |
 | **Whitebox (remote)** | URL + git repo | `vigolium scan -t URL --source-url GIT_URL --strategy whitebox` | Same as whitebox, clones the repo first |
 | **SAST-only** | Source code | `vigolium scan -t URL --source ./app --only sast` | Static analysis only, no dynamic scanning |
 | **Agent** | Source code + AI backend | `vigolium agent query --prompt-template X --source ./app` | AI-powered code review |
@@ -50,7 +50,7 @@ Phases execute in this order. Each strategy enables a subset of these phases:
 4. SAST                 Static analysis via ast-grep (route extraction, security rules)
 5. Discovery            Content discovery (brute-force dirs/files, JS analysis)
 6. KnownIssueScan       Known Issue Scan (Nuclei templates + Kingfisher secrets)
-7. Audit                Active + passive scanner modules against all discovered endpoints
+7. DynamicAssessment    Active + passive scanner modules against all discovered endpoints
 8. Extension            Custom JS/YAML extension modules (when --only extension or --ext is used)
 ```
 
@@ -62,7 +62,7 @@ Phases execute in this order. Each strategy enables a subset of these phases:
 | Discovery | - | yes | yes | yes |
 | Spidering | - | yes | yes | - |
 | KnownIssueScan | - | yes | yes | yes |
-| Audit | yes | yes | yes | yes |
+| DynamicAssessment | yes | yes | yes | yes |
 | Source-Aware (SAST) | - | - | - | yes |
 
 **Balanced** is the default strategy when `--strategy` is not specified.
@@ -77,6 +77,9 @@ Several phases have short aliases that work with `--only` and `--skip`:
 | `discover` | `discovery` |
 | `spitolas` | `spidering` |
 | `ext` | `extension` |
+| `audit` | `dynamic-assessment` |
+| `dast` | `dynamic-assessment` |
+| `assessment` | `dynamic-assessment` |
 
 ## Phase Control: `--only` and `--skip`
 
@@ -93,15 +96,15 @@ vigolium scan -t https://example.com --only discovery
 # Run only SAST analysis
 vigolium scan -t https://example.com --source ./app --only sast
 
-# Run only audit (skip all discovery)
-vigolium scan -t https://example.com --only audit
+# Run only dynamic-assessment (skip all discovery)
+vigolium scan -t https://example.com --only dynamic-assessment
 # Run only custom extensions (skip built-in modules)
 vigolium scan -t https://example.com --only extension
 # Or using the alias:
 vigolium scan -t https://example.com --only ext
 ```
 
-Valid values: `ingestion`, `discovery` (`deparos`, `discover`), `spidering` (`spitolas`), `external-harvest`, `known-issue-scan`, `sast`, `audit`, `extension` (`ext`)
+Valid values: `ingestion`, `discovery` (`deparos`, `discover`), `spidering` (`spitolas`), `external-harvest`, `known-issue-scan`, `sast`, `dynamic-assessment` (`dast`, `audit`, `assessment`), `extension` (`ext`)
 
 ### `--skip <phase>` — Skip Specific Phases
 
@@ -115,7 +118,7 @@ vigolium scan -t https://example.com --skip spidering
 vigolium scan -t https://example.com --skip discovery --skip known-issue-scan
 ```
 
-Valid values: `discovery` (`deparos`, `discover`), `external-harvest`, `spidering` (`spitolas`), `known-issue-scan`, `sast`, `audit`, `extension` (`ext`)
+Valid values: `discovery` (`deparos`, `discover`), `external-harvest`, `spidering` (`spitolas`), `known-issue-scan`, `sast`, `dynamic-assessment` (`dast`, `audit`, `assessment`), `extension` (`ext`)
 
 ### `vigolium run <phase>` Shortcut
 
@@ -173,7 +176,7 @@ discovery:
 known_issue_scan:
   enrich_targets: false         # host-level only (faster)
 
-audit:
+dynamic-assessment:
   max_findings_per_module: 10   # cap noisy modules
   enabled_modules:
     active_modules:
@@ -188,7 +191,7 @@ scope:
       - "/api/*"
 ```
 
-Overridable sections: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `known_issue_scan`, `audit`, `external_harvester`, `mutation_strategy`, `scope`.
+Overridable sections: `scanning_strategy`, `scanning_pace`, `discovery`, `spidering`, `known_issue_scan`, `dynamic-assessment`, `external_harvester`, `mutation_strategy`, `scope`.
 
 ### Profile Configuration
 

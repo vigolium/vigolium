@@ -485,7 +485,7 @@ drainLoop:
 					continue
 				}
 				r.ModuleType = database.ModuleTypePassive
-				r.FindingSource = database.FindingSourceAudit
+				r.FindingSource = database.FindingSourceDynamicAssessment
 				e.emitResult(ctx, r)
 			}
 		}
@@ -917,10 +917,7 @@ func (e *Executor) persistAndCheckScope(ctx context.Context, item *work.WorkItem
 		}
 
 		e.saveToDatabase(ctx, item, req)
-		if !inScope {
-			return false
-		}
-		return true
+		return inScope
 	}
 
 	e.saveToDatabase(ctx, item, req)
@@ -1287,7 +1284,7 @@ func (e *Executor) processResults(ctx context.Context, results []*output.ResultE
 			continue
 		}
 		result.ModuleType = moduleType
-		result.FindingSource = database.FindingSourceAudit
+		result.FindingSource = database.FindingSourceDynamicAssessment
 		e.assignModuleInfo(result, m)
 
 		// Backfill request/response from original item when the module

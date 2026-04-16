@@ -1,10 +1,15 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { resolveOrgBilling } from '@/lib/billing';
 import { getAccessToken, getGitHubUsername, removeAccessToken, DEV_TOKEN_COOKIE } from '@/lib/github';
+import { isDemoRequest } from '@/lib/demoRequest';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (isDemoRequest(req)) {
+    return NextResponse.json({ connected: false });
+  }
+
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     const cookieStore = await cookies();

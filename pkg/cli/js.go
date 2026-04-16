@@ -83,10 +83,10 @@ func runJsCmd(cmd *cobra.Command, args []string) error {
 	// Build API options
 	opts := jsext.APIOptions{
 		ScriptID:    "js",
-		ConfigVars:  settings.Audit.Extensions.Variables,
-		AllowExec:   settings.Audit.Extensions.AllowExec,
-		SandboxDir:  config.ExpandPath(settings.Audit.Extensions.SandboxDir),
-		ExecTimeout: settings.Audit.Extensions.ExecTimeout(),
+		ConfigVars:  settings.DynamicAssessment.Extensions.Variables,
+		AllowExec:   settings.DynamicAssessment.Extensions.AllowExec,
+		SandboxDir:  config.ExpandPath(settings.DynamicAssessment.Extensions.SandboxDir),
+		ExecTimeout: settings.DynamicAssessment.Extensions.ExecTimeout(),
 	}
 
 	// Set up optional database

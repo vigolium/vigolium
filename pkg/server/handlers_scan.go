@@ -22,20 +22,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// normalizePhase maps phase aliases to their canonical names.
-func normalizePhase(phase string) string {
-	switch phase {
-	case "deparos", "discover":
-		return "discovery"
-	case "spitolas":
-		return "spidering"
-	case "ext":
-		return "extension"
-	default:
-		return phase
-	}
-}
-
 // resolveAPIModules resolves module patterns and tags into a list of module IDs.
 func resolveAPIModules(modulePatterns, moduleTags []string) []string {
 	hasModules := len(modulePatterns) > 0
@@ -86,7 +72,7 @@ func resolveAPIModules(modulePatterns, moduleTags []string) []string {
 // validPhases is the set of valid phase names for --only validation.
 var validPhases = map[string]struct{}{
 	"ingestion": {}, "discovery": {}, "external-harvest": {},
-	"spidering": {}, "known-issue-scan": {}, "audit": {},
+	"spidering": {}, "known-issue-scan": {}, "dynamic-assessment": {},
 	"sast": {}, "extension": {},
 }
 
@@ -101,9 +87,9 @@ func validateRunScanRequest(req RunScanRequest) error {
 	}
 
 	if req.Only != "" {
-		normalized := normalizePhase(req.Only)
+		normalized := runner.NormalizeNativePhase(req.Only)
 		if _, ok := validPhases[normalized]; !ok {
-			return fmt.Errorf("invalid only %q; valid phases: ingestion, discovery (deparos), spidering (spitolas), external-harvest, known-issue-scan, sast, audit, extension (ext)", req.Only)
+			return fmt.Errorf("invalid only %q; valid phases: %s", req.Only, runner.ValidOnlyPhasesDesc)
 		}
 	}
 
@@ -113,11 +99,11 @@ func validateRunScanRequest(req RunScanRequest) error {
 
 	if len(req.Skip) > 0 {
 		for _, phase := range req.Skip {
-			normalized := normalizePhase(phase)
+			normalized := runner.NormalizeNativePhase(phase)
 			switch normalized {
-			case "discovery", "ingestion", "external-harvest", "spidering", "known-issue-scan", "sast", "audit":
+			case "discovery", "ingestion", "external-harvest", "spidering", "known-issue-scan", "sast", "dynamic-assessment":
 			default:
-				return fmt.Errorf("invalid skip value %q; valid phases: discovery (deparos), external-harvest, spidering (spitolas), known-issue-scan, sast, audit", phase)
+				return fmt.Errorf("invalid skip value %q; valid phases: %s", phase, runner.ValidSkipPhasesDesc)
 			}
 		}
 	}
@@ -269,8 +255,8 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 		if phases.SourceAware {
 			opts.SASTEnabled = true
 		}
-		if !phases.Audit {
-			opts.SkipAudit = true
+		if !phases.DynamicAssessment {
+			opts.SkipDynamicAssessment = true
 		}
 	}
 
@@ -284,7 +270,7 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 	}
 
 	// Normalize and apply --only
-	only := normalizePhase(req.Only)
+	only := runner.NormalizeNativePhase(req.Only)
 	if only != "" {
 		switch only {
 		case "ingestion":
@@ -292,41 +278,41 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "discovery":
 			opts.DiscoverEnabled = true
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "external-harvest":
 			opts.ExternalHarvestEnabled = true
 			opts.DiscoverEnabled = false
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "spidering":
 			opts.SpideringEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "known-issue-scan":
 			opts.KnownIssueScanEnabled = true
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "audit":
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = false
+			opts.SkipDynamicAssessment = false
 		case "sast":
 			opts.SASTEnabled = true
 			opts.DiscoverEnabled = false
@@ -334,14 +320,14 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		case "extension":
 			opts.DiscoverEnabled = false
 			opts.ExternalHarvestEnabled = false
 			opts.SpideringEnabled = false
 			opts.KnownIssueScanEnabled = false
 			opts.SkipIngestion = true
-			opts.SkipAudit = false
+			opts.SkipDynamicAssessment = false
 			opts.ExtensionsOnly = true
 		}
 		opts.HeuristicsCheck = "none"
@@ -349,7 +335,7 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 
 	// Apply --skip phases
 	for _, phase := range req.Skip {
-		phase = normalizePhase(phase)
+		phase = runner.NormalizeNativePhase(phase)
 		switch phase {
 		case "discovery", "ingestion":
 			opts.SkipIngestion = true
@@ -362,7 +348,7 @@ func applyStrategyAndPhases(opts *types.Options, settings *config.Settings, req 
 		case "sast":
 			opts.SASTEnabled = false
 		case "audit":
-			opts.SkipAudit = true
+			opts.SkipDynamicAssessment = true
 		}
 	}
 

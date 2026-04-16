@@ -106,6 +106,30 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	// API group
 	api := app.Group("/api")
 
+	// In demo-only mode, expose only the narrow read-only allowlist below and
+	// block every other API route with a 403 "disabled in demo mode" response.
+	// The allowlisted endpoints mirror the five docs pages under
+	// docs/api-references/ (findings, extensions, http-records, modules, stats).
+	if cfg.DemoOnly {
+		demo := api.Group("", RoleGuard(RoleAdmin, RoleOperator, RoleViewer))
+		demo.Get("/modules", handlers.HandleListModules)
+		demo.Get("/stats", handlers.HandleStats)
+		demo.Get("/http-records", handlers.HandleListRecords)
+		demo.Get("/http-records/:uuid", handlers.HandleGetRecord)
+		demo.Get("/findings", handlers.HandleListFindings)
+		demo.Get("/findings/:id", handlers.HandleGetFinding)
+		demo.Get("/extensions/docs", handlers.HandleListExtensionAPI) // must precede :name
+		demo.Get("/extensions", handlers.HandleListExtensions)
+		demo.Get("/extensions/:name", handlers.HandleGetExtension)
+		api.All("/*", func(c fiber.Ctx) error {
+			return c.Status(fiber.StatusForbidden).JSON(ErrorResponse{
+				Error: "this API endpoint is disabled in demo mode",
+				Code:  fiber.StatusForbidden,
+			})
+		})
+		return
+	}
+
 	// --- Viewer routes (admin + operator + viewer) ---
 	// Read-only access to records, findings, stats, and scan history
 	viewer := api.Group("", RoleGuard(RoleAdmin, RoleOperator, RoleViewer))

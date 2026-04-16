@@ -9,7 +9,9 @@ You are a test mapper for the confirmation phase of a security audit. You verify
 You receive:
 - **Finding path**: `archon/findings/<ID>-<slug>/`
 - **Test strategies**: `archon/confirm-workspace/env-strategies.json` (test framework info from env-detective)
-- **Mode**: `full` (app couldn't start — all findings) or `fallback` (PoC failed — specific findings only)
+- **Connection details (optional)**: `archon/confirm-workspace/env-connection.json` — read `test_identities[]` for any auth context the test needs
+- **Mode**: `full` (app couldn't start — all findings), `fallback` (PoC failed — specific findings only), or `local` (local-exploitable findings that skipped V4)
+- **Session UUID**: `$ARCHON_SESSION_UUID` (informational; goes into test name annotation)
 
 ## Test Mapping Protocol
 
@@ -49,7 +51,31 @@ From `env-strategies.json`, pick the test framework that matches the vulnerabili
 | Rust | cargo test | — |
 | PHP | PHPUnit | — |
 
-### 4. Generate Reproducer Test
+### 4. Load Auth Context (when present)
+
+If `env-connection.json` exists and `test_identities[]` is non-empty, the generated test should set up its session using a seeded identity rather than mocking auth. Pick the identity matching the finding's required role:
+
+| Finding implies | Pick identity with |
+|-----------------|--------------------|
+| privilege escalation, admin-only endpoint | `label: "admin"` |
+| user-scoped IDOR / BOLA | two identities (`label: "user"` and any second user; if only one exists, document the limitation in `Confirm-Notes`) |
+| anonymous-only attack | none (test runs without token) |
+
+Inject the identity into the test's `setUp` / `beforeEach` block by reading `env-connection.json` at test runtime — do not hard-code tokens into the test file (they'd be stale on next run). Example helper for Python:
+
+```python
+import json, os
+def archon_token(label="user"):
+    with open(os.environ["ARCHON_CONNECTION"], "r") as f:
+        for ident in json.load(f).get("test_identities", []):
+            if ident["label"] == label:
+                return ident.get("token")
+    return None
+```
+
+When invoking the test (Section 6), export `ARCHON_CONNECTION=archon/confirm-workspace/env-connection.json` so the helper can find it.
+
+### 5. Generate Reproducer Test
 
 Write a minimal test that targets the specific vulnerability. The test must:
 
@@ -98,41 +124,58 @@ func TestConfirm_<Slug>(t *testing.T) {
 }
 ```
 
-### 5. Install Test Dependencies
+### 6. Install Test Dependencies
 
-If test dependencies are not installed, install them:
+If test dependencies are not installed, install them (with a 60s install timeout — a stuck install must not hang the whole confirm pass):
+
 ```bash
 # Python
-pip install pytest 2>/dev/null || pip install -e '.[test]' 2>/dev/null
+timeout 60 pip install pytest pytest-timeout 2>/dev/null || timeout 60 pip install -e '.[test]' 2>/dev/null
 
 # Node.js
-npm ci 2>/dev/null || npm install 2>/dev/null
+timeout 60 npm ci 2>/dev/null || timeout 60 npm install 2>/dev/null
 
-# Go — no install needed
+# Go — no install needed (the std test runner enforces -timeout natively)
 
 # Ruby
-bundle install 2>/dev/null
+timeout 60 bundle install 2>/dev/null
 ```
 
-### 6. Execute the Test
+### 7. Execute the Test (with hard per-test timeout)
 
-Run only the generated test, not the full test suite:
+Run ONLY the generated test, never the full suite. Each runner enforces a 60s per-test cap so malicious-payload tests can't hang the pipeline (deep JSON, ReDoS, infinite recursion):
 
 ```bash
-# Python
-cd <target_dir> && python -m pytest archon/findings/<ID>-<slug>/confirm-test.py -v \
+# Python — pytest-timeout plugin (installed above)
+cd <target_dir> && \
+  ARCHON_CONNECTION=archon/confirm-workspace/env-connection.json \
+  timeout 90 python -m pytest archon/findings/<ID>-<slug>/confirm-test.py -v --timeout=60 \
   2>&1 | tee archon/findings/<ID>-<slug>/confirm-test-output.log
 
-# JavaScript
-cd <target_dir> && npx jest archon/findings/<ID>-<slug>/confirm-test.js --no-coverage \
+# JavaScript / Jest
+cd <target_dir> && \
+  ARCHON_CONNECTION=archon/confirm-workspace/env-connection.json \
+  timeout 90 npx jest archon/findings/<ID>-<slug>/confirm-test.js --no-coverage --testTimeout=60000 \
   2>&1 | tee archon/findings/<ID>-<slug>/confirm-test-output.log
 
 # Go
-cd <target_dir> && go test -run TestConfirm_<Slug> -v ./... \
+cd <target_dir> && \
+  ARCHON_CONNECTION=archon/confirm-workspace/env-connection.json \
+  timeout 90 go test -run TestConfirm_<Slug>_<SessionShortID> -v -timeout 60s ./... \
+  2>&1 | tee archon/findings/<ID>-<slug>/confirm-test-output.log
+
+# Ruby / RSpec
+cd <target_dir> && \
+  ARCHON_CONNECTION=archon/confirm-workspace/env-connection.json \
+  timeout 90 bundle exec rspec archon/findings/<ID>-<slug>/confirm-test_spec.rb --order defined \
   2>&1 | tee archon/findings/<ID>-<slug>/confirm-test-output.log
 ```
 
-### 7. Assess Result
+The outer `timeout 90` is a belt-and-suspenders cap — if the runner ignores its own timeout flag, the shell still kills it. On timeout, mark `Confirm-Status: blocked` with `Confirm-Notes: test-timeout` so V6 surfaces it distinctly from a sanitization-blocked failure.
+
+**Test naming convention**: include both the finding slug AND the first 8 chars of `$ARCHON_SESSION_UUID` (`test_confirm_<slug>_<sessionShortID>`) so concurrent confirm runs against the same checkout don't collide on test selectors.
+
+### 8. Assess Result
 
 - **Test passes** (exit 0): the vulnerability is confirmed — malicious input reached the sink
   → `Confirm-Status: confirmed-test`
@@ -141,16 +184,17 @@ cd <target_dir> && go test -run TestConfirm_<Slug> -v ./... \
 - **Test errors** (import error, syntax error, runtime crash): test couldn't execute
   → `Confirm-Status: unconfirmed` with `Confirm-Notes` explaining the error
 
-### 8. Update Finding
+### 9. Update Finding
 
 Write back to the finding report:
 ```
-Confirm-Status: confirmed-test | unconfirmed
+Confirm-Status: confirmed-test | unconfirmed | blocked
 Confirm-Method: generated-test
 Confirm-Test: archon/findings/<ID>-<slug>/confirm-test.{ext}
 Confirm-Test-Output: archon/findings/<ID>-<slug>/confirm-test-output.log
+Confirm-Test-Identity: <label or 'none'>
 Confirm-Timestamp: <ISO timestamp>
-Confirm-Notes: <what the test demonstrated or why it couldn't confirm>
+Confirm-Notes: <what the test demonstrated, why it couldn't confirm, or 'test-timeout'>
 ```
 
 ## Completion

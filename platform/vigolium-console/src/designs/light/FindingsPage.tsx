@@ -5,6 +5,7 @@ import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, RowClickedEvent, SelectionChangedEvent } from 'ag-grid-community';
 import { Shield, Globe, Box, Search, RefreshCw, List, Layers, ChevronRight, ChevronDown } from 'lucide-react';
 import { useFindings, useDeleteFinding } from '@/api/hooks';
+import { withDemoKey } from '@/api/client';
 import { useToast } from '@/contexts/ToastContext';
 import type { Finding, FindingsQueryParams } from '@/api/types';
 
@@ -211,7 +212,7 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
 
   const navigateToFinding = useCallback((id: number | null) => {
     setSelectedFindingId(id);
-    window.history.pushState(null, '', id !== null ? `/findings/${id}` : '/findings');
+    window.history.pushState(null, '', withDemoKey(id !== null ? `/findings/${id}` : '/findings'));
   }, []);
 
   const handleDeleteSelected = useCallback(async () => {

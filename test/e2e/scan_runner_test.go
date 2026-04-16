@@ -79,10 +79,10 @@ func newScanRunnerWithSettings(t *testing.T, opts *types.Options, settings *conf
 
 // --- Tests ---
 
-// TestScanRunner_VAmPI_OnlyAudit validates --only audit
+// TestScanRunner_VAmPI_OnlyDynamicAssessment validates --only dynamic-assessment
 // flag behavior via the Runner. Discovery, external harvest, and KnownIssueScan are disabled;
-// only the audit phase runs against known vulnerable endpoints.
-func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
+// only the dynamic-assessment phase runs against known vulnerable endpoints.
+func TestScanRunner_VAmPI_OnlyDynamicAssessment(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping canary test in short mode")
 	}
@@ -95,8 +95,8 @@ func TestScanRunner_VAmPI_OnlyAudit(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	// --only audit equivalent
-	opts.SkipAudit = false
+	// --only dynamic-assessment equivalent
+	opts.SkipDynamicAssessment = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.KnownIssueScanEnabled = false
@@ -137,7 +137,7 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 	opts.DiscoverEnabled = true
 	opts.ExternalHarvestEnabled = false
 	opts.KnownIssueScanEnabled = false
-	opts.SkipAudit = true
+	opts.SkipDynamicAssessment = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -173,7 +173,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipAudit = false
+	opts.SkipDynamicAssessment = false
 	// No OnlyPhase, no strategy override — default audit
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
@@ -219,7 +219,7 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.KnownIssueScanEnabled = false
-	opts.SkipAudit = false
+	opts.SkipDynamicAssessment = false
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -266,7 +266,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 	opts.ExternalHarvestEnabled = true
 	opts.DiscoverEnabled = false
 	opts.KnownIssueScanEnabled = false
-	opts.SkipAudit = true
+	opts.SkipDynamicAssessment = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -306,7 +306,7 @@ func TestScanRunner_VAmPI_OnlyKnownIssueScan(t *testing.T) {
 	opts.KnownIssueScanEnabled = true
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
-	opts.SkipAudit = true
+	opts.SkipDynamicAssessment = true
 
 	r, db, repo := newScanRunner(t, opts)
 
@@ -401,9 +401,9 @@ module.exports = {
 
 	// --- Build custom settings with extensions enabled ---
 	settings := config.DefaultSettings()
-	settings.Audit.Extensions.Enabled = true
-	settings.Audit.Extensions.Scripts = []string{scriptPath}
-	settings.Audit.Extensions.Limits = config.ScriptLimits{
+	settings.DynamicAssessment.Extensions.Enabled = true
+	settings.DynamicAssessment.Extensions.Scripts = []string{scriptPath}
+	settings.DynamicAssessment.Extensions.Limits = config.ScriptLimits{
 		Timeout:     "60s",
 		MaxMemoryMB: 128,
 	}
@@ -414,7 +414,7 @@ module.exports = {
 	opts.Modules = []string{"all"}
 	opts.PassiveModules = []string{"all"}
 	opts.Silent = true
-	opts.SkipAudit = false
+	opts.SkipDynamicAssessment = false
 	opts.DiscoverEnabled = false
 	opts.ExternalHarvestEnabled = false
 	opts.KnownIssueScanEnabled = false

@@ -1,8 +1,13 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
+import { isDemoRequest } from '@/lib/demoRequest';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (isDemoRequest(req)) {
+    return NextResponse.json({ credits: 0, org_id: null, org_name: null });
+  }
+
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     return NextResponse.json({ credits: 999999, org_id: 'dev', org_name: 'Development' });

@@ -60,12 +60,12 @@ var allFindingColumns = []findingColumnDef{
 	{"DESCRIPTION", "", func(f *database.Finding) string { return truncate(f.Description, 50) }, 50},
 	{"TYPE", "", func(f *database.Finding) string { return colorModuleType(f.ModuleType) }, 12},
 	{"SOURCE", "", func(f *database.Finding) string { return f.FindingSource }, 20},
-	{"HOST_REPO", "SERVER/REPO NAME", func(f *database.Finding) string {
-		if f.ModuleType == database.ModuleTypeWhitebox && f.RepoName != "" {
-			return truncate(f.RepoName, 40)
+	{"HOST_REPO", "URL / REPO NAME", func(f *database.Finding) string {
+		if f.RepoName != "" {
+			return truncate(f.RepoName, 60)
 		}
-		return truncate(f.Hostname, 40)
-	}, 40},
+		return truncate(findingURLValue(f), 60)
+	}, 60},
 	{"MATCHED_AT", "", func(f *database.Finding) string {
 		return truncate(strings.Join(f.MatchedAt, ", "), 50)
 	}, 50},
@@ -119,7 +119,7 @@ func init() {
 	pf.StringVar(&findingSeverity, "severity", "", "Filter by severity: critical,high,medium,low,info (comma-separated)")
 	pf.StringVar(&findingScanUUID, "scan-id", "", "Filter by scan session ID")
 	pf.StringVar(&findingModuleType, "module-type", "", "Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
-	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (audit, spa, agent, oast, source-tools, extension)")
+	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
 	pf.IntVar(&findingID, "id", 0, "Filter by finding ID")
 
 	// Display-only flags
@@ -404,6 +404,19 @@ func findingDisplayTable(db *database.DB, ctx context.Context, findings []*datab
 	tbl.Print()
 	fmt.Println()
 	return nil
+}
+
+// findingURLValue returns the best URL for a finding, preferring the
+// denormalized URL and falling back to the first MatchedAt entry so legacy
+// rows without a URL still render.
+func findingURLValue(f *database.Finding) string {
+	if f.URL != "" {
+		return f.URL
+	}
+	if len(f.MatchedAt) > 0 {
+		return f.MatchedAt[0]
+	}
+	return f.Hostname
 }
 
 // resolveFindingColumns selects columns based on --columns and --exclude-columns flags.

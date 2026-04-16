@@ -19,7 +19,7 @@ type ScanningPaceConfig struct {
 	Spidering         PhasePace `yaml:"spidering"`
 	KnownIssueScan    PhasePace `yaml:"known_issue_scan"`
 	ExternalHarvester PhasePace `yaml:"external_harvester"`
-	Audit PhasePace `yaml:"audit"`
+	DynamicAssessment PhasePace `yaml:"dynamic-assessment"`
 }
 
 // PhasePace holds per-phase speed overrides.
@@ -54,12 +54,13 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		Concurrency: 50,
 		RateLimit:   100,
 		MaxPerHost:  20,
-		MaxDuration: "2h",
+		MaxDuration: "45m",
 
-		KnownIssueScan:    PhasePace{DurationFactor: 3.0},
-		Spidering:         PhasePace{DurationFactor: 0.15},
-		ExternalHarvester: PhasePace{DurationFactor: 0.2},
-		Audit: PhasePace{DurationFactor: 1.0, ParallelPassive: boolPtr(true), FeedbackDrainTimeout: "500ms"},
+		Discovery:         PhasePace{DurationFactor: 0.5},
+		KnownIssueScan:    PhasePace{DurationFactor: 1.0},
+		Spidering:         PhasePace{DurationFactor: 0.1},
+		ExternalHarvester: PhasePace{DurationFactor: 0.1},
+		DynamicAssessment: PhasePace{DurationFactor: 1.0, ParallelPassive: boolPtr(true), FeedbackDrainTimeout: "500ms"},
 	}
 }
 
@@ -102,8 +103,8 @@ func (c *ScanningPaceConfig) ResolvePhase(phase string) ResolvedPhasePace {
 		pp = c.KnownIssueScan
 	case "external_harvester":
 		pp = c.ExternalHarvester
-	case "audit":
-		pp = c.Audit
+	case "dynamic-assessment":
+		pp = c.DynamicAssessment
 	}
 
 	resolved := ResolvedPhasePace{
@@ -178,7 +179,7 @@ func (c *ScanningPaceConfig) Validate() error {
 		"spidering":          &c.Spidering,
 		"known-issue-scan":   &c.KnownIssueScan,
 		"external_harvester": &c.ExternalHarvester,
-		"audit": &c.Audit,
+		"dynamic-assessment": &c.DynamicAssessment,
 	}
 	for name, pp := range phases {
 		if pp.Concurrency < 0 {

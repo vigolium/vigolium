@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
 import { isStaticBuild } from '@/lib/buildMode';
+import { useDemoRouter } from '@/lib/useDemoHref';
 import DarkBillingPage from '@/designs/dark/BillingPage';
 import LightBillingPage from '@/designs/light/BillingPage';
 
 export default function BillingRoute() {
   const { themeId } = useTheme();
-  const router = useRouter();
+  const router = useDemoRouter();
 
   useEffect(() => {
     if (isStaticBuild) router.replace('/');

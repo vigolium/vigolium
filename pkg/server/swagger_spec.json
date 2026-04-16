@@ -3245,10 +3245,12 @@
           "uptime": { "type": "string", "example": "2h30m15s" },
           "service_addr": { "type": "string", "example": "0.0.0.0:9002" },
           "proxy_addr": { "type": "string", "example": "0.0.0.0:9003" },
-          "db_driver": { "type": "string", "example": "sqlite" },
           "queue_depth": { "type": "integer", "example": 0 },
           "total_records": { "type": "integer", "example": 1500 },
-          "total_findings": { "type": "integer", "example": 42 }
+          "total_findings": { "type": "integer", "example": 42 },
+          "license": { "type": "string", "example": "enterprise" },
+          "demo_only": { "type": "boolean", "example": false },
+          "view_only": { "type": "boolean", "example": false }
         }
       },
       "LoginRequest": {

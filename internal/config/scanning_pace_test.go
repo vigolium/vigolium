@@ -71,14 +71,14 @@ func TestResolvePhase_ExplicitOverridesFactor(t *testing.T) {
 	cfg := &ScanningPaceConfig{
 		Concurrency: 50,
 		MaxDuration: "30m",
-		Audit: PhasePace{
+		DynamicAssessment: PhasePace{
 			Concurrency:       30,
 			ConcurrencyFactor: 0.8, // ignored because concurrency is set
 			MaxDuration:       "1h",
 			DurationFactor:    2.0, // ignored because max_duration is set
 		},
 	}
-	resolved := cfg.ResolvePhase("audit")
+	resolved := cfg.ResolvePhase("dynamic-assessment")
 	if resolved.Concurrency != 30 {
 		t.Errorf("expected concurrency 30 (explicit), got %d", resolved.Concurrency)
 	}
@@ -185,8 +185,8 @@ func TestValidate_InvalidCommonMaxDuration(t *testing.T) {
 func TestDefaultScanningPaceConfig(t *testing.T) {
 	cfg := DefaultScanningPaceConfig()
 
-	if cfg.MaxDuration != "2h" {
-		t.Errorf("expected default max_duration '2h', got %q", cfg.MaxDuration)
+	if cfg.MaxDuration != "45m" {
+		t.Errorf("expected default max_duration '45m', got %q", cfg.MaxDuration)
 	}
 
 	// Verify per-phase duration factors are set
@@ -194,10 +194,11 @@ func TestDefaultScanningPaceConfig(t *testing.T) {
 		phase  string
 		factor float64
 	}{
-		{"known-issue-scan", 3.0},
-		{"spidering", 0.15},
-		{"external_harvester", 0.2},
-		{"audit", 1.0},
+		{"discovery", 0.5},
+		{"known-issue-scan", 1.0},
+		{"spidering", 0.1},
+		{"external_harvester", 0.1},
+		{"dynamic-assessment", 1.0},
 	}
 	for _, tt := range tests {
 		resolved := cfg.ResolvePhase(tt.phase)
@@ -207,15 +208,6 @@ func TestDefaultScanningPaceConfig(t *testing.T) {
 		if resolved.MaxDuration == 0 {
 			t.Errorf("phase %s: expected non-zero resolved max_duration", tt.phase)
 		}
-	}
-
-	// Discovery has no per-phase factor, should inherit common max_duration directly
-	disc := cfg.ResolvePhase("discovery")
-	if disc.MaxDuration != 2*time.Hour {
-		t.Errorf("discovery: expected max_duration 2h (common), got %v", disc.MaxDuration)
-	}
-	if disc.DurationFactor != 0 {
-		t.Errorf("discovery: expected duration_factor 0, got %v", disc.DurationFactor)
 	}
 }
 

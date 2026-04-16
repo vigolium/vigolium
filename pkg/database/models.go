@@ -57,7 +57,7 @@ const (
 
 // FindingSource constants identify which phase/component produced a finding.
 const (
-	FindingSourceAudit = "audit"
+	FindingSourceDynamicAssessment = "dynamic-assessment"
 	FindingSourceKnownIssueScan    = "known-issue-scan"
 	FindingSourceAgent             = "agent"
 	FindingSourceOAST              = "oast"
@@ -354,7 +354,7 @@ type ScanLog struct {
 	ProjectUUID string    `bun:"project_uuid,notnull" json:"project_uuid"`
 	ScanUUID    string    `bun:"scan_uuid,notnull" json:"scan_uuid"`
 	Level       string    `bun:"level,notnull" json:"level"`           // trace, info, warn, error
-	Phase     string    `bun:"phase,nullzero" json:"phase,omitempty"` // discovery, spidering, audit, etc.
+	Phase     string    `bun:"phase,nullzero" json:"phase,omitempty"` // discovery, spidering, dynamic-assessment, etc.
 	Message   string    `bun:"message,notnull" json:"message"`
 	Metadata  string    `bun:"metadata,nullzero" json:"metadata,omitempty"` // JSON blob for extra context
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

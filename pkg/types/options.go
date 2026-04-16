@@ -109,6 +109,7 @@ type Options struct {
 	DiscoverEnabled     bool
 	DiscoverMaxDuration time.Duration
 	FuzzWordlistPath    string // CLI override for discovery fuzz wordlist (also enables fuzzing)
+	NoPrefixBreaker     bool   // Disable per-prefix circuit breaker (default: enabled)
 
 	// Browser-based spidering options
 	SpideringEnabled       bool
@@ -140,11 +141,11 @@ type Options struct {
 	Intensity string
 	// HeuristicsCheck controls the pre-scan heuristics check level: "none", "basic", "advanced".
 	HeuristicsCheck string
-	// SkipAudit disables the audit phase when set by a strategy
-	SkipAudit bool
+	// SkipDynamicAssessment disables the dynamic-assessment phase when set by a strategy
+	SkipDynamicAssessment bool
 	// SkipIngestion disables the discovery/ingestion phase when set by --only
 	SkipIngestion bool
-	// OnlyPhase isolates a single scanning phase (discover, external-harvest, audit, sast)
+	// OnlyPhase isolates a single scanning phase (discover, external-harvest, dynamic-assessment, sast)
 	OnlyPhase string
 	// SkipPhases disables one or more phases while keeping all others enabled
 	SkipPhases []string

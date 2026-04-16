@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,10 @@ import (
 
 // cancelGracePeriod is how long Cancel waits for SIGTERM before escalating to SIGKILL.
 const cancelGracePeriod = 10 * time.Second
+
+// ownerRepoRE matches a single owner/repo segment, e.g. "vigolium/archon-audit".
+// Used by normalizeOwnerRepo to validate the candidate before returning it.
+var ownerRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 
 // AuditAgentRunner manages an archon-audit running as a background agent process.
 // It launches the agent (Claude, Codex, or OpenCode), periodically syncs audit-state.json
@@ -145,6 +150,7 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(os.Environ(), archonEnvFor(r.cfg.SourcePath, r.agentRunUUID)...)
 	if stdinPrompt != "" {
 		cmd.Stdin = strings.NewReader(stdinPrompt)
 	}
@@ -301,7 +307,8 @@ func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *s
 func (r *AuditAgentRunner) collectFallbackOutput() []byte {
 	archonDir := filepath.Join(r.cfg.SessionDir, "archon-audit")
 
-	// Ordered list of output files to try, covering lite through deep modes.
+	// Top-level reports across lite/scan/deep modes. Includes the Phase 5A/5B/5C
+	// matrices added in upstream commit 87b2281.
 	candidates := []string{
 		"lite-recon.md",
 		"commit-recon-report.md",
@@ -309,6 +316,8 @@ func (r *AuditAgentRunner) collectFallbackOutput() []byte {
 		"enrichment-report.md",
 		"spec-gap-report.md",
 		"advisory-report.md",
+		"authz-matrix.md",
+		"cross-service-edges.md",
 		"final-audit-report.md",
 	}
 
@@ -324,19 +333,21 @@ func (r *AuditAgentRunner) collectFallbackOutput() []byte {
 		parts = append(parts, []byte("\n\n---\n\n"))
 	}
 
-	// List finding files if any exist.
-	findingsDir := filepath.Join(archonDir, "findings-draft")
+	// Enumerate confirmed findings (each in archon/findings/<ID>-<slug>/report.md).
+	// findings-draft/ is wiped at the end of every successful run so we no longer
+	// scan it; consolidated findings live under findings/ regardless of mode.
+	findingsDir := filepath.Join(archonDir, "findings")
 	if entries, err := os.ReadDir(findingsDir); err == nil {
-		var findingNames []string
+		var findingDirs []string
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-				findingNames = append(findingNames, e.Name())
+			if e.IsDir() {
+				findingDirs = append(findingDirs, e.Name())
 			}
 		}
-		if len(findingNames) > 0 {
-			sort.Strings(findingNames)
-			summary := fmt.Sprintf("# Findings Draft\n\n%d finding files produced:\n", len(findingNames))
-			for _, name := range findingNames {
+		if len(findingDirs) > 0 {
+			sort.Strings(findingDirs)
+			summary := fmt.Sprintf("# Findings\n\n%d findings produced:\n", len(findingDirs))
+			for _, name := range findingDirs {
 				summary += fmt.Sprintf("- %s\n", name)
 			}
 			parts = append(parts, []byte(summary))
@@ -755,6 +766,86 @@ func copyDir(src, dest string) {
 	})
 }
 
+// --- Archon environment ---
+
+// archonEnvFor produces the ARCHON_* env vars upstream's CLI normally exports
+// before launching the agent. Vigolium bypasses the archon-audit binary and
+// runs claude/codex/opencode directly, so we replicate the exports here so
+// agents (report-assembler, advisory-hunter, commit-archaeologist) see the
+// repo identity, git availability, and a stable session UUID.
+func archonEnvFor(sourcePath, sessionUUID string) []string {
+	repo := deriveRepositoryName(sourcePath)
+	gitAvailable := "false"
+	if isGitWorkTree(sourcePath) {
+		gitAvailable = "true"
+	}
+	return []string{
+		"ARCHON_REPOSITORY=" + repo,
+		"ARCHON_GIT_AVAILABLE=" + gitAvailable,
+		"ARCHON_SESSION_UUID=" + sessionUUID,
+	}
+}
+
+// deriveRepositoryName resolves a repo identity for the audit target. Tries
+// the git remote first (canonicalized to "owner/repo" when possible), then
+// falls back to the directory basename. Mirrors the upstream behavior at a
+// fraction of the surface area — manifest probing is omitted.
+func deriveRepositoryName(target string) string {
+	if name := repoNameFromGitRemote(target); name != "" {
+		return name
+	}
+	return filepath.Base(target)
+}
+
+func repoNameFromGitRemote(target string) string {
+	cmd := exec.Command("git", "-C", target, "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return normalizeOwnerRepo(strings.TrimSpace(string(out)))
+}
+
+func isGitWorkTree(target string) bool {
+	cmd := exec.Command("git", "-C", target, "rev-parse", "--is-inside-work-tree")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
+}
+
+// normalizeOwnerRepo canonicalizes a git URL or owner/repo string. Returns
+// "" when the input doesn't contain a recognizable owner/repo segment.
+func normalizeOwnerRepo(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.TrimSuffix(raw, "/")
+	raw = strings.TrimSuffix(raw, ".git")
+	// git@host:owner/repo or https://host/owner/repo
+	if idx := strings.LastIndex(raw, ":"); idx >= 0 {
+		if rest := strings.TrimLeft(raw[idx+1:], "/"); ownerRepoRE.MatchString(rest) {
+			return rest
+		}
+	}
+	if idx := strings.LastIndex(raw, "/"); idx > 0 {
+		// Walk back one segment to capture owner/repo from a URL path.
+		prev := strings.LastIndex(raw[:idx], "/")
+		if prev >= 0 {
+			rest := raw[prev+1:]
+			if ownerRepoRE.MatchString(rest) {
+				return rest
+			}
+		}
+	}
+	if ownerRepoRE.MatchString(raw) {
+		return raw
+	}
+	return ""
+}
+
 // --- Platform command builders ---
 
 // buildAuditAgentCommand resolves the CLI binary and builds the argument list
@@ -942,7 +1033,7 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 // isValidArchonMode returns true for recognized archon audit modes.
 func isValidArchonMode(mode string) bool {
 	switch mode {
-	case "lite", "scan", "deep", "mock":
+	case "lite", "scan", "deep", "mock", "confirm":
 		return true
 	default:
 		return false

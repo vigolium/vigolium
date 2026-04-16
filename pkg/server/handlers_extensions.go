@@ -21,7 +21,7 @@ func (h *Handlers) HandleListExtensions(c fiber.Ctx) error {
 		})
 	}
 
-	cfg := &h.settings.Audit.Extensions
+	cfg := &h.settings.DynamicAssessment.Extensions
 	typeFilter := c.Query("type")
 	search := strings.ToLower(c.Query("search"))
 
@@ -67,7 +67,7 @@ func (h *Handlers) HandleGetExtension(c fiber.Ctx) error {
 		})
 	}
 
-	cfg := &h.settings.Audit.Extensions
+	cfg := &h.settings.DynamicAssessment.Extensions
 
 	scripts, _ := jsext.LoadScripts(cfg)
 	for _, script := range scripts {
@@ -124,7 +124,7 @@ func (h *Handlers) HandleEditExtension(c fiber.Ctx) error {
 		})
 	}
 
-	cfg := &h.settings.Audit.Extensions
+	cfg := &h.settings.DynamicAssessment.Extensions
 
 	// Search JS scripts
 	scripts, _ := jsext.LoadScripts(cfg)

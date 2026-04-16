@@ -26,7 +26,7 @@ CLI invocation
 │  Runner Orchestration│  internal/runner/runner.go
 │  7-phase pipeline:   │  Heuristics → Harvest → Spider →
 │  build infra, run    │  SAST → Discovery → KnownIssueScan →
-│  phases in order     │  Audit
+│  phases in order     │  DynamicAssessment
 └────────┬────────────┘
          │
          ▼
@@ -305,7 +305,7 @@ RunNativeScan()
 │    to avoid duplicates in DA phase.
 │    Post-phase: DeduplicateFindings() groups same-module/URL findings.
 │
-└─── Phase 6: Audit                [guard: !SkipAudit]
+└─── Phase 6: DynamicAssessment    [guard: !SkipDynamicAssessment]
      THE CORE SCANNING PHASE. Reads records from DB, dispatches
      active + passive modules. Per-module finding cap suppresses
      noisy modules. Feedback loop (up to 3 rounds) re-scans
@@ -322,7 +322,7 @@ Phases 0-5 populate the database with HTTP records. Phase 6 reads those records 
 3. Runs Nuclei templates + Kingfisher secret scanning against targets.
 4. **Post-phase dedup**: calls `DeduplicateFindings()` to group findings with identical `(module_id, severity, matched_at URL)`.
 
-### Phase 6 Detail: Audit
+### Phase 6 Detail: DynamicAssessment
 
 1. Creates a `database.Scan` record with cursor tracking.
 2. Resolves DA concurrency from config (separate from discovery concurrency).
@@ -408,7 +408,7 @@ for item := range itemCh {
 
 ```
 if SkipBaseline && response already attached:
-    use existing response (DB-sourced items in audit phase)
+    use existing response (DB-sourced items in dynamic-assessment phase)
 else:
     httpClient.Execute(request) → response
     copy response bytes from pool before Close()
@@ -905,7 +905,7 @@ Three levels of deduplication prevent noise and redundancy:
 
 2. **Finding-level (inline)**: `finding_hash` unique constraint in the database uses `INSERT ON CONFLICT DO NOTHING`. When a duplicate hash is detected at insert time, `appendRecordsToFinding()` appends the new HTTP record UUIDs and request/response pair (as `AdditionalEvidence`) to the existing finding instead of creating a new row.
 
-3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the KnownIssueScan and audit phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
+3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the KnownIssueScan and dynamic-assessment phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
 
    The grouping process:
    - Partitions findings by `module_id || severity || matched_at[0]` and orders by `created_at ASC`
@@ -915,7 +915,7 @@ Three levels of deduplication prevent noise and redundancy:
    - Returns counts of deleted findings and merged groups for user feedback
 
 ```
-Phase completes (KnownIssueScan or audit)
+Phase completes (KnownIssueScan or dynamic-assessment)
   │
   ▼
 DeduplicateFindings(projectUUID)

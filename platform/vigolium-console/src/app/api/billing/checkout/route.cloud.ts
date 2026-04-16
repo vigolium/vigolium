@@ -2,6 +2,7 @@ import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
 import { getStripe } from '@/lib/stripe';
+import { isDemoRequest } from '@/lib/demoRequest';
 
 /** Credit packages: credits → price in cents. */
 const PACKAGES: Record<number, number> = {
@@ -11,6 +12,10 @@ const PACKAGES: Record<number, number> = {
 };
 
 export async function POST(req: NextRequest) {
+  if (isDemoRequest(req)) {
+    return NextResponse.json({ error: 'Billing is disabled in demo mode' }, { status: 403 });
+  }
+
   const skipAuth = process.env.VIGOLIUM_SKIP_AUTH === 'true';
   if (skipAuth) {
     return NextResponse.json({ error: 'Billing disabled in dev mode' }, { status: 400 });

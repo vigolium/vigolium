@@ -28,6 +28,7 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Enable content discovery phase before scanning")
 	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
 	flags.StringVar(&scanOpts.FuzzWordlistPath, "fuzz-wordlist", "", "Custom fuzz wordlist path for discovery (enables fuzzing on the fly)")
+	flags.BoolVar(&scanOpts.NoPrefixBreaker, "no-prefix-breaker", false, "Disable per-prefix circuit breaker that stops discovery from recursing into trap directories")
 
 	// Browser-based spidering flags
 	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Enable browser-based spidering phase before scanning")

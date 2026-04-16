@@ -9,7 +9,7 @@ scanning_pace:
   discovery:
     concurrency: 100
     max_duration: 10m
-  audit:
+  dynamic-assessment:
     concurrency: 100
     max_duration: 30m
 
@@ -44,7 +44,7 @@ known_issue_scan:
   exclude_tags:
     - dos
 
-audit:
+dynamic-assessment:
   enabled_modules:
     active_modules:
       - all

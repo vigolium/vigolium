@@ -485,7 +485,7 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 		cfg.StreamWriter = io.Discard
 	}
 	if streamCloser != nil {
-		defer streamCloser.Close()
+		defer func() { _ = streamCloser.Close() }()
 	}
 
 	// Enrich the DB record with the config we just resolved so API clients
@@ -1020,8 +1020,8 @@ func (h *Handlers) buildServerAgentSwarmFunc(targetURL, projectUUID, scanUUID, o
 		// Clone settings to apply extension dir without mutating global
 		settingsCopy := *settings
 		if req.ExtensionDir != "" {
-			settingsCopy.Audit.Extensions.Enabled = true
-			settingsCopy.Audit.Extensions.ExtensionDir = req.ExtensionDir
+			settingsCopy.DynamicAssessment.Extensions.Enabled = true
+			settingsCopy.DynamicAssessment.Extensions.ExtensionDir = req.ExtensionDir
 		}
 
 		scanRunner, err := runner.New(opts)
@@ -1097,7 +1097,7 @@ func (h *Handlers) buildServerSwarmSASTFunc(targetURL, sourcePath, projectUUID, 
 		opts.SASTEnabled = true
 		opts.OnlyPhase = "sast"
 		opts.SkipIngestion = true
-		opts.SkipAudit = true
+		opts.SkipDynamicAssessment = true
 		opts.HeuristicsCheck = "none"
 		opts.Silent = true
 		opts.ScanConfigPrinted = true
@@ -1324,7 +1324,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 		cfg.StreamWriter = io.Discard
 	}
 	if streamCloser != nil {
-		defer streamCloser.Close()
+		defer func() { _ = streamCloser.Close() }()
 	}
 
 	// Populate the row with request-time + session-dir info before kicking
@@ -1742,7 +1742,7 @@ func tailSessionLog(w *bufio.Writer, logPath string, isDone func() bool, pollInt
 		_ = writeSSE(w, sseEvent{Type: "error", Error: err.Error()})
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	deadline := time.Now().Add(safetyTimeout)
 	buf := make([]byte, 4096)

@@ -61,7 +61,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// maxFeedbackRounds limits re-scanning of newly discovered URLs in the audit phase.
+// maxFeedbackRounds limits re-scanning of newly discovered URLs in the dynamic-assessment phase.
 const maxFeedbackRounds = 3
 
 // kingfisherBatchSize is the number of records per batch when scanning response bodies for secrets.
@@ -187,7 +187,7 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 		infra.ScopeMatcher = config.NewScopeMatcher(settings.Scope, opts.Targets...)
 	}
 
-	if settings != nil && settings.Audit.Extensions.Enabled {
+	if settings != nil && settings.DynamicAssessment.Extensions.Enabled {
 		jsEngineOpts := &jsext.EngineOptions{
 			ScanUUID:   opts.ScanUUID,
 			Repository: repo,
@@ -197,7 +197,7 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 			jsEngineOpts.ScopeConfig = &scopeCfg
 			jsEngineOpts.ScopeMatcher = config.NewScopeMatcher(settings.Scope, opts.Targets...)
 		}
-		jsEngine, jsErr := jsext.NewEngine(&settings.Audit.Extensions, httpRequester, jsEngineOpts)
+		jsEngine, jsErr := jsext.NewEngine(&settings.DynamicAssessment.Extensions, httpRequester, jsEngineOpts)
 		if jsErr != nil {
 			zap.L().Warn("Failed to initialize JS extensions for SharedInfra", zap.Error(jsErr))
 			errs = append(errs, fmt.Errorf("could not create js engine: %w", jsErr))
@@ -640,7 +640,7 @@ func logModuleMetrics(metrics map[string]corestats.ModuleStatsSnapshot) {
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
 //	Seed              — ingest CLI targets when discovery is skipped but DB-backed phases still need records
 //	KnownIssueScan    — nuclei + kingfisher batch (opt-in via --known-issue-scan)
-//	Audit             — modules + extensions scan DB records
+//	DynamicAssessment — modules + extensions scan DB records
 //
 // printScanConfig prints a human-readable scan configuration summary to stderr.
 // This provides the same information the CLI's printScanSummary shows, ensuring
@@ -720,7 +720,7 @@ func (r *Runner) printScanConfig() {
 		phaseLabel("Discovery", "discovery", opts.DiscoverEnabled))
 	fmt.Fprintf(os.Stderr, "           %s | %s | %s\n",
 		phaseLabel("KnownIssueScan", "known-issue-scan", opts.KnownIssueScanEnabled),
-		phaseLabel("Audit", "audit", !opts.SkipAudit),
+		phaseLabel("DynamicAssessment", "dynamic-assessment", !opts.SkipDynamicAssessment),
 		phaseLabel("SAST", "sast", opts.SASTEnabled))
 
 	// Heuristics
@@ -786,7 +786,7 @@ func (r *Runner) printScanConfig() {
 		terminal.Orange(fmt.Sprintf("%d", passiveCount)))
 
 	// Extensions
-	extEnabled := settings != nil && settings.Audit.Extensions.Enabled
+	extEnabled := settings != nil && settings.DynamicAssessment.Extensions.Enabled
 	if extEnabled {
 		extCount := 0
 		if r.sharedInfra != nil && r.sharedInfra.JSEngine != nil {
@@ -862,7 +862,7 @@ func (r *Runner) logConfigSnapshot() {
 		"known_issue_scan_enabled": opts.KnownIssueScanEnabled,
 		"sast_enabled":             opts.SASTEnabled,
 		"external_harvest":         opts.ExternalHarvestEnabled,
-		"skip_dynamic":             opts.SkipAudit,
+		"skip_dynamic":             opts.SkipDynamicAssessment,
 	}
 	r.scanLogger.InfoWithMeta("config", "scan configuration snapshot", meta)
 }
@@ -980,13 +980,13 @@ func (r *Runner) RunNativeScan() error {
 			return err
 		}
 	}
-	if r.options.SkipIngestion && !(r.options.KnownIssueScanEnabled || !r.options.SkipAudit) {
+	if r.options.SkipIngestion && !r.options.KnownIssueScanEnabled && r.options.SkipDynamicAssessment {
 		zap.L().Info("Discovery skipped, no downstream phases need DB records")
 		r.scanLogger.Info("discovery", "skipped, no downstream phases need DB records")
 	}
-	if r.options.SkipAudit {
-		zap.L().Info("Audit skipped by scanning strategy")
-		r.scanLogger.Info("audit", "skipped by scanning strategy")
+	if r.options.SkipDynamicAssessment {
+		zap.L().Info("Dynamic-assessment skipped by scanning strategy")
+		r.scanLogger.Info("dynamic-assessment", "skipped by scanning strategy")
 	}
 
 	r.scanLogger.Info("", "scan finished")
@@ -1073,23 +1073,23 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 			r.scanLogger.Info("known-issue-scan", "phase completed")
 			r.deduplicateFindings(ctx, "KnownIssueScan")
 		}
-	case PhaseAudit:
-		r.setPhaseTag("audit")
+	case PhaseDynamicAssessment:
+		r.setPhaseTag("dynamic-assessment")
 		activeModules, passiveModules := r.resolveAllModules(infra)
 		if len(activeModules) > 0 || len(passiveModules) > 0 {
-			r.scanLogger.InfoWithMeta("audit", "phase started", map[string]interface{}{
+			r.scanLogger.InfoWithMeta("dynamic-assessment", "phase started", map[string]interface{}{
 				"active_modules":  len(activeModules),
 				"passive_modules": len(passiveModules),
 			})
-			if err := r.runAuditPhase(ctx, infra, activeModules, passiveModules); err != nil {
-				zap.L().Error("Audit phase failed", zap.Error(err))
-				r.scanLogger.Error("audit", "phase failed: "+err.Error())
+			if err := r.runDynamicAssessmentPhase(ctx, infra, activeModules, passiveModules); err != nil {
+				zap.L().Error("Dynamic-assessment phase failed", zap.Error(err))
+				r.scanLogger.Error("dynamic-assessment", "phase failed: "+err.Error())
 			} else {
-				r.scanLogger.Info("audit", "phase completed")
+				r.scanLogger.Info("dynamic-assessment", "phase completed")
 			}
 		} else {
 			zap.L().Info("No modules to execute")
-			r.scanLogger.Info("audit", "skipped, no modules to execute")
+			r.scanLogger.Info("dynamic-assessment", "skipped, no modules to execute")
 		}
 	}
 	return nil
@@ -1207,7 +1207,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 	}
 
 	// Initialize JS extension engine
-	if r.settings != nil && r.settings.Audit.Extensions.Enabled {
+	if r.settings != nil && r.settings.DynamicAssessment.Extensions.Enabled {
 		jsEngineOpts := &jsext.EngineOptions{
 			ScanUUID:   r.options.ScanUUID,
 			Repository: r.repository,
@@ -1217,7 +1217,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 			jsEngineOpts.ScopeConfig = &scopeCfg
 			jsEngineOpts.ScopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
 		}
-		jsEngine, err := jsext.NewEngine(&r.settings.Audit.Extensions, httpRequester, jsEngineOpts)
+		jsEngine, err := jsext.NewEngine(&r.settings.DynamicAssessment.Extensions, httpRequester, jsEngineOpts)
 		if err != nil {
 			zap.L().Warn("Failed to initialize JS extensions", zap.Error(err))
 		} else {
@@ -1308,7 +1308,7 @@ func (r *Runner) initSessions(infra *phaseInfra) error {
 
 	// Merge primary session headers into the main requester's options.
 	// When use_in_discovery is false, primary headers are only applied to the
-	// audit phase requester (handled downstream), not the main one used
+	// dynamic-assessment phase requester (handled downstream), not the main one used
 	// for discovery and spidering.
 	primaryHeaders := mgr.PrimaryHeaders()
 	if len(primaryHeaders) > 0 && sessionCfg.UseInDiscovery {
@@ -1643,7 +1643,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 				}
 
 				event := &output.ResultEvent{
-					ModuleID: "known-issue-scan-kingfisher",
+					ModuleID: "",
 					Info: output.Info{
 						Name:        f.RuleName(),
 						Description: "Leaked secret detected: " + f.RuleID(),
@@ -1687,15 +1687,15 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 	return nil
 }
 
-// runAuditPhase runs all modules on DB records with a feedback loop for newly discovered URLs.
-func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeModules []modules.ActiveModule, passiveModules []modules.PassiveModule) error {
+// runDynamicAssessmentPhase runs all modules on DB records with a feedback loop for newly discovered URLs.
+func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfra, activeModules []modules.ActiveModule, passiveModules []modules.PassiveModule) error {
 	phaseStart := time.Now()
 
 	if r.repository == nil {
-		return fmt.Errorf("audit: database repository required")
+		return fmt.Errorf("dynamic-assessment: database repository required")
 	}
 
-	r.printPhaseStart("Audit", "execute dynamic security assessments through coordinated active and passive scanning modules")
+	r.printPhaseStart("DynamicAssessment", "execute dynamic security assessments through coordinated active and passive scanning modules")
 	modulesLine := fmt.Sprintf("Modules: %s active, %s passive",
 		terminal.Orange(fmt.Sprintf("%d", len(activeModules))),
 		terminal.Orange(fmt.Sprintf("%d", len(passiveModules))))
@@ -1713,7 +1713,7 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		terminal.HiBlue(fmt.Sprintf("%d", r.options.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", r.options.MaxPerHost)))
 	if r.settings != nil {
-		daPace := r.settings.ScanningPace.ResolvePhase("audit")
+		daPace := r.settings.ScanningPace.ResolvePhase("dynamic-assessment")
 		if daPace.MaxDuration > 0 {
 			daSpeedDetail += fmt.Sprintf(", max-duration=%s", terminal.HiTeal(daPace.MaxDuration.String()))
 		}
@@ -1724,14 +1724,14 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	r.printPhaseDetail(daSpeedDetail)
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 
-	zap.L().Info("Audit: running modules on database records",
+	zap.L().Info("DynamicAssessment: running modules on database records",
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
 
 	// Log quarantined hosts from prior phases so users see cross-phase propagation
 	if infra.svc != nil && infra.svc.HostErrors != nil {
 		if qc := infra.svc.HostErrors.QuarantinedCount(); qc > 0 {
-			zap.L().Info("Audit: carrying forward host errors from prior phases",
+			zap.L().Info("DynamicAssessment: carrying forward host errors from prior phases",
 				zap.Int("quarantined_hosts", qc))
 		}
 	}
@@ -1770,10 +1770,10 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		zap.L().Warn("Failed to update scan modules", zap.Error(err))
 	}
 
-	// Resolve audit concurrency: scanning_pace.audit overrides global when CLI not explicit
+	// Resolve dynamic-assessment concurrency: scanning_pace.dynamic-assessment overrides global when CLI not explicit
 	daConcurrency := r.options.Concurrency
 	if r.settings != nil && !r.options.ConcurrencyExplicitlySet {
-		daPace := r.settings.ScanningPace.ResolvePhase("audit")
+		daPace := r.settings.ScanningPace.ResolvePhase("dynamic-assessment")
 		if daPace.Concurrency > 0 {
 			daConcurrency = daPace.Concurrency
 		}
@@ -1790,7 +1790,7 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		var err error
 		oastService, err = oast.New(&r.settings.OAST, onOASTResult, r.repository, infra.scanUUID, r.options.ProjectUUID, nil)
 		if err != nil {
-			zap.L().Warn("Audit: OAST initialization failed, continuing without OAST", zap.Error(err))
+			zap.L().Warn("DynamicAssessment: OAST initialization failed, continuing without OAST", zap.Error(err))
 		}
 		if oastService != nil {
 			oastService.Start()
@@ -1806,20 +1806,29 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	ipCache, _ := lru.New[string, []httpmsg.InsertionPoint](4096)
 
 	// Resolve per-phase settings from scanning pace config (static across rounds)
-	var auditMaxDuration time.Duration
-	auditParallelPassive := true // default for audit phase
-	var auditFeedbackDrain time.Duration
+	var daMaxDuration time.Duration
+	daParallelPassive := true // default for dynamic-assessment phase
+	var daFeedbackDrain time.Duration
 	if r.settings != nil {
-		auditPace := r.settings.ScanningPace.ResolvePhase("audit")
-		auditMaxDuration = auditPace.MaxDuration
-		auditParallelPassive = auditPace.ParallelPassive
-		auditFeedbackDrain = auditPace.FeedbackDrainTimeout
+		daPace := r.settings.ScanningPace.ResolvePhase("dynamic-assessment")
+		daMaxDuration = daPace.MaxDuration
+		daParallelPassive = daPace.ParallelPassive
+		daFeedbackDrain = daPace.FeedbackDrainTimeout
 	}
 
-	// Reset cursor so audit reads all records from the beginning
+	// Enforce dynamic-assessment phase deadline across all feedback rounds. Without this wrap
+	// each round's executor would start a fresh timeout, letting total phase time
+	// reach maxFeedbackRounds × daMaxDuration.
+	if daMaxDuration > 0 {
+		var phaseCancel context.CancelFunc
+		ctx, phaseCancel = context.WithTimeout(ctx, daMaxDuration)
+		defer phaseCancel()
+	}
+
+	// Reset cursor so dynamic-assessment reads all records from the beginning
 	// (seed phase advances the cursor past all records when saving them).
 	if err := r.repository.ResetScanCursor(ctx, infra.scanUUID); err != nil {
-		zap.L().Warn("Audit: failed to reset scan cursor", zap.Error(err))
+		zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
 	}
 
 	var recordWriter *database.RecordWriter
@@ -1839,11 +1848,13 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 		SkipBaseline:         true,
 		PauseCtrl:            r.pauseCtrl,
 		MaxFindingsPerModule: r.options.MaxFindingsPerModule,
-		MaxDuration:          auditMaxDuration,
-		ParallelPassive:      auditParallelPassive,
-		FeedbackDrainTimeout: auditFeedbackDrain,
+		// Phase-level ctx already carries the dynamic-assessment deadline; leaving this at 0
+		// prevents each feedback round from starting a fresh per-round timeout.
+		MaxDuration:          0,
+		ParallelPassive:      daParallelPassive,
+		FeedbackDrainTimeout: daFeedbackDrain,
 		IPCache:              ipCache,
-		OnTraffic:            r.makeOnTrafficVerbose("audit"),
+		OnTraffic:            r.makeOnTrafficVerbose("dynamic-assessment"),
 		OnResult: func(result *output.ResultEvent) {
 			if err := r.output.Write(result); err != nil {
 				zap.L().Error("Failed to write result", zap.Error(err))
@@ -1860,26 +1871,32 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 
 	// Feedback loop: re-scan newly discovered URLs
 	for round := 0; round < maxFeedbackRounds; round++ {
-		processed, err := r.runAuditRound(ctx, infra, round, inScopeHostnames, activeModules, passiveModules, baseExecutorCfg, oastService)
+		processed, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHostnames, activeModules, passiveModules, baseExecutorCfg, oastService)
 		if err != nil {
-			zap.L().Error("Audit: executor error", zap.Error(err), zap.Int("round", round))
+			zap.L().Error("DynamicAssessment: executor error", zap.Error(err), zap.Int("round", round))
 			break
 		}
 
-		// Deduplicate findings after each audit round
-		r.deduplicateFindings(ctx, "Audit")
+		// Deduplicate findings after each dynamic-assessment round
+		r.deduplicateFindings(ctx, "DynamicAssessment")
+
+		if ctx.Err() != nil {
+			zap.L().Info("DynamicAssessment: phase deadline reached, stopping feedback loop",
+				zap.Int("round", round+1), zap.Error(ctx.Err()))
+			break
+		}
 
 		if round < maxFeedbackRounds-1 {
-			newCount, countErr := r.countRemainingAuditRecords(ctx, infra.scanUUID, inScopeHostnames)
+			newCount, countErr := r.countRemainingDynamicAssessmentRecords(ctx, infra.scanUUID, inScopeHostnames)
 			if countErr != nil || newCount == 0 {
 				if countErr != nil {
-					zap.L().Debug("Audit: failed to count remaining records", zap.Error(countErr))
+					zap.L().Debug("DynamicAssessment: failed to count remaining records", zap.Error(countErr))
 				}
 				break
 			}
-			r.printPhaseFeedback("Audit",
+			r.printPhaseFeedback("DynamicAssessment",
 				fmt.Sprintf("%s new records discovered, starting round %d", terminal.Orange(fmt.Sprintf("%d", newCount)), round+2))
-			zap.L().Info("Audit: new records discovered, starting next round",
+			zap.L().Info("DynamicAssessment: new records discovered, starting next round",
 				zap.Int64("new_records", newCount))
 		}
 
@@ -1889,12 +1906,12 @@ func (r *Runner) runAuditPhase(ctx context.Context, infra *phaseInfra, activeMod
 	}
 
 	elapsed := time.Since(phaseStart)
-	r.printPhaseComplete("Audit", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
+	r.printPhaseComplete("DynamicAssessment", fmt.Sprintf("all rounds completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 
 	return nil
 }
 
-func (r *Runner) runAuditRound(
+func (r *Runner) runDynamicAssessmentRound(
 	ctx context.Context,
 	infra *phaseInfra,
 	round int,
@@ -1926,15 +1943,15 @@ func (r *Runner) runAuditRound(
 
 	processed := executor.Processed()
 	roundElapsed := time.Since(roundStart)
-	r.printPhaseComplete("Audit",
+	r.printPhaseComplete("DynamicAssessment",
 		fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", processed)), terminal.HiPurple(fmtDuration(roundElapsed))))
-	zap.L().Info("Audit: round completed",
+	zap.L().Info("DynamicAssessment: round completed",
 		zap.Int("round", round+1),
 		zap.Int64("processed", processed))
 	return processed, nil
 }
 
-func (r *Runner) countRemainingAuditRecords(ctx context.Context, scanUUID string, hostnames []string) (int64, error) {
+func (r *Runner) countRemainingDynamicAssessmentRecords(ctx context.Context, scanUUID string, hostnames []string) (int64, error) {
 	currentScan, err := r.repository.GetScanByUUID(ctx, scanUUID)
 	if err != nil {
 		return 0, err
@@ -1997,14 +2014,14 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 
 	// Filter modules based on enabled_modules config (only when CLI uses "all")
 	if r.settings != nil {
-		if activeUsingAll && !isAllModules(r.settings.Audit.EnabledModules.ActiveModules) {
-			activeModules = modules.GetActiveModulesByIDs(r.settings.Audit.EnabledModules.ActiveModules)
-			zap.L().Info("Active modules filtered by config", zap.Strings("ids", r.settings.Audit.EnabledModules.ActiveModules))
+		if activeUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.ActiveModules) {
+			activeModules = modules.GetActiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.ActiveModules)
+			zap.L().Info("Active modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.ActiveModules))
 		}
 
-		if passiveUsingAll && !isAllModules(r.settings.Audit.EnabledModules.PassiveModules) {
-			passiveModules = modules.GetPassiveModulesByIDs(r.settings.Audit.EnabledModules.PassiveModules)
-			zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.Audit.EnabledModules.PassiveModules))
+		if passiveUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.PassiveModules) {
+			passiveModules = modules.GetPassiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.PassiveModules)
+			zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.PassiveModules))
 		}
 	}
 
@@ -2409,6 +2426,13 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		}
 		cfg.DisableKingfisher = dc.Engine.DisableKingfisher
 
+		// Prefix breaker
+		cfg.PrefixBreakerEnabled = dc.Engine.PrefixBreaker.Enabled
+		cfg.PrefixBreakerMinSamples = dc.Engine.PrefixBreaker.MinSamples
+		cfg.PrefixBreakerTripRatio = dc.Engine.PrefixBreaker.TripRatio
+		cfg.PrefixBreakerPrefixSegments = dc.Engine.PrefixBreaker.PrefixSegments
+		cfg.PrefixBreakerLengthBucket = dc.Engine.PrefixBreaker.LengthBucket
+
 		// Malformed path probe
 		cfg.EnableMalformedPathProbe = dc.EnableMalformedPathProbe
 
@@ -2418,6 +2442,12 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 	// CLI --fuzz-wordlist override (takes precedence over YAML config)
 	if r.options.FuzzWordlistPath != "" {
 		cfg.FuzzWordlistPath = config.ExpandPath(r.options.FuzzWordlistPath)
+	}
+
+	// CLI --no-prefix-breaker override (takes precedence over YAML config)
+	if r.options.NoPrefixBreaker {
+		disabled := false
+		cfg.PrefixBreakerEnabled = &disabled
 	}
 
 	// Proxy support

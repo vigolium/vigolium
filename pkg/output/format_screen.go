@@ -23,8 +23,11 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	}
 
 	// [type] [module-name]
+	// Suppress [type] when it duplicates the outer phase tag (e.g. PhaseTag
+	// "known-issue-scan" + ModuleType "known-issue-scan"). The phase wrapper
+	// already conveys the same info, so rendering both is just noise.
 	var moduleType string
-	if output.ModuleType != "" {
+	if output.ModuleType != "" && !strings.EqualFold(output.ModuleType, w.PhaseTag) {
 		moduleType = output.ModuleType
 	}
 	moduleName := output.ModuleID
@@ -33,9 +36,11 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 		builder.WriteString(moduleTypeColor(moduleType))
 		builder.WriteString("] ")
 	}
-	builder.WriteRune('[')
-	builder.WriteString(moduleName)
-	builder.WriteString("] ")
+	if moduleName != "" {
+		builder.WriteRune('[')
+		builder.WriteString(moduleName)
+		builder.WriteString("] ")
+	}
 
 	// [severity] with color
 	builder.WriteRune('[')
@@ -48,6 +53,9 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	prefixLen := phasePrefixLen + len(moduleType) + len(moduleName) + len(output.Info.Severity.String()) + 11
 	if moduleType == "" {
 		prefixLen -= 3 // no "[" + "] " for module type
+	}
+	if moduleName == "" {
+		prefixLen -= 3 // no "[" + "] " for module name
 	}
 	// matched-at (URL)
 	urlStr := output.Host

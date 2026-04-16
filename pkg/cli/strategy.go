@@ -66,7 +66,7 @@ func runStrategyLs(_ *cobra.Command, _ []string) error {
 			boolCell(phases.Discovery),
 			boolCell(phases.Spidering),
 			boolCell(phases.KnownIssueScan),
-			boolCell(phases.Audit),
+			boolCell(phases.DynamicAssessment),
 			boolCell(phases.SourceAware),
 		)
 	}
@@ -92,7 +92,7 @@ func runStrategyLs(_ *cobra.Command, _ []string) error {
 	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("known-issue-scan"))
 	fmt.Printf("    %s\n", terminal.Gray("Perform a known issue scan leveraging Nuclei templates"))
 	fmt.Printf("    %s\n", terminal.Gray("and trusted third-party validation checks"))
-	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("audit"))
+	fmt.Printf("  %s %s\n", terminal.ListSymbol(), terminal.HiBlue("dynamic-assessment"))
 	fmt.Printf("    %s\n", terminal.Gray("The core Vigolium engine for executing dynamic security assessments"))
 	fmt.Printf("    %s\n", terminal.Gray("through coordinated active and passive scanning modules"))
 	fmt.Printf("%s Run a single phase: %s or %s\n",

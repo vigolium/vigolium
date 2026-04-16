@@ -21,7 +21,7 @@ The native scan pipeline is fully deterministic -- pure Go, no AI involvement. R
 **Phases (in order):**
 
 ```
-Heuristics -> External Harvesting -> Spidering -> SAST -> Discovery -> KnownIssueScan -> Audit -> Extension
+Heuristics -> External Harvesting -> Spidering -> SAST -> Discovery -> KnownIssueScan -> DynamicAssessment -> Extension
 ```
 
 | Phase | Purpose |
@@ -32,7 +32,7 @@ Heuristics -> External Harvesting -> Spidering -> SAST -> Discovery -> KnownIssu
 | SAST | Static analysis of source code (when `--source` is provided) |
 | Discovery | Endpoint and content discovery via wordlists |
 | KnownIssueScan | Checks for known CVEs and common misconfigurations |
-| Audit | Core vulnerability testing -- injection, XSS, SSRF, etc. |
+| DynamicAssessment | Core vulnerability testing -- injection, XSS, SSRF, etc. (CLI aliases: `audit`, `dast`, `assessment`) |
 | Extension | User-supplied JavaScript scanning extensions |
 
 **Strategies** control which phases run and how aggressively:
@@ -107,7 +107,7 @@ All agent modes support `--source` for source-aware analysis and store session a
 | Get up and running quickly | [getting-started.md](getting-started.md) |
 | Understand the native scan pipeline | [native-scan/how-it-works.md](native-scan/how-it-works.md) |
 | Choose a scanning strategy | [native-scan/strategies.md](native-scan/strategies.md) |
-| Learn about individual scan phases | [native-scan/phases/](native-scan/phases/) (discovery, spidering, audit, extension, spa) |
+| Learn about individual scan phases | [native-scan/phases/](native-scan/phases/) (discovery, spidering, dynamic-assessment, extension, spa) |
 | Explore agentic scanning | [agentic-scan/agent-mode.md](agentic-scan/agent-mode.md) |
 | Use Autopilot mode | [agentic-scan/autopilot.md](agentic-scan/autopilot.md) |
 | Use Swarm mode | [agentic-scan/swarm.md](agentic-scan/swarm.md) |

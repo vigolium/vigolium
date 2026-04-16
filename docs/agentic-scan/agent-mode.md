@@ -324,8 +324,8 @@ vigolium agent swarm -t http://localhost:8080 --source ./src --instruction "Focu
 # Load instructions from a file
 vigolium agent swarm -t https://example.com/api --instruction-file pentest-scope.txt
 
-# Scan only the audit phase (skip discovery/spidering)
-vigolium agent swarm -t https://example.com/api/users --only audit
+# Scan only the dynamic-assessment phase (skip discovery/spidering)
+vigolium agent swarm -t https://example.com/api/users --only dynamic-assessment
 
 # Skip spidering during the swarm scan
 vigolium agent swarm -t https://example.com --discover --skip spidering

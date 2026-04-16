@@ -95,10 +95,10 @@ Use the lite strategy to reduce the number of payloads and checks:
 vigolium scan -t https://example.com --strategy lite
 ```
 
-Run only the audit phase to skip discovery and spidering, which can generate large numbers of URLs:
+Run only the dynamic-assessment phase to skip discovery and spidering, which can generate large numbers of URLs:
 
 ```bash
-vigolium scan -t https://example.com --only audit
+vigolium scan -t https://example.com --only dynamic-assessment
 ```
 
 Reduce concurrency to limit the number of in-flight requests and queued items:
@@ -137,10 +137,10 @@ Limit spidering time:
 vigolium scan -t https://example.com --spider-max-time 5m
 ```
 
-Run only the audit phase if you already have traffic recorded:
+Run only the dynamic-assessment phase if you already have traffic recorded:
 
 ```bash
-vigolium scan -t https://example.com --only audit
+vigolium scan -t https://example.com --only dynamic-assessment
 ```
 
 Combine options for the fastest possible scan:

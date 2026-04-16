@@ -21,7 +21,7 @@ Use `--strategy` to control how much reconnaissance Vigolium performs before dyn
 
 ### Lite — Fast, Minimal Discovery
 
-Runs only the audit phase against the provided targets. No crawling, no content discovery.
+Runs only the dynamic-assessment phase against the provided targets. No crawling, no content discovery.
 
 ```bash
 vigolium scan -t https://example.com --strategy lite
@@ -31,7 +31,7 @@ Best for: quick checks, CI pipelines, known endpoints.
 
 ### Balanced — Default
 
-Runs content discovery, browser spidering, known-issue-scan analysis, and audit.
+Runs content discovery, browser spidering, known-issue-scan analysis, and dynamic-assessment.
 
 ```bash
 vigolium scan -t https://example.com
@@ -165,9 +165,9 @@ vigolium scan -t https://example.com --known-issue-scan-severities critical,high
 vigolium scan -t https://example.com --known-issue-scan-templates-dir ~/nuclei-templates/
 ```
 
-### Audit
+### DynamicAssessment
 
-The core scanning phase. Runs active and passive modules against all discovered HTTP records. Enabled in all strategies.
+The core scanning phase. Runs active and passive modules against all discovered HTTP records. Enabled in all strategies. CLI aliases: `audit`, `dast`, `assessment`.
 
 Uses a feedback loop (up to 3 rounds): after each round, checks for newly discovered records and rescans if found.
 
@@ -233,7 +233,7 @@ scanning_pace:
   external_harvester:
     max_duration: 5m
 
-  audit:
+  dynamic-assessment:
     concurrency: 50
 ```
 

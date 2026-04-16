@@ -1,4 +1,4 @@
-# description: Full scan — deep discovery, spidering, enriched known-issue-scan targets, thorough audit (slow)
+# description: Full scan — deep discovery, spidering, enriched known-issue-scan targets, thorough dynamic-assessment (slow)
 scanning_strategy:
   default_strategy: deep
 
@@ -14,7 +14,7 @@ scanning_pace:
   known_issue_scan:
     max_duration: 3h
     duration_factor: 3.0
-  audit:
+  dynamic-assessment:
     concurrency: 30
 
 discovery:
@@ -59,7 +59,7 @@ known_issue_scan:
   exclude_tags:
     - dos
 
-audit:
+dynamic-assessment:
   enabled_modules:
     active_modules:
       - all

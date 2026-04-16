@@ -7,14 +7,28 @@ You are an environment provisioner for the confirmation phase of a security audi
 ## Inputs
 
 You receive:
-- **Target directory**: the root of the repository
+- **Target directory**: the project root containing the application under test
 - **Strategy file**: `archon/confirm-workspace/env-strategies.json` (produced by env-detective)
+- **Auth spec (optional)**: `archon/confirm-workspace/auth-spec.json` (produced by env-detective when auth scaffolding is detected)
+- **Session UUID**: from `$ARCHON_SESSION_UUID` — every container/process MUST be stamped with `archon.session=<UUID>` so cleanup can find it even after a crashed run
+
+## Configuration (env-overridable)
+
+Honour these env vars; fall back to the defaults if unset:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMAGE_PULL_TIMEOUT` | 300 | Max seconds for `docker pull` / `docker compose pull` (slow networks need this budget separately from boot) |
+| `SERVICE_BOOT_TIMEOUT` | 120 | Max seconds for `docker compose up` / `docker run` to exit/return after the image is local |
+| `HEALTHCHECK_TIMEOUT` | 60 | Max seconds spent in the healthcheck poll loop before declaring the strategy failed |
+| `SKIP_ISOLATION` | unset | When unset (default), snapshot the app's database after seeding so PoC executor can restore between findings. Set to `1` to disable for speed |
+| `PORT_FALLBACK_RANGE` | 10 | When the declared port is already bound, walk forward up to this many ports |
 
 ## Provisioning Protocol
 
 ### 1. Read Strategies
 
-Read `archon/confirm-workspace/env-strategies.json`. Walk the `app_strategies` list from highest to lowest confidence.
+Read `archon/confirm-workspace/env-strategies.json`. Walk the `app_strategies` list from highest to lowest confidence. If `auth-spec.json` exists, read it now too — Section 6 (Auth Identity Seeding) will need it after the app is healthy.
 
 ### 2. Environment Setup
 
@@ -33,87 +47,182 @@ Before attempting any strategy:
 
 3. **Seed data**: if `dependencies.seed_command` is set, run it after migrations.
 
-### 3. Strategy Execution
+### 3. Port Allocation
 
-For each strategy (top-to-bottom until one succeeds):
+Before starting the strategy, allocate an actually-free port:
+
+```bash
+allocate_port() {
+  local declared=$1
+  local fallbacks=$2  # space-separated list from ports.<name>_fallback
+  for candidate in "$declared" $fallbacks; do
+    if ! (echo > /dev/tcp/127.0.0.1/$candidate) 2>/dev/null; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ACTUAL_PORT=$(allocate_port "$DECLARED_PORT" "$FALLBACK_PORTS")
+if [ -z "$ACTUAL_PORT" ]; then
+  echo "no free port in declared+fallback range" >> archon/confirm-workspace/setup.log
+  # try next strategy
+fi
+```
+
+Record `ACTUAL_PORT` — it MUST appear in `env-connection.json.ports.app` and be used in `base_url`.
+
+### 4. Build Steps (run BEFORE strategy command)
+
+If the strategy declares `build_steps[]` (env-detective populates this), run each one in order. A missing build artifact is the most common reason a non-Docker strategy fails to boot.
+
+```bash
+for step in <build_steps>; do
+  timeout "$SERVICE_BOOT_TIMEOUT" bash -c "$step" 2>&1 | tee -a archon/confirm-workspace/setup.log || {
+    echo "build step failed: $step" >> archon/confirm-workspace/setup.log
+    # try next strategy
+  }
+done
+```
+
+### 5. Strategy Execution
+
+For each strategy (top-to-bottom until one succeeds). Always stamp containers/processes with `--label archon.session=$ARCHON_SESSION_UUID` (Docker) or by exporting it into the environment (other runtimes).
 
 #### Docker Compose
 ```bash
-# Build if needed
-docker compose -f <file> build 2>&1 | tee archon/confirm-workspace/setup.log
+# Pull images first with the longer timeout — this is the most common slow step.
+timeout "$IMAGE_PULL_TIMEOUT" docker compose -f <file> pull 2>&1 | tee archon/confirm-workspace/setup.log
 
-# Start services
-docker compose -f <file> up -d 2>&1 | tee -a archon/confirm-workspace/setup.log
+# Build if needed (covers context-only / locally-built services).
+timeout "$SERVICE_BOOT_TIMEOUT" docker compose -f <file> build 2>&1 | tee -a archon/confirm-workspace/setup.log
 
-# Wait for services to be healthy (up to 60s)
-timeout 60 bash -c 'until docker compose -f <file> ps --format json | grep -q "running"; do sleep 2; done'
+# Start services (use COMPOSE_PROJECT_NAME so labels apply consistently).
+COMPOSE_PROJECT_NAME="archon-${ARCHON_SESSION_UUID:0:8}" \
+  timeout "$SERVICE_BOOT_TIMEOUT" docker compose -f <file> up -d 2>&1 | tee -a archon/confirm-workspace/setup.log
+
+# Stamp every container with the session label (compose lacks a global label flag).
+docker compose -f <file> ps -q | xargs -r -I {} docker update --label-add "archon.session=${ARCHON_SESSION_UUID}" {} >/dev/null 2>&1 || true
 ```
 
 #### Dockerfile (no compose)
 ```bash
-# Build image
-docker build -t archon-confirm-target -f <file> . 2>&1 | tee archon/confirm-workspace/setup.log
+docker build -t "archon-confirm-${ARCHON_SESSION_UUID:0:8}" -f <file> . 2>&1 | tee archon/confirm-workspace/setup.log
 
-# Run container with discovered port mapping
-docker run -d --name archon-confirm-app -p <port>:<port> archon-confirm-target 2>&1 | tee -a archon/confirm-workspace/setup.log
+docker run -d \
+  --name "archon-confirm-app-${ARCHON_SESSION_UUID:0:8}" \
+  --label "archon.session=${ARCHON_SESSION_UUID}" \
+  -p ${ACTUAL_PORT}:<container_port> \
+  "archon-confirm-${ARCHON_SESSION_UUID:0:8}" 2>&1 | tee -a archon/confirm-workspace/setup.log
 ```
 
-#### Makefile
+#### Makefile / Package scripts / Native binary
 ```bash
-# Run the discovered target
-make <target> &
-APP_PID=$!
-echo $APP_PID > archon/confirm-workspace/app.pid
+# All non-Docker strategies write their PID to app.pid for trap-based cleanup.
+ARCHON_SESSION_UUID="$ARCHON_SESSION_UUID" PORT="$ACTUAL_PORT" \
+  nohup <strategy_command> >> archon/confirm-workspace/setup.log 2>&1 &
+echo $! > archon/confirm-workspace/app.pid
 ```
 
-#### Package Scripts
-```bash
-# Node.js
-npm ci && npm run <script> &
-APP_PID=$!
+Examples:
+- Makefile: `make <target>`
+- Node.js: `npm ci && npm run <script>`  (build step already ran in §4 if needed)
+- Python: `pip install -e . && python -m <module>`
+- Go: `go run .` OR pre-built binary `./bin/myapp`
+- Rust binary: `./target/release/myapp`
+- JVM jar: `java -jar build/libs/app.jar`
 
-# Python
-pip install -e . && python -m <module> &
-APP_PID=$!
+### 6. Healthcheck (exponential backoff + diagnostic capture)
 
-# Go
-go run . &
-APP_PID=$!
-```
-
-### 4. Healthcheck
-
-After starting, verify the application is responding. Try these in order until one succeeds:
+After starting, poll the app with exponential backoff up to `HEALTHCHECK_TIMEOUT`:
 
 ```bash
-# Try common health endpoints
-for endpoint in /healthz /health /api/health / /api/v1/health; do
-  if curl -sf -o /dev/null -m 5 "http://localhost:<port>${endpoint}"; then
-    HEALTH_ENDPOINT="${endpoint}"
-    break
+healthcheck() {
+  local deadline=$(( $(date +%s) + HEALTHCHECK_TIMEOUT ))
+  local backoff=1
+  while [ $(date +%s) -lt $deadline ]; do
+    for endpoint in /healthz /health /api/health / /api/v1/health; do
+      if curl -sf -o /dev/null -m 3 "http://localhost:${ACTUAL_PORT}${endpoint}"; then
+        echo "$endpoint"; return 0
+      fi
+    done
+    # TCP fallback (counts as a positive even without an HTTP route).
+    if (echo > /dev/tcp/127.0.0.1/$ACTUAL_PORT) 2>/dev/null; then
+      echo "tcp"; return 0
+    fi
+    sleep $backoff
+    [ $backoff -lt 10 ] && backoff=$((backoff * 2))
+  done
+  return 1
+}
+
+if HEALTH_ENDPOINT=$(healthcheck); then
+  echo "healthy: $HEALTH_ENDPOINT" | tee archon/confirm-workspace/healthcheck.log
+else
+  # Diagnostic capture — the difference between "V3 failed" and an actionable error.
+  echo "healthcheck timed out after ${HEALTHCHECK_TIMEOUT}s" | tee archon/confirm-workspace/healthcheck-failure.log
+  if command -v docker >/dev/null 2>&1; then
+    docker compose -f <file> logs --tail 50 >> archon/confirm-workspace/healthcheck-failure.log 2>&1 || true
+    docker ps -a --filter "label=archon.session=${ARCHON_SESSION_UUID}" >> archon/confirm-workspace/healthcheck-failure.log 2>&1
   fi
-done
-
-# Fallback: TCP port check
-if [ -z "$HEALTH_ENDPOINT" ]; then
-  timeout 30 bash -c "until nc -z localhost <port>; do sleep 1; done"
+  [ -f archon/confirm-workspace/setup.log ] && tail -50 archon/confirm-workspace/setup.log >> archon/confirm-workspace/healthcheck-failure.log
+  # try next strategy
 fi
 ```
 
-Record healthcheck results to `archon/confirm-workspace/healthcheck.log`.
-
-If healthcheck fails after 60 seconds, log the failure reason and try the next strategy.
-
-### 5. Run Migrations and Seeds
+### 7. Migrations and Seeds
 
 If the app is healthy and migrations/seeds are configured:
-```bash
-# Run migrations
-<migration_command> 2>&1 | tee archon/confirm-workspace/migration.log
 
-# Run seeds if available
-<seed_command> 2>&1 | tee archon/confirm-workspace/seed.log
+```bash
+timeout 60 <migration_command> 2>&1 | tee archon/confirm-workspace/migration.log
+timeout 60 <seed_command>      2>&1 | tee archon/confirm-workspace/seed.log
 ```
+
+Migration failures are fatal for this strategy — log the diagnostic, try the next strategy. Do not silently leave the app running on an inconsistent schema.
+
+### 8. Auth Identity Seeding
+
+If `archon/confirm-workspace/auth-spec.json` exists AND `supported: true`, seed the listed `identities_to_seed[]`. Try the strategies in order:
+
+1. **Endpoint** (`seed_strategy: "endpoint"`): for each identity, `POST` to the registration path with the `body_schema` filled in from the identity record. If registration succeeds, immediately `POST` to the login path to capture the token from `token_field`.
+2. **Seed script** (`seed_strategy: "script"` or `seed_alternative` available): run the script with env vars injected (`ARCHON_ADMIN_EMAIL=…`, `ARCHON_ADMIN_PASSWORD=…`). Then `POST /login` to fetch tokens.
+3. **DB seeding** (last resort): if neither works and the app uses an ORM you can speak to via the running DB container, insert directly with hashed passwords (use the framework's password hasher script — never plaintext).
+
+For each seeded identity, record under `env-connection.json.test_identities[]`:
+
+```json
+{"label": "admin", "email": "...", "password": "...", "role": "admin",
+ "token": "<bearer or null>", "carrier": "Authorization: Bearer <token>"}
+```
+
+If seeding fails for an identity, record `"token": null, "seed_error": "..."`. Do NOT fail V3 over auth-seeding errors — record the partial success and continue. PoCs needing tokens will degrade gracefully.
+
+### 9. Database Snapshot (skip if `SKIP_ISOLATION=1`)
+
+After seeding completes, snapshot the database so PoC executor can restore between findings (PoC side effects otherwise carry over and pollute later runs).
+
+```bash
+if [ -z "${SKIP_ISOLATION:-}" ] && [ -n "$DB_CONTAINER" ]; then
+  case "$DB_KIND" in
+    postgres|postgresql)
+      docker exec "$DB_CONTAINER" pg_dumpall -U "$DB_USER" > archon/confirm-workspace/db-snapshot.sql 2>> archon/confirm-workspace/setup.log
+      ;;
+    mysql|mariadb)
+      docker exec "$DB_CONTAINER" mysqldump -u "$DB_USER" -p"$DB_PASSWORD" --all-databases > archon/confirm-workspace/db-snapshot.sql 2>> archon/confirm-workspace/setup.log
+      ;;
+    sqlite)
+      cp <sqlite_path> archon/confirm-workspace/db-snapshot.sqlite
+      ;;
+  esac
+  # Record the restore command so poc-executor can invoke it.
+  echo "{\"kind\": \"$DB_KIND\", \"container\": \"$DB_CONTAINER\", \"snapshot\": \"archon/confirm-workspace/db-snapshot.sql\"}" \
+    > archon/confirm-workspace/snapshot-spec.json
+fi
+```
+
+If the database is external/managed (no container), skip snapshotting and set `snapshot_spec: null` — PoC executor will see this and skip restore.
 
 ## Output
 
@@ -122,17 +231,23 @@ Write connection details to `archon/confirm-workspace/env-connection.json`:
 ```json
 {
   "status": "running",
-  "base_url": "http://localhost:3000",
+  "session": "<ARCHON_SESSION_UUID>",
+  "base_url": "http://localhost:3001",
   "method_used": "docker-compose",
   "file_used": "docker-compose.yml",
   "healthcheck_passed": true,
   "healthcheck_endpoint": "/healthz",
   "containers": ["app", "db", "redis"],
-  "ports": {"app": 3000, "db": 5432},
-  "cleanup_cmd": "docker compose -f docker-compose.yml down -v && docker system prune -f",
+  "ports": {"app": 3001, "db": 5432, "actual_port_was_fallback": true},
+  "cleanup_cmd": "docker rm -f $(docker ps -aq --filter label=archon.session=<ARCHON_SESSION_UUID>)",
   "process_pid": null,
+  "test_identities": [
+    {"label": "admin", "email": "archon-admin@audit.local", "password": "...", "role": "admin", "token": "eyJhbGc..."},
+    {"label": "user",  "email": "archon-user@audit.local",  "password": "...", "role": "user",  "token": "eyJhbGc..."}
+  ],
+  "snapshot_spec": {"kind": "postgres", "container": "archon-confirm-db", "snapshot": "archon/confirm-workspace/db-snapshot.sql"},
   "attempts": [
-    {"method": "docker-compose", "result": "success", "duration_s": 23}
+    {"method": "docker-compose", "result": "success", "duration_s": 23, "actual_port": 3001, "build_steps_run": []}
   ]
 }
 ```
@@ -142,12 +257,15 @@ If ALL strategies fail, write:
 ```json
 {
   "status": "failed",
+  "session": "<ARCHON_SESSION_UUID>",
   "method_used": null,
   "attempts": [
     {"method": "docker-compose", "result": "failed", "error": "build failed: missing dependency"},
-    {"method": "makefile", "result": "failed", "error": "target 'run' not found"}
+    {"method": "makefile",       "result": "failed", "error": "target 'run' not found"},
+    {"method": "native-binary",  "result": "failed", "error": "binary not found at ./bin/myapp; build step exited 1"}
   ],
-  "fallback": "test-only"
+  "fallback": "test-only",
+  "diagnostic": "see archon/confirm-workspace/healthcheck-failure.log for compose/container logs"
 }
 ```
 

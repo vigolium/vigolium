@@ -14,7 +14,7 @@ func printFullExamples() {
 		"vigolium scan -t https://example.com --strategy deep",
 		"vigolium scan -t https://example.com --scanning-profile quick",
 		"vigolium scan -t https://example.com --scanning-profile full",
-		"vigolium scan -t https://example.com --only audit",
+		"vigolium scan -t https://example.com --only dynamic-assessment",
 		"vigolium scan -t https://example.com --skip discovery,spidering",
 		"vigolium scan -t https://example.com -m xss-reflected,sqli-error",
 		"vigolium scan -t https://example.com --module-tag spring --module-tag injection",
@@ -36,8 +36,8 @@ func printFullExamples() {
 	printSection("Running Single Phases", []string{
 		"vigolium run discover -t https://example.com",
 		"vigolium run spidering -t https://example.com",
-		"vigolium run audit -t https://example.com",
-		"vigolium run audit -t https://example.com --module-tag spring",
+		"vigolium run dynamic-assessment -t https://example.com",
+		"vigolium run dynamic-assessment -t https://example.com --module-tag spring",
 		"vigolium run external-harvest -t https://example.com",
 		"vigolium run known-issue-scan -t https://example.com",
 		"vigolium run known-issue-scan -t https://example.com --known-issue-scan-tags cve --known-issue-scan-severities critical,high",
@@ -45,7 +45,7 @@ func printFullExamples() {
 		"vigolium run sast --sast-adhoc /path/to/app --rule gin",
 		"vigolium run extension -t https://example.com --ext custom-check.js",
 		"vigolium run deparos -t https://example.com",
-		"vigolium run audit -t https://example.com",
+		"vigolium run dast -t https://example.com",
 	})
 
 	printSection("Input Modes", []string{

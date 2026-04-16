@@ -8,6 +8,7 @@ import { ProjectProvider } from '@/contexts/ProjectContext';
 import { isStaticBuild, isCloudBuild } from '@/lib/buildMode';
 import AuthGate from '@/components/shared/AuthGate';
 import PostHogTracker from '@/components/shared/PostHogTracker';
+import DemoToastBridge from '@/components/shared/DemoToastBridge';
 import './globals.css';
 
 const title = isStaticBuild ? 'Vigolium Workbench' : 'Vigolium Cloud Console';
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 
   const inner = (
-    <ProjectProvider><ThemeProvider><ToastProvider>{children}</ToastProvider></ThemeProvider></ProjectProvider>
+    <ProjectProvider><ThemeProvider><ToastProvider><DemoToastBridge />{children}</ToastProvider></ThemeProvider></ProjectProvider>
   );
 
   return (

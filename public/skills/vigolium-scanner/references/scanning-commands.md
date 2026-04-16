@@ -110,7 +110,7 @@ vigolium scan -T targets.txt
 vigolium scan -t https://example.com --strategy deep
 
 # Phase isolation
-vigolium scan -t https://example.com --only audit
+vigolium scan -t https://example.com --only dynamic-assessment
 vigolium scan -t https://example.com --only ext --ext ./custom-check.js
 vigolium scan -t https://example.com --skip discovery,spidering
 
@@ -293,7 +293,7 @@ Run a single scan phase directly. Equivalent to `vigolium scan --only <phase>`.
 | `known-issue-scan` | — |
 | `spidering` | `spitolas` |
 | `sast` | — |
-| `audit` | `dynamic-assessment` |
+| `dynamic-assessment` | `audit`, `dast`, `assessment` |
 | `extension` | `ext` |
 
 The `run` command accepts the same flag groups as `scan`: Spidering, Discovery, Harvest, KnownIssueScan, SAST, Input Format, Request, Output, and Other (--oast-url, --pilot).

@@ -173,7 +173,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 }
 
 // seedCLITargets ingests CLI targets into the database without running deparos or modules.
-// This is used when discovery is skipped but downstream phases (KnownIssueScan, Audit)
+// This is used when discovery is skipped but downstream phases (KnownIssueScan, DynamicAssessment)
 // need DB records to operate on.
 func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	r.printPhaseStart("Seed", "ingest CLI targets into database (discovery skipped)")

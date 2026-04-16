@@ -5,6 +5,7 @@ import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, RowClickedEvent, SelectionChangedEvent } from 'ag-grid-community';
 import { Network, Box, ArrowUpDown, ArrowUp, ArrowDown, Search, RefreshCw } from 'lucide-react';
 import { useOASTInteractions, useDeleteOASTInteraction } from '@/api/hooks';
+import { withDemoKey } from '@/api/client';
 import { useToast } from '@/contexts/ToastContext';
 import type { OASTInteraction, OASTInteractionsQueryParams } from '@/api/types';
 
@@ -52,7 +53,7 @@ export default function OASTInteractionsPage({ initialId }: { initialId?: number
 
   const navigateToInteraction = useCallback((id: number | null) => {
     setSelectedId(id);
-    window.history.pushState(null, '', id !== null ? `/oast-interactions/${id}` : '/oast-interactions');
+    window.history.pushState(null, '', withDemoKey(id !== null ? `/oast-interactions/${id}` : '/oast-interactions'));
   }, []);
 
   const queryParams = useMemo(

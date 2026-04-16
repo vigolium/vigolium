@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-04-13T13:59:02.724868+00:00",
-  "project_count": 46,
+  "generated_at": "2026-04-16T16:44:03.184887+00:00",
+  "project_count": 51,
   "summary": {
-    "project_count": 46,
-    "files": 263406,
-    "loc": 52902830,
-    "commits": 931160,
+    "project_count": 51,
+    "files": 296309,
+    "loc": 58717010,
+    "commits": 1056324,
     "findings": {
-      "total": 1113,
-      "critical": 16,
-      "high": 323,
-      "medium": 774
+      "total": 1252,
+      "critical": 18,
+      "high": 383,
+      "medium": 851
     }
   },
   "projects": [
@@ -179,6 +179,32 @@
       }
     },
     {
+      "project": "cli",
+      "coding_agent": "Claude Code",
+      "total": 17,
+      "critical": 1,
+      "high": 4,
+      "medium": 12,
+      "project_desc": "GitHub\u2019s official command line tool",
+      "project_link": "https://github.com/cli/cli",
+      "github_stars": "43k+",
+      "project_size": {
+        "audited_commit": "f79cc02bdde49e0d6a20ecec3454e20cc68c4aef",
+        "commit_count": 11124,
+        "primary_language": "Go",
+        "languages": {
+          "Go": 6346355,
+          "Shell": 19574,
+          "Makefile": 3550,
+          "PowerShell": 2600,
+          "Batchfile": 26
+        },
+        "loc": 241341,
+        "text_file_count": 1093,
+        "last_refreshed_at": "2026-04-16T16:43:08.285727+00:00"
+      }
+    },
+    {
       "project": "code-server",
       "coding_agent": "Claude Code",
       "total": 15,
@@ -206,6 +232,41 @@
         "loc": 35768,
         "text_file_count": 242,
         "last_refreshed_at": "2026-04-12T09:49:24.273912+00:00"
+      }
+    },
+    {
+      "project": "codex",
+      "coding_agent": "Claude Code",
+      "total": 77,
+      "critical": 1,
+      "high": 39,
+      "medium": 37,
+      "project_desc": "Lightweight coding agent that runs in your terminal",
+      "project_link": "https://github.com/openai/codex",
+      "github_stars": "75k+",
+      "project_size": {
+        "audited_commit": "224dad41ac1bdf0c8a848b1fd0068262f1f99223",
+        "commit_count": 5436,
+        "primary_language": "Rust",
+        "languages": {
+          "Rust": 22717883,
+          "Python": 640021,
+          "TypeScript": 319722,
+          "JavaScript": 61559,
+          "Starlark": 60465,
+          "Shell": 47285,
+          "PowerShell": 42049,
+          "Jupyter Notebook": 23732,
+          "HTML": 11005,
+          "Nix": 4427,
+          "Just": 3639,
+          "Dockerfile": 2371,
+          "Smarty": 2240,
+          "C": 76
+        },
+        "loc": 863254,
+        "text_file_count": 3683,
+        "last_refreshed_at": "2026-04-16T16:43:19.964047+00:00"
       }
     },
     {
@@ -321,6 +382,51 @@
         "loc": 1094125,
         "text_file_count": 5645,
         "last_refreshed_at": "2026-04-12T09:49:41.340843+00:00"
+      }
+    },
+    {
+      "project": "envoy",
+      "coding_agent": "Claude Code",
+      "total": 11,
+      "critical": 0,
+      "high": 1,
+      "medium": 10,
+      "project_desc": "Cloud-native high-performance edge/middle/service proxy",
+      "project_link": "https://github.com/envoyproxy/envoy",
+      "github_stars": "27k+",
+      "project_size": {
+        "audited_commit": "5aeaf3762c1a1010b094049821932aa899415131",
+        "commit_count": 27082,
+        "primary_language": "C++",
+        "languages": {
+          "C++": 64250432,
+          "Starlark": 3471082,
+          "Java": 1408694,
+          "Rust": 1155013,
+          "Python": 559311,
+          "C": 460763,
+          "Go": 454945,
+          "Assembly": 327095,
+          "Shell": 319243,
+          "Kotlin": 313648,
+          "Swift": 249114,
+          "Objective-C++": 70358,
+          "JavaScript": 66339,
+          "Objective-C": 50868,
+          "Jinja": 43088,
+          "jq": 15382,
+          "HTML": 6409,
+          "CSS": 2927,
+          "Dockerfile": 1279,
+          "Emacs Lisp": 966,
+          "Thrift": 748,
+          "PureBasic": 472,
+          "Batchfile": 439,
+          "Makefile": 303
+        },
+        "loc": 2570849,
+        "text_file_count": 13682,
+        "last_refreshed_at": "2026-04-16T16:43:40.916569+00:00"
       }
     },
     {
@@ -1349,6 +1455,35 @@
       }
     },
     {
+      "project": "symfony",
+      "coding_agent": "Claude Code",
+      "total": 15,
+      "critical": 0,
+      "high": 6,
+      "medium": 9,
+      "project_desc": "The Symfony PHP framework",
+      "project_link": "https://github.com/symfony/symfony",
+      "github_stars": "30k+",
+      "project_size": {
+        "audited_commit": "845396d24003344e79e6be137d2913370713d041",
+        "commit_count": 79630,
+        "primary_language": "PHP",
+        "languages": {
+          "PHP": 33004156,
+          "Twig": 550181,
+          "CSS": 56186,
+          "JavaScript": 28283,
+          "HTML": 18254,
+          "Shell": 9772,
+          "Makefile": 1656,
+          "Hack": 26
+        },
+        "loc": 2086316,
+        "text_file_count": 14024,
+        "last_refreshed_at": "2026-04-16T16:43:56.550610+00:00"
+      }
+    },
+    {
       "project": "traefik",
       "coding_agent": "Claude Code",
       "total": 2,
@@ -1440,6 +1575,28 @@
         "loc": 1191827,
         "text_file_count": 4489,
         "last_refreshed_at": "2026-04-12T09:54:33.573493+00:00"
+      }
+    },
+    {
+      "project": "zuul",
+      "coding_agent": "Claude Code",
+      "total": 19,
+      "critical": 0,
+      "high": 10,
+      "medium": 9,
+      "project_desc": "Zuul is a gateway service that provides dynamic routing, monitoring, resiliency, security, and more.",
+      "project_link": "https://github.com/Netflix/zuul",
+      "github_stars": "14k+",
+      "project_size": {
+        "audited_commit": "c1d9cef2012fae1b12779b5e7a8285b278d28321",
+        "commit_count": 1892,
+        "primary_language": "Java",
+        "languages": {
+          "Java": 1725520
+        },
+        "loc": 52420,
+        "text_file_count": 421,
+        "last_refreshed_at": "2026-04-16T16:44:03.179197+00:00"
       }
     }
   ]

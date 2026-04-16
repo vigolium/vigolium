@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { zipSync } from 'fflate';
 import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useGitHubCloneUrl, useStartAutopilotRun, useAgentRunStatus } from '@/api/hooks';
+import { withDemoKey } from '@/api/client';
 import { fetchSSE } from '@/lib/sse';
 
 export type ScanProfile = 'quick' | 'deep' | 'code-review' | 'autopilot';
@@ -195,7 +196,7 @@ export function useAgentsLogic() {
     }).catch(() => {
       setSwarmSource(`https://github.com/${repo}`);
     });
-    window.history.replaceState({}, '', '/agentic-scan');
+    window.history.replaceState({}, '', withDemoKey('/agentic-scan'));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

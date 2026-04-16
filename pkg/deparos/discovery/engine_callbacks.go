@@ -54,6 +54,14 @@ func (e *Engine) OnDirectoryDiscovered(dirPath string, depth uint16) error {
 		return nil
 	}
 
+	// Skip recursion if the directory's prefix has been tripped by the breaker.
+	// Avoids queueing wordlist / observed tasks under known trap prefixes.
+	if e.prefixBreaker != nil && e.prefixBreaker.IsDead(parsedURL) {
+		logger.Debug("Directory under tripped prefix, skipping recursion",
+			zap.String("path", dirPath))
+		return nil
+	}
+
 	cleanedPath := e.cleanDirectoryPath(parsedURL)
 
 	// Deduplication: normalize URL (sorted param names) for consistent dedup
@@ -344,6 +352,13 @@ func (e *Engine) OnFileDiscovered(filePath string, depth uint16) error {
 	// Skip if path contains useless segments (., .., or URL-encoded variants)
 	if parsedFileURL != nil && containsUselessPathSegment(parsedFileURL.Path) {
 		logger.Debug("File contains useless path segment, skipping",
+			zap.String("path", filePath))
+		return nil
+	}
+
+	// Skip derivations if the file's prefix has been tripped by the breaker.
+	if parsedFileURL != nil && e.prefixBreaker != nil && e.prefixBreaker.IsDead(parsedFileURL) {
+		logger.Debug("File under tripped prefix, skipping",
 			zap.String("path", filePath))
 		return nil
 	}

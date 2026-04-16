@@ -11,15 +11,29 @@ import (
 
 // HarnessConfig represents a platform's frontmatter.yaml configuration.
 type HarnessConfig struct {
-	Format              string                    `yaml:"format"`
-	AgentNamePrefix     string                    `yaml:"agent_name_prefix,omitempty"`
-	DispatchFile        string                    `yaml:"dispatch_file,omitempty"`
-	SubagentPreamble    string                    `yaml:"subagent_preamble_file,omitempty"`
-	Defaults            map[string]any            `yaml:"defaults"`
-	SubagentDefaults    map[string]any            `yaml:"subagent_defaults,omitempty"`
-	Overrides           map[string]map[string]any `yaml:"overrides,omitempty"`
-	SubagentOverrides   map[string]map[string]any `yaml:"subagent_overrides,omitempty"`
-	Exclude             []string                  `yaml:"exclude,omitempty"`
+	BaseDir              string                    `yaml:"-"`
+	SubagentPreamble     string                    `yaml:"-"`
+	Format               string                    `yaml:"format"`
+	AgentNamePrefix      string                    `yaml:"agent_name_prefix,omitempty"`
+	DispatchFile         string                    `yaml:"dispatch_file,omitempty"`
+	SubagentPreambleFile string                    `yaml:"subagent_preamble_file,omitempty"`
+	Defaults             map[string]any            `yaml:"defaults"`
+	SubagentDefaults     map[string]any            `yaml:"subagent_defaults,omitempty"`
+	Overrides            map[string]map[string]any `yaml:"overrides,omitempty"`
+	SubagentOverrides    map[string]map[string]any `yaml:"subagent_overrides,omitempty"`
+	Exclude              []string                  `yaml:"exclude,omitempty"`
+}
+
+// SharedHarnessName returns the harness directory used as the prompt/frontmatter
+// source for a platform. Several runtime adapters (opencode, bytesec) share a
+// single canonical harness ("opencode-family"); other platforms map 1:1.
+func SharedHarnessName(platform string) string {
+	switch platform {
+	case "opencode", "bytesec":
+		return "opencode-family"
+	default:
+		return platform
+	}
 }
 
 // CanonicalAgent holds a parsed canonical agent .md file.

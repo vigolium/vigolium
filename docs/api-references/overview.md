@@ -112,12 +112,16 @@ curl -s http://localhost:9002/server-info | jq .
   "uptime": "5m32s",
   "service_addr": "0.0.0.0:9002",
   "proxy_addr": "",
-  "db_driver": "sqlite",
   "queue_depth": 0,
   "total_records": 1234,
-  "total_findings": 42
+  "total_findings": 42,
+  "license": "community-demo",
+  "demo_only": true,
+  "view_only": false
 }
 ```
+
+`license`, `demo_only`, and `view_only` are omitted when unset/false. Configure `license` under `server.license` in `vigolium-configs.yaml`; `demo_only` / `view_only` reflect the `--demo-only` / `--view-only` server flags.
 
 ---
 

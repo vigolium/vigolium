@@ -19,11 +19,12 @@ function GoogleIcon({ className }: { className?: string }) {
 
 interface AuthGatePageProps {
   ssoDisabled?: boolean;
+  showcasesEnabled?: boolean;
 }
 
 type AuthTab = 'sso' | 'access-code';
 
-export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps) {
+export default function AuthGatePage({ ssoDisabled = false, showcasesEnabled = false }: AuthGatePageProps) {
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('return_to') || '/select-project';
   const signInUrl = `/api/auth/signin?return_to=${encodeURIComponent(returnTo)}`;
@@ -292,8 +293,12 @@ export default function AuthGatePage({ ssoDisabled = false }: AuthGatePageProps)
               <a href="https://vigolium.com" target="_blank" rel="noopener noreferrer" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[website]</a>
               <span>·</span>
               <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[docs]</a>
-              <span>·</span>
-              <a href="/showcases" onClick={() => trackEvent('showcases_link_clicked', { location: 'authgate_light' })} className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[showcases]</a>
+              {showcasesEnabled && (
+                <>
+                  <span>·</span>
+                  <a href="/showcases" onClick={() => trackEvent('showcases_link_clicked', { location: 'authgate_light' })} className="hover:underline transition-colors" style={{ color: 'var(--v-text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.color = 'var(--v-accent)'} onMouseLeave={(e) => e.currentTarget.style.color = 'var(--v-text-muted)'}>[showcases]</a>
+                </>
+              )}
             </div>
           </div>
         </div>

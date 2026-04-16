@@ -52,6 +52,52 @@ function emitAuthRequired() {
   authListeners.forEach((fn) => fn());
 }
 
+// ── Demo mode (cloud only) ─────────────────────────────────────────
+
+let demoMode = false;
+
+export function setDemoMode(active: boolean) {
+  demoMode = active;
+}
+
+export function isDemoMode(): boolean {
+  return demoMode;
+}
+
+type DemoBlockedListener = (method: string, path: string) => void;
+const demoBlockedListeners: DemoBlockedListener[] = [];
+
+export function onDemoBlocked(listener: DemoBlockedListener) {
+  demoBlockedListeners.push(listener);
+  return () => {
+    const idx = demoBlockedListeners.indexOf(listener);
+    if (idx >= 0) demoBlockedListeners.splice(idx, 1);
+  };
+}
+
+function emitDemoBlocked(method: string, path: string) {
+  demoBlockedListeners.forEach((fn) => fn(method, path));
+}
+
+export class DemoReadOnlyError extends ApiError {
+  constructor() {
+    super('This action is disabled in demo mode', 403);
+    this.name = 'DemoReadOnlyError';
+  }
+}
+
+function guardDemoMutation(method: string, path: string) {
+  if (demoMode && method !== 'GET' && method !== 'HEAD') {
+    emitDemoBlocked(method, path);
+    throw new DemoReadOnlyError();
+  }
+}
+
+/** Throw + toast if the current session is demo mode. Use this for raw fetch() mutations. */
+export function assertNotDemo(path: string = '') {
+  guardDemoMutation('POST', path);
+}
+
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(TOKEN_KEY);
@@ -128,11 +174,41 @@ export function setBaseUrl(url: string) {
   localStorage.setItem(URL_KEY, url);
 }
 
+// ── Demo key (cloud only, URL-sourced) ─────────────────────────────
+
+/** Read demo_key from the current browser URL. Returns null on server or when absent. */
+export function getDemoKeyFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return new URLSearchParams(window.location.search).get('demo_key');
+  } catch {
+    return null;
+  }
+}
+
+/** Append demo_key to a URL string if it's not already there and demo mode is active. */
+export function withDemoKey(urlOrPath: string): string {
+  const key = getDemoKeyFromUrl();
+  if (!key) return urlOrPath;
+  const [pathAndQuery, fragment] = urlOrPath.split('#');
+  const [path, query = ''] = pathAndQuery.split('?');
+  const params = new URLSearchParams(query);
+  if (!params.has('demo_key')) {
+    params.set('demo_key', key);
+  }
+  const qs = params.toString();
+  const rebuilt = qs ? `${path}?${qs}` : path;
+  return fragment ? `${rebuilt}#${fragment}` : rebuilt;
+}
+
 // ── HTTP helpers ───────────────────────────────────────────────────
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  guardDemoMutation(method, path);
+
   const base = getBaseUrl();
-  const url = isStaticBuild ? new URL(path, base).toString() : base + path;
+  let url = isStaticBuild ? new URL(path, base).toString() : base + path;
+  if (!isStaticBuild) url = withDemoKey(url);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -204,8 +280,11 @@ export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  guardDemoMutation('POST', path);
+
   const base = getBaseUrl();
-  const url = isStaticBuild ? new URL(path, base).toString() : base + path;
+  let url = isStaticBuild ? new URL(path, base).toString() : base + path;
+  if (!isStaticBuild) url = withDemoKey(url);
 
   const headers: Record<string, string> = {};
   if (isStaticBuild) {

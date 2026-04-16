@@ -49,15 +49,15 @@ vigolium scan-url https://example.com
 
 ### Full Balanced Scan
 
-Run a complete scan with discovery, spidering, and audit phases:
+Run a complete scan with discovery, spidering, and dynamic-assessment phases:
 
 ```bash
 vigolium scan -t https://example.com
 ```
 
-### Fast Audit-Only Scan
+### Fast Dynamic-Assessment-Only Scan
 
-Skip discovery and spidering for a faster, audit-only scan:
+Skip discovery and spidering for a faster, dynamic-assessment-only scan:
 
 ```bash
 vigolium scan -t https://example.com --strategy lite
@@ -118,8 +118,8 @@ echo 'curl -X POST https://api.example.com/login -d "user=admin&pass=test"' | vi
 |------|-------------|
 | `-t, --target` | Target URL (base URL for scope) |
 | `-T, --targets-file` | File containing target URLs (one per line) |
-| `--strategy` | Scanning strategy (e.g., `lite` for audit-only) |
-| `--only` | Run only specific phases (e.g., `--only discovery,audit`) |
+| `--strategy` | Scanning strategy (e.g., `lite` for dynamic-assessment-only) |
+| `--only` | Run only specific phases (e.g., `--only discovery,dynamic-assessment`) |
 | `--skip` | Skip specific phases (e.g., `--skip spidering`) |
 | `-m, --modules` | Run only specific modules by ID |
 | `--module-tag` | Filter modules by tag (e.g., `xss`, `spring`, `light`) |

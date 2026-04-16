@@ -57,6 +57,9 @@ type serverOptions struct {
 	// View-only mode
 	ViewOnly bool
 
+	// Demo-only mode — expose only the narrow read-only allowlist
+	DemoOnly bool
+
 	// Disable Swagger UI
 	NoSwagger bool
 }
@@ -106,6 +109,10 @@ func init() {
 	// View-only mode
 	flags.BoolVar(&serverOpts.ViewOnly, "view-only", false,
 		"Run server in read-only mode (disables scanning, ingestion, agent, and all write endpoints)")
+
+	// Demo-only mode
+	flags.BoolVar(&serverOpts.DemoOnly, "demo-only", false,
+		"Expose only the demo allowlist: GET /api/findings[/:id], /api/http-records[/:uuid], /api/modules, /api/stats, /api/extensions[/:name|/docs]")
 
 	// Disable Swagger
 	flags.BoolVar(&serverOpts.NoSwagger, "no-swagger", false,
@@ -294,6 +301,8 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		NoSwagger:            serverOpts.NoSwagger || settings.Server.DisableSwagger,
 		NoAgent:              serverOpts.NoAgent,
 		ViewOnly:             serverOpts.ViewOnly,
+		DemoOnly:             serverOpts.DemoOnly,
+		License:              settings.Server.License,
 		AgentHeavyMax:        settings.Server.AgentHeavyMax,
 		AgentLightMax:        settings.Server.AgentLightMax,
 		AgentQueueTimeout:    parseAgentQueueTimeout(settings.Server.AgentQueueTimeout),
@@ -304,11 +313,15 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		BuildTime:            BuildTime,
 	}, taskQueue, db, repo, settings, httpRequester)
 
-	// In view-only mode, print banner early and skip runner/catchup entirely
-	if serverOpts.ViewOnly {
+	// In view-only or demo-only mode, print banner early and skip runner/catchup entirely
+	if serverOpts.ViewOnly || serverOpts.DemoOnly {
 		if !globalSilent {
 			fmt.Println()
-			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow("View-only mode — all write endpoints disabled"))
+			bannerText := "View-only mode — all write endpoints disabled"
+			if serverOpts.DemoOnly {
+				bannerText = "Demo-only mode — exposing read-only allowlist (findings, http-records, modules, stats, extensions)"
+			}
+			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow(bannerText))
 			port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
 			fmt.Printf("  %s Starting vigolium server %s and %s\n",
 				terminal.InfoSymbol(),

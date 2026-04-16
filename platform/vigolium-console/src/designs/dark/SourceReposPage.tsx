@@ -5,6 +5,7 @@ import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, RowClickedEvent, SelectionChangedEvent } from 'ag-grid-community';
 import { Globe, ArrowUpDown, ArrowUp, ArrowDown, Search, RefreshCw } from 'lucide-react';
 import { useSourceRepos, useDeleteSourceRepo } from '@/api/hooks';
+import { withDemoKey } from '@/api/client';
 import { useToast } from '@/contexts/ToastContext';
 import type { SourceRepo, SourceReposQueryParams } from '@/api/types';
 
@@ -57,7 +58,7 @@ export default function SourceReposPage({ initialId }: { initialId?: number | nu
 
   const navigateToRepo = useCallback((id: number | null) => {
     setSelectedId(id);
-    window.history.pushState(null, '', id !== null ? `/source-repos/${id}` : '/source-repos');
+    window.history.pushState(null, '', withDemoKey(id !== null ? `/source-repos/${id}` : '/source-repos'));
   }, []);
 
   const queryParams = useMemo(

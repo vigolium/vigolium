@@ -1,4 +1,4 @@
-# description: Balanced scan — discovery, spidering, and audit with moderate pace
+# description: Balanced scan — discovery, spidering, and dynamic-assessment with moderate pace
 scanning_strategy:
   default_strategy: balanced
 
@@ -11,7 +11,7 @@ scanning_pace:
     max_duration: 30m
   spidering:
     max_duration: 30m
-  audit:
+  dynamic-assessment:
     concurrency: 50
 
 discovery:
@@ -56,7 +56,7 @@ known_issue_scan:
   exclude_tags:
     - dos
 
-audit:
+dynamic-assessment:
   enabled_modules:
     active_modules:
       - all
