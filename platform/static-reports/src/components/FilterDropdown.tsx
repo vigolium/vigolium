@@ -11,9 +11,10 @@ interface Props {
   onChange: (value: string) => void;
   options: Option[];
   placeholder?: string;
+  shortLabel?: string;
 }
 
-export default function FilterDropdown({ value, onChange, options, placeholder }: Props) {
+export default function FilterDropdown({ value, onChange, options, placeholder, shortLabel }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -31,16 +32,24 @@ export default function FilterDropdown({ value, onChange, options, placeholder }
   }, [open, handleOutsideClick]);
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? placeholder ?? value;
+  const isDefault = value === "all" || value === options[0]?.value;
 
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 bg-cream border border-warm-border text-charcoal text-xs font-sans px-2.5 py-1.5 rounded-md hover:border-terracotta/40 transition-colors min-w-[100px] text-left"
+        className="flex items-center gap-1 sm:gap-1.5 bg-cream border border-warm-border text-charcoal text-[11px] sm:text-xs font-sans px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-md hover:border-terracotta/40 transition-colors min-w-0 sm:min-w-[100px] text-left"
       >
-        <span className="flex-1 truncate">{selectedLabel}</span>
-        <ChevronDown size={14} className={`text-text-muted shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+        {shortLabel && isDefault ? (
+          <>
+            <span className="flex-1 truncate lg:hidden">{shortLabel}</span>
+            <span className="flex-1 truncate hidden lg:inline">{selectedLabel}</span>
+          </>
+        ) : (
+          <span className="flex-1 truncate">{selectedLabel}</span>
+        )}
+        <ChevronDown size={12} className={`text-text-muted shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="absolute z-50 mt-1 w-full min-w-[160px] bg-cream border border-warm-border rounded-md shadow-lg overflow-hidden">

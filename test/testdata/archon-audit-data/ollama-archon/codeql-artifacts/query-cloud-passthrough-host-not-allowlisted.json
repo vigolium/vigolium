@@ -1,0 +1,6 @@
+{"#select":{"columns":[
+   {"name":"envRead","kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"call to Getenv"},"Cloud proxy base URL read from environment variable 'OLLAMA_HOST' without adjacent allowlist validation — SSRF risk (DFD-9, CVE-2026-5530 class)."]]
+ }}

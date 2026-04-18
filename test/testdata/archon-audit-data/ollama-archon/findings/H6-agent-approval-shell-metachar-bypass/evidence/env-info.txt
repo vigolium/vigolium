@@ -1,0 +1,13 @@
+Platform  : darwin (macOS)
+OS Version: Darwin 25.3.0 arm64
+Go version: go1.26.1 darwin/arm64
+Repo HEAD : 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Commit msg: cmd/launch: show WSL guidance on Windows instead of handing off (#15637)
+Test date : 2026-04-17
+Test file : x/agent/poc_c3_test.go
+Test func : TestC3_ApprovalMetacharBypass
+
+Vulnerable files (HEAD):
+  x/agent/approval.go   (IsDenied, extractBashPrefix, IsAllowed, AddToAllowlist)
+  x/tools/bash.go:64    (exec.CommandContext "bash" "-c" cmd)
+  x/cmd/run.go:369-436  (tool-call approval + execution loop)

@@ -1,0 +1,14 @@
+=== H11 Environment Info: 2026-04-17T09:02:49Z ===
+Platform    : Darwin 25.3.0 arm64
+Go version  : go version go1.26.1 darwin/arm64
+Python      : Python 3.9.6
+Repo HEAD   : 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Branch      : audit
+
+Key source file mtimes:
+/Users/bytedance/Desktop/demo/ollama/llama/llama.go  mtime=Apr 17 11:40:57 2026
+/Users/bytedance/Desktop/demo/ollama/runner/llamarunner/image.go  mtime=Apr 17 11:40:58 2026
+/Users/bytedance/Desktop/demo/ollama/llama/llama.cpp/tools/mtmd/mtmd.cpp  mtime=Apr 17 11:40:57 2026
+/Users/bytedance/Desktop/demo/ollama/llama/llama.cpp/tools/mtmd/mtmd-helper.cpp  mtime=Apr 17 11:40:57 2026
+/Users/bytedance/Desktop/demo/ollama/fs/ggml/ggml.go  mtime=Apr 17 11:40:57 2026
+/Users/bytedance/Desktop/demo/ollama/llm/server.go  mtime=Apr 17 11:40:57 2026

@@ -279,7 +279,7 @@ scanning_pace:
   concurrency: 50        # Worker/thread count
   rate_limit: 100        # Requests/sec (applies to KnownIssueScan currently)
   max_per_host: 20        # Per-host concurrency cap
-  max_duration: 45m      # Base duration for all phases (per-phase factors scale this)
+  max_duration: 1h       # Base duration for all phases (per-phase factors scale this)
 
   # Per-phase overrides (only set fields override common values)
   # Factors scale the common value (e.g. duration_factor: 2.0 = 2x base max_duration).

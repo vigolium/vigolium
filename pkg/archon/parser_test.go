@@ -126,10 +126,26 @@ func TestParsePromotedFindings_DirectoryLayout(t *testing.T) {
 cur.execute("SELECT * FROM users WHERE name = '" + name + "'")
 ` + "```" + `
 `
+	reportBody := `# H1 — SQL Injection in Login Endpoint
+
+**Severity**: HIGH
+**PoC-Status**: executed
+**Component**: ` + "`src/auth.py:42`" + `
+
+---
+
+## Summary
+
+The login endpoint is vulnerable to SQL injection.
+
+## Fix
+
+Use parameterized queries instead of string concatenation.
+`
 	subDir := filepath.Join(findingsDir, "H1-sqli-login")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "draft.md"), []byte(draftBody), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "report.md"), []byte("# Full narrative report\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "report.md"), []byte(reportBody), 0o644))
 
 	findings, err := parsePromotedFindings(findingsDir)
 	require.NoError(t, err)
@@ -138,10 +154,11 @@ cur.execute("SELECT * FROM users WHERE name = '" + name + "'")
 	af := findings[0]
 	assert.Equal(t, "H1", af.FindingID, "dir name should win over inline Q1-001 header")
 	assert.Equal(t, "sqli-login", af.Slug)
-	assert.Equal(t, "SQL Injection in login", af.Title)
-	assert.Equal(t, "High", af.Severity)
-	assert.Contains(t, af.Locations, "src/auth.py:42")
-	assert.Contains(t, af.Body, "Full narrative report", "report.md should be appended to the body")
+	assert.Equal(t, "SQL Injection in Login Endpoint", af.Title, "title from report.md H1 heading")
+	assert.Equal(t, "HIGH", af.Severity)
+	assert.Equal(t, "executed", af.PoCStatus, "poc-status from report.md")
+	assert.Contains(t, af.Body, "login endpoint is vulnerable", "body should be report.md content")
+	assert.Contains(t, af.Remediation, "parameterized queries", "remediation from ## Fix section")
 }
 
 func TestParseQuickDraftFinding(t *testing.T) {
@@ -371,4 +388,280 @@ func TestExtractCWE(t *testing.T) {
 	assert.Equal(t, "CWE-601", extractCWE("CWE-601 (URL Redirection to Untrusted Site)"))
 	assert.Equal(t, "CWE-918", extractCWE("CWE-918"))
 	assert.Equal(t, "", extractCWE("no cwe here"))
+}
+
+func TestParseReportMd_BoldHeaderFormat(t *testing.T) {
+	content := `# H3 — Public Dashboard Credential Exposure
+
+**ID**: H3
+**Severity**: HIGH
+**Status**: Confirmed — PoC Executed
+**PoC-Status**: executed
+**Component**: ` + "`pkg/api/frontendsettings.go:541-577`" + `
+
+---
+
+## Summary
+
+Unauthenticated credential disclosure via public dashboard endpoint.
+
+## Fix
+
+Add an IsPublicDashboardView() guard around the credential extraction block.
+`
+	af := &ArchonFinding{}
+	parseReportMd(af, content)
+
+	assert.Equal(t, "Public Dashboard Credential Exposure", af.Title)
+	assert.Equal(t, "HIGH", af.Severity)
+	assert.Equal(t, "executed", af.PoCStatus)
+	assert.Equal(t, "VALID", af.Verdict, "Confirmed status should set verdict to VALID")
+	assert.Contains(t, af.Remediation, "IsPublicDashboardView()")
+	assert.Contains(t, af.Locations, "pkg/api/frontendsettings.go:541-577")
+}
+
+func TestParseReportMd_PlainKVFormat(t *testing.T) {
+	content := `ID: H6
+Title: Auth Proxy Empty Whitelist Allows Any Client
+Severity: HIGH
+Component: pkg/services/authn/clients/proxy.go
+PoC-Status: executed
+
+---
+
+## Summary
+
+When auth proxy is enabled, the IP allowlist defaults to empty.
+
+## Remediation
+
+Default the allowlist to loopback addresses when empty.
+`
+	af := &ArchonFinding{}
+	parseReportMd(af, content)
+
+	assert.Equal(t, "Auth Proxy Empty Whitelist Allows Any Client", af.Title)
+	assert.Equal(t, "HIGH", af.Severity)
+	assert.Equal(t, "executed", af.PoCStatus)
+	assert.Contains(t, af.Remediation, "loopback addresses")
+}
+
+func TestParseReportMd_NoHeaderFormat(t *testing.T) {
+	content := `## Summary
+
+` + "`IsAutoAllowed`" + ` performs strings.HasPrefix without metachar split.
+
+## Root Cause
+
+Validated rationale: prefix check with no metacharacter awareness.
+
+## Proof of Concept
+
+Run the poc.py script.
+
+## Impact
+
+Arbitrary command execution.
+`
+	af := &ArchonFinding{Slug: "autoallow-bypass"}
+	parseReportMd(af, content)
+
+	assert.Contains(t, af.Title, "IsAutoAllowed", "title should come from first summary line")
+}
+
+func TestParsePromotedFindingDir_ReportPriority(t *testing.T) {
+	tmp := t.TempDir()
+	findingsDir := filepath.Join(tmp, "findings")
+	subDir := filepath.Join(findingsDir, "C1-test-vuln")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	draft := `Phase: 10
+Sequence: 001
+Slug: test-vuln
+Verdict: VALID
+Severity-Original: CRITICAL
+Severity-Final: CRITICAL
+PoC-Status: theoretical
+
+## Summary
+
+Draft summary here.
+`
+	report := `# C1 — Test Vulnerability Title
+
+**Severity**: CRITICAL
+**PoC-Status**: executed
+**Status**: Confirmed — PoC Executed
+
+---
+
+## Summary
+
+Report summary with more detail.
+
+## Fix
+
+Apply the suggested patch.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "draft.md"), []byte(draft), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "report.md"), []byte(report), 0o644))
+
+	af := parsePromotedFindingDir(subDir, "C1-test-vuln")
+	require.NotNil(t, af)
+
+	assert.Equal(t, "C1", af.FindingID)
+	assert.Equal(t, "Test Vulnerability Title", af.Title, "title from report.md")
+	assert.Equal(t, "executed", af.PoCStatus, "poc-status upgraded by report.md")
+	assert.Equal(t, "VALID", af.Verdict, "verdict preserved from draft.md")
+	assert.Contains(t, af.Body, "Report summary", "body should be report.md")
+	assert.NotContains(t, af.Body, "Draft summary", "body should NOT be draft.md when report exists")
+	assert.Contains(t, af.Remediation, "suggested patch")
+}
+
+func TestParsePromotedFindingDir_DraftOnly(t *testing.T) {
+	tmp := t.TempDir()
+	findingsDir := filepath.Join(tmp, "findings")
+	subDir := filepath.Join(findingsDir, "M1-minor-issue")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	draft := `Phase: 10
+Sequence: 001
+Slug: minor-issue
+Verdict: VALID
+Severity-Final: MEDIUM
+
+## Summary
+
+A minor issue found during audit.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "draft.md"), []byte(draft), 0o644))
+
+	af := parsePromotedFindingDir(subDir, "M1-minor-issue")
+	require.NotNil(t, af)
+
+	assert.Equal(t, "M1", af.FindingID)
+	assert.Contains(t, af.Body, "minor issue")
+}
+
+func TestDetectPoCFile(t *testing.T) {
+	tmp := t.TempDir()
+
+	// No poc file
+	assert.Equal(t, "", detectPoCFile(tmp))
+
+	// Add poc.py
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "poc.py"), []byte("#!/usr/bin/env python3\n"), 0o644))
+	assert.Equal(t, "poc.py", detectPoCFile(tmp))
+}
+
+func TestParsePromotedFindingDir_WithPoCAndMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	findingsDir := filepath.Join(tmp, "findings")
+	subDir := filepath.Join(findingsDir, "C1-variant-finding")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	draft := `Phase: 10
+Sequence: 001
+Slug: variant-finding
+Verdict: VALID
+Severity-Final: CRITICAL
+
+## Summary
+
+A variant of H6.
+`
+	metadata := `{
+  "is_variant": true,
+  "origin_finding_id": "H6",
+  "origin_pattern": "AP-065"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "draft.md"), []byte(draft), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "poc.py"), []byte("#!/usr/bin/env python3\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "metadata.json"), []byte(metadata), 0o644))
+
+	af := parsePromotedFindingDir(subDir, "C1-variant-finding")
+	require.NotNil(t, af)
+
+	assert.Equal(t, "poc.py", af.PoCFile)
+	assert.True(t, af.IsVariant)
+	assert.Equal(t, "H6", af.OriginFindingID)
+
+	// Verify tags flow through to database finding
+	dbFinding := toDBFinding(af, "test-audit", "test-run", "test-project", "test-repo")
+	assert.Contains(t, dbFinding.Tags, "poc-available")
+	assert.Contains(t, dbFinding.Tags, "variant-of:H6")
+}
+
+func TestParsePromotedFindings_RealOllamaData(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "ollama-archon", "findings")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		t.Skip("ollama-archon test data not available")
+	}
+
+	findings, err := parsePromotedFindings(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	// C1 should have report.md as primary body source and poc.py detected.
+	var c1 *ArchonFinding
+	for _, f := range findings {
+		if f.FindingID == "C1" {
+			c1 = f
+			break
+		}
+	}
+	if c1 != nil {
+		assert.Equal(t, "poc.py", c1.PoCFile)
+		assert.True(t, c1.IsVariant, "C1 should be a variant per metadata.json")
+		assert.Equal(t, "H6", c1.OriginFindingID)
+		assert.Contains(t, c1.Body, "IsAutoAllowed", "body should contain report content")
+	}
+}
+
+func TestParsePromotedFindings_RealGrafanaData(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "grafana-archon", "findings")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		t.Skip("grafana-archon test data not available")
+	}
+
+	findings, err := parsePromotedFindings(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, findings)
+
+	// H3 has the bold-header format report with poc.sh
+	var h3 *ArchonFinding
+	for _, f := range findings {
+		if f.FindingID == "H3" && f.Slug == "pubdash-credential-exposure" {
+			h3 = f
+			break
+		}
+	}
+	if h3 != nil {
+		assert.Equal(t, "poc.sh", h3.PoCFile)
+		assert.Equal(t, "executed", h3.PoCStatus, "poc-status from report.md")
+		assert.NotEmpty(t, h3.Remediation, "should extract ## Fix section")
+		assert.Contains(t, h3.Title, "Credential", "title from report.md H1")
+	}
+}
+
+func TestExtractSection(t *testing.T) {
+	content := `## Summary
+
+Some summary.
+
+## Fix
+
+Apply the patch to fix it.
+
+## Impact
+
+High impact.
+`
+	assert.Contains(t, extractSection(content, "Fix"), "Apply the patch")
+	assert.Contains(t, extractSection(content, "Impact"), "High impact")
+	assert.Equal(t, "", extractSection(content, "Nonexistent"))
+
+	// Multiple name fallback
+	assert.Contains(t, extractSection(content, "Remediation", "Fix"), "Apply the patch")
 }

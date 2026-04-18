@@ -165,6 +165,12 @@ type ArchonFinding struct {
 
 	// Source filename
 	Filename string
+
+	// Enrichment from promoted finding directories
+	Remediation    string // extracted from ## Fix / ## Remediation sections
+	PoCFile        string // filename of poc.* file (e.g. "poc.py", "poc.sh")
+	IsVariant      bool
+	OriginFindingID string // e.g. "H6" when this finding is a variant
 }
 
 // ParseAuditFolder parses an archon output folder and returns the import data.
@@ -497,37 +503,52 @@ func promotedSortKey(af *ArchonFinding) string {
 	return rank + fmt.Sprintf("%06s", af.Sequence) + af.FindingID
 }
 
-// parsePromotedFindingDir parses a findings/<ID>-<slug>/ directory by reading
-// draft.md (metadata) and optionally appending report.md to the body.
+// parsePromotedFindingDir parses a findings/<ID>-<slug>/ directory.
+// Priority: report.md (polished, structured) → draft.md (frontmatter metadata).
+// Also reads poc.* files and metadata.json for enrichment.
 func parsePromotedFindingDir(dirPath, entryName string) *ArchonFinding {
 	m := promotedFindingRegex.FindStringSubmatch(entryName)
 	if m == nil {
 		return nil
 	}
 
-	draftPath := filepath.Join(dirPath, "draft.md")
-	data, err := os.ReadFile(draftPath)
-	if err != nil {
-		// No draft — try report.md as the sole source.
-		data, err = os.ReadFile(filepath.Join(dirPath, "report.md"))
-		if err != nil {
-			return nil
-		}
-	}
-
 	af := newPromotedArchonFinding(m, entryName)
-	af.Filename = entryName + "/draft.md"
-	parseLiteFinding(af, string(data))
 
-	// Append report.md if it exists and isn't already the body source.
-	if report, err := os.ReadFile(filepath.Join(dirPath, "report.md")); err == nil && len(report) > 0 {
-		if !strings.Contains(af.Body, string(report)) {
-			af.Body = af.Body + "\n\n---\n\n" + string(report)
-		}
+	reportPath := filepath.Join(dirPath, "report.md")
+	draftPath := filepath.Join(dirPath, "draft.md")
+
+	reportData, reportErr := os.ReadFile(reportPath)
+	draftData, draftErr := os.ReadFile(draftPath)
+
+	if reportErr != nil && draftErr != nil {
+		return nil
 	}
 
-	// Directory name wins over any Q-prefixed ID the content-level parser
-	// might have derived from a "## Q1-001:" header inside draft.md.
+	// Parse draft.md first for frontmatter metadata (Phase, Verdict, Origin-Pattern, etc.)
+	if draftErr == nil {
+		af.Filename = entryName + "/draft.md"
+		parseFrontmatterFinding(af, string(draftData))
+	}
+
+	// If report.md exists, use it as the primary body and extract structured fields.
+	if reportErr == nil && len(reportData) > 0 {
+		af.Filename = entryName + "/report.md"
+		reportContent := string(reportData)
+		parseReportMd(af, reportContent)
+		af.Body = reportContent
+	} else if draftErr == nil {
+		// No report — use draft body. Re-parse with parseLiteFinding for inline fields.
+		parseLiteFinding(af, string(draftData))
+	}
+
+	// Detect poc.* files.
+	if pocFile := detectPoCFile(dirPath); pocFile != "" {
+		af.PoCFile = pocFile
+	}
+
+	// Parse metadata.json for variant info.
+	parseMetadataJSON(af, dirPath)
+
 	restorePromotedIdentity(af, m)
 	return af
 }
@@ -588,6 +609,170 @@ func restorePromotedIdentity(af *ArchonFinding, m []string) {
 	// Ensure severity comes from the promoted ID when content is silent.
 	if af.Severity == "" {
 		af.Severity = severityFromLetter(sevLetter)
+	}
+}
+
+// reportTitleRegex matches "# H3 — Title Here" or "# M9 — Title Here" style H1 headings.
+var reportTitleRegex = regexp.MustCompile(`(?m)^#\s+\S+\s*(?:—|--|-)\s*(.+)$`)
+
+// reportBoldFieldRegex matches **Key**: Value lines in report headers.
+var reportBoldFieldRegex = regexp.MustCompile(`\*\*(.+?)\*\*:\s*(.+)`)
+
+// reportPlainFieldRegex matches plain Key: Value lines (e.g. "Severity: HIGH").
+var reportPlainFieldRegex = regexp.MustCompile(`(?m)^([A-Za-z][A-Za-z _-]+?):\s*(.+)$`)
+
+// parseReportMd extracts structured fields from a report.md file.
+// LLM-generated reports vary in format; this handles the observed variants:
+//   - Bold-header: **Severity**: HIGH
+//   - Plain-kv: Severity: HIGH
+//   - H1-title: # H3 — Title Here
+//   - Section-based: ## Fix / ## Remediation
+func parseReportMd(af *ArchonFinding, content string) {
+	// Extract title from H1 heading: "# H3 — Title"
+	if m := reportTitleRegex.FindStringSubmatch(content); m != nil {
+		af.Title = strings.TrimSpace(m[1])
+	}
+
+	// Scan the header area (before first ## section) for metadata fields.
+	headerEnd := len(content)
+	if idx := strings.Index(content, "\n## "); idx != -1 {
+		headerEnd = idx
+	}
+	header := content[:headerEnd]
+
+	// Try bold fields first: **Severity**: HIGH
+	for _, m := range reportBoldFieldRegex.FindAllStringSubmatch(header, -1) {
+		applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+	}
+
+	// Then try plain key-value: Severity: HIGH
+	for _, m := range reportPlainFieldRegex.FindAllStringSubmatch(header, -1) {
+		applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+	}
+
+	// If no title from H1, try from a Title field or the first ## Summary paragraph.
+	if af.Title == "" {
+		af.Title = extractTitleFromBody(content, af.Slug)
+	}
+
+	// Extract locations from the full body.
+	if locs := extractLocations(content); len(locs) > 0 {
+		af.Locations = locs
+	}
+
+	// Extract remediation from ## Fix or ## Remediation sections.
+	af.Remediation = extractSection(content, "Fix", "Remediation", "Recommendation")
+}
+
+// applyReportField maps a key-value pair from report.md header to ArchonFinding fields.
+func applyReportField(af *ArchonFinding, key, val string) {
+	switch strings.ToLower(key) {
+	case "severity":
+		if af.Severity == "" || af.SeverityFinal == "" {
+			af.Severity = val
+		}
+	case "poc-status":
+		af.PoCStatus = val
+	case "status":
+		if strings.Contains(strings.ToLower(val), "confirmed") {
+			af.Verdict = "VALID"
+		}
+		if strings.Contains(strings.ToLower(val), "poc executed") || strings.Contains(strings.ToLower(val), "poc executed") {
+			af.PoCStatus = "executed"
+		}
+	case "title":
+		if af.Title == "" {
+			af.Title = val
+		}
+	case "cwe", "cwe context":
+		if cwe := extractCWE(val); cwe != "" {
+			af.CWE = cwe
+		}
+	case "cve context":
+		if cwe := extractCWE(val); cwe != "" && af.CWE == "" {
+			af.CWE = cwe
+		}
+	case "component":
+		val = strings.Trim(val, "`")
+		if len(af.Locations) == 0 {
+			af.Locations = append(af.Locations, val)
+		}
+	case "confidence":
+		af.Confidence = val
+	}
+}
+
+// extractSection returns the content of the first matching ## section.
+func extractSection(content string, names ...string) string {
+	lower := strings.ToLower(content)
+	for _, name := range names {
+		marker := "## " + strings.ToLower(name)
+		idx := strings.Index(lower, marker)
+		if idx == -1 {
+			continue
+		}
+		// Find the start of content after the heading line.
+		rest := content[idx:]
+		nlIdx := strings.IndexByte(rest, '\n')
+		if nlIdx == -1 {
+			continue
+		}
+		sectionBody := rest[nlIdx+1:]
+
+		// Find the end: next ## heading or end of content.
+		endIdx := strings.Index(sectionBody, "\n## ")
+		if endIdx == -1 {
+			endIdx = strings.Index(sectionBody, "\n---")
+		}
+		if endIdx != -1 {
+			sectionBody = sectionBody[:endIdx]
+		}
+		sectionBody = strings.TrimSpace(sectionBody)
+		if sectionBody != "" {
+			return sectionBody
+		}
+	}
+	return ""
+}
+
+// detectPoCFile returns the filename of a poc.* file in the directory, or empty string.
+func detectPoCFile(dirPath string) string {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, "poc.") {
+			return name
+		}
+	}
+	return ""
+}
+
+// findingMetadata is the JSON structure of metadata.json in a promoted finding dir.
+type findingMetadata struct {
+	IsVariant        bool   `json:"is_variant"`
+	OriginFindingID  string `json:"origin_finding_id"`
+	OriginPattern    string `json:"origin_pattern"`
+}
+
+// parseMetadataJSON reads metadata.json and populates variant fields on the finding.
+func parseMetadataJSON(af *ArchonFinding, dirPath string) {
+	data, err := os.ReadFile(filepath.Join(dirPath, "metadata.json"))
+	if err != nil {
+		return
+	}
+	var meta findingMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return
+	}
+	af.IsVariant = meta.IsVariant
+	if meta.OriginFindingID != "" {
+		af.OriginFindingID = meta.OriginFindingID
 	}
 }
 
@@ -836,6 +1021,12 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName
 	if af.CWE != "" {
 		tags = append(tags, af.CWE)
 	}
+	if af.PoCFile != "" {
+		tags = append(tags, "poc-available")
+	}
+	if af.IsVariant && af.OriginFindingID != "" {
+		tags = append(tags, fmt.Sprintf("variant-of:%s", af.OriginFindingID))
+	}
 
 	// Source file: first location
 	sourceFile := ""
@@ -867,6 +1058,7 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName
 		RepoName:        repoName,
 		MatchedAt:       af.Locations,
 		FindingHash:     hash,
+		Remediation:     af.Remediation,
 		FoundAt:         time.Now(),
 	}
 }

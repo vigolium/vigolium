@@ -1,0 +1,25 @@
+Commit: 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Test: TestReadRequestBody_Uncapped_512MiB against real server package
+Result: PASS — 512 MiB body read in 577 ms, handler received all 512 MiB, no cap triggered.
+
+Trace verified at /Users/bytedance/Desktop/demo/ollama/server/cloud_proxy.go:289-301
+  readRequestBody calls io.ReadAll(r.Body) unconditionally.
+  Zstd branch at line 89 wraps with MaxBytesReader(20 MiB), but ONLY if
+  Content-Encoding: zstd. Any plain POST skips the cap entirely.
+
+HTTP server at routes.go:1811 sets no Handler-level body cap, no MaxHeaderBytes,
+no ReadTimeout. Gin has no default BodyLimit middleware enabled.
+
+allowedHostsMiddleware at routes.go:1608-1644 only filters when bound to
+loopback — if the server bound to a non-loopback (e.g., 0.0.0.0) the middleware
+short-circuits at line 1615-1618 and does not block remote hosts. This means
+LAN-reachable Ollama processes (OLLAMA_HOST=0.0.0.0, Docker, WSL2) have no
+network-level barrier between the attacker's POST and the unbounded ReadAll.
+
+Endpoints inheriting the sink:
+  /v1/chat/completions, /v1/completions, /v1/embeddings,
+  /v1/responses, /v1/images/generations, /v1/images/edits,
+  /v1/messages, /api/experimental/web_search, /api/experimental/web_fetch
+
+Verdict: The vulnerability is real and reproducible. Exploitability depends on
+reachability (default is loopback, but 0.0.0.0 is a documented common config).

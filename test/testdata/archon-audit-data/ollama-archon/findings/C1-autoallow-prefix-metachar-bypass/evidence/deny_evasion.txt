@@ -1,0 +1,65 @@
+DENY-PATTERN EVASION ANALYSIS
+========================================================================
+
+denyPatterns checked in IsDenied (lowercase substring match):
+  'rm -rf'
+  'rm -fr'
+  'mkfs'
+  'dd if='
+  'dd of='
+  'shred'
+  '> /dev/'
+  '>/dev/'
+  'sudo '
+  'su '
+  'doas '
+  'chmod 777'
+  'chmod -R 777'
+  'chown '
+  'chgrp '
+  'curl -d'
+  'curl --data'
+  'curl -X POST'
+  'curl -X PUT'
+  'wget --post'
+  'nc '
+  'netcat '
+  'scp '
+  'rsync '
+  'history'
+  '.bash_history'
+  '.zsh_history'
+  '.ssh/id_rsa'
+  '.ssh/id_dsa'
+  '.ssh/id_ecdsa'
+  '.ssh/id_ed25519'
+  '.ssh/config'
+  '.aws/credentials'
+  '.aws/config'
+  '.gnupg/'
+  '/etc/shadow'
+  '/etc/passwd'
+  ':(){ :|:& };:'
+  'chmod +s'
+  'mkfifo'
+
+Payload evasion rationale:
+
+  [01] EVADES denylist — semicolon chaining via 'make'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [02] EVADES denylist — semicolon chaining via 'cmake'
+  [03] EVADES denylist — &&-chaining via 'npm run build'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [04] EVADES denylist — &&-chaining via 'go test'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [05] EVADES denylist — pipe-chaining via 'go build'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [06] EVADES denylist — semicolon via 'cargo build --release'
+  [07] EVADES denylist — backtick injection via 'uv run'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [08] EVADES denylist — process substitution via 'git log'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [09] EVADES denylist — newline injection via 'npm run'
+       'curl' alone is not in denylist; only POST variants are blocked
+  [10] EVADES denylist — IsDenied evasion: quoting trick on 'make'
+       quoting trick: r''m != 'rm' at string level, but shell evaluates to rm

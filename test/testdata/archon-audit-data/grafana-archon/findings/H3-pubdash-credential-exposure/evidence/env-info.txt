@@ -1,0 +1,17 @@
+=== Docker Environment ===
+Docker version 28.5.2, build ecc6942
+
+=== Container Info ===
+Image: grafana/grafana:latest\nStarted: 2026-04-11T16:45:19.732174842Z
+
+=== Grafana Version ===
+{
+  "database": "ok",
+  "version": "12.4.2",
+  "commit": "ebade4c739e1aface4ce094934ad85374887a680"
+}
+=== Host OS ===
+Darwin HKYV1690GP 25.3.0 Darwin Kernel Version 25.3.0: Wed Jan 28 20:56:35 PST 2026; root:xnu-12377.91.3~2/RELEASE_ARM64_T6030 arm64
+
+=== Date ===
+Sat Apr 11 16:46:10 UTC 2026

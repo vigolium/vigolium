@@ -1,0 +1,18 @@
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+server got: /v2/library/evil/blobs/sha256:../../../etc/passwd
+download returned error: max retries exceeded: digest mismatch
+Checking target path /var/folders/2k/etc/passwd
+filepath.Join result: /var/folders/2k/z4j3lfxj5fv7r20hswc8sj8r0000gn/T/etc/passwd
+sha256(content) = sha256:7c5a3bceb50928dbbccade69c7ef3bd1bc57dd710711f770c5eff762859ace79
+expected (traversal) = sha256:../../../etc/passwd
+{"error":"max retries exceeded: digest mismatch"}

@@ -1,0 +1,47 @@
+rules:
+  - id: zip-extraction-no-traversal-check
+    languages: [go]
+    severity: ERROR
+    message: >
+      ZIP entry extracted to filepath.Join(dir, f.Name) without strings.HasPrefix
+      traversal check. A malicious ZIP can write outside the target directory.
+      CVE-2024-45436 sibling path (unpatched). CWE-22.
+    patterns:
+      - pattern: filepath.Join($DIR, $F.Name)
+      - pattern-not-inside: |
+          if !strings.HasPrefix(...) {
+            ...
+          }
+      - pattern-inside: |
+          for _, $F := range $R.File {
+            ...
+          }
+    paths:
+      include:
+        - "app/updater/updater_darwin.go"
+
+  - id: blob-dir-world-writable
+    languages: [go]
+    severity: WARNING
+    message: >
+      Blob cache directory created with mode 0o777 (world-writable). On shared
+      systems, any local user can replace blob files, enabling cache poisoning.
+      CWE-732.
+    pattern: os.MkdirAll($PATH, 0o777)
+    paths:
+      include:
+        - "server/internal/cache/blob/cache.go"
+
+  - id: blob-size-only-integrity
+    languages: [go]
+    severity: WARNING
+    message: >
+      Blob file integrity verified by size only. A same-size malicious blob
+      bypasses integrity checking. CWE-345.
+    pattern: |
+      if $ERR == nil && $INFO.Size() == $SIZE {
+          return nil
+      }
+    paths:
+      include:
+        - "server/internal/cache/blob/cache.go"

@@ -1,0 +1,47 @@
+rules:
+  - id: cors-file-origin-default
+    languages: [go]
+    severity: ERROR
+    message: >
+      file://* is in the default CORS allow list and cannot be removed via
+      OLLAMA_ORIGINS. Combined with no-auth API, any local HTML file can invoke
+      all endpoints including destructive ones. CWE-942.
+    pattern: |
+      "file://*"
+    paths:
+      include:
+        - "envconfig/config.go"
+
+  - id: ssrf-model-name-host
+    languages: [go]
+    severity: ERROR
+    message: >
+      Model name Host field is used directly as registry URL target with only
+      a length check. No allowlist validation. Enables SSRF to internal services.
+      CVE-2026-5530. CWE-918.
+    pattern: |
+      func (n Name) BaseURL() *url.URL {
+          return &url.URL{
+              Scheme: n.ProtocolScheme,
+              Host:   n.Host,
+          }
+      }
+    paths:
+      include:
+        - "types/model/name.go"
+
+  - id: registry-local-bypasses-middleware
+    languages: [go]
+    severity: ERROR
+    message: >
+      registry.Local handles /api/delete and /api/pull before gin middleware runs.
+      allowedHostsMiddleware (DNS rebinding protection) is bypassed for these routes.
+      CWE-284.
+    pattern: |
+      case "/api/delete":
+          return false, s.handleDelete($REC, $R)
+      case "/api/pull":
+          return false, s.handlePull($REC, $R)
+    paths:
+      include:
+        - "server/internal/registry/server.go"

@@ -1,0 +1,18 @@
+{
+  "component": "group-C",
+  "loop": 1,
+  "total_validated": 17,
+  "total_needs_deeper": 2,
+  "loops": [
+    {
+      "loop": 1,
+      "q1_uncovered_entry_points": [],
+      "q2_chain_seeds": ["PH-03+PH-16 (SSRF chain)", "PH-04+PH-05 (host bypass -> signing key abuse)", "PH-01+PH-14 (double-buffering OOM amplification)"],
+      "q3_fragile_items": ["PH-07 (registry realm downgrade - requires attacker-controlled registry)"],
+      "q4_uncovered_by_reasoners": [],
+      "q5_impact_multipliers": ["PH-21 (RawQuery timestamp collision - if confirmed, enables signed request replay)"],
+      "decision": "proceed_to_summary",
+      "reason": "All 8 entry points covered by at least one reasoner. No Fragile items that are independently exploitable (PH-07 is fragile but chains from validated PH-03/PH-16). No uncovered trust chain gaps. One NEEDS-DEEPER item (PH-08/PH-21) has low independent severity."
+    }
+  ]
+}

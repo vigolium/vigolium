@@ -1,0 +1,3476 @@
+{
+  "generated": "2026-04-17",
+  "target": "github.com/ollama/ollama @ 57653b8e",
+  "phase": 4,
+  "tool_versions": {
+    "codeql": "2.24.2",
+    "semgrep": "1.144.0",
+    "codeql_go_queries": "1.6.0",
+    "codeql_go_all": "7.0.5"
+  },
+  "summary": {
+    "total_candidates": 210,
+    "codeql_builtin": 38,
+    "codeql_custom": 6,
+    "semgrep_baseline": 22,
+    "semgrep_custom": 144,
+    "by_severity": {
+      "CRITICAL": 1,
+      "HIGH": 98,
+      "MEDIUM": 111,
+      "LOW": 0
+    }
+  },
+  "candidates": [
+    {
+      "id": "codeql-go/request-forgery-server/images.go-992",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/request-forgery",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-918"
+      ],
+      "file": "server/images.go",
+      "line": 992,
+      "message": "The [URL](1) of this request depends on a [user-provided value](2).\nThe [URL](1) of this request depends on a [user-provided value](3).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/allocation-size-overflow-anthropic/trace.go-71",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/allocation-size-overflow",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-190",
+        "CWE-680"
+      ],
+      "file": "anthropic/trace.go",
+      "line": 71,
+      "message": "This operation, which is used in an [allocation](1), involves a [potentially large value](2) and might overflow.\nThis operation, which is used in an [allocation](1), involves a [potentially large valu",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/allocation-size-overflow-model/renderers/json.go-14",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/allocation-size-overflow",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-190",
+        "CWE-680"
+      ],
+      "file": "model/renderers/json.go",
+      "line": 14,
+      "message": "This operation, which is used in an [allocation](1), involves a [potentially large value](2) and might overflow.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/allocation-size-overflow-model/renderers/json.go-14",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/allocation-size-overflow",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-190",
+        "CWE-680"
+      ],
+      "file": "model/renderers/json.go",
+      "line": 14,
+      "message": "This operation, which is used in an [allocation](1), involves a [potentially large value](2) and might overflow.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/allocation-size-overflow-tokenizer/wordpiece.go-61",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/allocation-size-overflow",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-190",
+        "CWE-680"
+      ],
+      "file": "tokenizer/wordpiece.go",
+      "line": 61,
+      "message": "This operation, which is used in an [allocation](1), involves a [potentially large value](2) and might overflow.\nThis operation, which is used in an [allocation](1), involves a [potentially large valu",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-kvcache/recurrent.go-138",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "kvcache/recurrent.go",
+      "line": 138,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/llamarunner/cache.go-31",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/llamarunner/cache.go",
+      "line": 31,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/llamarunner/runner.go-903",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/llamarunner/runner.go",
+      "line": 903,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/ollamarunner/cache.go-41",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/ollamarunner/cache.go",
+      "line": 41,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/ollamarunner/runner.go-1079",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/ollamarunner/runner.go",
+      "line": 1079,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/ollamarunner/runner.go-1124",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/ollamarunner/runner.go",
+      "line": 1124,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-runner/ollamarunner/runner.go-1229",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "runner/ollamarunner/runner.go",
+      "line": 1229,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/uncontrolled-allocation-size-x/imagegen/models/flux2/flux2.go-316",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/uncontrolled-allocation-size",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "file": "x/imagegen/models/flux2/flux2.go",
+      "line": 316,
+      "message": "This memory allocation depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-manifest/layer.go-86",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "manifest/layer.go",
+      "line": 86,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-manifest/layer.go-105",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "manifest/layer.go",
+      "line": 105,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-manifest/manifest.go-125",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "manifest/manifest.go",
+      "line": 125,
+      "message": "This path depends on a [user-provided value](1).\nThis path depends on a [user-provided value](2).\nThis path depends on a [user-provided value](3).\nThis path depends on a [user-provided value](4).\nThis",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-manifest/paths.go-56",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "manifest/paths.go",
+      "line": 56,
+      "message": "This path depends on a [user-provided value](1).\nThis path depends on a [user-provided value](2).\nThis path depends on a [user-provided value](3).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-376",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 376,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-627",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 627,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-633",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 633,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-670",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 670,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-782",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 782,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-865",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 865,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/create.go-874",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/create.go",
+      "line": 874,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-420",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 420,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-425",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 425,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-431",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 431,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-556",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 556,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-686",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 686,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-690",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 690,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-783",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 783,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/images.go-787",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/images.go",
+      "line": 787,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/routes.go-1500",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/routes.go",
+      "line": 1500,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-server/routes.go-1534",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "server/routes.go",
+      "line": 1534,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/path-injection-x/imagegen/manifest/manifest.go-54",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/path-injection",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-23"
+      ],
+      "file": "x/imagegen/manifest/manifest.go",
+      "line": 54,
+      "message": "This path depends on a [user-provided value](1).",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/incorrect-integer-conversion-convert/convert_deepseek2.go-155",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/incorrect-integer-conversion",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-681",
+        "CWE-195"
+      ],
+      "file": "convert/convert_deepseek2.go",
+      "line": 155,
+      "message": "Incorrect conversion of an integer with architecture-dependent bit size from [strconv.Atoi](1) to a lower bit size type uint32 without an upper bound check.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/incorrect-integer-conversion-convert/convert_glm4moelite.go-200",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/incorrect-integer-conversion",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-681",
+        "CWE-195"
+      ],
+      "file": "convert/convert_glm4moelite.go",
+      "line": 200,
+      "message": "Incorrect conversion of an integer with architecture-dependent bit size from [strconv.Atoi](1) to a lower bit size type uint32 without an upper bound check.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-go/incorrect-integer-conversion-envconfig/config.go-265",
+      "source": "codeql-builtin",
+      "tool": "CodeQL 2.24.2",
+      "suite": "codeql/go-queries (security-and-quality)",
+      "rule_id": "go/incorrect-integer-conversion",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-681",
+        "CWE-195"
+      ],
+      "file": "envconfig/config.go",
+      "line": 265,
+      "message": "Incorrect conversion of an unsigned 64-bit integer from [strconv.ParseUint](1) to a lower bit size type uint without an upper bound check.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-length-from-binary-read-to-make",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/length-from-binary-read-to-make.ql",
+      "rule_id": "go/ollama/length-from-binary-read-to-make",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-190",
+        "CWE-400"
+      ],
+      "file": "fs/ggml/gguf.go, fs/gguf/gguf.go, convert/reader_safetensors.go",
+      "line": null,
+      "finding_count": 4,
+      "message": "4 data flow paths found by custom query length-from-binary-read-to-make",
+      "dfd_slice": "DFD-2/DFD-10",
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-digest-path-no-canonicalization",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/digest-path-no-canonicalization.ql",
+      "rule_id": "go/ollama/digest-path-no-canonicalization",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22"
+      ],
+      "file": "manifest/layer.go, manifest/manifest.go, manifest/paths.go",
+      "line": null,
+      "finding_count": 4,
+      "message": "4 data flow paths found by custom query digest-path-no-canonicalization",
+      "dfd_slice": "DFD-1",
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-exec-with-user-string",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/exec-with-user-string.ql",
+      "rule_id": "go/ollama/exec-with-user-string",
+      "severity": "CRITICAL",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/ (EDITOR/VISUAL), x/tools/bash.go",
+      "line": null,
+      "finding_count": 8,
+      "message": "8 data flow paths found by custom query exec-with-user-string",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-symlink-read-without-evalsymlinks",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/symlink-read-without-evalsymlinks.ql",
+      "rule_id": "go/ollama/symlink-read-without-evalsymlinks",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-22",
+        "CWE-61"
+      ],
+      "file": "Multiple filepath.Glob \u2192 os.Open paths without EvalSymlinks",
+      "line": null,
+      "finding_count": 18,
+      "message": "18 data flow paths found by custom query symlink-read-without-evalsymlinks",
+      "dfd_slice": "DFD-3",
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-template-execute-user-src",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/template-execute-user-src.ql",
+      "rule_id": "go/ollama/template-execute-user-src",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-94",
+        "CWE-400"
+      ],
+      "file": "template/ package, server/ template execution paths",
+      "line": null,
+      "finding_count": 72,
+      "message": "72 data flow paths found by custom query template-execute-user-src",
+      "dfd_slice": "DFD-4",
+      "triage_status": "pending"
+    },
+    {
+      "id": "codeql-custom-cloud-passthrough-host-not-allowlisted",
+      "source": "codeql-custom",
+      "tool": "CodeQL 2.24.2 (custom query)",
+      "suite": "archon/codeql-queries/cloud-passthrough-host-not-allowlisted.ql",
+      "rule_id": "go/ollama/cloud-passthrough-host-not-allowlisted",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-918"
+      ],
+      "file": "OLLAMA_HOST env var without allowlist validation",
+      "line": null,
+      "finding_count": 1,
+      "message": "1 data flow paths found by custom query cloud-passthrough-host-not-allowlisted",
+      "dfd_slice": "DFD-9",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-string-formatted-query-app/store/database.go-64",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.database.string-formatted-query.string-formatted-query",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "app/store/database.go",
+      "line": 64,
+      "message": "String-formatted SQL query detected. This could lead to SQL injection if the string is not sanitized properly. Audit this call to ensure the SQL is not manipulable by external data.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-reverseproxy-director-app/ui/ui.go-165",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.reverseproxy-director.reverseproxy-director",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "app/ui/ui.go",
+      "line": 165,
+      "message": "ReverseProxy can remove headers added by Director. Consider using ReverseProxy.Rewrite instead of ReverseProxy.Director.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-potential-dos-via-decompression-bomb-app/updater/updater_darwin.go-205",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.decompression_bomb.potential-dos-via-decompression-bomb",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "app/updater/updater_darwin.go",
+      "line": 205,
+      "message": "Detected a possible denial-of-service via a zip bomb attack. By limiting the max bytes read, you can mitigate this attack. `io.CopyN()` can specify a size. ",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-potential-dos-via-decompression-bomb-app/updater/updater_darwin.go-315",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.decompression_bomb.potential-dos-via-decompression-bomb",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "app/updater/updater_darwin.go",
+      "line": 315,
+      "message": "Detected a possible denial-of-service via a zip bomb attack. By limiting the max bytes read, you can mitigate this attack. `io.CopyN()` can specify a size. ",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-use-of-md5-app/wintray/tray.go-435",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "app/wintray/tray.go",
+      "line": 435,
+      "message": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-llm/server.go-13",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "llm/server.go",
+      "line": 13,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-middleware/openai.go-9",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "middleware/openai.go",
+      "line": 9,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-use-after-free-ml/backend/ggml/ggml/src/ggml-alloc.c-894",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "c.lang.security.use-after-free.use-after-free",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "ml/backend/ggml/ggml/src/ggml-alloc.c",
+      "line": 894,
+      "message": "Variable 'galloc->leaf_allocs' was used after being freed. This can lead to undefined behavior.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-openai/responses.go-6",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "openai/responses.go",
+      "line": 6,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-sample/samplers.go-6",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "sample/samplers.go",
+      "line": 6,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-server/download.go-11",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/download.go",
+      "line": 11,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-missing-ssl-minversion-server/internal/client/ollama/registry.go-983",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/internal/client/ollama/registry.go",
+      "line": 983,
+      "message": "`MinVersion` is missing from this TLS configuration.  By default, as of Go 1.22, TLS 1.2 is currently used as the minimum. General purpose web applications should default to TLS 1.3 with all other pro",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-server/internal/internal/backoff/backoff.go-6",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/internal/internal/backoff/backoff.go",
+      "line": 6,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-server/routes.go-16",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/routes.go",
+      "line": 16,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-use-of-md5-server/upload.go-185",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/upload.go",
+      "line": 185,
+      "message": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-use-of-md5-server/upload.go-230",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "server/upload.go",
+      "line": 230,
+      "message": "Detected MD5 hash algorithm which is considered insecure. MD5 is not collision resistant and is therefore not suitable as a cryptographic signature. Use SHA256 or SHA3 instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-insecure-use-string-copy-fn-x/imagegen/mlx/mlx_dynamic.c-38",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "c.lang.security.insecure-use-string-copy-fn.insecure-use-string-copy-fn",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/imagegen/mlx/mlx_dynamic.c",
+      "line": 38,
+      "message": "Finding triggers whenever there is a strcpy or strncpy used. This is an issue because strcpy does not affirm the size of the destination array and strncpy will not automatically NULL-terminate strings",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-insecure-use-string-copy-fn-x/imagegen/mlx/mlx_error_handler.c-17",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "c.lang.security.insecure-use-string-copy-fn.insecure-use-string-copy-fn",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/imagegen/mlx/mlx_error_handler.c",
+      "line": 17,
+      "message": "Finding triggers whenever there is a strcpy or strncpy used. This is an issue because strcpy does not affirm the size of the destination array and strncpy will not automatically NULL-terminate strings",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-x/imagegen/server.go-12",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/imagegen/server.go",
+      "line": 12,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-x/imagegen/transfer/transfer.go-30",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/imagegen/transfer/transfer.go",
+      "line": 30,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-math-random-used-x/mlxrunner/client.go-12",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.crypto.math_random.math-random-used",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/mlxrunner/client.go",
+      "line": 12,
+      "message": "Do not use `math/rand`. Use `crypto/rand` instead.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-baseline-use-tls-x/mlxrunner/runner.go-172",
+      "source": "semgrep-baseline",
+      "tool": "Semgrep 1.144.0",
+      "suite": "p/golang, p/security-audit, p/secrets",
+      "rule_id": "go.lang.security.audit.net.use-tls.use-tls",
+      "severity": "MEDIUM",
+      "cwe": [],
+      "file": "x/mlxrunner/runner.go",
+      "line": 172,
+      "message": "Found an HTTP server without TLS. Use 'http.ListenAndServeTLS' instead. See https://golang.org/pkg/net/http/#ListenAndServeTLS for more information.",
+      "dfd_slice": null,
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/cmd/app/app.go-470",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/cmd/app/app.go",
+      "line": 470,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/cmd/app/app_darwin.go-233",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/cmd/app/app_darwin.go",
+      "line": 233,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/cmd/app/app_windows.go-417",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/cmd/app/app_windows.go",
+      "line": 417,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-app/dialog/cocoa/dlg_darwin.go-39",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "app/dialog/cocoa/dlg_darwin.go",
+      "line": 39,
+      "message": "cgo call passes Go-computed length via C.size_t(len(s)) or C.int(len(s)) without an explicit maximum-size guard before the C call. If s originates from user-supplied data (e.g., decoded base64 image),",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/server/server_unix.go-24",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/server/server_unix.go",
+      "line": 24,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/server/server_unix.go-57",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/server/server_unix.go",
+      "line": 57,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/server/server_windows.go-23",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/server/server_windows.go",
+      "line": 23,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/server/server_windows.go-110",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/server/server_windows.go",
+      "line": 110,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/server/server_windows.go-142",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/server/server_windows.go",
+      "line": 142,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/updater/updater_windows.go-126",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/updater/updater_windows.go",
+      "line": 126,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-app/wintray/menus.go-96",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "app/wintray/menus.go",
+      "line": 96,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/cmd.go-1955",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/cmd.go",
+      "line": 1955,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/interactive.go-677",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/interactive.go",
+      "line": 677,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/claude.go-53",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/claude.go",
+      "line": 53,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/cline.go-24",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/cline.go",
+      "line": 24,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/codex.go-39",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/codex.go",
+      "line": 39,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/codex.go-129",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/codex.go",
+      "line": 129,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/copilot.go-52",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/copilot.go",
+      "line": 52,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/droid.go-48",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/droid.go",
+      "line": 48,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/models.go-95",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/models.go",
+      "line": 95,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/models.go-101",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/models.go",
+      "line": 101,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/models.go-103",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/models.go",
+      "line": 103,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-62",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 62,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-90",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 90,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-108",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 108,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-134",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 134,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-146",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 146,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-170",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 170,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-212",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 212,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-567",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 567,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-771",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 771,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/openclaw.go-782",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/openclaw.go",
+      "line": 782,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/opencode.go-52",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/opencode.go",
+      "line": 52,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/pi.go-47",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/pi.go",
+      "line": 47,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/pi.go-79",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/pi.go",
+      "line": 79,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/pi.go-110",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/pi.go",
+      "line": 110,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/pi.go-123",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/pi.go",
+      "line": 123,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/pi.go-148",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/pi.go",
+      "line": 148,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-60",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 60,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-64",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 64,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-71",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 71,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-88",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 88,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-91",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 91,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-95",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 95,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-222",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 222,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-224",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 224,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-481",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 481,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/launch/vscode.go-507",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/launch/vscode.go",
+      "line": 507,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/start_darwin.go-29",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/start_darwin.go",
+      "line": 29,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-cmd/start_windows.go-50",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "cmd/start_windows.go",
+      "line": 50,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-llama/llama.go-566",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "llama/llama.go",
+      "line": 566,
+      "message": "cgo call passes Go-computed length via C.size_t(len(data)) or C.int(len(data)) without an explicit maximum-size guard before the C call. If data originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-llama/llama.go-735",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "llama/llama.go",
+      "line": 735,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cEogTokens)) or C.int(len(cEogTokens)) without an explicit maximum-size guard before the C call. If cEogTokens originates from user-supplied data (e",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-llama/llama.go-735",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "llama/llama.go",
+      "line": 735,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cTokens)) or C.int(len(cTokens)) without an explicit maximum-size guard before the C call. If cTokens originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-llm/server.go-383",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "llm/server.go",
+      "line": 383,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-ml/backend/ggml/ggml.go-276",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "ml/backend/ggml/ggml.go",
+      "line": 276,
+      "message": "cgo call passes Go-computed length via C.size_t(len(t.source.Shape)) or C.int(len(t.source.Shape)) without an explicit maximum-size guard before the C call. If t.source.Shape originates from user-supp",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-ml/backend/ggml/ggml.go-383",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "ml/backend/ggml/ggml.go",
+      "line": 383,
+      "message": "cgo call passes Go-computed length via C.size_t(len(schedBackends)) or C.int(len(schedBackends)) without an explicit maximum-size guard before the C call. If schedBackends originates from user-supplie",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-ml/backend/ggml/ggml.go-909",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "ml/backend/ggml/ggml.go",
+      "line": 909,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-ml/backend/ggml/ggml.go-1182",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "ml/backend/ggml/ggml.go",
+      "line": 1182,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-url-parse-no-scheme-check-server/cloud_proxy.go-185",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-url-parse-no-scheme-check",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-918"
+      ],
+      "file": "server/cloud_proxy.go",
+      "line": 185,
+      "message": "url.Parse(cloudProxyBaseURL) called without checking that baseURL.Scheme is \"http\" or \"https\". In web_fetch and cloud proxy routes, an attacker can supply file://, gopher://, or internal http:// URLs ",
+      "dfd_slice": "DFD-9",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1683",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1683,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1685",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1685,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1686",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1686,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1689",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1689,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1690",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1690,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1692",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1692,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1693",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1693,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1694",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1694,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1696",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1696,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1698",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1698,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1700",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1700,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1703",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1703,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1704",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1704,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1706",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1706,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1707",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1707,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1708",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1708,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1711",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1711,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1712",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1712,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1713",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1713,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1714",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1714,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1715",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1715,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1720",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1720,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1721",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1721,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1722",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1722,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1723",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1723,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1724",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1724,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1725",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1725,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1727",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1727,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1728",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1728,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1730",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1730,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-gin-route-no-allowed-hosts-server/routes.go-1733",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-gin-route-no-allowed-hosts",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-346",
+        "CWE-306"
+      ],
+      "file": "server/routes.go",
+      "line": 1733,
+      "message": "gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.) bypasses the allowedHostsMiddleware DNS-rebinding protection. Verify this route is either behind the protected group or",
+      "dfd_slice": "all-HTTP",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-361",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 361,
+      "message": "cgo call passes Go-computed length via C.size_t(len(evalHandles)) or C.int(len(evalHandles)) without an explicit maximum-size guard before the C call. If evalHandles originates from user-supplied data",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-391",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 391,
+      "message": "cgo call passes Go-computed length via C.size_t(len(evalHandles)) or C.int(len(evalHandles)) without an explicit maximum-size guard before the C call. If evalHandles originates from user-supplied data",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-441",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 441,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-452",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 452,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-473",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 473,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-485",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 485,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-493",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 493,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-501",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 501,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-790",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 790,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-801",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 801,
+      "message": "cgo call passes Go-computed length via C.size_t(len(axes)) or C.int(len(axes)) without an explicit maximum-size guard before the C call. If axes originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-816",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 816,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-816",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 816,
+      "message": "cgo call passes Go-computed length via C.size_t(len(strides)) or C.int(len(strides)) without an explicit maximum-size guard before the C call. If strides originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-984",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 984,
+      "message": "cgo call passes Go-computed length via C.size_t(len(handles)) or C.int(len(handles)) without an explicit maximum-size guard before the C call. If handles originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1002",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1002,
+      "message": "cgo call passes Go-computed length via C.size_t(len(handles)) or C.int(len(handles)) without an explicit maximum-size guard before the C call. If handles originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1036",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1036,
+      "message": "cgo call passes Go-computed length via C.size_t(len(start)) or C.int(len(start)) without an explicit maximum-size guard before the C call. If start originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1036",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1036,
+      "message": "cgo call passes Go-computed length via C.size_t(len(stop)) or C.int(len(stop)) without an explicit maximum-size guard before the C call. If stop originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1036",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1036,
+      "message": "cgo call passes Go-computed length via C.size_t(len(strides)) or C.int(len(strides)) without an explicit maximum-size guard before the C call. If strides originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1043",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1043,
+      "message": "cgo call passes Go-computed length via C.size_t(len(reps)) or C.int(len(reps)) without an explicit maximum-size guard before the C call. If reps originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1050",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1050,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1399",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1399,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1910",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1910,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-1920",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 1920,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/imagegen/mlx/mlx.go-2253",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/imagegen/mlx/mlx.go",
+      "line": 2253,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-x/imagegen/server.go-116",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "x/imagegen/server.go",
+      "line": 116,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-x/mlxrunner/client.go-360",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "x/mlxrunner/client.go",
+      "line": 360,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/array.go-114",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/array.go",
+      "line": 114,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cShape)) or C.int(len(cShape)) without an explicit maximum-size guard before the C call. If cShape originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/compile.go-183",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/compile.go",
+      "line": 183,
+      "message": "cgo call passes Go-computed length via C.size_t(len(outputs)) or C.int(len(outputs)) without an explicit maximum-size guard before the C call. If outputs originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-304",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 304,
+      "message": "cgo call passes Go-computed length via C.size_t(len(yShape)) or C.int(len(yShape)) without an explicit maximum-size guard before the C call. If yShape originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-308",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 308,
+      "message": "cgo call passes Go-computed length via C.size_t(len(stateShape)) or C.int(len(stateShape)) without an explicit maximum-size guard before the C call. If stateShape originates from user-supplied data (e",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-335",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 335,
+      "message": "cgo call passes Go-computed length via C.size_t(len(inputs)) or C.int(len(inputs)) without an explicit maximum-size guard before the C call. If inputs originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-558",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 558,
+      "message": "cgo call passes Go-computed length via C.size_t(len(yShape)) or C.int(len(yShape)) without an explicit maximum-size guard before the C call. If yShape originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-562",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 562,
+      "message": "cgo call passes Go-computed length via C.size_t(len(stateShape)) or C.int(len(stateShape)) without an explicit maximum-size guard before the C call. If stateShape originates from user-supplied data (e",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/gated_delta.go-589",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/gated_delta.go",
+      "line": 589,
+      "message": "cgo call passes Go-computed length via C.size_t(len(inputs)) or C.int(len(inputs)) without an explicit maximum-size guard before the C call. If inputs originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-64",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 64,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-64",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 64,
+      "message": "cgo call passes Go-computed length via C.size_t(len(strides)) or C.int(len(strides)) without an explicit maximum-size guard before the C call. If strides originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-179",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 179,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cAxes)) or C.int(len(cAxes)) without an explicit maximum-size guard before the C call. If cAxes originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-208",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 208,
+      "message": "cgo call passes Go-computed length via C.size_t(len(vectorData)) or C.int(len(vectorData)) without an explicit maximum-size guard before the C call. If vectorData originates from user-supplied data (e",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-253",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 253,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cAxes)) or C.int(len(cAxes)) without an explicit maximum-size guard before the C call. If cAxes originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops.go-264",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops.go",
+      "line": 264,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cAxes)) or C.int(len(cAxes)) without an explicit maximum-size guard before the C call. If cAxes originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-112",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 112,
+      "message": "cgo call passes Go-computed length via C.size_t(len(reps)) or C.int(len(reps)) without an explicit maximum-size guard before the C call. If reps originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-183",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 183,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cAxes)) or C.int(len(cAxes)) without an explicit maximum-size guard before the C call. If cAxes originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-183",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 183,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cHigh)) or C.int(len(cHigh)) without an explicit maximum-size guard before the C call. If cHigh originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-183",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 183,
+      "message": "cgo call passes Go-computed length via C.size_t(len(cLow)) or C.int(len(cLow)) without an explicit maximum-size guard before the C call. If cLow originates from user-supplied data (e.g., decoded base6",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-285",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 285,
+      "message": "cgo call passes Go-computed length via C.size_t(len(vectorData)) or C.int(len(vectorData)) without an explicit maximum-size guard before the C call. If vectorData originates from user-supplied data (e",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/ops_extra.go-599",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/ops_extra.go",
+      "line": 599,
+      "message": "cgo call passes Go-computed length via C.size_t(len(shape)) or C.int(len(shape)) without an explicit maximum-size guard before the C call. If shape originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-79",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 79,
+      "message": "cgo call passes Go-computed length via C.size_t(len(starts)) or C.int(len(starts)) without an explicit maximum-size guard before the C call. If starts originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-79",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 79,
+      "message": "cgo call passes Go-computed length via C.size_t(len(stops)) or C.int(len(stops)) without an explicit maximum-size guard before the C call. If stops originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-79",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 79,
+      "message": "cgo call passes Go-computed length via C.size_t(len(strides)) or C.int(len(strides)) without an explicit maximum-size guard before the C call. If strides originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-92",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 92,
+      "message": "cgo call passes Go-computed length via C.size_t(len(starts)) or C.int(len(starts)) without an explicit maximum-size guard before the C call. If starts originates from user-supplied data (e.g., decoded",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-92",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 92,
+      "message": "cgo call passes Go-computed length via C.size_t(len(stops)) or C.int(len(stops)) without an explicit maximum-size guard before the C call. If stops originates from user-supplied data (e.g., decoded ba",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-cgo-length-unchecked-x/mlxrunner/mlx/slice.go-92",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-cgo-length-unchecked",
+      "severity": "MEDIUM",
+      "cwe": [
+        "CWE-119",
+        "CWE-125"
+      ],
+      "file": "x/mlxrunner/mlx/slice.go",
+      "line": 92,
+      "message": "cgo call passes Go-computed length via C.size_t(len(strides)) or C.int(len(strides)) without an explicit maximum-size guard before the C call. If strides originates from user-supplied data (e.g., deco",
+      "dfd_slice": "DFD-6",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-exec-nonconstant-x/tools/bash.go-64",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-exec-nonconstant",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-78"
+      ],
+      "file": "x/tools/bash.go",
+      "line": 64,
+      "message": "exec.Command or exec.CommandContext called with a non-constant command or argument. If the command name or arguments derive from user input, LLM output, or environment variables, this enables OS comma",
+      "dfd_slice": "DFD-5/DFD-14",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-url-parse-no-scheme-check-x/tools/webfetch.go-100",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-url-parse-no-scheme-check",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-918"
+      ],
+      "file": "x/tools/webfetch.go",
+      "line": 100,
+      "message": "url.Parse(webFetchAPI) called without checking that fetchURL.Scheme is \"http\" or \"https\". In web_fetch and cloud proxy routes, an attacker can supply file://, gopher://, or internal http:// URLs to re",
+      "dfd_slice": "DFD-9",
+      "triage_status": "pending"
+    },
+    {
+      "id": "semgrep-custom-ollama-url-parse-no-scheme-check-x/tools/websearch.go-102",
+      "source": "semgrep-custom",
+      "tool": "Semgrep 1.144.0",
+      "suite": "archon/semgrep-rules/ollama-security-rules.yaml",
+      "rule_id": "archon.semgrep-rules.ollama-url-parse-no-scheme-check",
+      "severity": "HIGH",
+      "cwe": [
+        "CWE-918"
+      ],
+      "file": "x/tools/websearch.go",
+      "line": 102,
+      "message": "url.Parse(webSearchAPI) called without checking that searchURL.Scheme is \"http\" or \"https\". In web_fetch and cloud proxy routes, an attacker can supply file://, gopher://, or internal http:// URLs to ",
+      "dfd_slice": "DFD-9",
+      "triage_status": "pending"
+    }
+  ]
+}

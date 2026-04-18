@@ -1,0 +1,63 @@
+rules:
+  - id: gguf-uint64-to-int-overflow
+    languages: [go]
+    severity: ERROR
+    message: >
+      Casting uint64 GGUF field to int without overflow check. On 64-bit systems,
+      values > math.MaxInt wrap to negative, causing panic in make() or incorrect
+      capacity checks. Matches CVE-2025-1975 / CWE-190 pattern.
+    patterns:
+      - pattern: int($N)
+      - pattern-inside: |
+          $N, $ERR = readGGUF[uint64]($LLM, $R)
+          ...
+    paths:
+      include:
+        - "fs/ggml/gguf.go"
+
+  - id: gguf-unbounded-string-allocation
+    languages: [go]
+    severity: ERROR
+    message: >
+      String length read from untrusted GGUF file is used directly in make() or
+      io.CopyN without an upper bound check. A crafted GGUF can cause OOM.
+      Matches CVE-2025-66960 / CWE-770 pattern.
+    patterns:
+      - pattern: make([]byte, $LENGTH)
+      - pattern-inside: |
+          $LENGTH = int($UNTRUSTED.ByteOrder.Uint64(...))
+          ...
+    paths:
+      include:
+        - "fs/ggml/gguf.go"
+
+  - id: gguf-padding-div-by-zero
+    languages: [go]
+    severity: ERROR
+    message: >
+      ggufPadding performs modulo with attacker-controlled alignment value.
+      If general.alignment KV field is 0, offset%align panics.
+      Matches CVE-2025-0317 / CWE-369 pattern.
+    pattern: |
+      func ggufPadding($OFFSET, $ALIGN int64) int64 {
+          return ($ALIGN - $OFFSET%$ALIGN) % $ALIGN
+      }
+    paths:
+      include:
+        - "fs/ggml/gguf.go"
+
+  - id: gguf-elements-multiplication-overflow
+    languages: [go]
+    severity: WARNING
+    message: >
+      Tensor.Elements() multiplies untrusted uint64 shape values without overflow
+      detection. Overflow yields 0, bypassing the tensor bounds check that uses Size().
+    pattern: |
+      func (t Tensor) Elements() uint64 {
+          ...
+          count *= $N
+          ...
+      }
+    paths:
+      include:
+        - "fs/ggml/ggml.go"

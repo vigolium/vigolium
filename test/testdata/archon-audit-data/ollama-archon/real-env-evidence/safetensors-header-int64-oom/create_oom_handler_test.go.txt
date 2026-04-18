@@ -1,0 +1,81 @@
+package server
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/manifest"
+)
+
+// TestCreateHandlerSafetensorsMaxInt64Panic verifies that POST /api/create
+// with a crafted safetensors blob triggers an uncaught panic in the detached
+// goroutine, which would crash the Ollama process.
+func TestCreateHandlerSafetensorsMaxInt64Panic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := t.TempDir()
+	t.Setenv("OLLAMA_MODELS", p)
+
+	// Create blobs dir
+	_ = filepath.Join(p, "blobs")
+
+	makeBlob := func(content []byte) string {
+		l, err := manifest.NewLayer(bytes.NewReader(content), "application/octet-stream")
+		if err != nil {
+			t.Fatalf("NewLayer: %v", err)
+		}
+		return l.Digest
+	}
+
+	// Safetensors blob with MaxInt64 header length.
+	var buf bytes.Buffer
+	var n int64 = 0x7FFFFFFFFFFFFFFF
+	binary.Write(&buf, binary.LittleEndian, n)
+	modelDigest := makeBlob(buf.Bytes())
+
+	configDigest := makeBlob([]byte(`{"architectures":["LlamaForCausalLM"],"vocab_size":32000}`))
+	tokDigest := makeBlob([]byte(`{"version":"1.0"}`))
+
+	var s Server
+
+	// Run CreateHandler synchronously by calling convertFromSafetensors directly
+	// since the actual panic would happen in the detached goroutine anyway.
+	files := map[string]string{
+		"model.safetensors": modelDigest,
+		"config.json":       configDigest,
+		"tokenizer.json":    tokDigest,
+	}
+
+	ch := make(chan any)
+	go func() {
+		defer close(ch)
+		// This mirrors the CreateHandler goroutine at create.go:99 - NO recover()
+		_, err := convertFromSafetensors(files, nil, false, func(resp api.ProgressResponse) {})
+		if err != nil {
+			ch <- err.Error()
+		}
+	}()
+
+	// Collect output, or detect panic via process behavior
+	var lines []string
+	done := false
+	for !done {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				done = true
+				break
+			}
+			lines = append(lines, fmt.Sprintf("%v", msg))
+		}
+	}
+	fmt.Println("server_test output:", strings.Join(lines, "\n"))
+
+	_ = s
+}

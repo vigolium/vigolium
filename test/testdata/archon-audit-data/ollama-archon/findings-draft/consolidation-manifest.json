@@ -1,0 +1,658 @@
+{
+  "archon_dir": "archon",
+  "findings": [
+    {
+      "id": "H6",
+      "slug": "pullwithtransfer-digest-path-traversal",
+      "severity": "CRITICAL",
+      "folder": "archon/findings/H6-pullwithtransfer-digest-path-traversal",
+      "draft_path": "archon/findings-draft/p8-001-pullwithtransfer-digest-path-traversal.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H6",
+      "slug": "gguf-shape-uint64-overflow-oob",
+      "severity": "CRITICAL",
+      "folder": "archon/findings/H6-gguf-shape-uint64-overflow-oob",
+      "draft_path": "archon/findings-draft/p8-020-gguf-shape-uint64-overflow-oob.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H6",
+      "slug": "agent-approval-shell-metachar-bypass",
+      "severity": "CRITICAL",
+      "folder": "archon/findings/H6-agent-approval-shell-metachar-bypass",
+      "draft_path": "archon/findings-draft/p8-065-agent-approval-shell-metachar-bypass.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H6",
+      "slug": "autoallow-prefix-metachar-bypass",
+      "severity": "CRITICAL",
+      "folder": "archon/findings/H6-autoallow-prefix-metachar-bypass",
+      "draft_path": "archon/findings-draft/p10-065-a-autoallow-prefix-metachar-bypass.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H1",
+      "slug": "api-pull-ssrf",
+      "severity": "HIGH",
+      "folder": "archon/findings/H1-api-pull-ssrf",
+      "draft_path": "archon/findings-draft/p8-002-api-pull-ssrf.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H2",
+      "slug": "manifest-token-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H2-manifest-token-oom",
+      "draft_path": "archon/findings-draft/p8-003-manifest-token-oom.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H3",
+      "slug": "pushwithtransfer-traversal-read",
+      "severity": "HIGH",
+      "folder": "archon/findings/H3-pushwithtransfer-traversal-read",
+      "draft_path": "archon/findings-draft/p8-004-pushwithtransfer-traversal-read.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "realm-http-downgrade",
+      "severity": "HIGH",
+      "folder": "archon/findings/M13-realm-http-downgrade",
+      "draft_path": "archon/findings-draft/p8-005-realm-http-downgrade.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H3",
+      "slug": "gguf-string-unbounded-alloc",
+      "severity": "HIGH",
+      "folder": "archon/findings/H3-gguf-string-unbounded-alloc",
+      "draft_path": "archon/findings-draft/p8-021-gguf-string-unbounded-alloc.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H6",
+      "slug": "gguf-numtensor-uncapped",
+      "severity": "HIGH",
+      "folder": "archon/findings/H6-gguf-numtensor-uncapped",
+      "draft_path": "archon/findings-draft/p8-023-gguf-numtensor-uncapped.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H7",
+      "slug": "safetensors-header-int64-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H7-safetensors-header-int64-oom",
+      "draft_path": "archon/findings-draft/p8-024-safetensors-header-int64-oom.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M14",
+      "slug": "template-vars-execute-amplification",
+      "severity": "HIGH",
+      "folder": "archon/findings/M14-template-vars-execute-amplification",
+      "draft_path": "archon/findings-draft/p8-025-template-vars-execute-amplification.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M10",
+      "slug": "create-safetensors-symlink-follow",
+      "severity": "HIGH",
+      "folder": "archon/findings/M34-create-safetensors-symlink-follow",
+      "draft_path": "archon/findings-draft/p8-026-create-safetensors-symlink-follow.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M32",
+      "slug": "gguf-alignment-zero-divide-by-zero",
+      "severity": "HIGH",
+      "folder": "archon/findings/M32-gguf-alignment-zero-divide-by-zero",
+      "draft_path": "archon/findings-draft/p8-029-gguf-alignment-zero-divide-by-zero.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "mtmd-null-deref-image-bitmap",
+      "severity": "HIGH",
+      "folder": "archon/findings/M13-mtmd-null-deref-image-bitmap",
+      "draft_path": "archon/findings-draft/p8-040-mtmd-null-deref-image-bitmap.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H12",
+      "slug": "blank-mime-mtmd-null-deref",
+      "severity": "HIGH",
+      "folder": "archon/findings/H12-blank-mime-mtmd-null-deref",
+      "draft_path": "archon/findings-draft/p8-041-blank-mime-mtmd-null-deref.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H13",
+      "slug": "num-ctx-uncapped-runner-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H13-num-ctx-uncapped-runner-oom",
+      "draft_path": "archon/findings-draft/p8-042-num-ctx-uncapped-runner-oom.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H14",
+      "slug": "quantize-unsafe-slice-elements-oob",
+      "severity": "HIGH",
+      "folder": "archon/findings/H14-quantize-unsafe-slice-elements-oob",
+      "draft_path": "archon/findings-draft/p8-043-quantize-unsafe-slice-elements-oob.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H15",
+      "slug": "gpu-backend-shape-overflow-disclosure",
+      "severity": "HIGH",
+      "folder": "archon/findings/H15-gpu-backend-shape-overflow-disclosure",
+      "draft_path": "archon/findings-draft/p8-044-gpu-backend-shape-overflow-disclosure.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M35",
+      "slug": "ollama-host-nonloopback-shortcircuits-allowedhosts",
+      "severity": "HIGH",
+      "folder": "archon/findings/M35-ollama-host-nonloopback-shortcircuits-allowedhosts",
+      "draft_path": "archon/findings-draft/p8-060-ollama-host-nonloopback-shortcircuits-allowedhosts.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H3",
+      "slug": "allowedhost-suffix-squat-localhost-local-internal",
+      "severity": "HIGH",
+      "folder": "archon/findings/H3-allowedhost-suffix-squat-localhost-local-internal",
+      "draft_path": "archon/findings-draft/p8-061-allowedhost-suffix-squat-localhost-local-internal.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M27",
+      "slug": "client2-experiment-bypasses-middleware",
+      "severity": "HIGH",
+      "folder": "archon/findings/M11-client2-experiment-bypasses-middleware",
+      "draft_path": "archon/findings-draft/p8-062-client2-experiment-bypasses-middleware.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M28",
+      "slug": "readrequestbody-unbounded-cloud-proxy",
+      "severity": "HIGH",
+      "folder": "archon/findings/M28-readrequestbody-unbounded-cloud-proxy",
+      "draft_path": "archon/findings-draft/p8-063-readrequestbody-unbounded-cloud-proxy.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M29",
+      "slug": "web-search-fetch-unauth-signing-oracle",
+      "severity": "HIGH",
+      "folder": "archon/findings/M29-web-search-fetch-unauth-signing-oracle",
+      "draft_path": "archon/findings-draft/p8-064-web-search-fetch-unauth-signing-oracle.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H7",
+      "slug": "agent-approval-command-substitution-path",
+      "severity": "HIGH",
+      "folder": "archon/findings/H7-agent-approval-command-substitution-path",
+      "draft_path": "archon/findings-draft/p8-066-agent-approval-command-substitution-path.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H6",
+      "slug": "yolo-mode-denylist-quoting-bypass",
+      "severity": "HIGH",
+      "folder": "archon/findings/H6-yolo-mode-denylist-quoting-bypass",
+      "draft_path": "archon/findings-draft/p8-067-yolo-mode-denylist-quoting-bypass.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M30",
+      "slug": "editor-visual-flag-injection-exec",
+      "severity": "HIGH",
+      "folder": "archon/findings/M30-editor-visual-flag-injection-exec",
+      "draft_path": "archon/findings-draft/p8-068-editor-visual-flag-injection-exec.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H24",
+      "slug": "windows-backslash-digest-traversal",
+      "severity": "HIGH",
+      "folder": "archon/findings/H24-windows-backslash-digest-traversal",
+      "draft_path": "archon/findings-draft/p10-001-b-windows-backslash-digest-traversal.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H25",
+      "slug": "fsgguf-numvalues-int64-signed-overflow",
+      "severity": "HIGH",
+      "folder": "archon/findings/H25-fsgguf-numvalues-int64-signed-overflow",
+      "draft_path": "archon/findings-draft/p10-020-a-fsgguf-numvalues-int64-signed-overflow.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H26",
+      "slug": "ggml-backend-elements-loop-integer-wrap-dos",
+      "severity": "HIGH",
+      "folder": "archon/findings/H26-ggml-backend-elements-loop-integer-wrap-dos",
+      "draft_path": "archon/findings-draft/p10-020-b-ggml-backend-elements-loop-integer-wrap-dos.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H27",
+      "slug": "safetensors-extractor-headersize-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H27-safetensors-extractor-headersize-oom",
+      "draft_path": "archon/findings-draft/p10-020-c-safetensors-extractor-headersize-oom.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H28",
+      "slug": "fsgguf-readstring-uint64-slice-panic",
+      "severity": "HIGH",
+      "folder": "archon/findings/H28-fsgguf-readstring-uint64-slice-panic",
+      "draft_path": "archon/findings-draft/p10-020-d-fsgguf-readstring-uint64-slice-panic.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H29",
+      "slug": "fsgguf-lazy-count-uncapped-iter",
+      "severity": "HIGH",
+      "folder": "archon/findings/H29-fsgguf-lazy-count-uncapped-iter",
+      "draft_path": "archon/findings-draft/p10-023-a-fsgguf-lazy-count-uncapped-iter.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H30",
+      "slug": "fsgguf-readarraydata-uncapped-make",
+      "severity": "HIGH",
+      "folder": "archon/findings/H30-fsgguf-readarraydata-uncapped-make",
+      "draft_path": "archon/findings-draft/p10-023-b-fsgguf-readarraydata-uncapped-make.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H31",
+      "slug": "fsgguf-tensor-dims-uncapped-shape-alloc",
+      "severity": "HIGH",
+      "folder": "archon/findings/H31-fsgguf-tensor-dims-uncapped-shape-alloc",
+      "draft_path": "archon/findings-draft/p10-023-c-fsgguf-tensor-dims-uncapped-shape-alloc.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H32",
+      "slug": "extractor-openforextraction-uint64-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H32-extractor-openforextraction-uint64-oom",
+      "draft_path": "archon/findings-draft/p10-024-a-extractor-openforextraction-uint64-oom.md",
+      "is_variant": true,
+      "origin_finding_id": "H7"
+    },
+    {
+      "id": "H33",
+      "slug": "imagegen-safetensors-uint64-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H33-imagegen-safetensors-uint64-oom",
+      "draft_path": "archon/findings-draft/p10-024-b-imagegen-safetensors-uint64-oom.md",
+      "is_variant": true,
+      "origin_finding_id": "H7"
+    },
+    {
+      "id": "H34",
+      "slug": "xcreate-quantize-readheader-uint64-oom",
+      "severity": "HIGH",
+      "folder": "archon/findings/H34-xcreate-quantize-readheader-uint64-oom",
+      "draft_path": "archon/findings-draft/p10-024-c-xcreate-quantize-readheader-uint64-oom.md",
+      "is_variant": true,
+      "origin_finding_id": "H7"
+    },
+    {
+      "id": "H35",
+      "slug": "audio-transcription-null-deref-mtmd",
+      "severity": "HIGH",
+      "folder": "archon/findings/H35-audio-transcription-null-deref-mtmd",
+      "draft_path": "archon/findings-draft/p10-040-a-audio-transcription-null-deref-mtmd.md",
+      "is_variant": true,
+      "origin_finding_id": "M13"
+    },
+    {
+      "id": "H36",
+      "slug": "autoallow-single-word-cmd-subst",
+      "severity": "HIGH",
+      "folder": "archon/findings/H36-autoallow-single-word-cmd-subst",
+      "draft_path": "archon/findings-draft/p10-065-b-autoallow-single-word-cmd-subst.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "H37",
+      "slug": "web-search-fetch-tool-session-cache-no-arg-discrimination",
+      "severity": "HIGH",
+      "folder": "archon/findings/H37-web-search-fetch-tool-session-cache-no-arg-discrimination",
+      "draft_path": "archon/findings-draft/p10-065-c-web-search-fetch-tool-session-cache-no-arg-discrimination.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    },
+    {
+      "id": "M11",
+      "slug": "client2-unbounded-body",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M11-client2-unbounded-body",
+      "draft_path": "archon/findings-draft/p8-008-client2-unbounded-body.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "content-range-not-validated",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M13-content-range-not-validated",
+      "draft_path": "archon/findings-draft/p8-009-content-range-not-validated.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M11",
+      "slug": "cdn-scheme-downgrade",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M11-cdn-scheme-downgrade",
+      "draft_path": "archon/findings-draft/p8-010-cdn-scheme-downgrade.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "cache-hit-no-hash-verify",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M13-cache-hit-no-hash-verify",
+      "draft_path": "archon/findings-draft/p8-013-cache-hit-no-hash-verify.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M11",
+      "slug": "session-replay-no-nonce",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M11-session-replay-no-nonce",
+      "draft_path": "archon/findings-draft/p8-014-session-replay-no-nonce.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "gguf-array-length-truncation",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M13-gguf-array-length-truncation",
+      "draft_path": "archon/findings-draft/p8-022-gguf-array-length-truncation.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M11",
+      "slug": "graphsize-nil-type-assertion",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M31-graphsize-nil-type-assertion",
+      "draft_path": "archon/findings-draft/p8-028-graphsize-nil-type-assertion.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M13",
+      "slug": "gguf-v1-string-truncate-panic",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/H7-gguf-v1-string-truncate-panic",
+      "draft_path": "archon/findings-draft/p8-030-gguf-v1-string-truncate-panic.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M14",
+      "slug": "gguf-numkv-unbounded",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M33-gguf-numkv-unbounded",
+      "draft_path": "archon/findings-draft/p8-031-gguf-numkv-unbounded.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M34",
+      "slug": "wordpiece-rune-amplification",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M34-wordpiece-rune-amplification",
+      "draft_path": "archon/findings-draft/p8-033-wordpiece-rune-amplification.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M31",
+      "slug": "tokenizer-vocab-size-mismatch",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M31-tokenizer-vocab-size-mismatch",
+      "draft_path": "archon/findings-draft/p8-034-tokenizer-vocab-size-mismatch.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M32",
+      "slug": "gguf-string-int-cast-panic-dos",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M32-gguf-string-int-cast-panic-dos",
+      "draft_path": "archon/findings-draft/p8-045-gguf-string-int-cast-panic-dos.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H7",
+      "slug": "embeddings-seq-unsafe-slice-nembd",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/H7-embeddings-seq-unsafe-slice-nembd",
+      "draft_path": "archon/findings-draft/p8-046-embeddings-seq-unsafe-slice-nembd.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M33",
+      "slug": "mlxrunner-manifest-path-traversal-defense-in-depth",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M33-mlxrunner-manifest-path-traversal-defense-in-depth",
+      "draft_path": "archon/findings-draft/p8-047-mlxrunner-manifest-path-traversal-defense-in-depth.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M34",
+      "slug": "lora-path-ipc-to-cgo-passthrough",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M34-lora-path-ipc-to-cgo-passthrough",
+      "draft_path": "archon/findings-draft/p8-048-lora-path-ipc-to-cgo-passthrough.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M31",
+      "slug": "cstring-leak-load-model-from-file",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M31-cstring-leak-load-model-from-file",
+      "draft_path": "archon/findings-draft/p8-049-cstring-leak-load-model-from-file.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M32",
+      "slug": "audio-mel-path-uncapped-api-generate",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M32-audio-mel-path-uncapped-api-generate",
+      "draft_path": "archon/findings-draft/p8-050-audio-mel-path-uncapped-api-generate.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H7",
+      "slug": "llama-adapter-lora-struct-leak",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/H7-llama-adapter-lora-struct-leak",
+      "draft_path": "archon/findings-draft/p8-051-llama-adapter-lora-struct-leak.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M33",
+      "slug": "streaming-response-clean-eof-silent-truncation",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M33-streaming-response-clean-eof-silent-truncation",
+      "draft_path": "archon/findings-draft/p8-052-streaming-response-clean-eof-silent-truncation.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M34",
+      "slug": "cgo-log-callback-reentrancy-deadlock-latent",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M34-cgo-log-callback-reentrancy-deadlock-latent",
+      "draft_path": "archon/findings-draft/p8-053-cgo-log-callback-reentrancy-deadlock-latent.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M31",
+      "slug": "whoami-public-key-disclosure",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M31-whoami-public-key-disclosure",
+      "draft_path": "archon/findings-draft/p8-069-whoami-public-key-disclosure.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M32",
+      "slug": "signin-url-unmarshal-error-discarded",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M32-signin-url-unmarshal-error-discarded",
+      "draft_path": "archon/findings-draft/p8-072-signin-url-unmarshal-error-discarded.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "H7",
+      "slug": "approval-cache-flag-blindness-sed-i",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/H7-approval-cache-flag-blindness-sed-i",
+      "draft_path": "archon/findings-draft/p8-073-approval-cache-flag-blindness-sed-i.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M33",
+      "slug": "dns-rebinding-drive-by-identity-chain",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M33-dns-rebinding-drive-by-identity-chain",
+      "draft_path": "archon/findings-draft/p8-074-dns-rebinding-drive-by-identity-chain.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M34",
+      "slug": "isprivate-rfc1918-host-header-permissive",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M34-isprivate-rfc1918-host-header-permissive",
+      "draft_path": "archon/findings-draft/p8-076-isprivate-rfc1918-host-header-permissive.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M35",
+      "slug": "wwwauth-realm-comma-parser-truncation",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M35-wwwauth-realm-comma-parser-truncation",
+      "draft_path": "archon/findings-draft/p8-077-wwwauth-realm-comma-parser-truncation.md",
+      "is_variant": false,
+      "origin_finding_id": ""
+    },
+    {
+      "id": "M11",
+      "slug": "download-stat-oracle-digest-traversal",
+      "severity": "MEDIUM",
+      "folder": "archon/findings/M11-download-stat-oracle-digest-traversal",
+      "draft_path": "archon/findings-draft/p10-001-a-download-stat-oracle-digest-traversal.md",
+      "is_variant": true,
+      "origin_finding_id": "H6"
+    }
+  ],
+  "dropped": [
+    {
+      "file": "p8-006-imagegen-blobpath-traversal.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-007-xcreate-blobpath-traversal.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-011-wwwauth-parser-smuggle.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-012-ssrf-push-chain-full-egress.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-032-blank-mime-vision-allowlist-bypass.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-070-ed25519-key-no-perm-symlink-check.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-071-openclaw-npm-tar-zipslip.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    },
+    {
+      "file": "p8-075-responsesmiddleware-unbounded-body.md",
+      "reason": "verdict=FALSE POSITIVE (ADVERSARIAL)"
+    }
+  ],
+  "counts": {
+    "critical": 4,
+    "high": 37,
+    "medium": 27,
+    "total": 68,
+    "dropped": 8
+  }
+}

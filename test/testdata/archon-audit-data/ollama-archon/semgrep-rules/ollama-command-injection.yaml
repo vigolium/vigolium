@@ -1,0 +1,59 @@
+rules:
+  - id: bash-tool-unfiltered-exec
+    languages: [go]
+    severity: ERROR
+    message: >
+      LLM tool call argument passed directly to bash -c. The approval system
+      uses naive string analysis that does not handle shell metacharacters,
+      pipe targets, find -exec, or sed -i. CWE-78.
+    pattern: exec.CommandContext($CTX, "bash", "-c", $CMD)
+    paths:
+      include:
+        - "x/tools/bash.go"
+
+  - id: entrypoint-exec-no-sandbox
+    languages: [go]
+    severity: ERROR
+    message: >
+      exec.Command called with an entrypoint from a pulled model config.
+      No sandboxing, no user consent prompt, no privilege restriction.
+      Supply-chain RCE vector. CWE-78 / CWE-494.
+    patterns:
+      - pattern: exec.Command($EXECPATH, $ARGS...)
+      - pattern-inside: |
+          func runEntrypoint(...) {
+            ...
+          }
+    paths:
+      include:
+        - "cmd/cmd.go"
+
+  - id: find-exec-in-safe-commands
+    languages: [go]
+    severity: WARNING
+    message: >
+      'find' is listed in safeCommands for prefix-based allowlisting, but
+      find supports -exec which runs arbitrary commands. Once a find:path/
+      prefix is approved, any find -exec variant is auto-approved. CWE-78.
+    pattern: |
+      safeCommands := map[string]bool{
+        ...,
+        "find": true,
+        ...,
+      }
+    paths:
+      include:
+        - "x/agent/approval.go"
+
+  - id: pipe-target-not-checked
+    languages: [go]
+    severity: ERROR
+    message: >
+      extractBashPrefix only checks the first pipe segment for path-based approval.
+      Pipe targets (curl, tee, bash, etc.) are never validated. CWE-78.
+    pattern: |
+      parts := strings.Split($CMD, "|")
+      firstCmd := strings.TrimSpace(parts[0])
+    paths:
+      include:
+        - "x/agent/approval.go"

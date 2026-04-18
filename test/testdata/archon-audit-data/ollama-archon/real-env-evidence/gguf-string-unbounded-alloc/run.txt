@@ -1,0 +1,24 @@
+Test 1 (eager parser — ggml.Decode):
+  Command: go test ./fs/ggml/ -run TestPocUnboundedStringAlloc -v
+  Blob: 34 bytes total (magic+version+numTensor+numKV+declared-length+2 bytes of content)
+  Declared string length: 2 GiB
+  Result: Decode returned err="unexpected EOF"
+  Memory delta: Sys grew from 12 MiB -> 2062 MiB (delta 2050 MiB, matches declared length)
+
+Test 2 (lazy parser — gguf.Open + KeyValue):
+  Command: go test ./fs/gguf/ -run TestPocLazyUnboundedStringAlloc -v
+  Blob: 34 bytes total (same shape)
+  Declared string length: 2 GiB
+  Open: succeeded (no alloc at Open time — magic/version/counts only)
+  KeyValue("pooling_type") call: triggered lazy readString
+  Result: "unexpected EOF" after the alloc
+  Memory delta: Sys grew from 8 MiB -> 2062 MiB (delta 2054 MiB)
+
+Conclusion: both parsers perform an attacker-controlled allocation BEFORE
+reading string bytes. A 34-byte malicious blob forced the test process to
+reserve 2 GB of real RAM. The only reason the process survived is that Go's
+runtime granted the allocation (the test host has >2 GB free); on a
+memory-constrained host the Linux OOM-killer fires before ReadFull bails.
+Scaling the declared length to near-RAM values achieves OOM-kill; scaling
+beyond runtime.maxAlloc (~1<<48) yields a recoverable panic. Either way,
+attacker fully controls the allocation size via the GGUF header.

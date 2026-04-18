@@ -1,6 +1,6 @@
 import 'server-only';
 import type { NextRequest } from 'next/server';
-import { isDemoOnlyEnabled, validateDemoKey } from './demoKeys';
+import { isDemoOnlyEnabled, isDemoSkipAuth, validateDemoKey } from './demoKeys';
 
 /**
  * True when the incoming request comes from an active demo session.
@@ -10,6 +10,7 @@ import { isDemoOnlyEnabled, validateDemoKey } from './demoKeys';
  */
 export function isDemoRequest(req: NextRequest): boolean {
   if (!isDemoOnlyEnabled()) return false;
+  if (isDemoSkipAuth()) return true;
   const key = req.nextUrl.searchParams.get('demo_key');
   if (!key) return false;
   return validateDemoKey(key).valid;

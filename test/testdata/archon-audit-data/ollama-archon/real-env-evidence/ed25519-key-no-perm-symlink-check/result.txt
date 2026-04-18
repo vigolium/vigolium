@@ -1,0 +1,13 @@
+Reproduction output (darwin, Go 1.22+, golang.org/x/crypto/ssh v0.50.0):
+
+workdir: /var/folders/2k/z4j3lfxj5fv7r20hswc8sj8r0000gn/T/ollama-keysim-499095082
+loaded:   ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICQpYj48hfeOlB8R9+O8IgC6AWuUbBT88F/loZk5w7Vy
+attacker: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICQpYj48hfeOlB8R9+O8IgC6AWuUbBT88F/loZk5w7Vy
+RESULT: auth.go-style load followed symlink and returned ATTACKER key
+
+Interpretation:
+- Confirms `os.ReadFile` transparently follows symlinks.
+- Given the same call in auth/auth.go GetPublicKey / Sign, an attacker who
+  can replace ~/.ollama/id_ed25519 with a symlink substitutes the signing key.
+- Real-world exploitability depends on attacker already having write access
+  to ~/.ollama/ (dir is 0o755 owned by the user on standard local setups).

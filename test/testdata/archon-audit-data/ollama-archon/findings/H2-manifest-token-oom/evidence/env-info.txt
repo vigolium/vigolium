@@ -1,0 +1,38 @@
+H2 manifest-token-oom — environment details
+Generated: 2026-04-17T09:04:06Z
+
+== Host ==
+OS      : darwin 25.3.0 (arm64)
+Kernel  : Darwin HKYV1690GP 25.3.0 Darwin Kernel Version 25.3.0
+Arch    : arm64 (Apple Silicon)
+
+== Go toolchain ==
+Version : go1.26.1 darwin/arm64
+
+== Repository ==
+Commit  : 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Branch  : main
+Path    : /Users/bytedance/Desktop/demo/ollama
+
+== Affected files (confirmed at this commit) ==
+server/images.go:864  — io.ReadAll(resp.Body)         [manifest sink]
+server/auth.go:81     — io.ReadAll(response.Body)      [token sink]
+server/images.go:984  — &http.Client{CheckRedirect:…}  [no Timeout]
+server/routes.go:1689 — r.POST("/api/pull", …)         [unauthenticated route]
+
+== PoC execution environment ==
+Mode    : sink (in-process httptest.Server)
+Size    : 512 MiB
+Result  : 1223 MiB total_alloc, 1221-1223 MiB heap_peak, 1255-1263 MiB sys
+          2.4x amplification factor
+          ~480-490 ms elapsed (no rate limit)
+
+== Evidence files ==
+setup.sh        — environment verification script
+setup.log       — setup script output
+healthcheck.sh  — (embedded in healthcheck.log)
+healthcheck.log — build + sink presence + no-LimitReader verification
+exploit.sh      — PoC execution driver
+exploit.log     — PoC run output
+impact.log      — scaling analysis and attacker preconditions
+env-info.txt    — this file

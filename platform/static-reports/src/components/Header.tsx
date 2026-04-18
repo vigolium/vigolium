@@ -14,10 +14,10 @@ interface Props {
   generatedAt?: string;
 }
 
-const tabs: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
+const tabs: { id: TabId; label: string; icon: typeof BarChart3; iconOnly?: boolean }[] = [
   { id: "statistics", label: "Statistics", icon: BarChart3 },
-  { id: "traffic", label: "HTTP Traffic", icon: Globe },
   { id: "findings", label: "Findings", icon: Shield },
+  { id: "traffic", label: "Traffic", icon: Globe, iconOnly: true },
 ];
 
 export default function Header({ activeTab, onTabChange, findingsCount = 0, trafficCount = 0, reportTitle, generatedAt }: Props) {
@@ -29,7 +29,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
   });
 
   return (
-    <header className="px-4 flex items-stretch gap-0 border-b border-warm-border">
+    <header className="px-2 sm:px-4 flex items-stretch gap-0 border-b border-warm-border">
       <a
         href="/"
         onClick={(e) => {
@@ -37,20 +37,20 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
           onTabChange?.("statistics");
           history.replaceState(null, "", window.location.pathname + window.location.search);
         }}
-        className="flex items-center gap-2.5 py-2.5 no-underline"
+        className="flex items-center gap-1.5 sm:gap-2.5 py-2 sm:py-2.5 no-underline shrink-0"
       >
         <img src={logoUrl} alt="Vigolium" className="w-7 h-7 logo-glow" />
         <h1 className="font-serif text-sm font-bold text-charcoal tracking-tight">
           {reportTitle || "Vigolium Report"}
         </h1>
-        <span className="hidden sm:inline text-[11px] text-text-muted font-sans tracking-wide">
+        <span className="hidden md:inline text-[11px] text-text-muted font-sans tracking-wide">
           {date}
         </span>
       </a>
 
       {activeTab && onTabChange && (
-        <nav className="flex ml-4 gap-0">
-          {tabs.map(({ id, label, icon: Icon }) => {
+        <nav className="flex ml-2 sm:ml-4 gap-1.5 items-center">
+          {tabs.map(({ id, label, icon: Icon, iconOnly }) => {
             const isActive = activeTab === id;
             const count = id === "findings" ? findingsCount : id === "traffic" ? trafficCount : 0;
             const hasData = count > 0;
@@ -59,7 +59,8 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
                 key={id}
                 onClick={() => onTabChange(id)}
                 aria-label={hasData ? `${label} (${count})` : label}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-semibold tracking-wide uppercase transition-colors relative ${
+                {...(iconOnly ? { "data-tooltip": label } : {})}
+                className={`group/tab flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-sans font-semibold tracking-wide uppercase transition-colors relative whitespace-nowrap ${
                   !hasData
                     ? "text-text-muted/50 hover:text-text-muted"
                     : isActive
@@ -68,7 +69,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
                 }`}
               >
                 <Icon size={13} />
-                <span className="hidden sm:inline">{label}</span>
+                <span className={iconOnly ? "hidden lg:inline" : "hidden sm:inline"}>{label}</span>
                 {hasData && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded inline-flex ${
                     isActive ? "bg-terracotta/10 text-terracotta" : "bg-warm-border text-text-muted"
@@ -86,14 +87,14 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
       )}
 
       <div className="flex-1" />
-      <div className="flex items-center gap-1.5 text-[11px] font-sans">
-        <a href="https://www.vigolium.com/" aria-label="Website" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
-          <ExternalLink size={12} />
-          <span className="hidden sm:inline">Website</span>
+      <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] font-sans">
+        <a href="https://www.vigolium.com/" aria-label="Website" data-tooltip="Website" className="flex items-center gap-1.5 h-7 px-1.5 lg:px-2 rounded border border-warm-border/60 text-text-muted hover:text-charcoal hover:border-warm-border transition-colors" target="_blank" rel="noopener noreferrer">
+          <ExternalLink size={13} />
+          <span className="hidden lg:inline">Website</span>
         </a>
-        <a href="https://docs.vigolium.com/" aria-label="Docs" className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-terracotta hover:text-charcoal hover:border-terracotta/40 transition-colors" target="_blank" rel="noopener noreferrer">
-          <BookOpen size={12} />
-          <span className="hidden sm:inline">Docs</span>
+        <a href="https://docs.vigolium.com/" aria-label="Docs" data-tooltip="Docs" className="flex items-center gap-1.5 h-7 px-1.5 lg:px-2 rounded border border-warm-border/60 text-text-muted hover:text-charcoal hover:border-warm-border transition-colors" target="_blank" rel="noopener noreferrer">
+          <BookOpen size={13} />
+          <span className="hidden lg:inline">Docs</span>
         </a>
         <ThemeSwitcher />
       </div>

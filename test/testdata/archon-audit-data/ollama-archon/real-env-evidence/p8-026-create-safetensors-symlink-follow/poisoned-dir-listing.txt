@@ -1,0 +1,7 @@
+total 24
+drwxr-xr-x@    6 bytedance  wheel    192 Apr 17 16:09 .
+drwxrwxrwt  1303 root       wheel  41696 Apr 17 16:09 ..
+-rw-r--r--@    1 bytedance  wheel     28 Apr 17 16:09 config.json
+lrwxr-xr-x@    1 bytedance  wheel     11 Apr 17 16:09 malicious.json -> /etc/passwd
+-rw-r--r--@    1 bytedance  wheel     70 Apr 17 16:09 model.safetensors
+-rw-r--r--@    1 bytedance  wheel      7 Apr 17 16:09 Modelfile

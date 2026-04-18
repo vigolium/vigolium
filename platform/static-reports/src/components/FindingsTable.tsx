@@ -689,41 +689,46 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           onClear={onClearHosts}
         />
       )}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-[50%]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-4">
+        <div className="relative flex-1 min-w-[140px] sm:min-w-[200px] max-w-[50%]">
+          <Search size={13} className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="text"
             value={searchText}
             onChange={onSearchChange}
-            placeholder="Search findings..."
-            className="w-full bg-cream border border-warm-border text-charcoal text-xs font-sans pl-9 pr-3 py-1.5 rounded-md focus:outline-none focus:border-terracotta/50 placeholder:text-text-muted"
+            placeholder="Search..."
+            className="w-full bg-cream border border-warm-border text-charcoal text-[11px] sm:text-xs font-sans pl-8 sm:pl-9 pr-2 sm:pr-3 py-1 sm:py-1.5 rounded-md focus:outline-none focus:border-terracotta/50 placeholder:text-text-muted"
           />
         </div>
         <FilterDropdown
           value={severityFilter}
           onChange={setSeverityFilter}
           options={[{ value: "all", label: "All Severities" }, ...severities.map((s) => ({ value: s, label: s }))]}
+          shortLabel="Severity"
         />
         <FilterDropdown
           value={confidenceFilter}
           onChange={setConfidenceFilter}
           options={[{ value: "all", label: "All Confidence" }, ...confidences.map((c) => ({ value: c, label: c }))]}
+          shortLabel="Confidence"
         />
         <FilterDropdown
           value={moduleFilter}
           onChange={setModuleFilter}
           options={[{ value: "all", label: "All Modules" }, ...modules.map((m) => ({ value: m, label: m }))]}
+          shortLabel="Modules"
         />
         <FilterDropdown
           value={sourceFilter}
           onChange={setSourceFilter}
           options={[{ value: "all", label: "All Sources" }, ...sources.map((s) => ({ value: s, label: s }))]}
+          shortLabel="Sources"
         />
         <FilterDropdown
           value={tagFilter}
           onChange={setTagFilter}
           options={[{ value: "all", label: "All Tags" }, ...allTags.map((t) => ({ value: t, label: t }))]}
+          shortLabel="Tags"
         />
         <div className="flex-1" />
         <span className="text-xs text-text-muted font-sans">

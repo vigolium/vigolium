@@ -1,0 +1,122 @@
+[
+  {
+    "slice": "DFD-1-pull-digest-to-disk",
+    "codeql_query": "digest-path-no-canonicalization",
+    "reachable": true,
+    "path_count": 4,
+    "description": "Remote manifest Digest field flows to os.Create without BlobsPath() canonicalization",
+    "sources": [
+      "manifest/layer.go (Digest field)",
+      "manifest/manifest.go (Digest field)"
+    ],
+    "sinks": [
+      "manifest/layer.go:86",
+      "manifest/layer.go:105",
+      "manifest/manifest.go:125",
+      "manifest/paths.go:56"
+    ],
+    "cve_class": "CVE-2024-37032"
+  },
+  {
+    "slice": "DFD-2-blob-upload-gguf-parse",
+    "codeql_query": "length-from-binary-read-to-make",
+    "reachable": true,
+    "path_count": 4,
+    "description": "binary.Read length flows to make() allocation without bounds check \u2014 GGUF/safetensors parser",
+    "sources": [
+      "fs/ggml/gguf.go (binary.Read &n)",
+      "fs/gguf/gguf.go (binary.Read &n)"
+    ],
+    "sinks": [
+      "make([]byte, n) calls in GGUF parser"
+    ],
+    "cve_class": "CVE-2025-0315, CVE-2025-66959"
+  },
+  {
+    "slice": "DFD-3-create-symlink-escape",
+    "codeql_query": "symlink-read-without-evalsymlinks",
+    "reachable": true,
+    "path_count": 18,
+    "description": "filepath.Glob paths flow to os.Open without EvalSymlinks+IsLocal check",
+    "sources": [
+      "filepath.Glob result (multiple files)"
+    ],
+    "sinks": [
+      "os.Open/ReadFile in multiple paths"
+    ],
+    "cve_class": "commit d931ee8f symlink escape"
+  },
+  {
+    "slice": "DFD-4-template-dos",
+    "codeql_query": "template-execute-user-src",
+    "reachable": true,
+    "path_count": 72,
+    "description": "User-controlled content flows to text/template.Parse or Execute",
+    "sources": [
+      "RemoteFlowSource",
+      "os.ReadFile",
+      "GGUF Template field"
+    ],
+    "sinks": [
+      "template.Parse/Execute calls throughout template/ and server/"
+    ],
+    "cve_class": "commit 62d29b21, commit 1ed2881e"
+  },
+  {
+    "slice": "DFD-5-agent-bash",
+    "codeql_query": "exec-with-user-string",
+    "reachable": true,
+    "path_count": 8,
+    "description": "Getenv + user input flows to exec.Command/CommandContext",
+    "sources": [
+      "os.Getenv (EDITOR, VISUAL, PATH)",
+      "RemoteFlowSource"
+    ],
+    "sinks": [
+      "exec.Command in app/cmd/app.go:470",
+      "exec.CommandContext in multiple runners"
+    ],
+    "cve_class": "commit 0aaf6119, DFD-5 agent bash"
+  },
+  {
+    "slice": "DFD-6-multimodal-cgo",
+    "codeql_query": "cgo-call-with-go-computed-length",
+    "reachable": false,
+    "path_count": 0,
+    "description": "No direct CodeQL path found \u2014 cgo calls lack C-side modeling. Manual review required at llama/llama.go:566",
+    "note": "CodeQL Go extractor does not extract C pseudo-package calls. Found by Semgrep custom rule: llama/llama.go:566, llama/llama.go:735, ml/backend/ggml/ggml.go:276",
+    "cve_class": "CVE-2025-15514, Sonar-OOB-2025"
+  },
+  {
+    "slice": "DFD-8-zstd-readall",
+    "codeql_query": "unbounded-readall-on-remote-response",
+    "reachable": false,
+    "path_count": 0,
+    "description": "No CodeQL path found \u2014 http.Response.Body to io.ReadAll with LimitReader barrier active in current code. Semgrep custom rule covered this pattern.",
+    "note": "io.ReadAll on response.Body is used in server/auth.go. MaxBytesReader not applied. The built-in query found no path because the response body type modeling is incomplete for non-direct field reads.",
+    "cve_class": "CVE-2024-12886"
+  },
+  {
+    "slice": "DFD-9-web-fetch-ssrf",
+    "codeql_query": "cloud-passthrough-host-not-allowlisted",
+    "reachable": true,
+    "path_count": 1,
+    "description": "Cloud proxy base URL read from OLLAMA_HOST env var used in HTTP request without allowlist validation",
+    "sources": [
+      "os.Getenv('OLLAMA_HOST')"
+    ],
+    "sinks": [
+      "http.NewRequest* in cloud proxy handlers"
+    ],
+    "cve_class": "CVE-2026-5530 SSRF"
+  },
+  {
+    "slice": "DFD-13-gzip-bomb-auth",
+    "codeql_query": "unbounded-readall-on-remote-response",
+    "reachable": false,
+    "path_count": 0,
+    "description": "Built-in CodeQL auth.go path not confirmed. Manual review target: server/auth.go:81 io.ReadAll(response.Body) without size limit.",
+    "note": "Semgrep rule ollama-shouldbindjson-no-maxbytes did not match because pattern requires gin.Context \u2014 auth.go uses net/http directly. Manual triage needed.",
+    "cve_class": "CVE-2024-12886"
+  }
+]

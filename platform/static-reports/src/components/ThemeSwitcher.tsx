@@ -9,11 +9,11 @@ export default function ThemeSwitcher() {
     <button
       onClick={toggle}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex items-center gap-1.5 px-2 py-1 rounded border border-warm-border text-text-muted hover:text-charcoal hover:border-terracotta/40 transition-colors text-[11px] font-sans"
-      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      className="flex items-center gap-1.5 h-7 px-1.5 lg:px-2 rounded border border-warm-border/60 text-text-muted hover:text-charcoal hover:border-warm-border transition-colors text-[11px] font-sans"
+      data-tooltip={isDark ? "Light mode" : "Dark mode"}
     >
-      {isDark ? <Sun size={12} /> : <Moon size={12} />}
-      <span className="hidden sm:inline">{isDark ? "Light" : "Dark"}</span>
+      {isDark ? <Sun size={13} /> : <Moon size={13} />}
+      <span className="hidden lg:inline">{isDark ? "Light" : "Dark"}</span>
     </button>
   );
 }

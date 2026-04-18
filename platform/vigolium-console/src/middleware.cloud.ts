@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const isStatic = process.env.NEXT_PUBLIC_BUILD_MODE === 'static';
 const skipAuth = isStatic || process.env.VIGOLIUM_SKIP_AUTH === 'true';
 const demoOnlyEnabled = process.env.VIGOLIUM_DEMO_ONLY === 'true';
+const demoSkipAuth = demoOnlyEnabled && process.env.VIGOLIUM_DEMO_SKIP_AUTH === 'true';
 
 const hasWorkOSKeys = !!(process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID);
 
@@ -89,6 +90,11 @@ export default async function proxy(req: NextRequest) {
     }
 
     const urlDemoKey = req.nextUrl.searchParams.get('demo_key');
+
+    // Skip-auth mode: let everyone through as demo user without a key
+    if (!urlDemoKey && demoSkipAuth) {
+      return NextResponse.next();
+    }
 
     // No param → always redirect to /login (no cookie fallback)
     if (!urlDemoKey) {

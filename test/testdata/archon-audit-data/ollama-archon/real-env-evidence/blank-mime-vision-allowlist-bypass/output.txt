@@ -1,0 +1,4 @@
+Case 1 (blank MIME): url="data:;base64,AAECf//+yv4=" err=<nil> bytesOut=0001027ffffecafe
+Case 2 (lied MIME): url="data:image/jpeg;base64,AAECf//+yv4=" err=<nil> bytesOut=0001027ffffecafe
+Case 3 (gif MIME): url="data:image/gif;base64,AAECf//+yv4=" err=invalid image input bytesOut=
+Case 4 (octet-stream): url="data:application/octet-stream;base64,AAECf//+yv4=" err=invalid image input bytesOut=

@@ -1,0 +1,37 @@
+{
+  "component": "group-A",
+  "loop": 1,
+  "total_validated": 14,
+  "total_needs_deeper": 2,
+  "loops": [
+    {
+      "loop": 1,
+      "q1_coverage_gaps": [
+        "server/upload.go: StartUpload / blobUpload.Run — upload abort path (if Run fails mid-upload, are partial files cleaned up? no partial-state cleanup observed)",
+        "manifest/manifest.go: Manifests() and ParseNamedManifest() — no coverage yet on manifest parsing size caps",
+        "server/internal/client/ollama/registry.go: chunksums stream — no hypothesis covers the chunksum URL injection or chunksum integrity"
+      ],
+      "q2_chain_seeds": [
+        "PH-01/15 (path traversal write) chains into: PH-08/16 (file read via push), PH-02/20 (model substitution after planting correct-size file), and PH-07 (fixBlobs rename)",
+        "PH-03/17 (SSRF) chains into PH-04 + PH-18 (OOM via large response from SSRF target)",
+        "PH-01 + PH-10 (empty file creation) chains into authenticated file write at any traversal path"
+      ],
+      "q3_fragile_items": [
+        "PH-06 (slow-retry goroutine race) — Fragile; requires goroutine-cancellation race win",
+        "PH-07 (fixBlobs symlink rename) — Fragile; requires prior write access",
+        "PH-09/19 (realm HTTP downgrade) — Conditional; requires MITM or DNS control of registry host"
+      ],
+      "q4_model_coverage_gaps": [
+        "server/internal/client/ollama/registry.go:chunksums — chunksum URL is registry-controlled (attacker can supply CDN URL for each chunk); chunk digest validation needs verification",
+        "server/upload.go upload abort cleanup path — not covered by either reasoner",
+        "manifest/manifest.go manifest parsing size cap — manifest JSON body fed to json.Unmarshal without size limit verified only for pullModelManifest; Registry.Resolve also has io.ReadAll without limit"
+      ],
+      "q5_impact_multipliers": [
+        "PH-07 (fixBlobs symlink rename): if validated, chains with PH-01 to enable rename of any file on the system",
+        "PH-13 (imagegen BlobPath traversal): if confirmed as production-reachable, doubles the path-traversal write surface"
+      ],
+      "decision": "proceed_to_summary",
+      "decision_rationale": "All entry points from attack surface map are covered. Fragile items (PH-06, PH-07, PH-09) have been characterized with their conditions. Q4 gaps (chunksums, upload abort) have lower risk signal than already-validated findings. Q3 fragile items do not have new unexplored attack angles. Proceeding to summary after documenting the two NEEDS-DEEPER items."
+    }
+  ]
+}

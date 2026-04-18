@@ -1,0 +1,50 @@
+Adversarial reproduction: p8-023-gguf-numtensor-uncapped
+Environment: darwin/arm64, go test harness calling fs/ggml.Decode directly
+Commit: 57653b8e (HEAD at verification time)
+
+Test was placed at fs/ggml/adversarial_repro_test.go, executed, then removed.
+A copy is preserved in this directory for review.
+
+Run: go test -v ./fs/ggml/ -run 'TestAdvMaliciousGGUF_(Baseline|1M|10M)$' -count=1
+
+Results:
+
+=== RUN   TestAdvMaliciousGGUF_Baseline
+    numTensor=100 blob size: 0.00 MB
+    numTensor=100 err=tensor "" offset+size (2436) exceeds file size (2424)
+    elapsed=209.917µs peak_heap=0.00 MB delta_heap=0.06 MB total_allocs=449
+
+=== RUN   TestAdvMaliciousGGUF_1M
+    numTensor=1000000 blob size: 22.89 MB
+    numTensor=1000000 err=tensor "" offset+size (24000036) exceeds file size (24000024)
+    elapsed=101.821875ms peak_heap=165.56 MB delta_heap=134.47 MB total_allocs=4000076
+
+=== RUN   TestAdvMaliciousGGUF_10M
+    numTensor=10000000 blob size: 228.88 MB
+    numTensor=10000000 err=tensor "" offset+size (240000036) exceeds file size (240000024)
+    elapsed=1.090400083s peak_heap=1575.54 MB delta_heap=1319.16 MB total_allocs=40000074
+
+Analysis:
+- Blob amplification ratio ~6.9x (input bytes -> peak heap allocation before failure).
+- All allocation (Tensor struct + slice backing array) occurs inside the
+  for range llm.numTensor() loop at fs/ggml/gguf.go:194-233 BEFORE any
+  file-size bound check runs. The bound check at lines 258-262 runs only
+  after the full loop completes.
+- The bound check then rejects the file, but by then 10M Tensor pointers
+  have already been allocated (1.5 GB peak RSS).
+- GC was disabled during the test (debug.SetGCPercent(-1)) to measure
+  true peak, representative of what a burst attack causes before GC
+  pressure kicks in.
+
+Minimum tensor-info record size on disk = 24 bytes:
+   uint64 name-length (0) + uint32 dims (0) + uint32 kind + uint64 offset
+
+Per-tensor heap cost observed ~150 bytes (Tensor{} + slice pointer + heap
+bookkeeping + slice growth doubling). Attack amplification factor ~6x.
+
+Attack surface: /api/create references a blob via digest. Unauthenticated
+by default. Blob upload endpoint (/api/blobs/:digest) has no size cap.
+
+VERDICT: Confirmed. The vulnerability is reproducible and the protection
+brief (file-size bound) only limits the maximum amplification; it does not
+prevent uncapped allocation inside the loop.

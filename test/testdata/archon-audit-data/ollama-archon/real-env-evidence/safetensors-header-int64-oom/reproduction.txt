@@ -1,0 +1,62 @@
+Reproduction of p8-024-safetensors-header-int64-oom
+====================================================
+
+Environment: darwin/arm64, Go 1.26.1, ollama HEAD 57653b8e
+
+Test 1: Direct convertFromSafetensors call with MaxInt64 header
+----------------------------------------------------------------
+Command: go test -v -run TestSafetensorsHeaderMaxInt64 ./server/
+Result: PANIC: runtime error: makeslice: cap out of range
+    (recovered by test's defer)
+
+Test 2: Handler-like goroutine reproduction
+--------------------------------------------
+Command: go test -v -run TestCreateHandlerSafetensorsMaxInt64Panic ./server/
+Result: goroutine panic ESCAPES - test process exits with FAIL
+    panic: runtime error: makeslice: cap out of range
+
+    goroutine 39 [running]:
+    github.com/ollama/ollama/convert.parseSafetensors(...)
+      /convert/reader_safetensors.go:39 +0x170
+    github.com/ollama/ollama/convert.parseTensors(...)
+      /convert/reader.go:94 +0xfc
+    github.com/ollama/ollama/convert.ConvertModel(...)
+      /convert/convert.go:381 +0x178
+    github.com/ollama/ollama/server.convertFromSafetensors(...)
+      /server/create.go:441 +0x58c
+
+Key observations
+-----------------
+- Binary int64 header of 0x7FFFFFFFFFFFFFFF (MaxInt64) -> make([]byte, 0, MaxInt64)
+- On this platform, the runtime rejects allocations above ~1 PB with
+  "makeslice: cap out of range" (recoverable panic), NOT unrecoverable OOM.
+- However, the goroutine spawned in CreateHandler at server/create.go:99 has
+  NO defer/recover(). gin.Recovery only guards the request handler goroutine,
+  not this detached worker.
+- Therefore the panic escapes and crashes the Ollama server process.
+
+Claim in finding vs observed behavior
+--------------------------------------
+- Finding claim: "unrecoverable OOM via runtime.mallocgc -> mmap"
+- Observed: panic in makeslice due to Go's maxAlloc check (2^40 on typical 64-bit)
+  Both ultimately cause process termination since the goroutine is unrecovered,
+  but the mechanism stated in the finding is incorrect in this platform/build.
+
+On Linux/amd64 the behavior may be identical (makeslice cap-out-of-range) or
+may actually reach mmap if maxAlloc allows the allocation; in either case
+the process dies.
+
+Entry point reachability
+-------------------------
+Attacker flow:
+1. POST /api/blobs/:digest  (upload 8-byte safetensors blob)
+2. POST /api/create with Files = {"x.safetensors": <digest>, "config.json": ..., "tokenizer.json": ...}
+3. CreateHandler -> convertModelFromFiles -> convertFromSafetensors
+   -> convert.ConvertModel -> parseTensors -> parseSafetensors
+4. parseSafetensors reads int64 n = MaxInt64, make([]byte, 0, n) panics
+5. Panic escapes unrecovered goroutine -> server process exit
+
+Authentication: none. Exposure: 127.0.0.1 by default but operators commonly
+set OLLAMA_HOST=0.0.0.0 for LAN access. allowedHostsMiddleware only blocks
+non-loopback Host headers when the server is bound to loopback - does not
+block authenticated attackers or LAN users.

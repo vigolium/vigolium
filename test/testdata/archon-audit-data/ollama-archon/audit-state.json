@@ -1,0 +1,181 @@
+{
+  "audits": [
+    {
+      "agent_sdk": "claude-code",
+      "audit_id": "2026-04-07T00:00:00Z",
+      "branch": "main",
+      "commit": "8c8f8f3450d39735355fc6cd7f2e436c8aa42ab1",
+      "completed_at": "2026-04-07T12:00:00Z",
+      "mode": "deep",
+      "model": "opus-4.6",
+      "phases": {
+        "1": {
+          "status": "complete"
+        },
+        "10": {
+          "status": "complete"
+        },
+        "11": {
+          "cold_verified": 5,
+          "dedup_dropped": 6,
+          "findings_critical": 0,
+          "findings_high": 34,
+          "findings_low": 0,
+          "findings_medium": 9,
+          "findings_total": 43,
+          "report": "archon/final-audit-report.md",
+          "status": "complete"
+        },
+        "2": {
+          "status": "complete"
+        },
+        "3": {
+          "status": "complete"
+        },
+        "4": {
+          "status": "complete"
+        },
+        "5": {
+          "status": "complete"
+        },
+        "6": {
+          "status": "complete"
+        },
+        "7": {
+          "findings_dropped": 0,
+          "findings_kept": 11,
+          "findings_processed": 11,
+          "severity_adjustments": [
+            "p4-f09: HIGH->MEDIUM",
+            "p4-f11: MEDIUM (Phase 8 escalation to HIGH recommended)"
+          ],
+          "status": "complete"
+        },
+        "8": {
+          "status": "complete"
+        },
+        "9": {
+          "status": "complete"
+        }
+      },
+      "repository": "ollama/ollama",
+      "started_at": "2026-04-07T00:00:00Z",
+      "status": "complete"
+    },
+    {
+      "agent_sdk": "claude-code",
+      "audit_id": "2026-04-17T00:00:00Z",
+      "branch": "audit",
+      "commit": "57653b8e42d69ec35f68a59857bad4d0f07994a3",
+      "completed_at": "2026-04-17T06:00:00Z",
+      "history_available": true,
+      "mode": "deep",
+      "model": "claude-opus-4-7",
+      "phases": {
+        "1": {
+          "completed_at": "2026-04-17T00:15:00Z",
+          "status": "complete"
+        },
+        "10": {
+          "completed_at": "2026-04-17T05:30:00Z",
+          "status": "complete"
+        },
+        "11": {
+          "completed_at": "2026-04-17T06:00:00Z",
+          "status": "complete"
+        },
+        "2": {
+          "completed_at": "2026-04-17T00:30:00Z",
+          "status": "complete"
+        },
+        "3": {
+          "completed_at": "2026-04-17T01:00:00Z",
+          "status": "complete"
+        },
+        "4": {
+          "completed_at": "2026-04-17T02:30:00Z",
+          "status": "complete"
+        },
+        "5": {
+          "completed_at": "2026-04-17T02:30:00Z",
+          "status": "complete"
+        },
+        "6": {
+          "completed_at": "2026-04-17T01:30:00Z",
+          "status": "complete"
+        },
+        "7": {
+          "completed_at": "2026-04-17T03:00:00Z",
+          "status": "complete"
+        },
+        "8": {
+          "completed_at": "2026-04-17T04:00:00Z",
+          "status": "complete"
+        },
+        "9": {
+          "completed_at": "2026-04-17T05:00:00Z",
+          "status": "complete"
+        }
+      },
+      "repository": "ollama/ollama",
+      "started_at": "2026-04-17T00:00:00Z",
+      "status": "complete"
+    }
+  ],
+  "merge_metadata": {
+    "merged_at": "2026-04-17T15:52:40Z",
+    "sources": [
+      "/tmp/merge-ollama/ollama-archon",
+      "/tmp/merge-ollama/ollama-with-opus-4.7"
+    ],
+    "strategy": "union-artifacts, merged-top-level-summaries, deduped-findings, in-place-dir1",
+    "rename_map_path": "archon/merge-workspace/rename-map.json",
+    "rename_map": {
+      "C1-pullwithtransfer-digest-path-traversal": "C2-pullwithtransfer-digest-path-traversal",
+      "C2-gguf-shape-uint64-overflow-oob": "C3-gguf-shape-uint64-overflow-oob",
+      "C3-agent-approval-shell-metachar-bypass": "H6-agent-approval-shell-metachar-bypass",
+      "C4-autoallow-prefix-metachar-bypass": "C1-autoallow-prefix-metachar-bypass",
+      "H1-api-pull-ssrf": "H1-api-pull-ssrf",
+      "H10-gguf-alignment-zero-divide-by-zero": "M12-gguf-alignment-zero-divide-by-zero",
+      "H11-mtmd-null-deref-image-bitmap": "H4-mtmd-null-deref-image-bitmap",
+      "H16-ollama-host-nonloopback-shortcircuits-allowedhosts": "M26-ollama-host-nonloopback-shortcircuits-allowedhosts",
+      "H17-allowedhost-suffix-squat-localhost-local-internal": "H5-allowedhost-suffix-squat-localhost-local-internal",
+      "H18-client2-experiment-bypasses-middleware": "M27-client2-experiment-bypasses-middleware",
+      "H19-readrequestbody-unbounded-cloud-proxy": "M28-readrequestbody-unbounded-cloud-proxy",
+      "H2-manifest-token-oom": "H2-manifest-token-oom",
+      "H20-web-search-fetch-unauth-signing-oracle": "M29-web-search-fetch-unauth-signing-oracle",
+      "H21-agent-approval-command-substitution-path": "H7-agent-approval-command-substitution-path",
+      "H23-editor-visual-flag-injection-exec": "M30-editor-visual-flag-injection-exec",
+      "H4-realm-http-downgrade": "M2-realm-http-downgrade",
+      "H5-gguf-string-unbounded-alloc": "H3-gguf-string-unbounded-alloc",
+      "H8-template-vars-execute-amplification": "M9-template-vars-execute-amplification",
+      "H9-create-safetensors-symlink-follow": "M10-create-safetensors-symlink-follow",
+      "M1-client2-unbounded-body": "M3-client2-unbounded-body",
+      "M10-wordpiece-rune-amplification": "M15-wordpiece-rune-amplification",
+      "M11-tokenizer-vocab-size-mismatch": "M16-tokenizer-vocab-size-mismatch",
+      "M12-gguf-string-int-cast-panic-dos": "M17-gguf-string-int-cast-panic-dos",
+      "M13-embeddings-seq-unsafe-slice-nembd": "M18-embeddings-seq-unsafe-slice-nembd",
+      "M14-mlxrunner-manifest-path-traversal-defense-in-depth": "M19-mlxrunner-manifest-path-traversal-defense-in-depth",
+      "M15-lora-path-ipc-to-cgo-passthrough": "M20-lora-path-ipc-to-cgo-passthrough",
+      "M16-cstring-leak-load-model-from-file": "M21-cstring-leak-load-model-from-file",
+      "M17-audio-mel-path-uncapped-api-generate": "M22-audio-mel-path-uncapped-api-generate",
+      "M18-llama-adapter-lora-struct-leak": "M23-llama-adapter-lora-struct-leak",
+      "M19-streaming-response-clean-eof-silent-truncation": "M24-streaming-response-clean-eof-silent-truncation",
+      "M2-content-range-not-validated": "M4-content-range-not-validated",
+      "M20-cgo-log-callback-reentrancy-deadlock-latent": "M25-cgo-log-callback-reentrancy-deadlock-latent",
+      "M21-whoami-public-key-disclosure": "M31-whoami-public-key-disclosure",
+      "M22-signin-url-unmarshal-error-discarded": "M32-signin-url-unmarshal-error-discarded",
+      "M24-dns-rebinding-drive-by-identity-chain": "M33-dns-rebinding-drive-by-identity-chain",
+      "M25-isprivate-rfc1918-host-header-permissive": "M34-isprivate-rfc1918-host-header-permissive",
+      "M26-wwwauth-realm-comma-parser-truncation": "M35-wwwauth-realm-comma-parser-truncation",
+      "M27-download-stat-oracle-digest-traversal": "M1-download-stat-oracle-digest-traversal",
+      "M3-cdn-scheme-downgrade": "M5-cdn-scheme-downgrade",
+      "M4-cache-hit-no-hash-verify": "M6-cache-hit-no-hash-verify",
+      "M5-session-replay-no-nonce": "M7-session-replay-no-nonce",
+      "M6-gguf-array-length-truncation": "M8-gguf-array-length-truncation",
+      "M7-graphsize-nil-type-assertion": "M11-graphsize-nil-type-assertion",
+      "M8-gguf-v1-string-truncate-panic": "M13-gguf-v1-string-truncate-panic",
+      "M9-gguf-numkv-unbounded": "M14-gguf-numkv-unbounded"
+    }
+  }
+}

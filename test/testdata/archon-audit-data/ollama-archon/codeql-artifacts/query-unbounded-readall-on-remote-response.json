@@ -1,0 +1,26 @@
+{"edges":{"columns":[
+   {"name":"a","kind":"Entity"}
+  ,{"name":"b","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[]
+ },"nodes":{"columns":[
+   {"name":"n","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[]
+ },"subpaths":{"columns":[
+   {"name":"arg","kind":"Entity"}
+  ,{"name":"par","kind":"Entity"}
+  ,{"name":"ret","kind":"Entity"}
+  ,{"name":"out","kind":"Entity"}]
+ ,"tuples":[]
+ },"#select":{"columns":[
+   {"kind":"Entity"}
+  ,{"name":"source","kind":"Entity"}
+  ,{"name":"sink","kind":"Entity"}
+  ,{"kind":"String"}
+  ,{"kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[]
+ }}

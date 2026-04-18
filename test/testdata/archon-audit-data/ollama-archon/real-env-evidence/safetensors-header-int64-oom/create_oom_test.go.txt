@@ -1,0 +1,51 @@
+package server
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/manifest"
+)
+
+// TestSafetensorsHeaderMaxInt64 verifies that a crafted safetensors file with
+// MaxInt64 as the header length causes a panic in parseSafetensors via
+// make([]byte, 0, n).
+func TestSafetensorsHeaderMaxInt64(t *testing.T) {
+	t.Setenv("OLLAMA_MODELS", t.TempDir())
+
+	makeTemp := func(content string) string {
+		l, err := manifest.NewLayer(strings.NewReader(content), "application/octet-stream")
+		if err != nil {
+			t.Fatalf("NewLayer: %v", err)
+		}
+		return l.Digest
+	}
+
+	// Craft a safetensors file with MaxInt64 as the header length.
+	var buf bytes.Buffer
+	var n int64 = 0x7FFFFFFFFFFFFFFF
+	binary.Write(&buf, binary.LittleEndian, n)
+
+	model := makeTemp(buf.String())
+	config := makeTemp(`{"architectures": ["LlamaForCausalLM"], "vocab_size": 32000}`)
+	tokenizer := makeTemp(`{"version": "1.0"}`)
+
+	files := map[string]string{
+		"model.safetensors": model,
+		"config.json":       config,
+		"tokenizer.json":    tokenizer,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Logf("PANIC: %v", r)
+		}
+	}()
+
+	_, err := convertFromSafetensors(files, nil, false, func(resp api.ProgressResponse) {})
+	fmt.Printf("convertFromSafetensors returned err=%v\n", err)
+}

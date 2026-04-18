@@ -1,0 +1,17 @@
+=== RUN   TestPullBypassesAllowedHosts
+2026/04/17 16:08:41 WARN http error="method not allowed" status=405 method=GET path=/api/pull content-length=0 remote=127.0.0.1:60760 proto=HTTP/1.1 query=""
+    middleware_bypass_review_test.go:76: GET /api/pull (Host=attacker.example.com) -> status=405 body="{\"code\":\"method_not_allowed\",\"error\":\"method not allowed\"}"
+    middleware_bypass_review_test.go:77: host-check middleware invoked? false   gin-fallback invoked? false
+    middleware_bypass_review_test.go:82: CONFIRMED: host-check middleware was NOT invoked — /api/pull bypass is real.
+--- PASS: TestPullBypassesAllowedHosts (0.00s)
+=== RUN   TestTagsDoesNotBypass
+    middleware_bypass_review_test.go:107: GET /api/tags (Host=attacker.example.com) -> status=403 body=""
+    middleware_bypass_review_test.go:111: CONFIRMED: host-check middleware fired on fallback-dispatched /api/tags.
+--- PASS: TestTagsDoesNotBypass (0.00s)
+=== RUN   TestDeleteBypassesAllowedHosts
+2026/04/17 16:08:41 WARN http error="method not allowed" status=405 method=GET path=/api/delete content-length=0 remote=127.0.0.1:60764 proto=HTTP/1.1 query=""
+    middleware_bypass_review_test.go:133: GET /api/delete (Host=attacker.example.com) -> status=405 body="{\"code\":\"method_not_allowed\",\"error\":\"method not allowed\"}"
+    middleware_bypass_review_test.go:137: CONFIRMED: host-check middleware was NOT invoked — /api/delete bypass is real.
+--- PASS: TestDeleteBypassesAllowedHosts (0.00s)
+PASS
+ok  	github.com/ollama/ollama/server/internal/registry	0.319s

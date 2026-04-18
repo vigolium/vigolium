@@ -1,0 +1,8 @@
+Date: Fri, 17 Apr 2026 08:07:46 UTC
+Target: 127.0.0.1:17434
+Binary: ollama built from main checkout
+Platform: linux/amd64 (Docker container)
+Bind: 127.0.0.1:17434
+curl: curl 7.88.1 (x86_64-pc-linux-gnu) libcurl/7.88.1 OpenSSL/3.0.9
+Note: adversarial reviewer built binary from current main branch; reproduced
+      at commit matching repo HEAD at time of audit.

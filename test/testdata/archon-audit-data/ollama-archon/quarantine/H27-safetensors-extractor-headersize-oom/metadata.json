@@ -1,0 +1,6 @@
+{
+  "is_variant": true,
+  "origin_finding_id": "C2",
+  "origin_finding_draft": "archon/findings-draft/p8-020-gguf-shape-uint64-overflow-oob.md",
+  "origin_pattern": "AP-020"
+}

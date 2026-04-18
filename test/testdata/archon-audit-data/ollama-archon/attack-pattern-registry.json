@@ -1,0 +1,266 @@
+{
+  "patterns": [
+    {
+      "id": "AP-020",
+      "title": "extractBashPrefix pipe/semicolon blindness",
+      "root_cause": "Command prefix extraction splits only on pipe character, ignoring shell command separators (; && ||)",
+      "cwe": "CWE-78",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "grep": "strings.Split(command, \"|\") without handling ; && ||",
+        "semgrep": "pattern: strings.Split($CMD, \"|\") where $CMD is user-controlled bash command"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:205",
+        "archon/findings-draft/p10-030-autoallow-prefix-no-separator-guard.md",
+        "archon/findings-draft/p10-032-allowlisted-prefix-bypasses-cwd-warning.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-021",
+      "title": "Shell expansion in path arguments bypasses lexical path validation",
+      "root_cause": "path.Clean is lexical-only; shell metacharacters $() {} `` pass through uninterpreted",
+      "cwe": "CWE-78",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "grep": "path.Clean\\(.*\\) followed by bash -c execution",
+        "semgrep": "pattern: path.Clean($ARG) where $ARG reaches exec.Command(\"bash\", \"-c\", ...)"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:253",
+        "archon/findings-draft/p10-033-process-substitution-bypasses-cwd-check.md",
+        "archon/findings-draft/p10-035-ansi-c-quoting-bypasses-path-detection.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-022",
+      "title": "safeCommands without flag analysis",
+      "root_cause": "Command safety classification ignores flags that change command behavior from read to write/execute",
+      "cwe": "CWE-78",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "safeCommands.*sed.*find.*without flag checking",
+        "semgrep": "pattern: map[string]bool containing sed or find as safe without -i/-exec analysis"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:217-222",
+        "archon/findings-draft/p10-031-echo-autoallow-redirects-to-rc-files.md",
+        "archon/findings-draft/p10-034-isdenied-missing-shell-rc-and-redirection.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-023",
+      "title": "Substring deny-pattern without whitespace normalization",
+      "root_cause": "strings.Contains pattern matching without collapsing whitespace allows double-space bypass",
+      "cwe": "CWE-78",
+      "severity": "MEDIUM",
+      "detection_signature": {
+        "grep": "strings.Contains.*denyPattern without strings.Fields normalization",
+        "semgrep": "pattern: strings.Contains($INPUT, $PATTERN) where $INPUT has no whitespace normalization"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:179"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-024",
+      "title": "Per-tool approval without argument scoping",
+      "root_cause": "Non-bash tool allowlist stores tool name only, granting blanket access regardless of arguments",
+      "cwe": "CWE-918",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "allowlist\\[toolName\\] = true without argument validation",
+        "semgrep": "pattern: $MAP[$TOOLNAME] = true where $TOOLNAME is tool identifier without argument scope"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:477"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-025",
+      "title": "Single-path assumption in multi-argument commands",
+      "root_cause": "Path extraction returns after first path argument; additional path arguments are unchecked",
+      "cwe": "CWE-22",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "return.*prefix after first path arg without checking remaining args",
+        "semgrep": "pattern: for loop with early return after first path match, missing subsequent argument validation"
+      },
+      "confirmed_instances": [
+        "x/agent/approval.go:284"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-001",
+      "title": "Cross-Origin Unauthenticated API Chain",
+      "root_cause": "CORS permits dangerous origins (file://, vscode-webview://) to access destructive API endpoints with no authentication",
+      "cwe": "CWE-942",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "AllowedOrigins.*file://|AllowedOrigins.*vscode-webview://",
+        "semgrep": "pattern: AllowOrigins containing file://* or vscode-webview://* without route-level CORS separation"
+      },
+      "confirmed_instances": [
+        "p8-001-cross-origin-model-exfiltration.md",
+        "p8-002-cross-origin-model-poisoning.md",
+        "p4-f07-cors-file-origin.md",
+        "p10-001-cross-origin-forced-signout.md",
+        "p10-002-cross-origin-cloud-inference-billing-abuse.md",
+        "p10-003-cross-origin-web-search-fetch-proxy-abuse.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-003",
+      "title": "JSON Unknown Field Pre-Positioning",
+      "root_cause": "Go json.Unmarshal silently ignores unknown fields, allowing attackers to pre-position payloads in stored JSON that activate when schema evolves",
+      "cwe": "CWE-502",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "grep": "json.Unmarshal.*ConfigV2|json.NewDecoder.*ConfigV2",
+        "semgrep": "pattern: json.Unmarshal($DATA, &$STRUCT) where $STRUCT stores to disk without DisallowUnknownFields"
+      },
+      "confirmed_instances": [
+        "p8-003-configv2-time-bomb-rce.md",
+        "archon/findings-draft/p10-052-imagegen-manifest-unknown-fields.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-004",
+      "title": "Missing Manifest Digest Verification",
+      "root_cause": "OCI manifest response body not verified against Docker-Content-Digest header",
+      "cwe": "CWE-354",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "TODO.*return digest|Docker-Content-Digest",
+        "semgrep": "pattern: io.ReadAll($RESP.Body) followed by json.Unmarshal without digest comparison"
+      },
+      "confirmed_instances": [
+        "p8-004-manifest-integrity-bypass.md",
+        "archon/findings-draft/p10-053-imagegen-blob-size-only-cache.md",
+        "archon/findings-draft/p10-054-windows-updater-no-verify.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-005",
+      "title": "Content-Type Confusion in OCI Manifest",
+      "root_cause": "Response Content-Type not validated when fetching OCI manifests",
+      "cwe": "CWE-345",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "pullModelManifest|unmarshalManifest",
+        "semgrep": "pattern: Accept header set but response Content-Type never checked before parsing"
+      },
+      "confirmed_instances": [
+        "p8-005-manifest-content-type-bypass.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-006",
+      "title": "Middleware Bypass on Non-Loopback Bind",
+      "root_cause": "Access control middleware unconditionally skips when server is bound to non-loopback address",
+      "cwe": "CWE-284",
+      "severity": "CRITICAL",
+      "detection_signature": {
+        "grep": "IsLoopback.*c\\.Next|allowedHostsMiddleware",
+        "semgrep": "pattern: if !$ADDR.IsLoopback() { c.Next(); return }"
+      },
+      "confirmed_instances": [
+        "p8-006-host-middleware-bypass-docker.md"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-040",
+      "title": "GGUF unchecked uint64-to-int cast in parser",
+      "root_cause": "Uint64 value from binary input cast to signed int without sign/bounds check; negative result used as slice index",
+      "cwe": "CWE-681",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "int(.*\\.Uint64\\(|int(.*\\.Uint32\\(",
+        "semgrep": "pattern: $VAR := int($OBJ.Uint64($BUF)) without bounds check before slice use"
+      },
+      "confirmed_instances": [
+        "fs/ggml/gguf.go:359 -- readGGUFString length cast",
+        "fs/ggml/gguf.go:337 -- discardGGUFString size cast (p10-044)",
+        "fs/ggml/gguf.go:437 -- readGGUFArray int(n) element count cast (p10-045)",
+        "fs/ggml/gguf.go:303 -- readGGUFV1String int64(length) CopyN cast (p10-046)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-041",
+      "title": "GGUF unbounded allocation via disabled size limit sentinel",
+      "root_cause": "Size limit parameter uses -1 sentinel to mean unlimited; create path passes -1, disabling all allocation guards",
+      "cwe": "CWE-770",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "maxArraySize.*-1|Decode.*-1\\)",
+        "semgrep": "pattern: if $MAX < 0 || $SIZE <= $MAX { make([]$T, $SIZE) }"
+      },
+      "confirmed_instances": [
+        "fs/ggml/gguf.go:418 -- newArray maxSize<0 bypass",
+        "server/create.go:684 -- ggml.Decode(blob, -1)",
+        "archon/findings-draft/p10-051-imagegen-safetensors-unbounded-oom.md",
+        "convert/reader_safetensors.go:39 -- parseSafetensors make([]byte,0,n) no bounds check (p10-048)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-042",
+      "title": "GGUF divide-by-zero via attacker-controlled divisor",
+      "root_cause": "KV metadata value used as modulo divisor without zero-check; value=0 causes panic",
+      "cwe": "CWE-369",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "ggufPadding|offset.*%.*align",
+        "semgrep": "pattern: $X % $ALIGN where $ALIGN from kv.Uint without zero guard"
+      },
+      "confirmed_instances": [
+        "fs/ggml/gguf.go:688 -- ggufPadding with alignment=0",
+        "fs/ggml/gguf.go:573,580 -- WriteGGUF ggufPadding with alignment=0 (p10-047)"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-043",
+      "title": "GGUF tensor size overflow bypasses bounds check",
+      "root_cause": "uint64 shape product overflow wraps to 0; unknown tensor Kind returns typeSize=0; both make Size()=0 which trivially passes bounds check",
+      "cwe": "CWE-190",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "Elements\\(\\).*typeSize|count \\*= n",
+        "semgrep": "pattern: count *= $N in loop without overflow check on uint64"
+      },
+      "confirmed_instances": [
+        "fs/ggml/ggml.go:505-514 -- Tensor.Elements()/Size() overflow",
+        "fs/ggml/gguf.go:258-262 -- bounds check defeated by Size()=0"
+      ],
+      "untested_candidates": []
+    },
+    {
+      "id": "AP-044",
+      "title": "Content-Disposition filename path traversal in updater",
+      "root_cause": "Server-controlled Content-Disposition filename used in filepath.Join without sanitization, enabling write to arbitrary filesystem paths",
+      "cwe": "CWE-22",
+      "severity": "HIGH",
+      "detection_signature": {
+        "grep": "params\\[\"filename\"\\].*filepath.Join|filepath.Join.*params\\[\"filename\"\\]",
+        "semgrep": "pattern: filepath.Join(, , params[\"filename\"]) without filepath.Base or containment check"
+      },
+      "confirmed_instances": [
+        "archon/findings-draft/p10-055-updater-content-disposition-path-traversal.md"
+      ],
+      "untested_candidates": []
+    }
+  ]
+}

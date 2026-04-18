@@ -1,0 +1,18 @@
+{
+  "component": "group-FG",
+  "loop": 1,
+  "total_validated": 15,
+  "total_needs_deeper": 4,
+  "loops": [
+    {
+      "loop": 1,
+      "q1_coverage_gaps": ["harmony/ (pure parser, no network input)", "sample/ (math utility)", "discover/ (GPU enumeration)"],
+      "q2_chain_seeds": ["PH-01->PH-09 (write+cache-hit=persistent weight substitution)", "PH-02->PH-04 (manifest traversal->blob read chain)", "PH-05->PH-06 (key compromise+nonce-free challenge=signing oracle)"],
+      "q3_fragile_items": ["PH-06 (nonce parity)", "PH-08 (nil-Pipe needs hand-constructed AST)", "PH-12 (mlx runner subprocess semantics unknown)", "PH-21 (server-side window unknown)"],
+      "q4_untouched": ["harmony/ (low risk - pure parser)", "sample/ (low risk - math)", "discover/ (low risk - GPU detection, no user input)"],
+      "q5_impact_multipliers": ["PH-06 if confirmed escalates to CRITICAL paired with PH-05"],
+      "decision": "proceed_to_summary",
+      "rationale": "All high-severity entry points covered. harmony/sample/discover have no direct attacker-controlled network input surface. NEEDS-DEEPER items do not block summary."
+    }
+  ]
+}

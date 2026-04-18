@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveOrgBilling } from '@/lib/billing';
 import { getUserOrganization } from '@/lib/workos-server';
 import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
-import { validateDemoKey } from '@/lib/demoKeys';
+import { validateDemoKey, isDemoSkipAuth } from '@/lib/demoKeys';
 
 const requireOrg = process.env.REQUIRE_ORG_MEMBERSHIP === 'true';
 
@@ -34,6 +34,17 @@ export async function GET(req: NextRequest) {
         organization: null,
       });
     }
+  }
+
+  // Skip-auth demo: no key required, everyone is a demo user
+  if (!demoKey && isDemoSkipAuth()) {
+    return NextResponse.json({
+      name: 'Demo',
+      email: 'demo@vigolium.com',
+      role: 'demo',
+      demo_label: 'public',
+      organization: null,
+    });
   }
 
   const cookieStore = await cookies();

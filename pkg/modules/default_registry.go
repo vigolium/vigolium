@@ -57,6 +57,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/ws_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/api_rate_limit_bypass"
 	"github.com/vigolium/vigolium/pkg/modules/active/xxe_generic"
+	// MCP Security - Active
+	"github.com/vigolium/vigolium/pkg/modules/active/mcp_server_probe"
 	// JS Framework Security - Active
 	"github.com/vigolium/vigolium/pkg/modules/active/js_devserver_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/nextjs_data_leakage"
@@ -278,6 +280,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/metaframework_fingerprint"
 	// Software Version Detection - Passive
 	"github.com/vigolium/vigolium/pkg/modules/passive/software_version_header"
+	// MCP Security - Passive
+	"github.com/vigolium/vigolium/pkg/modules/passive/mcp_endpoint_detect"
 )
 
 // DefaultRegistry is the default registry with all built-in modules.
@@ -469,6 +473,8 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(fastify_hono_probe.New()).
 	// Active modules - Meta-Framework Security
 	RegisterActive(metaframework_probe.New()).
+	// Active modules - MCP Security
+	RegisterActive(mcp_server_probe.New()).
 	// Passive modules
 	RegisterPassive(dom_xss_detect.New()).
 	RegisterPassive(auth_headers_detect.New()).
@@ -581,7 +587,9 @@ var DefaultRegistry = NewRegistry().
 	// Meta-Framework Fingerprinting - Passive
 	RegisterPassive(metaframework_fingerprint.New()).
 	// Software Version Detection - Passive
-	RegisterPassive(software_version_header.New())
+	RegisterPassive(software_version_header.New()).
+	// MCP Security - Passive
+	RegisterPassive(mcp_endpoint_detect.New())
 
 // Convenience functions - delegate to DefaultRegistry
 

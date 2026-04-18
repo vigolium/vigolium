@@ -1,0 +1,110 @@
+{"edges":{"columns":[
+   {"name":"a","kind":"Entity"}
+  ,{"name":"b","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"range statement[1] [Digest]"},{"label":"b [Digest]"},"provenance",""]
+  ,[{"label":"range statement[1] [Digest]"},{"label":"definition of blob [Digest]"},"provenance",""]
+  ,[{"label":"struct literal [Digest]"},{"label":"blobs [postupdate] [array, Digest]"},"provenance",""]
+  ,[{"label":"selection of Digest"},{"label":"struct literal [Digest]"},"provenance",""]
+  ,[{"label":"struct literal [Blobs, array, Digest]"},{"label":"definition of opts [Blobs, array, Digest]"},"provenance",""]
+  ,[{"label":"blobs [array, Digest]"},{"label":"struct literal [Blobs, array, Digest]"},"provenance",""]
+  ,[{"label":"selection of Blobs [array, Digest]"},{"label":"range statement[1] [Digest]"},"provenance",""]
+  ,[{"label":"opts [Blobs, array, Digest]"},{"label":"selection of Blobs [array, Digest]"},"provenance",""]
+  ,[{"label":"call to append [array, Digest]"},{"label":"blobs [array, Digest]"},"provenance",""]
+  ,[{"label":"call to append [array, Digest]"},{"label":"blobs [array, Digest]"},"provenance",""]
+  ,[{"label":"blobs [array, Digest]"},{"label":"call to append [array, Digest]"},"provenance","MaD:29"]
+  ,[{"label":"b [Digest]"},{"label":"[]type{args} [array, Digest]"},"provenance",""]
+  ,[{"label":"blobs [array, Digest]"},{"label":"range statement[1] [Digest]"},"provenance",""]
+  ,[{"label":"blob [Digest]"},{"label":"definition of blob [Digest]"},"provenance",""]
+  ,[{"label":"blob [Digest]"},{"label":"definition of blob [Digest]"},"provenance",""]
+  ,[{"label":"blob [Digest]"},{"label":"definition of blob [Digest]"},"provenance",""]
+  ,[{"label":"call to Join"},{"label":"tmp"},"provenance","Sink:MaD:2017"]
+  ,[{"label":"call to Join"},{"label":"tmp"},"provenance","Sink:MaD:2009"]
+  ,[{"label":"call to Join"},{"label":"tmp"},"provenance","Sink:MaD:2017"]
+  ,[{"label":"call to Join"},{"label":"tmp"},"provenance","Sink:MaD:2009"]
+  ,[{"label":"call to digestToPath"},{"label":"call to Join"},"provenance","FunctionModel"]
+  ,[{"label":"call to digestToPath"},{"label":"call to Join"},"provenance","FunctionModel"]
+  ,[{"label":"selection of Digest"},{"label":"call to digestToPath"},"provenance",""]
+  ,[{"label":"selection of Digest"},{"label":"definition of digest"},"provenance",""]
+  ,[{"label":"selection of Digest"},{"label":"call to digestToPath"},"provenance",""]
+  ,[{"label":"selection of Digest"},{"label":"definition of digest"},"provenance",""]
+  ,[{"label":"blob [Digest]"},{"label":"selection of Digest"},"provenance",""]
+  ,[{"label":"opts [Blobs, array, Digest]"},{"label":"definition of opts [Blobs, array, Digest]"},"provenance",""]
+  ,[{"label":"[]type{args} [array, Digest]"},{"label":"call to append [array, Digest]"},"provenance","MaD:31"]
+  ,[{"label":"blobs [postupdate] [array, Digest]"},{"label":"blobs [array, Digest]"},"provenance",""]
+  ,[{"label":"capture variable blob [Digest]"},{"label":"blob [Digest]"},"provenance",""]
+  ,[{"label":"definition of opts [Blobs, array, Digest]"},{"label":"opts [Blobs, array, Digest]"},"provenance",""]
+  ,[{"label":"definition of blob [Digest]"},{"label":"blob [Digest]"},"provenance",""]
+  ,[{"label":"definition of blob [Digest]"},{"label":"blob [Digest]"},"provenance",""]
+  ,[{"label":"definition of blob [Digest]"},{"label":"blob [Digest]"},"provenance",""]
+  ,[{"label":"definition of opts [Blobs, array, Digest]"},{"label":"opts [Blobs, array, Digest]"},"provenance",""]
+  ,[{"label":"definition of digest"},{"label":"...+..."},"provenance",""]
+  ,[{"label":"definition of digest"},{"label":"digest"},"provenance",""]
+  ,[{"label":"definition of blob [Digest]"},{"label":"capture variable blob [Digest]"},"provenance",""]]
+ },"nodes":{"columns":[
+   {"name":"n","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"range statement[1] [Digest]"},"semmle.label","range statement[1] [Digest]"]
+  ,[{"label":"range statement[1] [Digest]"},"semmle.label","range statement[1] [Digest]"]
+  ,[{"label":"struct literal [Digest]"},"semmle.label","struct literal [Digest]"]
+  ,[{"label":"selection of Digest"},"semmle.label","selection of Digest"]
+  ,[{"label":"struct literal [Blobs, array, Digest]"},"semmle.label","struct literal [Blobs, array, Digest]"]
+  ,[{"label":"blobs [array, Digest]"},"semmle.label","blobs [array, Digest]"]
+  ,[{"label":"selection of Blobs [array, Digest]"},"semmle.label","selection of Blobs [array, Digest]"]
+  ,[{"label":"opts [Blobs, array, Digest]"},"semmle.label","opts [Blobs, array, Digest]"]
+  ,[{"label":"call to append [array, Digest]"},"semmle.label","call to append [array, Digest]"]
+  ,[{"label":"blobs [array, Digest]"},"semmle.label","blobs [array, Digest]"]
+  ,[{"label":"b [Digest]"},"semmle.label","b [Digest]"]
+  ,[{"label":"blobs [array, Digest]"},"semmle.label","blobs [array, Digest]"]
+  ,[{"label":"blob [Digest]"},"semmle.label","blob [Digest]"]
+  ,[{"label":"blob [Digest]"},"semmle.label","blob [Digest]"]
+  ,[{"label":"blob [Digest]"},"semmle.label","blob [Digest]"]
+  ,[{"label":"call to Join"},"semmle.label","call to Join"]
+  ,[{"label":"call to Join"},"semmle.label","call to Join"]
+  ,[{"label":"call to digestToPath"},"semmle.label","call to digestToPath"]
+  ,[{"label":"call to digestToPath"},"semmle.label","call to digestToPath"]
+  ,[{"label":"selection of Digest"},"semmle.label","selection of Digest"]
+  ,[{"label":"selection of Digest"},"semmle.label","selection of Digest"]
+  ,[{"label":"blob [Digest]"},"semmle.label","blob [Digest]"]
+  ,[{"label":"opts [Blobs, array, Digest]"},"semmle.label","opts [Blobs, array, Digest]"]
+  ,[{"label":"...+..."},"semmle.label","...+..."]
+  ,[{"label":"digest"},"semmle.label","digest"]
+  ,[{"label":"[]type{args} [array, Digest]"},"semmle.label","[]type{args} [array, Digest]"]
+  ,[{"label":"blobs [postupdate] [array, Digest]"},"semmle.label","blobs [postupdate] [array, Digest]"]
+  ,[{"label":"capture variable blob [Digest]"},"semmle.label","capture variable blob [Digest]"]
+  ,[{"label":"definition of opts [Blobs, array, Digest]"},"semmle.label","definition of opts [Blobs, array, Digest]"]
+  ,[{"label":"definition of blob [Digest]"},"semmle.label","definition of blob [Digest]"]
+  ,[{"label":"definition of blob [Digest]"},"semmle.label","definition of blob [Digest]"]
+  ,[{"label":"definition of blob [Digest]"},"semmle.label","definition of blob [Digest]"]
+  ,[{"label":"definition of opts [Blobs, array, Digest]"},"semmle.label","definition of opts [Blobs, array, Digest]"]
+  ,[{"label":"definition of digest"},"semmle.label","definition of digest"]
+  ,[{"label":"definition of blob [Digest]"},"semmle.label","definition of blob [Digest]"]
+  ,[{"label":"tmp"},"semmle.label","tmp"]
+  ,[{"label":"tmp"},"semmle.label","tmp"]]
+ },"subpaths":{"columns":[
+   {"name":"arg","kind":"Entity"}
+  ,{"name":"par","kind":"Entity"}
+  ,{"name":"ret","kind":"Entity"}
+  ,{"name":"out","kind":"Entity"}]
+ ,"tuples":[
+   [{"label":"selection of Digest"},{"label":"definition of digest"},{"label":"...+..."},{"label":"call to digestToPath"}]
+  ,[{"label":"selection of Digest"},{"label":"definition of digest"},{"label":"digest"},{"label":"call to digestToPath"}]
+  ,[{"label":"selection of Digest"},{"label":"definition of digest"},{"label":"...+..."},{"label":"call to digestToPath"}]
+  ,[{"label":"selection of Digest"},{"label":"definition of digest"},{"label":"digest"},{"label":"call to digestToPath"}]]
+ },"#select":{"columns":[
+   {"kind":"Entity"}
+  ,{"name":"source","kind":"Entity"}
+  ,{"name":"sink","kind":"Entity"}
+  ,{"kind":"String"}
+  ,{"kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"tmp"},{"label":"selection of Digest"},{"label":"tmp"},"Remote manifest Digest $@ reaches file path construction without BlobsPath() canonicalization — path traversal risk (CVE-2024-37032).",{"label":"selection of Digest"},"selection of Digest"]
+  ,[{"label":"tmp"},{"label":"selection of Digest"},{"label":"tmp"},"Remote manifest Digest $@ reaches file path construction without BlobsPath() canonicalization — path traversal risk (CVE-2024-37032).",{"label":"selection of Digest"},"selection of Digest"]
+  ,[{"label":"tmp"},{"label":"selection of Digest"},{"label":"tmp"},"Remote manifest Digest $@ reaches file path construction without BlobsPath() canonicalization — path traversal risk (CVE-2024-37032).",{"label":"selection of Digest"},"selection of Digest"]
+  ,[{"label":"tmp"},{"label":"selection of Digest"},{"label":"tmp"},"Remote manifest Digest $@ reaches file path construction without BlobsPath() canonicalization — path traversal risk (CVE-2024-37032).",{"label":"selection of Digest"},"selection of Digest"]]
+ }}

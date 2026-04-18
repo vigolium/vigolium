@@ -1,0 +1,15 @@
+Environment details for H1-api-pull-ssrf PoC execution
+=======================================================
+Date: 2026-04-17
+Platform: darwin (macOS arm64)
+Go version: go1.26.1 darwin/arm64
+Repository: github.com/ollama/ollama
+Branch: audit (main branch: main)
+Commit: 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Commit message: cmd/launch: show WSL guidance on Windows instead of handing off (#15637)
+
+Test method: in-process Go integration test
+  - Exercises pullModelManifest() directly (the function called by PullHandler goroutine)
+  - Uses httptest.NewServer() to simulate internal HTTP target
+  - No external network dependencies
+  - Demonstrates exploit through real production code paths

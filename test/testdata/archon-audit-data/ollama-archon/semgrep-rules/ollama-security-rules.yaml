@@ -1,0 +1,218 @@
+rules:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 1: gin handler reads body without MaxBytesReader cap
+  # DFD: DFD-8 (zstd decompression), DFD-13 (gzip bomb)
+  # CVE class: CVE-2024-12886 (gzip bomb via io.ReadAll in auth/registry path)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-shouldbindjson-no-maxbytes
+    languages: [go]
+    severity: ERROR
+    message: >
+      HTTP handler calls io.ReadAll($R.Body) without a preceding http.MaxBytesReader wrapper.
+      An attacker sending a large or gzip/zstd-bomb payload can exhaust server memory
+      (CVE-2024-12886 class, DFD-8/DFD-13). Wrap with http.MaxBytesReader before reading.
+    metadata:
+      cwe: CWE-400
+      cwe-secondary: CWE-770
+      owasp: A05:2021 – Security Misconfiguration
+      references:
+        - https://github.com/advisories/GHSA-v464-r2r9-www7
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          func $HANDLER($C *gin.Context) {
+            ...
+            io.ReadAll($C.Request.Body)
+            ...
+          }
+      - pattern-not: |
+          func $HANDLER($C *gin.Context) {
+            ...
+            http.MaxBytesReader(...)
+            ...
+            io.ReadAll(...)
+            ...
+          }
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 2: cgo call passes Go-computed length without upper bound check
+  # DFD: DFD-6 (multimodal image → cgo mtmd helper → C heap)
+  # CVE class: CVE-2025-15514, Sonar-OOB-2025 (mllama OOB write)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-cgo-length-unchecked
+    languages: [go]
+    severity: WARNING
+    message: >
+      cgo call passes Go-computed length via C.size_t(len($X)) or C.int(len($X))
+      without an explicit maximum-size guard before the C call.
+      If $X originates from user-supplied data (e.g., decoded base64 image),
+      this can trigger C-side buffer overflows (CVE-2025-15514 class, DFD-6).
+    metadata:
+      cwe: CWE-119
+      cwe-secondary: CWE-125
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: C.$CFUNC(..., C.size_t(len($X)), ...)
+      - pattern: C.$CFUNC(..., C.int(len($X)), ...)
+      - pattern: C.$CFUNC(..., (*C.uchar)(unsafe.Pointer(&$X[0])), C.size_t(len($X)), ...)
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 3: binary.Read length flows to make without bounds check
+  # DFD: DFD-2 (blob upload → GGUF parser), DFD-10 (safetensors header)
+  # CVE class: CVE-2025-0315, CVE-2025-66959, CVE-2025-66960, TALOS-2024-1913
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-length-prefix-no-sanity
+    languages: [go]
+    severity: ERROR
+    message: >
+      binary.Read populates $N from an untrusted stream, then $N is used directly in
+      make([]byte, $N) without an intermediate bounds check.
+      A crafted GGUF or safetensors file can set $N to 2^63-1 → OOM crash
+      (CVE-2025-0315 / CVE-2025-66959 class, DFD-2/DFD-10).
+    metadata:
+      cwe: CWE-190
+      cwe-secondary: CWE-400
+      confidence: HIGH
+    patterns:
+      - pattern: |
+          binary.Read($R, $ORDER, &$N)
+          ...
+          $BUF := make([]byte, $N)
+      - pattern-not: |
+          binary.Read($R, $ORDER, &$N)
+          ...
+          if $N > ... { ... }
+          ...
+          $BUF := make([]byte, $N)
+      - pattern-not: |
+          binary.Read($R, $ORDER, &$N)
+          ...
+          if $N >= ... { ... }
+          ...
+          $BUF := make([]byte, $N)
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 4: exec.Command/CommandContext with non-constant string arg
+  # DFD: DFD-5 (LLM output → Agent Tool Call → bash), DFD-14 ($EDITOR)
+  # CVE class: CWE-78, CWE-88
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-exec-nonconstant
+    languages: [go]
+    severity: ERROR
+    message: >
+      exec.Command or exec.CommandContext called with a non-constant command or argument.
+      If the command name or arguments derive from user input, LLM output, or
+      environment variables, this enables OS command injection (DFD-5 agent bash,
+      DFD-14 $EDITOR/$VISUAL, commit 0aaf6119 pattern).
+    metadata:
+      cwe: CWE-78
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: exec.CommandContext($CTX, "bash", "-c", $STR)
+      - pattern: exec.CommandContext($CTX, $CMD, ...)
+      - pattern: exec.Command($CMD, ...)
+    pattern-not-regex: 'exec\.Command(Context)?\([^,]+,\s*"[^"]*"'
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 5: filepath.Join(destDir, memberName) without filepath.IsLocal guard
+  # DFD: DFD-3 (create → symlink escape / ZipSlip)
+  # CVE class: CVE-2024-45436, CVE-2024-37032
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-join-no-islocal
+    languages: [go]
+    severity: ERROR
+    message: >
+      filepath.Join constructs a file path using $NAME without a preceding
+      filepath.IsLocal($NAME) check. If $NAME comes from an archive member
+      (ZIP/tar) or remote manifest digest, a ".." component enables path traversal
+      (ZipSlip — CVE-2024-45436; Probllama — CVE-2024-37032).
+    metadata:
+      cwe: CWE-22
+      confidence: MEDIUM
+    patterns:
+      - pattern: os.Create(filepath.Join($DIR, $NAME))
+      - pattern-not-inside: |
+          if filepath.IsLocal($NAME) { ... }
+      - focus-metavariable: $NAME
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 6: template.New/Parse with user-controlled source string
+  # DFD: DFD-4 (Modelfile TEMPLATE → text/template → DoS/SSTI)
+  # CVE class: commit 62d29b21 (html→text/template, auto-escape disabled)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-template-user-src
+    languages: [go]
+    severity: WARNING
+    message: >
+      text/template.New().Parse($USERSRC) called where $USERSRC may be user-controlled
+      (Modelfile TEMPLATE field, GGUF general.chat_template metadata).
+      Ollama switched from html/template to text/template (commit 62d29b21) — HTML
+      auto-escaping is OFF. A malformed template causes nil-node panic (fixed by 1ed2881e)
+      but SSTI via {{.System}} expansion is still possible (DFD-4).
+    metadata:
+      cwe: CWE-94
+      cwe-secondary: CWE-400
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: template.New($X).Parse($USERSRC)
+      - pattern: |
+          $T, $ERR = template.New($X).Parse($USERSRC)
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 7: url.Parse without scheme validation (web_fetch SSRF)
+  # DFD: DFD-9 (POST /api/experimental/web_fetch → Cloud Proxy → SSRF)
+  # CVE class: CVE-2026-5530, CWE-918
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-url-parse-no-scheme-check
+    languages: [go]
+    severity: ERROR
+    message: >
+      url.Parse($U) called without checking that $URL.Scheme is "http" or "https".
+      In web_fetch and cloud proxy routes, an attacker can supply file://, gopher://,
+      or internal http:// URLs to reach internal services (DFD-9, CVE-2026-5530 SSRF class,
+      RFC 8089 file:// rejection not enforced).
+    metadata:
+      cwe: CWE-918
+      confidence: MEDIUM
+    paths:
+      include:
+        - x/tools/
+        - server/cloud_proxy.go
+        - server/routes.go
+    patterns:
+      - pattern: |
+          $URL, $ERR = url.Parse($U)
+          ...
+          $CLIENT.Do(...)
+      - pattern-not: |
+          $URL, $ERR = url.Parse($U)
+          ...
+          if $URL.Scheme != "http" && $URL.Scheme != "https" { ... }
+          ...
+          $CLIENT.Do(...)
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rule 8: allowedHostsMiddleware coverage — gin route without middleware chain
+  # DFD: cross-cutting HTTP handler authentication gaps
+  # CVE class: CVE-2025-63389 (missing auth), CVE-2024-28224 (DNS rebinding)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: ollama-gin-route-no-allowed-hosts
+    languages: [go]
+    severity: WARNING
+    message: >
+      gin.RouterGroup route registration directly on the engine (router.GET/POST/etc.)
+      bypasses the allowedHostsMiddleware DNS-rebinding protection.
+      Verify this route is either behind the protected group or explicitly exempt.
+      Pattern: CVE-2024-28224 (DNS rebinding bypass) and CVE-2025-63389 (no auth).
+    metadata:
+      cwe: CWE-346
+      cwe-secondary: CWE-306
+      confidence: LOW
+    paths:
+      include:
+        - server/routes.go
+    pattern-either:
+      - pattern: $ROUTER.GET($PATH, ...)
+      - pattern: $ROUTER.POST($PATH, ...)
+      - pattern: $ROUTER.DELETE($PATH, ...)
+      - pattern: $ROUTER.PUT($PATH, ...)

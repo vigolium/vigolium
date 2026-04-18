@@ -1,0 +1,5 @@
+Platform: darwin
+Go:       go version go1.26.1 darwin/arm64
+Repo:     /Users/bytedance/Desktop/demo/ollama
+Commit:   57653b8e42d69ec35f68a59857bad4d0f07994a3
+GGUF:     /Users/bytedance/Desktop/demo/ollama/archon/findings/C2-gguf-shape-uint64-overflow-oob/evidence/overflow_tensor.gguf

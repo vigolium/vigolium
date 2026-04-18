@@ -1,0 +1,39 @@
+{
+  "component": "group-B",
+  "loop": 1,
+  "total_validated": 14,
+  "total_needs_deeper": 4,
+  "loops": [
+    {
+      "loop": 1,
+      "q1_uncovered_entry_points": [
+        "convert/reader_torch.go::parseTorch (pickle deserialization)",
+        "tokenizer/* (vocabulary OOB access)",
+        "convert/tokenizer.go (tokenizer.json parsing size limits)"
+      ],
+      "q2_chain_seeds": [
+        "PH-C01 (OOB unsafe.Slice) → if ASLR-bypass present → heap info disclosure → escalate beyond DoS",
+        "PH-08 (x/create symlink escape) + PH-05 (safetensors OOM) → CROSS-05 chain: file read + OOM via symlinked crafted header"
+      ],
+      "q3_fragile_items": [
+        "PH-07 (TOCTOU EvalSymlinks race) — fragile: timing-dependent",
+        "PH-09 (tools/template.go nil-Pipe via Subtree) — fragile: requires specific template construction path"
+      ],
+      "q4_untouched_areas": [
+        "tokenizer/* package — not addressed",
+        "convert/reader_torch.go::parseTorch — only noted as NEEDS-DEEPER (gopickle v0.3.0)",
+        "convert/tokenizer.go — tokenizer.json size limits not verified"
+      ],
+      "q5_impact_multiplication": [
+        "PH-11 (pickle RCE) — if gopickle v0.3.0 has class-dispatch RCE, this becomes CRITICAL",
+        "tokenizer OOB (vocabulary.Decode with out-of-range id) — if reachable from attacker-controlled token generation, would be MEDIUM-HIGH"
+      ],
+      "decision": "run_loop_2_focused",
+      "loop_2_targets": [
+        "convert/reader_torch.go + gopickle behavior (PH-11 depth)",
+        "tokenizer/vocabulary.go:84 Decode OOB (new hypothesis)",
+        "tokenizer/sentencepiece.go:27 slice[:5] panic on small vocab (new hypothesis)"
+      ]
+    }
+  ]
+}

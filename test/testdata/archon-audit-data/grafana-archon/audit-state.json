@@ -1,0 +1,51 @@
+{
+  "audits": [
+    {
+      "audit_id": "2026-04-11T00:00:00Z",
+      "commit": "bb41ac0c85d854e32cb19874fb4b3f17163179a8",
+      "branch": "main",
+      "repository": "grafana/grafana",
+      "mode": "deep",
+      "model": "claude-sonnet-4-6[1m]",
+      "agent_sdk": "claude-code",
+      "started_at": "2026-04-11T00:00:00Z",
+      "completed_at": "2026-04-11T23:59:00Z",
+      "status": "complete",
+      "phases": {
+        "1": {"status": "complete", "output": "archon/advisory-report.md"},
+        "2": {"status": "complete", "output": "archon/bypass-analysis/"},
+        "3": {"status": "complete", "output": "archon/knowledge-base-report.md (DFD/CFD sections)"},
+        "4": {
+          "status": "complete",
+          "output": "archon/sast-results.md",
+          "artifacts": {
+            "codeql_go_db": "archon/codeql-artifacts/db/go-db/",
+            "codeql_js_db": "archon/codeql-artifacts/db/js-db/",
+            "entry_points": "archon/codeql-artifacts/entry-points.json",
+            "sinks": "archon/codeql-artifacts/sinks.json",
+            "call_graph_slices": "archon/codeql-artifacts/call-graph-slices.json",
+            "flow_paths": "archon/codeql-artifacts/flow-paths-all-severities.md",
+            "codeql_queries": "archon/codeql-queries/",
+            "semgrep_rules": "archon/semgrep-rules/",
+            "semgrep_results": "archon/semgrep-res/"
+          },
+          "findings_summary": {
+            "critical": 1,
+            "high": 12,
+            "medium": 11,
+            "low": 16,
+            "total": 42,
+            "top_finding": "F-001: GracePeriodSeconds=0 bypasses dashboard provisioning delete protection (register.go:335)"
+          }
+        },
+        "5": {"status": "pending"},
+        "6": {"status": "complete", "output": "archon/knowledge-base-report.md (Spec Gap sections)"},
+        "7": {"status": "pending"},
+        "8": {"status": "pending"},
+        "9": {"status": "pending"},
+        "10": {"status": "pending"},
+        "11": {"status": "pending"}
+      }
+    }
+  ]
+}

@@ -1,0 +1,2155 @@
+¢]... := ...[0]2/Users/bytedance/Desktop/demo/ollama/app/ui/ui.go7Remote flow source at app/ui/ui.go:209 [... := ...[0]]:/Users/bytedance/Desktop/demo/ollama/middleware/openai.go?Remote flow source at middleware/openai.go:740 [... := ...[0]]... := ...[1]?Remote flow source at middleware/openai.go:740 [... := ...[1]]selection of Header</Users/bytedance/Desktop/demo/ollama/anthropic/anthropic.goHRemote flow source at anthropic/anthropic.go:1153 [selection of Header]HRemote flow source at anthropic/anthropic.go:1155 [selection of Header]3/Users/bytedance/Desktop/demo/ollama/api/client.go>Remote flow source at api/client.go:137 [selection of Header]>Remote flow source at api/client.go:138 [selection of Header]>Remote flow source at api/client.go:139 [selection of Header]>Remote flow source at api/client.go:142 [selection of Header]>Remote flow source at api/client.go:203 [selection of Header]>Remote flow source at api/client.go:204 [selection of Header]>Remote flow source at api/client.go:205 [selection of Header]>Remote flow source at api/client.go:208 [selection of Header]</Users/bytedance/Desktop/demo/ollama/app/tools/web_fetch.goGRemote flow source at app/tools/web_fetch.go:110 [selection of Header]GRemote flow source at app/tools/web_fetch.go:112 [selection of Header]=/Users/bytedance/Desktop/demo/ollama/app/tools/web_search.goHRemote flow source at app/tools/web_search.go:127 [selection of Header]HRemote flow source at app/tools/web_search.go:129 [selection of Header]selection of URL3/Users/bytedance/Desktop/demo/ollama/app/ui/app.go:Remote flow source at app/ui/app.go:26 [selection of URL]:Remote flow source at app/ui/ui.go:168 [selection of URL]:Remote flow source at app/ui/ui.go:172 [selection of URL]:Remote flow source at app/ui/ui.go:244 [selection of URL]=Remote flow source at app/ui/ui.go:339 [selection of Header]=Remote flow source at app/ui/ui.go:378 [selection of Header]selection of Body;Remote flow source at app/ui/ui.go:636 [selection of Body]<Remote flow source at app/ui/ui.go:1299 [selection of Body]<Remote flow source at app/ui/ui.go:1454 [selection of Body]<Remote flow source at app/ui/ui.go:1496 [selection of Body]<Remote flow source at app/ui/ui.go:1564 [selection of Body]</Users/bytedance/Desktop/demo/ollama/app/updater/updater.goFRemote flow source at app/updater/updater.go:97 [selection of Header]GRemote flow source at app/updater/updater.go:100 [selection of Header]DRemote flow source at app/updater/updater.go:236 [selection of URL]3/Users/bytedance/Desktop/demo/ollama/llm/server.go?Remote flow source at llm/server.go:1215 [selection of Header]?Remote flow source at llm/server.go:1293 [selection of Header]?Remote flow source at llm/server.go:1617 [selection of Header]?Remote flow source at llm/server.go:1751 [selection of Header]=/Users/bytedance/Desktop/demo/ollama/middleware/anthropic.goHRemote flow source at middleware/anthropic.go:565 [selection of Header]call to Param?Remote flow source at middleware/openai.go:304 [call to Param]?Remote flow source at middleware/openai.go:313 [call to Param]call to GetHeaderCRemote flow source at middleware/openai.go:511 [call to GetHeader]CRemote flow source at middleware/openai.go:512 [selection of Body]ERemote flow source at middleware/openai.go:519 [selection of Header]call to FormValueCRemote flow source at middleware/openai.go:734 [call to FormValue]CRemote flow source at middleware/openai.go:761 [call to FormValue]CRemote flow source at middleware/openai.go:762 [call to FormValue]CRemote flow source at middleware/openai.go:763 [call to FormValue]ERemote flow source at middleware/openai.go:780 [selection of Header]2/Users/bytedance/Desktop/demo/ollama/ml/device.go=Remote flow source at ml/device.go:635 [selection of Header]B/Users/bytedance/Desktop/demo/ollama/runner/llamarunner/runner.goKRemote flow source at runner/llamarunner/runner.go:624 [selection of Body]KRemote flow source at runner/llamarunner/runner.go:752 [selection of Body]KRemote flow source at runner/llamarunner/runner.go:890 [selection of Body]C/Users/bytedance/Desktop/demo/ollama/runner/ollamarunner/runner.goLRemote flow source at runner/ollamarunner/runner.go:859 [selection of Body]LRemote flow source at runner/ollamarunner/runner.go:997 [selection of Body]MRemote flow source at runner/ollamarunner/runner.go:1285 [selection of Body];/Users/bytedance/Desktop/demo/ollama/server/cloud_proxy.goCRemote flow source at server/cloud_proxy.go:81 [call to GetHeader]CRemote flow source at server/cloud_proxy.go:82 [selection of Body]ERemote flow source at server/cloud_proxy.go:90 [selection of Header]CRemote flow source at server/cloud_proxy.go:125 [selection of URL]@Remote flow source at server/cloud_proxy.go:140 [call to Param]CRemote flow source at server/cloud_proxy.go:162 [selection of URL]CRemote flow source at server/cloud_proxy.go:176 [selection of URL]CRemote flow source at server/cloud_proxy.go:193 [selection of URL]FRemote flow source at server/cloud_proxy.go:202 [selection of Header]FRemote flow source at server/cloud_proxy.go:204 [selection of Header]FRemote flow source at server/cloud_proxy.go:206 [selection of Header]FRemote flow source at server/cloud_proxy.go:207 [selection of Header]CRemote flow source at server/cloud_proxy.go:251 [selection of URL]CRemote flow source at server/cloud_proxy.go:259 [selection of URL]DRemote flow source at server/cloud_proxy.go:290 [selection of Body]DRemote flow source at server/cloud_proxy.go:294 [selection of Body]CRemote flow source at server/cloud_proxy.go:361 [selection of URL]FRemote flow source at server/cloud_proxy.go:372 [selection of Header]CRemote flow source at server/cloud_proxy.go:377 [selection of URL]CRemote flow source at server/cloud_proxy.go:379 [selection of URL]CRemote flow source at server/cloud_proxy.go:381 [selection of URL]8/Users/bytedance/Desktop/demo/ollama/server/download.go@Remote flow source at server/download.go:246 [selection of URL]CRemote flow source at server/download.go:338 [selection of Header]6/Users/bytedance/Desktop/demo/ollama/server/images.goARemote flow source at server/images.go:967 [selection of Header]ARemote flow source at server/images.go:973 [selection of Header]ARemote flow source at server/images.go:975 [selection of Header]E/Users/bytedance/Desktop/demo/ollama/server/inference_request_log.goMRemote flow source at server/inference_request_log.go:70 [call to GetHeader]MRemote flow source at server/inference_request_log.go:73 [selection of Body]MRemote flow source at server/inference_request_log.go:75 [selection of Body]O/Users/bytedance/Desktop/demo/ollama/server/internal/client/ollama/registry.goZRemote flow source at server/internal/client/ollama/registry.go:602 [selection of Header]ZRemote flow source at server/internal/client/ollama/registry.go:952 [selection of Header]ZRemote flow source at server/internal/client/ollama/registry.go:959 [selection of Header]WRemote flow source at server/internal/client/ollama/registry.go:969 [selection of URL]WRemote flow source at server/internal/client/ollama/registry.go:991 [selection of URL]H/Users/bytedance/Desktop/demo/ollama/server/internal/registry/server.goPRemote flow source at server/internal/registry/server.go:117 [selection of URL]PRemote flow source at server/internal/registry/server.go:172 [selection of URL]PRemote flow source at server/internal/registry/server.go:176 [selection of URL]QRemote flow source at server/internal/registry/server.go:234 [selection of Body]QRemote flow source at server/internal/registry/server.go:264 [selection of Body]call to UserAgent6/Users/bytedance/Desktop/demo/ollama/server/routes.go@Remote flow source at server/routes.go:1162 [call to UserAgent]<Remote flow source at server/routes.go:1494 [call to Param]<Remote flow source at server/routes.go:1501 [call to Param]<Remote flow source at server/routes.go:1509 [call to Param]<Remote flow source at server/routes.go:1518 [call to Param]<Remote flow source at server/routes.go:1528 [call to Param]@Remote flow source at server/routes.go:1546 [selection of Body]<Remote flow source at server/routes.go:1552 [call to Param]<Remote flow source at server/routes.go:1553 [call to Param]:/Users/bytedance/Desktop/demo/ollama/x/imagegen/runner.goCRemote flow source at x/imagegen/runner.go:145 [selection of Body]:/Users/bytedance/Desktop/demo/ollama/x/imagegen/server.goERemote flow source at x/imagegen/server.go:301 [selection of Header]E/Users/bytedance/Desktop/demo/ollama/x/imagegen/transfer/download.goPRemote flow source at x/imagegen/transfer/download.go:184 [selection of Header]PRemote flow source at x/imagegen/transfer/download.go:187 [selection of Header]PRemote flow source at x/imagegen/transfer/download.go:190 [selection of Header]PRemote flow source at x/imagegen/transfer/download.go:333 [selection of Header]PRemote flow source at x/imagegen/transfer/download.go:335 [selection of Header]C/Users/bytedance/Desktop/demo/ollama/x/imagegen/transfer/upload.goNRemote flow source at x/imagegen/transfer/upload.go:193 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:195 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:236 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:238 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:304 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:305 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:307 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:338 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:339 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:363 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:364 [selection of Header]NRemote flow source at x/imagegen/transfer/upload.go:366 [selection of Header];/Users/bytedance/Desktop/demo/ollama/x/mlxrunner/client.goFRemote flow source at x/mlxrunner/client.go:229 [selection of Header]FRemote flow source at x/mlxrunner/client.go:502 [selection of Header];/Users/bytedance/Desktop/demo/ollama/x/mlxrunner/server.goCRemote flow source at x/mlxrunner/server.go:90 [selection of Body]DRemote flow source at x/mlxrunner/server.go:144 [selection of Body]CRemote flow source at x/mlxrunner/server.go:183 [selection of URL]9/Users/bytedance/Desktop/demo/ollama/x/tools/webfetch.goDRemote flow source at x/tools/webfetch.go:122 [selection of Header]DRemote flow source at x/tools/webfetch.go:124 [selection of Header]:/Users/bytedance/Desktop/demo/ollama/x/tools/websearch.goERemote flow source at x/tools/websearch.go:125 [selection of Header]ERemote flow source at x/tools/websearch.go:127 [selection of Header]&... [postupdate]FRemote flow source at middleware/anthropic.go:818 [&... [postupdate]]CRemote flow source at middleware/openai.go:325 [&... [postupdate]]CRemote flow source at middleware/openai.go:360 [&... [postupdate]]CRemote flow source at middleware/openai.go:411 [&... [postupdate]]CRemote flow source at middleware/openai.go:523 [&... [postupdate]]CRemote flow source at middleware/openai.go:604 [&... [postupdate]]CRemote flow source at middleware/openai.go:639 [&... [postupdate]]6/Users/bytedance/Desktop/demo/ollama/server/create.go>Remote flow source at server/create.go:56 [&... [postupdate]]?Remote flow source at server/routes.go:197 [&... [postupdate]]?Remote flow source at server/routes.go:680 [&... [postupdate]]?Remote flow source at server/routes.go:863 [&... [postupdate]]?Remote flow source at server/routes.go:916 [&... [postupdate]]?Remote flow source at server/routes.go:974 [&... [postupdate]]@Remote flow source at server/routes.go:1057 [&... [postupdate]]@Remote flow source at server/routes.go:1108 [&... [postupdate]]@Remote flow source at server/routes.go:1456 [&... [postupdate]]@Remote flow source at server/routes.go:2105 [&... [postupdate]]Ï#selectìsrcei sπ©	 ——$@•√	 w‰‰,±¶√	w‰‰,˛Ë¨Ω—Å	Å	çÒ¨Ω—É	É	’Å¥Ωùââ–á¥Ωùääéç¥ΩùããÃù¥ΩùééäôµΩùÀÀ»üµΩùÃÃÜ•µΩùÕÕƒµµΩù––Ç≈˚Ω¿nn¸Œ˚Ω¿pp√	¢˝Ωä
+«
+´˝Ωä
+ÅÅè§˛◊ËõÑÅ◊®F®L’ïÅ◊¨9¨=è∂Ç◊ÙÙ…ÎÑΩ””	ÉµÖΩ˙˙¿¨â˝¸¸!è∑ñ˝ì
+ì
+! »ò˝ÆÆ!Ü•ô˝ÿÿ!¬±ö˝úú!˛˘ûΩ∫aaˆáüΩ∫ddºÏ°◊∫Ï Ï/ÉˇÂΩ«ø	ø		˙ëÁΩ«ç
+ç
+πÜÎΩ«——¯ûÌΩ«◊◊	∑í˛Ωˆµµ≥Ùá˚w∞>∞Mâêà˚wππ»∆ãáwˇˇ$ôÕã˝wÄ"Ä/‹ÌãΩwááü’è‰wﬁﬁ'ˆöê‰w˘˘9πüê‰w˙˙2¸§ê‰w˚˚0ø€êΩwååÇ´öΩ«˚˚˘˚ë˝∂!¯°î˝∂!√÷ñ˝∂˙˙!é∑©˝Ÿ€€!ú ˚´˝ŸÂÂ!Ë Ú∞˝ŸÖ
+Ö
+!¥!¯∫áÅ"QQ$º"ˇ∫˝Å"R"R/ˇ"°ªΩÅ"ZZ¬#„ª◊Å"}}á$˝ª˚Å"å"å1 $¶º◊Å"¢,¢8ä%ƒº◊Å"∞%∞1Õ%Íº◊Å"¡¡ê&äΩΩÅ"  &”&åΩΩÅ" ) 8”&óΩΩÅ"ÃÃô'ûΩΩÅ"ŒŒﬂ'©ΩΩÅ"œœ•(ïæ◊Å"˚˚Î(†æ◊Å"ÉÉÆ)–æ˝Å"¢¢
+Ò)◊æ˝Å"¶¶µ*√ø◊Å"ÈÈ˘*›øΩÅ"ÙÙº+‰ø◊Å"˘˘Ç,Îø◊Å"˚˚≈,˜ø◊Å"˝*˝0à-Â”◊À-ˆˆÉ.∏’ΩÀ-““√.∆ÊΩÜ/««º/ﬁÊΩÜ/ÕÕ˝/ÎÊΩÜ/œ
+œæ0∏Ëáˇ0FF,ƒ1ΩË˝ˇ0IIë2√Ë˝ˇ0KK(ﬁ2§˜Ω´3⁄⁄˙3€˚Ω´3∏∏‘4Ô˚Ω´3øøÆ5˘˚◊´3……	à6ú¸◊´3ﬂﬂﬂ6çÖ◊∂7u
+u˛7ÖÜ◊∂7¨¨Œ8öÜ◊∂7∞∞û9≤Ü˝∂7Í$Í)Ó9÷Ü˝∂7à$à)ø:Ö™ê;¢;ä	ä	#ÿ;¢∞˚¢;÷"÷2ò<¡∞˚¢;›^›n‘<À∞˚¢;Â!Â1ê=Ó∞˚¢;ÓÓ.Ã=Ñ±˚¢;¯"¯2à>≠±˝¢;ä"ä/ƒ>¿±˚¢;êê%Ñ?Õ±˚¢;ësëÉ¿?Âƒ˝¸?ëë!∂@æ“Ω˘@≠≠≥AùÁΩ¯A∏∏ΩBÆÁΩ¯AªªçCªÁΩ¯Aææ›C˙ÈΩ¯AÕÕ≠DÜÍΩ¯Aœœ˝DçΩÕE¡¡êFôΩÕE√√ﬁFúÒΩÕEÏÏ¨G®ÒΩÕEÓÓ˙GπÚΩÕE∞∞»HøÚΩÕE±±ñIÀÚΩÕE≥≥‰I√ÛΩÕE““≤J…ÛΩÕE””ÄK•ÙΩÕEÎÎŒK´ÙΩÕEÏÏúL∑ÙΩÕEÓÓÍLçïΩ∏MÂÂÛMûôΩ∏MˆˆπN≠Æ˝ˇNZZ"∫O¶Ø˝ˇNêê!˝Oó∞◊ˇN∑I∑M¡PÉ±ΩÑQzzΩQå±ΩÑQ||ÅR˘≤Ω≈R}}ˇRÇ≥Ω≈RƒS¡ãâTˆ≤≤õTŒçâTw≈≈·TÈçâTwËË§UâéâTwõõÁU‰éâTwãã!™V†èâTw‹‹!ÌVºèâTwˇˇ!∞W”® âTÛW88©X”∫ âT¢;≈≈ ÁXçΩ âT¢;®®¶YËΩ âT¢;ﬂﬂ ÂYéæ âT¢;îî§Z±æ âT¢;ŒŒ„Zÿæ âT¢;°°¢[Äø âT¢;‘‘‚[’¿ âT¢;∞∞¢\ √ âT¢;ππ ‚\≈ƒ---
+run:
+  queries:
+   -
+    pack: ollama/security-queries#3
+    relativeQueryPath: list-sources.ql
+    relativeBqrsPath: ollama/security-queries/list-sources.bqrs
+    metadata:
+      name: Ollama - Source Enumeration (Entry Points)
+      description: |-
+        Enumerate all recognized remote flow sources, local user inputs,
+                      and environment variable sources in the Ollama codebase.
+                      Used for Sub-step 4.1 structural extraction.
+      kind: problem
+      problem.severity: recommendation
+      id: go/ollama/source-enumeration
+      tags: source-enumeration structural
+  extensionPacks: []
+  packs:
+    codeql/go-all#0:
+      name: codeql/go-all
+      version: 7.0.5
+      isLibrary: true
+      isExtensionPack: false
+      localPath: file:///Users/bytedance/.codeql/packages/codeql/go-all/7.0.5/
+      localPackDefinitionFile: file:///Users/bytedance/.codeql/packages/codeql/go-all/7.0.5/qlpack.yml
+      headSha: 868ccfbb044e7ff8bff5bcaafd4b5511a500ca23
+      runDataExtensions: []
+    codeql/util#2:
+      name: codeql/util
+      version: 2.0.34
+      isLibrary: true
+      isExtensionPack: false
+      localPath: file:///Users/bytedance/.codeql/packages/codeql/util/2.0.34/
+      localPackDefinitionFile: file:///Users/bytedance/.codeql/packages/codeql/util/2.0.34/qlpack.yml
+      headSha: 868ccfbb044e7ff8bff5bcaafd4b5511a500ca23
+      runDataExtensions: []
+    ollama/security-queries#3:
+      name: ollama/security-queries
+      version: 0.1.0
+      isLibrary: false
+      isExtensionPack: false
+      localPath: file:///Users/bytedance/Desktop/demo/ollama/archon/codeql-queries/
+      localPackDefinitionFile: file:///Users/bytedance/Desktop/demo/ollama/archon/codeql-queries/qlpack.yml
+      runDataExtensions:
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/archive.tar.model.yml
+        index: 0
+        firstRowId: 0
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/archive.zip.model.yml
+        index: 0
+        firstRowId: 5
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/bufio.model.yml
+        index: 0
+        firstRowId: 11
+        rowCount: 17
+        locations:
+          lineNumbers: A=6+1*16
+          columnNumbers: A=9*17
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/builtin.model.yml
+        index: 0
+        firstRowId: 28
+        rowCount: 9
+        locations:
+          lineNumbers: A=6+1*8
+          columnNumbers: A=9*9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/bytes.model.yml
+        index: 0
+        firstRowId: 37
+        rowCount: 44
+        locations:
+          lineNumbers: A=6+1*43
+          columnNumbers: A=9*44
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/clevergo.tech.clevergo.model.yml
+        index: 0
+        firstRowId: 81
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/clevergo.tech.clevergo.model.yml
+        index: 1
+        firstRowId: 83
+        rowCount: 1
+        locations:
+          lineNumbers: A=12
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/cloud.google.com.go.bigquery.model.yml
+        index: 0
+        firstRowId: 84
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/compress.bzip2.model.yml
+        index: 0
+        firstRowId: 85
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/compress.flate.model.yml
+        index: 0
+        firstRowId: 86
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/compress.gzip.model.yml
+        index: 0
+        firstRowId: 90
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/compress.lzw.model.yml
+        index: 0
+        firstRowId: 93
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/compress.zlib.model.yml
+        index: 0
+        firstRowId: 94
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/container.heap.model.yml
+        index: 0
+        firstRowId: 98
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/container.list.model.yml
+        index: 0
+        firstRowId: 103
+        rowCount: 20
+        locations:
+          lineNumbers: A=6+1*19
+          columnNumbers: A=9*20
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/container.ring.model.yml
+        index: 0
+        firstRowId: 123
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/context.model.yml
+        index: 0
+        firstRowId: 128
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/crypto.cipher.model.yml
+        index: 0
+        firstRowId: 133
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/crypto.model.yml
+        index: 0
+        firstRowId: 136
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/crypto.rsa.model.yml
+        index: 0
+        firstRowId: 137
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/crypto.tls.model.yml
+        index: 0
+        firstRowId: 139
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/crypto.x509.model.yml
+        index: 0
+        firstRowId: 142
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.driver.model.yml
+        index: 0
+        firstRowId: 143
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.driver.model.yml
+        index: 1
+        firstRowId: 147
+        rowCount: 6
+        locations:
+          lineNumbers: A=14+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.driver.model.yml
+        index: 2
+        firstRowId: 153
+        rowCount: 5
+        locations:
+          lineNumbers: A=24+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.model.yml
+        index: 0
+        firstRowId: 158
+        rowCount: 14
+        locations:
+          lineNumbers: A=6+1*13
+          columnNumbers: A=9*14
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.model.yml
+        index: 1
+        firstRowId: 172
+        rowCount: 24
+        locations:
+          lineNumbers: A=24+1*23
+          columnNumbers: A=9*24
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/database.sql.model.yml
+        index: 2
+        firstRowId: 196
+        rowCount: 7
+        locations:
+          lineNumbers: A=52+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.ascii85.model.yml
+        index: 0
+        firstRowId: 203
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.asn1.model.yml
+        index: 0
+        firstRowId: 205
+        rowCount: 8
+        locations:
+          lineNumbers: A=6+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.base32.model.yml
+        index: 0
+        firstRowId: 213
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.base64.model.yml
+        index: 0
+        firstRowId: 216
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.binary.model.yml
+        index: 0
+        firstRowId: 219
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.csv.model.yml
+        index: 0
+        firstRowId: 221
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.gob.model.yml
+        index: 0
+        firstRowId: 226
+        rowCount: 7
+        locations:
+          lineNumbers: A=6+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.hex.model.yml
+        index: 0
+        firstRowId: 233
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.json.model.yml
+        index: 0
+        firstRowId: 236
+        rowCount: 14
+        locations:
+          lineNumbers: A=6+1*13
+          columnNumbers: A=9*14
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.model.yml
+        index: 0
+        firstRowId: 250
+        rowCount: 8
+        locations:
+          lineNumbers: A=6+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.pem.model.yml
+        index: 0
+        firstRowId: 258
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/encoding.xml.model.yml
+        index: 0
+        firstRowId: 261
+        rowCount: 23
+        locations:
+          lineNumbers: A=6+1*22
+          columnNumbers: A=9*23
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/errors.model.yml
+        index: 0
+        firstRowId: 284
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/expvar.model.yml
+        index: 0
+        firstRowId: 288
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/fmt.model.yml
+        index: 0
+        firstRowId: 294
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/fmt.model.yml
+        index: 1
+        firstRowId: 297
+        rowCount: 16
+        locations:
+          lineNumbers: A=13+1*15
+          columnNumbers: A=9*16
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.antchfx.htmlquery.model.yml
+        index: 0
+        firstRowId: 313
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.antchfx.jsonquery.model.yml
+        index: 0
+        firstRowId: 317
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.antchfx.xmlquery.model.yml
+        index: 0
+        firstRowId: 321
+        rowCount: 8
+        locations:
+          lineNumbers: A=6+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.antchfx.xpath.model.yml
+        index: 0
+        firstRowId: 329
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.appleboy.gin-jwt.model.yml
+        index: 0
+        firstRowId: 333
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.client.orm.model.yml
+        index: 0
+        firstRowId: 334
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.client.orm.model.yml
+        index: 1
+        firstRowId: 337
+        rowCount: 13
+        locations:
+          lineNumbers: A=13+1*12
+          columnNumbers: A=9*13
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.client.orm.model.yml
+        index: 2
+        firstRowId: 350
+        rowCount: 30
+        locations:
+          lineNumbers: A=30+1*29
+          columnNumbers: A=9*30
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.core.logs.model.yml
+        index: 0
+        firstRowId: 380
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.core.logs.model.yml
+        index: 1
+        firstRowId: 383
+        rowCount: 22
+        locations:
+          lineNumbers: A=13+1*21
+          columnNumbers: A=9*22
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.core.utils.model.yml
+        index: 0
+        firstRowId: 405
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.core.utils.model.yml
+        index: 1
+        firstRowId: 408
+        rowCount: 1
+        locations:
+          lineNumbers: A=13
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.core.utils.model.yml
+        index: 2
+        firstRowId: 409
+        rowCount: 13
+        locations:
+          lineNumbers: A=18+1*12
+          columnNumbers: A=9*13
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.context.model.yml
+        index: 0
+        firstRowId: 422
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.context.model.yml
+        index: 1
+        firstRowId: 425
+        rowCount: 2
+        locations:
+          lineNumbers: A=14+2
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.context.model.yml
+        index: 2
+        firstRowId: 427
+        rowCount: 1
+        locations:
+          lineNumbers: A=21
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.context.model.yml
+        index: 3
+        firstRowId: 428
+        rowCount: 15
+        locations:
+          lineNumbers: A=26+1*14
+          columnNumbers: A=9*15
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.model.yml
+        index: 0
+        firstRowId: 443
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.model.yml
+        index: 1
+        firstRowId: 446
+        rowCount: 16
+        locations:
+          lineNumbers: A=14+1*10+2+1*3+2
+          columnNumbers: A=9*16
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.model.yml
+        index: 2
+        firstRowId: 462
+        rowCount: 7
+        locations:
+          lineNumbers: A=36+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.model.yml
+        index: 3
+        firstRowId: 469
+        rowCount: 6
+        locations:
+          lineNumbers: A=47+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.beego.beego.server.web.model.yml
+        index: 4
+        firstRowId: 475
+        rowCount: 1
+        locations:
+          lineNumbers: A=57
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.caarlos0.env.model.yml
+        index: 0
+        firstRowId: 476
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.caarlos0.env.model.yml
+        index: 1
+        firstRowId: 481
+        rowCount: 2
+        locations:
+          lineNumbers: A=15+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.christrenkamp.goxpath.model.yml
+        index: 0
+        firstRowId: 483
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.codeskyblue.go-sh.model.yml
+        index: 0
+        firstRowId: 486
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.couchbase.gocb.model.yml
+        index: 0
+        firstRowId: 490
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.couchbase.gocb.model.yml
+        index: 1
+        firstRowId: 496
+        rowCount: 22
+        locations:
+          lineNumbers: A=16+1*21
+          columnNumbers: A=9*22
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.couchbase.gocb.model.yml
+        index: 2
+        firstRowId: 518
+        rowCount: 8
+        locations:
+          lineNumbers: A=42+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.couchbase.gocb.model.yml
+        index: 3
+        firstRowId: 526
+        rowCount: 48
+        locations:
+          lineNumbers: A=54+1*47
+          columnNumbers: A=9*48
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.cristalhq.jwt.model.yml
+        index: 0
+        firstRowId: 574
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.davecgh.go-spew.spew.model.yml
+        index: 0
+        firstRowId: 575
+        rowCount: 9
+        locations:
+          lineNumbers: A=6+1*8
+          columnNumbers: A=9*9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.dgrijalva.jwt-go.model.yml
+        index: 0
+        firstRowId: 584
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.dgrijalva.jwt-go.model.yml
+        index: 1
+        firstRowId: 587
+        rowCount: 9
+        locations:
+          lineNumbers: A=13+1*8
+          columnNumbers: A=9*9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.elazarl.goproxy.model.yml
+        index: 0
+        firstRowId: 596
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.elazarl.goproxy.model.yml
+        index: 1
+        firstRowId: 598
+        rowCount: 2
+        locations:
+          lineNumbers: A=12+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.elazarl.goproxy.model.yml
+        index: 2
+        firstRowId: 600
+        rowCount: 2
+        locations:
+          lineNumbers: A=19+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.emicklei.go-restful.model.yml
+        index: 0
+        firstRowId: 602
+        rowCount: 7
+        locations:
+          lineNumbers: A=6+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.evanphx.json-patch.model.yml
+        index: 0
+        firstRowId: 609
+        rowCount: 12
+        locations:
+          lineNumbers: A=6+1*11
+          columnNumbers: A=9*12
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.form3tech-oss.jwt-go.model.yml
+        index: 0
+        firstRowId: 621
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gin-gonic.gin.model.yml
+        index: 0
+        firstRowId: 623
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gin-gonic.gin.model.yml
+        index: 1
+        firstRowId: 626
+        rowCount: 2
+        locations:
+          lineNumbers: A=13+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gin-gonic.gin.model.yml
+        index: 2
+        firstRowId: 628
+        rowCount: 46
+        locations:
+          lineNumbers: A=19+1*45
+          columnNumbers: A=9*46
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-chi.chi.model.yml
+        index: 0
+        firstRowId: 674
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-chi.jwtauth.model.yml
+        index: 0
+        firstRowId: 677
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-jose.go-jose.jwt.model.yml
+        index: 0
+        firstRowId: 678
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-jose.go-jose.jwt.model.yml
+        index: 1
+        firstRowId: 682
+        rowCount: 1
+        locations:
+          lineNumbers: A=14
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-jose.go-jose.jwt.model.yml
+        index: 2
+        firstRowId: 683
+        rowCount: 4
+        locations:
+          lineNumbers: A=19+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-jose.go-jose.model.yml
+        index: 0
+        firstRowId: 687
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-jose.go-jose.model.yml
+        index: 1
+        firstRowId: 691
+        rowCount: 2
+        locations:
+          lineNumbers: A=14+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-kit.kit.auth.jwt.model.yml
+        index: 0
+        firstRowId: 693
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-pg.pg.orm.model.yml
+        index: 0
+        firstRowId: 694
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-xmlpath.xmlpath.model.yml
+        index: 0
+        firstRowId: 700
+        rowCount: 7
+        locations:
+          lineNumbers: A=6+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.go-xmlpath.xmlpath.model.yml
+        index: 1
+        firstRowId: 707
+        rowCount: 2
+        locations:
+          lineNumbers: A=17+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gobuffalo.envy.model.yml
+        index: 0
+        firstRowId: 709
+        rowCount: 7
+        locations:
+          lineNumbers: A=6+1*6
+          columnNumbers: A=9*7
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gobwas.ws.model.yml
+        index: 0
+        firstRowId: 716
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gofiber.fiber.model.yml
+        index: 0
+        firstRowId: 718
+        rowCount: 5
+        locations:
+          lineNumbers: A=7+1*3+2
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gogf.gf-jwt.model.yml
+        index: 0
+        firstRowId: 723
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gogf.gf.database.gdb.model.yml
+        index: 0
+        firstRowId: 724
+        rowCount: 51
+        locations:
+          lineNumbers: A=7+1*50
+          columnNumbers: A=9*51
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gogf.gf.database.gdb.model.yml
+        index: 1
+        firstRowId: 775
+        rowCount: 39
+        locations:
+          lineNumbers: A=63+1*9+2+1*7+2+1*13+2+1*6
+          columnNumbers: A=9*39
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gogf.gf.database.gdb.model.yml
+        index: 2
+        firstRowId: 814
+        rowCount: 21
+        locations:
+          lineNumbers: A=109+1*5+2+1*14
+          columnNumbers: A=9*21
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.golang-jwt.jwt.model.yml
+        index: 0
+        firstRowId: 835
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.golang-jwt.jwt.model.yml
+        index: 1
+        firstRowId: 838
+        rowCount: 11
+        locations:
+          lineNumbers: A=13+1*10
+          columnNumbers: A=9*11
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.golang.glog.model.yml
+        index: 0
+        firstRowId: 849
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.golang.glog.model.yml
+        index: 1
+        firstRowId: 852
+        rowCount: 90
+        locations:
+          lineNumbers: A=13+1*89
+          columnNumbers: A=9*90
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.golang.protobuf.proto.model.yml
+        index: 0
+        firstRowId: 942
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gorilla.mux.model.yml
+        index: 0
+        firstRowId: 946
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.gorilla.websocket.model.yml
+        index: 0
+        firstRowId: 947
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.hashicorp.go-envparse.model.yml
+        index: 0
+        firstRowId: 950
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.jmoiron.sqlx.model.yml
+        index: 0
+        firstRowId: 951
+        rowCount: 49
+        locations:
+          lineNumbers: A=6+1*48
+          columnNumbers: A=9*49
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.jmoiron.sqlx.model.yml
+        index: 1
+        firstRowId: 1000
+        rowCount: 12
+        locations:
+          lineNumbers: A=59+1*11
+          columnNumbers: A=9*12
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.jmoiron.sqlx.model.yml
+        index: 2
+        firstRowId: 1012
+        rowCount: 11
+        locations:
+          lineNumbers: A=75+1*10
+          columnNumbers: A=9*11
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.joho.godotenv.model.yml
+        index: 0
+        firstRowId: 1023
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.json-iterator.go.model.yml
+        index: 0
+        firstRowId: 1027
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.kataras.iris.context.model.yml
+        index: 0
+        firstRowId: 1031
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.kataras.iris.context.model.yml
+        index: 1
+        firstRowId: 1033
+        rowCount: 6
+        locations:
+          lineNumbers: A=12+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.kataras.iris.middleware.jwt.model.yml
+        index: 0
+        firstRowId: 1039
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.kataras.jwt.model.yml
+        index: 0
+        firstRowId: 1041
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.kelseyhightower.envconfig.model.yml
+        index: 0
+        firstRowId: 1046
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.labstack.echo.model.yml
+        index: 0
+        firstRowId: 1052
+        rowCount: 3
+        locations:
+          lineNumbers: A=7+1+2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.labstack.echo.model.yml
+        index: 1
+        firstRowId: 1055
+        rowCount: 2
+        locations:
+          lineNumbers: A=15+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.labstack.echo.model.yml
+        index: 2
+        firstRowId: 1057
+        rowCount: 12
+        locations:
+          lineNumbers: A=22+1*11
+          columnNumbers: A=9*12
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.lestrrat-go.jwx.jwk.model.yml
+        index: 0
+        firstRowId: 1069
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.lestrrat-go.jwx.model.yml
+        index: 0
+        firstRowId: 1070
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.lestrrat-go.libxml2.parser.model.yml
+        index: 0
+        firstRowId: 1071
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.lestrrat.go-jwx.jwk.model.yml
+        index: 0
+        firstRowId: 1074
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.masterminds.squirrel.model.yml
+        index: 0
+        firstRowId: 1075
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.masterminds.squirrel.model.yml
+        index: 1
+        firstRowId: 1078
+        rowCount: 27
+        locations:
+          lineNumbers: A=13+1*26
+          columnNumbers: A=9*27
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.masterminds.squirrel.model.yml
+        index: 2
+        firstRowId: 1105
+        rowCount: 32
+        locations:
+          lineNumbers: A=44+1*4+2+1*3+3+1*4+2+1*11+3+1*5
+          columnNumbers: A=9*32
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.moovweb.gokogiri.xml.model.yml
+        index: 0
+        firstRowId: 1137
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.moovweb.gokogiri.xml.model.yml
+        index: 1
+        firstRowId: 1139
+        rowCount: 4
+        locations:
+          lineNumbers: A=12+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.moovweb.gokogiri.xpath.model.yml
+        index: 0
+        firstRowId: 1143
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.moovweb.gokogiri.xpath.model.yml
+        index: 1
+        firstRowId: 1145
+        rowCount: 1
+        locations:
+          lineNumbers: A=12
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.ory.fosite.token.jwt.model.yml
+        index: 0
+        firstRowId: 1146
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.revel.revel.model.yml
+        index: 0
+        firstRowId: 1148
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.revel.revel.model.yml
+        index: 1
+        firstRowId: 1150
+        rowCount: 1
+        locations:
+          lineNumbers: A=12
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.revel.revel.model.yml
+        index: 2
+        firstRowId: 1151
+        rowCount: 23
+        locations:
+          lineNumbers: A=17+1*22
+          columnNumbers: A=9*23
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.revel.revel.model.yml
+        index: 3
+        firstRowId: 1174
+        rowCount: 1
+        locations:
+          lineNumbers: A=44
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.revel.revel.model.yml
+        index: 4
+        firstRowId: 1175
+        rowCount: 10
+        locations:
+          lineNumbers: A=49+1*9
+          columnNumbers: A=9*10
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.rqlite.gorqlite.model.yml
+        index: 0
+        firstRowId: 1185
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.rqlite.gorqlite.model.yml
+        index: 1
+        firstRowId: 1188
+        rowCount: 8
+        locations:
+          lineNumbers: A=13+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.rqlite.gorqlite.model.yml
+        index: 2
+        firstRowId: 1196
+        rowCount: 24
+        locations:
+          lineNumbers: A=25+1*23
+          columnNumbers: A=9*24
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.rqlite.gorqlite.model.yml
+        index: 3
+        firstRowId: 1220
+        rowCount: 2
+        locations:
+          lineNumbers: A=53+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.santhosh-tekuri.xpathparser.model.yml
+        index: 0
+        firstRowId: 1222
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.sendgrid.sendgrid-go.helpers.mail.model.yml
+        index: 0
+        firstRowId: 1224
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.sirupsen.logrus.model.yml
+        index: 0
+        firstRowId: 1225
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.sirupsen.logrus.model.yml
+        index: 1
+        firstRowId: 1227
+        rowCount: 145
+        locations:
+          lineNumbers: A=12+1*39+2+1*33+2+1*26+2+1*43
+          columnNumbers: A=9*145
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.spf13.afero.model.yml
+        index: 0
+        firstRowId: 1372
+        rowCount: 34
+        locations:
+          lineNumbers: A=6+1*33
+          columnNumbers: A=9*34
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.uptrace.bun.model.yml
+        index: 0
+        firstRowId: 1406
+        rowCount: 8
+        locations:
+          lineNumbers: A=6+1*3+4+1+3+1
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.uptrace.bun.model.yml
+        index: 1
+        firstRowId: 1414
+        rowCount: 63
+        locations:
+          lineNumbers: A=23+1*62
+          columnNumbers: A=9*63
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.valyala.fasthttp.model.yml
+        index: 0
+        firstRowId: 1477
+        rowCount: 35
+        locations:
+          lineNumbers: A=7+1*24+2+1*7+2+1
+          columnNumbers: A=9*35
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.valyala.fasthttp.model.yml
+        index: 1
+        firstRowId: 1512
+        rowCount: 5
+        locations:
+          lineNumbers: A=48+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/github.com.valyala.fasthttp.model.yml
+        index: 2
+        firstRowId: 1517
+        rowCount: 50
+        locations:
+          lineNumbers: A=57+1*49
+          columnNumbers: A=9*50
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/go.mongodb.org.mongo-driver.mongo.model.yml
+        index: 0
+        firstRowId: 1567
+        rowCount: 11
+        locations:
+          lineNumbers: A=6+1*10
+          columnNumbers: A=9*11
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/go.mongodb.org.mongo-driver.mongo.model.yml
+        index: 1
+        firstRowId: 1578
+        rowCount: 14
+        locations:
+          lineNumbers: A=21+1*13
+          columnNumbers: A=9*14
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/go.mongodb.org.mongo-driver.mongo.model.yml
+        index: 2
+        firstRowId: 1592
+        rowCount: 5
+        locations:
+          lineNumbers: A=39+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/go.uber.org.zap.model.yml
+        index: 0
+        firstRowId: 1597
+        rowCount: 33
+        locations:
+          lineNumbers: A=6+1*32
+          columnNumbers: A=9*33
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/go.uber.org.zap.model.yml
+        index: 1
+        firstRowId: 1630
+        rowCount: 11
+        locations:
+          lineNumbers: A=43+1*10
+          columnNumbers: A=9*11
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/golang.org.x.crypto.ssh.model.yml
+        index: 0
+        firstRowId: 1641
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/golang.org.x.net.context.model.yml
+        index: 0
+        firstRowId: 1645
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/golang.org.x.net.html.model.yml
+        index: 0
+        firstRowId: 1650
+        rowCount: 16
+        locations:
+          lineNumbers: A=6+1*15
+          columnNumbers: A=9*16
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/golang.org.x.net.websocket.model.yml
+        index: 0
+        firstRowId: 1666
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/google.golang.org.protobuf.internal.encoding.text.model.yml
+        index: 0
+        firstRowId: 1668
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/google.golang.org.protobuf.internal.impl.model.yml
+        index: 0
+        firstRowId: 1669
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/google.golang.org.protobuf.proto.model.yml
+        index: 0
+        firstRowId: 1671
+        rowCount: 8
+        locations:
+          lineNumbers: A=6+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/google.golang.org.protobuf.reflect.protoreflect.model.yml
+        index: 0
+        firstRowId: 1679
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gopkg.in.macaron.model.yml
+        index: 0
+        firstRowId: 1680
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gopkg.in.macaron.model.yml
+        index: 1
+        firstRowId: 1681
+        rowCount: 12
+        locations:
+          lineNumbers: A=11+1*11
+          columnNumbers: A=9*12
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gopkg.in.macaron.model.yml
+        index: 2
+        firstRowId: 1693
+        rowCount: 1
+        locations:
+          lineNumbers: A=27
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gopkg.in.yaml.model.yml
+        index: 0
+        firstRowId: 1694
+        rowCount: 9
+        locations:
+          lineNumbers: A=6+1*8
+          columnNumbers: A=9*9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gorm.io.gorm.model.yml
+        index: 0
+        firstRowId: 1703
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gorm.io.gorm.model.yml
+        index: 1
+        firstRowId: 1706
+        rowCount: 15
+        locations:
+          lineNumbers: A=13+1*14
+          columnNumbers: A=9*15
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gorm.io.gorm.model.yml
+        index: 2
+        firstRowId: 1721
+        rowCount: 13
+        locations:
+          lineNumbers: A=32+1*12
+          columnNumbers: A=9*13
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/gorm.io.gorm.model.yml
+        index: 3
+        firstRowId: 1734
+        rowCount: 1
+        locations:
+          lineNumbers: A=49
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/html.model.yml
+        index: 0
+        firstRowId: 1735
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/html.template.model.yml
+        index: 0
+        firstRowId: 1737
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.fs.model.yml
+        index: 0
+        firstRowId: 1743
+        rowCount: 13
+        locations:
+          lineNumbers: A=6+1*12
+          columnNumbers: A=9*13
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.fs.model.yml
+        index: 1
+        firstRowId: 1756
+        rowCount: 3
+        locations:
+          lineNumbers: A=23+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.ioutil.model.yml
+        index: 0
+        firstRowId: 1759
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.ioutil.model.yml
+        index: 1
+        firstRowId: 1764
+        rowCount: 2
+        locations:
+          lineNumbers: A=15+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.ioutil.model.yml
+        index: 2
+        firstRowId: 1766
+        rowCount: 1
+        locations:
+          lineNumbers: A=21
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/io.model.yml
+        index: 0
+        firstRowId: 1767
+        rowCount: 19
+        locations:
+          lineNumbers: A=6+1*18
+          columnNumbers: A=9*19
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/k8s.io.api.core.model.yml
+        index: 0
+        firstRowId: 1786
+        rowCount: 10
+        locations:
+          lineNumbers: A=6+1*9
+          columnNumbers: A=9*10
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/k8s.io.apimachinery.pkg.runtime.model.yml
+        index: 0
+        firstRowId: 1796
+        rowCount: 47
+        locations:
+          lineNumbers: A=6+1*46
+          columnNumbers: A=9*47
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/log.model.yml
+        index: 0
+        firstRowId: 1843
+        rowCount: 20
+        locations:
+          lineNumbers: A=6+1*19
+          columnNumbers: A=9*20
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/log.model.yml
+        index: 1
+        firstRowId: 1863
+        rowCount: 3
+        locations:
+          lineNumbers: A=30+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/math.big.model.yml
+        index: 0
+        firstRowId: 1866
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/mime.model.yml
+        index: 0
+        firstRowId: 1867
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/mime.multipart.model.yml
+        index: 0
+        firstRowId: 1872
+        rowCount: 2
+        locations:
+          lineNumbers: A=13+5
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/mime.multipart.model.yml
+        index: 1
+        firstRowId: 1874
+        rowCount: 8
+        locations:
+          lineNumbers: A=23+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/mime.quotedprintable.model.yml
+        index: 0
+        firstRowId: 1882
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.http.httputil.model.yml
+        index: 0
+        firstRowId: 1883
+        rowCount: 10
+        locations:
+          lineNumbers: A=6+1*9
+          columnNumbers: A=9*10
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.http.model.yml
+        index: 0
+        firstRowId: 1893
+        rowCount: 2
+        locations:
+          lineNumbers: A=7+2
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.http.model.yml
+        index: 1
+        firstRowId: 1895
+        rowCount: 22
+        locations:
+          lineNumbers: A=14+1*21
+          columnNumbers: A=9*22
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.http.model.yml
+        index: 2
+        firstRowId: 1917
+        rowCount: 16
+        locations:
+          lineNumbers: A=40+1*15
+          columnNumbers: A=9*16
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.mail.model.yml
+        index: 0
+        firstRowId: 1933
+        rowCount: 6
+        locations:
+          lineNumbers: A=6+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.model.yml
+        index: 0
+        firstRowId: 1939
+        rowCount: 20
+        locations:
+          lineNumbers: A=6+1*19
+          columnNumbers: A=9*20
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.textproto.model.yml
+        index: 0
+        firstRowId: 1959
+        rowCount: 19
+        locations:
+          lineNumbers: A=6+1*18
+          columnNumbers: A=9*19
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/net.url.model.yml
+        index: 0
+        firstRowId: 1978
+        rowCount: 23
+        locations:
+          lineNumbers: A=6+1*22
+          columnNumbers: A=9*23
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/nhooyr.io.websocket.model.yml
+        index: 0
+        firstRowId: 2001
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/os.exec.model.yml
+        index: 0
+        firstRowId: 2003
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/os.model.yml
+        index: 0
+        firstRowId: 2005
+        rowCount: 27
+        locations:
+          lineNumbers: A=7+1*25+2
+          columnNumbers: A=9*27
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/os.model.yml
+        index: 1
+        firstRowId: 2032
+        rowCount: 6
+        locations:
+          lineNumbers: A=39+1*5
+          columnNumbers: A=9*6
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/os.model.yml
+        index: 2
+        firstRowId: 2038
+        rowCount: 12
+        locations:
+          lineNumbers: A=49+1*11
+          columnNumbers: A=9*12
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/path.filepath.model.yml
+        index: 0
+        firstRowId: 2050
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/path.filepath.model.yml
+        index: 1
+        firstRowId: 2051
+        rowCount: 13
+        locations:
+          lineNumbers: A=11+1*12
+          columnNumbers: A=9*13
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/path.model.yml
+        index: 0
+        firstRowId: 2064
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/reflect.model.yml
+        index: 0
+        firstRowId: 2069
+        rowCount: 37
+        locations:
+          lineNumbers: A=6+1*36
+          columnNumbers: A=9*37
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/regexp.model.yml
+        index: 0
+        firstRowId: 2106
+        rowCount: 10
+        locations:
+          lineNumbers: A=6+1*9
+          columnNumbers: A=9*10
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/regexp.model.yml
+        index: 1
+        firstRowId: 2116
+        rowCount: 20
+        locations:
+          lineNumbers: A=20+1*19
+          columnNumbers: A=9*20
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/slices.model.yml
+        index: 0
+        firstRowId: 2136
+        rowCount: 17
+        locations:
+          lineNumbers: A=10+1+2+1*14
+          columnNumbers: A=9*17
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/sort.model.yml
+        index: 0
+        firstRowId: 2153
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/strconv.model.yml
+        index: 0
+        firstRowId: 2154
+        rowCount: 9
+        locations:
+          lineNumbers: A=6+1*8
+          columnNumbers: A=9*9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/strings.model.yml
+        index: 0
+        firstRowId: 2163
+        rowCount: 34
+        locations:
+          lineNumbers: A=6+1*33
+          columnNumbers: A=9*34
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/sync.atomic.model.yml
+        index: 0
+        firstRowId: 2197
+        rowCount: 24
+        locations:
+          lineNumbers: A=6+1*23
+          columnNumbers: A=9*24
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/sync.model.yml
+        index: 0
+        firstRowId: 2221
+        rowCount: 10
+        locations:
+          lineNumbers: A=6+1*9
+          columnNumbers: A=9*10
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/syscall.model.yml
+        index: 0
+        firstRowId: 2231
+        rowCount: 5
+        locations:
+          lineNumbers: A=6+1*4
+          columnNumbers: A=9*5
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/syscall.model.yml
+        index: 1
+        firstRowId: 2236
+        rowCount: 8
+        locations:
+          lineNumbers: A=15+1*7
+          columnNumbers: A=9*8
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/syscall.model.yml
+        index: 2
+        firstRowId: 2244
+        rowCount: 2
+        locations:
+          lineNumbers: A=27+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/text.scanner.model.yml
+        index: 0
+        firstRowId: 2246
+        rowCount: 3
+        locations:
+          lineNumbers: A=6+1*2
+          columnNumbers: A=9*3
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/text.tabwriter.model.yml
+        index: 0
+        firstRowId: 2249
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/text.template.model.yml
+        index: 0
+        firstRowId: 2250
+        rowCount: 4
+        locations:
+          lineNumbers: A=6+1*3
+          columnNumbers: A=9*4
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/weak.model.yml
+        index: 0
+        firstRowId: 2254
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/xorm.io.xorm.model.yml
+        index: 0
+        firstRowId: 2256
+        rowCount: 2
+        locations:
+          lineNumbers: A=6+1
+          columnNumbers: A=9*2
+       -
+        pack: codeql/go-all#0
+        relativePath: ext/xorm.io.xorm.model.yml
+        index: 1
+        firstRowId: 2258
+        rowCount: 34
+        locations:
+          lineNumbers: A=12+1+2+1*6+2+1*9+2+1*6+2+1*7
+          columnNumbers: A=9*34
+       -
+        pack: codeql/threat-models#1
+        relativePath: ext/supported-threat-models.model.yml
+        index: 0
+        firstRowId: 2292
+        rowCount: 1
+        locations:
+          lineNumbers: A=6
+          columnNumbers: A=9
+       -
+        pack: codeql/threat-models#1
+        relativePath: ext/threat-model-grouping.model.yml
+        index: 0
+        firstRowId: 2293
+        rowCount: 15
+        locations:
+          lineNumbers: A=8+3+1+3+1*5+3+1+5+1*3
+          columnNumbers: A=9*15
+    codeql/threat-models#1:
+      name: codeql/threat-models
+      version: 1.0.47
+      isLibrary: true
+      isExtensionPack: false
+      localPath: file:///Users/bytedance/.codeql/packages/codeql/threat-models/1.0.47/
+      localPackDefinitionFile: file:///Users/bytedance/.codeql/packages/codeql/threat-models/1.0.47/qlpack.yml
+      headSha: 868ccfbb044e7ff8bff5bcaafd4b5511a500ca23
+      runDataExtensions: []
+metadata:
+  name: Ollama - Source Enumeration (Entry Points)
+  description: |-
+    Enumerate all recognized remote flow sources, local user inputs,
+                  and environment variable sources in the Ollama codebase.
+                  Used for Sub-step 4.1 structural extraction.
+  kind: problem
+  problem.severity: recommendation
+  id: go/ollama/source-enumeration
+  tags: source-enumeration structural

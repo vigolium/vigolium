@@ -189,9 +189,9 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                     backgroundColor: 'color-mix(in srgb, #ff8c00 8%, transparent)',
                   }}
                   title={
-                    demoLabel
+                    (demoLabel
                       ? `demo_key: ${demoLabel}${currentUser?.demo_expires ? ` · expires ${currentUser.demo_expires}` : ''}`
-                      : 'demo session'
+                      : 'demo session') + '\nData may be redacted or truncated in demo mode'
                   }
                 >
                   [Demo preview · read-only]

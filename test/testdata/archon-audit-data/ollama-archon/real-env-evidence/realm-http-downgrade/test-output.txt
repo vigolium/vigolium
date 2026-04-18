@@ -1,0 +1,10 @@
+# github.com/ollama/ollama/server.test
+ld: warning: ignoring duplicate libraries: '-lc++', '-lobjc'
+=== RUN   TestRealmHTTPDowngrade
+    realm_downgrade_test.go:89: PLAINTEXT CAPTURE: URL=/token?nonce=yXDkoYC3genX1C1IHkZ8UA&scope=repository%3Afoo%3Apull&service=127.0.0.1%3A60024&ts=1776413213
+    realm_downgrade_test.go:90: PLAINTEXT CAPTURE: Authorization=AAAAC3NzaC1lZDI1NTE5AAAAIINo6MpG/eSbHzvXo84DJ9fbbYHahZtxFyO60ckVYeGQ:dueinsV5idHporbs5YX1v9TZIHStSNZ7SrF9+EMI5N6+F2aNGaRfCGVaddDlS4VAYQfSkn/72nSIxC2jXy6wBw==
+--- PASS: TestRealmHTTPDowngrade (0.01s)
+=== RUN   TestRealmHTTPDowngrade_Control
+--- PASS: TestRealmHTTPDowngrade_Control (0.00s)
+PASS
+ok  	github.com/ollama/ollama/server	1.016s

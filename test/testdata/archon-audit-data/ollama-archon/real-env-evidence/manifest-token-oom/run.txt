@@ -1,0 +1,6 @@
+bytes read    : 536870912 (512 MiB)
+elapsed       : 1.092963625s
+heap before   : 0 MiB
+heap after    : 1223 MiB
+total alloc   : 1223 MiB
+sys           : 1263 MiB

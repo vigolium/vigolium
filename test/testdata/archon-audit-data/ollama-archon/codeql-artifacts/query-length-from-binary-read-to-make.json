@@ -1,0 +1,41 @@
+{"edges":{"columns":[
+   {"name":"a","kind":"Entity"}
+  ,{"name":"b","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"&..."},{"label":"n"},"provenance",""]
+  ,[{"label":"&..."},{"label":"n"},"provenance",""]
+  ,[{"label":"&..."},{"label":"type conversion"},"provenance",""]
+  ,[{"label":"&..."},{"label":"type conversion"},"provenance",""]]
+ },"nodes":{"columns":[
+   {"name":"n","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"&..."},"semmle.label","&..."]
+  ,[{"label":"&..."},"semmle.label","&..."]
+  ,[{"label":"&..."},"semmle.label","&..."]
+  ,[{"label":"n"},"semmle.label","n"]
+  ,[{"label":"n"},"semmle.label","n"]
+  ,[{"label":"type conversion"},"semmle.label","type conversion"]
+  ,[{"label":"type conversion"},"semmle.label","type conversion"]]
+ },"subpaths":{"columns":[
+   {"name":"arg","kind":"Entity"}
+  ,{"name":"par","kind":"Entity"}
+  ,{"name":"ret","kind":"Entity"}
+  ,{"name":"out","kind":"Entity"}]
+ ,"tuples":[]
+ },"#select":{"columns":[
+   {"kind":"Entity"}
+  ,{"name":"source","kind":"Entity"}
+  ,{"name":"sink","kind":"Entity"}
+  ,{"kind":"String"}
+  ,{"kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"n"},{"label":"&..."},{"label":"n"},"Length read via binary.Read at $@ flows to allocation/copy without bounds check — OOM/DoS risk (GGUF/safetensors parser, CVE-2025-0315 class).",{"label":"&..."},"&..."]
+  ,[{"label":"n"},{"label":"&..."},{"label":"n"},"Length read via binary.Read at $@ flows to allocation/copy without bounds check — OOM/DoS risk (GGUF/safetensors parser, CVE-2025-0315 class).",{"label":"&..."},"&..."]
+  ,[{"label":"type conversion"},{"label":"&..."},{"label":"type conversion"},"Length read via binary.Read at $@ flows to allocation/copy without bounds check — OOM/DoS risk (GGUF/safetensors parser, CVE-2025-0315 class).",{"label":"&..."},"&..."]
+  ,[{"label":"type conversion"},{"label":"&..."},{"label":"type conversion"},"Length read via binary.Read at $@ flows to allocation/copy without bounds check — OOM/DoS risk (GGUF/safetensors parser, CVE-2025-0315 class).",{"label":"&..."},"&..."]]
+ }}

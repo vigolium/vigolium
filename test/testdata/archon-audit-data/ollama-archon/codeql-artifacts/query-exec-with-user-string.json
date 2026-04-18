@@ -1,0 +1,91 @@
+{"edges":{"columns":[
+   {"name":"a","kind":"Entity"}
+  ,{"name":"b","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"range statement[1]"},{"label":"c"},"provenance",""]
+  ,[{"label":"call to Getenv"},{"label":"editor"},"provenance","Src:MaD:2041 "]
+  ,[{"label":"call to Getenv"},{"label":"editor"},"provenance","Src:MaD:2041 "]
+  ,[{"label":"call to Fields"},{"label":"args"},"provenance",""]
+  ,[{"label":"editor"},{"label":"call to Fields"},"provenance","MaD:2163"]
+  ,[{"label":"call to append"},{"label":"index expression"},"provenance","Sink:MaD:2003"]
+  ,[{"label":"call to append"},{"label":"slice expression"},"provenance",""]
+  ,[{"label":"args"},{"label":"call to append"},"provenance","MaD:28"]
+  ,[{"label":"call to Getenv"},{"label":"localAppData"},"provenance","Src:MaD:2041 "]
+  ,[{"label":"call to append"},{"label":"c"},"provenance",""]
+  ,[{"label":"call to append [array]"},{"label":"candidates [array]"},"provenance",""]
+  ,[{"label":"call to Join"},{"label":"[]type{args} [array]"},"provenance",""]
+  ,[{"label":"localAppData"},{"label":"call to Join"},"provenance","FunctionModel"]
+  ,[{"label":"candidates [array]"},{"label":"range statement[1]"},"provenance",""]
+  ,[{"label":"c"},{"label":"call to findBinary"},"provenance",""]
+  ,[{"label":"c"},{"label":"call to findBinary"},"provenance",""]
+  ,[{"label":"call to findBinary"},{"label":"binary"},"provenance",""]
+  ,[{"label":"call to findBinary"},{"label":"binary"},"provenance","Sink:MaD:2003"]
+  ,[{"label":"binary"},{"label":"[]type{args}"},"provenance",""]
+  ,[{"label":"call to findCodeCLI"},{"label":"codeCLI"},"provenance","Sink:MaD:2003"]
+  ,[{"label":"call to findCodeCLI"},{"label":"codeCLI"},"provenance","Sink:MaD:2003"]
+  ,[{"label":"call to findBinary"},{"label":"bundleCLI"},"provenance",""]
+  ,[{"label":"call to findBinary"},{"label":"binary"},"provenance",""]
+  ,[{"label":"bundleCLI"},{"label":"call to findCodeCLI"},"provenance",""]
+  ,[{"label":"bundleCLI"},{"label":"call to findCodeCLI"},"provenance",""]
+  ,[{"label":"binary"},{"label":"call to findCodeCLI"},"provenance",""]
+  ,[{"label":"binary"},{"label":"call to findCodeCLI"},"provenance",""]
+  ,[{"label":"[]type{args} [array]"},{"label":"call to append"},"provenance","MaD:31"]
+  ,[{"label":"[]type{args} [array]"},{"label":"call to append [array]"},"provenance","MaD:31"]]
+ },"nodes":{"columns":[
+   {"name":"n","kind":"Entity"}
+  ,{"name":"key","kind":"String"}
+  ,{"name":"val","kind":"String"}]
+ ,"tuples":[
+   [{"label":"range statement[1]"},"semmle.label","range statement[1]"]
+  ,[{"label":"call to Getenv"},"semmle.label","call to Getenv"]
+  ,[{"label":"call to Getenv"},"semmle.label","call to Getenv"]
+  ,[{"label":"call to Fields"},"semmle.label","call to Fields"]
+  ,[{"label":"editor"},"semmle.label","editor"]
+  ,[{"label":"call to append"},"semmle.label","call to append"]
+  ,[{"label":"args"},"semmle.label","args"]
+  ,[{"label":"call to Getenv"},"semmle.label","call to Getenv"]
+  ,[{"label":"call to append"},"semmle.label","call to append"]
+  ,[{"label":"call to append [array]"},"semmle.label","call to append [array]"]
+  ,[{"label":"call to Join"},"semmle.label","call to Join"]
+  ,[{"label":"localAppData"},"semmle.label","localAppData"]
+  ,[{"label":"candidates [array]"},"semmle.label","candidates [array]"]
+  ,[{"label":"c"},"semmle.label","c"]
+  ,[{"label":"call to findBinary"},"semmle.label","call to findBinary"]
+  ,[{"label":"binary"},"semmle.label","binary"]
+  ,[{"label":"call to findCodeCLI"},"semmle.label","call to findCodeCLI"]
+  ,[{"label":"call to findCodeCLI"},"semmle.label","call to findCodeCLI"]
+  ,[{"label":"call to findBinary"},"semmle.label","call to findBinary"]
+  ,[{"label":"bundleCLI"},"semmle.label","bundleCLI"]
+  ,[{"label":"binary"},"semmle.label","binary"]
+  ,[{"label":"[]type{args} [array]"},"semmle.label","[]type{args} [array]"]
+  ,[{"label":"index expression"},"semmle.label","index expression"]
+  ,[{"label":"slice expression"},"semmle.label","slice expression"]
+  ,[{"label":"binary"},"semmle.label","binary"]
+  ,[{"label":"codeCLI"},"semmle.label","codeCLI"]
+  ,[{"label":"codeCLI"},"semmle.label","codeCLI"]
+  ,[{"label":"[]type{args}"},"semmle.label","[]type{args}"]]
+ },"subpaths":{"columns":[
+   {"name":"arg","kind":"Entity"}
+  ,{"name":"par","kind":"Entity"}
+  ,{"name":"ret","kind":"Entity"}
+  ,{"name":"out","kind":"Entity"}]
+ ,"tuples":[]
+ },"#select":{"columns":[
+   {"kind":"Entity"}
+  ,{"name":"source","kind":"Entity"}
+  ,{"name":"sink","kind":"Entity"}
+  ,{"kind":"String"}
+  ,{"kind":"Entity"}
+  ,{"kind":"String"}]
+ ,"tuples":[
+   [{"label":"index expression"},{"label":"call to Getenv"},{"label":"index expression"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"index expression"},{"label":"call to Getenv"},{"label":"index expression"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"slice expression"},{"label":"call to Getenv"},{"label":"slice expression"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"slice expression"},{"label":"call to Getenv"},{"label":"slice expression"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"binary"},{"label":"call to Getenv"},{"label":"binary"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"codeCLI"},{"label":"call to Getenv"},{"label":"codeCLI"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"codeCLI"},{"label":"call to Getenv"},{"label":"codeCLI"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]
+  ,[{"label":"[]type{args}"},{"label":"call to Getenv"},{"label":"[]type{args}"},"User-controlled value $@ flows to exec.Command/CommandContext — OS command injection risk (DFD-5 / DFD-14).",{"label":"call to Getenv"},"call to Getenv"]]
+ }}

@@ -1,0 +1,13 @@
+# github.com/ollama/ollama/server.test
+ld: warning: ignoring duplicate libraries: '-lc++', '-lobjc'
+=== RUN   TestWWWAuthSmuggleRepro
+Realm:   "https://auth.legit.com/token?service=attacker&scope=repository:all:*"
+Service: "ttacker&scope=repository:all:*"
+Scope:   "epository:all:*"
+URL:     https://auth.legit.com/token?nonce=u6F8zVxEor94QG-glkcwxQ&scope=repository%3Aall%3A%2A&scope=epository%3Aall%3A%2A&service=attacker&service=ttacker%26scope%3Drepository%3Aall%3A%2A&ts=1776413212
+Host:    auth.legit.com
+Query service values: ["attacker" "ttacker&scope=repository:all:*"]
+Query scope values:   ["repository:all:*" "epository:all:*"]
+--- PASS: TestWWWAuthSmuggleRepro (0.00s)
+PASS
+ok  	github.com/ollama/ollama/server	1.615s

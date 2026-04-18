@@ -20,6 +20,10 @@ export function isDemoOnlyEnabled(): boolean {
   return process.env.VIGOLIUM_DEMO_ONLY === 'true';
 }
 
+export function isDemoSkipAuth(): boolean {
+  return isDemoOnlyEnabled() && process.env.VIGOLIUM_DEMO_SKIP_AUTH === 'true';
+}
+
 function parseEntries(raw: unknown): DemoKey[] {
   if (!Array.isArray(raw)) return [];
   const out: DemoKey[] = [];
