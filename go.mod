@@ -69,6 +69,7 @@ require (
 	github.com/ysmood/gotrace v0.6.0
 	github.com/ysmood/gson v0.7.3
 	github.com/ysmood/leakless v0.9.0
+	github.com/yuin/goldmark v1.7.13
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/sync v0.19.0
@@ -433,7 +434,6 @@ require (
 	github.com/yassinebenaid/godump v0.11.1 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/ysmood/gop v0.2.0 // indirect
-	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zcalusic/sysinfo v1.0.2 // indirect
