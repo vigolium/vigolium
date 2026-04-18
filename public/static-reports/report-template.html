@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Title}}</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+:root {
+  --charcoal: #005661;
+  --charcoal-light: #3a5a62;
+  --terracotta: #e34e1c;
+  --cream: #faf8f5;
+  --cream-dark: #f0ece6;
+  --warm-border: #d4cfc7;
+  --text-muted: #8a8379;
+  --severity-critical: #dc2626;
+  --severity-high: #ea580c;
+  --severity-medium: #d97706;
+  --severity-low: #2563eb;
+  --severity-info: #6b7280;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--charcoal);
+  background: var(--cream);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.report {
+  padding: 40px 32px;
+}
+
+/* Header */
+.report-header {
+  border-bottom: 2px solid var(--charcoal);
+  padding-bottom: 16px;
+  margin-bottom: 32px;
+}
+.report-header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--charcoal);
+  margin-bottom: 4px;
+}
+.report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.report-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* TOC */
+.toc {
+  background: var(--cream-dark);
+  border: 1px solid var(--warm-border);
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+}
+.toc h2 {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--charcoal);
+  margin-bottom: 12px;
+}
+.toc ol {
+  list-style: none;
+  padding: 0;
+}
+.toc > ol > li {
+  margin-bottom: 8px;
+}
+.toc a {
+  color: var(--charcoal);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.toc a:hover { color: var(--terracotta); }
+.toc .toc-severity-group {
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.toc .toc-severity-group.toc-critical { background: rgba(220,38,38,0.03); }
+.toc .toc-severity-group.toc-high { background: rgba(234,88,12,0.03); }
+.toc .toc-severity-group.toc-medium { background: rgba(217,119,6,0.03); }
+.toc .toc-severity-group.toc-low { background: rgba(37,99,235,0.03); }
+.toc .toc-severity-group.toc-info { background: rgba(107,114,128,0.03); }
+.toc .toc-sub {
+  list-style: none;
+  padding-left: 16px;
+  margin-top: 4px;
+}
+.toc .toc-sub li {
+  margin-bottom: 3px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.toc .toc-sub a { font-size: 12px; color: var(--charcoal-light); font-weight: 400; }
+.toc .toc-finding-id {
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.toc .toc-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+/* Sections */
+.section {
+  margin-bottom: 36px;
+}
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--charcoal);
+  border-bottom: 1px solid var(--warm-border);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+/* Executive Summary */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.summary-card {
+  background: white;
+  border: 1px solid var(--warm-border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  text-align: center;
+}
+.summary-card .count {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.summary-card .label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.severity-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.severity-bar span { display: block; min-width: 2px; }
+.info-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  font-size: 13px;
+  margin-top: 16px;
+}
+.info-grid dt { font-weight: 600; color: var(--charcoal); }
+.info-grid dd { color: var(--charcoal-light); }
+
+/* Severity section headers */
+.severity-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.severity-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.severity-critical { color: var(--severity-critical); background: rgba(220,38,38,0.1); }
+.severity-high { color: var(--severity-high); background: rgba(234,88,12,0.1); }
+.severity-medium { color: var(--severity-medium); background: rgba(217,119,6,0.1); }
+.severity-low { color: var(--severity-low); background: rgba(37,99,235,0.1); }
+.severity-info { color: var(--severity-info); background: rgba(107,114,128,0.1); }
+
+/* Finding block */
+.finding {
+  background: white;
+  border: 1px solid var(--warm-border);
+  border-radius: 4px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  page-break-inside: avoid;
+}
+
+.finding-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.finding-id {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--charcoal);
+}
+.finding-module {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.finding-url {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--charcoal-light);
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+
+/* Finding description (rendered markdown) */
+.finding-desc {
+  font-size: 13px;
+  color: var(--charcoal-light);
+  margin-bottom: 12px;
+}
+.finding-desc h1, .finding-desc h2, .finding-desc h3, .finding-desc h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--charcoal);
+  margin: 10px 0 4px 0;
+}
+.finding-desc p { margin: 4px 0; }
+.finding-desc code {
+  font-size: 12px;
+  background: var(--cream-dark);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.finding-desc pre {
+  background: var(--cream-dark);
+  border: 1px solid var(--warm-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 8px 0;
+}
+.finding-desc pre code { background: none; padding: 0; }
+.finding-desc ul, .finding-desc ol { padding-left: 20px; margin: 4px 0; }
+
+/* Metadata table */
+.finding-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.finding-meta dt { font-weight: 600; color: var(--text-muted); }
+.finding-meta dd { color: var(--charcoal-light); font-family: monospace; font-size: 11px; }
+
+/* Tags */
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border: 1px solid var(--warm-border);
+  border-radius: 3px;
+  color: var(--charcoal-light);
+}
+
+/* Evidence blocks */
+.evidence-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 12px 0 4px 0;
+}
+pre.evidence {
+  background: var(--cream-dark);
+  border: 1px solid var(--warm-border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--charcoal-light);
+  line-height: 1.5;
+}
+
+/* Remediation */
+.remediation {
+  background: rgba(37,99,235,0.05);
+  border: 1px solid rgba(37,99,235,0.15);
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--charcoal-light);
+  margin-top: 12px;
+}
+.remediation-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--severity-low);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+/* Appendix */
+.module-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.module-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--warm-border);
+  padding: 6px 8px;
+}
+.module-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cream-dark);
+  color: var(--charcoal-light);
+}
+.module-table tr:nth-child(even) td { background: var(--cream-dark); }
+
+/* Footer */
+.report-footer {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--warm-border);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Back to top */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--charcoal);
+  color: var(--cream);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  text-decoration: none;
+}
+.back-to-top:hover {
+  background: var(--charcoal-light);
+}
+
+/* Print styles */
+@page { margin: 0; size: A4; }
+@media print {
+  html, body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  body { font-size: 12px; padding: 10mm; }
+  .report { padding: 0; }
+  .finding { page-break-inside: avoid; }
+  .section-title { break-after: avoid; }
+  pre.evidence { max-height: none; overflow: visible; }
+  .back-to-top { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="report" id="report-top">
+
+<!-- Header -->
+<div class="report-header">
+  <h1>{{.Title}}</h1>
+  <div class="report-meta">
+    <span>Generated: {{.GeneratedAt}}</span>
+    {{if .Target}}<span>Target: {{.Target}}</span>{{end}}
+    {{if .ScanDuration}}<span>Duration: {{.ScanDuration}}</span>{{end}}
+    {{if .VigoliumVersion}}<span>Vigolium {{.VigoliumVersion}}</span>{{end}}
+  </div>
+</div>
+
+<!-- Executive Summary -->
+<div class="section" id="executive-summary">
+  <h2 class="section-title">Executive Summary</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="count">{{.TotalFindings}}</div>
+      <div class="label">Total Findings</div>
+    </div>
+    <div class="summary-card">
+      <div class="count" style="color: var(--severity-critical)">{{.CriticalCount}}</div>
+      <div class="label">Critical</div>
+    </div>
+    <div class="summary-card">
+      <div class="count" style="color: var(--severity-high)">{{.HighCount}}</div>
+      <div class="label">High</div>
+    </div>
+    <div class="summary-card">
+      <div class="count" style="color: var(--severity-medium)">{{.MediumCount}}</div>
+      <div class="label">Medium</div>
+    </div>
+    <div class="summary-card">
+      <div class="count" style="color: var(--severity-low)">{{.LowCount}}</div>
+      <div class="label">Low</div>
+    </div>
+    <div class="summary-card">
+      <div class="count" style="color: var(--severity-info)">{{.InfoCount}}</div>
+      <div class="label">Info</div>
+    </div>
+  </div>
+
+  {{if gt .TotalFindings 0}}
+  <div class="severity-bar">
+    {{if gt .CriticalCount 0}}<span style="flex:{{.CriticalCount}};background:var(--severity-critical)"></span>{{end}}
+    {{if gt .HighCount 0}}<span style="flex:{{.HighCount}};background:var(--severity-high)"></span>{{end}}
+    {{if gt .MediumCount 0}}<span style="flex:{{.MediumCount}};background:var(--severity-medium)"></span>{{end}}
+    {{if gt .LowCount 0}}<span style="flex:{{.LowCount}};background:var(--severity-low)"></span>{{end}}
+    {{if gt .InfoCount 0}}<span style="flex:{{.InfoCount}};background:var(--severity-info)"></span>{{end}}
+  </div>
+  {{end}}
+
+  <dl class="info-grid">
+    {{if .Target}}<dt>Target</dt><dd>{{.Target}}</dd>{{end}}
+    <dt>Generated</dt><dd>{{.GeneratedAt}}</dd>
+    {{if .ScanDuration}}<dt>Duration</dt><dd>{{.ScanDuration}}</dd>{{end}}
+    <dt>Total Requests</dt><dd>{{.TotalRequests}}</dd>
+    <dt>Active Modules</dt><dd>{{.ActiveModules}}</dd>
+    <dt>Passive Modules</dt><dd>{{.PassiveModules}}</dd>
+  </dl>
+</div>
+
+<!-- Table of Contents -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#executive-summary">Executive Summary</a></li>
+    {{if .CriticalFindings}}<li class="toc-severity-group toc-critical">
+      <a href="#severity-critical"><span class="severity-badge severity-critical">Critical</span> Findings</a><span class="toc-count">({{len .CriticalFindings}})</span>
+      <ul class="toc-sub">{{range .CriticalFindings}}<li><span class="toc-finding-id" style="color:var(--severity-critical)">#{{.ID}}</span><a href="#finding-{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
+    </li>{{end}}
+    {{if .HighFindings}}<li class="toc-severity-group toc-high">
+      <a href="#severity-high"><span class="severity-badge severity-high">High</span> Findings</a><span class="toc-count">({{len .HighFindings}})</span>
+      <ul class="toc-sub">{{range .HighFindings}}<li><span class="toc-finding-id" style="color:var(--severity-high)">#{{.ID}}</span><a href="#finding-{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
+    </li>{{end}}
+    {{if .MediumFindings}}<li class="toc-severity-group toc-medium">
+      <a href="#severity-medium"><span class="severity-badge severity-medium">Medium</span> Findings</a><span class="toc-count">({{len .MediumFindings}})</span>
+      <ul class="toc-sub">{{range .MediumFindings}}<li><span class="toc-finding-id" style="color:var(--severity-medium)">#{{.ID}}</span><a href="#finding-{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
+    </li>{{end}}
+    {{if .LowFindings}}<li class="toc-severity-group toc-low">
+      <a href="#severity-low"><span class="severity-badge severity-low">Low</span> Findings</a><span class="toc-count">({{len .LowFindings}})</span>
+      <ul class="toc-sub">{{range .LowFindings}}<li><span class="toc-finding-id" style="color:var(--severity-low)">#{{.ID}}</span><a href="#finding-{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
+    </li>{{end}}
+    {{if .InfoFindings}}<li class="toc-severity-group toc-info">
+      <a href="#severity-info"><span class="severity-badge severity-info">Info</span> Findings</a><span class="toc-count">({{len .InfoFindings}})</span>
+      <ul class="toc-sub">{{range .InfoFindings}}<li><span class="toc-finding-id" style="color:var(--severity-info)">#{{.ID}}</span><a href="#finding-{{.ID}}">{{.Title}}</a></li>{{end}}</ul>
+    </li>{{end}}
+    <li><a href="#appendix">Appendix</a></li>
+  </ol>
+</div>
+
+<!-- Findings by Severity -->
+{{define "findingBlock"}}
+<div class="finding" id="finding-{{.ID}}">
+  <div class="finding-header">
+    <span class="finding-id">#{{.ID}}</span>
+    <span class="severity-badge severity-{{.Severity}}">{{.Severity}}</span>
+    <span class="finding-module">{{.ModuleName}}</span>
+  </div>
+  {{if .URL}}<div class="finding-url">{{.URL}}</div>{{end}}
+  {{if .DescriptionHTML}}<div class="finding-desc">{{.DescriptionHTML}}</div>{{end}}
+  <dl class="finding-meta">
+    <dt>Module</dt><dd>{{.ModuleID}}</dd>
+    {{if .Confidence}}<dt>Confidence</dt><dd>{{.Confidence}}</dd>{{end}}
+    {{if .CWE}}<dt>CWE</dt><dd>{{.CWE}}</dd>{{end}}
+    {{if gt .CVSSScore 0.0}}<dt>CVSS</dt><dd>{{printf "%.1f" .CVSSScore}}</dd>{{end}}
+    {{if .FindingHash}}<dt>Hash</dt><dd>{{.FindingHash}}</dd>{{end}}
+    {{if .FoundAt}}<dt>Found</dt><dd>{{.FoundAt}}</dd>{{end}}
+    {{if .SourceFile}}<dt>Source File</dt><dd>{{.SourceFile}}</dd>{{end}}
+    {{if .RepoName}}<dt>Repository</dt><dd>{{.RepoName}}</dd>{{end}}
+  </dl>
+  {{if .Tags}}<div class="tags">{{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>{{end}}
+  {{if .MatchedAt}}<div class="evidence-label">Matched At</div>{{range .MatchedAt}}<code style="font-size:12px;display:block;margin:2px 0;word-break:break-all">{{.}}</code>{{end}}{{end}}
+  {{if .ExtractedResults}}<div class="evidence-label">Extracted Results</div><ul style="font-size:12px;padding-left:20px;color:var(--charcoal-light)">{{range .ExtractedResults}}<li style="word-break:break-all">{{.}}</li>{{end}}</ul>{{end}}
+  {{if .Remediation}}<div class="remediation"><div class="remediation-label">Remediation</div>{{.Remediation}}</div>{{end}}
+  {{if .Request}}<div class="evidence-label">Request</div><pre class="evidence">{{.Request}}</pre>{{end}}
+  {{if .Response}}<div class="evidence-label">Response</div><pre class="evidence">{{.Response}}</pre>{{end}}
+  {{if .AdditionalEvidence}}{{range $i, $e := .AdditionalEvidence}}<div class="evidence-label">Additional Evidence #{{inc $i}}</div><pre class="evidence">{{$e}}</pre>{{end}}{{end}}
+</div>
+{{end}}
+
+{{if .CriticalFindings}}
+<div class="section severity-section" id="severity-critical">
+  <h2 class="section-title"><span class="severity-header"><span class="severity-badge severity-critical">Critical</span> Findings ({{len .CriticalFindings}})</span></h2>
+  {{range .CriticalFindings}}{{template "findingBlock" .}}{{end}}
+</div>
+{{end}}
+
+{{if .HighFindings}}
+<div class="section severity-section" id="severity-high">
+  <h2 class="section-title"><span class="severity-header"><span class="severity-badge severity-high">High</span> Findings ({{len .HighFindings}})</span></h2>
+  {{range .HighFindings}}{{template "findingBlock" .}}{{end}}
+</div>
+{{end}}
+
+{{if .MediumFindings}}
+<div class="section severity-section" id="severity-medium">
+  <h2 class="section-title"><span class="severity-header"><span class="severity-badge severity-medium">Medium</span> Findings ({{len .MediumFindings}})</span></h2>
+  {{range .MediumFindings}}{{template "findingBlock" .}}{{end}}
+</div>
+{{end}}
+
+{{if .LowFindings}}
+<div class="section severity-section" id="severity-low">
+  <h2 class="section-title"><span class="severity-header"><span class="severity-badge severity-low">Low</span> Findings ({{len .LowFindings}})</span></h2>
+  {{range .LowFindings}}{{template "findingBlock" .}}{{end}}
+</div>
+{{end}}
+
+{{if .InfoFindings}}
+<div class="section severity-section" id="severity-info">
+  <h2 class="section-title"><span class="severity-header"><span class="severity-badge severity-info">Info</span> Findings ({{len .InfoFindings}})</span></h2>
+  {{range .InfoFindings}}{{template "findingBlock" .}}{{end}}
+</div>
+{{end}}
+
+<!-- Appendix -->
+<div class="section" id="appendix">
+  <h2 class="section-title">Appendix</h2>
+  {{if .Modules}}
+  <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:var(--charcoal)">Scanner Modules</h3>
+  <table class="module-table">
+    <thead>
+      <tr><th>ID</th><th>Name</th><th>Type</th><th>Severity</th></tr>
+    </thead>
+    <tbody>
+      {{range .Modules}}<tr><td style="font-family:monospace;font-size:11px">{{.ID}}</td><td>{{.Name}}</td><td>{{.Type}}</td><td>{{.Severity}}</td></tr>{{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+
+<!-- Footer -->
+<div class="report-footer">
+  Generated by Vigolium{{if .VigoliumVersion}} v{{.VigoliumVersion}}{{end}} &mdash; {{.GeneratedAt}}
+</div>
+
+</div>
+
+<a href="#report-top" class="back-to-top" title="Back to top">&#8593; Back to top</a>
+
+</body>
+</html>

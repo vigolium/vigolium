@@ -1,6 +1,6 @@
 ---
-description: Run a full 11-phase security audit (plus 3 systematic sub-phases 5A/5B/5C) on the current repository. Resumes from the last checkpoint if an audit is already in progress. Runs a single phase if a phase number (1-11, 5A, 5B, or 5C) is given as argument.
-argument-hint: "Optional: target path/scope, or phase number (1-11 / 5A / 5B / 5C)"
+description: Run a full 11-phase security audit (plus 3 systematic sub-phases 5A/5B/5C and report-finalize sub-phase 11b) on the current repository. Resumes from the last checkpoint if an audit is already in progress. Runs a single phase if a phase number (1-11, 5A, 5B, 5C, or 11b) is given as argument.
+argument-hint: "Optional: target path/scope, or phase number (1-11 / 5A / 5B / 5C / 11b)"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, AskUserQuestion, TaskCreate, TaskGet, TaskList, TaskUpdate
 ---
 
@@ -100,7 +100,9 @@ Do not proceed past the pre-flight check without an explicit user choice.
            "8": {"status": "pending"},
            "9": {"status": "pending"},
            "10": {"status": "pending"},
-           "11": {"status": "pending"}
+           "11": {"status": "pending"},
+           "11b": {"status": "pending"},
+           "11c": {"status": "pending"}
          }
        }
      ]
@@ -157,9 +159,11 @@ You are the swarm orchestrator. Dispatch domain-specialist agents directly — n
 | T8 | Phase 8 -- Review Chamber Deep Bug Hunting | T5, T5A, T5B, T5C, T6, T7 |
 | T9 | Phase 9 -- P9-LITE FP Elimination | T8 |
 | T10 | Phase 10 -- Variant Analysis | T9 |
-| T11 | Phase 11 -- Exploitation and Final Reporting | T10 |
+| T11 | Phase 11 -- PoC Construction | T10 |
+| T11b | Phase 11b -- Finding Finalization (report.md per finding) | T11 |
+| T11c | Phase 11c -- Final Report Assembly | T11b |
 
-T4, T5, T5A, T5B, and T6 all unblock after T3 and run in parallel. T5C waits for both T4 and T5. T8 waits for T5, T5A, T5B, T5C, T6, and T7.
+T4, T5, T5A, T5B, and T6 all unblock after T3 and run in parallel. T5C waits for both T4 and T5. T8 waits for T5, T5A, T5B, T5C, T6, and T7. T11b ("Finding Finalization") is the mandatory gate before T11c — the final report assembler is NOT dispatched until every `archon/findings/<ID>-<slug>/` has a non-empty `report.md`.
 
 ### Swarm Orchestration Protocol
 
@@ -323,7 +327,7 @@ For each confirmed Medium+ finding: spawn `archon:variant-hunter` with `run_in_b
 
 Wait for all variant hunters. Delete CodeQL database: `rm -rf archon/codeql-artifacts/db/`. Mark T10 complete.
 
-**Step 11: Exploitation and Final Reporting (T11)**
+**Step 11a: PoC Construction (T11)**
 
 **Finding consolidation**: Run the consolidation helper — it reads every draft in `archon/findings-draft/`, keeps the `Verdict: VALID` drafts with `Severity-Original` in {CRITICAL, HIGH, MEDIUM}, assigns deterministic severity-prefixed IDs (`C1`, `H1`, `M1`, …), creates `archon/findings/<ID>-<slug>/evidence/`, copies `draft.md`, `adversarial-review.md` (from `archon/adversarial-reviews/<slug>-review.md` if present), `debate.md` (from the draft's `Debate:` field if the file exists), and writes `metadata.json` for Phase 10 variant drafts with the parent ID resolved from `Origin-Finding`.
 
@@ -331,11 +335,28 @@ Wait for all variant hunters. Delete CodeQL database: `rm -rf archon/codeql-arti
 python3 ~/.config/archon-audit/skills/audit/scripts/consolidate_drafts.py archon
 ```
 
-The script writes `archon/findings-draft/consolidation-manifest.json` and also prints the manifest to stdout. If it exits non-zero, STOP — report the failure to the user and do not proceed to PoC building or report assembly.
+The script writes `archon/findings-draft/consolidation-manifest.json` and also prints the manifest to stdout. If it exits non-zero, STOP — report the failure to the user and do not proceed to PoC building, finalization, or report assembly.
 
 Read `archon/findings-draft/consolidation-manifest.json`. For each entry in its `findings` array, spawn `archon:poc-builder` with `run_in_background: true`. Each poc-builder receives the entry's `draft_path` as the finding draft path and its `id` as the assigned ID.
 
-Wait for all PoC builders. Spawn `archon:report-assembler` (foreground) to produce `archon/final-audit-report.md`.
+Wait for all PoC builders. Mark T11 complete. poc-builder is explicitly NOT responsible for writing `report.md` — that is Phase 11b below.
+
+**Step 11b: Finding Finalization (T11b)**
+
+After every poc-builder completes, fan out one `archon:finding-reporter` per finding to author `report.md` from cold context. This is the structural fix that prevents `report.md` from being starved by heavyweight PoC work.
+
+1. List `archon/findings/*/` to enumerate every finding directory (`C*-*`, `H*-*`, `M*-*`).
+2. For each directory, spawn `archon:finding-reporter` with `run_in_background: true`. The prompt contains ONLY the finding directory path — no chamber context, no KB. Finding Reporter reads the draft / debate / adversarial-review / poc / evidence from the folder and writes `report.md` in place.
+3. Wait for all reporters.
+4. **Phase gate (MANDATORY)**: enumerate `archon/findings/*/report.md`. For every finding directory, assert `report.md` exists and is larger than 500 bytes. If any are missing or truncated:
+   - Respawn `archon:finding-reporter` ONCE for the missing/truncated folders.
+   - If any are still missing after the retry, STOP. Report the list of incomplete findings to the user and do NOT proceed to 11c. The audit is not complete without report.md.
+
+Mark T11b complete only when every finding directory has a non-empty `report.md`.
+
+**Step 11c: Final Report Assembly (T11c)**
+
+Spawn `archon:report-assembler` (foreground) to produce `archon/final-audit-report.md`. By Phase 11b's gate, every per-finding `report.md` is guaranteed to exist, so the assembler can safely inline Summary / Impact / Root Cause / Location / PoC Status from them.
 
 **No-git disclaimer (CRITICAL)**: Before spawning the report assembler, check `audits[-1].history_available` in `archon/audit-state.json`. If it is `false`, append the following instruction to the assembler's prompt:
 
@@ -355,7 +376,7 @@ rm -f archon/attack-pattern-registry.json
 ```
 Retained: `archon/audit-state.json`, `archon/knowledge-base-report.md`, `archon/findings/`, `archon/final-audit-report.md`. If consistency checks failed, skip cleanup and report the failures to the user first.
 
-Mark T11 complete. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
+Mark T11c complete (`audits[-1].phases["11c"].status = "complete"`). Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
 
 ### Lead Responsibilities
 
@@ -394,7 +415,11 @@ Phase 9 (P9-LITE): Stage 1 inline (fp-check). Stage 2: spawn cold verifier per C
 
 Phase 10: spawn one `archon:variant-hunter` per confirmed finding with `run_in_background: true`.
 
-Phase 11: run the consolidation helper (`python3 ~/.config/archon-audit/skills/audit/scripts/consolidate_drafts.py archon`) to create finding directories, copy drafts, adversarial reviews, debate transcripts, and variant metadata. If the script exits non-zero, stop and report the failure. Otherwise read `archon/findings-draft/consolidation-manifest.json` and for each entry in its `findings` array spawn one `archon:poc-builder` with `run_in_background: true` (passing the entry's `draft_path` and `id`). Then `archon:report-assembler` (foreground). When `audits[-1].history_available` is `false`, append the no-git disclaimer instruction to the assembler prompt (same wording as Swarm Step 11). After report assembly, run post-audit cleanup (same as Swarm Mode).
+Phase 11 (PoC Construction): run the consolidation helper (`python3 ~/.config/archon-audit/skills/audit/scripts/consolidate_drafts.py archon`) to create finding directories, copy drafts, adversarial reviews, debate transcripts, and variant metadata. If the script exits non-zero, stop and report the failure. Otherwise read `archon/findings-draft/consolidation-manifest.json` and for each entry in its `findings` array spawn one `archon:poc-builder` with `run_in_background: true` (passing the entry's `draft_path` and `id`). Wait for all poc-builders. Mark phase `11` complete.
+
+Phase 11b (Finding Finalization): for each directory under `archon/findings/`, spawn one `archon:finding-reporter` with `run_in_background: true`. Prompt contains ONLY the finding directory path. Wait for all reporters. Enumerate `archon/findings/*/report.md` and verify each exists and is larger than 500 bytes — retry once for missing/truncated folders, then STOP if any remain incomplete. Mark phase `11b` complete only when every finding directory has a non-empty `report.md`.
+
+Phase 11c (Final Report): spawn `archon:report-assembler` (foreground). When `audits[-1].history_available` is `false`, append the no-git disclaimer instruction to the assembler prompt (same wording as Swarm Step 11c). After report assembly, run post-audit cleanup (same as Swarm Mode). Mark phase `11c` complete.
 
 **Parallelism in solo mode**:
 - After Phase 3: spawn Phase 4 (`archon:static-analyzer`), Phase 5 (probe team), Phase 5A (`archon:authz-auditor`), Phase 5B (`archon:state-concurrency-auditor`), and Phase 6 (`archon:spec-gap-analyst`) in a single message with `run_in_background: true`.
@@ -403,26 +428,27 @@ Phase 11: run the consolidation helper (`python3 ~/.config/archon-audit/skills/a
 - Phase 9 Stage 2: one cold verifier per CRITICAL/HIGH finding with `run_in_background: true`.
 - Phase 10: one `archon:variant-hunter` per finding with `run_in_background: true`.
 - Phase 11: one `archon:poc-builder` per finding with `run_in_background: true`.
+- Phase 11b: one `archon:finding-reporter` per finding with `run_in_background: true`.
 
 **Phase sequence**:
 ```
-P1 -> P2 (per-patch parallel) -> P3 -> [P4 + P5 + P5A + P5B + P6] (parallel) -> P5C (after P4 + P5) -> P7 (after P4) -> P8 (after P5, P5A, P5B, P5C, P6, P7) -> P9-LITE -> P10 (per-finding parallel) -> P11 (per-finding parallel + report)
+P1 -> P2 (per-patch parallel) -> P3 -> [P4 + P5 + P5A + P5B + P6] (parallel) -> P5C (after P4 + P5) -> P7 (after P4) -> P8 (after P5, P5A, P5B, P5C, P6, P7) -> P9-LITE -> P10 (per-finding parallel) -> P11 (PoC, per-finding parallel) -> P11b (Finalize, per-finding parallel; GATE: every report.md present) -> P11c (Final report assembly)
 ```
 
-After Phase 11, set `audits[-1].completed_at` to current timestamp and `audits[-1].status` to `complete`.
+After Phase 11c, set `audits[-1].completed_at` to current timestamp and `audits[-1].status` to `complete`.
 
 ---
 
 ## Single Phase Execution
 
-When `$ARGUMENTS` is a phase identifier (1-11, or 5A / 5B / 5C):
+When `$ARGUMENTS` is a phase identifier (1-11, or 5A / 5B / 5C / 11b / 11c):
 
 1. If no `archon/audit-state.json` exists, create one with all phases `pending` and run setup first.
 2. Verify prerequisites — check that all required earlier phases are `complete` in the state file:
    - Phase 2 requires Phase 1 / Phase 3 requires 1-2 / Phase 4 requires 3 / Phase 5 requires 3
    - Phase 5A requires 3 / Phase 5B requires 3 / Phase 5C requires 4 and 5
    - Phase 6 requires 3 / Phase 7 requires 4 / Phase 8 requires 5, 5A, 5B, 5C, 6, 7 / Phase 9 requires 8
-   - Phase 10 requires 9 / Phase 11 requires 10
+   - Phase 10 requires 9 / Phase 11 requires 10 / Phase 11b requires 11 / Phase 11c requires 11b
    - If prerequisites are incomplete, ask the user whether to run all missing prerequisites first or cancel.
 3. Set the phase status to `in_progress` with a start timestamp.
 4. Execute only that phase per the phase map below.
@@ -443,20 +469,25 @@ When `$ARGUMENTS` is a phase identifier (1-11, or 5A / 5B / 5C):
 | 8 | Review Chamber | Single chamber: `archon:chamber-synthesizer` + `archon:attack-ideator` + `archon:code-tracer` + `archon:devils-advocate` |
 | 9 | P9-LITE FP Elimination | Stage 1 inline (fp-check). Stage 2: cold verifier per CRITICAL/HIGH |
 | 10 | Variant Analysis | `archon:variant-hunter` (one per finding, `run_in_background: true`) |
-| 11 | Exploitation and Reporting | `archon:poc-builder` per finding + `archon:report-assembler` |
+| 11 | PoC Construction | `archon:poc-builder` per finding (`run_in_background: true`) — PoC + evidence + draft-metadata only |
+| 11b | Finding Finalization | `archon:finding-reporter` per finding (`run_in_background: true`) — authors `archon/findings/<ID>-<slug>/report.md`; gate: every finding has non-empty `report.md` |
+| 11c | Final Report Assembly | `archon:report-assembler` — produces `archon/final-audit-report.md` |
 
 ---
 
 ## Resume Logic
 
-Read `audits[-1].phases` from `archon/audit-state.json` to find phase statuses. Walk phases in dependency order: 1, 2, 3, [4, 5, 5A, 5B, 6] (parallel), 5C (after 4+5), 7 (after 4), 8 (after 5/5A/5B/5C/6/7), 9, 10, 11. Find the earliest-ordered phase with status `pending`, `in_progress`, or `failed`:
+Read `audits[-1].phases` from `archon/audit-state.json` to find phase statuses. Walk phases in dependency order: 1, 2, 3, [4, 5, 5A, 5B, 6] (parallel), 5C (after 4+5), 7 (after 4), 8 (after 5/5A/5B/5C/6/7), 9, 10, 11, 11b, 11c. Find the earliest-ordered phase with status `pending`, `in_progress`, or `failed`:
 
 - `failed` or `in_progress`: check whether the expected KB sections or output artifacts exist and appear complete. Artifact gates for the new phases:
   - 5A complete if `archon/authz-matrix.md` exists OR the KB has `## Authorization Audit` with an explicit skip note
   - 5B complete if the KB has `## State & Concurrency Audit` with draft count (zero findings is acceptable)
   - 5C complete if `archon/cross-service-edges.json` exists OR the KB has `## Cross-Service Taint Propagation` with an explicit single-service skip note
-  
+  - 11 complete if every directory under `archon/findings/` has a PoC script (`poc.*`) AND the draft inside has a `PoC-Status` line written back
+  - 11b complete if every directory under `archon/findings/` has a non-empty `report.md` (>500 bytes)
+  - 11c complete if `archon/final-audit-report.md` exists and references at least the finding IDs currently in `archon/findings/`
+
   If so, mark `complete` and advance. Otherwise delete the partial output and re-run.
 - `pending`: run normally.
 
-Continue through Phase 11 using the phase map above.
+Continue through Phase 11c using the phase map above.

@@ -280,12 +280,34 @@ body {
 }
 
 /* Print styles */
+@page {
+  margin: 0;
+  size: A4;
+}
 @media print {
   .no-print {
     display: none !important;
   }
+  html, body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
   body {
-    background: white;
+    padding: 10mm;
+  }
+  header, footer {
+    display: none !important;
+  }
+  .report-view pre {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .report-view .print\:break-inside-avoid {
+    break-inside: avoid;
+  }
+  .report-view h2 {
+    break-after: avoid;
   }
 }
 

@@ -550,7 +550,6 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		inputDesc = "record:" + swarmRecordUUID
 	}
 
-	fmt.Fprint(os.Stderr, GetBanner())
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
 
 	// Mode + Agent + Model on one line

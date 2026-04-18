@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -16,14 +17,15 @@ import (
 )
 
 var (
-	topExportFormat  string
-	topExportOutput  string
-	topExportOnly    []string
-	topExportExclude []string
-	topExportLite    bool
-	topExportSearch  string
-	topExportLimit   int
-	topExportTitle   string
+	topExportFormat   string
+	topExportOutput   string
+	topExportOnly     []string
+	topExportExclude  []string
+	topExportLite     bool
+	topExportSearch   string
+	topExportLimit    int
+	topExportTitle    string
+	topExportSeverity string
 )
 
 // validExportTypes lists all accepted --only values.
@@ -37,7 +39,7 @@ var exportCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(exportCmd)
-	exportCmd.Flags().StringVar(&topExportFormat, "format", "jsonl", "Export format: html, jsonl")
+	exportCmd.Flags().StringVar(&topExportFormat, "format", "jsonl", "Export format: html, report, pdf, jsonl, markdown (alias: md)")
 	exportCmd.Flags().StringVarP(&topExportOutput, "output", "o", "", "Output file path (required for html)")
 	exportCmd.Flags().StringSliceVar(&topExportOnly, "only", nil,
 		"Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes)")
@@ -51,6 +53,8 @@ func init() {
 		"Exclude items by type (comma-separated, e.g. module,scan)")
 	exportCmd.Flags().StringVar(&topExportTitle, "title", "",
 		"Custom title for the HTML report (default: \"Vigolium Static Report\")")
+	exportCmd.Flags().StringVar(&topExportSeverity, "severity", "",
+		"Filter findings by severity (comma-separated: critical,high,medium,low,info)")
 }
 
 // shouldExport returns true if the given data type should be included in the export.
@@ -102,21 +106,28 @@ func runExportCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if topExportFormat == "html" && topExportOutput == "" {
-		return fmt.Errorf("--format html requires -o/--output to specify the report file path")
+	needsOutput := topExportFormat == "html" || topExportFormat == "report" || topExportFormat == "pdf" || topExportFormat == "markdown" || topExportFormat == "md"
+	if needsOutput && topExportOutput == "" {
+		return fmt.Errorf("--format %s requires -o/--output to specify the report file path", topExportFormat)
 	}
 
 	switch topExportFormat {
 	case "html":
 		return runExportHTML()
+	case "report":
+		return runExportReport()
+	case "pdf":
+		return runExportPDF()
 	case "jsonl":
 		return runExportJSONL()
+	case "markdown", "md":
+		return runExportMarkdown()
 	default:
-		return fmt.Errorf("unsupported format %q; valid formats: html, jsonl", topExportFormat)
+		return fmt.Errorf("unsupported format %q; valid formats: html, report, pdf, jsonl, markdown", topExportFormat)
 	}
 }
 
-func runExportHTML() error {
+func runExportWithGenerator(formatLabel, defaultTitle string, generate func([]any, string, output.HTMLReportMeta) error) error {
 	db, err := getDB()
 	if err != nil {
 		return err
@@ -129,7 +140,7 @@ func runExportHTML() error {
 		return err
 	}
 
-	title := "Vigolium Static Report"
+	title := defaultTitle
 	if topExportTitle != "" {
 		title = topExportTitle
 	}
@@ -138,12 +149,26 @@ func runExportHTML() error {
 		Version:      getVersion(),
 		ScanDuration: computeScanDuration(ctx, db),
 	}
-	if err := output.GenerateHTMLReport(items, topExportOutput, meta); err != nil {
+	if err := generate(items, topExportOutput, meta); err != nil {
 		return err
 	}
-	printExportStats("html", topExportOutput, items)
+	printExportStats(formatLabel, topExportOutput, items)
 	return nil
 }
+
+func runExportHTML() error {
+	return runExportWithGenerator("html", "Vigolium Static Report", output.GenerateHTMLReport)
+}
+
+func runExportReport() error {
+	return runExportWithGenerator("report", "Vigolium Scan Report", output.GenerateDocumentReport)
+}
+
+func runExportPDF() error {
+	fmt.Fprintf(os.Stderr, "%s Generating PDF report (headless Chrome)...\n", terminal.InfoSymbol())
+	return runExportWithGenerator("pdf", "Vigolium Scan Report", output.GeneratePDFReport)
+}
+
 
 // computeScanDuration queries the most recent completed scan and returns a
 // human-readable duration string (e.g. "2m30s"). Returns "" if no completed
@@ -243,6 +268,10 @@ func printExportStats(format, outputPath string, items []any) {
 	fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Total", len(items))
 }
 
+func runExportMarkdown() error {
+	return runExportWithGenerator("markdown", "Vigolium Scan Report", output.GenerateMarkdownReport)
+}
+
 // queryExportData queries all enabled tables and returns a slice of exportEnvelope
 // items ready for serialization. Both HTML and JSONL paths share this function.
 func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
@@ -316,7 +345,11 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 		q := db.NewSelect().Model(&findings).OrderExpr("found_at DESC")
 		if topExportSearch != "" {
 			p := "%" + topExportSearch + "%"
-			q = q.Where("(module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ?)", p, p, p, p)
+			q = q.Where("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)", p, p, p, p, p, p, p, p)
+		}
+		if topExportSeverity != "" {
+			sevs := strings.Split(strings.ToLower(topExportSeverity), ",")
+			q = q.Where("LOWER(severity) IN (?)", bun.In(sevs))
 		}
 		if topExportLimit > 0 {
 			q = q.Limit(topExportLimit)

@@ -47,6 +47,10 @@ func init() {
 func runScanCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
+	if cmd.Name() == "run" || cmd.Name() == "r" {
+		fmt.Fprint(os.Stderr, GetBanner())
+	}
+
 	// Copy global flags into scan options
 	scanOpts.ScanUUID = globalScanID
 	scanOpts.Modules = resolveModules()
@@ -289,6 +293,12 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	for _, f := range []string{"report", "pdf"} {
+		if scanOpts.HasFormat(f) && scanOpts.Output == "" {
+			return fmt.Errorf("--format %s requires -o/--output to specify the report file path", f)
+		}
+	}
+
 	// Multi-format requires -o/--output for file-based formats
 	if len(scanOpts.OutputFormats) > 1 && scanOpts.Output == "" {
 		return fmt.Errorf("multiple --format values require -o/--output to specify the base output path")
@@ -429,7 +439,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	// For stateless + jsonl/html: suppress StandardWriter file output; we export the full DB post-scan.
 	// For stateless + console-only: let StandardWriter write to --output normally (findings-only is fine).
 	var statelessOutputPath string
-	hasFileFormats := scanOpts.HasFormat("jsonl") || scanOpts.HasFormat("html")
+	hasFileFormats := scanOpts.HasFormat("jsonl") || scanOpts.HasFormat("html") || scanOpts.HasFormat("report") || scanOpts.HasFormat("pdf")
 	if scanOpts.Stateless && hasFileFormats {
 		statelessOutputPath = scanOpts.Output
 		scanOpts.Output = "" // prevent StandardWriter from creating the output file
@@ -487,7 +497,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 					zap.L().Info("Could not run scanner", zap.Error(err))
 				}
 
-				maybeGenerateHTMLReport(db, scanOpts)
+				maybeGenerateReports(db, scanOpts)
 
 				if !scanOpts.Silent {
 					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
@@ -528,8 +538,8 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	}
 	scanRunner.Close()
 
-	// Generate HTML report if requested
-	maybeGenerateHTMLReport(db, scanOpts)
+	// Generate reports if requested
+	maybeGenerateReports(db, scanOpts)
 
 	// Print completion message with summary stats
 	if !scanOpts.Silent {
@@ -608,8 +618,8 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 
-	// Generate HTML report if requested
-	maybeGenerateHTMLReport(db, scanOpts)
+	// Generate reports if requested
+	maybeGenerateReports(db, scanOpts)
 
 	if !scanOpts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
@@ -639,8 +649,8 @@ func runDBScan(settings *config.Settings, db *database.DB, repo *database.Reposi
 		zap.L().Info("Could not run scanner", zap.Error(err))
 	}
 
-	// Generate HTML report if requested
-	maybeGenerateHTMLReport(db, scanOpts)
+	// Generate reports if requested
+	maybeGenerateReports(db, scanOpts)
 
 	if !scanOpts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
@@ -713,9 +723,9 @@ func upsertSourceRepo(ctx context.Context, repo *database.Repository, targets []
 	return nil
 }
 
-// generateHTMLFromDB queries all data from the database (HTTP records, scans,
-// findings, modules) and generates an HTML report at the specified output path.
-func generateHTMLFromDB(ctx context.Context, db *database.DB, outputPath string) error {
+// generateReportFromDB queries all data from the database and generates a
+// report at the specified output path using the given generator function.
+func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, generate func([]any, string, output.HTMLReportMeta) error) error {
 	items, err := queryExportData(ctx, db)
 	if err != nil {
 		return err
@@ -725,7 +735,7 @@ func generateHTMLFromDB(ctx context.Context, db *database.DB, outputPath string)
 		Version:      getVersion(),
 		ScanDuration: computeScanDuration(ctx, db),
 	}
-	return output.GenerateHTMLReport(items, outputPath, meta)
+	return generate(items, outputPath, meta)
 }
 
 // parseFormats splits a comma-separated format string, defaulting to "console".
@@ -761,24 +771,47 @@ func reconcileOutputFormats(opts *types.Options) error {
 	}
 	for _, f := range opts.OutputFormats {
 		switch f {
-		case "console", "jsonl", "html":
+		case "console", "jsonl", "html", "report", "pdf":
 		default:
-			return fmt.Errorf("invalid --format value %q; valid formats: console, jsonl, html", f)
+			return fmt.Errorf("invalid --format value %q; valid formats: console, jsonl, html, report, pdf", f)
 		}
 	}
 	return nil
 }
 
-// maybeGenerateHTMLReport generates an HTML report post-scan when html format is requested.
-func maybeGenerateHTMLReport(db *database.DB, opts *types.Options) {
-	if !opts.HasFormat("html") || opts.Output == "" {
+// reportFormatEntry maps a --format value to its generator and display label.
+type reportFormatEntry struct {
+	format    string
+	label     string
+	generate  func([]any, string, output.HTMLReportMeta) error
+	beforeMsg string // optional stderr message before generation
+}
+
+var reportFormats = []reportFormatEntry{
+	{"html", "HTML report", output.GenerateHTMLReport, ""},
+	{"report", "Document report", output.GenerateDocumentReport, ""},
+	{"pdf", "PDF report", output.GeneratePDFReport, "Generating PDF report (headless Chrome)..."},
+}
+
+// maybeGenerateReports generates all requested file-based reports post-scan.
+func maybeGenerateReports(db *database.DB, opts *types.Options) {
+	if opts.Output == "" {
 		return
 	}
-	outPath := opts.OutputPathForFormat("html")
-	if err := generateHTMLFromDB(context.Background(), db, outPath); err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
-	} else {
-		fmt.Fprintf(os.Stderr, "%s HTML report: %s\n", terminal.InfoSymbol(), terminal.Cyan(outPath))
+	ctx := context.Background()
+	for _, rf := range reportFormats {
+		if !opts.HasFormat(rf.format) {
+			continue
+		}
+		outPath := opts.OutputPathForFormat(rf.format)
+		if rf.beforeMsg != "" {
+			fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
+		}
+		if err := generateReportFromDB(ctx, db, outPath, rf.generate); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
+		}
 	}
 }
 
@@ -797,14 +830,22 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 	for _, format := range opts.OutputFormats {
 		outPath := types.FormatOutputPath(basePath, format)
 		switch format {
-		case "html":
-			if err := generateHTMLFromDB(ctx, db, outPath); err != nil {
-				fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.ErrorPrefix(), err)
-			} else {
-				fmt.Fprintf(os.Stderr, "%s HTML report exported to %s\n", terminal.InfoSymbol(), terminal.Cyan(outPath))
-			}
 		case "jsonl":
 			exportStatelessJSONL(ctx, db, opts, outPath)
+		default:
+			for _, rf := range reportFormats {
+				if rf.format != format {
+					continue
+				}
+				if rf.beforeMsg != "" {
+					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
+				}
+				if err := generateReportFromDB(ctx, db, outPath, rf.generate); err != nil {
+					fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "%s %s exported to %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
+				}
+			}
 		}
 	}
 }

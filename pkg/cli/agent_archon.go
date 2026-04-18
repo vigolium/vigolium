@@ -221,7 +221,6 @@ func archonSavedSuffix(stats agent.FindingStats, persisted bool) string {
 }
 
 func printArchonBanner(platform, mode, target, pluginDir, sessionDir string) {
-	fmt.Fprint(os.Stderr, GetBanner())
 	fmt.Fprintf(os.Stderr, "%s %s\n",
 		terminal.HiBlue(terminal.SymbolSparkle),
 		terminal.BoldHiBlue("Archon Audit"))

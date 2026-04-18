@@ -1,6 +1,7 @@
 package archon
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 
 	"github.com/vigolium/vigolium/pkg/database"
 )
@@ -44,29 +48,80 @@ func (ft *flexTime) UnmarshalJSON(data []byte) error {
 
 // AuditImport holds the parsed result of an archon output folder.
 type AuditImport struct {
-	RawFindings []*ArchonFinding
-	State       *AuditState
-	RepoName    string // resolved repo name (URL preferred, then slug, then folder basename)
+	RawFindings  []*ArchonFinding
+	State        *AuditState
+	RevisitState *RevisitAuditState // nil when no revisit-audit-state.json exists
+	RepoName     string             // resolved repo name (URL preferred, then slug, then folder basename)
 }
 
 // AuditState represents the top-level audit-state.json structure.
 type AuditState struct {
-	Audits []AuditEntry `json:"audits"`
+	Audits        []AuditEntry           `json:"audits"`
+	MergeMetadata *MergeMetadata         `json:"merge_metadata,omitempty"`
+}
+
+// MergeMetadata captures the provenance of a merged audit.
+type MergeMetadata struct {
+	Sources   []string               `json:"sources,omitempty"`
+	RenameMap map[string]string      `json:"rename_map,omitempty"`
+}
+
+// RevisitAuditState represents the top-level revisit-audit-state.json structure.
+type RevisitAuditState struct {
+	Revisits []RevisitEntry `json:"revisits"`
+}
+
+// RevisitEntry is a single revisit run.
+type RevisitEntry struct {
+	RevisitID     string                `json:"revisit_id"`
+	ParentAuditID string                `json:"parent_audit_id"`
+	Round         int                   `json:"round"`
+	Commit        string                `json:"commit"`
+	Branch        string                `json:"branch"`
+	Repository    string                `json:"repository,omitempty"`
+	Mode          string                `json:"mode,omitempty"`
+	Model         string                `json:"model,omitempty"`
+	AgentSDK      string                `json:"agent_sdk,omitempty"`
+	StartedAt     flexTime              `json:"started_at"`
+	CompletedAt   flexTime              `json:"completed_at"`
+	Status        string                `json:"status"`
+	Phases        map[string]PhaseEntry `json:"phases"`
+	Seed          *RevisitSeed          `json:"seed,omitempty"`
+	NewFindingIDs []string              `json:"new_finding_ids,omitempty"`
+}
+
+// RevisitSeed captures the known findings and attack modes from the prior audit.
+type RevisitSeed struct {
+	KBPath                     string              `json:"kb_path,omitempty"`
+	KnownFindings              []KnownFinding       `json:"known_findings,omitempty"`
+	KnownAttackModes           []string             `json:"known_attack_modes,omitempty"`
+	KnownFindingIDsBySeverity  map[string]int       `json:"known_finding_ids_by_severity,omitempty"`
+}
+
+// KnownFinding represents a finding from a prior audit round.
+type KnownFinding struct {
+	ID       string `json:"id"`
+	Slug     string `json:"slug"`
+	Class    string `json:"class"`
+	Location string `json:"location"`
 }
 
 // AuditEntry is a single audit run inside audit-state.json.
 type AuditEntry struct {
-	AuditID     string                `json:"audit_id"`
-	Commit      string                `json:"commit"`
-	Branch      string                `json:"branch"`
-	Repo        string                `json:"repo,omitempty"`        // optional repo slug (e.g. "goharbor/harbor")
-	Repository  string                `json:"repository,omitempty"`  // alternate key used by lite/scan modes
-	RepoURL     string                `json:"repo_url,omitempty"`    // optional full repo URL
-	Mode        string                `json:"mode,omitempty"`        // audit mode: lite, scan, deep
-	StartedAt   flexTime              `json:"started_at"`
-	CompletedAt flexTime              `json:"completed_at"`
-	Status      string                `json:"status"`
-	Phases      map[string]PhaseEntry `json:"phases"`
+	AuditID          string                `json:"audit_id"`
+	Commit           string                `json:"commit"`
+	Branch           string                `json:"branch"`
+	Repo             string                `json:"repo,omitempty"`        // optional repo slug (e.g. "goharbor/harbor")
+	Repository       string                `json:"repository,omitempty"`  // alternate key used by lite/scan modes
+	RepoURL          string                `json:"repo_url,omitempty"`    // optional full repo URL
+	Mode             string                `json:"mode,omitempty"`        // audit mode: lite, scan, deep, merge, revisit
+	Model            string                `json:"model,omitempty"`       // model used (e.g. opus-4.6, gpt-5.3-codex)
+	AgentSDK         string                `json:"agent_sdk,omitempty"`   // platform (e.g. claude-code, codex, bytesec)
+	HistoryAvailable *bool                 `json:"history_available,omitempty"`
+	StartedAt        flexTime              `json:"started_at"`
+	CompletedAt      flexTime              `json:"completed_at"`
+	Status           string                `json:"status"`
+	Phases           map[string]PhaseEntry `json:"phases"`
 }
 
 // EffectiveRepo returns the repo name from whichever JSON field was populated.
@@ -167,9 +222,10 @@ type ArchonFinding struct {
 	Filename string
 
 	// Enrichment from promoted finding directories
-	Remediation    string // extracted from ## Fix / ## Remediation sections
-	PoCFile        string // filename of poc.* file (e.g. "poc.py", "poc.sh")
-	IsVariant      bool
+	Remediation     string // extracted from ## Fix / ## Remediation sections
+	PoCFile         string // filename of poc.* file (e.g. "poc.py", "poc.sh")
+	PoCContent      string // raw content of poc.* file
+	IsVariant       bool
 	OriginFindingID string // e.g. "H6" when this finding is a variant
 }
 
@@ -194,6 +250,9 @@ func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 		}
 	}
 
+	// Parse revisit-audit-state.json if present (ignore missing file errors).
+	revisitState, _ := parseRevisitAuditState(filepath.Join(folderPath, "revisit-audit-state.json"))
+
 	// Prefer findings/ (promoted, post-audit) over findings-draft/ (intermediate).
 	findings, err := parsePromotedFindings(filepath.Join(folderPath, "findings"))
 	if err != nil {
@@ -214,9 +273,10 @@ func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 	repoName := resolveRepoName(state, folderPath)
 
 	return &AuditImport{
-		State:       state,
-		RawFindings: findings,
-		RepoName:    repoName,
+		State:        state,
+		RevisitState: revisitState,
+		RawFindings:  findings,
+		RepoName:     repoName,
 	}, nil
 }
 
@@ -286,16 +346,24 @@ func BuildFindings(findings []*ArchonFinding, auditID, agentRunUUID, projectUUID
 	return result
 }
 
-func parseAuditState(path string) (*AuditState, error) {
+func parseJSONFile[T any](path string) (*T, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var state AuditState
-	if err := json.Unmarshal(data, &state); err != nil {
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
 		return nil, err
 	}
-	return &state, nil
+	return &v, nil
+}
+
+func parseAuditState(path string) (*AuditState, error) {
+	return parseJSONFile[AuditState](path)
+}
+
+func parseRevisitAuditState(path string) (*RevisitAuditState, error) {
+	return parseJSONFile[RevisitAuditState](path)
 }
 
 func parseFindingsDir(dir string) ([]*ArchonFinding, error) {
@@ -541,9 +609,16 @@ func parsePromotedFindingDir(dirPath, entryName string) *ArchonFinding {
 		parseLiteFinding(af, string(draftData))
 	}
 
-	// Detect poc.* files.
+	// Detect and read poc.* files (capped at 512KB to avoid memory pressure).
 	if pocFile := detectPoCFile(dirPath); pocFile != "" {
 		af.PoCFile = pocFile
+		if pocContent, err := os.ReadFile(filepath.Join(dirPath, pocFile)); err == nil && len(pocContent) > 0 {
+			const maxPoCSize = 512 * 1024
+			if len(pocContent) > maxPoCSize {
+				pocContent = append(pocContent[:maxPoCSize], "\n... (truncated)"...)
+			}
+			af.PoCContent = string(pocContent)
+		}
 	}
 
 	// Parse metadata.json for variant info.
@@ -612,56 +687,220 @@ func restorePromotedIdentity(af *ArchonFinding, m []string) {
 	}
 }
 
-// reportTitleRegex matches "# H3 — Title Here" or "# M9 — Title Here" style H1 headings.
-var reportTitleRegex = regexp.MustCompile(`(?m)^#\s+\S+\s*(?:—|--|-)\s*(.+)$`)
+// mdParser is a reusable goldmark markdown parser.
+var mdParser = goldmark.DefaultParser()
 
-// reportBoldFieldRegex matches **Key**: Value lines in report headers.
-var reportBoldFieldRegex = regexp.MustCompile(`\*\*(.+?)\*\*:\s*(.+)`)
+// reportTitleSepRegex strips the finding-ID prefix from H1 headings:
+// "H3 — Title" or "M9 - Title" → "Title".
+var reportTitleSepRegex = regexp.MustCompile(`^\S+\s*(?:—|--|-)\s*`)
 
-// reportPlainFieldRegex matches plain Key: Value lines (e.g. "Severity: HIGH").
-var reportPlainFieldRegex = regexp.MustCompile(`(?m)^([A-Za-z][A-Za-z _-]+?):\s*(.+)$`)
+// reportBoldKVRegex matches **Key**: Value patterns within paragraph text.
+var reportBoldKVRegex = regexp.MustCompile(`\*\*(.+?)\*\*:\s*(.+)`)
 
-// parseReportMd extracts structured fields from a report.md file.
-// LLM-generated reports vary in format; this handles the observed variants:
-//   - Bold-header: **Severity**: HIGH
-//   - Plain-kv: Severity: HIGH
-//   - H1-title: # H3 — Title Here
-//   - Section-based: ## Fix / ## Remediation
+// reportPlainKVRegex matches plain Key: Value lines.
+var reportPlainKVRegex = regexp.MustCompile(`^([A-Za-z][A-Za-z _-]+?):\s*(.+)$`)
+
+// parseReportMd uses goldmark AST to extract structured fields from report.md.
+// Handles all observed LLM format variants (bold-header, plain-kv, H1-title).
 func parseReportMd(af *ArchonFinding, content string) {
-	// Extract title from H1 heading: "# H3 — Title"
-	if m := reportTitleRegex.FindStringSubmatch(content); m != nil {
-		af.Title = strings.TrimSpace(m[1])
+	source := []byte(content)
+	reader := text.NewReader(source)
+	doc := mdParser.Parse(reader)
+
+	sections := parseMdSections(doc, source)
+
+	// Extract title from H1 heading.
+	if h1 := sections.h1Text; h1 != "" {
+		title := reportTitleSepRegex.ReplaceAllString(h1, "")
+		if title != "" {
+			af.Title = strings.TrimSpace(title)
+		}
 	}
 
-	// Scan the header area (before first ## section) for metadata fields.
-	headerEnd := len(content)
-	if idx := strings.Index(content, "\n## "); idx != -1 {
-		headerEnd = idx
-	}
-	header := content[:headerEnd]
-
-	// Try bold fields first: **Severity**: HIGH
-	for _, m := range reportBoldFieldRegex.FindAllStringSubmatch(header, -1) {
-		applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
-	}
-
-	// Then try plain key-value: Severity: HIGH
-	for _, m := range reportPlainFieldRegex.FindAllStringSubmatch(header, -1) {
-		applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+	// Extract metadata from the preamble (content before first ## heading).
+	for _, line := range sections.preambleLines {
+		// Bold key-value: **Severity**: HIGH
+		if m := reportBoldKVRegex.FindStringSubmatch(line); m != nil {
+			applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+			continue
+		}
+		// Plain key-value: Severity: HIGH
+		if m := reportPlainKVRegex.FindStringSubmatch(line); m != nil {
+			applyReportField(af, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+		}
 	}
 
-	// If no title from H1, try from a Title field or the first ## Summary paragraph.
+	// If no title from H1, try a Title field or first Summary paragraph.
 	if af.Title == "" {
 		af.Title = extractTitleFromBody(content, af.Slug)
 	}
 
-	// Extract locations from the full body.
+	// Extract locations from the full body (regex-based, works across all formats).
 	if locs := extractLocations(content); len(locs) > 0 {
 		af.Locations = locs
 	}
 
-	// Extract remediation from ## Fix or ## Remediation sections.
-	af.Remediation = extractSection(content, "Fix", "Remediation", "Recommendation")
+	// Extract remediation from ## Fix / ## Remediation / ## Recommendation.
+	for _, name := range []string{"Fix", "Remediation", "Recommendation"} {
+		if body := sections.sectionBody(name); body != "" {
+			af.Remediation = body
+			break
+		}
+	}
+}
+
+// mdSections holds the parsed structure of a markdown document.
+type mdSections struct {
+	h1Text        string
+	preambleLines []string            // text lines before the first ## heading
+	sections      map[string]string   // lowercase heading → raw text body
+}
+
+// sectionBody returns the body of a named section (case-insensitive).
+func (s *mdSections) sectionBody(name string) string {
+	return s.sections[strings.ToLower(name)]
+}
+
+// parseMdSections walks the goldmark AST to extract the document structure.
+func parseMdSections(doc ast.Node, source []byte) *mdSections {
+	result := &mdSections{
+		sections: make(map[string]string),
+	}
+
+	var currentHeading string
+	var currentLevel int
+	var sectionStart int
+	firstH2Offset := -1
+
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		if heading, ok := node.(*ast.Heading); ok {
+			// Flush previous section.
+			if currentHeading != "" && sectionStart > 0 {
+				body := extractNodeRangeText(source, sectionStart, nodeStartOffset(node))
+				result.sections[strings.ToLower(currentHeading)] = strings.TrimSpace(body)
+			}
+
+			headingText := nodeInlineText(heading, source)
+
+			if heading.Level == 1 && result.h1Text == "" {
+				result.h1Text = headingText
+				currentHeading = ""
+				currentLevel = 0
+				sectionStart = 0
+				continue
+			}
+
+			if heading.Level == 2 {
+				if firstH2Offset == -1 {
+					firstH2Offset = nodeStartOffset(node)
+					// Collect preamble lines (between H1 and first H2).
+					preambleEnd := firstH2Offset
+					result.preambleLines = splitPreambleLines(source, result.h1Text, preambleEnd)
+				}
+				currentHeading = headingText
+				currentLevel = heading.Level
+				sectionStart = nodeEndOffset(node, source)
+			} else if heading.Level > 2 && currentLevel >= 2 {
+				// Sub-headings within a section — keep accumulating.
+				continue
+			}
+		}
+	}
+
+	// Flush final section.
+	if currentHeading != "" && sectionStart > 0 {
+		body := string(source[sectionStart:])
+		result.sections[strings.ToLower(currentHeading)] = strings.TrimSpace(body)
+	}
+
+	// If no H2 was found, treat everything as preamble.
+	if firstH2Offset == -1 {
+		result.preambleLines = splitPreambleLines(source, result.h1Text, len(source))
+	}
+
+	return result
+}
+
+// nodeInlineText extracts the plain text content of a heading node.
+func nodeInlineText(n ast.Node, source []byte) string {
+	var buf strings.Builder
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		if t, ok := c.(*ast.Text); ok {
+			buf.Write(t.Segment.Value(source))
+		} else {
+			// Recurse into inline elements (bold, code, etc.)
+			buf.WriteString(nodeInlineText(c, source))
+		}
+	}
+	return buf.String()
+}
+
+// nodeStartOffset returns the byte offset where a node starts in the source.
+func nodeStartOffset(n ast.Node) int {
+	if n.HasChildren() {
+		first := n.FirstChild()
+		if first != nil && first.Type() == ast.TypeInline {
+			if t, ok := first.(*ast.Text); ok {
+				return t.Segment.Start
+			}
+		}
+	}
+	if lines := n.Lines(); lines != nil && lines.Len() > 0 {
+		return lines.At(0).Start
+	}
+	return 0
+}
+
+// nodeEndOffset returns the byte offset after the last line of a node.
+func nodeEndOffset(n ast.Node, source []byte) int {
+	if lines := n.Lines(); lines != nil && lines.Len() > 0 {
+		return lines.At(lines.Len() - 1).Stop
+	}
+	// For headings without body lines, find the next newline after the heading text.
+	start := nodeStartOffset(n)
+	idx := bytes.IndexByte(source[start:], '\n')
+	if idx >= 0 {
+		return start + idx + 1
+	}
+	return start
+}
+
+// extractNodeRangeText extracts text between two byte offsets.
+func extractNodeRangeText(source []byte, start, end int) string {
+	if start >= end || start >= len(source) {
+		return ""
+	}
+	if end > len(source) {
+		end = len(source)
+	}
+	return string(source[start:end])
+}
+
+// splitPreambleLines extracts non-empty text lines from the preamble area.
+func splitPreambleLines(source []byte, h1Text string, endOffset int) []string {
+	if endOffset > len(source) {
+		endOffset = len(source)
+	}
+	raw := string(source[:endOffset])
+
+	// Skip past the H1 heading line if present.
+	if h1Text != "" {
+		if idx := strings.Index(raw, h1Text); idx >= 0 {
+			nlIdx := strings.IndexByte(raw[idx:], '\n')
+			if nlIdx >= 0 {
+				raw = raw[idx+nlIdx+1:]
+			}
+		}
+	}
+
+	var lines []string
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && trimmed != "---" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
 }
 
 // applyReportField maps a key-value pair from report.md header to ArchonFinding fields.
@@ -677,7 +916,7 @@ func applyReportField(af *ArchonFinding, key, val string) {
 		if strings.Contains(strings.ToLower(val), "confirmed") {
 			af.Verdict = "VALID"
 		}
-		if strings.Contains(strings.ToLower(val), "poc executed") || strings.Contains(strings.ToLower(val), "poc executed") {
+		if strings.Contains(strings.ToLower(val), "poc executed") {
 			af.PoCStatus = "executed"
 		}
 	case "title":
@@ -700,39 +939,6 @@ func applyReportField(af *ArchonFinding, key, val string) {
 	case "confidence":
 		af.Confidence = val
 	}
-}
-
-// extractSection returns the content of the first matching ## section.
-func extractSection(content string, names ...string) string {
-	lower := strings.ToLower(content)
-	for _, name := range names {
-		marker := "## " + strings.ToLower(name)
-		idx := strings.Index(lower, marker)
-		if idx == -1 {
-			continue
-		}
-		// Find the start of content after the heading line.
-		rest := content[idx:]
-		nlIdx := strings.IndexByte(rest, '\n')
-		if nlIdx == -1 {
-			continue
-		}
-		sectionBody := rest[nlIdx+1:]
-
-		// Find the end: next ## heading or end of content.
-		endIdx := strings.Index(sectionBody, "\n## ")
-		if endIdx == -1 {
-			endIdx = strings.Index(sectionBody, "\n---")
-		}
-		if endIdx != -1 {
-			sectionBody = sectionBody[:endIdx]
-		}
-		sectionBody = strings.TrimSpace(sectionBody)
-		if sectionBody != "" {
-			return sectionBody
-		}
-	}
-	return ""
 }
 
 // detectPoCFile returns the filename of a poc.* file in the directory, or empty string.
@@ -758,6 +964,10 @@ type findingMetadata struct {
 	IsVariant        bool   `json:"is_variant"`
 	OriginFindingID  string `json:"origin_finding_id"`
 	OriginPattern    string `json:"origin_pattern"`
+	Round            int    `json:"round,omitempty"`
+	RevisitID        string `json:"revisit_id,omitempty"`
+	Model            string `json:"model,omitempty"`
+	AgentSDK         string `json:"agent_sdk,omitempty"`
 }
 
 // parseMetadataJSON reads metadata.json and populates variant fields on the finding.
@@ -1040,6 +1250,23 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName
 
 	cweID := af.CWE
 
+	// Build description: body + PoC content if available.
+	description := af.Body
+	if af.PoCContent != "" {
+		ext := ""
+		if af.PoCFile != "" {
+			ext = strings.TrimPrefix(filepath.Ext(af.PoCFile), ".")
+		}
+		if ext == "" {
+			ext = "text"
+		}
+		description += "\n\n---\n## Proof of Concept (`" + af.PoCFile + "`)\n\n```" + ext + "\n" + af.PoCContent
+		if !strings.HasSuffix(af.PoCContent, "\n") {
+			description += "\n"
+		}
+		description += "```\n"
+	}
+
 	return &database.Finding{
 		ProjectUUID:     projectUUID,
 		HTTPRecordUUIDs: []string{},
@@ -1049,7 +1276,7 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName
 		ModuleType:      database.ModuleTypeWhitebox,
 		FindingSource:   database.FindingSourceArchon,
 		ModuleShort:     af.Slug,
-		Description:     af.Body,
+		Description:     description,
 		Severity:        severity,
 		Confidence:      confidence,
 		Tags:            tags,

@@ -249,7 +249,7 @@ func StripFormatExtension(path string) string {
 	}
 	ext := filepath.Ext(path)
 	switch strings.ToLower(ext) {
-	case ".jsonl", ".html", ".json":
+	case ".jsonl", ".html", ".json", ".pdf":
 		return strings.TrimSuffix(path, ext)
 	default:
 		return path
@@ -266,6 +266,10 @@ func FormatOutputPath(basePath, format string) string {
 		return basePath + ".jsonl"
 	case "html":
 		return basePath + ".html"
+	case "report":
+		return basePath + ".report.html"
+	case "pdf":
+		return basePath + ".pdf"
 	default:
 		return basePath
 	}

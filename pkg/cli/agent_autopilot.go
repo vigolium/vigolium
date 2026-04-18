@@ -270,8 +270,6 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 
 	sourceOnly := autopilotTarget == "" && autopilotSource != ""
 
-	// Print startup summary (matches swarm format)
-	fmt.Fprint(os.Stderr, GetBanner())
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Agent Configuration"))
 
 	// Mode + Agent + Model

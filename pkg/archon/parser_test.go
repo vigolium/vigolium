@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/yuin/goldmark/text"
 
 	"github.com/vigolium/vigolium/pkg/database"
 )
@@ -577,20 +578,25 @@ A variant of H6.
 }
 `
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "draft.md"), []byte(draft), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "poc.py"), []byte("#!/usr/bin/env python3\n"), 0o644))
+	pocScript := "#!/usr/bin/env python3\nprint('exploit')\n"
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "poc.py"), []byte(pocScript), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "metadata.json"), []byte(metadata), 0o644))
 
 	af := parsePromotedFindingDir(subDir, "C1-variant-finding")
 	require.NotNil(t, af)
 
 	assert.Equal(t, "poc.py", af.PoCFile)
+	assert.Equal(t, pocScript, af.PoCContent)
 	assert.True(t, af.IsVariant)
 	assert.Equal(t, "H6", af.OriginFindingID)
 
-	// Verify tags flow through to database finding
+	// Verify tags and PoC content flow through to database finding
 	dbFinding := toDBFinding(af, "test-audit", "test-run", "test-project", "test-repo")
 	assert.Contains(t, dbFinding.Tags, "poc-available")
 	assert.Contains(t, dbFinding.Tags, "variant-of:H6")
+	assert.Contains(t, dbFinding.Description, "## Proof of Concept (`poc.py`)")
+	assert.Contains(t, dbFinding.Description, "```py")
+	assert.Contains(t, dbFinding.Description, "print('exploit')")
 }
 
 func TestParsePromotedFindings_RealOllamaData(t *testing.T) {
@@ -613,6 +619,8 @@ func TestParsePromotedFindings_RealOllamaData(t *testing.T) {
 	}
 	if c1 != nil {
 		assert.Equal(t, "poc.py", c1.PoCFile)
+		assert.NotEmpty(t, c1.PoCContent, "poc.py content should be read")
+		assert.Contains(t, c1.PoCContent, "python", "poc.py should contain python code")
 		assert.True(t, c1.IsVariant, "C1 should be a variant per metadata.json")
 		assert.Equal(t, "H6", c1.OriginFindingID)
 		assert.Contains(t, c1.Body, "IsAutoAllowed", "body should contain report content")
@@ -639,13 +647,15 @@ func TestParsePromotedFindings_RealGrafanaData(t *testing.T) {
 	}
 	if h3 != nil {
 		assert.Equal(t, "poc.sh", h3.PoCFile)
+		assert.NotEmpty(t, h3.PoCContent, "poc.sh content should be read")
+		assert.Contains(t, h3.PoCContent, "#!/usr/bin/env bash", "poc.sh should be a bash script")
 		assert.Equal(t, "executed", h3.PoCStatus, "poc-status from report.md")
 		assert.NotEmpty(t, h3.Remediation, "should extract ## Fix section")
 		assert.Contains(t, h3.Title, "Credential", "title from report.md H1")
 	}
 }
 
-func TestExtractSection(t *testing.T) {
+func TestParseMdSections(t *testing.T) {
 	content := `## Summary
 
 Some summary.
@@ -658,10 +668,15 @@ Apply the patch to fix it.
 
 High impact.
 `
-	assert.Contains(t, extractSection(content, "Fix"), "Apply the patch")
-	assert.Contains(t, extractSection(content, "Impact"), "High impact")
-	assert.Equal(t, "", extractSection(content, "Nonexistent"))
+	source := []byte(content)
+	reader := text.NewReader(source)
+	doc := mdParser.Parse(reader)
+	sections := parseMdSections(doc, source)
 
-	// Multiple name fallback
-	assert.Contains(t, extractSection(content, "Remediation", "Fix"), "Apply the patch")
+	assert.Contains(t, sections.sectionBody("Fix"), "Apply the patch")
+	assert.Contains(t, sections.sectionBody("Impact"), "High impact")
+	assert.Equal(t, "", sections.sectionBody("Nonexistent"))
+
+	// Case-insensitive
+	assert.Contains(t, sections.sectionBody("fix"), "Apply the patch")
 }

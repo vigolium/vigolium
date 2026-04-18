@@ -64,6 +64,7 @@ func printVersion() {
 		return
 	}
 
+	fmt.Print(GetBanner())
 	fmt.Printf("%s - %s\n", terminal.BoldCyan(Name), terminal.White(Description))
 	fmt.Printf("%s %s\n", terminal.Cyan("Version:"), terminal.BoldGreen(getVersion()))
 	if BuildTime != "" {

@@ -173,7 +173,7 @@ type AppIntent struct {
 // AuditAgentConfig configures a background archon-audit run.
 type AuditAgentConfig struct {
 	PluginDir   string
-	Mode        string // "deep", "scan", or "lite"
+	Mode        string // "deep", "scan", "lite", "merge", "revisit", etc.
 	Platform    string // "claude" (default), "codex", or "opencode"
 	SourcePath  string
 	SessionDir  string
@@ -190,6 +190,13 @@ type AuditAgentConfig struct {
 	// the claudestream package. Only meaningful for the "claude" platform and
 	// when StreamWriter is non-nil. Other platforms ignore this flag.
 	Stream bool
+
+	// CommitScanLimit caps deep-mode commit archaeology to at most N commits.
+	// 0 keeps the upstream default (500).
+	CommitScanLimit int
+	// CommitScanSince caps deep-mode commit archaeology to commits since this
+	// git date expression. Empty keeps the upstream default ("60 days ago").
+	CommitScanSince string
 }
 
 // AuditAgentStatus summarizes the current state of the background audit.

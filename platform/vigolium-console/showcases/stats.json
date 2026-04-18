@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-04-16T16:44:03.184887+00:00",
-  "project_count": 51,
+  "generated_at": "2026-04-17T16:15:29.414789+00:00",
+  "project_count": 53,
   "summary": {
-    "project_count": 51,
-    "files": 296309,
-    "loc": 58717010,
-    "commits": 1056324,
+    "project_count": 53,
+    "files": 300803,
+    "loc": 60212892,
+    "commits": 1104221,
     "findings": {
-      "total": 1252,
-      "critical": 18,
-      "high": 383,
-      "medium": 851
+      "total": 1315,
+      "critical": 21,
+      "high": 375,
+      "medium": 919
     }
   },
   "projects": [
@@ -267,6 +267,34 @@
         "loc": 863254,
         "text_file_count": 3683,
         "last_refreshed_at": "2026-04-16T16:43:19.964047+00:00"
+      }
+    },
+    {
+      "project": "desktop",
+      "coding_agent": "Claude Code",
+      "total": 52,
+      "critical": 0,
+      "high": 14,
+      "medium": 38,
+      "project_desc": "Focus on what matters instead of fighting with Git.",
+      "project_link": "https://github.com/desktop/desktop",
+      "github_stars": "21k+",
+      "project_size": {
+        "audited_commit": "4616f27affc471d7dccf25dc5d6e5ff65b0f26b3",
+        "commit_count": 39065,
+        "primary_language": "TypeScript",
+        "languages": {
+          "TypeScript": 5735237,
+          "SCSS": 312972,
+          "JavaScript": 24272,
+          "CSS": 9568,
+          "Shell": 5577,
+          "HTML": 175,
+          "Batchfile": 116
+        },
+        "loc": 380351,
+        "text_file_count": 1940,
+        "last_refreshed_at": "2026-04-17T16:15:22.287134+00:00"
       }
     },
     {
@@ -1005,6 +1033,51 @@
       }
     },
     {
+      "project": "llama.cpp",
+      "coding_agent": "Claude Code",
+      "total": 9,
+      "critical": 0,
+      "high": 5,
+      "medium": 4,
+      "project_desc": "LLM inference in C/C++",
+      "project_link": "https://github.com/ggml-org/llama.cpp",
+      "github_stars": "104k+",
+      "project_size": {
+        "audited_commit": "1e796eb41fb51950ada45811a303e57a5f4ea974",
+        "commit_count": 8832,
+        "primary_language": "C++",
+        "languages": {
+          "C++": 14605662,
+          "C": 3246299,
+          "Python": 1916160,
+          "Cuda": 1516259,
+          "HTML": 783023,
+          "TypeScript": 768634,
+          "Svelte": 584060,
+          "Metal": 445461,
+          "Jinja": 329885,
+          "GLSL": 300400,
+          "Shell": 248657,
+          "WGSL": 220092,
+          "CMake": 217558,
+          "Go Template": 99711,
+          "Objective-C": 89386,
+          "Dockerfile": 32191,
+          "Nix": 23751,
+          "JavaScript": 16109,
+          "PowerShell": 9449,
+          "CSS": 5408,
+          "MDX": 1646,
+          "Makefile": 1554,
+          "Batchfile": 802,
+          "SCSS": 478
+        },
+        "loc": 1115531,
+        "text_file_count": 2554,
+        "last_refreshed_at": "2026-04-17T16:15:29.400973+00:00"
+      }
+    },
+    {
       "project": "llama_index",
       "coding_agent": "Claude Code",
       "total": 32,
@@ -1164,10 +1237,10 @@
     {
       "project": "ollama",
       "coding_agent": "Claude Code",
-      "total": 43,
-      "critical": 0,
-      "high": 34,
-      "medium": 9,
+      "total": 45,
+      "critical": 3,
+      "high": 7,
+      "medium": 35,
       "project_desc": "Get up and running with large language models locally",
       "project_link": "https://github.com/ollama/ollama",
       "github_stars": "168k+",

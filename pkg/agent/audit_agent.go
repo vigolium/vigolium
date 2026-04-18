@@ -150,7 +150,7 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(), archonEnvFor(r.cfg.SourcePath, r.agentRunUUID)...)
+	cmd.Env = append(os.Environ(), archonEnvFor(r.cfg.SourcePath, r.agentRunUUID, r.cfg.CommitScanLimit, r.cfg.CommitScanSince)...)
 	if stdinPrompt != "" {
 		cmd.Stdin = strings.NewReader(stdinPrompt)
 	}
@@ -772,18 +772,25 @@ func copyDir(src, dest string) {
 // before launching the agent. Vigolium bypasses the archon-audit binary and
 // runs claude/codex/opencode directly, so we replicate the exports here so
 // agents (report-assembler, advisory-hunter, commit-archaeologist) see the
-// repo identity, git availability, and a stable session UUID.
-func archonEnvFor(sourcePath, sessionUUID string) []string {
+// repo identity, git availability, commit scan limits, and a stable session UUID.
+func archonEnvFor(sourcePath, sessionUUID string, commitLimit int, commitSince string) []string {
 	repo := deriveRepositoryName(sourcePath)
 	gitAvailable := "false"
 	if isGitWorkTree(sourcePath) {
 		gitAvailable = "true"
 	}
-	return []string{
+	envs := []string{
 		"ARCHON_REPOSITORY=" + repo,
 		"ARCHON_GIT_AVAILABLE=" + gitAvailable,
 		"ARCHON_SESSION_UUID=" + sessionUUID,
 	}
+	if commitLimit > 0 {
+		envs = append(envs, fmt.Sprintf("ARCHON_COMMIT_SCAN_LIMIT=%d", commitLimit))
+	}
+	if commitSince != "" {
+		envs = append(envs, "ARCHON_COMMIT_SCAN_SINCE="+commitSince)
+	}
+	return envs
 }
 
 // deriveRepositoryName resolves a repo identity for the audit target. Tries
@@ -1033,7 +1040,7 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 // isValidArchonMode returns true for recognized archon audit modes.
 func isValidArchonMode(mode string) bool {
 	switch mode {
-	case "lite", "scan", "deep", "mock", "confirm":
+	case "lite", "scan", "deep", "mock", "confirm", "merge", "revisit":
 		return true
 	default:
 		return false

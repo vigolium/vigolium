@@ -8,6 +8,7 @@ import StatisticsTab from "./components/StatisticsTab";
 import HttpTrafficTable from "./components/HttpTrafficTable";
 import FindingsTable from "./components/FindingsTable";
 import FileDropZone from "./components/FileDropZone";
+import ReportView from "./components/ReportView";
 
 import rawData from "./data.json";
 
@@ -48,12 +49,14 @@ const hashToTab: Record<string, TabId> = {
   "#Statistics": "statistics",
   "#HTTP_Traffic": "traffic",
   "#Findings": "findings",
+  "#Report": "report",
 };
 
 const tabToHash: Record<TabId, string> = {
   statistics: "#Statistics",
   traffic: "#HTTP_Traffic",
   findings: "#Findings",
+  report: "#Report",
 };
 
 function getTabFromHash(): TabId {
@@ -129,6 +132,15 @@ export default function App() {
             ) : (
               <p className="text-text-muted text-sm font-sans">No findings in this export.</p>
             )
+          )}
+
+          {activeTab === "report" && (
+            <ReportView
+              data={data}
+              scanDuration={initial.scanDuration}
+              generatedAt={initial.generatedAt}
+              vigoliumVersion={initial.vigoliumVersion}
+            />
           )}
         </div>
       </main>
