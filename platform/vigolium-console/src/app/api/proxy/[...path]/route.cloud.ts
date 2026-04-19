@@ -1,6 +1,7 @@
 import { withAuth } from '@workos-inc/authkit-nextjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAndDeductCredits } from '@/lib/billing';
+import { resolveConvexUser, checkProjectAccessById, checkQuotaById, deductConvexCreditsById } from '@/lib/convex-billing';
 import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
 import { validateDemoKey } from '@/lib/demoKeys';
 
@@ -26,19 +27,17 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
   const { path } = await params;
   const apiPath = `/${path.join('/')}`;
   const target = new URL(apiPath, SCAN_SERVER);
-  // Copy query, but strip demo_key before forwarding to the Go backend.
   const forwardSearch = new URLSearchParams(req.nextUrl.search);
   const demoKeyParam = forwardSearch.get('demo_key');
   forwardSearch.delete('demo_key');
   target.search = forwardSearch.toString() ? `?${forwardSearch.toString()}` : '';
 
-  // Resolve user email for X-User-Email header injection
   let userEmail: string | null = null;
+  let workosUserId: string | null = null;
   let isAccessCodeUser = false;
   let isDemoUser = false;
 
   if (!skipAuth) {
-    // Check ?demo_key= query — strict URL source of truth
     if (demoKeyParam) {
       const result = validateDemoKey(demoKeyParam);
       if (result.valid && result.label) {
@@ -49,7 +48,6 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
       }
     }
 
-    // Check access-code cookie next
     if (!isDemoUser) {
       const accessCookie = req.cookies.get(ACCESS_COOKIE_NAME);
       if (accessCookie?.value) {
@@ -63,73 +61,107 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
       }
     }
 
-    // Fall back to WorkOS session for email
     if (!isAccessCodeUser && !isDemoUser) {
       try {
         const session = await withAuth();
         if (session.user) {
           userEmail = session.user.email;
+          workosUserId = session.user.id;
         }
       } catch {
-        // WorkOS not configured — continue without email
+        // WorkOS not configured
       }
     }
   }
 
-  // Credit gate: check and deduct credits for scan endpoints (POST only)
-  if (req.method === 'POST' && isGatedPath(apiPath) && !skipAuth) {
-    // Demo and access-code users bypass credit checks (unlimited/read-only)
-    if (!isAccessCodeUser && !isDemoUser) {
-      if (!userEmail) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Convex gates: resolve user once, reuse for project access + quota + credits
+  let convexCreditsHandled = false;
+  if (!skipAuth && !isDemoUser && !isAccessCodeUser && workosUserId) {
+    let convexUser: Awaited<ReturnType<typeof resolveConvexUser>> = null;
+    try {
+      convexUser = await resolveConvexUser(workosUserId);
+    } catch {
+      // Convex not configured
+    }
+
+    if (convexUser) {
+      const projectUuid = req.headers.get('x-project-uuid');
+      if (projectUuid) {
+        try {
+          const access = await checkProjectAccessById(convexUser._id, convexUser.role, projectUuid);
+          if (!access.hasAccess) {
+            return NextResponse.json(
+              { error: 'You do not have access to this project' },
+              { status: 403 },
+            );
+          }
+        } catch {
+          // Convex query failed — fall through
+        }
       }
 
-      // WorkOS user — check credits
-      let session;
-      try {
-        session = await withAuth();
-      } catch {
-        return NextResponse.json(
-          { error: 'Authentication is not configured. Check WorkOS environment variables.' },
-          { status: 503 },
-        );
-      }
-      if (!session.user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
+      if (req.method === 'POST' && isGatedPath(apiPath)) {
+        try {
+          const quota = await checkQuotaById(convexUser._id);
+          if (!quota.allowed) {
+            return NextResponse.json(
+              { error: quota.error || 'Daily scan limit reached' },
+              { status: 429 },
+            );
+          }
+        } catch {
+          // Convex unavailable — skip quota
+        }
 
-      let result;
-      try {
-        result = await checkAndDeductCredits(session.user.id, apiPath);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return NextResponse.json(
-          { error: `Billing check failed: ${msg}` },
-          { status: 503 },
-        );
+        try {
+          const result = await deductConvexCreditsById(convexUser._id, convexUser.status, apiPath);
+          convexCreditsHandled = true;
+          if (!result.allowed) {
+            return NextResponse.json(
+              { error: result.error, credits: result.remaining, cost: result.cost },
+              { status: 402 },
+            );
+          }
+        } catch {
+          // Convex unavailable — fall through to Stripe
+        }
       }
-      if (!result.allowed) {
-        return NextResponse.json(
-          { error: result.error, credits: result.remaining, cost: result.cost },
-          { status: 402 },
-        );
-      }
+    }
+  }
+
+  // Stripe fallback for credit gate when Convex is unavailable
+  if (!convexCreditsHandled && req.method === 'POST' && isGatedPath(apiPath) && !skipAuth && !isAccessCodeUser && !isDemoUser) {
+    if (!userEmail || !workosUserId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    let result;
+    try {
+      result = await checkAndDeductCredits(workosUserId, apiPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        { error: `Billing check failed: ${msg}` },
+        { status: 503 },
+      );
+    }
+    if (!result.allowed) {
+      return NextResponse.json(
+        { error: result.error, credits: result.remaining, cost: result.cost },
+        { status: 402 },
+      );
     }
   }
 
   const headers = new Headers(req.headers);
-  // Inject server-side API key — never exposed to the browser
   if (AUTH_API_KEY) {
     headers.set('Authorization', `Bearer ${AUTH_API_KEY}`);
   }
-  // Inject user email for per-project access control on the Go backend
   if (userEmail) {
     headers.set('X-User-Email', userEmail);
   }
-  // Remove host/origin headers so the scan server sees its own
   headers.delete('host');
   headers.delete('origin');
-  // Strip WorkOS internal headers to avoid 431 (header too large) on the scan server
   headers.delete('x-workos-middleware');
   headers.delete('x-workos-session');
   headers.delete('x-redirect-uri');

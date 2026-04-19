@@ -72,6 +72,9 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
           <span className="font-bold" style={{ color: 'var(--v-accent)' }}>
             {isStaticBuild ? '> VIGOLIUM' : '> VIGOLIUM CLOUD CONSOLE'}
           </span>
+          {!isStaticBuild && process.env.NEXT_PUBLIC_ENTERPRISE_LABEL && (
+            <span style={{ color: '#ff8c00' }}>[{process.env.NEXT_PUBLIC_ENTERPRISE_LABEL}]</span>
+          )}
           {isStaticBuild && serverInfo && (
             <span className="hidden sm:inline" style={{ color: 'var(--v-text-muted)' }}>[<span style={{ color: '#ff8c00' }}>workbench</span> {serverInfo.version}]</span>
           )}

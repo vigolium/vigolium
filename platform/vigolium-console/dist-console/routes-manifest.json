@@ -156,6 +156,18 @@
       "namedRegex": "^/api/config\\-check(?:/)?$"
     },
     {
+      "page": "/api/convex/credits",
+      "regex": "^/api/convex/credits(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/convex/credits(?:/)?$"
+    },
+    {
+      "page": "/api/convex/credits/ledger",
+      "regex": "^/api/convex/credits/ledger(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/convex/credits/ledger(?:/)?$"
+    },
+    {
       "page": "/api/demo/login",
       "regex": "^/api/demo/login(?:/)?$",
       "routeKeys": {},

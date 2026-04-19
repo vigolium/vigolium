@@ -136,7 +136,7 @@ export default function AuthGatePage({ ssoDisabled = false, showcasesEnabled = f
         </div>
 
         {/* Tab Content */}
-        <div className="p-5" style={{ minHeight: '200px' }}>
+        <div className="p-5 flex flex-col justify-center" style={{ minHeight: '240px' }}>
           {activeTab === 'sso' ? (
             ssoDisabled ? (
               <div className="flex flex-col items-center gap-3 py-4 text-center">
@@ -175,7 +175,7 @@ export default function AuthGatePage({ ssoDisabled = false, showcasesEnabled = f
                     <span>GitHub</span>
                   </a>
                 </div>
-                <p className="text-[10px] mt-4 text-center" style={{ color: 'var(--v-text-muted)' }}>
+                <p className="text-xs mt-4 text-center" style={{ color: 'var(--v-text-muted)' }}>
                   Only authorized email domains can access this console.
                 </p>
               </>

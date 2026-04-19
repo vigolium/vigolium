@@ -23,13 +23,18 @@ type moduleOptions struct {
 	TagsOnly    bool
 }
 
-// Parent command: vigolium module
+// Parent command: vigolium module [search]
 var moduleCmd = &cobra.Command{
-	Use:     "module",
+	Use:     "module [search]",
 	Aliases: []string{"mo", "modules"},
 	Short:   "Manage scanner modules",
+	Args:    cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		printModuleTable(moduleOpts, "")
+		filter := ""
+		if len(args) > 0 {
+			filter = args[0]
+		}
+		printModuleTable(moduleOpts, filter)
 	},
 }
 
@@ -52,14 +57,16 @@ func init() {
 	rootCmd.AddCommand(moduleCmd)
 	moduleCmd.AddCommand(moduleLsCmd)
 
-	moduleLsCmd.Flags().StringVar(&moduleOpts.ModuleType, "type", "all",
-		"Filter modules by type: all, active, or passive")
-	moduleLsCmd.Flags().BoolVar(&moduleOpts.ListEnabled, "list-enabled", false,
-		"Show only enabled modules")
-	moduleLsCmd.Flags().BoolVarP(&moduleOpts.Verbose, "verbose", "v", false,
-		"Show long description and confirmation criteria")
-	moduleLsCmd.Flags().BoolVar(&moduleOpts.TagsOnly, "tags", false,
-		"Show only unique module tags")
+	for _, cmd := range []*cobra.Command{moduleCmd, moduleLsCmd} {
+		cmd.Flags().StringVar(&moduleOpts.ModuleType, "type", "all",
+			"Filter modules by type: all, active, or passive")
+		cmd.Flags().BoolVar(&moduleOpts.ListEnabled, "list-enabled", false,
+			"Show only enabled modules")
+		cmd.Flags().BoolVarP(&moduleOpts.Verbose, "verbose", "v", false,
+			"Show long description and confirmation criteria")
+		cmd.Flags().BoolVar(&moduleOpts.TagsOnly, "tags", false,
+			"Show only unique module tags")
+	}
 }
 
 // moduleMatchesFilter returns true if any of the module's ID, name, or short

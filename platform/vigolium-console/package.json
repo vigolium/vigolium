@@ -27,6 +27,7 @@
     "@workos-inc/node": "^8.9.0",
     "ag-grid-community": "^35.1.0",
     "ag-grid-react": "^35.1.0",
+    "convex": "^1.35.1",
     "fflate": "^0.8.2",
     "jose": "^6.2.2",
     "lucide-react": "^0.576.0",

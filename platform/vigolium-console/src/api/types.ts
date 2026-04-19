@@ -921,6 +921,7 @@ export interface CurrentUser {
   role: string;
   credits?: number;
   organization: { id: string; name: string } | null;
+  allowedProjects?: string[];
   demo_label?: string;
   demo_expires?: string;
 }

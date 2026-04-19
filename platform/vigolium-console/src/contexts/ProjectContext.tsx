@@ -21,20 +21,24 @@ const ProjectContext = createContext<ProjectContextValue | undefined>(undefined)
  * Given a domain map and user email, return the set of project UUIDs the user can access.
  * Returns null if there are no restrictions (domain map is empty or user has no email).
  */
-function getAllowedProjectUUIDs(domainMap: DomainMap | undefined, email: string | undefined): Set<string> | null {
+function getAllowedProjectUUIDs(domainMap: DomainMap | undefined, email: string | undefined, convexProjects: string[] | undefined): Set<string> | null {
+  // Convex project access takes precedence when available
+  if (convexProjects !== undefined) {
+    return new Set(convexProjects);
+  }
+
+  // Fall back to domain-map filtering
   if (!domainMap || !email) return null;
 
   const normalizedEmail = email.toLowerCase();
   const domain = '@' + normalizedEmail.split('@')[1];
   const allowed = new Set<string>();
 
-  // Check exact email matches
   const emailMatches = domainMap.emails[normalizedEmail];
   if (emailMatches) {
     emailMatches.forEach((uuid) => allowed.add(uuid));
   }
 
-  // Check domain matches
   const domainMatches = domainMap.domains[domain];
   if (domainMatches) {
     domainMatches.forEach((uuid) => allowed.add(uuid));
@@ -54,10 +58,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const { data: domainMap } = useDomainMap();
   const { data: currentUser } = useCurrentUser();
   const userEmail = isCloudBuild ? currentUser?.email : undefined;
+  const convexProjects = isCloudBuild ? currentUser?.allowedProjects : undefined;
 
   const allowedUUIDs = useMemo(
-    () => getAllowedProjectUUIDs(domainMap, userEmail),
-    [domainMap, userEmail],
+    () => getAllowedProjectUUIDs(domainMap, userEmail, convexProjects),
+    [domainMap, userEmail, convexProjects],
   );
 
   // Filter projects: show projects the user has access to + unrestricted projects

@@ -12,6 +12,8 @@
   "/api/billing/portal/route": "/api/billing/portal",
   "/api/billing/webhook/route": "/api/billing/webhook",
   "/api/config-check/route": "/api/config-check",
+  "/api/convex/credits/ledger/route": "/api/convex/credits/ledger",
+  "/api/convex/credits/route": "/api/convex/credits",
   "/api/demo/login/route": "/api/demo/login",
   "/api/demo/logout/route": "/api/demo/logout",
   "/api/demo/status/route": "/api/demo/status",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe, addCredits, getOrCreateCustomer } from '@/lib/stripe';
+import { resolveConvexUser, addConvexCredits, logAuditEvent } from '@/lib/convex-billing';
 
 export async function POST(req: NextRequest) {
   const stripe = getStripe();
@@ -38,6 +39,28 @@ export async function POST(req: NextRequest) {
       // Fallback: resolve customer by org ID
       const customer = await getOrCreateCustomer(orgId, '', session.customer_email || '');
       await addCredits(customer.id, creditsAmount);
+    }
+
+    // Write purchase to Convex ledger (single source of truth for balance)
+    const workosUserId = session.metadata?.workos_user_id;
+    if (workosUserId && creditsAmount > 0) {
+      try {
+        const convexUser = await resolveConvexUser(workosUserId);
+        if (convexUser) {
+          await Promise.all([
+            addConvexCredits(convexUser._id, creditsAmount, 'purchase'),
+            logAuditEvent(
+              convexUser._id,
+              convexUser.email,
+              'credit_purchase',
+              'billing',
+              { amount: creditsAmount, stripeSessionId: session.id },
+            ),
+          ]);
+        }
+      } catch {
+        // Convex unavailable — Stripe metadata still has the purchase
+      }
     }
   }
 

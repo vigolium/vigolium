@@ -5,6 +5,7 @@ import { resolveOrgBilling } from '@/lib/billing';
 import { getUserOrganization } from '@/lib/workos-server';
 import { verifyAccessSession, ACCESS_COOKIE_NAME } from '@/lib/access-session';
 import { validateDemoKey, isDemoSkipAuth } from '@/lib/demoKeys';
+import { upsertConvexUser, createProjectForNewUser } from '@/lib/convex-billing';
 
 const requireOrg = process.env.REQUIRE_ORG_MEMBERSHIP === 'true';
 
@@ -83,6 +84,39 @@ export async function GET(req: NextRequest) {
 
   const user = session.user;
 
+  // Enterprise domain gate: restrict access to users with matching email domain
+  const enterpriseDomain = process.env.VIGOLIUM_ENTERPRISE_PLAN;
+  if (enterpriseDomain && user.email) {
+    const userDomain = user.email.toLowerCase().split('@')[1];
+    if (userDomain !== enterpriseDomain.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'enterprise_restricted', message: `Access is restricted to @${enterpriseDomain} accounts.` },
+        { status: 403 },
+      );
+    }
+  }
+
+  // Convex user sync — maintains local user registry for access control
+  let allowedProjects: string[] | undefined;
+  try {
+    const convexResult = await upsertConvexUser(user.email || '', user.id);
+    if (convexResult.status === 'suspended') {
+      return NextResponse.json(
+        { error: 'account_suspended', message: 'Your account has been suspended.' },
+        { status: 403 },
+      );
+    }
+
+    if (convexResult.isNew) {
+      const projectUuid = await createProjectForNewUser(convexResult.userId, user.email || '');
+      allowedProjects = projectUuid ? [projectUuid] : [];
+    } else {
+      allowedProjects = convexResult.projects;
+    }
+  } catch {
+    // Convex not configured — continue without it
+  }
+
   // Org membership gate (when enabled)
   if (requireOrg) {
     try {
@@ -110,6 +144,7 @@ export async function GET(req: NextRequest) {
       role: 'user',
       credits: 0,
       organization: null,
+      allowedProjects,
       billingError: 'Billing is not configured. Check Stripe environment variables.',
     });
   }
@@ -126,5 +161,6 @@ export async function GET(req: NextRequest) {
     role: 'user',
     credits,
     organization,
+    allowedProjects,
   });
 }

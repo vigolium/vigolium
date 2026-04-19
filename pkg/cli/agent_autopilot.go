@@ -92,6 +92,50 @@ Intensity presets (--intensity) bundle multiple settings into a single flag:
 
 Explicit flags always override intensity presets.`,
 	Args: cobra.MaximumNArgs(1),
+	Example: `  # Natural language prompt — target, source, and focus are auto-extracted
+  vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
+  vigolium agent autopilot "test auth bypass on https://app.example.com"
+
+  # Scan a target URL
+  vigolium agent autopilot -t https://example.com/api
+
+  # Scan with application source code (triggers archon-audit automatically)
+  vigolium agent autopilot -t https://example.com --source ./src
+
+  # Pipe a curl command or raw HTTP request via stdin
+  curl -s https://example.com/api/users | vigolium agent autopilot
+  cat request.txt | vigolium agent autopilot -t https://example.com
+
+  # Pass a curl command or raw HTTP as input
+  vigolium agent autopilot --input "curl -X POST -H 'Content-Type: application/json' -d '{\"user\":\"admin\"}' https://example.com/api/login"
+
+  # Focus on specific vulnerability types
+  vigolium agent autopilot -t https://example.com --focus "auth bypass and IDOR"
+
+  # Deep scan with browser and extended limits
+  vigolium agent autopilot -t https://example.com --intensity deep
+
+  # Quick CI/PR scan with short timeout
+  vigolium agent autopilot -t https://example.com --source ./src --intensity quick
+
+  # Source-aware scan with specific files and custom instructions
+  vigolium agent autopilot -t https://example.com --source ./src --files "routes/api.js,controllers/auth.js" --instruction "Focus on the new payment endpoint"
+
+  # Scan a PR diff for security regressions
+  vigolium agent autopilot -t https://example.com --source ./src --diff "main...feature-branch"
+  vigolium agent autopilot -t https://example.com --source ./src --last-commits 3
+
+  # Use a specific agent backend
+  vigolium agent autopilot -t https://example.com --agent gemini
+
+  # Enable browser-based auth flow
+  vigolium agent autopilot -t https://example.com --browser --credentials "admin/admin123"
+
+  # Preview the rendered prompt without executing
+  vigolium agent autopilot -t https://example.com --source ./src --dry-run
+
+  # Disable archon-audit when using --source
+  vigolium agent autopilot -t https://example.com --source ./src --no-archon`,
 	RunE: runAgentAutopilot,
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/cors_misconfiguration"
 	"github.com/vigolium/vigolium/pkg/modules/active/crlf_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/host_header_injection"
+	"github.com/vigolium/vigolium/pkg/modules/active/response_header_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/http_method_tampering"
 	"github.com/vigolium/vigolium/pkg/modules/active/iis_shortname_discovery"
 	"github.com/vigolium/vigolium/pkg/modules/active/http_request_smuggling"
@@ -305,6 +306,7 @@ var DefaultRegistry = NewRegistry().
 	RegisterActive(nosqli_error_based.New()).
 	RegisterActive(nosqli_operator_injection.New()).
 	RegisterActive(crlf_injection.New()).
+	RegisterActive(response_header_injection.New()).
 	RegisterActive(code_exec.New()).
 	RegisterActive(input_behavior_probe.New()).
 	RegisterActive(xxe_generic.New()).

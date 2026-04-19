@@ -114,3 +114,11 @@ Cloud-only routes: `/billing`, `/projects`, `/team`, `/login`. These redirect to
 ## Tech Stack
 
 Next.js 16 (App Router, Turbopack dev), React 19, TypeScript 5.9, TailwindCSS 4, React Query 5, ag-grid, Recharts, Lucide React icons, WorkOS AuthKit, Stripe SDK.
+
+<!-- convex-ai-start -->
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running `npx convex ai-files install`.
+<!-- convex-ai-end -->
