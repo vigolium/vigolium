@@ -122,6 +122,7 @@ export default function FindingsTable() {
         headerName: 'TAGS',
         width: 120,
         cellRenderer: TagsRenderer,
+        valueFormatter: (p) => (p.value as string[])?.join(', ') || '',
       },
       { field: 'found_at', headerName: 'TIME', width: 120, cellRenderer: DateRenderer },
     ],

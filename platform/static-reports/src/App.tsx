@@ -49,14 +49,14 @@ const hashToTab: Record<string, TabId> = {
   "#Statistics": "statistics",
   "#HTTP_Traffic": "traffic",
   "#Findings": "findings",
-  "#Report": "report",
+  "#Full-Report": "report",
 };
 
 const tabToHash: Record<TabId, string> = {
   statistics: "#Statistics",
   traffic: "#HTTP_Traffic",
   findings: "#Findings",
-  report: "#Report",
+  report: "#Full-Report",
 };
 
 function getTabFromHash(): TabId {

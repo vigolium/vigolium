@@ -21,6 +21,27 @@ import (
 
 // --- Helpers ---
 
+// setupPipelineDB creates an in-memory SQLite database for pipeline tests.
+func setupPipelineDB(t *testing.T) (*database.DB, *database.Repository) {
+	t.Helper()
+	cfg := &config.DatabaseConfig{
+		Enabled: true,
+		Driver:  "sqlite",
+		SQLite: config.SQLiteConfig{
+			Path:        ":memory:",
+			BusyTimeout: 5000,
+			JournalMode: "MEMORY",
+			Synchronous: "OFF",
+			CacheSize:   10000,
+		},
+	}
+	db, err := database.NewDB(cfg)
+	require.NoError(t, err)
+	require.NoError(t, db.CreateSchema(context.Background()))
+	t.Cleanup(func() { db.Close() })
+	return db, database.NewRepository(db)
+}
+
 // startVAmPI starts a VAmPI container and returns the app.
 func startVAmPI(t *testing.T) *VulnerableApp {
 	t.Helper()
@@ -75,6 +96,36 @@ func newScanRunnerWithSettings(t *testing.T, opts *types.Options, settings *conf
 
 	t.Cleanup(func() { r.Close() })
 	return r, db, repo
+}
+
+// startJuiceShop starts a Juice Shop container and returns the app.
+func startJuiceShop(t *testing.T) *VulnerableApp {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	t.Cleanup(cancel)
+
+	app, err := StartContainer(ctx, ContainerConfig{
+		Image:       "bkimminich/juice-shop:latest",
+		ExposedPort: "3000/tcp",
+		WaitStrategy: wait.ForHTTP("/").
+			WithPort("3000").
+			WithStartupTimeout(120 * time.Second),
+		ReadyEndpoint: "/",
+	})
+	require.NoError(t, err, "Failed to start Juice Shop container")
+	t.Cleanup(func() { _ = app.Stop() })
+
+	t.Logf("Juice Shop running at %s", app.BaseURL)
+	return app
+}
+
+// juiceShopEndpoints returns Juice Shop endpoints for scanning.
+func juiceShopEndpoints(baseURL string) []string {
+	return []string{
+		baseURL + "/rest/products/search?q=test",
+		baseURL + "/api/Users/?username=admin",
+	}
 }
 
 // --- Tests ---
@@ -145,7 +196,7 @@ func TestScanRunner_VAmPI_OnlyDiscover(t *testing.T) {
 	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: HTTP records were ingested
-	hosts, err := repo.GetDistinctHosts(ctx)
+	hosts, err := repo.GetDistinctHosts(ctx, database.DefaultProjectUUID)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1,
 		"Expected at least one host in DB after discovery")
@@ -185,7 +236,7 @@ func TestScanRunner_JuiceShop_FullPipeline(t *testing.T) {
 	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: HTTP records were ingested
-	hosts, err := repo.GetDistinctHosts(ctx)
+	hosts, err := repo.GetDistinctHosts(ctx, database.DefaultProjectUUID)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1,
 		"Expected at least one host in DB after full pipeline")
@@ -233,7 +284,7 @@ func TestScanRunner_VAmPI_StrategyLite(t *testing.T) {
 		"Expected at least 1 finding with lite strategy against VAmPI")
 
 	// Assert: no deparos discovery records (only the explicit target URLs should exist)
-	hosts, err := repo.GetDistinctHosts(ctx)
+	hosts, err := repo.GetDistinctHosts(ctx, database.DefaultProjectUUID)
 	require.NoError(t, err)
 	// With discovery disabled, only the VAmPI host should appear
 	assert.LessOrEqual(t, len(hosts), 1,
@@ -274,7 +325,7 @@ func TestScanRunner_VAmPI_OnlyExternalHarvest(t *testing.T) {
 	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: original targets were ingested into DB (discovery phase always runs the input source)
-	hosts, err := repo.GetDistinctHosts(ctx)
+	hosts, err := repo.GetDistinctHosts(ctx, database.DefaultProjectUUID)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1,
 		"Expected at least one host in DB from original targets")
@@ -314,7 +365,7 @@ func TestScanRunner_VAmPI_OnlyKnownIssueScan(t *testing.T) {
 	require.NoError(t, err, "RunNativeScan should complete without error")
 
 	// Assert: targets were ingested (discovery phase always ingests input)
-	hosts, err := repo.GetDistinctHosts(ctx)
+	hosts, err := repo.GetDistinctHosts(ctx, database.DefaultProjectUUID)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1,
 		"Expected at least one host in DB after KnownIssueScan pipeline")
@@ -402,7 +453,7 @@ module.exports = {
 	// --- Build custom settings with extensions enabled ---
 	settings := config.DefaultSettings()
 	settings.DynamicAssessment.Extensions.Enabled = true
-	settings.DynamicAssessment.Extensions.Scripts = []string{scriptPath}
+	settings.DynamicAssessment.Extensions.CustomDir = []string{scriptDir}
 	settings.DynamicAssessment.Extensions.Limits = config.ScriptLimits{
 		Timeout:     "60s",
 		MaxMemoryMB: 128,

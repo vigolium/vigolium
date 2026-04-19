@@ -172,9 +172,8 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 
 	// Show tip for viewing session details.
 	if len(runs) > 0 {
-		fmt.Fprintf(os.Stderr, "  %s run %s to view session details\n\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium agent session <session-uuid>"))
+		fmt.Fprintf(os.Stderr, "  %s %s %s %s\n\n",
+			terminal.TipPrefix(), terminal.Gray("run"), terminal.HiCyan("vigolium agent session <session-uuid>"), terminal.Gray("to view session details"))
 	}
 
 	return nil

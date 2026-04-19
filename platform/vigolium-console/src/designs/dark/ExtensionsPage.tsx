@@ -132,8 +132,8 @@ export default function ExtensionsPage() {
       { field: 'type', headerName: 'TYPE', width: 80, cellRenderer: TypeRenderer },
       { field: 'severity', headerName: 'SEVERITY', width: 90, cellRenderer: SeverityRenderer },
       { field: 'confidence', headerName: 'CONFIDENCE', width: 100, cellRenderer: ConfidenceRenderer },
-      { field: 'scan_types', headerName: 'SCAN TYPES', flex: 1, minWidth: 120, cellRenderer: ScanTypesRenderer },
-      { field: 'tags', headerName: 'TAGS', flex: 1, minWidth: 140, cellRenderer: TagsRenderer },
+      { field: 'scan_types', headerName: 'SCAN TYPES', flex: 1, minWidth: 120, cellRenderer: ScanTypesRenderer, valueFormatter: (p) => (p.value as string[])?.join(', ') || '' },
+      { field: 'tags', headerName: 'TAGS', flex: 1, minWidth: 140, cellRenderer: TagsRenderer, valueFormatter: (p) => (p.value as string[])?.join(', ') || '' },
     ],
     []
   );

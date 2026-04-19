@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [ssoDisabled, setSsoDisabled] = useState(false);
   const [showcasesEnabled, setShowcasesEnabled] = useState(false);
   const [demoFeatureEnabled, setDemoFeatureEnabled] = useState<boolean | null>(null);
+  const [demoSkipAuth, setDemoSkipAuth] = useState(false);
 
   useEffect(() => {
     // Static mode uses AuthGate in layout, not a separate login page
@@ -47,6 +48,7 @@ export default function LoginPage() {
           setConfigIssues([{ key: 'SERVER', severity: 'error', message: 'Could not reach the config-check endpoint. The server may be misconfigured.' }]);
         }
         setDemoFeatureEnabled(demo?.feature_enabled === true);
+        setDemoSkipAuth(demo?.skip_auth === true);
       });
   }, [router]);
 
@@ -57,7 +59,7 @@ export default function LoginPage() {
 
   // Demo-only mode takes over the login screen with a read-only unlock UI
   if (demoFeatureEnabled) {
-    return <DemoUnlockPage showcasesEnabled={showcasesEnabled} />;
+    return <DemoUnlockPage showcasesEnabled={showcasesEnabled} skipAuth={demoSkipAuth} />;
   }
 
   // Show config error page if there are critical issues

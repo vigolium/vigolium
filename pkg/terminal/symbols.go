@@ -44,7 +44,7 @@ const (
 	SymbolBowtie    = "⋈" // Join / relation
 
 	// Informational message types
-	SymbolTip      = SymbolFlower   // Tip / helpful suggestion (✿)
+	SymbolTip      = SymbolLightning // Tip / helpful suggestion (ϟ)
 	SymbolNote     = SymbolAsterisk // Note / important detail (＊)
 	SymbolExample  = SymbolCommand  // Example / usage demonstration (⌘)
 	SymbolQuestion = "?"            // Help / question prompt
@@ -136,9 +136,9 @@ func WarnPrefix() string {
 
 // Informational message helpers
 
-// TipSymbol returns a HiTeal ✿ for helpful suggestions
+// TipSymbol returns a yellow ϟ for helpful suggestions
 func TipSymbol() string {
-	return HiTeal(SymbolTip)
+	return Yellow(SymbolTip)
 }
 
 // NoteSymbol returns a cyan ＊ for important details
@@ -156,10 +156,11 @@ func HintSymbol() string {
 	return Gray(SymbolHint)
 }
 
-// TipPrefix returns a HiTeal "✿ Tip:" prefix for tip messages
+// TipPrefix returns a yellow "ϟ Tip:" prefix for tip messages
 func TipPrefix() string {
-	return HiTeal(SymbolTip + " Tip:")
+	return Yellow(SymbolTip + " Tip:")
 }
+
 
 // NotePrefix returns a cyan "＊ Note:" prefix for note messages
 func NotePrefix() string {

@@ -265,6 +265,7 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
         headerName: 'TAGS',
         width: 140,
         cellRenderer: TagsRenderer,
+        valueFormatter: (p) => (p.value as string[])?.join(', ') || '',
       },
       { field: 'scan_uuid', headerName: 'SCAN_ID', width: 100 },
       { field: 'finding_source', headerName: 'SOURCE', width: 120 },

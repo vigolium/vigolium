@@ -76,9 +76,13 @@ func (r *Runner) runHeuristicsCheckPhase(ctx context.Context, infra *phaseInfra)
 			skipped++
 		}
 	}
-	r.printPhaseDetail(fmt.Sprintf("Skipping spidering: %s | Elapsed: %s",
-		terminal.Orange(fmt.Sprintf("%d/%d targets", skipped, len(results))),
-		terminal.Orange(fmtDuration(elapsed))))
+	if skipped > 0 {
+		r.printPhaseDetail(fmt.Sprintf("Skipping spidering: %s | Elapsed: %s",
+			terminal.Orange(fmt.Sprintf("%d/%d targets", skipped, len(results))),
+			terminal.Orange(fmtDuration(elapsed))))
+	} else {
+		r.printPhaseDetail(fmt.Sprintf("Elapsed: %s", terminal.Orange(fmtDuration(elapsed))))
+	}
 
 	return results, nil
 }

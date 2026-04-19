@@ -52,6 +52,69 @@ function groupBySeverity(findings: Finding[]): Record<SeverityKey, Finding[]> {
   return groups;
 }
 
+function SeverityDonut({ summary }: { summary: ReturnType<typeof computeSummary> }) {
+  const total = summary.totalFindings;
+  const size = 130;
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = 58;
+  const innerR = 36;
+
+  const slices = useMemo(() => {
+    const items = SEVERITY_ORDER
+      .map((sev) => ({
+        sev,
+        count: summary[`${sev}Count` as keyof typeof summary] as number,
+        color: REPORT_SEVERITY_COLORS[sev],
+        label: sev.charAt(0).toUpperCase() + sev.slice(1),
+      }))
+      .filter((s) => s.count > 0);
+
+    let angle = -Math.PI / 2;
+    return items.map((s) => {
+      const startAngle = angle;
+      const sweep = (s.count / total) * 2 * Math.PI;
+      angle += sweep;
+      return { ...s, startAngle, endAngle: angle, largeArc: sweep > Math.PI ? 1 : 0 };
+    });
+  }, [summary, total]);
+
+  return (
+    <div className="shrink-0 flex items-center gap-4">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {slices.map((s) => {
+          const x1 = cx + outerR * Math.cos(s.startAngle);
+          const y1 = cy + outerR * Math.sin(s.startAngle);
+          const x2 = cx + outerR * Math.cos(s.endAngle);
+          const y2 = cy + outerR * Math.sin(s.endAngle);
+          const x3 = cx + innerR * Math.cos(s.endAngle);
+          const y3 = cy + innerR * Math.sin(s.endAngle);
+          const x4 = cx + innerR * Math.cos(s.startAngle);
+          const y4 = cy + innerR * Math.sin(s.startAngle);
+          return (
+            <path
+              key={s.sev}
+              d={`M ${x1} ${y1} A ${outerR} ${outerR} 0 ${s.largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${s.largeArc} 0 ${x4} ${y4} Z`}
+              fill={s.color}
+            />
+          );
+        })}
+        <text x={cx} y={cy - 4} textAnchor="middle" className="fill-charcoal text-lg font-bold font-serif">{total}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" className="fill-text-muted text-[9px] font-semibold uppercase tracking-wide">findings</text>
+      </svg>
+      <div className="flex flex-col gap-1.5 pt-2">
+        {slices.map((s) => (
+          <div key={s.sev} className="flex items-center gap-2 text-xs">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+            <span className="text-charcoal-light font-medium">{s.label}</span>
+            <span className="text-text-muted">{Math.round((s.count / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FindingTitle(f: Finding): string {
   const name = f.module_short || f.module_name;
   if (f.url) {
@@ -340,19 +403,23 @@ export default function ReportView({ data, scanDuration, generatedAt, vigoliumVe
       <div id="executive-summary" className="mb-8">
         <h2 className="text-xl font-bold text-charcoal border-b border-warm-border pb-2 mb-5 font-serif">Executive Summary</h2>
 
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-4">
-          <div className="bg-cream-dark border border-warm-border rounded-md p-3 text-center">
-            <div className="text-2xl font-bold text-charcoal">{summary.totalFindings}</div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Total</div>
-          </div>
-          {(["critical", "high", "medium", "low", "info"] as const).map((sev) => (
-            <div key={sev} className="bg-cream-dark border border-warm-border rounded-md p-3 text-center">
-              <div className="text-2xl font-bold" style={{ color: REPORT_SEVERITY_COLORS[sev] }}>
-                {summary[`${sev}Count` as keyof typeof summary] as number}
-              </div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{sev}</div>
+        <div className="flex items-center gap-4 mb-4">
+          {summary.totalFindings > 0 && <SeverityDonut summary={summary} />}
+
+          <div className="flex-1 grid grid-cols-3 sm:grid-cols-6 gap-3">
+            <div className="bg-cream-dark border border-warm-border rounded-md p-3 text-center">
+              <div className="text-2xl font-bold text-charcoal">{summary.totalFindings}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Total</div>
             </div>
-          ))}
+            {(["critical", "high", "medium", "low", "info"] as const).map((sev) => (
+              <div key={sev} className="bg-cream-dark border border-warm-border rounded-md p-3 text-center">
+                <div className="text-2xl font-bold" style={{ color: REPORT_SEVERITY_COLORS[sev] }}>
+                  {summary[`${sev}Count` as keyof typeof summary] as number}
+                </div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{sev}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Severity bar */}
@@ -370,29 +437,6 @@ export default function ReportView({ data, scanDuration, generatedAt, vigoliumVe
             })}
           </div>
         )}
-
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-          {summary.target !== "Unknown" && (
-            <>
-              <dt className="font-semibold text-charcoal">Target</dt>
-              <dd className="text-charcoal-light">{summary.target}</dd>
-            </>
-          )}
-          <dt className="font-semibold text-charcoal">Generated</dt>
-          <dd className="text-charcoal-light">{date}</dd>
-          {scanDuration && (
-            <>
-              <dt className="font-semibold text-charcoal">Duration</dt>
-              <dd className="text-charcoal-light">{scanDuration}</dd>
-            </>
-          )}
-          <dt className="font-semibold text-charcoal">Total Requests</dt>
-          <dd className="text-charcoal-light">{summary.totalRequests}</dd>
-          <dt className="font-semibold text-charcoal">Active Modules</dt>
-          <dd className="text-charcoal-light">{summary.activeModules}</dd>
-          <dt className="font-semibold text-charcoal">Passive Modules</dt>
-          <dd className="text-charcoal-light">{summary.passiveModules}</dd>
-        </dl>
       </div>
 
       {/* Table of Contents */}

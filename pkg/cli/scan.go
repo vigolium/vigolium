@@ -914,6 +914,8 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		return
 	}
 
+	fmt.Fprint(os.Stderr, GetBanner())
+
 	// Phase status indicators: symbol + colored name + optional pace detail
 	phaseLabel := func(name, phasePaceKey string, enabled bool) string {
 		label := name
@@ -966,11 +968,11 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		scopeOrigin = "relaxed"
 	}
 
-	fmt.Fprintf(os.Stderr, "\n  %s run %s and %s to view ingested data and vulnerabilities\n",
-		terminal.TipPrefix(),
-		terminal.HiCyan("vigolium traffic list"),
-		terminal.HiCyan("vigolium findings list"))
-	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Native Scan Configuration"))
+	fmt.Fprintf(os.Stderr, "\n  %s %s %s %s %s %s\n",
+		terminal.TipPrefix(), terminal.Gray("run"), terminal.HiCyan("vigolium traffic list"), terminal.Gray("and"), terminal.HiCyan("vigolium findings list"), terminal.Gray("to view ingested data and vulnerabilities"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n\n",
+		terminal.TipPrefix(), terminal.Gray("run each phase separately via"), terminal.HiCyan("vigolium run <phase>"), terminal.Gray("(e.g. vigolium run dynamic-assessment)"))
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.HiBlue(terminal.SymbolSparkle), terminal.BoldHiBlue("Native Scan Configuration"))
 	if opts.Stateless {
 		statelessLine := "Stateless mode: using temporary database"
 		if globalVerbose && settings.Database.SQLite.Path != "" {
@@ -1053,16 +1055,13 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), modulesLine)
 	if globalVerbose {
-		fmt.Fprintf(os.Stderr, "\n  %s view scope details via %s\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config ls scope"))
-		fmt.Fprintf(os.Stderr, "  %s view scanning pace via %s\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config ls scanning_pace"))
+		fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("view scope details via"), terminal.HiCyan("vigolium config ls scope"))
+		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("view scanning pace via"), terminal.HiCyan("vigolium config ls scanning_pace"))
 		if knownIssueScanEnabled && !settings.KnownIssueScan.EnrichTargets {
-			fmt.Fprintf(os.Stderr, "  %s enrich KnownIssueScan targets with discovered paths via %s\n",
-				terminal.TipPrefix(),
-				terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
+			fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+				terminal.TipPrefix(), terminal.Gray("enrich KnownIssueScan targets with discovered paths via"), terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
 		}
 	}
 	fmt.Fprintln(os.Stderr)

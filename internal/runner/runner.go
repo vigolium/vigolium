@@ -62,7 +62,7 @@ import (
 )
 
 // maxFeedbackRounds limits re-scanning of newly discovered URLs in the dynamic-assessment phase.
-const maxFeedbackRounds = 3
+const maxFeedbackRounds = 1
 
 // kingfisherBatchSize is the number of records per batch when scanning response bodies for secrets.
 const kingfisherBatchSize = 500
@@ -1515,9 +1515,8 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		enrichTargets = r.settings.KnownIssueScan.EnrichTargets
 	}
 	if !enrichTargets && !r.options.Silent {
-		fmt.Fprintf(os.Stderr, "  %s enrich KnownIssueScan targets with discovered paths via %s\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
+		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("enrich KnownIssueScan targets with discovered paths via"), terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
 	}
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 	if r.repository != nil && r.options.Verbose {
@@ -1724,6 +1723,17 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	r.printPhaseDetail(daSpeedDetail)
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 
+	// Resolve feedback rounds early so we can show it in the phase header
+	feedbackRounds := maxFeedbackRounds
+	if r.settings != nil && r.settings.DynamicAssessment.MaxFeedbackRounds > 0 {
+		feedbackRounds = r.settings.DynamicAssessment.MaxFeedbackRounds
+	}
+	r.printPhaseDetail(fmt.Sprintf("Feedback rounds: %s", terminal.HiBlue(fmt.Sprintf("%d", feedbackRounds))))
+	if feedbackRounds <= 1 && !r.options.Silent {
+		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("increase feedback rounds to re-scan newly discovered URLs via"), terminal.HiCyan("vigolium config dynamic-assessment.max_feedback_rounds=3"))
+	}
+
 	zap.L().Info("DynamicAssessment: running modules on database records",
 		zap.Int("active", len(activeModules)),
 		zap.Int("passive", len(passiveModules)))
@@ -1818,7 +1828,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 
 	// Enforce dynamic-assessment phase deadline across all feedback rounds. Without this wrap
 	// each round's executor would start a fresh timeout, letting total phase time
-	// reach maxFeedbackRounds × daMaxDuration.
+	// reach feedbackRounds × daMaxDuration.
 	if daMaxDuration > 0 {
 		var phaseCancel context.CancelFunc
 		ctx, phaseCancel = context.WithTimeout(ctx, daMaxDuration)
@@ -1860,6 +1870,29 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 				zap.L().Error("Failed to write result", zap.Error(err))
 			}
 		},
+		OnStatus: func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+			if r.options.Silent {
+				return
+			}
+			prefix := terminal.Muted(terminal.SymbolChevron + " dynamic-assessment " + terminal.SymbolPipe)
+			var recordsStr string
+			if total > 0 {
+				recordsStr = fmt.Sprintf("%d/%d", processed, total)
+			} else {
+				recordsStr = fmt.Sprintf("%d", processed)
+			}
+			totalModules := activeCount + passiveCount
+			modulesStr := fmt.Sprintf("%d/%d (%d active, %d passive)",
+				distinctModules, totalModules, activeCount, passiveCount)
+			fmt.Fprintf(os.Stderr, "%s %s Records: %s | Findings: %s | Modules: %s | Runtime: %s\n",
+				prefix,
+				terminal.BoldCyan("[status]"),
+				terminal.HiBlue(recordsStr),
+				terminal.Orange(fmt.Sprintf("%d", findings)),
+				terminal.Yellow(modulesStr),
+				terminal.Gray(fmtDuration(elapsed)))
+		},
+		StatusInterval: 30 * time.Second,
 	}
 	if oastService != nil {
 		baseExecutorCfg.OASTProvider = oastService
@@ -1870,7 +1903,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	}
 
 	// Feedback loop: re-scan newly discovered URLs
-	for round := 0; round < maxFeedbackRounds; round++ {
+	for round := 0; round < feedbackRounds; round++ {
 		processed, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHostnames, activeModules, passiveModules, baseExecutorCfg, oastService)
 		if err != nil {
 			zap.L().Error("DynamicAssessment: executor error", zap.Error(err), zap.Int("round", round))
@@ -1886,7 +1919,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			break
 		}
 
-		if round < maxFeedbackRounds-1 {
+		if round < feedbackRounds-1 {
 			newCount, countErr := r.countRemainingDynamicAssessmentRecords(ctx, infra.scanUUID, inScopeHostnames)
 			if countErr != nil || newCount == 0 {
 				if countErr != nil {
@@ -1902,6 +1935,16 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 
 		if processed == 0 {
 			break
+		}
+
+		if round == feedbackRounds-1 {
+			newCount, countErr := r.countRemainingDynamicAssessmentRecords(ctx, infra.scanUUID, inScopeHostnames)
+			if countErr == nil && newCount > 0 {
+				fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+					terminal.TipPrefix(), terminal.Orange(fmt.Sprintf("%d", newCount)), terminal.Gray(fmt.Sprintf("new records discovered but skipped (max_feedback_rounds=%d)", feedbackRounds)))
+				fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+					terminal.TipPrefix(), terminal.Gray("enable multi-round scanning via"), terminal.Cyan("vigolium config dynamic-assessment.max_feedback_rounds=3"))
+			}
 		}
 	}
 

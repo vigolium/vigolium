@@ -335,6 +335,10 @@ notify:
 # Settings for the dynamic-assessment scan phase (Phase 4): which scanner
 # modules are enabled and JavaScript extension configuration.
 dynamic-assessment:
+  # Maximum feedback rounds (re-scanning newly discovered URLs).
+  # Default: 1
+  max_feedback_rounds: 1
+
   # Maximum findings emitted per module before suppression.
   # Prevents noisy modules from flooding results. Set to 0 for unlimited.
   # Override with CLI flag: --max-findings-per-module
@@ -416,14 +420,15 @@ oast:
   # Interactsh server URL for receiving callbacks.
   # The public "oast.pro" server works without authentication.
   # For private deployments: "your-interactsh.company.com"
+  # Supports ${VAR:-default} syntax for environment variable expansion.
   # Default: oast.pro
-  server_url: oast.pro
+  server_url: ${VIGOLIUM_OAST_DOMAIN:-oast.pro}
 
   # Authentication token for private interactsh servers.
   # Not required for the public oast.pro server.
-  # Use ${ENV_VAR} syntax to read from environment variables.
+  # Supports ${VAR:-default} syntax for environment variable expansion.
   # Default: "" (no auth)
-  token: ""
+  token: ${VIGOLIUM_OAST_TOKEN:-}
 
   # Seconds between polling the interactsh server for new interactions.
   # Lower values detect callbacks faster but generate more traffic.

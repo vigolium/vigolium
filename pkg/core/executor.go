@@ -148,6 +148,8 @@ type ExecutorConfig struct {
 	MinWorkers           int                                          // Floor for adaptive scaling (default: 2)
 	MaxWorkers           int                                          // Ceiling for adaptive scaling (default: Workers*4)
 	ActiveTaskLimit      int                                          // Max concurrent active module tasks across host/request/IP scopes
+	OnStatus             func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) // Optional: periodic status callback
+	StatusInterval       time.Duration                                // Interval for OnStatus callback (default: 30s)
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -387,6 +389,37 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 		e.cfg.Services.Options.ShowStats && !e.cfg.Services.Options.Silent {
 		e.statsTracker.Start(ctx)
 		defer e.statsTracker.Stop()
+	}
+
+	// Start periodic status callback when configured
+	if e.cfg.OnStatus != nil {
+		statusInterval := e.cfg.StatusInterval
+		if statusInterval <= 0 {
+			statusInterval = 30 * time.Second
+		}
+		statusStart := time.Now()
+		statusTicker := time.NewTicker(statusInterval)
+		activeCount := int64(len(e.activeModules))
+		passiveCount := int64(len(e.passiveModules))
+		go func() {
+			defer statusTicker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-statusTicker.C:
+					e.cfg.OnStatus(
+						e.statsTracker.Processed(),
+						e.statsTracker.Total(),
+						e.statsTracker.Findings(),
+						e.moduleMetrics.DistinctCount(),
+						activeCount,
+						passiveCount,
+						time.Since(statusStart),
+					)
+				}
+			}
+		}()
 	}
 
 	var wg conc.WaitGroup

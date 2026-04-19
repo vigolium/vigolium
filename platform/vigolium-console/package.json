@@ -6,7 +6,7 @@
     "dev": "VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
     "dev:console": "VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
     "dev:console:noauth": "VIGOLIUM_SKIP_AUTH=true next dev --turbopack -p 5002",
-    "dev:demo": "VIGOLIUM_DEMO_ONLY=true VIGOLIUM_DEMO_SKIP_AUTH=true next dev --turbopack -p 5002",
+    "dev:demo": "VIGOLIUM_DEMO_ONLY=true VIGOLIUM_DEMO_SKIP_AUTH=true VIGOLIUM_SHOWCASES_ENABLED=true next dev --turbopack -p 5002",
     "dev:clean": "rm -rf .next && VIGOLIUM_AUTH_API_KEY=$(vigolium config view server.auth_api_key --force | awk '{print $3}') next dev --turbopack -p 5002",
     "dev:workbench": "NEXT_PUBLIC_BUILD_MODE=static NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
     "dev:workbench:clean": "rm -rf .next-workbench && NEXT_PUBLIC_BUILD_MODE=static NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",

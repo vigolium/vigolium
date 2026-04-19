@@ -671,10 +671,10 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 
 	// Tips
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "  %s Use %s to tell the agent to focus on a specific area (e.g. auth bypass, IDOR, SQLi)\n",
-		terminal.TipPrefix(), terminal.Cyan("--instruction \"focus on ...\""))
-	fmt.Fprintf(os.Stderr, "  %s Use %s to run discovery+spidering before planning to expand the attack surface\n",
-		terminal.TipPrefix(), terminal.Cyan("--discover"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n",
+		terminal.TipPrefix(), terminal.Gray("Use"), terminal.Cyan("--instruction \"focus on ...\""), terminal.Gray("to tell the agent to focus on a specific area (e.g. auth bypass, IDOR, SQLi)"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n",
+		terminal.TipPrefix(), terminal.Gray("Use"), terminal.Cyan("--discover"), terminal.Gray("to run discovery+spidering before planning to expand the attack surface"))
 	fmt.Fprintln(os.Stderr)
 
 	// Wire phase callback for verbose output

@@ -4,7 +4,7 @@ project_name: vigolium
 dist: build/dist
 
 snapshot:
-  version_template: "0.0.1-alpha"
+  version_template: "{{ if .Env.VIGOLIUM_VERSION }}{{ .Env.VIGOLIUM_VERSION }}{{ else }}0.0.1-alpha{{ end }}"
 
 before:
   hooks:
@@ -20,9 +20,9 @@ builds:
       - -buildvcs=false
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.ShortCommit}}
-      - -X main.buildTime={{.Date}}
+      - -X github.com/vigolium/vigolium/pkg/cli.Version=v{{.Version}}
+      - -X github.com/vigolium/vigolium/pkg/cli.Commit={{.ShortCommit}}
+      - -X github.com/vigolium/vigolium/pkg/cli.BuildTime={{.Date}}
     goos:
       - linux
       - darwin

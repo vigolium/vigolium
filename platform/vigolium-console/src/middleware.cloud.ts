@@ -91,9 +91,13 @@ export default async function proxy(req: NextRequest) {
 
     const urlDemoKey = req.nextUrl.searchParams.get('demo_key');
 
-    // Skip-auth mode: let everyone through as demo user without a key
+    // Skip-auth mode: require user to pass through the login gate first
     if (!urlDemoKey && demoSkipAuth) {
-      return NextResponse.next();
+      if (req.cookies.has('vigolium-demo-entered')) {
+        return NextResponse.next();
+      }
+      const loginUrl = new URL('/login', req.url);
+      return NextResponse.redirect(loginUrl);
     }
 
     // No param → always redirect to /login (no cookie fallback)

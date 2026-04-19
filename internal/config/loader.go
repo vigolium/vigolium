@@ -216,9 +216,33 @@ func ContractPath(path string) string {
 	return path
 }
 
-// ExpandEnvVars replaces ${VAR} or $VAR with environment variable values
+// ExpandEnvVars replaces environment variable references in s.
+//
+// Supported syntax (follows bash/Docker Compose conventions):
+//
+//	${VAR}            — value of VAR; empty string if unset
+//	${VAR:-default}   — value of VAR if set and non-empty, otherwise "default"
+//	$VAR              — same as ${VAR} (no default support)
 func ExpandEnvVars(s string) string {
-	return os.ExpandEnv(s)
+	return os.Expand(s, func(key string) string {
+		if name, defaultVal, ok := parseDefault(key); ok {
+			if v := os.Getenv(name); v != "" {
+				return v
+			}
+			return defaultVal
+		}
+		return os.Getenv(key)
+	})
+}
+
+// parseDefault splits "VAR:-default" into ("VAR", "default", true).
+// Returns ("", "", false) if the separator is not present.
+func parseDefault(key string) (name, defaultVal string, ok bool) {
+	idx := strings.Index(key, ":-")
+	if idx < 0 {
+		return "", "", false
+	}
+	return key[:idx], key[idx+2:], true
 }
 
 // ProjectConfigDir returns the directory for a project's config files.

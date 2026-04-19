@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs
+.PHONY: build build-embedded build-all build-ingestor snapshot release clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-sast test-sast-extraction test-sast-sarif test-sast-handoff test-sast-e2e test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-push update-jsscan ensure-jsscan update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync
 
 # Go parameters
 GOCMD=go
@@ -567,20 +567,30 @@ docker-push:
 	@echo "$(PREFIX) Pushed $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):$(DOCKER_TAG)"
 
 # GoReleaser snapshot (local build without publishing)
+GORELEASER_VERSION=$(patsubst v%,%,$(VERSION))
+
 snapshot:
 	@echo "$(PREFIX) Building snapshot release..."
-	goreleaser release --snapshot --clean
+	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser release --snapshot --clean
 
 # Stamp release scripts with the same prefix/version used for upload.
 prepare-release-scripts:
 	@echo "$(PREFIX) Updating release scripts..."
-	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(INSTALL_BASE_URL)"|m; s|^VERSION="[^"]*"|VERSION="v$(VERSION)"|m' build/scripts/install.sh
+	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(INSTALL_BASE_URL)"|m' build/scripts/install.sh
 	@echo "$(PREFIX) Release scripts updated for $(INSTALL_BASE_URL)"
+
+# Generate build/dist/metadata.json from the Go version file
+generate-metadata:
+	@mkdir -p build/dist
+	@echo "$(PREFIX) Generating metadata.json (version=$(VERSION), commit=$(COMMIT_HASH))..."
+	@printf '{\n  "version": "%s",\n  "commit": "%s",\n  "build_time": "%s"\n}\n' \
+		"$(VERSION)" "$(COMMIT_HASH)" "$(BUILD_TIME)" > build/dist/metadata.json
 
 # GoReleaser release and upload to R2
 release: prepare-release-scripts
 	@echo "$(PREFIX) Building release..."
-	goreleaser release --snapshot --clean
+	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser release --snapshot --clean
+	@$(MAKE) generate-metadata
 	@echo "$(PREFIX) Packaging vigolium-console..."
 	@cd platform/vigolium-console && tar czf ../../build/dist/vigolium-console.tar.gz \
 		--exclude='node_modules' \
@@ -612,10 +622,11 @@ release: prepare-release-scripts
 	@echo "$(PREFIX) Release uploaded successfully!"
 
 # Sync scripts to R2 CDN without rebuilding
-cdn-sync: prepare-release-scripts
-	@echo "$(PREFIX) Syncing scripts to R2 CDN..."
+cdn-sync: prepare-release-scripts generate-metadata
+	@echo "$(PREFIX) Syncing scripts and metadata to R2 CDN..."
 	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PREFIX)/
 	mc cp build/scripts/bootstrap.sh r2/vigolium-dist/$(R2_PREFIX)/
+	mc cp build/dist/metadata.json r2/vigolium-dist/$(R2_PREFIX)/
 	@echo "$(PREFIX) CDN sync complete"
 
 # Clean build artifacts

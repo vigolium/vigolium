@@ -49,6 +49,11 @@ func (t *Tracker) Processed() int64 {
 	return t.processed.Load()
 }
 
+// Total returns the known total count (0 = unknown).
+func (t *Tracker) Total() int64 {
+	return t.total
+}
+
 // IncrementFindings adds 1 to the findings count (thread-safe).
 func (t *Tracker) IncrementFindings() {
 	t.findings.Add(1)

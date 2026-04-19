@@ -46,6 +46,32 @@ type ModuleStatsSnapshot struct {
 	TotalTime   time.Duration
 }
 
+// DistinctCount returns the number of distinct modules that have been invoked at least once.
+func (mm *ModuleMetrics) DistinctCount() int64 {
+	if mm == nil {
+		return 0
+	}
+	var count int64
+	mm.metrics.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// TotalInvocations returns the sum of all module invocations across all modules.
+func (mm *ModuleMetrics) TotalInvocations() int64 {
+	if mm == nil {
+		return 0
+	}
+	var total int64
+	mm.metrics.Range(func(_, value any) bool {
+		total += value.(*ModuleStats).Invocations.Load()
+		return true
+	})
+	return total
+}
+
 // Snapshot returns a point-in-time snapshot of all module metrics.
 // Safe to call on nil receiver.
 func (mm *ModuleMetrics) Snapshot() map[string]ModuleStatsSnapshot {

@@ -91,9 +91,8 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		enrichTargetsEnabled = r.settings.Discovery.EnrichTargets
 	}
 	if !enrichTargetsEnabled && !r.options.Silent {
-		fmt.Fprintf(os.Stderr, "  %s enrich discovery targets with discovered paths via %s\n",
-			terminal.TipPrefix(),
-			terminal.HiCyan("vigolium config discovery.enrich_targets=true"))
+		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("enrich discovery targets with discovered paths via"), terminal.HiCyan("vigolium config discovery.enrich_targets=true"))
 	}
 
 	zap.L().Info("Discovery: ingesting input into database")

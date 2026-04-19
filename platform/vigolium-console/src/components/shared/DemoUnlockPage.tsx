@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Calendar, Mail, Lock, Loader2 } from 'lucide-react';
+import { Calendar, Mail, Lock, Loader2, Activity } from 'lucide-react';
 import { trackEvent } from '@/lib/posthogClient';
 
 interface DemoUnlockPageProps {
   showcasesEnabled?: boolean;
+  skipAuth?: boolean;
 }
 
 type Phase = 'idle' | 'submitting' | 'success';
@@ -18,7 +19,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockPageProps) {
+export default function DemoUnlockPage({ showcasesEnabled = false, skipAuth = false }: DemoUnlockPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const returnTo = searchParams.get('return_to') || '/';
@@ -97,6 +98,10 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
           to { opacity: 1; transform: translateY(0); }
         }
         .demo-fade-in { animation: demo-fade-in 220ms ease-out both; }
+        .demo-btn-glow { transition: box-shadow 0.2s ease; }
+        .demo-btn-glow:hover { box-shadow: 0 0 14px color-mix(in srgb, var(--v-accent) 40%, transparent), 0 0 28px color-mix(in srgb, var(--v-accent) 15%, transparent); }
+        .demo-btn-glow-muted { transition: box-shadow 0.2s ease; }
+        .demo-btn-glow-muted:hover { box-shadow: 0 0 12px color-mix(in srgb, var(--v-text) 20%, transparent), 0 0 24px color-mix(in srgb, var(--v-text) 8%, transparent); }
       `}</style>
 
       <div
@@ -106,7 +111,7 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
         <img
           src="/vigolium-logo-minimal.png"
           alt="Vigolium"
-          className="w-16 h-16 mx-auto mb-5 rounded-lg border demo-logo-glow"
+          className="w-24 h-24 mx-auto mb-5 rounded-lg border demo-logo-glow"
           style={{ borderColor: 'color-mix(in srgb, var(--v-accent) 40%, transparent)' }}
         />
 
@@ -114,16 +119,18 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
           className="inline-block text-[11px] tracking-widest uppercase px-3 py-1 mb-4 border"
           style={{ color: 'var(--v-accent)', borderColor: 'var(--v-accent)' }}
         >
-          Demo · Locked
+          {skipAuth ? 'Demo · Open Access' : 'Demo · Locked'}
         </div>
 
         <h1 className="text-xl font-bold mb-3">This console is in demo mode</h1>
 
         <p className="text-sm leading-relaxed mb-6" style={{ color: 'var(--v-text-muted)' }}>
-          Paste a <code style={{ color: 'var(--v-accent)' }}>demo_key</code> for a read-only preview — or book a walkthrough below.
+          {skipAuth
+            ? 'Browse the console in read-only mode with limited pre-loaded scan data. Book a demo to see how we scan your application.'
+            : <>Paste a <code style={{ color: 'var(--v-accent)' }}>demo_key</code> for a read-only preview — or book a walkthrough below.</>}
         </p>
 
-        {errorMessage && (
+        {!skipAuth && errorMessage && (
           <div
             key={errorCode}
             className="text-xs px-3 py-2 mb-5 border demo-fade-in"
@@ -139,7 +146,7 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackEvent('request_demo_clicked', { source: 'demo_unlock' })}
-            className="inline-flex items-center gap-2 text-xs px-4 py-2 border font-semibold transition-colors"
+            className="inline-flex items-center gap-2 text-xs px-4 py-2 border font-semibold transition-colors demo-btn-glow"
             style={{
               backgroundColor: 'var(--v-accent)',
               borderColor: 'var(--v-accent)',
@@ -151,61 +158,97 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
           </a>
           <a
             href="mailto:contact@vigolium.com"
-            className="inline-flex items-center gap-2 text-xs px-4 py-2 border transition-colors"
-            style={{ borderColor: 'var(--v-border)', color: 'var(--v-text)' }}
+            className="inline-flex items-center gap-2 text-xs px-4 py-2 border transition-colors demo-btn-glow-muted"
+            style={{ borderColor: 'var(--v-text-muted)', color: 'var(--v-text)', backgroundColor: 'color-mix(in srgb, var(--v-text) 8%, transparent)' }}
           >
             <Mail className="w-3.5 h-3.5" />
             Contact Us
           </a>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-stretch border max-w-md mx-auto"
-          style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}
-        >
-          <input type="hidden" name="return_to" value={returnTo} />
-          <input
-            type="text"
-            name="demo_key"
-            placeholder="Paste your demo_key"
-            autoComplete="off"
-            spellCheck={false}
-            required
-            disabled={busy}
-            className="flex-1 min-w-0 text-xs px-3 py-2.5 focus:outline-none bg-transparent disabled:opacity-60"
-            style={{ color: 'var(--v-text)' }}
-          />
+        {skipAuth ? (
           <button
-            type="submit"
             disabled={busy}
-            className="inline-flex items-center gap-2 text-xs px-4 py-2.5 font-semibold transition-opacity disabled:opacity-85 disabled:cursor-wait"
-            style={{ backgroundColor: 'var(--v-text)', color: 'var(--v-bg)' }}
+            onClick={async () => {
+              setPhase('submitting');
+              document.cookie = 'vigolium-demo-entered=1; path=/; max-age=86400; samesite=lax';
+              trackEvent('demo_enter_clicked', { source: 'demo_unlock' });
+              await delay(MIN_SPIN_MS);
+              setPhase('success');
+              await delay(SUCCESS_HOLD_MS);
+              router.replace(returnTo);
+            }}
+            className="flex items-center justify-center gap-2 text-xs px-4 py-2.5 border font-semibold transition-opacity disabled:opacity-85 disabled:cursor-wait mx-auto demo-btn-glow-muted"
+            style={{ width: '70%', maxWidth: '28rem', backgroundColor: 'var(--v-text)', color: 'var(--v-bg)', borderColor: 'var(--v-border)' }}
           >
             {phase === 'submitting' ? (
               <>
                 <Loader2 className="w-3 h-3 animate-spin" />
-                Unlocking…
+                Loading…
               </>
             ) : phase === 'success' ? (
               <>
                 <Loader2 className="w-3 h-3 animate-spin" />
-                Loading console…
+                Entering console…
               </>
             ) : (
               <>
-                <Lock className="w-3 h-3" />
-                Unlock
+                <Activity className="w-3 h-3" />
+                Enter Console
               </>
             )}
           </button>
-        </form>
+        ) : (
+          <>
+            <form
+              onSubmit={handleSubmit}
+              className="flex items-stretch border max-w-md mx-auto"
+              style={{ borderColor: 'var(--v-border)', backgroundColor: 'var(--v-bg)' }}
+            >
+              <input type="hidden" name="return_to" value={returnTo} />
+              <input
+                type="text"
+                name="demo_key"
+                placeholder="Paste your demo_key"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                disabled={busy}
+                className="flex-1 min-w-0 text-xs px-3 py-2.5 focus:outline-none bg-transparent disabled:opacity-60"
+                style={{ color: 'var(--v-text)' }}
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex items-center gap-2 text-xs px-4 py-2.5 font-semibold transition-opacity disabled:opacity-85 disabled:cursor-wait demo-btn-glow-muted"
+                style={{ backgroundColor: 'var(--v-text)', color: 'var(--v-bg)' }}
+              >
+                {phase === 'submitting' ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Unlocking…
+                  </>
+                ) : phase === 'success' ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading console…
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3 h-3" />
+                    Unlock
+                  </>
+                )}
+              </button>
+            </form>
 
-        <p className="text-[11px] mt-4" style={{ color: 'var(--v-text-muted)' }}>
-          Or append <code style={{ color: 'var(--v-accent)' }}>?demo_key=YOUR_KEY</code> to the URL
-        </p>
+            <p className="text-[11px] mt-4" style={{ color: 'var(--v-text-muted)' }}>
+              Or append <code style={{ color: 'var(--v-accent)' }}>?demo_key=YOUR_KEY</code> to the URL
+            </p>
+          </>
+        )}
 
-        <div className="flex items-center justify-center gap-3 text-[11px] mt-6" style={{ color: 'var(--v-text-muted)' }}>
+        <div className="flex items-center justify-center gap-4 text-xs mt-6" style={{ color: 'var(--v-text-muted)' }}>
           <a href="https://vigolium.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--v-accent)' }} className="hover:underline">[website]</a>
           <span>·</span>
           <a href="https://docs.vigolium.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--v-accent)' }} className="hover:underline">[docs]</a>
@@ -218,7 +261,7 @@ export default function DemoUnlockPage({ showcasesEnabled = false }: DemoUnlockP
                 style={{ color: 'var(--v-accent)' }}
                 className="hover:underline"
               >
-                [showcases]
+                [audit showcases]
               </a>
             </>
           )}

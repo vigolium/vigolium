@@ -8,7 +8,7 @@ set -euo pipefail
 VIGOLIUM_HOME="${VIGOLIUM_HOME:-$HOME/.vigolium}"
 BIN_DIR="$HOME/.local/bin"
 BASE_URL="https://cdn.vigolium.com/vigolium-e3171d5bbee2aba698f96aa21568933e"
-VERSION="vv0.0.1-alpha"
+VERSION=""  # resolved at runtime from metadata.json
 
 # Retry configuration
 MAX_RETRIES=6
@@ -166,6 +166,31 @@ downloader() {
 			error "Download failed after $MAX_RETRIES attempts. URL: $url"
 		fi
 	done
+}
+
+# Fetch latest version from metadata.json on CDN
+fetch_latest_version() {
+	local metadata_url="${BASE_URL}/metadata.json?t=$(date +%s)"
+	local tmp_metadata
+	tmp_metadata=$(mktemp)
+
+	log "Fetching latest version from CDN..."
+	downloader "$metadata_url" "$tmp_metadata"
+
+	# Extract version field — works without jq using grep/sed
+	VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$tmp_metadata" | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/')
+	rm -f "$tmp_metadata"
+
+	if [[ -z "$VERSION" ]]; then
+		error "Failed to determine latest version from metadata.json"
+	fi
+
+	# Ensure version has v prefix
+	if [[ "$VERSION" != v* ]]; then
+		VERSION="v${VERSION}"
+	fi
+
+	log "Latest version: ${LIGHT_GREEN}${VERSION}${NC}"
 }
 
 # Download file with progress
@@ -395,6 +420,9 @@ main() {
 
 	# Check prerequisites
 	check_prereqs
+
+	# Resolve latest version from CDN metadata
+	fetch_latest_version
 
 	# Detect platform
 	local platform

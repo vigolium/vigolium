@@ -14,11 +14,11 @@ interface Props {
   generatedAt?: string;
 }
 
-const tabs: { id: TabId; label: string; icon: typeof BarChart3; iconOnly?: boolean }[] = [
+const tabs: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
   { id: "statistics", label: "Statistics", icon: BarChart3 },
-  { id: "report", label: "Report", icon: FileText, iconOnly: true },
+  { id: "report", label: "Full Report", icon: FileText },
   { id: "findings", label: "Findings", icon: Shield },
-  { id: "traffic", label: "Traffic", icon: Globe, iconOnly: true },
+  { id: "traffic", label: "Traffic", icon: Globe },
 ];
 
 export default function Header({ activeTab, onTabChange, findingsCount = 0, trafficCount = 0, reportTitle, generatedAt }: Props) {
@@ -51,7 +51,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
 
       {activeTab && onTabChange && (
         <nav className="flex ml-2 sm:ml-4 gap-1.5 items-center">
-          {tabs.map(({ id, label, icon: Icon, iconOnly }) => {
+          {tabs.map(({ id, label, icon: Icon }) => {
             const isActive = activeTab === id;
             const count = id === "findings" ? findingsCount : id === "traffic" ? trafficCount : 0;
             const hasData = count > 0;
@@ -60,7 +60,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
                 key={id}
                 onClick={() => onTabChange(id)}
                 aria-label={hasData ? `${label} (${count})` : label}
-                {...(iconOnly ? { "data-tooltip": label } : {})}
+                data-tooltip={label}
                 className={`group/tab flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-sans font-semibold tracking-wide uppercase transition-colors relative whitespace-nowrap ${
                   !hasData
                     ? "text-text-muted/50 hover:text-text-muted"
@@ -70,7 +70,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
                 }`}
               >
                 <Icon size={13} />
-                <span className={iconOnly ? "hidden lg:inline" : "hidden sm:inline"}>{label}</span>
+                <span className={isActive ? "hidden sm:inline" : "hidden lg:inline"}>{label}</span>
                 {hasData && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded inline-flex ${
                     isActive ? "bg-terracotta/10 text-terracotta" : "bg-warm-border text-text-muted"
@@ -87,7 +87,7 @@ export default function Header({ activeTab, onTabChange, findingsCount = 0, traf
         </nav>
       )}
 
-      <div className="flex-1" />
+      <div className="flex-1 min-w-0" />
       <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] font-sans">
         <a href="https://www.vigolium.com/" aria-label="Website" data-tooltip="Website" className="flex items-center gap-1.5 h-7 px-1.5 lg:px-2 rounded border border-warm-border/60 text-text-muted hover:text-charcoal hover:border-warm-border transition-colors" target="_blank" rel="noopener noreferrer">
           <ExternalLink size={13} />

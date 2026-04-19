@@ -28,11 +28,12 @@ export async function GET(
   }
 
   // Sanitize slug: only allow alphanumeric, hyphens, underscores
-  if (!/^[a-zA-Z0-9_-]+$/.test(slug)) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(slug)) {
     return new Response('Not Found', { status: 404 });
   }
 
-  const filePath = path.join(process.cwd(), 'showcases', `${slug}.html`);
+  const baseName = slug.endsWith('.html') ? slug : `${slug}.html`;
+  const filePath = path.join(process.cwd(), 'showcases', baseName);
 
   if (!fs.existsSync(filePath)) {
     return new Response('Not Found', { status: 404 });

@@ -1,4 +1,4 @@
-import { Moon, ShieldCheck, Coins } from 'lucide-react';
+import { Moon, ShieldCheck, Coins, Loader2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -48,12 +48,18 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
 
   const isDemoUser = !isStaticBuild && currentUser?.role === 'demo';
   const demoLabel = currentUser?.demo_label ?? '';
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (isStaticBuild) {
       document.getElementById('vigolium-logout')?.click();
-    } else if (isDemoUser) {
-      window.location.href = '/api/demo/logout';
+      return;
+    }
+    setLoggingOut(true);
+    await new Promise((r) => setTimeout(r, 600));
+    if (isDemoUser) {
+      document.cookie = 'vigolium-demo-entered=; path=/; max-age=0';
+      window.location.href = '/login';
     } else {
       window.location.href = '/api/auth/logout';
     }
@@ -180,21 +186,34 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
                 </>
               )}
               {isConnected && isDemoUser && (
-                <span
-                  className="hidden md:inline-flex items-center border px-2 py-0.5"
-                  style={{
-                    color: '#b45309',
-                    borderColor: 'color-mix(in srgb, #d96b25 50%, transparent)',
-                    backgroundColor: 'color-mix(in srgb, #d96b25 8%, transparent)',
-                  }}
-                  title={
-                    (demoLabel
-                      ? `demo_key: ${demoLabel}${currentUser?.demo_expires ? ` · expires ${currentUser.demo_expires}` : ''}`
-                      : 'demo session') + '\nData may be redacted or truncated in demo mode'
-                  }
-                >
-                  [Demo preview · read-only]
-                </span>
+                <>
+                  <a
+                    href="/showcases"
+                    className="hidden md:inline-flex items-center border px-2 py-0.5 hover:opacity-80 transition-opacity"
+                    style={{
+                      color: 'var(--v-accent)',
+                      borderColor: 'color-mix(in srgb, var(--v-accent) 45%, transparent)',
+                      backgroundColor: 'color-mix(in srgb, var(--v-accent) 8%, transparent)',
+                    }}
+                  >
+                    [Open-source Audit Showcases]
+                  </a>
+                  <span
+                    className="hidden md:inline-flex items-center border px-2 py-0.5"
+                    style={{
+                      color: '#b45309',
+                      borderColor: 'color-mix(in srgb, #d96b25 50%, transparent)',
+                      backgroundColor: 'color-mix(in srgb, #d96b25 8%, transparent)',
+                    }}
+                    title={
+                      (demoLabel
+                        ? `demo_key: ${demoLabel}${currentUser?.demo_expires ? ` · expires ${currentUser.demo_expires}` : ''}`
+                        : 'demo session') + '\nData may be redacted or truncated in demo mode'
+                    }
+                  >
+                    [Demo preview · read-only]
+                  </span>
+                </>
               )}
             </>
           )}
@@ -202,9 +221,14 @@ export default function Header({ serverInfo, isConnected }: HeaderProps) {
           {isConnected && (
             <button
               onClick={handleLogout}
-              className="v-header-btn-danger transition-colors"
+              disabled={loggingOut}
+              className="v-header-btn-danger transition-colors inline-flex items-center gap-1.5 disabled:opacity-70 disabled:cursor-wait"
             >
-              {isDemoUser ? '[EXIT DEMO]' : '[LOG OUT]'}
+              {loggingOut ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> Logging out…</>
+              ) : (
+                isDemoUser ? '[EXIT DEMO]' : '[LOG OUT]'
+              )}
             </button>
           )}
           <button
