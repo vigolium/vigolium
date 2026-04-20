@@ -1401,3 +1401,59 @@ agent:
       args: ["-p"]
       description: "Cursor AI editor (pipe mode)"
       # model: "claude-sonnet-4-5"
+
+# ============================================================================
+# Cloud Storage Configuration
+# ============================================================================
+# Object storage for source code upload/download and scan result archival.
+# Uses S3-compatible API (minio-go) — supports GCS (HMAC), AWS S3, and MinIO.
+#
+# Source paths: --source gs://<project-uuid>/ugc/source-code.zip
+# Result paths: <bucket>/<project-uuid>/native-scans/<scan-uuid>/results.zip
+#               <bucket>/<project-uuid>/agentic-scans/<run-uuid>/results.zip
+#
+# REST API endpoints (all project-scoped via X-Project-UUID header):
+#   POST /api/storage/upload-source   — upload source code archive
+#   GET  /api/storage/source/:key     — download source code
+#   GET  /api/storage/results/:uuid   — download scan result bundle
+#   POST /api/storage/presign         — generate presigned upload/download URL
+storage:
+  # Enable cloud storage integration.
+  # Default: false
+  enabled: false
+
+  # Storage driver/provider.
+  # Options: "gcs" (Google Cloud Storage via HMAC), "s3" (AWS S3), "minio"
+  # GCS and S3 use auto-detected endpoints; minio requires an explicit endpoint.
+  # Default: gcs
+  driver: gcs
+
+  # Storage endpoint (auto-detected for gcs/s3).
+  # GCS: storage.googleapis.com (default)
+  # S3:  s3.amazonaws.com (default)
+  # MinIO: your-minio-host:9000 (required)
+  # endpoint: ""
+
+  # Bucket name for all storage operations.
+  # Objects are stored as: <bucket>/<project-uuid>/<path>
+  bucket: ${VIGOLIUM_STORAGE_BUCKET_NAME}
+
+  # Bucket region.
+  # Default: asia-southeast1
+  region: asia-southeast1
+
+  # S3 access key (or GCS HMAC access key).
+  # Use ${ENV_VAR} syntax to read from environment variables.
+  # IMPORTANT: Never commit access keys to git!
+  access_key: ${VIGOLIUM_STORAGE_ACCESS_KEY}
+
+  # S3 secret key (or GCS HMAC secret key).
+  secret_key: ${VIGOLIUM_STORAGE_SECRET_KEY}
+
+  # Use HTTPS for storage connections.
+  # Default: true
+  use_ssl: true
+
+  # Force path-style addressing (required for some MinIO setups).
+  # Default: false
+  # path_style: false

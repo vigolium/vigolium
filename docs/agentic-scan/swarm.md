@@ -26,7 +26,7 @@ When `--source` is provided, swarm runs a **consolidated 4-call source analysis*
                                        v
               +------------------------------------------------+
               |             SwarmRunner.Run()                    |
-              |  - Create agent_runs DB record (uuid)            |
+              |  - Create agentic_scans DB record (uuid)            |
               |  - Create session directory for artifacts       |
               |  - Execute multi-phase pipeline                 |
               +------------------------------------------------+
@@ -284,7 +284,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
               +------------------------------------------------+
               |              Finalize & Report                  |
               |  - Count findings by severity from DB           |
-              |  - Update agent_runs record (status, duration)  |
+              |  - Update agentic_scans record (status, duration)  |
               |  - Return SwarmResult                           |
               +------------------------------------------------+
 ```
@@ -317,7 +317,7 @@ Phases 1.5–1.7 are conditional: source analysis runs when `--source` is provid
                        |                   |     |                   |
                        | - http_records    |     | - Analyze request |
                        | - findings        |     | - Select modules  |
-                       | - agent_runs      |     | - Generate JS ext |
+                       | - agentic_scans      |     | - Generate JS ext |
                        | - scopes          |     | - Triage findings |
                        +-------------------+     +-------------------+
                                 ^
@@ -746,7 +746,7 @@ If the triage verdict is `"rescan"` and follow-ups are recommended, a targeted r
 
 ## Database Tracking
 
-Every swarm run creates an `agent_runs` database record with:
+Every swarm run creates an `agentic_scans` database record with:
 
 - Run UUID (`agt-...` prefix)
 - Input, input type, target URL
@@ -1029,7 +1029,7 @@ type SwarmResult struct {
     FalsePositives  int                      // rejected by triage
     Iterations      int                      // triage rounds completed
     Duration        time.Duration
-    AgentRunUUID    string                   // DB tracking UUID
+    AgenticScanUUID    string                   // DB tracking UUID
     SessionID       string                   // last agent session ID (single/last batch)
     SessionIDs      []string                 // all agent session IDs when batched (>5 records)
     SessionDir      string                   // path to session artifacts
@@ -1118,7 +1118,7 @@ The session directory path is included in the `SwarmResult` (`session_dir` field
 | `pkg/agent/pipeline_types.go` | Data structures (SwarmPlan, SwarmResult, shared helpers) |
 | `pkg/cli/agent_swarm.go` | CLI command definition and callback wiring |
 | `pkg/server/handlers_agent.go` | REST API handlers |
-| `pkg/database/models.go` | AgentRun model for DB tracking |
+| `pkg/database/models.go` | AgenticScan model for DB tracking |
 | `public/presets/prompts/swarm/agent-swarm-plan.md` | Plan agent prompt template |
 | `public/presets/prompts/swarm/agent-swarm-extensions.md` | Extension agent prompt template |
 | `public/presets/prompts/swarm/swarm-source-explore.md` | Source analysis: explore routes, auth, and sinks |

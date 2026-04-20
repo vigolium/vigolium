@@ -25,7 +25,7 @@ type swarmPipelineState struct {
 	runner *SwarmRunner
 	cfg    SwarmConfig
 
-	agentRun *database.AgentRun
+	agenticScan *database.AgenticScan
 	result   *SwarmResult
 
 	sessionDir       string
@@ -45,8 +45,8 @@ type swarmPipelineState struct {
 	stop             bool
 }
 
-func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult) error {
-	state, cleanup, err := s.newSwarmPipelineState(ctx, cfg, agentRun, result)
+func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, agenticScan *database.AgenticScan, result *SwarmResult) error {
+	state, cleanup, err := s.newSwarmPipelineState(ctx, cfg, agenticScan, result)
 	if err != nil {
 		return err
 	}
@@ -77,14 +77,14 @@ func (s *SwarmRunner) runSwarmPipeline(ctx context.Context, cfg SwarmConfig, age
 	return nil
 }
 
-func (s *SwarmRunner) newSwarmPipelineState(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult) (*swarmPipelineState, func(), error) {
+func (s *SwarmRunner) newSwarmPipelineState(ctx context.Context, cfg SwarmConfig, agenticScan *database.AgenticScan, result *SwarmResult) (*swarmPipelineState, func(), error) {
 	sessionDir := cfg.SessionDir
 	if cfg.ResumeDir != "" {
 		sessionDir = cfg.ResumeDir
 	}
 	if sessionDir == "" {
 		var err error
-		sessionDir, err = EnsureSessionDir(cfg.SessionsDir, agentRun.UUID)
+		sessionDir, err = EnsureSessionDir(cfg.SessionsDir, agenticScan.UUID)
 		if err != nil {
 			zap.L().Warn("Failed to create session dir, falling back to temp dirs", zap.Error(err))
 		}
@@ -118,7 +118,7 @@ func (s *SwarmRunner) newSwarmPipelineState(ctx context.Context, cfg SwarmConfig
 	return &swarmPipelineState{
 		runner:       s,
 		cfg:          cfg,
-		agentRun:     agentRun,
+		agenticScan:     agenticScan,
 		result:       result,
 		sessionDir:   sessionDir,
 		checkpoint:   checkpoint,
@@ -127,8 +127,8 @@ func (s *SwarmRunner) newSwarmPipelineState(ctx context.Context, cfg SwarmConfig
 }
 
 func (ps *swarmPipelineState) startPhase(ctx context.Context, phase string, emit bool) time.Time {
-	ps.agentRun.CurrentPhase = phase
-	ps.runner.persistPhase(ctx, ps.agentRun)
+	ps.agenticScan.CurrentPhase = phase
+	ps.runner.persistPhase(ctx, ps.agenticScan)
 	if emit {
 		ps.runner.emitPhase(ps.cfg, phase)
 	}
@@ -170,15 +170,15 @@ func (normalizeSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error
 	ps.records = records
 	ps.targetURL = targetURL
 	if targetURL != "" {
-		ps.agentRun.TargetURL = targetURL
+		ps.agenticScan.TargetURL = targetURL
 	}
-	ps.agentRun.InputType = string(ps.cfg.InputType)
-	if ps.agentRun.InputType == "" && len(ps.cfg.Inputs) > 0 {
-		ps.agentRun.InputType = string(agentinput.DetectInputType(ps.cfg.Inputs[0]))
+	ps.agenticScan.InputType = string(ps.cfg.InputType)
+	if ps.agenticScan.InputType == "" && len(ps.cfg.Inputs) > 0 {
+		ps.agenticScan.InputType = string(agentinput.DetectInputType(ps.cfg.Inputs[0]))
 	}
 
 	recordUUIDs := ps.runner.validateProbeAndSave(ctx, ps.records, nil, nil, "agent-swarm", ps.cfg.ProjectUUID, ps.cfg.probeConfig())
-	ps.agentRun.RecordCount = len(recordUUIDs)
+	ps.agenticScan.RecordCount = len(recordUUIDs)
 	ps.result.TotalRecords = len(recordUUIDs)
 	ps.recordStats.Initial = len(ps.records)
 
@@ -545,9 +545,9 @@ func (planSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 		extCount := len(ps.plan.Extensions) + len(ps.plan.QuickChecks) + len(ps.plan.Snippets)
 		fmt.Fprintf(os.Stderr, "%s %s  %s\n", terminal.Aqua(terminal.SymbolSuccess), terminal.Aqua("Plan"),
 			terminal.Muted(fmt.Sprintf("completed — %d extensions, %d focus areas in %s", extCount, len(ps.plan.FocusAreas), ps.phaseTimings[SwarmPhasePlan].Round(time.Second))))
-		ps.agentRun.SessionID = ps.sessionID
+		ps.agenticScan.SessionID = ps.sessionID
 		planJSON, _ := json.Marshal(ps.plan)
-		ps.agentRun.AttackPlan = string(planJSON)
+		ps.agenticScan.AttackPlan = string(planJSON)
 		if ps.sessionDir != "" {
 			_ = os.WriteFile(filepath.Join(ps.sessionDir, "swarm-plan.json"), planJSON, 0o644)
 		}
@@ -570,7 +570,7 @@ func (extensionSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error
 	started := time.Now()
 	allExtensions, renames := ps.runner.buildSwarmExtensions(ctx, ps.cfg, ps.targetURL, ps.plan, ps.sourceExtensions)
 	ps.extensionRenames = renames
-	ps.extensionDir = ps.runner.persistSwarmExtensions(ctx, ps.cfg, ps.agentRun, ps.sessionDir, ps.sourceExtensions, allExtensions)
+	ps.extensionDir = ps.runner.persistSwarmExtensions(ctx, ps.cfg, ps.agenticScan, ps.sessionDir, ps.sourceExtensions, allExtensions)
 	ps.phaseTimings[SwarmPhaseExtension] = time.Since(started)
 	ps.completedPhases = append(ps.completedPhases, SwarmPhaseExtension)
 	return nil
@@ -628,7 +628,7 @@ func (triageSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 	}
 	started := ps.startPhase(ctx, SwarmPhaseTriage, true)
 	ps.completedPhases = append(ps.completedPhases, SwarmPhaseTriage)
-	if err := ps.runner.runTriageLoop(ctx, ps.cfg, ps.agentRun, ps.result, ps.sessionDir, ps.extensionDir, ps.checkpoint, ps.extensionRenames, ps.completedPhases); err != nil {
+	if err := ps.runner.runTriageLoop(ctx, ps.cfg, ps.agenticScan, ps.result, ps.sessionDir, ps.extensionDir, ps.checkpoint, ps.extensionRenames, ps.completedPhases); err != nil {
 		zap.L().Warn("Triage failed, continuing with scan results", zap.Error(err))
 		ps.runner.addWarning(ps.result, "triage failed: %v", err)
 	}
@@ -727,13 +727,13 @@ func (s *SwarmRunner) buildSwarmExtensions(ctx context.Context, cfg SwarmConfig,
 	return allExtensions, extensionRenames
 }
 
-func (s *SwarmRunner) persistSwarmExtensions(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, sessionDir string, sourceExtensions, allExtensions []GeneratedExtension) string {
+func (s *SwarmRunner) persistSwarmExtensions(ctx context.Context, cfg SwarmConfig, agenticScan *database.AgenticScan, sessionDir string, sourceExtensions, allExtensions []GeneratedExtension) string {
 	if len(allExtensions) == 0 {
 		return ""
 	}
 	s.emitPhase(cfg, SwarmPhaseExtension)
-	agentRun.CurrentPhase = SwarmPhaseExtension
-	s.persistPhase(ctx, agentRun)
+	agenticScan.CurrentPhase = SwarmPhaseExtension
+	s.persistPhase(ctx, agenticScan)
 	dir, err := writeExtensionsToDir(allExtensions, sessionDir)
 	if err != nil {
 		zap.L().Warn("Failed to write generated extensions", zap.Error(err))

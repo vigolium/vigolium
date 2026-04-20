@@ -137,7 +137,16 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		settings = config.DefaultSettings()
 	}
 
-	// Override scope origin mode if --scope-origin flag is set
+	if looksLikeGCSPath(scanOpts.SourcePath) {
+		extractedPath, cleanup, gcsErr := resolveGCSSource(&settings.Storage, scanOpts.SourcePath, scanOpts.ProjectUUID)
+		if gcsErr != nil {
+			return fmt.Errorf("failed to resolve gs:// source: %w", gcsErr)
+		}
+		defer cleanup()
+		globalSourcePath = extractedPath
+		scanOpts.SourcePath = extractedPath
+	}
+
 	if scanOpts.ScopeOriginMode != "" {
 		settings.Scope.CLIOriginMode = scanOpts.ScopeOriginMode
 	}
@@ -498,6 +507,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 				}
 
 				maybeGenerateReports(db, scanOpts)
+				uploadNativeScanResults(settings, scanOpts, repo)
 
 				if !scanOpts.Silent {
 					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
@@ -540,6 +550,8 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	// Generate reports if requested
 	maybeGenerateReports(db, scanOpts)
+
+	uploadNativeScanResults(settings, scanOpts, repo)
 
 	// Print completion message with summary stats
 	if !scanOpts.Silent {
@@ -620,6 +632,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 
 	// Generate reports if requested
 	maybeGenerateReports(db, scanOpts)
+	uploadNativeScanResults(settings, scanOpts, repo)
 
 	if !scanOpts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
@@ -651,6 +664,7 @@ func runDBScan(settings *config.Settings, db *database.DB, repo *database.Reposi
 
 	// Generate reports if requested
 	maybeGenerateReports(db, scanOpts)
+	uploadNativeScanResults(settings, scanOpts, repo)
 
 	if !scanOpts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))

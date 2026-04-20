@@ -265,7 +265,8 @@ curl -s -X POST http://localhost:9002/api/scans/run \
   "status": "running",
   "message": "scan started",
   "scan_mode": "sast",
-  "source": "/home/user/.vigolium/source-aware/github.com_juice-shop_juice-shop"
+  "source": "/home/user/.vigolium/source-aware/github.com_juice-shop_juice-shop",
+  "source_type": "git-url"
 }
 ```
 
@@ -373,6 +374,33 @@ curl -s -X DELETE http://localhost:9002/api/scan \
 
 ---
 
+## Scan Modes
+
+Every scan record has a `scan_mode` field that indicates how the scan was triggered. This helps distinguish between different scanning workflows when reviewing scan history.
+
+| Mode          | Origin                                   | Description                                                                                    |
+|---------------|------------------------------------------|------------------------------------------------------------------------------------------------|
+| `full`        | `vigolium scan`, `vigolium run`          | Batch scan over all in-scope HTTP records in the database                                      |
+| `target`      | `POST /api/scans/run`                    | API-initiated scan targeting a specific URL or scope                                           |
+| `incremental` | Server scan-on-receive                   | Continuous scan that processes each HTTP record as it is ingested into the server (proxy, Burp, etc.) |
+| `single`      | `POST /api/scan-url`                     | One-off scan of a single URL with optional method, body, and headers                           |
+| `selective`   | `POST /api/scan/records`                 | Scan a specific set of HTTP records by UUID                                                    |
+| `sast`        | `vigolium scan --only sast`, auto-detect | Static analysis only — route extraction, secret detection, security rules via ast-grep         |
+
+### Source Type
+
+When a scan involves source code (via `--source`, `source`, or `repo_url`), the `source_type` field on the scan record indicates how the source was provided:
+
+| Value     | Description                                                    |
+|-----------|----------------------------------------------------------------|
+| `local`   | Local filesystem path (e.g. `/home/user/src/my-app`)           |
+| `git-url` | Remote git repository URL (HTTPS, SSH, or `git@`)              |
+| `gcs`     | Google Cloud Storage path (e.g. `gs://bucket/path`)            |
+
+The value is auto-inferred from the `source`/`repo_url` input. The same field is also set on `agentic_scans` records for agent runs that use source code.
+
+---
+
 ## Scan History
 
 ### GET /api/scans — List Scans
@@ -406,6 +434,7 @@ curl -s 'http://localhost:9002/api/scans?limit=10&offset=0' \
       "status": "completed",
       "scan_source": "api",
       "scan_mode": "incremental",
+      "source_type": "local",
       "modules": "all",
       "total_findings": 5,
       "processed_count": 150,

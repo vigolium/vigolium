@@ -215,9 +215,9 @@ func NewSwarmRunner(engine *Engine, repo *database.Repository) *SwarmRunner {
 }
 
 // persistPhase updates the agent run's current phase in the database.
-func (s *SwarmRunner) persistPhase(ctx context.Context, agentRun *database.AgentRun) {
+func (s *SwarmRunner) persistPhase(ctx context.Context, agenticScan *database.AgenticScan) {
 	if s.repo != nil {
-		if err := s.repo.UpdateAgentRun(ctx, agentRun); err != nil {
+		if err := s.repo.UpdateAgenticScan(ctx, agenticScan); err != nil {
 			zap.L().Debug("Failed to persist phase update", zap.Error(err))
 		}
 	}
@@ -257,7 +257,7 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if runUUID == "" {
 		runUUID = uuid.New().String()
 	}
-	agentRun := &database.AgentRun{
+	agenticScan := &database.AgenticScan{
 		UUID:        runUUID,
 		ProjectUUID: cfg.ProjectUUID,
 		ScanUUID:    cfg.ScanUUID,
@@ -265,43 +265,45 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 		AgentName:   cfg.AgentName,
 		VulnType:    cfg.VulnType,
 		ModuleNames: cfg.ModuleNames,
+		SourcePath:  cfg.SourcePath,
+		SourceType:  database.InferSourceType(cfg.SourcePath),
 		Status:      "running",
 		StartedAt:   start,
 	}
 	if len(cfg.Inputs) > 0 {
-		agentRun.InputRaw = cfg.Inputs[0]
+		agenticScan.InputRaw = cfg.Inputs[0]
 	}
 
 	if s.repo != nil {
-		if err := s.repo.CreateAgentRun(ctx, agentRun); err != nil {
+		if err := s.repo.CreateAgenticScan(ctx, agenticScan); err != nil {
 			zap.L().Warn("Failed to create agent run record", zap.Error(err))
 		}
 	}
 
-	result := &SwarmResult{AgentRunUUID: runUUID}
+	result := &SwarmResult{AgenticScanUUID: runUUID}
 
 	// Execute phases
-	err := s.runSwarmPipeline(ctx, cfg, agentRun, result)
+	err := s.runSwarmPipeline(ctx, cfg, agenticScan, result)
 
 	// Finalize
 	result.Duration = time.Since(start)
 	now := time.Now()
-	agentRun.CompletedAt = now
-	agentRun.DurationMs = result.Duration.Milliseconds()
-	agentRun.FindingCount = result.TotalFindings
+	agenticScan.CompletedAt = now
+	agenticScan.DurationMs = result.Duration.Milliseconds()
+	agenticScan.FindingCount = result.TotalFindings
 
 	if err != nil {
-		agentRun.Status = "failed"
-		agentRun.ErrorMessage = err.Error()
+		agenticScan.Status = "failed"
+		agenticScan.ErrorMessage = err.Error()
 	} else if result.Degraded {
-		agentRun.Status = "completed_with_warnings"
-		agentRun.ErrorMessage = strings.Join(result.Warnings, "\n")
+		agenticScan.Status = "completed_with_warnings"
+		agenticScan.ErrorMessage = strings.Join(result.Warnings, "\n")
 	} else {
-		agentRun.Status = "completed"
+		agenticScan.Status = "completed"
 	}
 
 	if s.repo != nil {
-		if updateErr := s.repo.UpdateAgentRun(ctx, agentRun); updateErr != nil {
+		if updateErr := s.repo.UpdateAgenticScan(ctx, agenticScan); updateErr != nil {
 			zap.L().Warn("Failed to update agent run record", zap.Error(updateErr))
 		}
 	}
@@ -1625,7 +1627,7 @@ func sortedKeys(s map[string]bool) []string {
 	return result
 }
 
-func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentRun *database.AgentRun, result *SwarmResult, sessionDir string, extensionDir string, checkpoint *SwarmCheckpoint, extensionRenames map[string]string, completedPhases []string) error {
+func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agenticScan *database.AgenticScan, result *SwarmResult, sessionDir string, extensionDir string, checkpoint *SwarmCheckpoint, extensionRenames map[string]string, completedPhases []string) error {
 	// Determine triage resume point from checkpoint
 	triageResumeRound := 0
 	triageFindingFloor := int64(0)
@@ -1642,8 +1644,8 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		Repository:                s.repo,
 		AgentName:                 cfg.AgentName,
 		PromptTemplate:            SwarmPromptTriage,
-		TargetURL:                 agentRun.TargetURL,
-		Hostname:                  hostnameFromURL(agentRun.TargetURL),
+		TargetURL:                 agenticScan.TargetURL,
+		Hostname:                  hostnameFromURL(agenticScan.TargetURL),
 		SourcePath:                cfg.SourcePath,
 		Instruction:               cfg.Instruction,
 		SessionKey:                SwarmPhaseTriage,
@@ -1662,15 +1664,15 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 		InitialFindingIDFloor:     triageFindingFloor,
 		OnRescan: func() {
 			s.emitPhase(cfg, SwarmPhaseRescan)
-			agentRun.CurrentPhase = SwarmPhaseRescan
-			s.persistPhase(ctx, agentRun)
+			agenticScan.CurrentPhase = SwarmPhaseRescan
+			s.persistPhase(ctx, agenticScan)
 			// Invalidate context cache — rescan may produce new findings
 			if s.engine != nil {
 				s.engine.InvalidateContextCache()
 			}
 		},
 		OnTriageRoundComplete: func(round int) {
-			if cpErr := s.writeSwarmCheckpoint(sessionDir, cfg.ProjectUUID, completedPhases, agentRun.TargetURL, result.TotalRecords, result.SwarmPlan, extensionDir, round+1, extensionRenames, result, swarmRecordStats{}); cpErr != nil {
+			if cpErr := s.writeSwarmCheckpoint(sessionDir, cfg.ProjectUUID, completedPhases, agenticScan.TargetURL, result.TotalRecords, result.SwarmPlan, extensionDir, round+1, extensionRenames, result, swarmRecordStats{}); cpErr != nil {
 				zap.L().Warn("Failed to write checkpoint after triage round", zap.Int("round", round), zap.Error(cpErr))
 			}
 		},
@@ -1690,7 +1692,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agentR
 	if len(loopResult.TriageResults) > 0 {
 		lastTriage := loopResult.TriageResults[len(loopResult.TriageResults)-1]
 		triageJSON, _ := json.Marshal(lastTriage)
-		agentRun.TriageResult = string(triageJSON)
+		agenticScan.TriageResult = string(triageJSON)
 	}
 
 	return nil

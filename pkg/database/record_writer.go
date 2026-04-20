@@ -153,6 +153,10 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	record.Source = source
 	record.ProjectUUID = projectUUID
 
+	if existingUUID, err := w.repo.findDuplicateRecord(ctx, record); err == nil && existingUUID != "" {
+		return existingUUID, nil
+	}
+
 	resultCh := make(chan WriteResult, 1)
 	req := writeRequest{record: record, result: resultCh}
 

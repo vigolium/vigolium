@@ -36,7 +36,7 @@ func TestAutopilotAPI_DiffWithTarget_Accepted(t *testing.T) {
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var body server.AgentRunResponse
+	var body server.AgenticScanResponse
 	readJSON(t, resp, &body)
 	assert.NotEmpty(t, body.RunID)
 	assert.Equal(t, "running", body.Status)
@@ -104,7 +104,7 @@ func TestSwarmAPI_DiffOnly_Accepted(t *testing.T) {
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var body server.AgentRunResponse
+	var body server.AgenticScanResponse
 	readJSON(t, resp, &body)
 	assert.NotEmpty(t, body.RunID)
 }

@@ -10,7 +10,7 @@ This review covers the current database model design in:
 - `pkg/database/db.go`
 - `pkg/database/repository.go`
 - `pkg/database/query.go`
-- `pkg/database/repository_agent_runs.go`
+- `pkg/database/repository_agentic_scans.go`
 - `pkg/database/repository_sessions.go`
 - `pkg/database/stats.go`
 
@@ -168,7 +168,7 @@ Priority: Medium
 Observed examples:
 
 - `GetUnprobedRecordsBySource` filters by `project_uuid`, `source`, `hostname`, `has_response` and orders by `created_at`
-- `ListAgentRuns` filters by `project_uuid`, sometimes `mode`, excludes child runs, and orders by `created_at DESC`
+- `ListAgenticScans` filters by `project_uuid`, sometimes `mode`, excludes child runs, and orders by `created_at DESC`
 - `GetSessionHostnamesByScan` filters by `project_uuid`, `scan_uuid` and orders by `hostname`, `position`
 
 Current indexes are only partially aligned.
@@ -182,7 +182,7 @@ Recommendation:
 Suggested shapes:
 
 - `http_records(project_uuid, source, hostname, has_response, created_at)`
-- `agent_runs(project_uuid, mode, created_at)` or a variant that also supports root-run filtering
+- `agentic_scans(project_uuid, mode, created_at)` or a variant that also supports root-run filtering
 - `session_hostnames(project_uuid, scan_uuid, hostname, position)`
 
 Priority: Medium
@@ -266,8 +266,8 @@ Examples:
 - `findings.status`
 - `findings.confidence`
 - `scans.status`
-- `agent_runs.status`
-- `agent_runs.mode`
+- `agentic_scans.status`
+- `agentic_scans.mode`
 - `source_repos.repo_type`
 - `source_repos.third_party_scan_status`
 
@@ -284,7 +284,7 @@ Examples:
 
 - `scans.target`
 - `scans.modules`
-- `agent_runs.input_raw`
+- `agentic_scans.input_raw`
 - `session_hostnames.extract_rules`
 
 These fields are convenient, but they are doing too much work:
@@ -335,7 +335,7 @@ Improve:
 - make it the only source of truth for finding-to-record relations
 - add foreign keys if operationally acceptable
 
-### `agent_runs`
+### `agentic_scans`
 
 Improve:
 

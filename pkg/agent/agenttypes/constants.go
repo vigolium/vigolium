@@ -180,7 +180,7 @@ type AuditAgentConfig struct {
 	ProjectUUID string
 	ScanUUID    string
 
-	// ParentRunUUID is the autopilot/swarm AgentRun UUID that spawned this audit.
+	// ParentRunUUID is the autopilot/swarm AgenticScan UUID that spawned this audit.
 	ParentRunUUID string
 
 	SyncInterval time.Duration // how often to sync audit-state.json (default: 30s)

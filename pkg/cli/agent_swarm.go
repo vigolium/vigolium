@@ -67,6 +67,7 @@ var (
 	swarmDiff                string
 	swarmLastCommits         int
 	swarmIntensity           string
+	swarmUploadResults       bool
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -220,6 +221,8 @@ func init() {
 
 	// Intensity
 	f.StringVar(&swarmIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
+
+	f.BoolVar(&swarmUploadResults, "upload-results", false, "Upload scan results to cloud storage after completion (requires storage config)")
 }
 
 func runAgentSwarm(cmd *cobra.Command, args []string) error {
@@ -388,6 +391,15 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), swarmRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+	}
+
+	if looksLikeGCSPath(swarmSource) {
+		extractedPath, cleanup, gcsErr := resolveGCSSource(&settings.Storage, swarmSource, projectUUID)
+		if gcsErr != nil {
+			return fmt.Errorf("failed to resolve gs:// source: %w", gcsErr)
+		}
+		defer cleanup()
+		swarmSource = extractedPath
 	}
 
 	// Resolve source (git URL, archive, local path) and diff context
@@ -703,6 +715,11 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	}
 
 	printSwarmResult(result)
+
+	if swarmUploadResults {
+		uploadAgenticScanResults(settings, projectUUID, swarmRunID, sessionDir, repo)
+	}
+
 	return nil
 }
 

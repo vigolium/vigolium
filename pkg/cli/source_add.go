@@ -6,14 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/gitutil"
-	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
+	"github.com/vigolium/vigolium/pkg/storage"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/toolexec/sourcetools"
 )
 
 var sourceAddOpts struct {
@@ -204,6 +206,43 @@ func cloneGitRepo(gitURL string) (string, error) {
 
 	fmt.Printf("%s Cloned to %s\n", terminal.SuccessSymbol(), terminal.Gray(clonedPath))
 	return clonedPath, nil
+}
+
+func looksLikeGCSPath(s string) bool {
+	return strings.HasPrefix(s, storage.SchemeGCS)
+}
+
+// resolveGCSSource downloads source code from cloud storage and extracts it.
+// Returns the local extracted path and a cleanup function that removes the temp directory.
+func resolveGCSSource(storageCfg *config.StorageConfig, sourcePath, projectUUID string) (string, func(), error) {
+	noop := func() {}
+
+	if !storageCfg.IsEnabled() {
+		return "", noop, fmt.Errorf("storage is not enabled in config — cannot download gs:// source")
+	}
+
+	sc, err := storage.NewClient(storageCfg)
+	if err != nil {
+		return "", noop, fmt.Errorf("failed to create storage client: %w", err)
+	}
+
+	gcsProject, key, err := storage.ParseGCSPath(sourcePath)
+	if err != nil {
+		return "", noop, err
+	}
+
+	if projectUUID == "" {
+		projectUUID = gcsProject
+	}
+
+	extractedPath, tmpRoot, err := sc.DownloadAndExtractSource(context.Background(), projectUUID, key)
+	if err != nil {
+		return "", noop, fmt.Errorf("failed to download source from storage: %w", err)
+	}
+
+	cleanup := func() { os.RemoveAll(tmpRoot) }
+	fmt.Printf("%s Downloaded source from %s to %s\n", terminal.SuccessSymbol(), terminal.Gray(sourcePath), terminal.Gray(extractedPath))
+	return extractedPath, cleanup, nil
 }
 
 func runSourceRm(_ *cobra.Command, args []string) error {

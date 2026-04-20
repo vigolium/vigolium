@@ -43,7 +43,7 @@ func BuildNativeScanPlan(opts *types.Options) NativeScanPlan {
 		{Phase: PhaseSpidering, Enabled: opts.SpideringEnabled},
 		{Phase: PhaseSAST, Enabled: opts.SASTEnabled},
 		{Phase: PhaseDiscovery, Enabled: !opts.SkipIngestion},
-		{Phase: PhaseSeed, Enabled: opts.SkipIngestion && (opts.KnownIssueScanEnabled || !opts.SkipDynamicAssessment)},
+		{Phase: PhaseSeed, Enabled: opts.SkipIngestion && !opts.ScanOnReceive && (opts.KnownIssueScanEnabled || !opts.SkipDynamicAssessment)},
 		{Phase: PhaseKnownIssueScan, Enabled: opts.KnownIssueScanEnabled},
 		{Phase: PhaseDynamicAssessment, Enabled: !opts.SkipDynamicAssessment},
 	}

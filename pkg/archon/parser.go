@@ -280,8 +280,8 @@ func ParseAuditFolder(folderPath string) (*AuditImport, error) {
 	}, nil
 }
 
-// BuildAgentRun creates a database.AgentRun from the parsed audit state.
-func BuildAgentRun(state *AuditState, folderPath, projectUUID string) *database.AgentRun {
+// BuildAgenticScan creates a database.AgenticScan from the parsed audit state.
+func BuildAgenticScan(state *AuditState, folderPath, projectUUID string) *database.AgenticScan {
 	audit := state.Audits[0]
 
 	// Collect phase keys sorted
@@ -318,30 +318,31 @@ func BuildAgentRun(state *AuditState, folderPath, projectUUID string) *database.
 		status = "completed"
 	}
 
-	return &database.AgentRun{
-		UUID:        uuid.New().String(),
-		ProjectUUID: projectUUID,
-		Mode:        "archon",
-		AgentName:   "archon-audit",
-		InputRaw:    fmt.Sprintf("commit:%s branch:%s", audit.Commit, audit.Branch),
-		InputType:   "archon",
-		Status:      status,
-		PhasesRun:   phases,
+	return &database.AgenticScan{
+		UUID:         uuid.New().String(),
+		ProjectUUID:  projectUUID,
+		Mode:         "archon",
+		AgentName:    "archon-audit",
+		InputRaw:     fmt.Sprintf("commit:%s branch:%s", audit.Commit, audit.Branch),
+		InputType:    "archon",
+		Status:       status,
+		PhasesRun:    phases,
 		FindingCount: findingCount,
-		SourcePath:  folderPath,
-		StartedAt:   audit.StartedAt.Time,
-		CompletedAt: audit.CompletedAt.Time,
-		DurationMs:  durationMs,
-		ResultJSON:  string(stateBytes),
-		AttackPlan:  attackPlan,
+		SourcePath:   folderPath,
+		SourceType:   database.InferSourceType(folderPath),
+		StartedAt:    audit.StartedAt.Time,
+		CompletedAt:  audit.CompletedAt.Time,
+		DurationMs:   durationMs,
+		ResultJSON:   string(stateBytes),
+		AttackPlan:   attackPlan,
 	}
 }
 
 // BuildFindings converts parsed ArchonFindings to database.Finding structs.
-func BuildFindings(findings []*ArchonFinding, auditID, agentRunUUID, projectUUID, repoName string) []*database.Finding {
+func BuildFindings(findings []*ArchonFinding, auditID, agenticScanUUID, projectUUID, repoName string) []*database.Finding {
 	var result []*database.Finding
 	for _, af := range findings {
-		result = append(result, toDBFinding(af, auditID, agentRunUUID, projectUUID, repoName))
+		result = append(result, toDBFinding(af, auditID, agenticScanUUID, projectUUID, repoName))
 	}
 	return result
 }
@@ -1195,7 +1196,7 @@ func applyColdVerify(base, overlay *ArchonFinding) {
 	}
 }
 
-func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName string) *database.Finding {
+func toDBFinding(af *ArchonFinding, auditID, agenticScanUUID, projectUUID, repoName string) *database.Finding {
 	moduleID := fmt.Sprintf("archon:%s", strings.ToLower(af.FindingID))
 
 	severity := strings.ToUpper(af.Severity)
@@ -1270,7 +1271,7 @@ func toDBFinding(af *ArchonFinding, auditID, agentRunUUID, projectUUID, repoName
 	return &database.Finding{
 		ProjectUUID:     projectUUID,
 		HTTPRecordUUIDs: []string{},
-		AgentRunUUID:    agentRunUUID,
+		AgenticScanUUID:    agenticScanUUID,
 		ModuleID:        moduleID,
 		ModuleName:      af.Title,
 		ModuleType:      database.ModuleTypeWhitebox,

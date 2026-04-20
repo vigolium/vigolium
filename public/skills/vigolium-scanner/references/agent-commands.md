@@ -325,7 +325,7 @@ The master agent produces a plan with three tiers of custom checks (lightest fir
   "false_positives": 2,
   "iterations": 2,
   "duration": "3m45s",
-  "agent_run_uuid": "...",
+  "agentic_scan_uuid": "...",
   "session_id": "...",
   "session_dir": "~/.vigolium/agent-sessions/<uuid>"
 }

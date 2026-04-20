@@ -157,7 +157,7 @@ func TestSwarmBasicPlan(t *testing.T) {
 
 	// Verify result structure
 	assert.NotNil(t, result)
-	assert.NotEmpty(t, result.AgentRunUUID)
+	assert.NotEmpty(t, result.AgenticScanUUID)
 	assert.Equal(t, 1, result.TotalRecords)
 
 	// Verify the plan was parsed correctly
@@ -285,7 +285,7 @@ func TestSwarmEmptyAgentOutput(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty output")
 	// Result should still be returned (with the agent run UUID for debugging)
 	assert.NotNil(t, result)
-	assert.NotEmpty(t, result.AgentRunUUID)
+	assert.NotEmpty(t, result.AgenticScanUUID)
 }
 
 // TestSwarmDryRun tests that --dry-run renders prompts without executing agents.
@@ -625,7 +625,7 @@ func TestSwarmRealAgent(t *testing.T) {
 	}
 
 	require.NotNil(t, result)
-	t.Logf("Agent run UUID: %s", result.AgentRunUUID)
+	t.Logf("Agent run UUID: %s", result.AgenticScanUUID)
 	t.Logf("Total records: %d", result.TotalRecords)
 	t.Logf("Duration: %s", result.Duration)
 
@@ -1952,7 +1952,7 @@ func TestSwarmSourceAnalysisFullPipeline(t *testing.T) {
 	require.NoError(t, err, "swarm with source analysis should succeed")
 	require.NotNil(t, result)
 
-	t.Logf("Agent run UUID: %s", result.AgentRunUUID)
+	t.Logf("Agent run UUID: %s", result.AgenticScanUUID)
 	t.Logf("Total records: %d", result.TotalRecords)
 	t.Logf("Duration: %s", result.Duration)
 

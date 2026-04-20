@@ -258,7 +258,7 @@ func TestBuildFindings_Lite(t *testing.T) {
 	assert.Equal(t, database.FindingSourceArchon, c1.FindingSource)
 	assert.Contains(t, c1.Tags, "archon")
 	assert.NotEmpty(t, c1.FindingHash)
-	assert.Equal(t, "test-run", c1.AgentRunUUID)
+	assert.Equal(t, "test-run", c1.AgenticScanUUID)
 
 	// Severity distribution.
 	counts := map[string]int{}
@@ -288,7 +288,7 @@ func TestParseAuditStateStringSummary(t *testing.T) {
 	assert.Contains(t, p1.SummaryText(), "Advisory collection complete")
 
 	// Finding count extraction should gracefully return 0 when summary is a string
-	run := BuildAgentRun(state, stringSummaryDir(), database.DefaultProjectUUID)
+	run := BuildAgenticScan(state, stringSummaryDir(), database.DefaultProjectUUID)
 	assert.Equal(t, 0, run.FindingCount, "string summary cannot provide total_findings, should be 0")
 	assert.Equal(t, "completed", run.Status)
 }

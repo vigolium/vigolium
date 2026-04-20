@@ -43,14 +43,14 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	db, repo := setupTestDB(t)
 	ctx := context.Background()
 
-	// Build and create AgentRun
-	agentRun := archon.BuildAgentRun(result.State, harborDir, database.DefaultProjectUUID)
-	require.NotEmpty(t, agentRun.UUID)
-	err = repo.CreateAgentRun(ctx, agentRun)
+	// Build and create AgenticScan
+	agenticScan := archon.BuildAgenticScan(result.State, harborDir, database.DefaultProjectUUID)
+	require.NotEmpty(t, agenticScan.UUID)
+	err = repo.CreateAgenticScan(ctx, agenticScan)
 	require.NoError(t, err)
 
-	// Verify AgentRun was stored
-	storedRun, err := repo.GetAgentRun(ctx, agentRun.UUID)
+	// Verify AgenticScan was stored
+	storedRun, err := repo.GetAgenticScan(ctx, agenticScan.UUID)
 	require.NoError(t, err)
 	assert.Equal(t, "archon", storedRun.Mode)
 	assert.Equal(t, "archon-audit", storedRun.AgentName)
@@ -65,7 +65,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 
 	// Build and save findings
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	require.NotEmpty(t, findings)
 
 	saved, skipped := 0, 0
@@ -107,7 +107,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	assert.Equal(t, database.FindingSourceArchon, p7001.FindingSource)
 	assert.Equal(t, "open-redirect-authproxy", p7001.ModuleShort)
 	assert.Equal(t, "CWE-601", p7001.CWEID)
-	assert.Equal(t, agentRun.UUID, p7001.AgentRunUUID)
+	assert.Equal(t, agenticScan.UUID, p7001.AgenticScanUUID)
 	assert.Contains(t, p7001.Tags, "archon")
 	assert.Contains(t, p7001.Tags, "phase-7")
 	assert.NotEmpty(t, p7001.Description)
@@ -123,7 +123,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 	assert.True(t, sevCounts["medium"] > 0, "should have medium severity findings")
 
 	// Verify dedup: import the same data again
-	findings2 := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings2 := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	dupes := 0
 	for _, f := range findings2 {
 		_ = repo.SaveFindingDirect(ctx, f)
@@ -159,7 +159,7 @@ func TestArchonImport_HarborFullPipeline(t *testing.T) {
 
 	// Export agent runs to JSONL
 	exportRunsPath := filepath.Join(exportDir(), "archon-harbor-agent-runs.jsonl")
-	exportAgentRuns(t, db, exportRunsPath)
+	exportAgenticScans(t, db, exportRunsPath)
 
 	runsData, err := os.ReadFile(exportRunsPath)
 	require.NoError(t, err)
@@ -189,12 +189,12 @@ func TestArchonImport_AllDatasets(t *testing.T) {
 			_, repo := setupTestDB(t)
 			ctx := context.Background()
 
-			agentRun := archon.BuildAgentRun(result.State, dir, database.DefaultProjectUUID)
-			err = repo.CreateAgentRun(ctx, agentRun)
+			agenticScan := archon.BuildAgenticScan(result.State, dir, database.DefaultProjectUUID)
+			err = repo.CreateAgenticScan(ctx, agenticScan)
 			require.NoError(t, err)
 
 			auditID := result.State.Audits[0].AuditID
-			findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+			findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 
 			saved := 0
 			for _, f := range findings {
@@ -239,11 +239,11 @@ func exportFindings(t *testing.T, db *database.DB, outPath string) {
 	}
 }
 
-func exportAgentRuns(t *testing.T, db *database.DB, outPath string) {
+func exportAgenticScans(t *testing.T, db *database.DB, outPath string) {
 	t.Helper()
 	ctx := context.Background()
 
-	var runs []*database.AgentRun
+	var runs []*database.AgenticScan
 	err := db.NewSelect().Model(&runs).OrderExpr("created_at DESC").Scan(ctx)
 	require.NoError(t, err)
 
@@ -254,7 +254,7 @@ func exportAgentRuns(t *testing.T, db *database.DB, outPath string) {
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	for _, run := range runs {
-		err := enc.Encode(exportEnvelope{Type: "agent_run", Data: run})
+		err := enc.Encode(exportEnvelope{Type: "agentic_scan", Data: run})
 		require.NoError(t, err)
 	}
 }
@@ -300,11 +300,11 @@ func TestArchonImport_OllamaReportAndPoC(t *testing.T) {
 	db, repo := setupTestDB(t)
 	ctx := context.Background()
 
-	agentRun := archon.BuildAgentRun(result.State, ollamaDir, database.DefaultProjectUUID)
-	require.NoError(t, repo.CreateAgentRun(ctx, agentRun))
+	agenticScan := archon.BuildAgenticScan(result.State, ollamaDir, database.DefaultProjectUUID)
+	require.NoError(t, repo.CreateAgenticScan(ctx, agenticScan))
 
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	require.NotEmpty(t, findings)
 
 	for _, f := range findings {
@@ -429,11 +429,11 @@ func TestArchonImport_GrafanaReportAndPoC(t *testing.T) {
 	db, repo := setupTestDB(t)
 	ctx := context.Background()
 
-	agentRun := archon.BuildAgentRun(result.State, grafanaDir, database.DefaultProjectUUID)
-	require.NoError(t, repo.CreateAgentRun(ctx, agentRun))
+	agenticScan := archon.BuildAgenticScan(result.State, grafanaDir, database.DefaultProjectUUID)
+	require.NoError(t, repo.CreateAgenticScan(ctx, agenticScan))
 
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	require.NotEmpty(t, findings)
 
 	for _, f := range findings {
@@ -493,7 +493,7 @@ func TestArchonImport_GrafanaReportAndPoC(t *testing.T) {
 	t.Logf("grafana-archon: %d findings imported to DB", len(dbFindings))
 
 	// Verify dedup works with the enriched data.
-	findings2 := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings2 := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	dupes := 0
 	for _, f := range findings2 {
 		_ = repo.SaveFindingDirect(ctx, f)
@@ -516,11 +516,11 @@ func TestArchonImport_PoCContentRoundTrip(t *testing.T) {
 	db, repo := setupTestDB(t)
 	ctx := context.Background()
 
-	agentRun := archon.BuildAgentRun(result.State, ollamaDir, database.DefaultProjectUUID)
-	require.NoError(t, repo.CreateAgentRun(ctx, agentRun))
+	agenticScan := archon.BuildAgenticScan(result.State, ollamaDir, database.DefaultProjectUUID)
+	require.NoError(t, repo.CreateAgenticScan(ctx, agenticScan))
 
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, database.DefaultProjectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, database.DefaultProjectUUID, result.RepoName)
 	for _, f := range findings {
 		require.NoError(t, repo.SaveFindingDirect(ctx, f))
 	}

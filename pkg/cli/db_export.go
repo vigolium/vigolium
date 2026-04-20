@@ -1,16 +1,22 @@
 package cli
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -40,7 +46,7 @@ var (
 func init() {
 	dbCmd.AddCommand(dbExportCmd)
 
-	dbExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "jsonl", "Export format: jsonl, json, raw, csv, markdown, markdown-table")
+	dbExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "jsonl", "Export format: jsonl, json, raw, csv, markdown, markdown-table, bundle")
 	dbExportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path, defaults to stdout")
 
 	dbExportCmd.Flags().StringVar(&exportHost, "host", "", "Filter records by hostname pattern")
@@ -78,6 +84,18 @@ func runDBExport(cmd *cobra.Command, args []string) error {
 		outputFile = f
 	} else {
 		outputFile = os.Stdout
+	}
+
+	// bundle requires -o and handles its own file I/O
+	if exportFormat == "bundle" {
+		if exportOutput == "" {
+			return fmt.Errorf("--format bundle requires -o/--output to specify the archive path")
+		}
+		projectUUID, err := resolveProjectUUID()
+		if err != nil {
+			return err
+		}
+		return exportBundle(context.Background(), db, projectUUID)
 	}
 
 	return runWithWatch(func() error {
@@ -393,3 +411,298 @@ func exportMarkdownTable(records []*database.HTTPRecord, out *os.File) error {
 func mdEscape(s string) string {
 	return strings.ReplaceAll(s, "|", "\\|")
 }
+
+func exportBundle(ctx context.Context, db *database.DB, projectUUID string) error {
+	f, err := os.Create(exportOutput)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	defer func() { _ = gw.Close() }()
+	tw := tar.NewWriter(gw)
+	defer func() { _ = tw.Close() }()
+
+	counts := make(map[string]int)
+	var dataLines []byte
+	var envelopes []any
+
+	appendEnvelope := func(typeName string, item any) error {
+		env := exportEnvelope{Type: typeName, Data: item}
+		line, err := json.Marshal(env)
+		if err != nil {
+			return err
+		}
+		dataLines = append(dataLines, line...)
+		dataLines = append(dataLines, '\n')
+		envelopes = append(envelopes, env)
+		counts[typeName]++
+		return nil
+	}
+
+	projectFilter := func(q *bun.SelectQuery) *bun.SelectQuery {
+		if projectUUID != "" {
+			return q.Where("project_uuid = ?", projectUUID)
+		}
+		return q
+	}
+
+	// --- HTTP Records ---
+	qb := database.NewQueryBuilder(db, database.QueryFilters{ProjectUUID: projectUUID})
+	records, err := qb.Execute(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query HTTP records: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, r := range records {
+			r.RequestBody = nil
+			r.ResponseBody = nil
+			if err := appendEnvelope("http_record", r); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- Findings ---
+	var findings []*database.Finding
+	fq := projectFilter(db.NewSelect().Model(&findings).OrderExpr("found_at DESC"))
+	if err := fq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query findings: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, fi := range findings {
+			if err := appendEnvelope("finding", fi); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- Scans ---
+	var scans []*database.Scan
+	sq := projectFilter(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"))
+	if err := sq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query scans: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, s := range scans {
+			if err := appendEnvelope("scan", s); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- Agentic Scans ---
+	var agenticScans []*database.AgenticScan
+	aq := projectFilter(db.NewSelect().Model(&agenticScans).OrderExpr("created_at DESC"))
+	if err := aq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query agentic scans: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, a := range agenticScans {
+			if err := appendEnvelope("agentic_scan", a); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- OAST Interactions ---
+	var interactions []*database.OASTInteraction
+	oq := projectFilter(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"))
+	if err := oq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query OAST interactions: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, i := range interactions {
+			if err := appendEnvelope("oast_interaction", i); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- Source Repos ---
+	var repos []*database.SourceRepo
+	rq := projectFilter(db.NewSelect().Model(&repos).OrderExpr("created_at DESC"))
+	if err := rq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query source repos: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, r := range repos {
+			if err := appendEnvelope("source_repo", r); err != nil {
+				return err
+			}
+		}
+	}
+
+	// --- Scopes ---
+	var scopes []*database.Scope
+	scq := projectFilter(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"))
+	if err := scq.Scan(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query scopes: %v\n", terminal.WarningSymbol(), err)
+	} else {
+		for _, s := range scopes {
+			if err := appendEnvelope("scope", s); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Write data.jsonl into the archive
+	if len(dataLines) > 0 {
+		hdr := &tar.Header{
+			Name:    "data.jsonl",
+			Size:    int64(len(dataLines)),
+			Mode:    0644,
+			ModTime: time.Now(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("failed to write tar header for data.jsonl: %w", err)
+		}
+		if _, err := tw.Write(dataLines); err != nil {
+			return fmt.Errorf("failed to write tar data for data.jsonl: %w", err)
+		}
+	}
+
+	// --- HTML report ---
+	if len(envelopes) > 0 {
+		meta := output.HTMLReportMeta{
+			Title:        "Vigolium Export Report",
+			Version:      getVersion(),
+			ScanDuration: computeScanDuration(ctx, db),
+		}
+		tmpFile, err := os.CreateTemp("", "vigolium-bundle-report-*.html")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to create temp file for HTML report: %v\n", terminal.WarningSymbol(), err)
+		} else {
+			tmpPath := tmpFile.Name()
+			_ = tmpFile.Close()
+			defer os.Remove(tmpPath)
+
+			if err := output.GenerateHTMLReport(envelopes, tmpPath, meta); err != nil {
+				fmt.Fprintf(os.Stderr, "%s Failed to generate HTML report: %v\n", terminal.WarningSymbol(), err)
+			} else {
+				htmlData, err := os.ReadFile(tmpPath)
+				if err == nil {
+					hdr := &tar.Header{
+						Name:    "report.html",
+						Size:    int64(len(htmlData)),
+						Mode:    0644,
+						ModTime: time.Now(),
+					}
+					if err := tw.WriteHeader(hdr); err != nil {
+						return fmt.Errorf("failed to write tar header for report.html: %w", err)
+					}
+					if _, err := tw.Write(htmlData); err != nil {
+						return fmt.Errorf("failed to write tar data for report.html: %w", err)
+					}
+				}
+			}
+		}
+	}
+
+	// --- Agent session directories ---
+	sessionCount := 0
+	sessionsDir := resolveSessionsDir()
+	for _, a := range agenticScans {
+		sessionPath := a.SessionDir
+		if sessionPath == "" && a.UUID != "" {
+			sessionPath = filepath.Join(sessionsDir, a.UUID)
+		}
+		if sessionPath == "" {
+			continue
+		}
+		info, err := os.Stat(sessionPath)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		baseName := filepath.Base(sessionPath)
+		err = filepath.WalkDir(sessionPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(sessionPath, path)
+			archivePath := filepath.Join("sessions", baseName, rel)
+
+			if d.IsDir() {
+				hdr := &tar.Header{
+					Typeflag: tar.TypeDir,
+					Name:     archivePath + "/",
+					Mode:     0755,
+					ModTime:  time.Now(),
+				}
+				return tw.WriteHeader(hdr)
+			}
+
+			fi, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			hdr := &tar.Header{
+				Name:    archivePath,
+				Size:    fi.Size(),
+				Mode:    0644,
+				ModTime: fi.ModTime(),
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			_, err = tw.Write(data)
+			return err
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to archive session %s: %v\n", terminal.WarningSymbol(), baseName, err)
+		} else {
+			sessionCount++
+		}
+	}
+
+	// Write metadata.json
+	meta := map[string]any{
+		"export_date":    time.Now().Format(time.RFC3339),
+		"project_uuid":   projectUUID,
+		"counts":         counts,
+		"session_count":  sessionCount,
+	}
+	metaBytes, _ := json.MarshalIndent(meta, "", "  ")
+	metaBytes = append(metaBytes, '\n')
+	hdr := &tar.Header{
+		Name:    "metadata.json",
+		Size:    int64(len(metaBytes)),
+		Mode:    0644,
+		ModTime: time.Now(),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("failed to write tar header for metadata: %w", err)
+	}
+	if _, err := tw.Write(metaBytes); err != nil {
+		return fmt.Errorf("failed to write tar data for metadata: %w", err)
+	}
+
+	// Print summary
+	total := 0
+	fmt.Fprintf(os.Stderr, "\n%s Export summary (format: %s)\n", terminal.InfoSymbol(), terminal.Cyan("bundle"))
+	fmt.Fprintf(os.Stderr, "  Output: %s\n", terminal.Cyan(exportOutput))
+	typeOrder := []struct{ key, label string }{
+		{"http_record", "HTTP records"},
+		{"finding", "Findings"},
+		{"scan", "Scans"},
+		{"agentic_scan", "Agentic scans"},
+		{"oast_interaction", "OAST interactions"},
+		{"source_repo", "Source repos"},
+		{"scope", "Scopes"},
+	}
+	for _, t := range typeOrder {
+		if c, ok := counts[t.key]; ok && c > 0 {
+			fmt.Fprintf(os.Stderr, "  %-20s %d\n", t.label, c)
+			total += c
+		}
+	}
+	fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Total records", total)
+	if sessionCount > 0 {
+		fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Agent sessions", sessionCount)
+	}
+	if projectUUID != "" {
+		fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Cyan(projectUUID))
+	}
+
+	return nil
+}
+

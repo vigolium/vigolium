@@ -268,7 +268,7 @@ type SwarmResult struct {
 	FalsePositives  int                      `json:"false_positives"`
 	Iterations      int                      `json:"iterations"`
 	Duration        time.Duration            `json:"duration"`
-	AgentRunUUID    string                   `json:"agent_run_uuid"`
+	AgenticScanUUID    string                   `json:"agentic_scan_uuid"`
 	SessionID       string                   `json:"session_id,omitempty"`  // last session ID (for single or last batch)
 	SessionIDs      []string                 `json:"session_ids,omitempty"` // all session IDs when batched (>5 records); nil for single-batch runs
 	SessionDir      string                   `json:"session_dir,omitempty"`

@@ -33,14 +33,14 @@ const cancelGracePeriod = 10 * time.Second
 // Used by normalizeOwnerRepo to validate the candidate before returning it.
 var ownerRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 
-// AuditAgentRunner manages an archon-audit running as a background agent process.
+// AuditAgenticScanner manages an archon-audit running as a background agent process.
 // It launches the agent (Claude, Codex, or OpenCode), periodically syncs audit-state.json
 // and findings to the vigolium session dir, and imports findings into the database when complete.
-type AuditAgentRunner struct {
+type AuditAgenticScanner struct {
 	cfg  AuditAgentConfig
 	repo *database.Repository
 
-	agentRunUUID string // UUID of the child AgentRun record tracking this audit
+	agenticScanUUID string // UUID of the child AgenticScan record tracking this audit
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -85,15 +85,15 @@ func (s FindingStats) SeverityBreakdownString() string {
 	return strings.Join(parts, "  ")
 }
 
-// NewAuditAgentRunner creates a new runner for the background archon-audit.
-func NewAuditAgentRunner(cfg AuditAgentConfig, repo *database.Repository) *AuditAgentRunner {
+// NewAuditAgenticScanner creates a new runner for the background archon-audit.
+func NewAuditAgenticScanner(cfg AuditAgentConfig, repo *database.Repository) *AuditAgenticScanner {
 	if cfg.SyncInterval <= 0 {
 		cfg.SyncInterval = 30 * time.Second
 	}
-	return &AuditAgentRunner{
+	return &AuditAgenticScanner{
 		cfg:          cfg,
 		repo:         repo,
-		agentRunUUID: uuid.New().String(),
+		agenticScanUUID: uuid.New().String(),
 		done:         make(chan struct{}),
 		syncedFiles:  make(map[string]int64),
 	}
@@ -101,7 +101,7 @@ func NewAuditAgentRunner(cfg AuditAgentConfig, repo *database.Repository) *Audit
 
 // Start launches archon-audit as a background agent process.
 // The platform field determines which CLI binary and args are used.
-func (r *AuditAgentRunner) Start(ctx context.Context) error {
+func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	platform := r.cfg.Platform
 	if platform == "" {
 		platform = archon.PlatformClaude
@@ -150,7 +150,7 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(), archonEnvFor(r.cfg.SourcePath, r.agentRunUUID, r.cfg.CommitScanLimit, r.cfg.CommitScanSince)...)
+	cmd.Env = append(os.Environ(), archonEnvFor(r.cfg.SourcePath, r.agenticScanUUID, r.cfg.CommitScanLimit, r.cfg.CommitScanSince)...)
 	if stdinPrompt != "" {
 		cmd.Stdin = strings.NewReader(stdinPrompt)
 	}
@@ -215,8 +215,8 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 		}()
 	}
 
-	// Create child AgentRun record
-	r.createAgentRun(ctx)
+	// Create child AgenticScan record
+	r.createAgenticScan(ctx)
 
 	go r.monitor(ctx, cmd, &outputBuf)
 	go r.syncLoop(ctx)
@@ -224,12 +224,12 @@ func (r *AuditAgentRunner) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *AuditAgentRunner) createAgentRun(ctx context.Context) {
+func (r *AuditAgenticScanner) createAgenticScan(ctx context.Context) {
 	if r.repo == nil {
 		return
 	}
-	run := &database.AgentRun{
-		UUID:          r.agentRunUUID,
+	run := &database.AgenticScan{
+		UUID:          r.agenticScanUUID,
 		ProjectUUID:   r.cfg.ProjectUUID,
 		ScanUUID:      r.cfg.ScanUUID,
 		Mode:          "archon",
@@ -241,12 +241,12 @@ func (r *AuditAgentRunner) createAgentRun(ctx context.Context) {
 		ParentRunUUID: r.cfg.ParentRunUUID,
 		StartedAt:     time.Now(),
 	}
-	if err := r.repo.CreateAgentRun(ctx, run); err != nil {
-		zap.L().Debug("Failed to create archon AgentRun", zap.Error(err))
+	if err := r.repo.CreateAgenticScan(ctx, run); err != nil {
+		zap.L().Debug("Failed to create archon AgenticScan", zap.Error(err))
 	}
 }
 
-func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *syncBuffer) {
+func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output *syncBuffer) {
 	defer close(r.done)
 
 	err := cmd.Wait()
@@ -297,14 +297,14 @@ func (r *AuditAgentRunner) monitor(ctx context.Context, cmd *exec.Cmd, output *s
 		}
 	}
 
-	// Update AgentRun as completed/failed
-	r.finalizeAgentRun(ctx, err)
+	// Update AgenticScan as completed/failed
+	r.finalizeAgenticScan(ctx, err)
 }
 
 // collectFallbackOutput reads key archon output files from the synced session
 // directory and concatenates them. Used when the process was killed before
 // stdout was flushed (e.g. --print mode with early cancellation).
-func (r *AuditAgentRunner) collectFallbackOutput() []byte {
+func (r *AuditAgenticScanner) collectFallbackOutput() []byte {
 	archonDir := filepath.Join(r.cfg.SessionDir, "archon-audit")
 
 	// Top-level reports across lite/scan/deep modes. Includes the Phase 5A/5B/5C
@@ -365,7 +365,7 @@ func (r *AuditAgentRunner) collectFallbackOutput() []byte {
 	return buf
 }
 
-func (r *AuditAgentRunner) syncLoop(ctx context.Context) {
+func (r *AuditAgenticScanner) syncLoop(ctx context.Context) {
 	ticker := time.NewTicker(r.cfg.SyncInterval)
 	defer ticker.Stop()
 
@@ -383,9 +383,9 @@ func (r *AuditAgentRunner) syncLoop(ctx context.Context) {
 }
 
 // syncStateOnce copies audit-state.json from source to session dir
-// and updates the child AgentRun with current phase info.
+// and updates the child AgenticScan with current phase info.
 // Skips DB updates when the state hasn't changed since last tick.
-func (r *AuditAgentRunner) syncStateOnce() {
+func (r *AuditAgenticScanner) syncStateOnce() {
 	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
@@ -407,13 +407,13 @@ func (r *AuditAgentRunner) syncStateOnce() {
 	hash := fmt.Sprintf("%x", md5.Sum(data))
 	if hash != r.lastStateHash {
 		r.lastStateHash = hash
-		r.updateAgentRunProgress(data)
+		r.updateAgenticScanProgress(data)
 	}
 }
 
 // syncFindingsIncremental copies new/changed files from findings-draft/ to session dir.
 // Tracks synced files by size to avoid re-copying unchanged files.
-func (r *AuditAgentRunner) syncFindingsIncremental() {
+func (r *AuditAgenticScanner) syncFindingsIncremental() {
 	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
@@ -450,7 +450,7 @@ func (r *AuditAgentRunner) syncFindingsIncremental() {
 }
 
 // syncFolderFull copies the entire archon/ folder to session dir.
-func (r *AuditAgentRunner) syncFolderFull() {
+func (r *AuditAgenticScanner) syncFolderFull() {
 	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
@@ -468,7 +468,7 @@ func (r *AuditAgentRunner) syncFolderFull() {
 
 // importArchonFindings parses the archon output from session dir and imports findings.
 // Populates r.findingStats so the CLI summary can report what was persisted.
-func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
+func (r *AuditAgenticScanner) importArchonFindings(ctx context.Context) {
 	// Parse from session dir (synced copy) or fall back to source dir
 	var archonDir string
 	if r.cfg.SessionDir != "" {
@@ -488,7 +488,7 @@ func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
 		auditID = result.State.Audits[0].AuditID
 	}
 
-	findings := archon.BuildFindings(result.RawFindings, auditID, r.agentRunUUID, r.cfg.ProjectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, r.agenticScanUUID, r.cfg.ProjectUUID, result.RepoName)
 
 	stats := FindingStats{
 		Parsed:     len(findings),
@@ -525,7 +525,7 @@ func (r *AuditAgentRunner) importArchonFindings(ctx context.Context) {
 
 // FindingStats returns the summary of findings parsed and imported by this
 // audit run. Only populated after monitor() has completed.
-func (r *AuditAgentRunner) FindingStats() FindingStats {
+func (r *AuditAgenticScanner) FindingStats() FindingStats {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	stats := r.findingStats
@@ -539,7 +539,7 @@ func (r *AuditAgentRunner) FindingStats() FindingStats {
 	return stats
 }
 
-func (r *AuditAgentRunner) updateAgentRunProgress(stateData []byte) {
+func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
 	if r.repo == nil {
 		return
 	}
@@ -563,7 +563,7 @@ func (r *AuditAgentRunner) updateAgentRunProgress(stateData []byte) {
 	}
 
 	ctx := context.Background()
-	run, err := r.repo.GetAgentRun(ctx, r.agentRunUUID)
+	run, err := r.repo.GetAgenticScan(ctx, r.agenticScanUUID)
 	if err != nil {
 		return
 	}
@@ -578,15 +578,15 @@ func (r *AuditAgentRunner) updateAgentRunProgress(stateData []byte) {
 		}
 	}
 
-	_ = r.repo.UpdateAgentRun(ctx, run)
+	_ = r.repo.UpdateAgenticScan(ctx, run)
 }
 
-func (r *AuditAgentRunner) finalizeAgentRun(ctx context.Context, processErr error) {
+func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processErr error) {
 	if r.repo == nil {
 		return
 	}
 
-	run, err := r.repo.GetAgentRun(ctx, r.agentRunUUID)
+	run, err := r.repo.GetAgenticScan(ctx, r.agenticScanUUID)
 	if err != nil {
 		return
 	}
@@ -613,11 +613,11 @@ func (r *AuditAgentRunner) finalizeAgentRun(ctx context.Context, processErr erro
 		run.ResultJSON = string(data)
 	}
 
-	_ = r.repo.UpdateAgentRun(ctx, run)
+	_ = r.repo.UpdateAgenticScan(ctx, run)
 }
 
 // Wait blocks until the archon audit finishes.
-func (r *AuditAgentRunner) Wait() error {
+func (r *AuditAgenticScanner) Wait() error {
 	<-r.done
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -625,12 +625,12 @@ func (r *AuditAgentRunner) Wait() error {
 }
 
 // Done returns a channel that closes when the archon audit finishes.
-func (r *AuditAgentRunner) Done() <-chan struct{} {
+func (r *AuditAgenticScanner) Done() <-chan struct{} {
 	return r.done
 }
 
 // Cancel stops the archon audit process. Sends SIGTERM first, then SIGKILL after a grace period.
-func (r *AuditAgentRunner) Cancel() {
+func (r *AuditAgenticScanner) Cancel() {
 	r.mu.Lock()
 	r.cancelled = true
 	cmd := r.cmd
@@ -651,7 +651,7 @@ func (r *AuditAgentRunner) Cancel() {
 }
 
 // Status returns a summary of the current audit state.
-func (r *AuditAgentRunner) Status() *AuditAgentStatus {
+func (r *AuditAgenticScanner) Status() *AuditAgentStatus {
 	state := r.readCurrentState()
 	if state == nil || len(state.Audits) == 0 {
 		return &AuditAgentStatus{Running: r.isRunning(), Phase: "initializing"}
@@ -681,7 +681,7 @@ func (r *AuditAgentRunner) Status() *AuditAgentStatus {
 	}
 }
 
-func (r *AuditAgentRunner) isRunning() bool {
+func (r *AuditAgenticScanner) isRunning() bool {
 	select {
 	case <-r.done:
 		return false
@@ -690,7 +690,7 @@ func (r *AuditAgentRunner) isRunning() bool {
 	}
 }
 
-func (r *AuditAgentRunner) readCurrentState() *archon.AuditState {
+func (r *AuditAgenticScanner) readCurrentState() *archon.AuditState {
 	// Try the source dir first (authoritative while the audit is running),
 	// then fall back to the synced copy in the session dir. The fallback
 	// matters after monitor() removes SourcePath/archon on cleanup: by the
@@ -924,7 +924,7 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string, stream
 // Returns nil runner when disabled or no source path.
 // When streamWriter is non-nil, audit output is streamed in real-time; for
 // the Claude platform this enables stream-json rendering via claudestream.
-func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer) (*AuditAgentRunner, error) {
+func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer) (*AuditAgenticScanner, error) {
 	if !agentCfg.IsEnabled() || sourcePath == "" {
 		return nil, nil
 	}
@@ -943,7 +943,7 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sour
 		Stream:        streamWriter != nil,
 	}
 
-	runner := NewAuditAgentRunner(cfg, repo)
+	runner := NewAuditAgenticScanner(cfg, repo)
 	if err := runner.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start archon-audit: %w", err)
 	}
@@ -956,7 +956,7 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, sour
 // Returns nil runner and nil cleanup when the audit agent is not started.
 // When streamWriter is non-nil, audit output is streamed live (same rendering
 // as the standalone `vigolium agent archon` command).
-func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer, logFn func(msg string)) (*AuditAgentRunner, func(), error) {
+func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentConfig, sourcePath, sessionDir, projectUUID, scanUUID, parentRunUUID string, repo *database.Repository, streamWriter io.Writer, logFn func(msg string)) (*AuditAgenticScanner, func(), error) {
 	if auditCfg == nil || !auditCfg.IsEnabled() || sourcePath == "" {
 		return nil, nil, nil
 	}

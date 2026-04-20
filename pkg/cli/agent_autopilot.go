@@ -51,6 +51,7 @@ var (
 	autopilotDiff            string
 	autopilotLastCommits     int
 	autopilotIntensity       string
+	autopilotUploadResults   bool
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -168,6 +169,8 @@ func init() {
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
+
+	f.BoolVar(&autopilotUploadResults, "upload-results", false, "Upload scan results to cloud storage after completion (requires storage config)")
 }
 
 func runAgentAutopilot(cmd *cobra.Command, args []string) error {
@@ -299,6 +302,15 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 			zap.L().Warn("Failed to write PID file", zap.Error(pidErr))
 		}
 		defer agent.RemoveRunPID(sessionDir)
+	}
+
+	if looksLikeGCSPath(autopilotSource) {
+		extractedPath, cleanup, gcsErr := resolveGCSSource(&settings.Storage, autopilotSource, "")
+		if gcsErr != nil {
+			return fmt.Errorf("failed to resolve gs:// source: %w", gcsErr)
+		}
+		defer cleanup()
+		autopilotSource = extractedPath
 	}
 
 	// Resolve source (git URL, archive, local path) and diff context
@@ -509,7 +521,7 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 	// Wire browser
 	cfg.BrowserEnabled = settings.Agent.Browser.IsEnabled()
 
-	// Persist a parent autopilot AgentRun row whose UUID matches the session
+	// Persist a parent autopilot AgenticScan row whose UUID matches the session
 	// dir basename, so `vigolium agent sessions` lists the run with a UUID
 	// that resolves directly to ~/.vigolium/agent-sessions/<uuid>/.
 	startedAt := time.Now()
@@ -518,7 +530,7 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		parentRunUUID = filepath.Base(sessionDir)
 	}
 	if repo != nil && parentRunUUID != "" {
-		parentRun := &database.AgentRun{
+		parentRun := &database.AgenticScan{
 			UUID:        parentRunUUID,
 			ProjectUUID: projectUUID,
 			ScanUUID:    globalScanID,
@@ -526,12 +538,13 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 			AgentName:   autopilotAgent,
 			TargetURL:   autopilotTarget,
 			SourcePath:  autopilotSource,
+			SourceType:  database.InferSourceType(autopilotSource),
 			SessionDir:  sessionDir,
 			Status:      "running",
 			StartedAt:   startedAt,
 		}
-		if err := repo.CreateAgentRun(ctx, parentRun); err != nil {
-			zap.L().Debug("Failed to create parent autopilot AgentRun", zap.Error(err))
+		if err := repo.CreateAgenticScan(ctx, parentRun); err != nil {
+			zap.L().Debug("Failed to create parent autopilot AgenticScan", zap.Error(err))
 		}
 	}
 
@@ -549,10 +562,14 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 
 	printAutopilotSummary(result, cfg.SessionDir)
 
+	if autopilotUploadResults {
+		uploadAgenticScanResults(settings, projectUUID, parentRunUUID, sessionDir, repo)
+	}
+
 	return nil
 }
 
-// finalizeAutopilotParentRun reads the existing parent AgentRun row and updates
+// finalizeAutopilotParentRun reads the existing parent AgenticScan row and updates
 // it with completion state — status, duration, finding count, raw output. The
 // Get/mutate/Update pattern preserves any fields the archon child runner may
 // have written between create and finalize.
@@ -561,7 +578,7 @@ func finalizeAutopilotParentRun(repo *database.Repository, runUUID, sessionDir s
 		return
 	}
 	ctx := context.Background()
-	run, err := repo.GetAgentRun(ctx, runUUID)
+	run, err := repo.GetAgenticScan(ctx, runUUID)
 	if err != nil || run == nil {
 		zap.L().Debug("finalizeAutopilotParentRun: run not found", zap.String("uuid", runUUID), zap.Error(err))
 		return
@@ -592,7 +609,7 @@ func finalizeAutopilotParentRun(repo *database.Repository, runUUID, sessionDir s
 			run.AgentRawOutput = string(data)
 		}
 	}
-	if err := repo.UpdateAgentRun(ctx, run); err != nil {
+	if err := repo.UpdateAgenticScan(ctx, run); err != nil {
 		zap.L().Debug("finalizeAutopilotParentRun: update failed", zap.String("uuid", runUUID), zap.Error(err))
 	}
 }

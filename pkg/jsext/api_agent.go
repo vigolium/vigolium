@@ -21,7 +21,7 @@ const exAgentChat = `var reply = vigolium.agent.chat([{role: "user", content: "A
 const exAgentGeneratePayloads = `var payloads = vigolium.agent.generatePayloads({type: "xss", count: 10})`
 const exAgentAnalyzeResponse = `var result = vigolium.agent.analyzeResponse({request: req, response: resp, vulnerability_type: "sqli", payload: "' OR 1=1--"})`
 const exAgentConfirmFinding = `var result = vigolium.agent.confirmFinding({name: "SQL Injection", request: req, response: resp})`
-const exAgentRun = `var result = vigolium.agent.run({agent: "claude", prompt: "Analyze this target", timeout: 120})`
+const exAgenticScan = `var result = vigolium.agent.run({agent: "claude", prompt: "Analyze this target", timeout: 120})`
 
 // agentFuncDefs returns the JSFuncDef entries for vigolium.agent.*.
 func agentFuncDefs() []JSFuncDef {
@@ -89,10 +89,10 @@ func agentFuncDefs() []JSFuncDef {
 		{
 			Namespace: NsAgent, Name: "run",
 			Category: CatAgent, Signature: ".run(opts: {agent: string, prompt: string, timeout?: number})", Returns: "{output, findings, http_records}",
-			Description: "Run a named agent subprocess and collect structured output.", Example: exAgentRun,
+			Description: "Run a named agent subprocess and collect structured output.", Example: exAgenticScan,
 			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
-					return agentRun(vm, opts, call)
+					return agenticScan(vm, opts, call)
 				}
 			},
 		},
@@ -399,7 +399,7 @@ Output JSON: {"confirmed": bool, "confidence": "high"|"medium"|"low", "reasoning
 
 // ── subprocess: run ──────────────────────────────────────────────────────────
 
-func agentRun(vm *sobek.Runtime, opts APIOptions, call sobek.FunctionCall) sobek.Value {
+func agenticScan(vm *sobek.Runtime, opts APIOptions, call sobek.FunctionCall) sobek.Value {
 	if len(call.Arguments) == 0 {
 		panic(vm.NewTypeError("vigolium.agent.run: opts argument required"))
 	}

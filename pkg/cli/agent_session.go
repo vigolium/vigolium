@@ -71,7 +71,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	runs, total, err := repo.ListAgentRuns(ctx, projectUUID, sessionMode, sessionLimit, sessionOffset)
+	runs, total, err := repo.ListAgenticScans(ctx, projectUUID, sessionMode, sessionLimit, sessionOffset)
 	if err != nil {
 		return fmt.Errorf("failed to list agent sessions: %w", err)
 	}
@@ -101,7 +101,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 	// Build a child-run lookup: parent UUID → child modes
 	childModes := make(map[string][]string)
 	for _, r := range runs {
-		if children, err := repo.GetChildAgentRuns(ctx, r.UUID); err == nil {
+		if children, err := repo.GetChildAgenticScans(ctx, r.UUID); err == nil {
 			for _, child := range children {
 				childModes[r.UUID] = append(childModes[r.UUID], child.Mode)
 			}
@@ -180,7 +180,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 }
 
 func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid string) error {
-	run, err := repo.GetAgentRun(ctx, uuid)
+	run, err := repo.GetAgenticScan(ctx, uuid)
 	if err != nil {
 		return fmt.Errorf("session not found: %w", err)
 	}
@@ -370,7 +370,7 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 	printSessionRawOutput(run, sessionDir, tailLines)
 
 	// Child runs (e.g. archon sub-runs spawned by autopilot)
-	if children, childErr := repo.GetChildAgentRuns(ctx, run.UUID); childErr == nil && len(children) > 0 {
+	if children, childErr := repo.GetChildAgenticScans(ctx, run.UUID); childErr == nil && len(children) > 0 {
 		for _, child := range children {
 			printChildRunDetail(child, tailLines)
 		}
@@ -399,7 +399,7 @@ func colorRunStatus(status string) string {
 }
 
 // printChildRunDetail renders a child run's details inline within its parent's detail view.
-func printChildRunDetail(child *database.AgentRun, tailLines int) {
+func printChildRunDetail(child *database.AgenticScan, tailLines int) {
 	uuidShort := child.UUID
 	if len(uuidShort) > 8 {
 		uuidShort = uuidShort[:8] + "…"
@@ -462,7 +462,7 @@ func printChildRunDetail(child *database.AgentRun, tailLines int) {
 
 // resolveSessionDir returns the session directory path for a run,
 // preferring the DB-stored path and falling back to convention.
-func resolveSessionDir(run *database.AgentRun) string {
+func resolveSessionDir(run *database.AgenticScan) string {
 	if run.SessionDir != "" {
 		return run.SessionDir
 	}
@@ -521,7 +521,7 @@ func printSessionDirListing(sessionDir string) {
 }
 
 // printSessionRawOutput shows the tail of the agent's raw output.
-func printSessionRawOutput(run *database.AgentRun, sessionDir string, tailLines int) {
+func printSessionRawOutput(run *database.AgenticScan, sessionDir string, tailLines int) {
 	if tailLines == 0 {
 		return
 	}
@@ -578,7 +578,7 @@ func printSessionRawOutput(run *database.AgentRun, sessionDir string, tailLines 
 }
 
 // printArchonAuditStats parses and displays archon audit state from ResultJSON.
-func printArchonAuditStats(run *database.AgentRun) {
+func printArchonAuditStats(run *database.AgenticScan) {
 	if run.ResultJSON == "" {
 		return
 	}
@@ -823,7 +823,7 @@ func printSessionPlan(planJSON string, mode string) {
 }
 
 // printSessionAuth displays session auth configs associated with this agent run.
-func printSessionAuth(ctx context.Context, repo *database.Repository, run *database.AgentRun) {
+func printSessionAuth(ctx context.Context, repo *database.Repository, run *database.AgenticScan) {
 	if run.ScanUUID == "" {
 		return
 	}
@@ -886,7 +886,7 @@ func printSessionAuth(ctx context.Context, repo *database.Repository, run *datab
 }
 
 // printSessionExtensions discovers and displays extensions from the session directory.
-func printSessionExtensions(run *database.AgentRun) {
+func printSessionExtensions(run *database.AgenticScan) {
 	// Resolve session dir from the run UUID
 	sessionsDir := resolveSessionsDir()
 	if sessionsDir == "" {

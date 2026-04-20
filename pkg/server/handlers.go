@@ -97,7 +97,7 @@ type Handlers struct {
 	agentMu        sync.Mutex
 	agentHeavySem  chan struct{} // counting semaphore for heavy runs (autopilot/swarm)
 	agentLightSem  chan struct{} // counting semaphore for light runs (query/chat)
-	agentRunStatus map[string]*AgentRunStatusResponse
+	agenticScanStatus map[string]*AgenticScanStatusResponse
 
 	// Background cleanup for completed agent run statuses
 	agentCleanupStop chan struct{}
@@ -131,7 +131,7 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		scanQueues:       make(map[string]chan *queuedScan),
 		agentHeavySem:    make(chan struct{}, heavyMax),
 		agentLightSem:    make(chan struct{}, lightMax),
-		agentRunStatus:   make(map[string]*AgentRunStatusResponse),
+		agenticScanStatus:   make(map[string]*AgenticScanStatusResponse),
 		agentCleanupStop: make(chan struct{}),
 		counts:           newCountCache(10 * time.Second),
 	}
@@ -157,16 +157,16 @@ func (h *Handlers) agentDBCleanupLoop() {
 			// Prune in-memory map (completed runs older than 1h)
 			now := time.Now()
 			h.agentMu.Lock()
-			for id, status := range h.agentRunStatus {
+			for id, status := range h.agenticScanStatus {
 				if status.CompletedAt != nil && now.Sub(*status.CompletedAt) > time.Hour {
-					delete(h.agentRunStatus, id)
+					delete(h.agenticScanStatus, id)
 				}
 			}
 			h.agentMu.Unlock()
 
 			// Prune DB (completed/failed runs older than 24h)
 			if h.repo != nil {
-				if n, err := h.repo.DeleteOldAgentRuns(context.Background(), ttl); err == nil && n > 0 {
+				if n, err := h.repo.DeleteOldAgenticScans(context.Background(), ttl); err == nil && n > 0 {
 					zap.L().Debug("Cleaned up old agent runs", zap.Int("count", n))
 				}
 			}

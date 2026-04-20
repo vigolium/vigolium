@@ -938,6 +938,8 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 |--------------------|----------|--------------------------------------------------------|
 | `input_raw`        | string   | Raw input provided to the agent run                    |
 | `module_names`     | string[] | Scanner modules used or selected                       |
+| `source_path`      | string   | Source code path used for the run                      |
+| `source_type`      | string   | How source was provided: `local`, `git-url`, or `gcs`  |
 | `session_id`       | string   | Session ID (for autopilot resume)                      |
 | `prompt_sent`      | string   | Full prompt text sent to the agent                     |
 | `agent_raw_output` | string   | Complete raw output from the agent                     |
@@ -964,6 +966,8 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
   "started_at": "2026-02-16T15:00:00Z",
   "completed_at": "2026-02-16T15:02:15Z",
   "created_at": "2026-02-16T15:00:00Z",
+  "source_path": "/home/user/src/my-app",
+  "source_type": "local",
   "input_raw": "https://example.com/api/search?q=test",
   "module_names": ["xss-reflected", "sqli-error"],
   "session_id": "",

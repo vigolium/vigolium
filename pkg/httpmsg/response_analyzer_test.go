@@ -99,9 +99,9 @@ func TestAnalyzeResponse(t *testing.T) {
 				"\n" +
 				"<html>test</html>"),
 			expectedStatus:     200,
-			expectedHeaders:    1, // ExtractHeaders only handles CRLF, not standalone LF
+			expectedHeaders:    2,
 			expectedBodyOffset: 41,
-			expectedStated:     "", // Cannot extract Content-Type without proper header parsing
+			expectedStated:     "text/html",
 			expectedInferred:   "HTML",
 			expectedCookies:    0,
 		},

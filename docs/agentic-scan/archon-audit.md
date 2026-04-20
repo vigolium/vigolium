@@ -52,7 +52,7 @@ When `--archon` is set and `--source` is provided:
 2. A **separate Claude Code process** is launched with the archon plugin, targeting the source directory
 3. The archon agent runs its own multi-phase pipeline independently
 4. Audit state and findings are copied into the Vigolium session directory
-5. Progress is tracked in a child `AgentRun` record (mode=`archon`) linked to the parent run
+5. Progress is tracked in a child `AgenticScan` record (mode=`archon`) linked to the parent run
 6. When the audit completes, findings are parsed and ingested into the Vigolium database
 7. In autopilot, Archon output is then prepared into stable context and a native plan before the operator starts
 8. The `<source>/archon/` directory is removed (copy preserved in session directory)
@@ -88,7 +88,7 @@ When `--archon` is set and `--source` is provided:
 |  +-----------------------------------------------------+      |
 |  |                     Database                          |      |
 |  |  findings (source: scanner modules + archon)          |      |
-|  |  http_records, agent_runs                             |      |
+|  |  http_records, agentic_scans                             |      |
 |  +-----------------------------------------------------+      |
 +---------------------------------------------------------------+
 ```
@@ -236,7 +236,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
 
 ### Response
 
-Both endpoints return `202 Accepted` with a run ID. Archon-audit runs as a background process within the agent run — its progress is tracked in a child `AgentRun` record. Findings are ingested into the database on completion.
+Both endpoints return `202 Accepted` with a run ID. Archon-audit runs as a background process within the agent run — its progress is tracked in a child `AgenticScan` record. Findings are ingested into the database on completion.
 
 ```bash
 # Query archon findings after run completes
@@ -258,7 +258,7 @@ The folder must contain `audit-state.json` and `findings/`. The import:
 1. Parses `audit-state.json` for phase tracking and metadata
 2. Reads all finding files from `findings/`
 3. Applies cold-verify overlays (if `*.cold-verify.md` files exist)
-4. Creates an `AgentRun` record (mode=`archon`)
+4. Creates an `AgenticScan` record (mode=`archon`)
 5. Saves findings with deduplication (skips duplicates by finding hash)
 6. Reports counts: total findings, saved, duplicates skipped, severity distribution
 

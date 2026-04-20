@@ -192,7 +192,7 @@ func buildProjectStats(row *database.ProjectStatsRow) ProjectStats {
 			Info:     row.Info,
 		},
 		Scans:            row.Scans,
-		AgentRuns:        row.AgentRuns,
+		AgenticScans:        row.AgenticScans,
 		SourceRepos:      row.SourceRepos,
 		OASTInteractions: row.OASTInteractions,
 	}

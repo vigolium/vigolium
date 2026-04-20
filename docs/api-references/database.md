@@ -4,7 +4,7 @@ Unified CRUD API for interacting with any database table. Returns raw JSON and s
 
 Read endpoints (GET) require **viewer** role or above. Write endpoints (POST, PUT, DELETE) require **admin** role.
 
-Project-scoped tables (`scans`, `http_records`, `findings`, `source_repos`, `session_hostnames`, `oast_interactions`, `scan_logs`, `agent_runs`, `scopes`) automatically filter by the `X-Project-UUID` header. Pass `?all_projects=true` to disable project scoping (admin use).
+Project-scoped tables (`scans`, `http_records`, `findings`, `source_repos`, `session_hostnames`, `oast_interactions`, `scan_logs`, `agentic_scans`, `scopes`) automatically filter by the `X-Project-UUID` header. Pass `?all_projects=true` to disable project scoping (admin use).
 
 ---
 
@@ -19,7 +19,7 @@ curl -s http://localhost:9002/api/db/tables | jq .
 ```json
 {
   "tables": [
-    { "name": "agent_runs", "row_count": 42 },
+    { "name": "agentic_scans", "row_count": 42 },
     { "name": "findings", "row_count": 1567 },
     { "name": "http_records", "row_count": 24301 },
     { "name": "scans", "row_count": 15 },
@@ -117,7 +117,7 @@ curl -s 'http://localhost:9002/api/db/tables/http_records/records?limit=50&offse
 curl -s 'http://localhost:9002/api/db/tables/http_records/records?truncate=200' | jq .
 
 # List all agent runs across all projects
-curl -s 'http://localhost:9002/api/db/tables/agent_runs/records?all_projects=true' | jq .
+curl -s 'http://localhost:9002/api/db/tables/agentic_scans/records?all_projects=true' | jq .
 
 # List scan logs for a specific scan
 curl -s 'http://localhost:9002/api/db/tables/scan_logs/records?filter.scan_uuid=abc-123&sort=created_at&order=asc' | jq .

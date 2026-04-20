@@ -194,20 +194,20 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  %s Inserted %d scan logs\n", terminal.SuccessSymbol(), logsInserted)
 
 	// --- Agent Runs ---
-	agentRuns := seedAgentRuns(scans)
-	agentRunsInserted := 0
-	for _, ar := range agentRuns {
+	agenticScans := seedAgenticScans(scans)
+	agenticScansInserted := 0
+	for _, ar := range agenticScans {
 		ar.ProjectUUID = projectUUID
-		exists, _ := db.NewSelect().Model((*database.AgentRun)(nil)).Where("uuid = ?", ar.UUID).Exists(ctx)
+		exists, _ := db.NewSelect().Model((*database.AgenticScan)(nil)).Where("uuid = ?", ar.UUID).Exists(ctx)
 		if exists {
 			continue
 		}
 		if _, err := db.NewInsert().Model(ar).Exec(ctx); err != nil {
 			return fmt.Errorf("failed to insert agent run %s: %w", ar.UUID, err)
 		}
-		agentRunsInserted++
+		agenticScansInserted++
 	}
-	fmt.Printf("  %s Inserted %d agent runs\n", terminal.SuccessSymbol(), agentRunsInserted)
+	fmt.Printf("  %s Inserted %d agent runs\n", terminal.SuccessSymbol(), agenticScansInserted)
 
 	// --- Session Hostnames ---
 	sessions := seedSessionHostnames(scans)
@@ -1435,7 +1435,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/users/me")},
 			ScanUUID:         "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			AgentRunUUID:     "agent-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			AgenticScanUUID:     "agent-0002-aaaa-bbbb-cccc-ddddeeee0002",
 			URL:              "https://api.shop.local/api/v1/users/2",
 			Hostname:         "api.shop.local",
 			ModuleID:         "agent-idor",
@@ -1467,7 +1467,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/users/me")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			AgentRunUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			AgenticScanUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
 			URL:              "https://api.shop.local/api/v1/users/me",
 			Hostname:         "api.shop.local",
 			ModuleID:         "agent-mass-assignment",
@@ -1499,7 +1499,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/auth/login")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			AgentRunUUID:     "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
+			AgenticScanUUID:     "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
 			URL:              "https://api.shop.local/api/v1/auth/login",
 			Hostname:         "api.shop.local",
 			ModuleID:         "agent-auth-bypass",
@@ -1532,7 +1532,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/products")},
 			ScanUUID:         "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			AgentRunUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			AgenticScanUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
 			URL:              "https://api.shop.local/api/v1/products/import",
 			Hostname:         "api.shop.local",
 			ModuleID:         "agent-ssrf",
@@ -1776,7 +1776,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		// =====================================================================
 		{
 			HTTPRecordUUIDs:  []string{findRec("/post/hello-world")},
-			AgentRunUUID:     "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
+			AgenticScanUUID:     "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
 			URL:              "https://blog.test/post/:slug/comment",
 			Hostname:         "blog.test",
 			ModuleID:         "agent-code-audit-sqli",
@@ -1806,7 +1806,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 		// Agent source analysis: Race condition in order processing
 		{
 			HTTPRecordUUIDs:  []string{findRec("/api/v1/orders")},
-			AgentRunUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			AgenticScanUUID:     "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
 			URL:              "https://api.shop.local/api/v1/orders",
 			Hostname:         "api.shop.local",
 			ModuleID:         "agent-code-audit-race",
@@ -2309,10 +2309,10 @@ func seedScanLogs(scans []*database.Scan) []*database.ScanLog {
 // Agent run seeds
 // ---------------------------------------------------------------------------
 
-func seedAgentRuns(scans []*database.Scan) []*database.AgentRun {
+func seedAgenticScans(scans []*database.Scan) []*database.AgenticScan {
 	now := time.Now()
 
-	return []*database.AgentRun{
+	return []*database.AgenticScan{
 		// 1. Completed query — code review for XSS
 		{
 			UUID:        "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",

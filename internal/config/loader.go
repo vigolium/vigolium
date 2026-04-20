@@ -27,6 +27,7 @@ type Settings struct {
 	Spidering          SpideringConfig          `yaml:"spidering"`
 	Agent              AgentConfig              `yaml:"agent"`
 	OAST               OASTConfig               `yaml:"oast"`
+	Storage            StorageConfig            `yaml:"storage"`
 }
 
 // ProfileSettings is the subset of Settings that a scanning profile can override.
@@ -184,6 +185,7 @@ func DefaultSettings() *Settings {
 		Spidering:         *DefaultSpideringConfig(),
 		Agent:             *DefaultAgentConfig(),
 		OAST:              *DefaultOASTConfig(),
+		Storage:           *DefaultStorageConfig(),
 	}
 }
 

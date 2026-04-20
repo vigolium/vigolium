@@ -237,9 +237,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			threads INTEGER DEFAULT 0,
 			profile TEXT,
 			source_path TEXT,
+			source_type TEXT,
 			tags TEXT,
 			triggered_by TEXT,
-			agent_run_uuid TEXT,
+			agentic_scan_uuid TEXT,
+			http_record_uuid TEXT,
 			scan_source TEXT,
 			scan_mode TEXT,
 			start_cursor_at TIMESTAMP,
@@ -259,6 +261,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			info_count INTEGER DEFAULT 0,
 			suspect_count INTEGER DEFAULT 0,
 			error_message TEXT,
+			storage_url TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -311,7 +314,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			project_uuid TEXT NOT NULL,
 			http_record_uuids TEXT NOT NULL,
 			scan_uuid TEXT,
-			agent_run_uuid TEXT,
+			agentic_scan_uuid TEXT,
 			url TEXT,
 			hostname TEXT,
 			module_id TEXT NOT NULL,
@@ -408,7 +411,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			payload TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE TABLE IF NOT EXISTS agent_runs (
+		`CREATE TABLE IF NOT EXISTS agentic_scans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			uuid TEXT NOT NULL UNIQUE,
 			project_uuid TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
@@ -428,6 +431,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			record_count INTEGER DEFAULT 0,
 			saved_count INTEGER DEFAULT 0,
 			source_path TEXT,
+			source_type TEXT,
 			token_usage TEXT,
 			retry_count INTEGER DEFAULT 0,
 			parent_run_uuid TEXT,
@@ -438,6 +442,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			agent_raw_output TEXT,
 			error_message TEXT,
 			result_json TEXT,
+			storage_url TEXT,
 			session_id TEXT,
 			session_dir TEXT,
 			started_at TIMESTAMP,
@@ -494,6 +499,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_records_project_host_method_status ON http_records(project_uuid, hostname, method, status_code)",
 		"CREATE INDEX IF NOT EXISTS idx_records_project_scheme_host_port ON http_records(project_uuid, scheme, hostname, port)",
 		"CREATE INDEX IF NOT EXISTS idx_records_project_risk_score ON http_records(project_uuid, risk_score)",
+		"CREATE INDEX IF NOT EXISTS idx_records_dedup ON http_records(project_uuid, method, hostname, path)",
 		"CREATE INDEX IF NOT EXISTS idx_records_request_hash ON http_records(request_hash)",
 		"CREATE INDEX IF NOT EXISTS idx_records_response_hash ON http_records(response_hash)",
 
@@ -529,11 +535,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_oast_project_scan ON oast_interactions(project_uuid, scan_uuid)",
 		"CREATE INDEX IF NOT EXISTS idx_oast_interactions_unique_id ON oast_interactions(unique_id)",
 
-		// -- agent_runs --
-		"CREATE INDEX IF NOT EXISTS idx_agent_runs_uuid ON agent_runs(uuid)",
-		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_status ON agent_runs(project_uuid, status)",
-		"CREATE INDEX IF NOT EXISTS idx_agent_runs_project_created ON agent_runs(project_uuid, created_at)",
-		"CREATE INDEX IF NOT EXISTS idx_agent_runs_scan ON agent_runs(scan_uuid)",
+		// -- agentic_scans --
+		"CREATE INDEX IF NOT EXISTS idx_agentic_scans_uuid ON agentic_scans(uuid)",
+		"CREATE INDEX IF NOT EXISTS idx_agentic_scans_project_status ON agentic_scans(project_uuid, status)",
+		"CREATE INDEX IF NOT EXISTS idx_agentic_scans_project_created ON agentic_scans(project_uuid, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_agentic_scans_scan ON agentic_scans(scan_uuid)",
 
 		// -- session_hostnames --
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_session_hostnames_unique ON session_hostnames(project_uuid, hostname, session_name)",
@@ -607,7 +613,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "scans", "processed_count", "INTEGER DEFAULT 0")
 
 	// Agent runs schema migrations
-	db.addColumnIfNotExists(ctx, "agent_runs", "session_id", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "session_id", "TEXT")
 
 	// -- New field migrations (v2) --
 
@@ -621,7 +627,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "scans", "source_path", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "tags", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "triggered_by", "TEXT")
-	db.addColumnIfNotExists(ctx, "scans", "agent_run_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "agentic_scan_uuid", "TEXT")
 
 	// HTTP Records
 	db.addColumnIfNotExists(ctx, "http_records", "scan_uuid", "TEXT")
@@ -631,7 +637,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "http_records", "parent_uuid", "TEXT")
 
 	// Findings
-	db.addColumnIfNotExists(ctx, "findings", "agent_run_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "findings", "agentic_scan_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "url", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "hostname", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "status", "TEXT DEFAULT 'open'")
@@ -649,12 +655,15 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "source_repos", "last_scanned_at", "TIMESTAMP")
 
 	// Agent Runs
-	db.addColumnIfNotExists(ctx, "agent_runs", "source_path", "TEXT")
-	db.addColumnIfNotExists(ctx, "agent_runs", "token_usage", "TEXT")
-	db.addColumnIfNotExists(ctx, "agent_runs", "retry_count", "INTEGER DEFAULT 0")
-	db.addColumnIfNotExists(ctx, "agent_runs", "parent_run_uuid", "TEXT")
-	db.addColumnIfNotExists(ctx, "agent_runs", "input_record_count", "INTEGER DEFAULT 0")
-	db.addColumnIfNotExists(ctx, "agent_runs", "session_dir", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "source_path", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "token_usage", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "retry_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "parent_run_uuid", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "input_record_count", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "session_dir", "TEXT")
+
+	db.addColumnIfNotExists(ctx, "scans", "storage_url", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "storage_url", "TEXT")
 
 	// OAST Interactions
 	db.addColumnIfNotExists(ctx, "oast_interactions", "finding_id", "INTEGER")

@@ -53,15 +53,56 @@ func TestExtractHeaders_CRLF(t *testing.T) {
 func TestExtractHeaders_LF(t *testing.T) {
 	request := []byte("GET / HTTP/1.1\nHost: example.com\nContent-Type: text/html\n\n")
 
+	headers, offsets, err := ExtractHeaders(request, 0, len(request))
+	if err != nil {
+		t.Fatalf("ExtractHeaders failed: %v", err)
+	}
+
+	if len(headers) != 3 {
+		t.Fatalf("Expected 3 headers, got %d: %v", len(headers), headers)
+	}
+
+	expectedHeaders := []string{
+		"GET / HTTP/1.1",
+		"Host: example.com",
+		"Content-Type: text/html",
+	}
+	for i, expected := range expectedHeaders {
+		if headers[i] != expected {
+			t.Errorf("Header[%d]: expected %q, got %q", i, expected, headers[i])
+		}
+	}
+
+	expectedOffsets := []int{0, 15, 33}
+	for i, expected := range expectedOffsets {
+		if offsets[i] != expected {
+			t.Errorf("Offset[%d]: expected %d, got %d", i, expected, offsets[i])
+		}
+	}
+}
+
+// TestExtractHeaders_Mixed tests header extraction with mixed CRLF and LF line endings
+func TestExtractHeaders_Mixed(t *testing.T) {
+	request := []byte("GET / HTTP/1.1\r\nHost: example.com\nContent-Type: text/html\r\n\r\n")
+
 	headers, _, err := ExtractHeaders(request, 0, len(request))
 	if err != nil {
 		t.Fatalf("ExtractHeaders failed: %v", err)
 	}
 
-	// Note: Current implementation only handles CRLF properly
-	// This test documents the current behavior
-	if len(headers) == 0 {
-		t.Skip("LF-only parsing not yet implemented")
+	if len(headers) != 3 {
+		t.Fatalf("Expected 3 headers, got %d: %v", len(headers), headers)
+	}
+
+	expectedHeaders := []string{
+		"GET / HTTP/1.1",
+		"Host: example.com",
+		"Content-Type: text/html",
+	}
+	for i, expected := range expectedHeaders {
+		if headers[i] != expected {
+			t.Errorf("Header[%d]: expected %q, got %q", i, expected, headers[i])
+		}
 	}
 }
 

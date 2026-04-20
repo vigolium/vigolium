@@ -327,7 +327,7 @@ func isProjectScopedTable(tableName string) bool {
 		"session_hostnames":  true,
 		"oast_interactions":  true,
 		"scan_logs":          true,
-		"agent_runs":         true,
+		"agentic_scans":         true,
 		"scopes":             true,
 		"finding_records":    false,
 	}

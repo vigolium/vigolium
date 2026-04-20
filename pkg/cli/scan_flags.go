@@ -55,6 +55,8 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 	// OAST flags
 	flags.StringVar(&scanOpts.OastURL, "oast-url", "", "Fixed out-of-band callback URL (overrides auto-generated interactsh URL)")
 
+	flags.BoolVar(&scanOpts.UploadResults, "upload-results", false, "Upload scan results to cloud storage after completion (requires storage config)")
+
 	// Stateless mode
 	flags.BoolVar(&globalStateless, "stateless", false, "Use a temporary database, export results to --output, then discard the database")
 

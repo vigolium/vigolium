@@ -67,7 +67,7 @@ func (h *Handlers) releaseAgentSlot(sem chan struct{}) {
 // HandleAgentQuery handles POST /api/agent/run/query — triggers a single-shot AI agent run.
 // When "stream":true, the response is an SSE stream; otherwise it returns 202 async.
 func (h *Handlers) HandleAgentQuery(c fiber.Ctx) error {
-	var req AgentRunRequest
+	var req AgenticScanRequest
 	if err := c.Bind().JSON(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error: "invalid request body: " + err.Error(),
@@ -83,11 +83,11 @@ func (h *Handlers) HandleAgentQuery(c fiber.Ctx) error {
 	opts := h.buildQueryOpts(req)
 	timeout := 10 * time.Minute
 
-	return h.startAgentRun(c, "query", req.Stream, opts, timeout)
+	return h.startAgenticScan(c, "query", req.Stream, opts, timeout)
 }
 
 // buildQueryOpts creates agent.Options from a query request.
-func (h *Handlers) buildQueryOpts(req AgentRunRequest) agent.Options {
+func (h *Handlers) buildQueryOpts(req AgenticScanRequest) agent.Options {
 	return agent.Options{
 		AgentName:      h.effectiveAgentName(req.Agent),
 		PromptTemplate: req.PromptTemplate,
@@ -252,7 +252,7 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 		return nil // 429 already sent
 	}
 
-	runID := h.registerRunningAgentRun("autopilot", req.Agent)
+	runID := h.registerRunningAgenticScan("autopilot", req.Agent)
 
 	// Resolve project UUID: request body takes priority, then X-Project-UUID header
 	projectUUID := req.ProjectUUID
@@ -262,10 +262,11 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 
 	// Populate the request-time fields right away so the session detail
 	// endpoint shows meaningful info while the run is in progress.
-	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+	h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 		run.ProjectUUID = projectUUID
 		run.TargetURL = req.Target
 		run.SourcePath = req.SourcePath
+		run.SourceType = database.InferSourceType(req.SourcePath)
 		run.InputRaw = req.Instruction
 	})
 
@@ -275,7 +276,7 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 
 	go h.runBackgroundAutopilot(runID, req, projectUUID, timeout)
 
-	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+	return c.Status(fiber.StatusAccepted).JSON(AgenticScanResponse{
 		RunID:   runID,
 		Status:  "running",
 		Message: "autopilot run started",
@@ -284,7 +285,7 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 
 // buildAutopilotPipelineConfig creates an AutopilotPipelineConfig from an autopilot request.
 // projectUUID should be pre-resolved by the caller (from request body or X-Project-UUID header).
-// parentRunUUID is the UUID of the parent AgentRun row so child runs (archon) can reference it.
+// parentRunUUID is the UUID of the parent AgenticScan row so child runs (archon) can reference it.
 func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, projectUUID, parentRunUUID string) agent.AutopilotPipelineConfig {
 	maxCmds := req.MaxCommands
 	if maxCmds <= 0 {
@@ -402,7 +403,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 		res := <-done
 		now := time.Now()
 		h.agentMu.Lock()
-		status := h.agentRunStatus[runID]
+		status := h.agenticScanStatus[runID]
 
 		if res.err != nil {
 			if status != nil {
@@ -434,7 +435,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, runID string, req AgentAutopi
 
 		// Persist to DB
 		if status != nil {
-			h.persistAgentRunCompleted(runID, status)
+			h.persistAgenticScanCompleted(runID, status)
 		}
 
 		_ = writeSSE(w, sseEvent{Type: "done", AutopilotResult: res.result})
@@ -491,8 +492,9 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 	// Enrich the DB record with the config we just resolved so API clients
 	// can see source_path / target_url / session_dir while the run is still
 	// in progress (before the completion update fires).
-	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+	h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 		run.SourcePath = cfg.SourcePath
+		run.SourceType = database.InferSourceType(cfg.SourcePath)
 		run.TargetURL = cfg.TargetURL
 		run.SessionDir = sessionDir
 	})
@@ -503,7 +505,7 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
 
-	status := h.agentRunStatus[runID]
+	status := h.agenticScanStatus[runID]
 	if status == nil {
 		return
 	}
@@ -515,7 +517,7 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 		status.CompletedAt = &now
 		// Persist the failure to the DB, preserving the source/target/session
 		// fields that the enrichment step wrote earlier.
-		h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 			run.Status = "failed"
 			run.ErrorMessage = runErr.Error()
 			run.CompletedAt = now
@@ -541,7 +543,7 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 
 	// Persist the completed state plus the artifacts the CLI would have shown
 	// live: agent raw output (from output.md) and session dir summary.
-	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+	h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 		run.Status = "completed"
 		run.CompletedAt = now
 		run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
@@ -564,16 +566,20 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 		}
 	})
 
+	if req.UploadResults && sessionDir != "" {
+		h.uploadAgenticResults(projectUUID, runID, sessionDir)
+	}
+
 	zap.L().Info("Autopilot run completed",
 		zap.String("run_id", runID),
 		zap.String("session_dir", sessionDir),
 		zap.Int("finding_count", status.FindingCount))
 }
 
-// enrichAgentRunRecord loads the agent_runs row for runID, applies mutate,
+// enrichAgenticScanRecord loads the agentic_scans row for runID, applies mutate,
 // and writes it back. Used by background handlers to populate fields like
 // source_path / target_url / session_dir / agent_raw_output that the
-// lightweight persistAgentRun helpers don't cover.
+// lightweight persistAgenticScan helpers don't cover.
 // ---------------------------------------------------------------------------
 // POST /api/agent/run/swarm — AI-guided targeted vulnerability swarm
 // ---------------------------------------------------------------------------
@@ -813,7 +819,7 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 		return nil // 429 already sent
 	}
 
-	runID := h.registerRunningAgentRun("swarm", req.Agent)
+	runID := h.registerRunningAgenticScan("swarm", req.Agent)
 
 	// Resolve project UUID: request body takes priority, then X-Project-UUID header
 	projectUUID := req.ProjectUUID
@@ -827,7 +833,7 @@ func (h *Handlers) startSwarmRun(c fiber.Ctx, req AgentSwarmRequest, timeout tim
 
 	go h.runBackgroundAgentSwarm(runID, req, projectUUID, timeout)
 
-	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+	return c.Status(fiber.StatusAccepted).JSON(AgenticScanResponse{
 		RunID:   runID,
 		Status:  "running",
 		Message: "agent swarm started",
@@ -1198,7 +1204,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 		// Wire phase callback for SSE events
 		cfg.PhaseCallback = func(phase string) {
 			h.agentMu.Lock()
-			if status := h.agentRunStatus[runID]; status != nil {
+			if status := h.agenticScanStatus[runID]; status != nil {
 				status.CurrentPhase = phase
 			}
 			h.agentMu.Unlock()
@@ -1247,7 +1253,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 		res := <-done
 		now := time.Now()
 		h.agentMu.Lock()
-		status := h.agentRunStatus[runID]
+		status := h.agenticScanStatus[runID]
 
 		if res.err != nil {
 			if status != nil {
@@ -1274,7 +1280,7 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, runID string, req AgentSwarmReque
 
 		// Persist to DB
 		if status != nil {
-			h.persistAgentRunCompleted(runID, status)
+			h.persistAgenticScanCompleted(runID, status)
 		}
 
 		_ = writeSSE(w, sseEvent{Type: "done", SwarmResult: res.result})
@@ -1293,7 +1299,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 
 	cfg := h.buildSwarmConfig(req, projectUUID)
 	// Pin the swarm runner's DB record UUID to our runID so its internal
-	// CreateAgentRun/UpdateAgentRun calls land on the same row the API
+	// CreateAgenticScan/UpdateAgenticScan calls land on the same row the API
 	// already returned to the client. Without this, the swarm runner picks
 	// its own UUID and the session detail endpoint shows an empty record.
 	cfg.RunUUID = runID
@@ -1330,9 +1336,10 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	// Populate the row with request-time + session-dir info before kicking
 	// off the run, so the session detail endpoint shows useful state during
 	// in-progress queries.
-	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+	h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 		run.ProjectUUID = projectUUID
 		run.SourcePath = cfg.SourcePath
+		run.SourceType = database.InferSourceType(cfg.SourcePath)
 		run.SessionDir = sessionDir
 		if len(cfg.Inputs) > 0 {
 			run.InputRaw = cfg.Inputs[0]
@@ -1342,7 +1349,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	// Wire phase callback for status updates
 	cfg.PhaseCallback = func(phase string) {
 		h.agentMu.Lock()
-		if status := h.agentRunStatus[runID]; status != nil {
+		if status := h.agenticScanStatus[runID]; status != nil {
 			status.CurrentPhase = phase
 		}
 		h.agentMu.Unlock()
@@ -1351,12 +1358,13 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	swarmRunner := agent.NewSwarmRunner(h.agentEngine, h.repo)
 	result, runErr := swarmRunner.Run(ctx, cfg)
 
-	// SwarmRunner's own UpdateAgentRun (swarm.go ~L290) writes back a fresh
+	// SwarmRunner's own UpdateAgenticScan (swarm.go ~L290) writes back a fresh
 	// struct that omits source_path / session_dir / target_url, so we
 	// re-enrich the row to restore them and capture the swarm summary.
-	h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+	h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 		if cfg.SourcePath != "" {
 			run.SourcePath = cfg.SourcePath
+			run.SourceType = database.InferSourceType(cfg.SourcePath)
 		}
 		if sessionDir != "" {
 			run.SessionDir = sessionDir
@@ -1372,7 +1380,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
 
-	status := h.agentRunStatus[runID]
+	status := h.agenticScanStatus[runID]
 	if status == nil {
 		return
 	}
@@ -1382,7 +1390,7 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 		status.Status = "failed"
 		status.Error = runErr.Error()
 		status.CompletedAt = &now
-		h.persistAgentRunCompleted(runID, status)
+		h.persistAgenticScanCompleted(runID, status)
 		zap.L().Error("Agent swarm failed",
 			zap.String("run_id", runID),
 			zap.Error(runErr))
@@ -1395,7 +1403,11 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 		status.FindingCount = result.TotalFindings
 		status.SwarmResult = result
 	}
-	h.persistAgentRunCompleted(runID, status)
+	h.persistAgenticScanCompleted(runID, status)
+
+	if req.UploadResults && sessionDir != "" {
+		h.uploadAgenticResults(projectUUID, runID, sessionDir)
+	}
 
 	zap.L().Info("Agent swarm completed",
 		zap.String("run_id", runID),
@@ -1435,21 +1447,21 @@ func writeSSE(w *bufio.Writer, evt sseEvent) error {
 // Status endpoints (unchanged)
 // ---------------------------------------------------------------------------
 
-// HandleAgentRunList handles GET /api/agent/status/list — returns all agent run statuses.
+// HandleAgenticScanList handles GET /api/agent/status/list — returns all agent run statuses.
 // Returns from database for historical runs, merged with in-memory status for active runs.
-func (h *Handlers) HandleAgentRunList(c fiber.Ctx) error {
+func (h *Handlers) HandleAgenticScanList(c fiber.Ctx) error {
 	// Try DB first for comprehensive history
 	if h.repo != nil {
 		mode := c.Query("mode")
-		runs, _, err := h.repo.ListAgentRuns(context.Background(), "", mode, 100, 0)
+		runs, _, err := h.repo.ListAgenticScans(context.Background(), "", mode, 100, 0)
 		if err == nil && len(runs) > 0 {
-			statuses := make([]*AgentRunStatusResponse, 0, len(runs))
+			statuses := make([]*AgenticScanStatusResponse, 0, len(runs))
 			for _, run := range runs {
-				statuses = append(statuses, agentRunToStatusResponse(run))
+				statuses = append(statuses, agenticScanToStatusResponse(run))
 			}
 			// Merge in-memory running statuses (they have richer data like Result objects)
 			h.agentMu.Lock()
-			for _, memStatus := range h.agentRunStatus {
+			for _, memStatus := range h.agenticScanStatus {
 				if memStatus.Status == "running" {
 					// Replace DB entry with richer in-memory version
 					found := false
@@ -1472,21 +1484,21 @@ func (h *Handlers) HandleAgentRunList(c fiber.Ctx) error {
 
 	// Fallback to in-memory
 	h.agentMu.Lock()
-	statuses := make([]*AgentRunStatusResponse, 0, len(h.agentRunStatus))
-	for _, s := range h.agentRunStatus {
+	statuses := make([]*AgenticScanStatusResponse, 0, len(h.agenticScanStatus))
+	for _, s := range h.agenticScanStatus {
 		statuses = append(statuses, s)
 	}
 	h.agentMu.Unlock()
 	return c.JSON(statuses)
 }
 
-// HandleAgentRunStatus handles GET /api/agent/status/:id — returns status of a specific agent run.
-func (h *Handlers) HandleAgentRunStatus(c fiber.Ctx) error {
+// HandleAgenticScanStatus handles GET /api/agent/status/:id — returns status of a specific agent run.
+func (h *Handlers) HandleAgenticScanStatus(c fiber.Ctx) error {
 	runID := c.Params("id")
 
 	// Check in-memory first (richer data for active runs)
 	h.agentMu.Lock()
-	status, ok := h.agentRunStatus[runID]
+	status, ok := h.agenticScanStatus[runID]
 	h.agentMu.Unlock()
 
 	if ok {
@@ -1495,9 +1507,9 @@ func (h *Handlers) HandleAgentRunStatus(c fiber.Ctx) error {
 
 	// Fall back to DB for historical runs
 	if h.repo != nil {
-		run, err := h.repo.GetAgentRun(context.Background(), runID)
+		run, err := h.repo.GetAgenticScan(context.Background(), runID)
 		if err == nil {
-			return c.JSON(agentRunToStatusResponse(run))
+			return c.JSON(agenticScanToStatusResponse(run))
 		}
 	}
 
@@ -1506,9 +1518,9 @@ func (h *Handlers) HandleAgentRunStatus(c fiber.Ctx) error {
 	})
 }
 
-// agentRunToStatusResponse converts a database AgentRun to an API status response.
-func agentRunToStatusResponse(run *database.AgentRun) *AgentRunStatusResponse {
-	resp := &AgentRunStatusResponse{
+// agenticScanToStatusResponse converts a database AgenticScan to an API status response.
+func agenticScanToStatusResponse(run *database.AgenticScan) *AgenticScanStatusResponse {
+	resp := &AgenticScanStatusResponse{
 		RunID:        run.UUID,
 		Mode:         run.Mode,
 		Status:       run.Status,
@@ -1558,7 +1570,7 @@ func (h *Handlers) HandleAgentSessionList(c fiber.Ctx) error {
 		limit = 500
 	}
 
-	runs, total, err := h.repo.ListAgentRuns(c.Context(), projectUUID, mode, limit, offset)
+	runs, total, err := h.repo.ListAgenticScans(c.Context(), projectUUID, mode, limit, offset)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to list agent sessions: " + err.Error(),
@@ -1567,7 +1579,7 @@ func (h *Handlers) HandleAgentSessionList(c fiber.Ctx) error {
 
 	summaries := make([]*AgentSessionSummary, len(runs))
 	for i, run := range runs {
-		summaries[i] = agentRunToSessionSummary(run)
+		summaries[i] = agenticScanToSessionSummary(run)
 	}
 
 	return c.JSON(PaginatedResponse{
@@ -1596,19 +1608,19 @@ func (h *Handlers) HandleAgentSessionDetail(c fiber.Ctx) error {
 		})
 	}
 
-	run, err := h.repo.GetAgentRun(c.Context(), runID)
+	run, err := h.repo.GetAgenticScan(c.Context(), runID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: ErrAgentNotFound.Error(),
 		})
 	}
 
-	detail := agentRunToSessionDetail(run)
+	detail := agenticScanToSessionDetail(run)
 
 	// Attach child runs (e.g. archon sub-runs spawned by autopilot)
-	if children, childErr := h.repo.GetChildAgentRuns(c.Context(), runID); childErr == nil && len(children) > 0 {
+	if children, childErr := h.repo.GetChildAgenticScans(c.Context(), runID); childErr == nil && len(children) > 0 {
 		for _, child := range children {
-			detail.ChildRuns = append(detail.ChildRuns, agentRunToSessionDetail(child))
+			detail.ChildRuns = append(detail.ChildRuns, agenticScanToSessionDetail(child))
 		}
 	}
 
@@ -1654,7 +1666,7 @@ func (h *Handlers) HandleAgentSessionLogs(c fiber.Ctx) error {
 		})
 	}
 
-	run, err := h.repo.GetAgentRun(c.Context(), runID)
+	run, err := h.repo.GetAgenticScan(c.Context(), runID)
 	if err != nil || run == nil {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: ErrAgentNotFound.Error(),
@@ -1709,7 +1721,7 @@ func (h *Handlers) streamAgentSessionLog(c fiber.Ctx, runID, logPath string, str
 	c.Set("X-Accel-Buffering", "no")
 
 	isDone := func() bool {
-		run, err := h.repo.GetAgentRun(context.Background(), runID)
+		run, err := h.repo.GetAgenticScan(context.Background(), runID)
 		if err != nil || run == nil {
 			return true
 		}
@@ -1721,7 +1733,7 @@ func (h *Handlers) streamAgentSessionLog(c fiber.Ctx, runID, logPath string, str
 	})
 }
 
-// isTerminalAgentStatus reports whether an agent_runs.status value indicates
+// isTerminalAgentStatus reports whether an agentic_scans.status value indicates
 // the run has finished and no more bytes will be appended to run.log.
 func isTerminalAgentStatus(status string) bool {
 	switch status {
@@ -1776,8 +1788,8 @@ func tailSessionLog(w *bufio.Writer, logPath string, isDone func() bool, pollInt
 	}
 }
 
-// agentRunToSessionSummary converts a database AgentRun to a lightweight session summary.
-func agentRunToSessionSummary(run *database.AgentRun) *AgentSessionSummary {
+// agenticScanToSessionSummary converts a database AgenticScan to a lightweight session summary.
+func agenticScanToSessionSummary(run *database.AgenticScan) *AgentSessionSummary {
 	s := &AgentSessionSummary{
 		UUID:          run.UUID,
 		Mode:          run.Mode,
@@ -1808,10 +1820,10 @@ func agentRunToSessionSummary(run *database.AgentRun) *AgentSessionSummary {
 	return s
 }
 
-// agentRunToSessionDetail converts a database AgentRun to a full session detail response.
-func agentRunToSessionDetail(run *database.AgentRun) *AgentSessionDetail {
+// agenticScanToSessionDetail converts a database AgenticScan to a full session detail response.
+func agenticScanToSessionDetail(run *database.AgenticScan) *AgentSessionDetail {
 	return &AgentSessionDetail{
-		AgentSessionSummary: *agentRunToSessionSummary(run),
+		AgentSessionSummary: *agenticScanToSessionSummary(run),
 		InputRaw:            run.InputRaw,
 		ModuleNames:         run.ModuleNames,
 		SessionID:           run.SessionID,

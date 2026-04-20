@@ -158,8 +158,8 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	viewer.Get("/projects", handlers.HandleListProjects)
 	viewer.Get("/projects/domain-map", handlers.HandleProjectDomainMap)
 	viewer.Get("/projects/:uuid", handlers.HandleGetProject)
-	viewer.Get("/agent/status/list", handlers.HandleAgentRunList) // must be before :id
-	viewer.Get("/agent/status/:id", handlers.HandleAgentRunStatus)
+	viewer.Get("/agent/status/list", handlers.HandleAgenticScanList) // must be before :id
+	viewer.Get("/agent/status/:id", handlers.HandleAgenticScanStatus)
 	viewer.Get("/agent/sessions", handlers.HandleAgentSessionList)
 	viewer.Get("/agent/sessions/:id", handlers.HandleAgentSessionDetail)
 	viewer.Get("/agent/sessions/:id/logs", handlers.HandleAgentSessionLogs)
@@ -214,6 +214,13 @@ operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
 	admin.Put("/extensions/:name", handlers.HandleEditExtension)
 	admin.Post("/projects", handlers.HandleCreateProject)
 	admin.Put("/projects/:uuid", handlers.HandleUpdateProject)
+
+	// --- Cloud storage endpoints ---
+	// Scoped by project UUID via middleware. Requires storage config to be enabled.
+	viewer.Get("/storage/source/:key", handlers.HandleStorageDownloadSource)
+	viewer.Get("/storage/results/:scan-uuid", handlers.HandleStorageDownloadResults)
+	operator.Post("/storage/upload-source", handlers.HandleStorageUploadSource)
+	operator.Post("/storage/presign", handlers.HandleStoragePresign)
 
 	// --- Generic database API (writes for admin only) ---
 	admin.Post("/db/tables/:table/records", handlers.HandleCreateDBRecord)

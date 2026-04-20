@@ -12,32 +12,33 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/storage"
 	"go.uber.org/zap"
 )
 
-// persistAgentRun creates an agent_runs DB record for a new agent run.
-func (h *Handlers) persistAgentRun(runID, mode, agentName string) {
+// persistAgenticScan creates an agentic_scans DB record for a new agent run.
+func (h *Handlers) persistAgenticScan(runID, mode, agentName string) {
 	if h.repo == nil {
 		return
 	}
-	run := &database.AgentRun{
+	run := &database.AgenticScan{
 		UUID:      runID,
 		Mode:      mode,
 		AgentName: agentName,
 		Status:    "running",
 		StartedAt: time.Now(),
 	}
-	if err := h.repo.CreateAgentRun(context.Background(), run); err != nil {
+	if err := h.repo.CreateAgenticScan(context.Background(), run); err != nil {
 		zap.L().Debug("Failed to persist agent run", zap.String("run_id", runID), zap.Error(err))
 	}
 }
 
-// persistAgentRunCompleted updates the DB record for a completed agent run.
-func (h *Handlers) persistAgentRunCompleted(runID string, status *AgentRunStatusResponse) {
+// persistAgenticScanCompleted updates the DB record for a completed agent run.
+func (h *Handlers) persistAgenticScanCompleted(runID string, status *AgenticScanStatusResponse) {
 	if h.repo == nil {
 		return
 	}
-	run := &database.AgentRun{
+	run := &database.AgenticScan{
 		UUID:         runID,
 		Status:       status.Status,
 		AgentName:    status.AgentName,
@@ -52,7 +53,7 @@ func (h *Handlers) persistAgentRunCompleted(runID string, status *AgentRunStatus
 	if status.CompletedAt != nil {
 		run.CompletedAt = *status.CompletedAt
 	}
-	_ = h.repo.UpdateAgentRun(context.Background(), run)
+	_ = h.repo.UpdateAgenticScan(context.Background(), run)
 }
 
 func (h *Handlers) effectiveAgentName(agentName string) string {
@@ -65,12 +66,12 @@ func (h *Handlers) effectiveAgentName(agentName string) string {
 	return ""
 }
 
-func (h *Handlers) registerRunningAgentRun(mode, agentName string) string {
+func (h *Handlers) registerRunningAgenticScan(mode, agentName string) string {
 	runID := uuid.New().String()
 	effectiveAgentName := h.effectiveAgentName(agentName)
 
 	h.agentMu.Lock()
-	h.agentRunStatus[runID] = &AgentRunStatusResponse{
+	h.agenticScanStatus[runID] = &AgenticScanStatusResponse{
 		RunID:     runID,
 		Mode:      mode,
 		Status:    "running",
@@ -78,38 +79,65 @@ func (h *Handlers) registerRunningAgentRun(mode, agentName string) string {
 	}
 	h.agentMu.Unlock()
 
-	h.persistAgentRun(runID, mode, effectiveAgentName)
+	h.persistAgenticScan(runID, mode, effectiveAgentName)
 	return runID
 }
 
-// enrichAgentRunRecord loads the agent_runs row for runID, applies mutate,
+// enrichAgenticScanRecord loads the agentic_scans row for runID, applies mutate,
 // and writes it back. This is used for request-time fields that the
-// lightweight persistAgentRun helpers don't cover.
-func (h *Handlers) enrichAgentRunRecord(runID string, mutate func(run *database.AgentRun)) {
+// lightweight persistAgenticScan helpers don't cover.
+func (h *Handlers) enrichAgenticScanRecord(runID string, mutate func(run *database.AgenticScan)) {
 	if h.repo == nil || mutate == nil {
 		return
 	}
 	ctx := context.Background()
-	run, err := h.repo.GetAgentRun(ctx, runID)
+	run, err := h.repo.GetAgenticScan(ctx, runID)
 	if err != nil || run == nil {
-		zap.L().Debug("enrichAgentRunRecord: run not found", zap.String("run_id", runID), zap.Error(err))
+		zap.L().Debug("enrichAgenticScanRecord: run not found", zap.String("run_id", runID), zap.Error(err))
 		return
 	}
 	mutate(run)
-	if err := h.repo.UpdateAgentRun(ctx, run); err != nil {
-		zap.L().Debug("enrichAgentRunRecord: update failed", zap.String("run_id", runID), zap.Error(err))
+	if err := h.repo.UpdateAgenticScan(ctx, run); err != nil {
+		zap.L().Debug("enrichAgenticScanRecord: update failed", zap.String("run_id", runID), zap.Error(err))
 	}
 }
 
-// startAgentRun is the entry point for query mode.
+// uploadAgenticResults bundles the session directory and uploads it to cloud storage.
+func (h *Handlers) uploadAgenticResults(projectUUID, runID, sessionDir string) {
+	if h.settings == nil || !h.settings.Storage.IsEnabled() {
+		zap.L().Warn("upload_results requested but storage is not enabled")
+		return
+	}
+
+	sc, err := storage.NewClient(&h.settings.Storage)
+	if err != nil {
+		zap.L().Warn("Failed to create storage client", zap.Error(err))
+		return
+	}
+
+	key := storage.AgenticScanResultKey(runID)
+	storageURL, err := sc.BundleAndUploadResults(context.Background(), projectUUID, key, sessionDir)
+	if err != nil {
+		zap.L().Warn("Failed to upload agentic results", zap.Error(err))
+		return
+	}
+
+	if h.repo != nil {
+		_ = h.repo.UpdateAgenticScanStorageURL(context.Background(), runID, storageURL)
+	}
+
+	zap.L().Info("Uploaded agentic scan results", zap.String("run_id", runID), zap.String("storage_url", storageURL))
+}
+
+// startAgenticScan is the entry point for query mode.
 // It acquires a light agent slot, creates status tracking, and runs the agent.
-func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
+func (h *Handlers) startAgenticScan(c fiber.Ctx, mode string, stream bool, opts agent.Options, timeout time.Duration) error {
 	if !h.acquireAgentSlot(c, h.agentLightSem) {
 		return nil // 429 already sent
 	}
 
 	opts.AgentName = h.effectiveAgentName(opts.AgentName)
-	runID := h.registerRunningAgentRun(mode, opts.AgentName)
+	runID := h.registerRunningAgenticScan(mode, opts.AgentName)
 
 	if stream {
 		return h.handleAgentSSE(c, runID, opts, timeout)
@@ -117,7 +145,7 @@ func (h *Handlers) startAgentRun(c fiber.Ctx, mode string, stream bool, opts age
 
 	go h.runBackgroundAgentWithOpts(runID, opts, timeout)
 
-	return c.Status(fiber.StatusAccepted).JSON(AgentRunResponse{
+	return c.Status(fiber.StatusAccepted).JSON(AgenticScanResponse{
 		RunID:   runID,
 		Status:  "running",
 		Message: mode + " run started",
@@ -168,7 +196,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 		res := <-done
 		now := time.Now()
 		h.agentMu.Lock()
-		status := h.agentRunStatus[runID]
+		status := h.agenticScanStatus[runID]
 		if res.err != nil {
 			if status != nil {
 				status.Status = "failed"
@@ -197,7 +225,7 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, runID string, opts agent.Options,
 		h.agentMu.Unlock()
 
 		if status != nil {
-			h.persistAgentRunCompleted(runID, status)
+			h.persistAgenticScanCompleted(runID, status)
 		}
 
 		_ = writeSSE(w, sseEvent{Type: "done", Result: res.result})
@@ -221,7 +249,7 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 		zap.L().Warn("Failed to pre-create session dir", zap.String("run_id", runID), zap.Error(sessionErr))
 	} else {
 		opts.SessionDir = sessionDir
-		h.enrichAgentRunRecord(runID, func(run *database.AgentRun) {
+		h.enrichAgenticScanRecord(runID, func(run *database.AgenticScan) {
 			run.SessionDir = sessionDir
 		})
 	}
@@ -248,7 +276,7 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 	h.agentMu.Lock()
 	defer h.agentMu.Unlock()
 
-	status := h.agentRunStatus[runID]
+	status := h.agenticScanStatus[runID]
 	if status == nil {
 		return
 	}
@@ -273,7 +301,7 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 	status.CompletedAt = &now
 	status.Result = result
 
-	h.persistAgentRunCompleted(runID, status)
+	h.persistAgenticScanCompleted(runID, status)
 
 	zap.L().Info("Agent run completed",
 		zap.String("run_id", runID),

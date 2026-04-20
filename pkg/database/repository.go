@@ -36,7 +36,8 @@ func defaultProjectUUID(v string) string {
 
 // SaveRecord stores a denormalized HTTP record (request + response + host + parameters).
 // The source identifies the origin of the record (e.g. "scanner", "ingest-cli", "ingest-server", "ingest-proxy").
-// Returns the UUID of the saved record.
+// Returns the UUID of the saved record. If a matching record already exists (same method,
+// hostname, path, URL, and request body), the existing UUID is returned without inserting.
 func (r *Repository) SaveRecord(ctx context.Context, httpRR *httpmsg.HttpRequestResponse, source string, projectUUID string) (string, error) {
 	if httpRR == nil || httpRR.Request() == nil {
 		return "", fmt.Errorf("invalid HttpRequestResponse")
@@ -49,11 +50,38 @@ func (r *Repository) SaveRecord(ctx context.Context, httpRR *httpmsg.HttpRequest
 	record.Source = source
 	record.ProjectUUID = defaultProjectUUID(projectUUID)
 
+	if existingUUID, err := r.findDuplicateRecord(ctx, record); err == nil && existingUUID != "" {
+		return existingUUID, nil
+	}
+
 	if _, err := r.db.NewInsert().Model(record).Exec(ctx); err != nil {
 		return "", fmt.Errorf("failed to insert record: %w", err)
 	}
 
 	return record.UUID, nil
+}
+
+// findDuplicateRecord checks whether a record with the same method, hostname,
+// path, and URL already exists. For requests with a body, the request_hash is
+// also compared to distinguish different payloads to the same endpoint.
+func (r *Repository) findDuplicateRecord(ctx context.Context, record *HTTPRecord) (string, error) {
+	var existingUUID string
+	q := r.db.NewSelect().
+		Model((*HTTPRecord)(nil)).
+		Column("uuid").
+		Where("project_uuid = ?", record.ProjectUUID).
+		Where("method = ?", record.Method).
+		Where("hostname = ?", record.Hostname).
+		Where("path = ?", record.Path).
+		Where("url = ?", record.URL).
+		Limit(1)
+
+	if len(record.RequestBody) > 0 {
+		q = q.Where("request_hash = ?", record.RequestHash)
+	}
+
+	err := q.Scan(ctx, &existingUUID)
+	return existingUUID, err
 }
 
 // SaveRecordBatch converts httpmsg.HttpRequestResponse objects to HTTPRecord models and
@@ -396,6 +424,15 @@ func (r *Repository) UpdateScan(ctx context.Context, scan *Scan) error {
 	return nil
 }
 
+// UpdateScanStorageURL sets the storage_url field on a scan record.
+func (r *Repository) UpdateScanStorageURL(ctx context.Context, scanUUID, storageURL string) error {
+	_, err := r.db.NewUpdate().Model((*Scan)(nil)).
+		Set("storage_url = ?", storageURL).
+		Where("uuid = ?", scanUUID).
+		Exec(ctx)
+	return err
+}
+
 // GetScanByUUID retrieves a scan by its UUID
 func (r *Repository) GetScanByUUID(ctx context.Context, uuid string) (*Scan, error) {
 	scan := &Scan{}
@@ -409,6 +446,63 @@ func (r *Repository) GetScanByUUID(ctx context.Context, uuid string) (*Scan, err
 	return scan, nil
 }
 
+// scanSeverityCounts holds aggregated finding counts for a scan.
+type scanSeverityCounts struct {
+	Total    int64
+	Critical int64
+	High     int64
+	Medium   int64
+	Low      int64
+	Info     int64
+	Suspect  int64
+}
+
+// aggregateScanFindings queries finding severity counts for a scan.
+func (r *Repository) aggregateScanFindings(ctx context.Context, scanUUID string) scanSeverityCounts {
+	var rows []SeverityCount
+	_ = r.db.NewSelect().
+		TableExpr("findings").
+		ColumnExpr("severity").
+		ColumnExpr("COUNT(*) AS count").
+		Where("scan_uuid = ?", scanUUID).
+		GroupExpr("severity").
+		Scan(ctx, &rows)
+
+	var sc scanSeverityCounts
+	for _, row := range rows {
+		sc.Total += row.Count
+		switch row.Severity {
+		case "critical":
+			sc.Critical = row.Count
+		case "high":
+			sc.High = row.Count
+		case "medium":
+			sc.Medium = row.Count
+		case "low":
+			sc.Low = row.Count
+		case "info":
+			sc.Info = row.Count
+		case "suspect":
+			sc.Suspect = row.Count
+		}
+	}
+	return sc
+}
+
+// applySeverityCounts sets severity count fields on an UPDATE query builder.
+func applySeverityCounts(q *bun.UpdateQuery, sc scanSeverityCounts) *bun.UpdateQuery {
+	q = q.Set("critical_count = ?", sc.Critical).
+		Set("high_count = ?", sc.High).
+		Set("medium_count = ?", sc.Medium).
+		Set("low_count = ?", sc.Low).
+		Set("info_count = ?", sc.Info).
+		Set("suspect_count = ?", sc.Suspect)
+	if sc.Total > 0 {
+		q = q.Set("total_findings = ?", sc.Total)
+	}
+	return q
+}
+
 // CompleteScan marks a scan as completed (or failed if errMsg is non-empty)
 // and populates severity counts from the findings table.
 func (r *Repository) CompleteScan(ctx context.Context, scanUUID string, errMsg string) error {
@@ -417,58 +511,29 @@ func (r *Repository) CompleteScan(ctx context.Context, scanUUID string, errMsg s
 		status = "failed"
 	}
 
-	// Populate severity counts from findings associated with this scan
-	type severityCount struct {
-		Severity string `bun:"severity"`
-		Count    int64  `bun:"count"`
-	}
-	var counts []severityCount
-	_ = r.db.NewSelect().
-		TableExpr("findings").
-		ColumnExpr("severity").
-		ColumnExpr("COUNT(*) AS count").
-		Where("scan_uuid = ?", scanUUID).
-		GroupExpr("severity").
-		Scan(ctx, &counts)
-
-	var critical, high, medium, low, info, suspect int64
-	var totalFindings int64
-	for _, c := range counts {
-		totalFindings += c.Count
-		switch c.Severity {
-		case "critical":
-			critical = c.Count
-		case "high":
-			high = c.Count
-		case "medium":
-			medium = c.Count
-		case "low":
-			low = c.Count
-		case "info":
-			info = c.Count
-		case "suspect":
-			suspect = c.Count
-		}
-	}
-
+	sc := r.aggregateScanFindings(ctx, scanUUID)
 	q := r.db.NewUpdate().
 		Model((*Scan)(nil)).
 		Set("status = ?", status).
 		Set("error_message = ?", errMsg).
 		Set("finished_at = CURRENT_TIMESTAMP").
 		Set("updated_at = CURRENT_TIMESTAMP").
-		Set("critical_count = ?", critical).
-		Set("high_count = ?", high).
-		Set("medium_count = ?", medium).
-		Set("low_count = ?", low).
-		Set("info_count = ?", info).
-		Set("suspect_count = ?", suspect).
 		Where("uuid = ?", scanUUID)
+	q = applySeverityCounts(q, sc)
 
-	// Only update total_findings if we got counts (avoid overwriting a value set elsewhere)
-	if totalFindings > 0 {
-		q = q.Set("total_findings = ?", totalFindings)
-	}
+	_, err := q.Exec(ctx)
+	return err
+}
+
+// RefreshScanStats updates running scan stats during long-running scans
+// where CompleteScan hasn't been called yet.
+func (r *Repository) RefreshScanStats(ctx context.Context, scanUUID string) error {
+	sc := r.aggregateScanFindings(ctx, scanUUID)
+	q := r.db.NewUpdate().
+		Model((*Scan)(nil)).
+		Set("updated_at = CURRENT_TIMESTAMP").
+		Where("uuid = ?", scanUUID)
+	q = applySeverityCounts(q, sc)
 
 	_, err := q.Exec(ctx)
 	return err
@@ -899,7 +964,7 @@ type ProjectStatsRow struct {
 	Low              int64  `bun:"low"`
 	Info             int64  `bun:"info"`
 	Scans            int64  `bun:"scans"`
-	AgentRuns        int64  `bun:"agent_runs"`
+	AgenticScans        int64  `bun:"agentic_scans"`
 	SourceRepos      int64  `bun:"source_repos"`
 	OASTInteractions int64  `bun:"oast_interactions"`
 }
@@ -971,11 +1036,11 @@ func (r *Repository) GetProjectStats(ctx context.Context, projectUUID string) (*
 	stats.Scans = int64(scanCount)
 
 	// Agent runs
-	agentCount, err := r.db.NewSelect().Model((*AgentRun)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
+	agentCount, err := r.db.NewSelect().Model((*AgenticScan)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent run count: %w", err)
 	}
-	stats.AgentRuns = int64(agentCount)
+	stats.AgenticScans = int64(agentCount)
 
 	// Source repos
 	repoCount, err := r.db.NewSelect().Model((*SourceRepo)(nil)).Where("project_uuid = ?", projectUUID).Count(ctx)
@@ -1064,7 +1129,7 @@ func (r *Repository) GetAllProjectsStats(ctx context.Context) (map[string]*Proje
 		s.Info = row.Info
 	}
 
-	// Simple counts: scans, agent_runs, source_repos, oast_interactions
+	// Simple counts: scans, agentic_scans, source_repos, oast_interactions
 	type countRow struct {
 		ProjectUUID string `bun:"project_uuid"`
 		Count       int64  `bun:"count"`
@@ -1075,7 +1140,7 @@ func (r *Repository) GetAllProjectsStats(ctx context.Context) (map[string]*Proje
 		field string
 	}{
 		{(*Scan)(nil), "scans"},
-		{(*AgentRun)(nil), "agent_runs"},
+		{(*AgenticScan)(nil), "agentic_scans"},
 		{(*SourceRepo)(nil), "source_repos"},
 		{(*OASTInteraction)(nil), "oast_interactions"},
 	}
@@ -1097,8 +1162,8 @@ func (r *Repository) GetAllProjectsStats(ctx context.Context) (map[string]*Proje
 			switch t.field {
 			case "scans":
 				s.Scans = row.Count
-			case "agent_runs":
-				s.AgentRuns = row.Count
+			case "agentic_scans":
+				s.AgenticScans = row.Count
 			case "source_repos":
 				s.SourceRepos = row.Count
 			case "oast_interactions":

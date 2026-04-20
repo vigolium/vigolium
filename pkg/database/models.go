@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -66,6 +67,27 @@ const (
 	FindingSourceArchon            = "archon"
 )
 
+// SourceType constants classify how source code was provided.
+const (
+	SourceTypeLocal  = "local"
+	SourceTypeGitURL = "git-url"
+	SourceTypeGCS    = "gcs"
+)
+
+// InferSourceType returns the source type for a given path or URL.
+func InferSourceType(sourcePath string) string {
+	if sourcePath == "" {
+		return ""
+	}
+	if strings.HasPrefix(sourcePath, "gs://") {
+		return SourceTypeGCS
+	}
+	if strings.HasPrefix(sourcePath, "http://") || strings.HasPrefix(sourcePath, "https://") || strings.HasPrefix(sourcePath, "git@") {
+		return SourceTypeGitURL
+	}
+	return SourceTypeLocal
+}
+
 // DefaultUserUUID is the well-known UUID for the default local user created during init.
 const DefaultUserUUID = "00000000-0000-0000-0000-000000000001"
 
@@ -86,9 +108,13 @@ type Scan struct {
 	// Scan context
 	Profile      string   `bun:"profile,nullzero" json:"profile,omitempty"`             // scanning profile used (light, full, api, etc.)
 	SourcePath   string   `bun:"source_path,nullzero" json:"source_path,omitempty"`     // source code path for whitebox/SAST scans
+	SourceType   string   `bun:"source_type,nullzero" json:"source_type,omitempty"`     // local, git-url, gcs
 	Tags         []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`         // arbitrary tags for filtering/grouping
 	TriggeredBy  string   `bun:"triggered_by,nullzero" json:"triggered_by,omitempty"`   // user, schedule, webhook, agent
-	AgentRunUUID string   `bun:"agent_run_uuid,nullzero" json:"agent_run_uuid,omitempty"` // link to agent_run that spawned this scan
+	AgenticScanUUID string   `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid,omitempty"` // link to agentic_scan that spawned this scan
+
+	// Soft reference to the HTTP record that triggered this scan (scan-on-receive)
+	HTTPRecordUUID string `bun:"http_record_uuid,nullzero" json:"http_record_uuid,omitempty"`
 
 	// Cursor-based scan tracking
 	ScanSource      string    `bun:"scan_source,nullzero" json:"scan_source,omitempty"`         // "cli", "api", "scan-on-receive"
@@ -115,6 +141,9 @@ type Scan struct {
 	SuspectCount  int64 `bun:"suspect_count,default:0" json:"suspect_count"`
 	// Error count (populated at end of scan)
 	ErrorMessage string    `bun:"error_message,nullzero" json:"error_message,omitempty"`
+
+	StorageURL string `bun:"storage_url,nullzero" json:"storage_url,omitempty"`
+
 	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt    time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
@@ -206,7 +235,7 @@ type Finding struct {
 
 	// Scan reference (soft, no FK)
 	ScanUUID     string `bun:"scan_uuid,nullzero" json:"scan_uuid,omitempty"`
-	AgentRunUUID string `bun:"agent_run_uuid,nullzero" json:"agent_run_uuid,omitempty"` // link to agent_run that produced this finding
+	AgenticScanUUID string `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid,omitempty"` // link to agentic_scan that produced this finding
 
 	// Denormalized target info (for fast display/filtering without joining)
 	URL      string `bun:"url,nullzero" json:"url,omitempty"`
@@ -360,10 +389,10 @@ type ScanLog struct {
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 }
 
-// AgentRun represents a single agent execution for debugging and status tracking.
+// AgenticScan represents a single agent execution for debugging and status tracking.
 // It replaces the in-memory agent run status map with persistent DB storage.
-type AgentRun struct {
-	bun.BaseModel `bun:"table:agent_runs,alias:ar" json:"-"`
+type AgenticScan struct {
+	bun.BaseModel `bun:"table:agentic_scans,alias:ar" json:"-"`
 
 	ID          int64  `bun:"id,pk,autoincrement" json:"id"`
 	UUID        string `bun:"uuid,notnull,unique" json:"uuid"`
@@ -392,6 +421,7 @@ type AgentRun struct {
 
 	// Agent context
 	SourcePath       string                 `bun:"source_path,nullzero" json:"source_path,omitempty"`          // source code path used
+	SourceType       string                 `bun:"source_type,nullzero" json:"source_type,omitempty"`          // local, git-url, gcs
 	TokenUsage       map[string]interface{} `bun:"token_usage,type:jsonb,nullzero" json:"token_usage,omitempty"` // input/output token counts per phase
 	RetryCount       int                    `bun:"retry_count,default:0" json:"retry_count"`
 	ParentRunUUID    string                 `bun:"parent_run_uuid,nullzero" json:"parent_run_uuid,omitempty"`   // for swarm sub-runs
@@ -414,6 +444,8 @@ type AgentRun struct {
 
 	// Pipeline/scan result (JSON blob for full result objects)
 	ResultJSON string `bun:"result_json,nullzero" json:"result_json,omitempty"`
+
+	StorageURL string `bun:"storage_url,nullzero" json:"storage_url,omitempty"`
 
 	// Timing
 	StartedAt   time.Time `bun:"started_at,nullzero" json:"started_at,omitempty"`

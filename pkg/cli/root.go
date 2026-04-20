@@ -29,6 +29,7 @@ var (
 	globalTimeout              time.Duration
 	globalConcurrency          int
 	globalScanOnReceive        bool
+	globalNativeScanOnReceive  bool
 	globalMaxPerHost           int
 	globalMaxHostError         int
 	globalMaxFindingsPerModule int
@@ -128,9 +129,11 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("--project-id and --project-name are mutually exclusive")
 		}
 
-		// Initialize Vigolium on first run
-		if err := ensureInitialized(); err != nil {
-			return err
+		// Initialize Vigolium on first run (skip when `init` is invoked explicitly)
+		if cmd.Name() != "init" {
+			if err := ensureInitialized(); err != nil {
+				return err
+			}
 		}
 
 		// Handle -M/--list-modules shortcut
@@ -186,6 +189,7 @@ func init() {
 	pf.IntVar(&globalMaxHostError, "max-host-error", 30, "Skip host after reaching this many consecutive errors")
 	pf.IntVar(&globalMaxFindingsPerModule, "max-findings-per-module", 10, "Stop reporting after N findings per module (0 = unlimited)")
 	pf.BoolVarP(&globalScanOnReceive, "scan-on-receive", "S", false, "Continuously scan new HTTP records as they arrive in the database")
+	pf.BoolVar(&globalNativeScanOnReceive, "native-scan-on-receive", false, "Run full native scan pipeline continuously on received records")
 	pf.BoolVarP(&globalListModules, "list-modules", "M", false, "List all available scanner modules")
 	pf.BoolVar(&globalListInputModes, "list-input-mode", false, "List all supported input modes with examples")
 	pf.BoolVarP(&globalForce, "force", "F", false, "Skip confirmation prompts")

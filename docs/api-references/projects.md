@@ -68,7 +68,7 @@ curl -s 'http://localhost:9002/api/projects?owner=00000000-0000-0000-0000-000000
         "info": 5
       },
       "scans": 3,
-      "agent_runs": 7,
+      "agentic_scans": 7,
       "source_repos": 2,
       "oast_interactions": 12
     }
@@ -92,7 +92,7 @@ curl -s 'http://localhost:9002/api/projects?owner=00000000-0000-0000-0000-000000
 | `stats.findings.low`      | int   | Low severity count                       |
 | `stats.findings.info`     | int   | Info severity count                      |
 | `stats.scans`             | int   | Total scan sessions                      |
-| `stats.agent_runs`        | int   | Total agent runs                         |
+| `stats.agentic_scans`        | int   | Total agent runs                         |
 | `stats.source_repos`      | int   | Total linked source repositories         |
 | `stats.oast_interactions` | int   | Total OAST (out-of-band) interactions    |
 
@@ -179,7 +179,7 @@ curl -s http://localhost:9002/api/projects/a1b2c3d4-e5f6-7890-abcd-ef1234567890 
       "info": 2
     },
     "scans": 2,
-    "agent_runs": 3,
+    "agentic_scans": 3,
     "source_repos": 1,
     "oast_interactions": 5
   }

@@ -53,31 +53,31 @@ func ExtractHeaders(request []byte, startOffset, endOffset int) ([]string, []int
 	headers := []string{}
 	headerOffsets := []int{}
 
-	// Main parsing loop
+	// Main parsing loop — handles CRLF, bare LF, and mixed line endings
 	lineStart := startOffset
 
-	// Loop through data looking for CRLF terminators
 	for pos := startOffset; pos < endOffset; pos++ {
-		// Check for CRLF line terminator
-		if request[pos] == CR && pos+1 < endOffset && request[pos+1] == LF {
-			// Extract line from lineStart to pos
-			line := string(request[lineStart:pos])
-
-			// Skip empty lines
+		if request[pos] == LF {
+			lineEnd := pos
+			if lineEnd > lineStart && request[lineEnd-1] == CR {
+				lineEnd--
+			}
+			line := string(request[lineStart:lineEnd])
 			if len(line) > 0 {
 				headers = append(headers, line)
-				// Track offset of this header
 				headerOffsets = append(headerOffsets, lineStart)
 			}
-
-			// Move to start of next line (skip CRLF)
-			lineStart = pos + 2
+			lineStart = pos + 1
 		}
 	}
 
 	// Handle final line if no terminator at end
 	if lineStart < endOffset {
-		line := string(request[lineStart:endOffset])
+		lineEnd := endOffset
+		if lineEnd > lineStart && request[lineEnd-1] == CR {
+			lineEnd--
+		}
+		line := string(request[lineStart:lineEnd])
 		if len(line) > 0 {
 			headers = append(headers, line)
 			headerOffsets = append(headerOffsets, lineStart)

@@ -117,7 +117,7 @@ func TestAuditState_Parse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner := &AuditAgentRunner{
+	runner := &AuditAgenticScanner{
 		cfg:  AuditAgentConfig{SourcePath: dir},
 		done: make(chan struct{}),
 	}
@@ -153,7 +153,7 @@ func TestSyncStateOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner := &AuditAgentRunner{
+	runner := &AuditAgenticScanner{
 		cfg:  AuditAgentConfig{SourcePath: sourceDir, SessionDir: sessionDir},
 		done: make(chan struct{}),
 	}
@@ -378,7 +378,7 @@ func TestReadCurrentState_SessionDirFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner := &AuditAgentRunner{
+	runner := &AuditAgenticScanner{
 		cfg:  AuditAgentConfig{SourcePath: sourceDir, SessionDir: sessionDir},
 		done: make(chan struct{}),
 	}
@@ -427,10 +427,10 @@ func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
 	writeFinding("C1.md", "## Q1-001: Hardcoded key\n\n- **Severity**: Critical\n- **File**: app.py\n- **Line**: 10\n- **Verdict**: VALID\n")
 	writeFinding("H1.md", "## Q2-001: SQLi\n\n- **Severity**: High\n- **File**: api.py\n- **Line**: 42\n- **Verdict**: VALID\n")
 
-	runner := &AuditAgentRunner{
+	runner := &AuditAgenticScanner{
 		cfg:          AuditAgentConfig{SessionDir: sessionDir},
 		done:         make(chan struct{}),
-		agentRunUUID: "test-run",
+		agenticScanUUID: "test-run",
 	}
 
 	runner.importArchonFindings(context.TODO())

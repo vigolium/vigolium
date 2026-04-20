@@ -126,6 +126,9 @@ type RunScanRequest struct {
 	// Source code for SAST scanning (like --sast-adhoc)
 	Source  string `json:"source,omitempty"`   // Local path or Git URL for SAST scan
 	RepoURL string `json:"repo_url,omitempty"` // Git URL to clone for SAST scan (legacy, prefer "source")
+
+	// Upload results to cloud storage after scan completion
+	UploadResults bool `json:"upload_results,omitempty"`
 }
 
 // UnmarshalJSON implements custom unmarshaling for RunScanRequest to support
@@ -388,7 +391,7 @@ type ProjectStats struct {
 	HTTPRecords      ProjectHTTPRecordStats `json:"http_records"`
 	Findings         ProjectFindingStats    `json:"findings"`
 	Scans            int64                  `json:"scans"`
-	AgentRuns        int64                  `json:"agent_runs"`
+	AgenticScans        int64                  `json:"agentic_scans"`
 	SourceRepos      int64                  `json:"source_repos"`
 	OASTInteractions int64                  `json:"oast_interactions"`
 }
@@ -450,8 +453,8 @@ type ConfigUpdateResponse struct {
 	Errors  []string              `json:"errors,omitempty"`
 }
 
-// AgentRunRequest is the request body for POST /api/agent/run/query.
-type AgentRunRequest struct {
+// AgenticScanRequest is the request body for POST /api/agent/run/query.
+type AgenticScanRequest struct {
 	Agent          string   `json:"agent,omitempty"`
 	PromptTemplate string   `json:"prompt_template,omitempty"`
 	PromptFile     string   `json:"prompt_file,omitempty"`
@@ -494,6 +497,9 @@ type AgentAutopilotRequest struct {
 	RequiresBrowser bool                        `json:"requires_browser,omitempty"`  // browser is required for login/auth setup
 	BrowserStartURL string                      `json:"browser_start_url,omitempty"` // explicit login/start URL for browser-based flows
 	FocusRoutes     []string                    `json:"focus_routes,omitempty"`      // protected/browser focus routes
+
+	// Upload results to cloud storage after scan completion
+	UploadResults bool `json:"upload_results,omitempty"`
 }
 
 // ResolvedNoArchon returns true when archon should be disabled, handling backward
@@ -592,6 +598,9 @@ type AgentSwarmRequest struct {
 	// Diff context
 	Diff        string `json:"diff,omitempty"`         // focus on changed code: PR URL, git ref range, or HEAD~N
 	LastCommits int    `json:"last_commits,omitempty"` // focus on last N commits (shorthand for diff HEAD~N)
+
+	// Upload results to cloud storage after scan completion
+	UploadResults bool `json:"upload_results,omitempty"`
 }
 
 // ResolvedNoArchon returns true when archon should be disabled.
@@ -637,8 +646,8 @@ func (r *AgentSwarmRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// AgentRunResponse is the response for POST /api/agent/run/*.
-type AgentRunResponse struct {
+// AgenticScanResponse is the response for POST /api/agent/run/*.
+type AgenticScanResponse struct {
 	RunID   string `json:"run_id"`
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
@@ -727,8 +736,8 @@ type ScanRecordsRequest struct {
 	EnableModules []string `json:"enable_modules,omitempty"`
 }
 
-// AgentRunStatusResponse is the response for GET /api/agent/status/:id and GET /api/agent/status/list.
-type AgentRunStatusResponse struct {
+// AgenticScanStatusResponse is the response for GET /api/agent/status/:id and GET /api/agent/status/list.
+type AgenticScanStatusResponse struct {
 	RunID        string        `json:"run_id"`
 	Mode         string        `json:"mode"`   // "query", "autopilot", "pipeline"
 	Status       string        `json:"status"` // "running", "completed", "failed"

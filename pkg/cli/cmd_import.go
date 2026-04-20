@@ -75,13 +75,13 @@ func runImportArchon(folderPath string) error {
 	ctx := context.Background()
 	repo := database.NewRepository(db)
 
-	agentRun := archon.BuildAgentRun(result.State, folderPath, projectUUID)
-	if err := repo.CreateAgentRun(ctx, agentRun); err != nil {
+	agenticScan := archon.BuildAgenticScan(result.State, folderPath, projectUUID)
+	if err := repo.CreateAgenticScan(ctx, agenticScan); err != nil {
 		return fmt.Errorf("failed to create agent run: %w", err)
 	}
 
 	auditID := result.State.Audits[0].AuditID
-	findings := archon.BuildFindings(result.RawFindings, auditID, agentRun.UUID, projectUUID, result.RepoName)
+	findings := archon.BuildFindings(result.RawFindings, auditID, agenticScan.UUID, projectUUID, result.RepoName)
 
 	saved, skipped := 0, 0
 	for _, f := range findings {
@@ -96,9 +96,9 @@ func runImportArchon(folderPath string) error {
 		}
 	}
 
-	agentRun.SavedCount = saved
-	agentRun.FindingCount = len(findings)
-	_ = repo.UpdateAgentRun(ctx, agentRun)
+	agenticScan.SavedCount = saved
+	agenticScan.FindingCount = len(findings)
+	_ = repo.UpdateAgenticScan(ctx, agenticScan)
 
 	sevCounts := map[string]int{}
 	for _, f := range findings {
@@ -107,7 +107,7 @@ func runImportArchon(folderPath string) error {
 
 	if globalJSON {
 		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"agent_run_uuid": agentRun.UUID,
+			"agentic_scan_uuid": agenticScan.UUID,
 			"total":          len(findings),
 			"saved":          saved,
 			"skipped":        skipped,
@@ -117,7 +117,7 @@ func runImportArchon(folderPath string) error {
 
 	fmt.Printf("%s Imported archon audit: %d findings (%d new, %d duplicates skipped)\n",
 		terminal.SuccessSymbol(), len(findings), saved, skipped)
-	fmt.Printf("  Agent run: %s (mode=%s, status=%s)\n", agentRun.UUID, agentRun.Mode, agentRun.Status)
+	fmt.Printf("  Agent run: %s (mode=%s, status=%s)\n", agenticScan.UUID, agenticScan.Mode, agenticScan.Status)
 	if sevCounts["high"] > 0 || sevCounts["critical"] > 0 || sevCounts["medium"] > 0 || sevCounts["low"] > 0 {
 		fmt.Printf("  Severity: %s, %s, %s, %s\n",
 			terminal.BoldMagenta(fmt.Sprintf("%d critical", sevCounts["critical"])),

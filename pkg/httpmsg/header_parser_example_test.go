@@ -120,18 +120,15 @@ func Example_findHeaderBodySeparator() {
 
 // Example_lfLineEndings demonstrates handling LF-only line endings
 func Example_lfLineEndings() {
-	// Unix-style LF line endings
 	request := []byte("GET / HTTP/1.1\nHost: example.com\n\nBODY")
 
 	bodyStart := httpmsg.FindHeaderBodySeparator(request, 0)
 	headers, _, _ := httpmsg.ExtractHeaders(request, 0, bodyStart)
 
-	// Note: Current implementation extracts what it can
-	// Full LF-only support would need enhancement
 	fmt.Println("Headers extracted:", len(headers))
 
 	// Output:
-	// Headers extracted: 1
+	// Headers extracted: 2
 }
 
 // Example_multipleHeaders demonstrates working with multiple headers

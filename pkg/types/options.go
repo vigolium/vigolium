@@ -96,6 +96,8 @@ type Options struct {
 
 	// ScanOnReceive enables DB watcher to auto-scan ingested records
 	ScanOnReceive bool
+	// NativeScanOnReceive runs the full native scan pipeline on received records
+	NativeScanOnReceive bool
 
 	// DisableFetchResponse skips fetching HTTP responses during ingestion
 	DisableFetchResponse bool
@@ -190,6 +192,9 @@ type Options struct {
 	AuthConfigBestEffort bool
 	// SessionFiles are paths to individual session YAML files from --session-file flags
 	SessionFiles []string
+
+	// UploadResults uploads scan results to cloud storage after completion (requires storage config).
+	UploadResults bool
 
 	// Stateless uses a temporary SQLite database that is deleted after the scan completes.
 	// Requires --output to be set. Incompatible with --db.

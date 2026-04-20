@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
@@ -359,6 +360,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// --native-scan-on-receive implies --scan-on-receive
+	if globalNativeScanOnReceive {
+		globalScanOnReceive = true
+	}
+
 	// Create runner options (concurrency comes from global -c/--concurrency flag)
 	// Phase banners are always suppressed in server mode — the server startup
 	// banner provides the relevant info and the phase summaries are noise.
@@ -375,6 +381,16 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		Modules:      []string{"all"},
 	}
 
+	// scan-on-receive: skip to dynamic-assessment only (records already in DB).
+	// native-scan-on-receive: run the full native scan pipeline per batch.
+	if globalNativeScanOnReceive {
+		runnerOpts.ScanOnReceive = true
+		runnerOpts.NativeScanOnReceive = true
+	} else if globalScanOnReceive {
+		runnerOpts.ScanOnReceive = true
+		runnerOpts.SkipIngestion = true
+	}
+
 	// Create input source(s)
 	queueSource := queue.NewQueueInputSource(taskQueue)
 
@@ -383,12 +399,14 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	var serverScanCursorUUID string
 	if globalScanOnReceive && db != nil && repo != nil {
 		// Create a persistent scan record for the server session
+		scanUUID := uuid.New().String()
 		serverScan := &database.Scan{
-			UUID:        fmt.Sprintf("server-scan-%d", time.Now().UnixNano()),
+			UUID:        fmt.Sprintf("scan-%s", scanUUID),
 			ProjectUUID: database.DefaultProjectUUID,
-			Name:        "server-scan-on-receive",
+			Name:        fmt.Sprintf("server-scan-on-receive-%s", scanUUID[:8]),
 			Status:      "running",
 			Modules:     strings.Join(runnerOpts.Modules, ","),
+			Threads:     globalConcurrency,
 			ScanSource:  "scan-on-receive",
 			ScanMode:    "incremental",
 			StartedAt:   time.Now(),
@@ -399,10 +417,17 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		// Capture cursor position for catchup scan to detect backlog behind it
 		serverScanCursorAt = serverScan.CursorAt
 		serverScanCursorUUID = serverScan.CursorUUID
-		dbSource := database.NewDBInputSource(db, repo, serverScan.UUID, 2*time.Second)
-		inputSource = source.NewConcurrentMultiSource(queueSource, dbSource)
+
+		// Reuse the server scan UUID so the runner tracks cursor on the same record
+		runnerOpts.ScanUUID = serverScan.UUID
+
+		// Both modes create their own DB sources internally:
+		// DA-only creates a continuous poller; full-pipeline creates one-shot
+		// sources per iteration. No DB input source needed at the runner level.
+		inputSource = queueSource
 		zap.L().Info("Scan-on-receive enabled: watching database for new records",
-			zap.String("scan_uuid", serverScan.UUID))
+			zap.String("scan_uuid", serverScan.UUID),
+			zap.Bool("full_pipeline", globalNativeScanOnReceive))
 	} else {
 		inputSource = queueSource
 	}

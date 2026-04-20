@@ -158,7 +158,7 @@ func runAgentArchon(cmd *cobra.Command, args []string) error {
 		cfg.StreamWriter = os.Stdout
 	}
 
-	runner := agent.NewAuditAgentRunner(cfg, repo)
+	runner := agent.NewAuditAgenticScanner(cfg, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

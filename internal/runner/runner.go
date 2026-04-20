@@ -883,7 +883,8 @@ func (r *Runner) RunNativeScan() error {
 	defer r.scanLogger.Close()
 
 	// Create scan record in the database so every scan is tracked with its lifecycle.
-	if r.repository != nil {
+	// Skip when ScanOnReceive — the server already created the scan record.
+	if r.repository != nil && !r.options.ScanOnReceive {
 		target := strings.Join(r.options.Targets, ", ")
 		scan := &database.Scan{
 			UUID:        infra.scanUUID,
@@ -898,18 +899,18 @@ func (r *Runner) RunNativeScan() error {
 		}
 		if err := r.repository.CreateScan(ctx, scan); err != nil {
 			zap.L().Warn("Failed to create scan record", zap.Error(err))
-		} else {
-			// Defer scan completion so the record is updated when RunNativeScan finishes.
-			defer func() {
-				var errMsg string
-				if r.ctx.Err() != nil {
-					errMsg = "cancelled"
-				}
-				if completeErr := r.repository.CompleteScan(ctx, infra.scanUUID, errMsg); completeErr != nil {
-					zap.L().Warn("Failed to complete scan record", zap.Error(completeErr))
-				}
-			}()
 		}
+	}
+	if r.repository != nil {
+		defer func() {
+			var errMsg string
+			if r.ctx.Err() != nil {
+				errMsg = "cancelled"
+			}
+			if completeErr := r.repository.CompleteScan(ctx, infra.scanUUID, errMsg); completeErr != nil {
+				zap.L().Warn("Failed to complete scan record", zap.Error(completeErr))
+			}
+		}()
 	}
 
 	// Set up TeeWriter to capture raw stderr output as trace-level scan logs.
@@ -972,6 +973,36 @@ func (r *Runner) RunNativeScan() error {
 	}()
 
 	plan := BuildNativeScanPlan(r.options)
+
+	// Full-scan-on-receive: loop waiting for new records, then run all phases
+	// on just the new batch. Each iteration swaps r.inputSource to a one-shot
+	// DB source so Discovery processes only newly arrived records.
+	if r.options.NativeScanOnReceive && r.repository != nil {
+		for {
+			if ctx.Err() != nil {
+				break
+			}
+			if err := r.waitForNewRecords(ctx, infra.scanUUID, 2*time.Second); err != nil {
+				break
+			}
+			r.inputSource = database.NewOneShotDBInputSource(r.repository.DB(), r.repository, infra.scanUUID)
+			for _, step := range plan.Steps {
+				if !step.Enabled {
+					continue
+				}
+				if ctx.Err() != nil {
+					break
+				}
+				if err := r.executeNativePhase(ctx, infra, step.Phase); err != nil {
+					zap.L().Error("Full-scan-on-receive: phase error", zap.Error(err))
+					break
+				}
+			}
+		}
+		r.scanLogger.Info("", "scan finished")
+		return nil
+	}
+
 	for _, step := range plan.Steps {
 		if !step.Enabled {
 			continue
@@ -1837,8 +1868,11 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 
 	// Reset cursor so dynamic-assessment reads all records from the beginning
 	// (seed phase advances the cursor past all records when saving them).
-	if err := r.repository.ResetScanCursor(ctx, infra.scanUUID); err != nil {
-		zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
+	// Skip reset for scan-on-receive — the cursor tracks which records have been scanned.
+	if !r.options.ScanOnReceive {
+		if err := r.repository.ResetScanCursor(ctx, infra.scanUUID); err != nil {
+			zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
+		}
 	}
 
 	var recordWriter *database.RecordWriter
@@ -1900,6 +1934,56 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	}
 	if infra.hookChain != nil {
 		baseExecutorCfg.Hooks = infra.hookChain
+	}
+
+	// Continuous scan-on-receive mode: use a polling DBInputSource that waits
+	// indefinitely for new records instead of snapshot-based feedback rounds.
+	if r.options.ScanOnReceive && !r.options.NativeScanOnReceive {
+		sorCfg := baseExecutorCfg
+		sorCfg.OnTraffic = func(method, url string, statusCode int, contentType string) {
+			printTrafficLine("scan-on-receive", method, url, statusCode, contentType)
+		}
+		origOnResult := sorCfg.OnResult
+		sorCfg.OnResult = func(result *output.ResultEvent) {
+			if origOnResult != nil {
+				origOnResult(result)
+			}
+			if result != nil {
+				fmt.Fprintf(os.Stderr, "  %s %s [%s] %s — %s\n",
+					terminal.InfoSymbol(),
+					terminal.Cyan("finding"),
+					terminal.Orange(result.Info.Severity.String()),
+					terminal.BoldCyan(result.ModuleID),
+					terminal.Gray(result.URL))
+			}
+		}
+		sorCfg.OnStatus = func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+			prefix := terminal.Muted(terminal.SymbolChevron + " scan-on-receive " + terminal.SymbolPipe)
+			fmt.Fprintf(os.Stderr, "%s %s Records: %s | Findings: %s | Runtime: %s\n",
+				prefix,
+				terminal.BoldCyan("[status]"),
+				terminal.HiBlue(fmt.Sprintf("%d", processed)),
+				terminal.Orange(fmt.Sprintf("%d", findings)),
+				terminal.Gray(fmtDuration(elapsed)))
+			if r.repository != nil {
+				_ = r.repository.RefreshScanStats(context.Background(), infra.scanUUID)
+			}
+		}
+
+		continuousSource := database.NewDBInputSource(r.repository.DB(), r.repository, infra.scanUUID, 2*time.Second).
+			WithHostnames(inScopeHostnames)
+		executor := core.NewExecutor(sorCfg, continuousSource, activeModules, passiveModules)
+		if oastService != nil {
+			oastService.SetRequestUUIDResolver(executor.ResolveRequestUUID)
+		}
+		_, err := executor.Execute(ctx)
+		if metrics := executor.ModuleMetrics(); len(metrics) > 0 {
+			logModuleMetrics(metrics)
+		}
+		if err != nil && ctx.Err() == nil {
+			return err
+		}
+		return nil
 	}
 
 	// Feedback loop: re-scan newly discovered URLs
@@ -2000,6 +2084,32 @@ func (r *Runner) countRemainingDynamicAssessmentRecords(ctx context.Context, sca
 		return 0, err
 	}
 	return r.repository.CountRecordsAfterCursor(ctx, currentScan.CursorAt, currentScan.CursorUUID, hostnames...)
+}
+
+// waitForNewRecords polls until at least one record exists after the scan cursor,
+// or the context is cancelled. Used by native-scan-on-receive to block between iterations.
+func (r *Runner) waitForNewRecords(ctx context.Context, scanUUID string, pollInterval time.Duration) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		count, err := r.countRemainingDynamicAssessmentRecords(ctx, scanUUID, nil)
+		if err != nil {
+			zap.L().Debug("waitForNewRecords: query error", zap.Error(err))
+		}
+		if count > 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // resolveAllModules combines getModulesToExecute() with JS extension modules.

@@ -521,7 +521,7 @@ Status is one of `running`, `completed`, or `failed`.
 GET /api/agent/status/list
 ```
 
-Returns all run statuses. Active runs show real-time status from memory; completed runs are loaded from the `agent_runs` database table.
+Returns all run statuses. Active runs show real-time status from memory; completed runs are loaded from the `agentic_scans` database table.
 
 ### Concurrency
 

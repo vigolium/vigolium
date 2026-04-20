@@ -286,7 +286,7 @@ func TestAgentAPI_Run_InlinePrompt(t *testing.T) {
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var body server.AgentRunResponse
+	var body server.AgenticScanResponse
 	readJSON(t, resp, &body)
 	assert.NotEmpty(t, body.RunID)
 	assert.Equal(t, "running", body.Status)
@@ -296,7 +296,7 @@ func TestAgentAPI_Run_InlinePrompt(t *testing.T) {
 	assert.NoError(t, parseErr, "run_id should be a valid UUID")
 
 	// Poll for completion
-	var status server.AgentRunStatusResponse
+	var status server.AgenticScanStatusResponse
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		r := env.get(t, "/api/agent/status/"+body.RunID)
@@ -320,11 +320,11 @@ func TestAgentAPI_Run_DefaultAgent(t *testing.T) {
 	}`)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-	var body server.AgentRunResponse
+	var body server.AgenticScanResponse
 	readJSON(t, resp, &body)
 
 	// Poll for completion
-	var status server.AgentRunStatusResponse
+	var status server.AgenticScanStatusResponse
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		r := env.get(t, "/api/agent/status/"+body.RunID)
@@ -348,7 +348,7 @@ func TestAgentAPI_StatusList_Empty(t *testing.T) {
 	resp := env.get(t, "/api/agent/status/list")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body []*server.AgentRunStatusResponse
+	var body []*server.AgenticScanStatusResponse
 	readJSON(t, resp, &body)
 	assert.Empty(t, body)
 }
@@ -359,14 +359,14 @@ func TestAgentAPI_StatusList_AfterRun(t *testing.T) {
 	// Start an agent run
 	resp := env.post(t, "/api/agent/run/query", `{"prompt": "list test"}`)
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	var runResp server.AgentRunResponse
+	var runResp server.AgenticScanResponse
 	readJSON(t, resp, &runResp)
 
 	// Wait for completion
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		r := env.get(t, "/api/agent/status/"+runResp.RunID)
-		var s server.AgentRunStatusResponse
+		var s server.AgenticScanStatusResponse
 		readJSON(t, r, &s)
 		if s.Status != "running" {
 			break
@@ -378,7 +378,7 @@ func TestAgentAPI_StatusList_AfterRun(t *testing.T) {
 	resp = env.get(t, "/api/agent/status/list")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var list []*server.AgentRunStatusResponse
+	var list []*server.AgenticScanStatusResponse
 	readJSON(t, resp, &list)
 	assert.NotEmpty(t, list)
 
@@ -677,7 +677,7 @@ func TestAgentAPI_ChatCompletions_ResponseFormat(t *testing.T) {
 // POST /api/agent/chat/completions — shared semaphore with /agent/run/query
 // ============================================================
 
-func TestAgentAPI_ChatCompletions_BlocksAgentRun(t *testing.T) {
+func TestAgentAPI_ChatCompletions_BlocksAgenticScan(t *testing.T) {
 	env := newAgentTestEnvWithConfig(t, server.ServerConfig{
 		AgentLightMax:     1,
 		AgentQueueTimeout: 500 * time.Millisecond,
@@ -817,14 +817,14 @@ func TestAgentAPI_SlotReleasedAfterCompletion(t *testing.T) {
 		"prompt": "fast run"
 	}`)
 	require.Equal(t, http.StatusAccepted, resp1.StatusCode)
-	var run1 server.AgentRunResponse
+	var run1 server.AgenticScanResponse
 	readJSON(t, resp1, &run1)
 
 	// Poll until first run completes
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		r := env.get(t, "/api/agent/status/"+run1.RunID)
-		var status server.AgentRunStatusResponse
+		var status server.AgenticScanStatusResponse
 		readJSON(t, r, &status)
 		if status.Status != "running" {
 			break

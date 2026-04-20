@@ -40,7 +40,7 @@ func init() {
 	scopeSetCmd.Example = scopeSetExamples
 	runCmd.Example = runExamples
 	agentCmd.Example = agentExamples
-	agentQueryCmd.Example = agentRunExamples
+	agentQueryCmd.Example = agenticScanExamples
 	exportCmd.Example = exportExamples
 }
 
@@ -563,7 +563,7 @@ var agentExamples = FormatExamples(
 	"vigolium agent query --source ./myapp --prompt-template security-code-review --agent gemini",
 )
 
-var agentRunExamples = FormatExamples(
+var agenticScanExamples = FormatExamples(
 	"# Send a prompt to the agent",
 	`vigolium agent query --prompt "Analyze this code for SQL injection: SELECT * FROM users WHERE id = $input"`,
 	"# Pipe prompt from stdin",

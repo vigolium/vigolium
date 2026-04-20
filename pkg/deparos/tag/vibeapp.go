@@ -42,7 +42,7 @@ var vibeAppEmojis = map[rune]struct{}{
 	'✅': {}, // U+2705 - Check mark
 	'❌': {}, // U+274C - Cross mark
 	'⚠': {}, // U+26A0 - Warning
-	'ℹ': {}, // U+2139 - Information
+	'ⓘ': {}, // U+2139 - Information
 	'🔥': {}, // U+1F525 - Fire (popular)
 	'🚀': {}, // U+1F680 - Rocket (deploy/launch)
 	'💡': {}, // U+1F4A1 - Light bulb (idea/tip)
