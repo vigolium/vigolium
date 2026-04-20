@@ -4,14 +4,24 @@
 
 The storage API provides cloud object storage integration for source code upload/download and scan result archival. All objects are scoped to a project via the `X-Project-UUID` header and stored under `<bucket>/<project-uuid>/`.
 
+Storage is **disabled by default**. Enable it by setting `storage.enabled: true` in `vigolium-configs.yaml`. All endpoints return `503 Service Unavailable` when storage is not configured.
+
 | Endpoint                              | Method | Role     | Description                              |
 |---------------------------------------|--------|----------|------------------------------------------|
 | `/api/storage/upload-source`          | POST   | Operator | Upload source code archive               |
 | `/api/storage/source/:key`            | GET    | Viewer   | Download source code by key              |
-| `/api/storage/results/:scan-uuid`     | GET    | Viewer   | Download scan result bundle              |
+| `/api/storage/results/:scan-uuid`     | GET    | Viewer   | Download scan result bundle (.tar.gz)    |
 | `/api/storage/presign`                | POST   | Operator | Generate presigned upload/download URL   |
 
-**Requires:** `storage.enabled: true` in `vigolium-configs.yaml`. All endpoints return `503 Service Unavailable` when storage is not configured.
+---
+
+## Security
+
+All storage operations enforce project-level isolation:
+
+- Every object path is prefixed with the authenticated project UUID (`<bucket>/<project-uuid>/<key>`). The project UUID comes from the `X-Project-UUID` header, set by server middleware — clients cannot override the prefix.
+- Keys and UUIDs are validated against path traversal (`../`, `..\\`, `..`) before any storage operation. Malicious keys are rejected with `400 Bad Request`.
+- Presigned URLs are scoped to the requesting project — a presigned URL for project A cannot access objects in project B.
 
 ---
 
@@ -40,23 +50,24 @@ This outputs an `accessId` and `secret`. Save both — the secret is only shown 
 
 ```bash
 # Create a bucket in your preferred region
-gcloud storage buckets create gs://vigolium-data \
+gcloud storage buckets create gs://my-vigolium-bucket \
   --location=asia-southeast1 \
   --uniform-bucket-level-access
 
-# Verify the service account has read/write access
-gcloud storage buckets add-iam-policy-binding gs://vigolium-data \
+# Grant the service account read/write access
+gcloud storage buckets add-iam-policy-binding gs://my-vigolium-bucket \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/storage.objectAdmin"
 ```
 
 ### Step 3: Configure Vigolium
 
-Set the HMAC credentials as environment variables (recommended):
+Set the credentials and bucket name as environment variables:
 
 ```bash
-export VIGOLIUM_STORAGE_ACCESS_KEY="GOOG1E..."   # accessId from step 1
-export VIGOLIUM_STORAGE_SECRET_KEY="abc123..."     # secret from step 1
+export VIGOLIUM_STORAGE_ACCESS_KEY="GOOG1E..."        # accessId from step 1
+export VIGOLIUM_STORAGE_SECRET_KEY="abc123..."          # secret from step 1
+export VIGOLIUM_STORAGE_BUCKET_NAME="my-vigolium-bucket"
 ```
 
 Then configure `~/.vigolium/vigolium-configs.yaml`:
@@ -65,28 +76,56 @@ Then configure `~/.vigolium/vigolium-configs.yaml`:
 storage:
   enabled: true
   driver: gcs
-  bucket: vigolium-data
+  bucket: ${VIGOLIUM_STORAGE_BUCKET_NAME}
   region: asia-southeast1
   access_key: ${VIGOLIUM_STORAGE_ACCESS_KEY}
   secret_key: ${VIGOLIUM_STORAGE_SECRET_KEY}
   use_ssl: true
 ```
 
-### Verify Connectivity
+### Step 4: Verify Connectivity
 
 ```bash
-# Upload a test file via the API
+# Upload a test file
 curl -s -X POST http://localhost:9002/api/storage/upload-source \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
-  -F "file=@test.zip" | jq .
+  -F "file=@test-source.tar.gz" | jq .
 
-# Or generate a presigned URL
+# Generate a presigned download URL
 curl -s -X POST http://localhost:9002/api/storage/presign \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
-  -d '{"key": "ugc/test.zip", "method": "GET"}' | jq .url
+  -d '{"key": "ugc/test-source.tar.gz", "method": "GET"}' | jq .url
+```
+
+### AWS S3 / MinIO
+
+For AWS S3, change the driver and region:
+
+```yaml
+storage:
+  enabled: true
+  driver: s3
+  bucket: ${VIGOLIUM_STORAGE_BUCKET_NAME}
+  region: us-east-1
+  access_key: ${AWS_ACCESS_KEY_ID}
+  secret_key: ${AWS_SECRET_ACCESS_KEY}
+```
+
+For self-hosted MinIO, set the endpoint explicitly:
+
+```yaml
+storage:
+  enabled: true
+  driver: minio
+  endpoint: minio.internal:9000
+  bucket: ${VIGOLIUM_STORAGE_BUCKET_NAME}
+  access_key: ${MINIO_ACCESS_KEY}
+  secret_key: ${MINIO_SECRET_KEY}
+  use_ssl: false
+  path_style: true
 ```
 
 ---
@@ -98,16 +137,18 @@ All objects are prefixed with the project UUID for multi-tenant isolation:
 ```
 <bucket>/
   <project-uuid>/
-    ugc/                          # User-uploaded source code
-      source-code.zip
-      my-app.tar.gz
-    native-scans/                 # Native scan results
+    ugc/                              # User-uploaded source code
+      source-code.tar.gz
+      my-app.zip
+    native-scans/                     # Native scan result bundles
       <scan-uuid>/
-        results.zip               # Bundled findings JSONL, HTML report
-    agentic-scans/                # Agentic scan results
+        results.tar.gz                # Bundled findings JSONL, HTML report, stats
+    agentic-scans/                    # Agentic scan result bundles
       <agentic-scan-uuid>/
-        results.zip               # Bundled session dir (output.md, extensions/, plan.json)
+        results.tar.gz                # Bundled session dir (output.md, extensions/, plan.json)
 ```
+
+Result bundles use `.tar.gz` format (gzip-compressed tar), matching the `vigolium db export --format bundle` format.
 
 ---
 
@@ -115,48 +156,48 @@ All objects are prefixed with the project UUID for multi-tenant isolation:
 
 ### Source Download from Storage
 
-Use `gs://` URIs with `--source` to download source code from cloud storage before scanning:
+Use `gs://` URIs with `--source` to download and extract source code from cloud storage before scanning:
 
 ```bash
 # Native scan with source from GCS
 vigolium scan -t https://example.com \
-  --source gs://<project-uuid>/ugc/source-code.zip
+  --source gs://<project-uuid>/ugc/source-code.tar.gz
 
 # Agentic swarm with source from GCS
 vigolium agent swarm -t https://example.com \
-  --source gs://<project-uuid>/ugc/source-code.zip
+  --source gs://<project-uuid>/ugc/source-code.tar.gz
 
 # Autopilot with source from GCS
 vigolium agent autopilot -t https://example.com \
-  --source gs://<project-uuid>/ugc/source-code.zip
+  --source gs://<project-uuid>/ugc/source-code.tar.gz
 ```
 
-The scanner downloads the zip, extracts it to a temp directory, and scans against the extracted source. The `source_type` field in the DB records `"gcs"`.
+The archive is downloaded, extracted to a temp directory, and cleaned up after the scan completes. The `source_type` field in the DB records `"gcs"`.
 
 ### Result Upload to Storage
 
 Add `--upload-results` to upload scan results to cloud storage after completion:
 
 ```bash
-# Native scan — upload findings JSONL + HTML report
+# Native scan — upload findings JSONL + HTML report as tar.gz bundle
 vigolium scan -t https://example.com -o results --format jsonl,html --upload-results
 
-# Agentic swarm — upload session dir (output.md, extensions/, plan.json)
+# Agentic swarm — upload session dir as tar.gz bundle
 vigolium agent swarm -t https://example.com --upload-results
 
-# Autopilot — upload session artifacts
+# Autopilot — upload session artifacts as tar.gz bundle
 vigolium agent autopilot -t https://example.com --source ./src --upload-results
 ```
 
 Results are uploaded to:
-- **Native scans:** `gs://<project-uuid>/native-scans/<scan-uuid>/results.zip`
-- **Agentic scans:** `gs://<project-uuid>/agentic-scans/<run-uuid>/results.zip`
+- **Native scans:** `gs://<project-uuid>/native-scans/<scan-uuid>/results.tar.gz`
+- **Agentic scans:** `gs://<project-uuid>/agentic-scans/<run-uuid>/results.tar.gz`
 
-The `storage_url` field on the Scan / AgenticScan DB record is updated with the gs:// URL.
+The `storage_url` field on the Scan / AgenticScan DB record is updated with the `gs://` URL after upload.
 
 ---
 
-## POST /api/storage/upload-source — Upload Source Code
+## POST /api/storage/upload-source
 
 Uploads a source code archive to cloud storage, scoped to the project.
 
@@ -170,56 +211,66 @@ Uploads a source code archive to cloud storage, scoped to the project.
 curl -s -X POST http://localhost:9002/api/storage/upload-source \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
-  -F "file=@source-code.zip" | jq .
+  -F "file=@source-code.tar.gz" | jq .
 ```
 
 **Response (200):**
 
 ```json
 {
-  "storage_url": "gs://my-project-uuid/ugc/source-code.zip",
-  "key": "ugc/source-code.zip",
-  "filename": "source-code.zip",
+  "storage_url": "gs://my-project-uuid/ugc/source-code.tar.gz",
+  "key": "ugc/source-code.tar.gz",
+  "filename": "source-code.tar.gz",
   "size": 1048576,
   "message": "source uploaded successfully"
 }
 ```
 
-The returned `storage_url` can be used directly as the `--source` flag or `source` API field.
+The returned `storage_url` can be passed directly to `--source` (CLI) or the `source` field (API).
 
 ---
 
-## GET /api/storage/source/:key — Download Source Code
+## GET /api/storage/source/:key
 
 Downloads a previously uploaded source file.
 
 ```bash
-curl -s -o source.zip http://localhost:9002/api/storage/source/source-code.zip \
+curl -s -o source.tar.gz \
+  http://localhost:9002/api/storage/source/source-code.tar.gz \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid"
 ```
 
 Returns the file as `application/octet-stream` with `Content-Disposition: attachment`.
 
+Returns `400` if the key contains path traversal sequences.
+
 ---
 
-## GET /api/storage/results/:scan-uuid — Download Scan Results
+## GET /api/storage/results/:scan-uuid
 
-Downloads the result bundle for a native scan or agentic scan. Searches `native-scans/<uuid>/results.zip` first, then `agentic-scans/<uuid>/results.zip`.
+Downloads the result bundle for a native scan or agentic scan. Searches `native-scans/<uuid>/results.tar.gz` first, then `agentic-scans/<uuid>/results.tar.gz`.
 
 ```bash
-# Download native scan results
-curl -s -o results.zip \
+curl -s -o results.tar.gz \
   http://localhost:9002/api/storage/results/550e8400-e29b-41d4-a716-446655440000 \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid"
 ```
 
+Returns `application/gzip` with `Content-Disposition: attachment`.
+
 Returns `404` if no results have been uploaded for the given UUID.
+
+Extract the bundle:
+
+```bash
+tar xzf results.tar.gz
+```
 
 ---
 
-## POST /api/storage/presign — Generate Presigned URL
+## POST /api/storage/presign
 
 Generates a presigned URL for direct upload or download, bypassing the API server. Useful for large files or client-side uploads.
 
@@ -227,7 +278,7 @@ Generates a presigned URL for direct upload or download, bypassing the API serve
 
 | Field           | Type   | Required | Description                                       |
 |-----------------|--------|----------|---------------------------------------------------|
-| `key`           | string | Yes      | Object key (e.g. `ugc/source-code.zip`)           |
+| `key`           | string | Yes      | Object key (e.g. `ugc/source-code.tar.gz`)        |
 | `method`        | string | No       | `GET` (default) or `PUT`                          |
 | `expiry_seconds`| int    | No       | URL expiry in seconds (default: `3600` / 1 hour)  |
 
@@ -238,7 +289,7 @@ curl -s -X POST http://localhost:9002/api/storage/presign \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
   -d '{
-    "key": "ugc/source-code.zip",
+    "key": "ugc/source-code.tar.gz",
     "method": "GET",
     "expiry_seconds": 3600
   }' | jq .
@@ -249,7 +300,7 @@ curl -s -X POST http://localhost:9002/api/storage/presign \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
   -d '{
-    "key": "ugc/my-app.zip",
+    "key": "ugc/my-app.tar.gz",
     "method": "PUT"
   }' | jq .
 ```
@@ -258,12 +309,14 @@ curl -s -X POST http://localhost:9002/api/storage/presign \
 
 ```json
 {
-  "url": "https://storage.googleapis.com/vigolium-data/my-project-uuid/ugc/source-code.zip?X-Goog-Algorithm=...",
-  "key": "ugc/source-code.zip",
+  "url": "https://storage.googleapis.com/my-bucket/my-project-uuid/ugc/source-code.tar.gz?X-Goog-Algorithm=...",
+  "key": "ugc/source-code.tar.gz",
   "method": "GET",
   "expiry_seconds": 3600
 }
 ```
+
+Keys are validated against path traversal — requests with `../` or similar sequences are rejected with `400`.
 
 ---
 
@@ -276,7 +329,7 @@ curl -s -X POST http://localhost:9002/api/storage/presign \
 STORAGE_URL=$(curl -s -X POST http://localhost:9002/api/storage/upload-source \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid" \
-  -F "file=@my-app.zip" | jq -r '.storage_url')
+  -F "file=@my-app.tar.gz" | jq -r '.storage_url')
 
 echo "Uploaded to: $STORAGE_URL"
 
@@ -292,11 +345,13 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     \"triage\": true
   }" | jq .
 
-# 3. After scan completes, download results
-curl -s -o results.zip \
+# 3. After scan completes, download and extract results
+curl -s -o results.tar.gz \
   http://localhost:9002/api/storage/results/<run-id> \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: my-project-uuid"
+
+tar xzf results.tar.gz
 ```
 
 ### Run Autopilot with Local Source + Upload Results
@@ -323,7 +378,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "X-Project-UUID: my-project-uuid" \
   -d '{
     "input": "https://example.com",
-    "source": "gs://my-project-uuid/ugc/source-code.zip",
+    "source": "gs://my-project-uuid/ugc/source-code.tar.gz",
     "upload_results": true,
     "code_audit": true,
     "triage": true
@@ -341,7 +396,7 @@ When `upload_results` is enabled, the `storage_url` field is populated on the Sc
 ```bash
 curl -s http://localhost:9002/api/scans/<scan-uuid> \
   -H "Authorization: Bearer <token>" | jq '.storage_url'
-# "gs://my-project-uuid/native-scans/<scan-uuid>/results.zip"
+# "gs://my-project-uuid/native-scans/<scan-uuid>/results.tar.gz"
 ```
 
 **Agentic scan:**
@@ -349,5 +404,5 @@ curl -s http://localhost:9002/api/scans/<scan-uuid> \
 ```bash
 curl -s http://localhost:9002/api/agent/sessions/<run-id> \
   -H "Authorization: Bearer <token>" | jq '.storage_url'
-# "gs://my-project-uuid/agentic-scans/<run-id>/results.zip"
+# "gs://my-project-uuid/agentic-scans/<run-id>/results.tar.gz"
 ```

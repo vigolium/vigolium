@@ -1374,33 +1374,13 @@ agent:
         # api_url: ""                  # custom OpenAI-compatible base URL
         # api_key: "${OPENCODE_API_KEY}"  # API key for custom providers
 
-    # ── OpenCode (pipe mode) ───────────────────────────────────────
-    opencode-cli:
-      command: opencode
-      args: ["run"]
-      description: "OpenCode agent (pipe mode)"
-
-    # ── Gemini (pipe mode) ─────────────────────────────────────────
-    gemini:
-      command: gemini
-      args: ["-p"]
-      description: "Google Gemini CLI (pipe mode)"
-
-    # ── Codex (native SDK — recommended) ────────────────────────────
+    # ── Codex (native SDK) ─────────────────────────────────────────
     # Uses Codex native JSON-RPC v2 protocol. Requires "codex" CLI in PATH.
     codex:
       command: codex
       description: "OpenAI Codex CLI (native JSON-RPC v2)"
       protocol: codex-sdk
       # model: "o3"
-
-    # ── Cursor (pipe mode) ─────────────────────────────────────────
-    # Model injected as: cursor --model <model> -p
-    cursor:
-      command: cursor
-      args: ["-p"]
-      description: "Cursor AI editor (pipe mode)"
-      # model: "claude-sonnet-4-5"
 
 # ============================================================================
 # Cloud Storage Configuration
@@ -1409,8 +1389,8 @@ agent:
 # Uses S3-compatible API (minio-go) — supports GCS (HMAC), AWS S3, and MinIO.
 #
 # Source paths: --source gs://<project-uuid>/ugc/source-code.zip
-# Result paths: <bucket>/<project-uuid>/native-scans/<scan-uuid>/results.zip
-#               <bucket>/<project-uuid>/agentic-scans/<run-uuid>/results.zip
+# Result paths: <bucket>/<project-uuid>/native-scans/<scan-uuid>/results.tar.gz
+#               <bucket>/<project-uuid>/agentic-scans/<run-uuid>/results.tar.gz
 #
 # REST API endpoints (all project-scoped via X-Project-UUID header):
 #   POST /api/storage/upload-source   — upload source code archive

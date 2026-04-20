@@ -11,7 +11,7 @@ func TestValidateKey(t *testing.T) {
 		want    string
 	}{
 		{"ugc/source.zip", false, "ugc/source.zip"},
-		{"native-scans/uuid-123/results.zip", false, "native-scans/uuid-123/results.zip"},
+		{"native-scans/uuid-123/results.tar.gz", false, "native-scans/uuid-123/results.tar.gz"},
 		{"simple.txt", false, "simple.txt"},
 
 		// traversal attacks
@@ -19,7 +19,7 @@ func TestValidateKey(t *testing.T) {
 		{"../../etc/passwd", true, ""},
 		{"ugc/../../other-project/file.zip", true, ""},
 		{"ugc/../../../etc/passwd", true, ""},
-		{"native-scans/../../other-project/results.zip", true, ""},
+		{"native-scans/../../other-project/results.tar.gz", true, ""},
 		{"..", true, ""},
 		{"foo/..", true, ""},
 		{"foo/../bar", false, "bar"}, // filepath.Clean normalizes this to "bar" — safe
@@ -81,7 +81,7 @@ func TestParseGCSPath_RejectsTraversal(t *testing.T) {
 		wantErr bool
 	}{
 		{"gs://project-uuid/ugc/source.zip", false},
-		{"gs://project-uuid/native-scans/uuid/results.zip", false},
+		{"gs://project-uuid/native-scans/uuid/results.tar.gz", false},
 
 		// project UUID traversal
 		{"gs://../other-project/ugc/secret.zip", true},

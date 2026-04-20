@@ -1,7 +1,8 @@
 package storage
 
 import (
-	"archive/zip"
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -22,7 +23,7 @@ const (
 	PathNativeScans    = "native-scans"
 	PathAgenticScans   = "agentic-scans"
 	PathUGC            = "ugc"
-	ResultsBundleName  = "results.zip"
+	ResultsBundleName  = "results.tar.gz"
 )
 
 // NativeScanResultKey returns the storage key for a native scan result bundle.
@@ -280,8 +281,8 @@ func (c *Client) DownloadAndExtractSource(ctx context.Context, projectUUID, key 
 		return "", "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	zipPath := filepath.Join(tmpDir, "source.zip")
-	if err := c.DownloadToFile(ctx, projectUUID, key, zipPath); err != nil {
+	archivePath := filepath.Join(tmpDir, "source.tar.gz")
+	if err := c.DownloadToFile(ctx, projectUUID, key, archivePath); err != nil {
 		os.RemoveAll(tmpDir)
 		return "", "", err
 	}
@@ -292,29 +293,28 @@ func (c *Client) DownloadAndExtractSource(ctx context.Context, projectUUID, key 
 		return "", "", fmt.Errorf("failed to create extract dir: %w", err)
 	}
 
-	if err := extractZip(zipPath, destDir); err != nil {
+	if err := extractTarGz(archivePath, destDir); err != nil {
 		os.RemoveAll(tmpDir)
-		return "", "", fmt.Errorf("failed to extract source zip: %w", err)
+		return "", "", fmt.Errorf("failed to extract source archive: %w", err)
 	}
 
-	os.Remove(zipPath)
+	os.Remove(archivePath)
 	zap.L().Info("storage: extracted source", zap.String("dir", destDir))
 	return destDir, tmpDir, nil
 }
 
-// BundleAndUploadResults creates a zip of the given directory and uploads it.
-// Returns the storage URL (gs://<project>/<key>).
+// BundleAndUploadResults creates a tar.gz of the given directory and uploads it.
 func (c *Client) BundleAndUploadResults(ctx context.Context, projectUUID, key, sourceDir string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "vigolium-results-*.zip")
+	tmpFile, err := os.CreateTemp("", "vigolium-results-*.tar.gz")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp zip: %w", err)
+		return "", fmt.Errorf("failed to create temp archive: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
 
-	if err := createZip(tmpFile, sourceDir); err != nil {
+	if err := createTarGz(tmpFile, sourceDir); err != nil {
 		tmpFile.Close()
-		return "", fmt.Errorf("failed to create results zip: %w", err)
+		return "", fmt.Errorf("failed to create results archive: %w", err)
 	}
 	tmpFile.Close()
 
@@ -322,92 +322,111 @@ func (c *Client) BundleAndUploadResults(ctx context.Context, projectUUID, key, s
 		return "", err
 	}
 
-	storageURL := StorageURL(projectUUID, key)
-	return storageURL, nil
+	return StorageURL(projectUUID, key), nil
 }
 
-// BundleAndUploadFiles creates a zip of specific files and uploads it.
+// BundleAndUploadFiles creates a tar.gz of specific files and uploads it.
 // filePaths is a map of arcName → localPath.
 func (c *Client) BundleAndUploadFiles(ctx context.Context, projectUUID, key string, filePaths map[string]string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "vigolium-results-*.zip")
+	tmpFile, err := os.CreateTemp("", "vigolium-results-*.tar.gz")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp zip: %w", err)
+		return "", fmt.Errorf("failed to create temp archive: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
 
-	zw := zip.NewWriter(tmpFile)
+	gw := gzip.NewWriter(tmpFile)
+	tw := tar.NewWriter(gw)
 	for arcName, localPath := range filePaths {
 		f, openErr := os.Open(localPath)
 		if openErr != nil {
 			zap.L().Warn("storage: skipping file for bundle", zap.String("file", localPath), zap.Error(openErr))
 			continue
 		}
-		fw, createErr := zw.Create(arcName)
-		if createErr != nil {
+		info, statErr := f.Stat()
+		if statErr != nil {
 			f.Close()
 			continue
 		}
-		_, _ = io.Copy(fw, f)
+		hdr := &tar.Header{
+			Name: arcName,
+			Size: info.Size(),
+			Mode: int64(info.Mode()),
+		}
+		if writeErr := tw.WriteHeader(hdr); writeErr != nil {
+			f.Close()
+			continue
+		}
+		_, _ = io.Copy(tw, f)
 		f.Close()
 	}
-	zw.Close()
+	tw.Close()
+	gw.Close()
 	tmpFile.Close()
 
 	if err := c.UploadFile(ctx, projectUUID, key, tmpPath); err != nil {
 		return "", err
 	}
 
-	storageURL := StorageURL(projectUUID, key)
-	return storageURL, nil
+	return StorageURL(projectUUID, key), nil
 }
 
-func extractZip(zipPath, destDir string) error {
-	r, err := zip.OpenReader(zipPath)
+func extractTarGz(archivePath, destDir string) error {
+	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer f.Close()
 
-	for _, f := range r.File {
-		fPath := filepath.Join(destDir, f.Name)
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		fPath := filepath.Join(destDir, hdr.Name)
 		if !strings.HasPrefix(fPath, filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path in zip: %s", f.Name)
+			return fmt.Errorf("illegal file path in archive: %s", hdr.Name)
 		}
 
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(fPath, f.Mode())
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(fPath), 0755); err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(fPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(fPath, os.FileMode(hdr.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(fPath), 0755); err != nil {
+				return err
+			}
+			outFile, err := os.OpenFile(fPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				return err
+			}
 			outFile.Close()
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-		rc.Close()
-		outFile.Close()
-		if err != nil {
-			return err
 		}
 	}
 	return nil
 }
 
-func createZip(w io.Writer, sourceDir string) error {
-	zw := zip.NewWriter(w)
-	defer zw.Close()
+func createTarGz(w io.Writer, sourceDir string) error {
+	gw := gzip.NewWriter(w)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
 
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -418,18 +437,22 @@ func createZip(w io.Writer, sourceDir string) error {
 		if err != nil {
 			return err
 		}
+		if relPath == "." {
+			return nil
+		}
 
-		if info.IsDir() {
-			if relPath == "." {
-				return nil
-			}
-			_, err := zw.Create(relPath + "/")
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = relPath
+
+		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
 
-		fw, err := zw.Create(relPath)
-		if err != nil {
-			return err
+		if info.IsDir() {
+			return nil
 		}
 
 		f, err := os.Open(path)
@@ -438,7 +461,7 @@ func createZip(w io.Writer, sourceDir string) error {
 		}
 		defer f.Close()
 
-		_, err = io.Copy(fw, f)
+		_, err = io.Copy(tw, f)
 		return err
 	})
 }

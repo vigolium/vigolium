@@ -168,7 +168,7 @@ func (h *Handlers) HandleStorageDownloadResults(c fiber.Ctx) error {
 		defer reader.Close()
 
 		c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(key)))
-		c.Set("Content-Type", "application/zip")
+		c.Set("Content-Type", "application/gzip")
 		_, err = io.Copy(c.Response().BodyWriter(), reader)
 		return err
 	}
