@@ -17,7 +17,7 @@ Before generating hypotheses, read these sections of `archon/knowledge-base-repo
 - `## Domain Attack Research` — domain-specific attack patterns already identified
 - `## Attack Surface` — entry points and trust boundaries
 - `## CodeQL Structural Analysis` — machine-generated DFD/CFD diagrams
-- `## Phase 7 Enrichment Notes` — findings dropped as low-severity or non-security (potential chaining candidates)
+- `## SAST Enrichment` — Phase 4 inline classification of SAST candidates; findings marked drop/low-severity are potential chaining candidates
 - `## Spec Gap Analysis` — protocol compliance gaps (if applicable)
 
 Also read `archon/attack-pattern-registry.json` if it exists — incorporate confirmed patterns from other chambers.
@@ -36,11 +36,11 @@ Cycle through all 8 modes. For each, cross-reference the specified Phase inputs:
 
 | Mode | Focus | Cross-reference Inputs |
 |------|-------|----------------------|
-| 1. Vulnerability Chaining | Chain low-severity issues into high-severity paths | Phase 1 advisories + Phase 7 dropped findings + Phase 6 spec gaps |
+| 1. Vulnerability Chaining | Chain low-severity issues into high-severity paths | Phase 1 advisories + Phase 4 SAST-Enrichment dropped findings + Phase 6 spec gaps |
 | 2. Business Logic Abuse | Abuse legitimate features (negative quantities, step-skipping, quota exhaustion) | Phase 3 DFD slices (multi-step workflows) |
 | 3. Race Conditions / TOCTOU | State changes between check and use, non-atomic read-modify-write | Phase 4 shared-state sinks + Phase 3 async boundaries |
 | 4. Second-Order / Stored Attacks | Stored inputs consumed in dangerous contexts later | Phase 4 store-then-use patterns + Phase 3 temporal flows |
-| 5. Trust Boundary Confusion | Implicit trust across component boundaries, middleware ordering | Phase 3 trust boundary map + Phase 7 boundary-crossing candidates |
+| 5. Trust Boundary Confusion | Implicit trust across component boundaries, middleware ordering | Phase 3 trust boundary map + Phase 4 SAST-Enrichment boundary-crossing candidates |
 | 6. Parser / Protocol Differentials | Two components parse the same input differently | Phase 6 spec gaps + Phase 4 multi-parser sinks |
 | 7. State Machine Attacks | Out-of-order transitions, replay, missing-transition checks | Phase 3 CFD slices (auth/session flows) |
 | 8. Supply Chain Interaction | Dependency interaction with application code | Phase 1 dependency intel + Phase 3 Mode A/B research |
@@ -48,7 +48,7 @@ Cycle through all 8 modes. For each, cross-reference the specified Phase inputs:
 <!-- codex-trim-start -->
 ### Thinking Prompts per Mode
 
-**Mode 1 (Chaining)**: "If IDOR gives read access to user metadata, and metadata contains session tokens, chain IDOR + session hijack for account takeover." Look at Phase 7 dropped lows — what happens if two of them are combined?
+**Mode 1 (Chaining)**: "If IDOR gives read access to user metadata, and metadata contains session tokens, chain IDOR + session hijack for account takeover." Look at Phase 4 `## SAST Enrichment` dropped lows — what happens if two of them are combined?
 
 **Mode 2 (Business Logic)**: "Can I create a negative-value transaction? Can I skip step 3 of a 5-step workflow? Can I exhaust a quota for another user?" Focus on multi-step DFD slices.
 

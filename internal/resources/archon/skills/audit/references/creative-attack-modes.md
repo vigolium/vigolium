@@ -23,7 +23,7 @@ qualify as a finding alone, but the combination crosses a trust boundary.
 **Cross-reference inputs:**
 - Phase 1 advisory intelligence (known CVEs, patch commits)
 - Phase 6 spec gap analysis (protocol compliance gaps)
-- Phase 5 enrichment notes (individually-dropped low-severity findings)
+- Phase 4 SAST enrichment notes (individually-dropped low-severity findings)
 - Phase 3 domain attack research (known attack chains per domain)
 
 ## Mode 2: Business Logic Abuse

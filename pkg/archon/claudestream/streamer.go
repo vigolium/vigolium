@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -39,6 +40,13 @@ type Options struct {
 	ShowRateLimit bool
 	// RawLog, if non-nil, receives every raw JSON line (with trailing newline) for replay.
 	RawLog io.Writer
+}
+
+// QuotaReset describes a Claude quota-limit event that includes a reset time
+// the caller can wait for before retrying.
+type QuotaReset struct {
+	Message string
+	ResetAt time.Time
 }
 
 // Stream reads newline-delimited JSON events from r, renders a human-readable
@@ -241,6 +249,136 @@ func renderResult(w io.Writer, env envelope, start time.Time) {
 
 func renderRateLimit(w io.Writer, env envelope) {
 	_, _ = fmt.Fprintf(w, "  %s[rate-limit] %s%s\n", colorGray, truncate(string(env.RateLimitInfo), 120), colorReset)
+}
+
+var (
+	quotaResetTimeRE = regexp.MustCompile(`(?i)\breset(?:s)?(?:\s+at)?\s+([0-9]{1,2}(?::[0-9]{2}){0,2}\s*[ap]m|[0-9]{1,2}(?::[0-9]{2}){1,2})\b`)
+	quotaResetTZRE   = regexp.MustCompile(`\(([^)]+)\)\s*$`)
+)
+
+// DetectQuotaReset scans stream-json output for a retryable Claude quota-limit
+// message such as "You've hit your limit · resets 3am (Asia/Singapore)".
+func DetectQuotaReset(r io.Reader, now time.Time) (*QuotaReset, error) {
+	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 0, 1<<20)
+	scanner.Buffer(buf, 16<<20)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		trimmed := trimLeftSpace(line)
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			continue
+		}
+
+		var env envelope
+		if err := json.Unmarshal(line, &env); err != nil {
+			continue
+		}
+		for _, candidate := range quotaResetCandidates(env) {
+			if info := parseQuotaReset(candidate, now); info != nil {
+				return info, nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan stream for quota reset: %w", err)
+	}
+	return nil, nil
+}
+
+func quotaResetCandidates(env envelope) []string {
+	var out []string
+
+	switch env.Type {
+	case "assistant":
+		var msg messagePayload
+		if err := json.Unmarshal(env.Message, &msg); err == nil {
+			for _, block := range msg.Content {
+				if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+					out = append(out, block.Text)
+				}
+			}
+		}
+	case "result":
+		if strings.TrimSpace(env.Result) != "" {
+			out = append(out, env.Result)
+		}
+	case "rate_limit_event":
+		var s string
+		if err := json.Unmarshal(env.RateLimitInfo, &s); err == nil && strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+func parseQuotaReset(message string, now time.Time) *QuotaReset {
+	flat := oneLine(message, 1024)
+	lower := strings.ToLower(flat)
+	if !(strings.Contains(lower, "hit your limit") || strings.Contains(lower, "quota")) {
+		return nil
+	}
+	if !strings.Contains(lower, "reset") {
+		return nil
+	}
+
+	match := quotaResetTimeRE.FindStringSubmatch(flat)
+	if len(match) < 2 {
+		return nil
+	}
+
+	loc := now.Location()
+	if tz := quotaResetTZRE.FindStringSubmatch(flat); len(tz) == 2 {
+		if loaded, err := time.LoadLocation(strings.TrimSpace(tz[1])); err == nil {
+			loc = loaded
+		}
+	}
+
+	resetAt, ok := nextResetAt(now, loc, strings.TrimSpace(match[1]))
+	if !ok {
+		return nil
+	}
+	wait := resetAt.Sub(now)
+	if wait <= 0 || wait > 48*time.Hour {
+		return nil
+	}
+
+	return &QuotaReset{
+		Message: flat,
+		ResetAt: resetAt,
+	}
+}
+
+func nextResetAt(now time.Time, loc *time.Location, raw string) (time.Time, bool) {
+	layouts := []string{
+		"3pm",
+		"3:04pm",
+		"3:04:05pm",
+		"3 pm",
+		"3:04 pm",
+		"3:04:05 pm",
+		"15:04",
+		"15:04:05",
+	}
+	raw = strings.TrimSpace(strings.ToLower(raw))
+
+	var parsed time.Time
+	var err error
+	for _, layout := range layouts {
+		parsed, err = time.ParseInLocation(layout, raw, loc)
+		if err == nil {
+			nowLoc := now.In(loc)
+			resetAt := time.Date(nowLoc.Year(), nowLoc.Month(), nowLoc.Day(), parsed.Hour(), parsed.Minute(), parsed.Second(), 0, loc)
+			if !resetAt.After(nowLoc.Add(500 * time.Millisecond)) {
+				resetAt = resetAt.Add(24 * time.Hour)
+			}
+			return resetAt, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 // compactInput renders a tool_use input JSON as a single-line, truncated summary.

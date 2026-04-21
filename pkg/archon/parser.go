@@ -112,9 +112,9 @@ type AuditEntry struct {
 	Commit           string                `json:"commit"`
 	Branch           string                `json:"branch"`
 	Repo             string                `json:"repo,omitempty"`        // optional repo slug (e.g. "goharbor/harbor")
-	Repository       string                `json:"repository,omitempty"`  // alternate key used by lite/scan modes
+	Repository       string                `json:"repository,omitempty"`  // alternate key used by lite/balanced modes
 	RepoURL          string                `json:"repo_url,omitempty"`    // optional full repo URL
-	Mode             string                `json:"mode,omitempty"`        // audit mode: lite, scan, deep, merge, revisit
+	Mode             string                `json:"mode,omitempty"`        // audit mode: lite, balanced, deep, merge, revisit
 	Model            string                `json:"model,omitempty"`       // model used (e.g. opus-4.6, gpt-5.3-codex)
 	AgentSDK         string                `json:"agent_sdk,omitempty"`   // platform (e.g. claude-code, codex, bytesec)
 	HistoryAvailable *bool                 `json:"history_available,omitempty"`

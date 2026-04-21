@@ -22,6 +22,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
+	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/queue"
 	"github.com/vigolium/vigolium/pkg/server"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -196,11 +197,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	// Bootstrap from embedded default template on first run.
 	var userStore *server.UserStore
 	usersFilePath := config.ExpandPath(settings.Server.UsersFile)
+	usersFileCreated := false
 	if created, err := server.BootstrapUsersFile(usersFilePath, public.WorkbenchUsersJSON); err != nil {
 		zap.L().Warn("Failed to bootstrap users file", zap.Error(err))
-	} else if created && !globalSilent {
-		fmt.Printf("  %s Created default users file at %s\n",
-			terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(usersFilePath)))
+	} else {
+		usersFileCreated = created
 	}
 	if fileUsers, err := server.LoadUsersFile(usersFilePath); err != nil {
 		zap.L().Fatal("Failed to load users file", zap.String("path", usersFilePath), zap.Error(err))
@@ -220,8 +221,12 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if !globalSilent {
-			fmt.Printf("  %s Loaded %d users from %s\n",
-				terminal.InfoSymbol(), len(fileUsers), terminal.Cyan(config.ContractPath(usersFilePath)))
+			suffix := ""
+			if usersFileCreated {
+				suffix = terminal.Gray(" (created default file)")
+			}
+			fmt.Printf("  %s Loaded %d users from %s%s\n",
+				terminal.InfoSymbol(), len(fileUsers), terminal.Cyan(config.ContractPath(usersFilePath)), suffix)
 		}
 	}
 
@@ -324,12 +329,10 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow(bannerText))
 			port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
-			fmt.Printf("  %s Starting vigolium server %s and %s\n",
+			fmt.Printf("  %s Server %s  %s UI %s\n",
 				terminal.InfoSymbol(),
 				terminal.Cyan(fmt.Sprintf("http://%s", serviceAddr)),
-				terminal.Cyan(fmt.Sprintf("http://localhost:%s", port)))
-			fmt.Printf("  %s UI Dashboard %s\n",
-				terminal.InfoSymbol(),
+				terminal.Gray("│"),
 				terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
 			fmt.Printf("  %s Docs %s\n",
 				terminal.InfoSymbol(),
@@ -405,6 +408,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			ProjectUUID: database.DefaultProjectUUID,
 			Name:        fmt.Sprintf("server-scan-on-receive-%s", scanUUID[:8]),
 			Status:      "running",
+			Target:      strings.Join(globalTargets, ","),
 			Modules:     strings.Join(runnerOpts.Modules, ","),
 			Threads:     globalConcurrency,
 			ScanSource:  "scan-on-receive",
@@ -454,21 +458,44 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	// Print startup info before starting
 	if !globalSilent {
 		port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
-		fmt.Printf("  %s Starting vigolium server %s and %s\n",
+		sep := terminal.Gray("│")
+		fmt.Printf("  %s Server %s  %s UI %s\n",
 			terminal.InfoSymbol(),
 			terminal.Cyan(fmt.Sprintf("http://%s", serviceAddr)),
-			terminal.Cyan(fmt.Sprintf("http://localhost:%s", port)))
-		fmt.Printf("  %s UI Dashboard %s\n",
-			terminal.InfoSymbol(),
+			sep,
 			terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
 		if ingestProxyAddr != "" {
 			fmt.Printf("  %s Ingest proxy %s\n",
 				terminal.InfoSymbol(),
 				terminal.Cyan(fmt.Sprintf("http://%s", ingestProxyAddr)))
 		}
-		fmt.Printf("  %s Workers %s\n",
-			terminal.InfoSymbol(),
-			terminal.Cyan(fmt.Sprintf("%d", globalConcurrency)))
+		if globalScanOnReceive && !serverOpts.DisableCatchup {
+			fmt.Printf("  %s Scan workers %s  %s Catchup workers %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan(fmt.Sprintf("%d", globalConcurrency)),
+				sep,
+				terminal.Cyan(fmt.Sprintf("%d (starts in 5s)", serverOpts.CatchupThreads)))
+		} else {
+			fmt.Printf("  %s Scan workers %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan(fmt.Sprintf("%d", globalConcurrency)))
+		}
+		if globalScanOnReceive {
+			moduleCount := modules.DefaultRegistry.ActiveModuleCount() + modules.DefaultRegistry.PassiveModuleCount()
+			mode := "scan-on-receive"
+			if globalNativeScanOnReceive {
+				mode = "native-scan-on-receive"
+			}
+			fmt.Printf("  %s Scan-on-receive %s (%s, %s modules enabled)\n",
+				terminal.InfoSymbol(),
+				terminal.BoldGreen("enabled"),
+				terminal.Cyan(mode),
+				terminal.Cyan(fmt.Sprintf("%d", moduleCount)))
+		} else {
+			fmt.Printf("  %s Scan-on-receive %s\n",
+				terminal.InfoSymbol(),
+				terminal.BoldYellow("disabled"))
+		}
 		if serverOpts.NoAgent {
 			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow("Agent disabled — all agent endpoints skipped"))
 		} else if agentName := settings.Agent.DefaultAgent; agentName != "" {
@@ -483,11 +510,6 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 					terminal.Cyan(agentDef.EffectiveProtocol()),
 					terminal.Cyan(warmLabel))
 			}
-		}
-		if globalScanOnReceive && !serverOpts.DisableCatchup {
-			fmt.Printf("  %s Catchup scan %s (starts in 5s)\n",
-				terminal.InfoSymbol(),
-				terminal.Cyan(fmt.Sprintf("%d workers", serverOpts.CatchupThreads)))
 		}
 		fmt.Printf("  %s Docs %s\n",
 			terminal.InfoSymbol(),
@@ -610,6 +632,7 @@ func startCatchupScan(
 		ProjectUUID: database.DefaultProjectUUID,
 		Name:        "server-catchup",
 		Status:      "running",
+		Target:      strings.Join(globalTargets, ","),
 		Modules:     strings.Join(baseOpts.Modules, ","),
 		ScanSource:  "server-catchup",
 		ScanMode:    "incremental",

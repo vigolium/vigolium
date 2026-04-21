@@ -22,6 +22,6 @@ of semantically equivalent and different payloads and compares response behavior
 
 	ModuleConfirmation = "Indicated when semantically different payloads produce measurably different response behaviors while equivalent payloads produce identical responses"
 	ModuleSeverity     = severity.Suspect
-	ModuleConfidence   = severity.Firm
+	ModuleConfidence   = severity.Tentative
 	ModuleTags = []string{"behavior-analysis", "injection", "moderate"}
 )

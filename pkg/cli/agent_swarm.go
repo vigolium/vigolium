@@ -503,6 +503,12 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	if settings.Agent.StreamEnabled() && zap.L().Core().Enabled(zap.DebugLevel) {
 		cfg.StreamWriter = os.Stdout
 	}
+	// Always persist the stream to {sessionDir}/runtime.log — even in
+	// non-verbose mode — so `vigolium log <uuid>` can replay it later.
+	if tee, closer := teeToRuntimeLog(cfg.StreamWriter, sessionDir); closer != nil {
+		cfg.StreamWriter = tee
+		defer func() { _ = closer.Close() }()
+	}
 
 	// Wire source analysis callback to process session config into auth-config.yaml
 	cfg.SourceAnalysisCallback = func(saResult *agent.SourceAnalysisResult) error {

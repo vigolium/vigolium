@@ -64,7 +64,7 @@ vigolium agent autopilot -t https://example.com
 # Source-aware scan (archon runs first)
 vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app
 
-# Deep archon audit mode (11-phase) for maximum coverage
+# Deep archon audit mode (10-phase) for maximum coverage
 vigolium agent autopilot -t http://localhost:3000 --source ~/src/my-app --archon-mode deep
 
 # Disable archon even with source
@@ -104,7 +104,7 @@ Each preset configures:
 |---|---|---|---|
 | `--max-commands` | 30 | 100 | 300 |
 | `--timeout` | 1h | 6h | 12h |
-| `--archon-mode` | lite | scan | deep |
+| `--archon-mode` | lite | balanced | deep |
 | `--browser` | off | off | on |
 
 Explicit flags always override intensity presets:
@@ -243,7 +243,7 @@ vigolium agent autopilot [prompt] [flags]
 | `--instruction` | — | Custom instruction appended to the agent prompt |
 | `--instruction-file` | — | Path to a file containing custom instructions |
 | `--no-archon` | false | Disable automatic archon-audit (enabled by default when `--source` is set) |
-| `--archon-mode` | lite | Archon audit mode: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase) |
+| `--archon-mode` | lite | Archon audit mode: `lite` (3-phase), `balanced` (6-phase), or `deep` (10-phase) |
 | `--agent` | (config) | Agent backend to use |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |
 | `--timeout` | 6h | Maximum session duration |
@@ -359,7 +359,7 @@ POST /api/agent/run/autopilot
 | `focus` | string | Focus area hint |
 | `instruction` | string | Custom instruction |
 | `no_archon` | bool | Disable automatic archon-audit |
-| `archon_mode` | string | `"lite"`, `"scan"`, or `"deep"` |
+| `archon_mode` | string | `"lite"`, `"balanced"`, or `"deep"` |
 | `max_commands` | int | Max CLI commands (default 100) |
 | `timeout` | string | Duration string (default `"6h"`) |
 | `stream` | bool | Enable SSE streaming |
@@ -449,7 +449,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "https://oauth2:ghp_token123@github.com/org/private-repo.git",
-    "archon_mode": "scan",
+    "archon_mode": "balanced",
     "stream": true
   }'
 ```

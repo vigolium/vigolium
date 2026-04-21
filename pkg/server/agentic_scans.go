@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/storage"
@@ -21,10 +22,16 @@ func (h *Handlers) persistAgenticScan(runID, mode, agentName string) {
 	if h.repo == nil {
 		return
 	}
+	var protocol, model string
+	if h.settings != nil {
+		protocol, model = h.settings.Agent.BackendMeta(agentName)
+	}
 	run := &database.AgenticScan{
 		UUID:      runID,
 		Mode:      mode,
 		AgentName: agentName,
+		Protocol:  protocol,
+		Model:     model,
 		Status:    "running",
 		StartedAt: time.Now(),
 	}
@@ -256,12 +263,12 @@ func (h *Handlers) runBackgroundAgentWithOpts(runID string, opts agent.Options, 
 
 	var streamCloser io.Closer
 	if sessionDir != "" {
-		logPath := filepath.Join(sessionDir, "run.log")
+		logPath := filepath.Join(sessionDir, config.RuntimeLogFilename)
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			opts.StreamWriter = f
 			streamCloser = f
 		} else {
-			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			zap.L().Warn("Failed to open runtime.log, falling back to discard", zap.Error(err))
 			opts.StreamWriter = io.Discard
 		}
 	} else {

@@ -511,12 +511,30 @@ func (r *Repository) CompleteScan(ctx context.Context, scanUUID string, errMsg s
 		status = "failed"
 	}
 
+	// Compute duration from started_at so the scan row doesn't report 0ms after
+	// it finishes. We read started_at first rather than using SQL arithmetic to
+	// keep the logic portable across SQLite and PostgreSQL.
+	var startedAt time.Time
+	if err := r.db.NewSelect().
+		Model((*Scan)(nil)).
+		Column("started_at").
+		Where("uuid = ?", scanUUID).
+		Scan(ctx, &startedAt); err != nil {
+		return fmt.Errorf("load scan start time: %w", err)
+	}
+	finishedAt := time.Now()
+	durationMs := finishedAt.Sub(startedAt).Milliseconds()
+	if durationMs < 0 {
+		durationMs = 0
+	}
+
 	sc := r.aggregateScanFindings(ctx, scanUUID)
 	q := r.db.NewUpdate().
 		Model((*Scan)(nil)).
 		Set("status = ?", status).
 		Set("error_message = ?", errMsg).
-		Set("finished_at = CURRENT_TIMESTAMP").
+		Set("finished_at = ?", finishedAt).
+		Set("duration_ms = ?", durationMs).
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Where("uuid = ?", scanUUID)
 	q = applySeverityCounts(q, sc)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/spf13/cobra"
@@ -132,6 +133,7 @@ func init() {
 	f.BoolVar(&trafficBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
 	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS)")
 	f.StringSliceVar(&trafficExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+	tui.AddFlags(trafficCmd, &trafficTUI, &trafficNoTUI)
 }
 
 func runTraffic(cmd *cobra.Command, args []string) error {
@@ -172,6 +174,16 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		total, err := qb.Count(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to count records: %w", err)
+		}
+
+		if active, tuiErr := tui.Active(trafficTUI, trafficNoTUI, globalJSON); tuiErr != nil {
+			return tuiErr
+		} else if active {
+			if len(records) == 0 {
+				fmt.Printf("%s No HTTP records found.\n", terminal.InfoSymbol())
+				return nil
+			}
+			return pickTrafficTUI(records, total)
 		}
 
 		if globalJSON {

@@ -336,3 +336,68 @@ func TestRiskPrioritizedDBInputSource_DoesNotSkipNonRiskRecords(t *testing.T) {
 		t.Fatalf("remaining=%d, want 0", remaining)
 	}
 }
+
+// TestRecordToHttpRequestResponse_PreservesScheme guards against the bug where
+// scan-on-receive re-parsed raw HTTP bytes and defaulted the scheme to http,
+// causing https targets to be probed over plain http and producing false
+// positives.
+func TestRecordToHttpRequestResponse_PreservesScheme(t *testing.T) {
+	// Origin-form raw request carries no scheme on the wire.
+	raw := []byte("GET /catalog?searchTerm=book HTTP/1.1\r\nHost: ginandjuice.shop\r\n\r\n")
+
+	tests := []struct {
+		name     string
+		record   *HTTPRecord
+		wantProt string
+		wantPort int
+	}{
+		{
+			name: "https url preserved",
+			record: &HTTPRecord{
+				URL:        "https://ginandjuice.shop/catalog?searchTerm=book",
+				Scheme:     "https",
+				Port:       443,
+				RawRequest: raw,
+			},
+			wantProt: "https",
+			wantPort: 443,
+		},
+		{
+			name: "http url preserved",
+			record: &HTTPRecord{
+				URL:        "http://ginandjuice.shop/catalog?searchTerm=book",
+				Scheme:     "http",
+				Port:       80,
+				RawRequest: raw,
+			},
+			wantProt: "http",
+			wantPort: 80,
+		},
+		{
+			name: "non-standard port preserved from url",
+			record: &HTTPRecord{
+				URL:        "https://ginandjuice.shop:8443/catalog?searchTerm=book",
+				Scheme:     "https",
+				Port:       8443,
+				RawRequest: raw,
+			},
+			wantProt: "https",
+			wantPort: 8443,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr, err := recordToHttpRequestResponse(tt.record)
+			if err != nil {
+				t.Fatalf("recordToHttpRequestResponse: %v", err)
+			}
+			if got := rr.Service().Protocol(); got != tt.wantProt {
+				t.Errorf("Protocol = %q, want %q", got, tt.wantProt)
+			}
+			if got := rr.Service().Port(); got != tt.wantPort {
+				t.Errorf("Port = %d, want %d", got, tt.wantPort)
+			}
+		})
+	}
+}

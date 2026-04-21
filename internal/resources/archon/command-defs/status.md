@@ -17,7 +17,7 @@ Display a comprehensive audit status report. Do not modify any files.
 
 1. **Audit Metadata**: Read `audits[-1]` from `archon/audit-state.json`. Display:
    - Repository (`repository` field: e.g. org/reponame or folder name)
-   - Mode (`mode` field: lite/scan/deep)
+   - Mode (`mode` field: lite/balanced/deep)
    - Model (`model` field: e.g. opus-4.6, gpt-5.3-codex)
    - Coding Agent (`agent_sdk` field: e.g. claude-code, codex, bytesec)
    - Started at / Completed at timestamps

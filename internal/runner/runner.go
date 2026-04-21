@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"io"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -78,6 +79,8 @@ type Runner struct {
 	heuristicsResults map[string]*HeuristicsResult
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
 	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
+	sessionLogFile    *os.File             // Optional: runtime.log handle for verbose file-only writes
+	sessionLogMu      sync.Mutex           // serializes concurrent writes to sessionLogFile
 	sharedInfra       *SharedInfra         // Optional: pre-built infrastructure for reuse across rescans
 
 	ctx       context.Context       // cancellable context for graceful shutdown
@@ -510,6 +513,13 @@ func (r *Runner) makeOnTrafficVerbose(phaseTag string) func(method, url string, 
 
 // printTrafficLine prints an HTTP traffic line to stderr with phase prefix and colors.
 func printTrafficLine(phaseTag, method, url string, statusCode int, contentType string) {
+	fmt.Fprint(os.Stderr, formatTrafficLine(phaseTag, method, url, statusCode, contentType))
+}
+
+// formatTrafficLine returns the ANSI-colored traffic line used by
+// printTrafficLine. Split out so the same content can be routed to the session
+// log file without also going through stderr.
+func formatTrafficLine(phaseTag, method, url string, statusCode int, contentType string) string {
 	// Phase prefix
 	prefix := terminal.Muted(terminal.SymbolChevron+" "+phaseTag+" "+terminal.SymbolPipe) + " "
 	prefixVisibleLen := len(phaseTag) + 5
@@ -531,7 +541,7 @@ func printTrafficLine(phaseTag, method, url string, statusCode int, contentType 
 		url = terminal.Truncate(url, termWidth-totalPrefixLen)
 	}
 
-	fmt.Fprintf(os.Stderr, "%s%s[%s]\033[0m %s%s\033[0m %s%s\033[0m %s\n",
+	return fmt.Sprintf("%s%s[%s]\033[0m %s%s\033[0m %s%s\033[0m %s\n",
 		prefix,
 		sColor, status,
 		methodColorCode(method), method,
@@ -916,7 +926,25 @@ func (r *Runner) RunNativeScan() error {
 	// Set up TeeWriter to capture raw stderr output as trace-level scan logs.
 	if r.repository != nil {
 		origStderr := os.Stderr
-		r.teeWriter = newTeeWriter(origStderr, r.scanLogger)
+		// Optionally mirror raw console output to ~/.vigolium/native-sessions/{uuid}/run.log.
+		var sessionLogFile *os.File
+		var teeInner io.Writer = origStderr
+		if r.settings != nil && r.settings.ScanningStrategy.ScanLogs.IsPersistLogsEnabled() {
+			sessionDir := filepath.Join(r.settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir(), infra.scanUUID)
+			if mkErr := os.MkdirAll(sessionDir, 0o755); mkErr == nil {
+				logPath := filepath.Join(sessionDir, config.RuntimeLogFilename)
+				if f, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); openErr == nil {
+					sessionLogFile = f
+					r.sessionLogFile = f
+					teeInner = io.MultiWriter(origStderr, sessionLogFile)
+				} else {
+					zap.L().Warn("Failed to open native session log file", zap.String("path", logPath), zap.Error(openErr))
+				}
+			} else {
+				zap.L().Warn("Failed to create native session directory", zap.String("path", sessionDir), zap.Error(mkErr))
+			}
+		}
+		r.teeWriter = newTeeWriter(teeInner, r.scanLogger)
 		pr, pw, err := os.Pipe()
 		if err == nil {
 			os.Stderr = pw
@@ -940,7 +968,16 @@ func (r *Runner) RunNativeScan() error {
 				_ = pr.Close()
 				os.Stderr = origStderr
 				r.teeWriter.Flush()
+				if sessionLogFile != nil {
+					r.sessionLogMu.Lock()
+					r.sessionLogFile = nil
+					r.sessionLogMu.Unlock()
+					_ = sessionLogFile.Close()
+				}
 			}()
+		} else if sessionLogFile != nil {
+			// Pipe setup failed; still close the log file we opened.
+			defer func() { _ = sessionLogFile.Close() }()
 		}
 	}
 
@@ -951,6 +988,36 @@ func (r *Runner) RunNativeScan() error {
 
 	// Log scan configuration snapshot as structured metadata.
 	r.logConfigSnapshot()
+
+	// Banner the scan lifecycle on stderr so operators see at a glance when
+	// scanning kicks off and wraps up. Suppressed by --silent; defers to the
+	// printScanConfig banner above for CLI runs (which already shows targets),
+	// so this marker is most useful for scan-on-receive where the server is
+	// otherwise quiet between 2-minute status ticks.
+	scanStartedAt := time.Now()
+	if !r.options.Silent {
+		target := strings.Join(r.options.Targets, ", ")
+		if target == "" {
+			target = "(continuous, awaiting ingested records)"
+		}
+		fmt.Fprintf(os.Stderr, "  %s Scan started %s %s\n",
+			terminal.Aqua(terminal.SymbolSparkle),
+			terminal.BoldCyan(infra.scanUUID),
+			terminal.Gray("target: "+target))
+		defer func() {
+			duration := time.Since(scanStartedAt)
+			findingSummary := ""
+			if r.repository != nil {
+				if scan, err := r.repository.GetScanByUUID(context.Background(), infra.scanUUID); err == nil && scan != nil {
+					findingSummary = fmt.Sprintf(", findings: %d", scan.TotalFindings)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "  %s Scan finished %s %s\n",
+				terminal.SuccessSymbol(),
+				terminal.BoldCyan(infra.scanUUID),
+				terminal.Gray(fmt.Sprintf("duration: %s%s", fmtDuration(duration), findingSummary)))
+		}()
+	}
 
 	// Panic recovery with notification
 	defer func() {
@@ -1940,33 +2007,76 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	// indefinitely for new records instead of snapshot-based feedback rounds.
 	if r.options.ScanOnReceive && !r.options.NativeScanOnReceive {
 		sorCfg := baseExecutorCfg
-		sorCfg.OnTraffic = func(method, url string, statusCode int, contentType string) {
-			printTrafficLine("scan-on-receive", method, url, statusCode, contentType)
-		}
+		// In server mode the console stays terse (status line at a 2-minute cadence
+		// is the only stderr output by default). The same events are always written
+		// verbosely to runtime.log so operators can reconstruct activity after the
+		// fact — see runner.writeSessionLog.
+		sorCfg.StatusInterval = 2 * time.Minute
 		origOnResult := sorCfg.OnResult
+		sorCfg.OnTraffic = func(method, url string, statusCode int, contentType string) {
+			line := formatTrafficLine("scan-on-receive", method, url, statusCode, contentType)
+			r.writeSessionLog(line)
+			if !r.options.Silent {
+				fmt.Fprint(os.Stderr, line)
+			}
+		}
 		sorCfg.OnResult = func(result *output.ResultEvent) {
 			if origOnResult != nil {
 				origOnResult(result)
 			}
-			if result != nil {
-				fmt.Fprintf(os.Stderr, "  %s %s [%s] %s — %s\n",
-					terminal.InfoSymbol(),
-					terminal.Cyan("finding"),
-					terminal.Orange(result.Info.Severity.String()),
-					terminal.BoldCyan(result.ModuleID),
-					terminal.Gray(result.URL))
+			if result == nil {
+				return
+			}
+			line := fmt.Sprintf("  %s %s [%s] %s — %s\n",
+				terminal.InfoSymbol(),
+				terminal.Cyan("finding"),
+				terminal.Orange(result.Info.Severity.String()),
+				terminal.BoldCyan(result.ModuleID),
+				terminal.Gray(result.URL))
+			r.writeSessionLog(line)
+			if !r.options.Silent {
+				fmt.Fprint(os.Stderr, line)
 			}
 		}
+		shortScanID := strings.TrimPrefix(infra.scanUUID, "scan-")
+		if len(shortScanID) > 8 {
+			shortScanID = shortScanID[:8]
+		}
 		sorCfg.OnStatus = func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+			ctx := context.Background()
+
+			// Count HTTP records ingested since the scan started, scoped to the
+			// in-scope hostnames if any were configured. Cheap enough at a
+			// 2-minute cadence. Uses scan.StartedAt as the cursor reference.
+			var ingestedCount int64 = -1
+			var scanRow *database.Scan
+			if r.repository != nil {
+				if s, err := r.repository.GetScanByUUID(ctx, infra.scanUUID); err == nil && s != nil {
+					scanRow = s
+					if cnt, cErr := r.repository.CountRecordsAfterCursor(ctx, s.StartedAt, "", inScopeHostnames...); cErr == nil {
+						ingestedCount = cnt
+					}
+				}
+			}
+
+			totalModules := activeCount + passiveCount
+			recordsStr := fmt.Sprintf("%d", processed)
+			if ingestedCount >= 0 {
+				recordsStr = fmt.Sprintf("%d (ingested: %d)", processed, ingestedCount)
+			}
+			modulesStr := fmt.Sprintf("%d/%d", distinctModules, totalModules)
+
 			prefix := terminal.Muted(terminal.SymbolChevron + " scan-on-receive " + terminal.SymbolPipe)
-			fmt.Fprintf(os.Stderr, "%s %s Records: %s | Findings: %s | Runtime: %s\n",
+			fmt.Fprintf(os.Stderr, "%s %s %s Records: %s | Findings: %s | Modules: %s | Runtime: %s\n",
 				prefix,
 				terminal.BoldCyan("[status]"),
-				terminal.HiBlue(fmt.Sprintf("%d", processed)),
+				terminal.Cyan("scan-"+shortScanID),
+				terminal.HiBlue(recordsStr),
 				terminal.Orange(fmt.Sprintf("%d", findings)),
+				terminal.Yellow(modulesStr),
 				terminal.Gray(fmtDuration(elapsed)))
-			if r.repository != nil {
-				_ = r.repository.RefreshScanStats(context.Background(), infra.scanUUID)
+			if r.repository != nil && scanRow != nil {
+				_ = r.repository.RefreshScanStats(ctx, infra.scanUUID)
 			}
 		}
 
@@ -2291,6 +2401,24 @@ func (r *Runner) SetSettings(s *config.Settings) {
 }
 
 // Pause suspends scan processing. Workers finish their current item then block.
+// writeSessionLog appends a plain-text line to runtime.log (ANSI stripped,
+// timestamped) without routing it through stderr. No-op when session log
+// persistence is disabled. Safe for concurrent use.
+func (r *Runner) writeSessionLog(line string) {
+	r.sessionLogMu.Lock()
+	f := r.sessionLogFile
+	r.sessionLogMu.Unlock()
+	if f == nil {
+		return
+	}
+	plain := terminal.StripANSI(line)
+	if !strings.HasSuffix(plain, "\n") {
+		plain += "\n"
+	}
+	ts := time.Now().Format("15:04:05")
+	_, _ = f.WriteString("[" + ts + "] " + plain)
+}
+
 func (r *Runner) Pause() {
 	if r.pauseCtrl != nil {
 		r.pauseCtrl.Pause()

@@ -2,12 +2,39 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/database"
 )
+
+// newAuditTestRepo builds an in-memory SQLite-backed repository for tests
+// that need to exercise CreateAgenticScan / GetAgenticScan. Pattern mirrored
+// from pkg/database/record_writer_test.go:newTestDB.
+func newAuditTestRepo(t *testing.T) *database.Repository {
+	t.Helper()
+	sqldb, err := sql.Open(sqliteshim.ShimName, ":memory:?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqldb.SetMaxOpenConns(1)
+	sqldb.SetMaxIdleConns(1)
+	bunDB := bun.NewDB(sqldb, sqlitedialect.New())
+	db := database.NewDBFromBun(bunDB, "sqlite")
+	if err := db.CreateSchema(context.Background()); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return database.NewRepository(db)
+}
 
 func TestAuditAgentConfig_Defaults(t *testing.T) {
 	cfg := config.AuditAgentConfig{}
@@ -48,10 +75,10 @@ func TestAuditAgentConfig_LegacyFullMode(t *testing.T) {
 	}
 }
 
-func TestAuditAgentConfig_ScanMode(t *testing.T) {
-	cfg := config.AuditAgentConfig{Mode: "scan"}
-	if got := cfg.EffectiveMode(); got != "scan" {
-		t.Errorf("expected mode 'scan', got %q", got)
+func TestAuditAgentConfig_BalancedMode(t *testing.T) {
+	cfg := config.AuditAgentConfig{Mode: "balanced"}
+	if got := cfg.EffectiveMode(); got != "balanced" {
+		t.Errorf("expected mode 'balanced', got %q", got)
 	}
 }
 
@@ -271,8 +298,8 @@ func TestBuildAuditAgentCommand_Claude(t *testing.T) {
 	if !foundPlugin {
 		t.Error("expected --plugin-dir in claude args")
 	}
-	if !foundAllowed {
-		t.Error("expected --allowedTools in claude args")
+	if foundAllowed {
+		t.Error("unexpected --allowedTools in claude args (redundant with --dangerously-skip-permissions)")
 	}
 	// Skill command should be the last positional arg (not piped via stdin)
 	lastArg := args[len(args)-1]
@@ -320,6 +347,9 @@ func TestBuildAuditAgentCommand_Codex(t *testing.T) {
 	if binary == "" {
 		t.Error("expected non-empty binary")
 	}
+	if len(args) == 0 || args[0] != "exec" {
+		t.Errorf("expected codex args to start with 'exec' subcommand, got %v", args)
+	}
 	found := false
 	for _, a := range args {
 		if a == "--full-auto" {
@@ -329,10 +359,28 @@ func TestBuildAuditAgentCommand_Codex(t *testing.T) {
 	if !found {
 		t.Error("expected --full-auto in codex args")
 	}
+	// `-C` must point at the source path, not the plugin dir — otherwise
+	// codex cds away from the source tree and the archon/ artifact writes
+	// land somewhere syncLoop can't see them.
+	for i, a := range args {
+		if a == "-C" {
+			if i+1 >= len(args) {
+				t.Fatalf("-C flag with no value in %v", args)
+			}
+			if args[i+1] != "/tmp/source" {
+				t.Errorf("expected -C /tmp/source, got -C %q", args[i+1])
+			}
+		}
+	}
+	// Mode qualifier must match the grammar the harness parses.
+	last := args[len(args)-1]
+	if !strings.Contains(last, "Lite mode: Q0-Q2") {
+		t.Errorf("expected mode-qualified prompt containing 'Lite mode: Q0-Q2', got %q", last)
+	}
 }
 
 func TestBuildAuditAgentCommand_OpenCode(t *testing.T) {
-	binary, args, _, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "scan", "/tmp/source", false)
+	binary, args, _, err := buildAuditAgentCommand("opencode", "/tmp/plugin", "balanced", "/tmp/source", false)
 	if err != nil {
 		t.Skipf("opencode not in PATH: %v", err)
 	}
@@ -447,5 +495,166 @@ func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
 	}
 	if got := stats.BySeverity["high"]; got != 1 {
 		t.Errorf("expected 1 high, got %d", got)
+	}
+}
+
+// --- Regression: archon session UUID must be resolvable to runtime.log ---
+//
+// Background: a previous bug had NewAuditAgenticScanner call uuid.New()
+// independently of the caller's chosen session directory, so the standalone
+// archon AgenticScan row's UUID and ~/.vigolium/agent-sessions/<dir> name
+// diverged. `vigolium log ls` then listed a UUID whose session directory
+// didn't exist and `vigolium log <uuid>` errored.
+//
+// The fix is nuanced: standalone archon MUST unify UUID with the session dir
+// name, but nested archon (spawned by autopilot/swarm) MUST NOT — otherwise
+// the child row collides with the parent's UUID (both share one SessionDir).
+// The ParentRunUUID field is the signal.
+//
+// The four tests below lock in the invariants that prevent regression:
+//   1. Standalone (SessionDir set, ParentRunUUID empty): UUID == filepath.Base(SessionDir).
+//   2. Nested (SessionDir set, ParentRunUUID set): UUID is a fresh random UUID,
+//      never equal to filepath.Base(SessionDir), so the parent/child rows don't collide.
+//   3. No SessionDir: UUID is still a valid random UUID.
+//   4. createAgenticScan persists SessionDir on the row so resolveLogSource's
+//      DB-backed fallback can find runtime.log for the nested-child case.
+
+func TestNewAuditAgenticScanner_StandaloneUUIDMatchesSessionDir(t *testing.T) {
+	knownUUID := "445734a3-5a33-4bb9-b581-b837b5aede8a"
+	sessionDir := filepath.Join(t.TempDir(), knownUUID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewAuditAgenticScanner(AuditAgentConfig{SessionDir: sessionDir}, nil)
+
+	if got := scanner.agenticScanUUID; got != knownUUID {
+		t.Errorf("standalone agenticScanUUID = %q, want %q (filepath.Base of SessionDir) — "+
+			"standalone archon's DB row UUID must match the on-disk dir name or "+
+			"`vigolium log <uuid>` breaks",
+			got, knownUUID)
+	}
+}
+
+func TestNewAuditAgenticScanner_NestedDoesNotCollideWithParent(t *testing.T) {
+	// Simulate the autopilot/swarm case: the parent owns sessionDir and a row
+	// whose UUID equals filepath.Base(sessionDir). Archon is spawned as a
+	// child with the SAME SessionDir (shared for artifacts) and must get its
+	// own UUID so CreateAgenticScan doesn't collide on primary key.
+	parentUUID := "445734a3-5a33-4bb9-b581-b837b5aede8a"
+	sessionDir := filepath.Join(t.TempDir(), parentUUID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewAuditAgenticScanner(AuditAgentConfig{
+		SessionDir:    sessionDir,
+		ParentRunUUID: parentUUID,
+	}, nil)
+
+	if scanner.agenticScanUUID == parentUUID {
+		t.Errorf("nested archon's UUID == parent UUID (%q) — createAgenticScan would "+
+			"collide with the parent's row on primary key",
+			parentUUID)
+	}
+	if scanner.agenticScanUUID == filepath.Base(sessionDir) {
+		t.Errorf("nested archon's UUID = %q matches filepath.Base(SessionDir) — "+
+			"it must differ so the child row is distinct from the parent",
+			scanner.agenticScanUUID)
+	}
+	if _, err := uuid.Parse(scanner.agenticScanUUID); err != nil {
+		t.Errorf("nested agenticScanUUID = %q is not a valid UUID: %v", scanner.agenticScanUUID, err)
+	}
+}
+
+func TestNewAuditAgenticScanner_NoSessionDirGeneratesUUID(t *testing.T) {
+	scanner := NewAuditAgenticScanner(AuditAgentConfig{}, nil)
+
+	if scanner.agenticScanUUID == "" {
+		t.Fatal("agenticScanUUID was empty — expected a generated UUID")
+	}
+	if _, err := uuid.Parse(scanner.agenticScanUUID); err != nil {
+		t.Errorf("agenticScanUUID = %q is not a valid UUID: %v", scanner.agenticScanUUID, err)
+	}
+}
+
+func TestCreateAgenticScan_PersistsSessionDirStandalone(t *testing.T) {
+	repo := newAuditTestRepo(t)
+	ctx := context.Background()
+
+	sessionUUID := uuid.New().String()
+	sessionDir := filepath.Join(t.TempDir(), sessionUUID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewAuditAgenticScanner(AuditAgentConfig{
+		SessionDir:  sessionDir,
+		ProjectUUID: database.DefaultProjectUUID,
+		SourcePath:  "/tmp/source",
+	}, repo)
+
+	scanner.createAgenticScan(ctx)
+
+	row, err := repo.GetAgenticScan(ctx, sessionUUID)
+	if err != nil {
+		t.Fatalf("GetAgenticScan(%q): %v — standalone row UUID must match session dir name", sessionUUID, err)
+	}
+	if row.UUID != sessionUUID {
+		t.Errorf("row.UUID = %q, want %q", row.UUID, sessionUUID)
+	}
+	if row.SessionDir != sessionDir {
+		t.Errorf("row.SessionDir = %q, want %q — resolveLogSource's DB fallback relies on this", row.SessionDir, sessionDir)
+	}
+}
+
+func TestCreateAgenticScan_PersistsSessionDirNested(t *testing.T) {
+	// The nested case: parent owns a row at filepath.Base(sessionDir). Child
+	// archon must create a DISTINCT row that still carries SessionDir so
+	// `vigolium log <child-uuid>` can resolve runtime.log via the DB fallback
+	// (the child UUID won't match any on-disk directory).
+	repo := newAuditTestRepo(t)
+	ctx := context.Background()
+
+	parentUUID := uuid.New().String()
+	sessionDir := filepath.Join(t.TempDir(), parentUUID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-create parent row to assert no collision when child inserts.
+	parentRow := &database.AgenticScan{
+		UUID:        parentUUID,
+		ProjectUUID: database.DefaultProjectUUID,
+		Mode:        "autopilot",
+		Status:      "running",
+		SessionDir:  sessionDir,
+	}
+	if err := repo.CreateAgenticScan(ctx, parentRow); err != nil {
+		t.Fatalf("pre-create parent: %v", err)
+	}
+
+	scanner := NewAuditAgenticScanner(AuditAgentConfig{
+		SessionDir:    sessionDir,
+		ParentRunUUID: parentUUID,
+		ProjectUUID:   database.DefaultProjectUUID,
+		SourcePath:    "/tmp/source",
+	}, repo)
+
+	scanner.createAgenticScan(ctx)
+
+	// Child must be retrievable by its own (fresh) UUID.
+	childRow, err := repo.GetAgenticScan(ctx, scanner.agenticScanUUID)
+	if err != nil {
+		t.Fatalf("GetAgenticScan(child=%q): %v — nested archon row must exist with fresh UUID", scanner.agenticScanUUID, err)
+	}
+	if childRow.UUID == parentUUID {
+		t.Error("child UUID equals parent UUID — createAgenticScan should have used a fresh UUID to avoid collision")
+	}
+	if childRow.SessionDir != sessionDir {
+		t.Errorf("child row SessionDir = %q, want %q — required for resolveLogSource's DB fallback", childRow.SessionDir, sessionDir)
+	}
+	if childRow.ParentRunUUID != parentUUID {
+		t.Errorf("child row ParentRunUUID = %q, want %q", childRow.ParentRunUUID, parentUUID)
 	}
 }

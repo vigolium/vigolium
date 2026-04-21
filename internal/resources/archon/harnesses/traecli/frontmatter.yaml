@@ -69,13 +69,6 @@ overrides:
       task:
         "*": "allow"
 
-  code-anatomist:
-    color: "#CCCC00"
-    permission:
-      edit: "allow"
-      bash:
-        "*": "deny"
-
   backward-reasoner:
     color: "#CC0000"
     permission:
@@ -86,14 +79,6 @@ overrides:
 
   contradiction-reasoner:
     color: "#CC6600"
-    permission:
-      edit: "allow"
-      bash:
-        "*": "allow"
-      webfetch: "allow"
-
-  causal-verifier:
-    color: "#00CCCC"
     permission:
       edit: "allow"
       bash:
@@ -138,10 +123,6 @@ overrides:
       webfetch: "allow"
       task:
         "*": "allow"
-
-  # --- Phase 7 ---
-  enrichment-filter:
-    color: "#00CC00"
 
   deep-auditor:
     color: "#CC00CC"
@@ -218,5 +199,15 @@ overrides:
         "*": "allow"
       webfetch: "allow"
 
+  # --- Phase 11b ---
+  finding-reporter:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "deny"
+
+  # --- Phase 11c ---
   report-assembler:
     color: "#CCCCCC"

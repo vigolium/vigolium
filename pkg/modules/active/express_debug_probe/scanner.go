@@ -13,30 +13,27 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-// stackTraceMarkers indicates stack trace leakage in error responses.
-var stackTraceMarkers = []string{
-	"at ",
+// stackTraceSubstrings are literal substrings that only appear in real Node.js
+// stack traces or debug dumps. Generic tokens like "at " or ".js:" are excluded
+// because they match ordinary prose and URLs.
+var stackTraceSubstrings = []string{
 	"/usr/src/app/",
 	"node_modules/",
-	".ts:",
-	".js:",
 }
 
-// expressMarkers indicates Express.js debug information.
-var expressMarkers = []string{
-	"NODE_ENV",
-	"express",
-	"Error:",
-}
+// nodeStackTraceRegex matches a real Node.js stack frame:
+//   "at functionName (/abs/path/file.js:10:5)" or "at /abs/path/file.js:10:5".
+// The line:column suffix is the strong signal — prose rarely produces it.
+var nodeStackTraceRegex = regexp.MustCompile(`at\s+(?:[^\s()]+\s+)?\(?[/\\][^\s()]+\.(?:js|ts|mjs|cjs):\d+:\d+\)?`)
 
-// nestjsMarkers indicates NestJS debug information.
-var nestjsMarkers = []string{
-	"\"statusCode\"",
-	"\"error\"",
-}
+// nodeEnvRegex matches NODE_ENV in a config-dump context (NODE_ENV=... or "NODE_ENV": ...),
+// not a bare mention in documentation prose.
+var nodeEnvRegex = regexp.MustCompile(`NODE_ENV\s*[=:]`)
 
-// filePathRegex matches Unix and Windows file paths in error responses.
-var filePathRegex = regexp.MustCompile(`(?:/[a-zA-Z0-9._-]+){3,}|[A-Z]:\\(?:[a-zA-Z0-9._-]+\\){2,}`)
+// filesystemPathRegex matches absolute filesystem paths that look like real
+// server file locations, not URL routes. Requires a known top-level directory
+// and a file extension.
+var filesystemPathRegex = regexp.MustCompile(`(?:/(?:home|usr|var|opt|root|app|srv|tmp|Users|mnt|etc|private)/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\.[A-Za-z0-9]+)|(?:[A-Z]:\\(?:[A-Za-z0-9._-]+\\)+[A-Za-z0-9._-]+\.[A-Za-z0-9]+)`)
 
 // numericSegmentRegex matches numeric path segments for type-mismatch probing.
 var numericSegmentRegex = regexp.MustCompile(`/(\d+)(?:/|$)`)
@@ -274,6 +271,10 @@ func probeTypeMismatch(
 }
 
 // analyzeErrorResponse checks an error response body for debug information leakage.
+// Only substantive evidence of a leak (real stack frames, internal filesystem
+// paths, NODE_ENV dumps) is returned. Standard framework error shapes such as
+// NestJS's `{"statusCode":…,"error":…}` are intentionally NOT treated as
+// evidence because they are the documented error format, not a debug leak.
 func analyzeErrorResponse(body string) []string {
 	if body == "" {
 		return nil
@@ -281,43 +282,26 @@ func analyzeErrorResponse(body string) []string {
 
 	var evidence []string
 
-	// Check stack trace markers
-	for _, marker := range stackTraceMarkers {
+	// Literal substrings that only show up in real stack traces / debug dumps.
+	for _, marker := range stackTraceSubstrings {
 		if strings.Contains(body, marker) {
 			evidence = append(evidence, fmt.Sprintf("Stack trace marker: %s", marker))
 		}
 	}
 
-	// Check Express markers
-	for _, marker := range expressMarkers {
-		if strings.Contains(body, marker) {
-			evidence = append(evidence, fmt.Sprintf("Express marker: %s", marker))
-		}
+	// Real Node.js stack frame with line:column suffix.
+	if m := nodeStackTraceRegex.FindString(body); m != "" {
+		evidence = append(evidence, fmt.Sprintf("Node.js stack frame: %s", m))
 	}
 
-	// Check NestJS markers
-	nestjsCount := 0
-	for _, marker := range nestjsMarkers {
-		if strings.Contains(body, marker) {
-			nestjsCount++
-		}
-	}
-	// Require both statusCode and error for NestJS detection
-	if nestjsCount >= 2 {
-		evidence = append(evidence, "NestJS error response detected")
+	// NODE_ENV appearing as a config/env entry (NODE_ENV=... or "NODE_ENV": ...).
+	if nodeEnvRegex.MatchString(body) {
+		evidence = append(evidence, "NODE_ENV disclosed")
 	}
 
-	// Check for validation error arrays (NestJS class-validator)
-	if strings.Contains(body, "\"message\"") && strings.Contains(body, "[") && strings.Contains(body, "\"statusCode\"") {
-		evidence = append(evidence, "NestJS validation error array detected")
-	}
-
-	// Check for file paths
-	if filePathRegex.MatchString(body) {
-		matches := filePathRegex.FindStringSubmatch(body)
-		if len(matches) > 0 {
-			evidence = append(evidence, fmt.Sprintf("File path disclosed: %s", matches[0]))
-		}
+	// Absolute filesystem path with a known top-level directory and file extension.
+	if m := filesystemPathRegex.FindString(body); m != "" {
+		evidence = append(evidence, fmt.Sprintf("File path disclosed: %s", m))
 	}
 
 	return evidence

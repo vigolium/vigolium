@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -42,6 +43,7 @@ func init() {
 	agentSessionCmd.Flags().IntVarP(&sessionOffset, "offset", "o", 0, "Number of records to skip")
 	agentSessionCmd.Flags().IntVar(&sessionTail, "tail", 50, "Number of raw output lines to show (0=none, -1=all)")
 	agentSessionCmd.Flags().BoolVar(&sessionFull, "full", false, "Show full raw output (shortcut for --tail -1)")
+	tui.AddFlags(agentSessionCmd, &sessionTUI, &sessionNoTUI)
 }
 
 func runAgentSession(cmd *cobra.Command, args []string) error {
@@ -74,6 +76,16 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 	runs, total, err := repo.ListAgenticScans(ctx, projectUUID, sessionMode, sessionLimit, sessionOffset)
 	if err != nil {
 		return fmt.Errorf("failed to list agent sessions: %w", err)
+	}
+
+	if active, tuiErr := tui.Active(sessionTUI, sessionNoTUI, globalJSON); tuiErr != nil {
+		return tuiErr
+	} else if active {
+		if len(runs) == 0 {
+			fmt.Printf("%s No agent sessions found.\n", terminal.InfoSymbol())
+			return nil
+		}
+		return pickAgentSessionTUI(ctx, repo, runs)
 	}
 
 	if globalJSON {

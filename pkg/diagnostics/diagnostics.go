@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -29,6 +31,7 @@ type CheckResult struct {
 	Status  Status   `json:"status"`
 	Message string   `json:"message,omitempty"`
 	Details []string `json:"details,omitempty"` // verbose-only diagnostic details
+	Tip     string   `json:"tip,omitempty"`     // remediation hint shown at all verbosity levels
 }
 
 // AgentCheck holds the outcome of the agent backend check.
@@ -40,6 +43,7 @@ type AgentCheck struct {
 	PingResponse string   `json:"ping_response,omitempty"`
 	Message      string   `json:"message,omitempty"`
 	Details      []string `json:"details,omitempty"`
+	Tip          string   `json:"tip,omitempty"`
 }
 
 // ToolCheck holds the outcome of a third-party tool check.
@@ -48,6 +52,7 @@ type ToolCheck struct {
 	Path    string   `json:"path,omitempty"`
 	Message string   `json:"message,omitempty"`
 	Details []string `json:"details,omitempty"`
+	Tip     string   `json:"tip,omitempty"`
 }
 
 // Report is the complete diagnostic report.
@@ -89,7 +94,17 @@ func Run(deps Deps) *Report {
 	r.Agent = checkAgent(settings, deps.SkipAgentPing)
 	r.Browser = checkBrowser(settings)
 	r.Tools["ast-grep"] = checkTool("ast-grep", nil)
-	r.Tools["chromium"] = checkTool("chromium", []string{"chromium-browser", "google-chrome", "google-chrome-stable"})
+	chromiumFallbacks := []string{"chromium-browser", "google-chrome", "google-chrome-stable"}
+	if runtime.GOOS == "darwin" {
+		chromiumFallbacks = append(chromiumFallbacks,
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		)
+	}
+	r.Tools["chromium"] = checkTool("chromium", chromiumFallbacks)
 	r.Tools["bun"] = checkTool("bun", []string{config.ExpandPath("~/.bun/bin/bun")})
 	r.Tools["claude"] = checkTool("claude", nil)
 	r.Tools["agent-browser"] = checkTool("agent-browser", nil)
@@ -224,6 +239,7 @@ func checkAgent(settings *config.Settings, skipPing bool) *AgentCheck {
 			Protocol: def.EffectiveProtocol(),
 			Message:  fmt.Sprintf("binary found but agent not responding: %v", pingErr),
 			Details:  details,
+			Tip:      agentPingTip(path, def.EffectiveProtocol(), pingErr),
 		}
 	}
 
@@ -238,11 +254,38 @@ func checkAgent(settings *config.Settings, skipPing bool) *AgentCheck {
 	}
 }
 
+// agentPingTip returns a one-line remediation hint for an agent ping failure,
+// tailored to the protocol used so the user can reproduce the call manually.
+func agentPingTip(path, protocol string, pingErr error) string {
+	loginHint := ""
+	if pingErr != nil {
+		msg := strings.ToLower(pingErr.Error())
+		if strings.Contains(msg, "login") || strings.Contains(msg, "auth") || strings.Contains(msg, "unauthorized") {
+			loginHint = fmt.Sprintf(" If the error mentions login/auth, run: %s /login", path)
+		}
+	}
+	if protocol == "sdk" {
+		return fmt.Sprintf(
+			"Reproduce manually: %s -p 'Respond with exactly one word: pong' --output-format text --max-turns 1 --no-session-persistence --bare.%s",
+			path, loginHint,
+		)
+	}
+	return fmt.Sprintf(
+		"Reproduce manually: echo 'Respond with exactly one word: pong' | %s (protocol=%s).%s",
+		path, protocol, loginHint,
+	)
+}
+
 func checkBrowser(settings *config.Settings) *CheckResult {
 	details := []string{"checking agent.browser.enabled in config"}
 
 	if !settings.Agent.Browser.IsEnabled() {
-		return &CheckResult{Status: StatusWarning, Message: "disabled in config", Details: details}
+		return &CheckResult{
+			Status:  StatusWarning,
+			Message: "disabled in config",
+			Details: details,
+			Tip:     "Enable by adding `agent.browser.enable: true` to ~/.vigolium/vigolium-configs.yaml (optional: set `agent.browser.binary_path` to override the default `agent-browser` lookup).",
+		}
 	}
 
 	bin := settings.Agent.Browser.EffectiveBinaryPath()

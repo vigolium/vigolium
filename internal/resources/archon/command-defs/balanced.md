@@ -1,5 +1,5 @@
 ---
-description: Run a 6-phase security audit (scan mode) on the current repository. Skips deep probe rounds, variant analysis, spec gap analysis, and cold verification to deliver results faster. Resumes from the last checkpoint if an audit is already in progress.
+description: Run a 6-phase security audit (balanced mode) on the current repository. Skips deep probe rounds, variant analysis, spec gap analysis, and cold verification to deliver results faster. Resumes from the last checkpoint if an audit is already in progress.
 argument-hint: "Optional: target path/scope"
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, AskUserQuestion, TaskCreate, TaskGet, TaskList, TaskUpdate
 ---
@@ -13,13 +13,13 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, 
 
 ## Your Task
 
-Run a **scan** security audit of the current repository. Target scope: $ARGUMENTS
+Run a **balanced** security audit of the current repository. Target scope: $ARGUMENTS
 
 This is a streamlined 6-phase pipeline that trades depth for speed. It produces the same output format as the full audit (`/archon:deep`) so findings are compatible with `/archon:diff` and `/archon:status`.
 
 This mode supports auditing a plain source folder with no `.git` directory or local history.
 
-### What Scan Mode Skips
+### What Balanced Mode Skips
 
 Compared to the full 11-phase audit:
 
@@ -28,7 +28,7 @@ Compared to the full 11-phase audit:
 | Commit archaeology | P1 | Expensive git history analysis |
 | Patch bypass analysis | P2 | Entire phase skipped |
 | Custom SAST rules & structural extraction | P4 | Built-in suites are sufficient for speed runs |
-| Contradiction Reasoner, Causal Verifier, Code Anatomist | P5 | Single simplified probe round |
+| Contradiction Reasoner | P5 | Single simplified probe round |
 | Spec gap analysis | P6 | RFC compliance is deep work |
 | Code Tracer (chamber role) | P8 | Synthesizer does inline tracing |
 | Cold verification | P9 Stage 2 | Devil's Advocate challenge is sufficient |
@@ -44,7 +44,7 @@ If `archon/audit-state.json` exists, use `AskUserQuestion` to gate the next acti
   - "Cancel"
 
 - **All phases complete**: ask "A completed audit exists for this repository. What would you like to do?" with options:
-  - "Run a fresh scan audit (clears existing state)"
+  - "Run a fresh balanced audit (clears existing state)"
   - "Run an incremental diff audit (/archon:diff)"
   - "Upgrade to deep audit (/archon:deep)"
   - "Cancel"
@@ -81,7 +81,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
          "branch": "<current branch, or \"nogit\">",
          "repository": "<value of $ARCHON_REPOSITORY env var, pre-computed by the CLI from git remote / package manifests / basename — substitute the literal string before writing>",
          "history_available": "<true if Git worktree detected, else false>",
-         "mode": "scan",
+         "mode": "balanced",
          "model": "<model name, e.g. opus-4.6, gpt-5.3-codex, sonnet-4.6>",
          "agent_sdk": "<platform name, e.g. claude-code, codex, bytesec, opencode, traecli>",
          "started_at": "<ISO timestamp>",
@@ -116,7 +116,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
 
 ---
 
-## Scan Pipeline
+## Balanced Pipeline
 
 ```
 L1 (Intel) → L2 (KB/Threat Model) → [L3 (SAST) + L4 (Lite Probe)] parallel → L5 (Review + FP Check) → L6 (PoC) → L6b (Finalize per-finding report.md) → L6c (Final Report)
@@ -157,7 +157,7 @@ Update `archon/audit-state.json`: set `L1` status to `complete` with timestamp. 
 
 Spawn `archon:knowledge-base-builder` (foreground) with the following additional instruction in the prompt:
 
-> "SCAN MODE: Skip Domain Attack Research Modes B and C. Only run Mode A if the project is a library/plugin/protocol. Skip generating `## Spec Gap Candidates` and `## Phase 4 CodeQL Extraction Targets` sections. Focus on: Project Classification, Architecture Model, DFD/CFD Slices, Attack Surface, and Threat Model."
+> "BALANCED MODE: Skip Domain Attack Research Modes B and C. Only run Mode A if the project is a library/plugin/protocol. Skip generating `## Spec Gap Candidates` and `## Phase 4 CodeQL Extraction Targets` sections. Focus on: Project Classification, Architecture Model, DFD/CFD Slices, Attack Surface, and Threat Model."
 
 Wait for completion. Mark T2 complete.
 
@@ -169,7 +169,7 @@ In a **single message**, spawn both with `run_in_background: true`:
 
 Spawn `archon:static-analyzer` with the following additional instruction in the prompt:
 
-> "SCAN MODE: Run built-in CodeQL security suites and Semgrep Pro engine only. Do NOT generate custom CodeQL queries or custom Semgrep rules. Do NOT run structural extraction (entry-points.json, sinks.json, call-graph-slices.json). Do NOT run SpotBugs or agentic-actions-auditor. Output SARIF results and write the `## Static Analysis Summary` section to the KB."
+> "BALANCED MODE: Run built-in CodeQL security suites and Semgrep Pro engine only. Do NOT generate custom CodeQL queries or custom Semgrep rules. Do NOT run structural extraction (entry-points.json, sinks.json, call-graph-slices.json). Do NOT run SpotBugs or agentic-actions-auditor. Output SARIF results and write the `## Static Analysis Summary` section to the KB."
 
 #### L4: Lite Deep Probe (T4)
 
@@ -177,20 +177,20 @@ Deploy a **single probe team** covering all components with attacker-controlled 
 
 1. Read `archon/knowledge-base-report.md` sections `## DFD/CFD Slices`, `## Attack Surface`, `## Architecture Model`.
 2. Identify all components handling attacker-controlled input. Group them ALL into a single probe team.
-3. `mkdir -p archon/probe-workspace/lite-probe/`
+3. `mkdir -p archon/probe-workspace/balanced-probe/`
 4. Spawn 3 agents with `run_in_background: true` in the same message as L3:
 
 > **Probe Strategist** (coordinator):
-> `subagent_type: "archon:probe-strategist"`, `name: "probe-strategist-lite"`
-> Prompt: "SCAN MODE — You are the Probe Strategist for ALL components: <component list>. KB path: archon/knowledge-base-report.md. Workspace: archon/probe-workspace/lite-probe/. Your team: backward-reasoner-lite, evidence-harvester-lite. LITE RULES: (1) Skip Code Anatomist — read source directly. (2) Run only 1 round: SendMessage backward-reasoner-lite for Round 1, then SendMessage evidence-harvester-lite with all hypotheses. (3) Skip Contradiction Reasoner, Causal Verifier, Cross-Pollination, and Bayesian decision loop. (4) Write probe-summary.md when done."
+> `subagent_type: "archon:probe-strategist"`, `name: "probe-strategist-balanced"`
+> Prompt: "BALANCED MODE — You are the Probe Strategist for ALL components: <component list>. KB path: archon/knowledge-base-report.md. Workspace: archon/probe-workspace/balanced-probe/. Your team: backward-reasoner-balanced, evidence-harvester-balanced. BALANCED RULES: (1) Skip the inline Code Anatomy write — reasoners read source directly. (2) Run only 1 round: SendMessage backward-reasoner-balanced for Round 1, then SendMessage evidence-harvester-balanced with all hypotheses. (3) Skip Contradiction Reasoner, Cross-Pollination, and the Bayesian decision loop — the harvester covers causal challenge inline. (4) Write probe-summary.md when done."
 
 > **Backward Reasoner** (single round):
-> `subagent_type: "archon:backward-reasoner"`, `name: "backward-reasoner-lite"`
-> Prompt: "You are the Backward Reasoner (scan mode) for all components. Wait for the Probe Strategist (probe-strategist-lite) to message you. Apply Pre-Mortem and Abductive reasoning to generate hypotheses. Single round — be thorough but concise."
+> `subagent_type: "archon:backward-reasoner"`, `name: "backward-reasoner-balanced"`
+> Prompt: "You are the Backward Reasoner (balanced mode) for all components. Wait for the Probe Strategist (probe-strategist-balanced) to message you. Apply Pre-Mortem and Abductive reasoning to generate hypotheses. Single round — be thorough but concise."
 
 > **Evidence Harvester** (trace and verdict):
-> `subagent_type: "archon:evidence-harvester"`, `name: "evidence-harvester-lite"`
-> Prompt: "You are the Evidence Harvester (scan mode). Wait for the Probe Strategist (probe-strategist-lite) to message you with hypotheses. Trace each hypothesis and issue VALIDATED / INVALIDATED / NEEDS-DEEPER verdicts with Fragility Scores."
+> `subagent_type: "archon:evidence-harvester"`, `name: "evidence-harvester-balanced"`
+> Prompt: "You are the Evidence Harvester (balanced mode). Wait for the Probe Strategist (probe-strategist-balanced) to message you with hypotheses. Trace each hypothesis and issue VALIDATED / INVALIDATED / NEEDS-DEEPER verdicts with Fragility Scores."
 
 Wait for all L3 and L4 agents to complete.
 
@@ -200,28 +200,28 @@ Mark T3, T4 complete.
 
 ### Phase L5: Review Chamber + FP Check (T5)
 
-1. `mkdir -p archon/chamber-workspace/lite-chamber/`
-2. Read probe results: `cat archon/probe-workspace/lite-probe/probe-summary.md`
+1. `mkdir -p archon/chamber-workspace/balanced-chamber/`
+2. Read probe results: `cat archon/probe-workspace/balanced-probe/probe-summary.md`
 3. Read enriched SAST findings from KB `## Static Analysis Summary`.
 4. Read `archon/knowledge-base-report.md` threat model sections.
 
 Spawn a **single chamber** with 3 agents (not 4 — drop Code Tracer, Synthesizer does inline tracing):
 
 > **Chamber Synthesizer** (lead):
-> `subagent_type: "archon:chamber-synthesizer"`, `name: "chamber-synth-lite"`
-> Prompt: "SCAN MODE — You are the Synthesizer for a single lite Review Chamber. Threat cluster: ALL identified threats. NNN range: s5-001 to s5-049. State: archon/audit-state.json. Workspace: archon/chamber-workspace/lite-chamber/debate.md. Deep Probe pre-validated hypotheses: <list from probe-summary.md>. LITE RULES: (1) You perform code tracing yourself instead of delegating to a Code Tracer. (2) Max 2 debate rounds total (1 ideation+challenge round, 1 optional follow-up for ambiguous findings). (3) Your Ideator is ideator-lite, Advocate is advocate-lite. Use SendMessage to coordinate."
+> `subagent_type: "archon:chamber-synthesizer"`, `name: "chamber-synth-balanced"`
+> Prompt: "BALANCED MODE — You are the Synthesizer for a single balanced Review Chamber. Threat cluster: ALL identified threats. NNN range: b5-001 to b5-049. State: archon/audit-state.json. Workspace: archon/chamber-workspace/balanced-chamber/debate.md. Deep Probe pre-validated hypotheses: <list from probe-summary.md>. BALANCED RULES: (1) You perform code tracing yourself instead of delegating to a Code Tracer. (2) Max 2 debate rounds total (1 ideation+challenge round, 1 optional follow-up for ambiguous findings). (3) Your Ideator is ideator-balanced, Advocate is advocate-balanced. Use SendMessage to coordinate."
 
 > **Attack Ideator**:
-> `subagent_type: "archon:attack-ideator"`, `name: "ideator-lite"`
-> Prompt: "You are the Attack Ideator (scan mode). Wait for the Synthesizer (chamber-synth-lite) to message you. Deep Probe results are pre-seeded in debate.md — do NOT regenerate. Focus on chaining findings and cross-mode combinations. Max 7 hypotheses per batch."
+> `subagent_type: "archon:attack-ideator"`, `name: "ideator-balanced"`
+> Prompt: "You are the Attack Ideator (balanced mode). Wait for the Synthesizer (chamber-synth-balanced) to message you. Deep Probe results are pre-seeded in debate.md — do NOT regenerate. Focus on chaining findings and cross-mode combinations. Max 7 hypotheses per batch."
 
 > **Devil's Advocate**:
-> `subagent_type: "archon:devils-advocate"`, `name: "advocate-lite"`
-> Prompt: "You are the Devil's Advocate (scan mode). Wait for the Synthesizer (chamber-synth-lite) to message you. Write defense briefs challenging each hypothesis."
+> `subagent_type: "archon:devils-advocate"`, `name: "advocate-balanced"`
+> Prompt: "You are the Devil's Advocate (balanced mode). Wait for the Synthesizer (chamber-synth-balanced) to message you. Write defense briefs challenging each hypothesis."
 
 Wait for the chamber to close.
 
-**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to every `*.md` file under `archon/findings-draft/` with `Verdict: VALID` (the chamber synthesizer writes drafts with a `p8-` prefix regardless of the NNN range it was given, so do not filter by prefix — iterate the whole directory). Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for scan mode.
+**Inline FP Check (replaces Phase 9)**: Apply `fp-check` skill to every `*.md` file under `archon/findings-draft/` with `Verdict: VALID` (the chamber synthesizer writes drafts with a `p8-` prefix regardless of the NNN range it was given, so do not filter by prefix — iterate the whole directory). Write verdicts back into drafts. **No cold verifiers** — the Devil's Advocate challenge is sufficient for balanced mode.
 
 Mark T5 complete.
 
@@ -254,7 +254,7 @@ Mark T6b (phase `L6b`) complete only when every finding directory has a non-empt
 
 Spawn `archon:report-assembler` (foreground) with the following additional instruction:
 
-> "SCAN MODE: This is a scan audit report. Add a note in the Executive Summary: 'This report was generated using scan audit mode. Phases skipped: commit archaeology, patch bypass analysis, spec gap analysis, variant analysis, and cold verification. For comprehensive coverage, run a full audit with /archon:deep.' Skip the chamber workspace appendix. Consistency checks MUST include: finding ID cross-reference, orphan detection, AND finding completeness (every `archon/findings/<ID>-<slug>/` must contain `draft.md` and a non-empty `report.md`). Do NOT drop the finding-completeness check — Phase L6b has already guaranteed it, so any failure here is a real regression."
+> "BALANCED MODE: This is a balanced audit report. Add a note in the Executive Summary: 'This report was generated using balanced audit mode. Phases skipped: commit archaeology, patch bypass analysis, spec gap analysis, variant analysis, and cold verification. For comprehensive coverage, run a full audit with /archon:deep.' Skip the chamber workspace appendix. Consistency checks MUST include: finding ID cross-reference, orphan detection, AND finding completeness (every `archon/findings/<ID>-<slug>/` must contain `draft.md` and a non-empty `report.md`). Do NOT drop the finding-completeness check — Phase L6b has already guaranteed it, so any failure here is a real regression."
 
 **Post-audit cleanup**: After report-assembler completes and reports consistency checks passed, delete intermediate working artifacts:
 ```bash
@@ -293,5 +293,5 @@ Continue sequentially through L6c using the phase execution above.
 1. **Do not perform audit work.** Your role is coordination only.
 2. Monitor via task completions and incoming agent messages.
 3. If an agent fails, check `archon/findings-draft/` for partial output. Spawn replacement with remaining work only.
-4. For the chamber: if it fails, check `archon/chamber-workspace/lite-chamber/debate.md` for partial findings already written.
+4. For the chamber: if it fails, check `archon/chamber-workspace/balanced-chamber/debate.md` for partial findings already written.
 5. If the probe team fails, read its workspace for partial summaries and pass whatever results exist to L5.

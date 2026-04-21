@@ -131,15 +131,19 @@ func printDoctorReport(r *diagnostics.Report, verbose bool) {
 
 	printCheck("Database", r.Database.Status, r.Database.Message)
 	printDetails(verbose, r.Database.Details)
+	printTip(r.Database.Tip)
 	printCheck("Agent", r.Agent.Status, formatAgentMessage(r.Agent))
 	printDetails(verbose, r.Agent.Details)
+	printTip(r.Agent.Tip)
 
 	if r.Queue != nil {
 		printCheck("Queue", r.Queue.Status, r.Queue.Message)
+		printTip(r.Queue.Tip)
 	}
 
 	printCheck("Agent Browser", r.Browser.Status, r.Browser.Message)
 	printDetails(verbose, r.Browser.Details)
+	printTip(r.Browser.Tip)
 
 	toolNames := make([]string, 0, len(r.Tools))
 	for name := range r.Tools {
@@ -154,13 +158,16 @@ func printDoctorReport(r *diagnostics.Report, verbose bool) {
 		}
 		printCheck("Tool: "+name, tool.Status, msg)
 		printDetails(verbose, tool.Details)
+		printTip(tool.Tip)
 	}
 
 	printCheck("Templates Dir", r.TemplatesDir.Status, r.TemplatesDir.Message)
 	printDetails(verbose, r.TemplatesDir.Details)
+	printTip(r.TemplatesDir.Tip)
 
 	printCheck("Nuclei Templates", r.NucleiTemplates.Status, r.NucleiTemplates.Message)
 	printDetails(verbose, r.NucleiTemplates.Details)
+	printTip(r.NucleiTemplates.Tip)
 
 	fmt.Println()
 	switch r.Status {
@@ -171,7 +178,39 @@ func printDoctorReport(r *diagnostics.Report, verbose bool) {
 	default:
 		fmt.Printf("  %s %s\n", terminal.BoldRed(terminal.SymbolError), terminal.BoldRed("System not ready — critical components missing"))
 	}
+	if !verbose && reportHasHiddenDetail(r) {
+		fmt.Printf("  %s %s\n", terminal.Yellow(terminal.SymbolTip), terminal.White("re-run with --verbose to see per-check diagnostics (resolved paths, ping errors, config lookups)"))
+	}
 	fmt.Println()
+}
+
+// reportHasHiddenDetail reports whether any non-OK check carries verbose
+// detail lines that the user won't see without --verbose.
+func reportHasHiddenDetail(r *diagnostics.Report) bool {
+	hidden := func(status diagnostics.Status, details []string) bool {
+		return status != diagnostics.StatusOK && len(details) > 0
+	}
+	if r.Database != nil && hidden(r.Database.Status, r.Database.Details) {
+		return true
+	}
+	if r.Agent != nil && hidden(r.Agent.Status, r.Agent.Details) {
+		return true
+	}
+	if r.Browser != nil && hidden(r.Browser.Status, r.Browser.Details) {
+		return true
+	}
+	if r.TemplatesDir != nil && hidden(r.TemplatesDir.Status, r.TemplatesDir.Details) {
+		return true
+	}
+	if r.NucleiTemplates != nil && hidden(r.NucleiTemplates.Status, r.NucleiTemplates.Details) {
+		return true
+	}
+	for _, t := range r.Tools {
+		if t != nil && hidden(t.Status, t.Details) {
+			return true
+		}
+	}
+	return false
 }
 
 func printCheck(label string, status diagnostics.Status, message string) {
@@ -202,6 +241,15 @@ func printDetails(verbose bool, details []string) {
 	for _, d := range details {
 		fmt.Printf("      %s %s\n", terminal.Gray(terminal.SymbolTriangle), highlightDetail(d))
 	}
+}
+
+// printTip renders a remediation hint under a check. Shown at all verbosity
+// levels — this is the user-facing "what to do next" line.
+func printTip(tip string) {
+	if tip == "" {
+		return
+	}
+	fmt.Printf("      %s %s\n", terminal.Yellow(terminal.SymbolTip), terminal.White(tip))
 }
 
 // highlightKeyValues highlights values in key=value pairs within a message string.

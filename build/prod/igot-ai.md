@@ -270,7 +270,7 @@ curl https://igot-ai-api.vigolium.com/api/findings/42 \
 
 > **Note:** The `run_id` returned by every agent run endpoint is a bare UUID
 > that maps 1:1 to the on-disk session directory at
-> `~/.vigolium/agent-sessions/<run_id>/`. Use it to locate the live `run.log`,
+> `~/.vigolium/agent-sessions/<run_id>/`. Use it to locate the live `runtime.log`,
 > `output.md`, and `archon-audit/` artifacts for that run.
 
 **List all agent sessions (lightweight status):**
@@ -359,7 +359,7 @@ curl https://igot-ai-api.vigolium.com/api/agent/sessions/f7a8b9c0-1234-5678-abcd
 The `session_dir` field always equals `~/.vigolium/agent-sessions/<uuid>/`, so
 clients can derive it from `run_id` alone. The directory contains:
 
-- `run.log` — live stream of the autopilot/swarm + archon output. Tail this for
+- `runtime.log` — live stream of the autopilot/swarm + archon output. Tail this for
   real-time progress while a run is in flight.
 - `output.md` — final agent transcript (also returned inline as
   `agent_raw_output` after completion).
@@ -367,7 +367,7 @@ clients can derive it from `run_id` alone. The directory contains:
   `audit-stream.jsonl` (live JSONL feed of the parallel security audit).
 - `extensions/` — generated JS scanner extensions (swarm only).
 
-**Get the live console log (`run.log`) over HTTP:**
+**Get the live console log (`runtime.log`) over HTTP:**
 
 ```bash
 # Plain text dump (ANSI preserved)

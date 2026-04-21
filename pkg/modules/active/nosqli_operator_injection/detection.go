@@ -17,9 +17,22 @@ var nosqlErrorPatterns = []*regexp.Regexp{
 }
 
 const (
-	timeDelayThresholdMs = 80   // milliseconds over baseline to consider time-based injection
-	sizeIncreasePercent  = 50   // percent body size increase to consider data exfiltration
-	sizeIncreaseMinBytes = 200  // minimum absolute increase in bytes
+	// timeBasedSleepMs is the value passed to MongoDB's sleep() in the $where
+	// payload. MongoDB sleep() takes milliseconds, so 10000 == 10 seconds. A
+	// delay that large is well beyond any realistic network jitter or ambient
+	// endpoint slowness, so a consistent hit is strong evidence of injection.
+	timeBasedSleepMs = 10000
+	// timeDelayThresholdMs is the minimum delta (ms) over baseline required to
+	// count a single probe as delayed. Set to 70% of the injected sleep so we
+	// still flag the hit if the server does partial/jittery scheduling but
+	// won't fire on generic slowness.
+	timeDelayThresholdMs = 7000
+	// timeBasedConfirmationRounds is how many consecutive probes must each
+	// exceed the threshold before the finding is reported. Guards against a
+	// single unusually slow response being misread as injection.
+	timeBasedConfirmationRounds = 3
+	sizeIncreasePercent         = 50  // percent body size increase to consider data exfiltration
+	sizeIncreaseMinBytes        = 200 // minimum absolute increase in bytes
 )
 
 // containsNoSQLError checks if the response body contains NoSQL error patterns.

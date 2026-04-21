@@ -1,7 +1,7 @@
 ## OpenCode-Family Override
 
 For OpenCode-family platforms, this command runs with sequential orchestration semantics.
-Use the shared scan-audit command below as the base workflow, but apply these override rules everywhere they conflict:
+Use the shared balanced-audit command below as the base workflow, but apply these override rules everywhere they conflict:
 
 1. Execute phases strictly in dependency order.
    Use: `L1 -> L2 -> L3 -> L4 -> L5 -> L6`

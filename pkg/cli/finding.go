@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/spf13/cobra"
@@ -128,6 +129,7 @@ func init() {
 	f.BoolVar(&findingBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
 	f.StringSliceVar(&findingColumns, "columns", nil, "Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE)")
 	f.StringSliceVar(&findingExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+	tui.AddFlags(findingCmd, &findingTUIFlag, &findingNoTUIFlag)
 }
 
 func runFinding(cmd *cobra.Command, args []string) error {
@@ -159,6 +161,16 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		total, err := fqb.Count(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to count findings: %w", err)
+		}
+
+		if active, tuiErr := tui.Active(findingTUIFlag, findingNoTUIFlag, globalJSON); tuiErr != nil {
+			return tuiErr
+		} else if active {
+			if len(findings) == 0 {
+				fmt.Printf("%s No findings found.\n", terminal.InfoSymbol())
+				return nil
+			}
+			return pickFindingTUI(ctx, db, findings, total)
 		}
 
 		if globalJSON {

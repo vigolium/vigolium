@@ -217,11 +217,11 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		result.Warnings = append(result.Warnings, "failed to write some autopilot context artifacts")
 	}
 
-	// Use medium effort for scan/deep archon modes, low otherwise.
+	// Use medium effort for balanced/deep archon modes, low otherwise.
 	effort := "low"
 	if cfg.Archon != nil {
 		switch cfg.Archon.EffectiveMode() {
-		case "scan", "deep":
+		case "balanced", "deep":
 			effort = "medium"
 		}
 	}

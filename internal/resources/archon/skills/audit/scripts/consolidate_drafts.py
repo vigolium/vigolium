@@ -14,8 +14,21 @@ The manifest is the hand-off to the orchestrator: it lists each finding's
 assigned ID, slug, folder, and original draft path so the orchestrator can
 dispatch one poc-builder per entry without having to parse frontmatter itself.
 
+Revisit mode: pass --continue-ids to seed the severity counters from the
+max existing ID already present in <archon_dir>/findings/. New finding
+directories created in this mode also receive a metadata.json stamped with
+round / revisit_id / model / agent_sdk (pulled from env vars the
+orchestrator sets) so future revisits can attribute each finding to the
+pass that produced it.
+
+Env vars read in continuation mode:
+    ARCHON_REVISIT_ROUND     integer round number (2 = first revisit)
+    ARCHON_REVISIT_ID        ISO timestamp identifying the revisit
+    ARCHON_REVISIT_MODEL     model string (e.g. opus-4.7)
+    ARCHON_REVISIT_AGENT_SDK platform string (e.g. claude-code)
+
 Usage:
-    consolidate_drafts.py [archon_dir]
+    consolidate_drafts.py [archon_dir] [--continue-ids]
 
 archon_dir defaults to "archon". Exit codes:
     0  success
@@ -38,6 +51,7 @@ SEVERITY_PREFIX = {"CRITICAL": "C", "HIGH": "H", "MEDIUM": "M"}
 
 FILENAME_RE = re.compile(r"^([a-z]+\d*)-(\d+)(?:-(.+))?\.md$")
 KV_RE = re.compile(r"^([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$")
+EXISTING_FOLDER_RE = re.compile(r"^([CHM])(\d+)-")
 
 
 @dataclass
@@ -144,7 +158,34 @@ def load_drafts(draft_dir: Path) -> list[Draft]:
     return drafts
 
 
-def assign_ids(drafts: list[Draft]) -> tuple[list[Draft], list[dict]]:
+def scan_existing_ids(findings_dir: Path) -> dict[str, int]:
+    """Return the max existing ID number per severity prefix under findings/.
+
+    Scans directory names matching `<C|H|M><number>-...` and returns a
+    dict like {"C": 2, "H": 4, "M": 0} so a revisit run can seed its
+    counters from that floor.
+    """
+    maxes = {"C": 0, "H": 0, "M": 0}
+    if not findings_dir.is_dir():
+        return maxes
+    for entry in os.listdir(findings_dir):
+        m = EXISTING_FOLDER_RE.match(entry)
+        if not m:
+            continue
+        prefix = m.group(1)
+        try:
+            num = int(m.group(2))
+        except ValueError:
+            continue
+        if num > maxes.get(prefix, 0):
+            maxes[prefix] = num
+    return maxes
+
+
+def assign_ids(
+    drafts: list[Draft],
+    seed_counters: Optional[dict[str, int]] = None,
+) -> tuple[list[Draft], list[dict]]:
     kept: list[Draft] = []
     dropped: list[dict] = []
     for d in drafts:
@@ -173,7 +214,12 @@ def assign_ids(drafts: list[Draft]) -> tuple[list[Draft], list[dict]]:
 
     kept.sort(key=sort_key)
 
+    # Seed counters from existing findings/ when running in revisit
+    # continuation mode so new IDs don't collide with round-1 folders.
     counters = {sev: 0 for sev in SEVERITY_PREFIX}
+    if seed_counters:
+        for sev, prefix in SEVERITY_PREFIX.items():
+            counters[sev] = seed_counters.get(prefix, 0)
     for d in kept:
         counters[d.severity] += 1
         d.assigned_id = f"{SEVERITY_PREFIX[d.severity]}{counters[d.severity]}"
@@ -229,7 +275,7 @@ def resolve_debate_path(raw: str, archon_dir: Path) -> Optional[Path]:
     return None
 
 
-def consolidate(archon_dir: Path) -> int:
+def consolidate(archon_dir: Path, continue_ids: bool = False) -> int:
     draft_dir = archon_dir / "findings-draft"
     findings_dir = archon_dir / "findings"
     adv_dir = archon_dir / "adversarial-reviews"
@@ -239,7 +285,31 @@ def consolidate(archon_dir: Path) -> int:
         print(f"error: no draft files found in {draft_dir}", file=sys.stderr)
         return 1
 
-    kept, dropped = assign_ids(drafts)
+    seed_counters: Optional[dict[str, int]] = None
+    if continue_ids:
+        seed_counters = scan_existing_ids(findings_dir)
+        print(
+            f"continue-ids: seeding counters from existing findings/: "
+            f"C={seed_counters.get('C', 0)} H={seed_counters.get('H', 0)} "
+            f"M={seed_counters.get('M', 0)}",
+            file=sys.stderr,
+        )
+
+    revisit_meta: Optional[dict] = None
+    if continue_ids:
+        round_raw = os.environ.get("ARCHON_REVISIT_ROUND", "").strip()
+        try:
+            round_int = int(round_raw) if round_raw else 0
+        except ValueError:
+            round_int = 0
+        revisit_meta = {
+            "round": round_int or None,
+            "revisit_id": os.environ.get("ARCHON_REVISIT_ID", "") or None,
+            "model": os.environ.get("ARCHON_REVISIT_MODEL", "") or None,
+            "agent_sdk": os.environ.get("ARCHON_REVISIT_AGENT_SDK", "") or None,
+        }
+
+    kept, dropped = assign_ids(drafts, seed_counters=seed_counters)
     if not kept:
         manifest = {
             "archon_dir": str(archon_dir),
@@ -279,13 +349,35 @@ def consolidate(archon_dir: Path) -> int:
         if debate is not None:
             shutil.copy2(debate, folder / "debate.md")
 
+        meta: dict = {}
         if d.is_variant:
-            meta = {
-                "is_variant": True,
-                "origin_finding_id": d.origin_resolved_id,
-                "origin_finding_draft": d.origin_finding,
-                "origin_pattern": d.origin_pattern,
-            }
+            meta.update(
+                {
+                    "is_variant": True,
+                    "origin_finding_id": d.origin_resolved_id,
+                    "origin_finding_draft": d.origin_finding,
+                    "origin_pattern": d.origin_pattern,
+                }
+            )
+        else:
+            # Revisit findings always need a round stamp so the final report
+            # can attribute them. Non-revisit runs don't emit metadata.json
+            # for non-variants (backwards-compat with the report-assembler).
+            if revisit_meta and revisit_meta.get("round"):
+                meta["is_variant"] = False
+        if revisit_meta and revisit_meta.get("round"):
+            # Variant or not, round-2+ findings carry the revisit stamp so
+            # round-1 findings stay distinguishable by the absence of
+            # metadata.json (or by round==1 if explicitly written later).
+            meta.update(
+                {
+                    "round": revisit_meta["round"],
+                    "revisit_id": revisit_meta.get("revisit_id"),
+                    "model": revisit_meta.get("model"),
+                    "agent_sdk": revisit_meta.get("agent_sdk"),
+                }
+            )
+        if meta:
             (folder / "metadata.json").write_text(
                 json.dumps(meta, indent=2) + "\n"
             )
@@ -337,15 +429,27 @@ def main() -> None:
     if argv and argv[0] in ("-h", "--help"):
         print(__doc__)
         sys.exit(0)
-    if len(argv) > 1:
-        print("usage: consolidate_drafts.py [archon_dir]", file=sys.stderr)
+
+    continue_ids = False
+    positional: list[str] = []
+    for arg in argv:
+        if arg == "--continue-ids":
+            continue_ids = True
+        else:
+            positional.append(arg)
+    if len(positional) > 1:
+        print(
+            "usage: consolidate_drafts.py [archon_dir] [--continue-ids]",
+            file=sys.stderr,
+        )
         sys.exit(2)
-    archon_dir = Path(argv[0]) if argv else Path("archon")
+
+    archon_dir = Path(positional[0]) if positional else Path("archon")
     if not archon_dir.is_dir():
         print(f"error: archon dir not found: {archon_dir}", file=sys.stderr)
         sys.exit(2)
     try:
-        sys.exit(consolidate(archon_dir))
+        sys.exit(consolidate(archon_dir, continue_ids=continue_ids))
     except OSError as e:
         print(f"error: I/O failure during consolidation: {e}", file=sys.stderr)
         sys.exit(3)

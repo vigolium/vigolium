@@ -485,9 +485,9 @@ type AgentAutopilotRequest struct {
 	Stream          bool                        `json:"stream,omitempty"`            // enable SSE streaming
 	ScanUUID        string                      `json:"scan_uuid,omitempty"`         // optional scan UUID
 	ProjectUUID     string                      `json:"project_uuid,omitempty"`      // project UUID for data scoping
-	Archon          string                      `json:"archon,omitempty"`            // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "scan", "deep", "off"
+	Archon          string                      `json:"archon,omitempty"`            // DEPRECATED: use no_archon + archon_mode instead. Legacy values: "lite", "balanced", "deep", "off"
 	NoArchon        bool                        `json:"no_archon,omitempty"`         // disable automatic archon-audit (enabled by default when source is set)
-	ArchonMode      string                      `json:"archon_mode,omitempty"`       // archon audit mode: "lite" (default), "scan", "deep"
+	ArchonMode      string                      `json:"archon_mode,omitempty"`       // archon audit mode: "lite" (default), "balanced", "deep"
 	Diff            string                      `json:"diff,omitempty"`              // focus on changed code: PR URL, git ref range, or HEAD~N
 	LastCommits     int                         `json:"last_commits,omitempty"`      // focus on last N commits (shorthand for diff HEAD~N)
 	Browser         bool                        `json:"browser,omitempty"`           // explicitly enable browser tooling
@@ -593,7 +593,7 @@ type AgentSwarmRequest struct {
 	ScanUUID    string `json:"scan_uuid,omitempty"`    // optional scan UUID
 
 	// Background archon-audit
-	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "scan" (6-phase), "deep" (11-phase), "off" to disable
+	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "balanced" (6-phase), "deep" (10-phase), "off" to disable
 
 	// Diff context
 	Diff        string `json:"diff,omitempty"`         // focus on changed code: PR URL, git ref range, or HEAD~N

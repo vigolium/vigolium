@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	if !hasFlag("--json", "-j") && (len(os.Args) < 2 || os.Args[1] != "version") && !isSubcommand("config") && !isSubcommand("agent") && !isSubcommand("traffic") && !isSubcommand("finding") && !isSubcommand("findings") && !isSubcommand("db") && !isSubcommand("scan") && !isSubcommand("import") {
+	if !hasFlag("--json", "-j") && (len(os.Args) < 2 || os.Args[1] != "version") && !isSubcommand("config") && !isSubcommand("agent") && !isSubcommand("traffic") && !isSubcommand("finding") && !isSubcommand("findings") && !isSubcommand("db") && !isSubcommand("scan") && !isSubcommand("import") && !isSubcommand("log") {
 		fmt.Print(cli.GetBanner())
 	}
 	cli.Execute()

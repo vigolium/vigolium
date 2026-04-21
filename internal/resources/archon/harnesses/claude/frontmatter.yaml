@@ -40,12 +40,6 @@ overrides:
     permissionMode: ~
     effort: "medium"
 
-  code-anatomist:
-    tools: "Glob, Grep, Read, Write"
-    model: "haiku"
-    color: "yellow"
-    permissionMode: ~
-
   backward-reasoner:
     tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
     color: "red"
@@ -58,20 +52,9 @@ overrides:
     permissionMode: ~
     effort: "medium"
 
-  causal-verifier:
-    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
-    color: "cyan"
-    permissionMode: ~
-    effort: "medium"
-
   evidence-harvester:
     tools: "Glob, Grep, Read, Bash, Write"
     permissionMode: ~
-
-  # --- Phase 7 ---
-  enrichment-filter:
-    tools: "Glob, Grep, Read, Bash, Write"
-    color: "green"
 
   # --- Phase 5A ---
   authz-auditor:
@@ -138,8 +121,14 @@ overrides:
   poc-builder:
     tools: "Glob, Grep, Read, Bash, Write, WebFetch"
     color: "yellow"
+
+  # --- Phase 11b ---
+  finding-reporter:
+    tools: "Glob, Grep, Read, Write, Bash"
+    color: "yellow"
     skills: ["vuln-report"]
 
+  # --- Phase 11c ---
   report-assembler:
     tools: "Glob, Grep, Read, Write, Bash"
     color: "white"

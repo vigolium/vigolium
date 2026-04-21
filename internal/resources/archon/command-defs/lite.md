@@ -15,7 +15,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Agent, WebSearch, WebFetch, 
 
 Run a **lite** (super-quick) security audit of the current repository. Target scope: $ARGUMENTS
 
-This is a minimal 3-phase pipeline designed for speed. It answers one question: **"what would blow up if this shipped right now?"** It produces the same output format as deeper audits (`/archon:scan`, `/archon:deep`) so findings are compatible with `/archon:diff` and `/archon:status`.
+This is a minimal 3-phase pipeline designed for speed. It answers one question: **"what would blow up if this shipped right now?"** It produces the same output format as deeper audits (`/archon:balanced`, `/archon:deep`) so findings are compatible with `/archon:diff` and `/archon:status`.
 
 This mode supports auditing a plain source folder with no `.git` directory or local history.
 
@@ -42,7 +42,7 @@ If `archon/audit-state.json` exists, use `AskUserQuestion` to gate the next acti
 
 - **All phases complete**: ask "A completed audit exists for this repository. What would you like to do?" with options:
   - "Run a fresh lite audit (clears existing state)"
-  - "Upgrade to scan mode (/archon:scan)"
+  - "Upgrade to balanced mode (/archon:balanced)"
   - "Upgrade to deep mode (/archon:deep)"
   - "Cancel"
 
@@ -282,7 +282,7 @@ After all phases complete:
    | ...| ...      | ...      | ...       | ... |
 
    Findings: archon/findings/
-   For deeper analysis, run /archon:scan (6-phase) or /archon:deep (full 11-phase).
+   For deeper analysis, run /archon:balanced (6-phase) or /archon:deep (full 11-phase).
    ```
 
 6. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`.
@@ -293,5 +293,5 @@ After all phases complete:
 
 - **No narrative report**: lite mode does not produce `archon/final-audit-report.md`. The findings + PoCs are the deliverable.
 - **No knowledge base**: lite mode does not produce `archon/knowledge-base-report.md`.
-- **Compatible output**: finding directories use the same `archon/findings/<ID>-<slug>/` structure as `/archon:scan` and `/archon:deep` (with `draft.md`, `report.md`, `poc.*`, `evidence/`), so upgrading to a deeper audit preserves lite findings. The `/archon:confirm` command works directly against lite output.
-- **Minimal agent use**: lite mode runs the scan phases inline — only `archon:poc-builder` agents are dispatched for PoC generation.
+- **Compatible output**: finding directories use the same `archon/findings/<ID>-<slug>/` structure as `/archon:balanced` and `/archon:deep` (with `draft.md`, `report.md`, `poc.*`, `evidence/`), so upgrading to a deeper audit preserves lite findings. The `/archon:confirm` command works directly against lite output.
+- **Minimal agent use**: lite mode runs the balanced pipeline phases inline — only `archon:poc-builder` agents are dispatched for PoC generation.

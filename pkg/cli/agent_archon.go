@@ -26,10 +26,16 @@ var (
 )
 
 var archonValidModes = map[string]bool{
-	"deep":    true,
-	"scan":    true,
-	"lite":    true,
-	"confirm": true,
+	"lite":     true,
+	"balanced": true,
+	"scan":     true, // legacy alias, mapped to balanced by EffectiveMode
+	"deep":     true,
+	"revisit":  true,
+	"confirm":  true,
+	"merge":    true,
+	"diff":     true,
+	"status":   true,
+	"mock":     true,
 }
 
 var archonValidPlatforms = map[string]bool{
@@ -49,10 +55,23 @@ and launches the configured agent (Claude/Codex/OpenCode) against the target
 source tree. Audit artifacts are synced into the vigolium agent session
 directory and findings are imported into the vigolium database.
 
+Audit modes:
+  lite       3-phase fast audit (secrets + SAST triage)
+  balanced   6-phase standard audit (alias: scan)
+  deep       10-phase full chamber-protocol audit
+  revisit    9-phase second/Nth-pass on existing results
+  confirm    6-phase PoC construction for confirmed findings
+  merge      normalize + renumber multiple audit result dirs
+  diff       incremental audit over changed files only
+  status     read-only progress check on an existing run
+  mock       write a sample audit-state.json (no agent launched)
+
 Examples:
   vigolium agent archon --mode deep --source .
   vigolium agent archon --mode lite --source https://github.com/org/repo
-  vigolium agent archon --mode scan --agent codex --source ~/code/myapp`,
+  vigolium agent archon --mode balanced --agent codex --source ~/code/myapp
+  vigolium agent archon --mode revisit --source ./prior-audit-tree
+  vigolium agent archon --mode confirm --source ./audit-with-findings`,
 	RunE: runAgentArchon,
 }
 
@@ -60,10 +79,10 @@ func init() {
 	agentCmd.AddCommand(agentArchonCmd)
 
 	f := agentArchonCmd.Flags()
-	f.StringVar(&archonMode, "mode", "deep", "Audit mode: deep, scan, lite, confirm")
+	f.StringVar(&archonMode, "mode", "deep", "Audit mode: lite, balanced, deep, revisit, confirm, merge, diff, status, mock")
 	f.StringVar(&archonAgent, "agent", archon.PlatformClaude, "Agent platform: claude, codex, opencode")
 	f.StringVar(&archonSource, "source", ".", "Source path (local directory) or git URL to audit")
-	f.BoolVar(&archonNoStream, "no-stream", false, "Disable stream-json rendering (Claude only, falls back to --print)")
+	f.BoolVar(&archonNoStream, "no-stream", false, "Don't echo agent output to the console (still written to {session}/runtime.log)")
 }
 
 func runAgentArchon(cmd *cobra.Command, args []string) error {
@@ -71,7 +90,7 @@ func runAgentArchon(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
 	if !archonValidModes[archonMode] {
-		return fmt.Errorf("invalid --mode %q (must be: deep, scan, lite, confirm)", archonMode)
+		return fmt.Errorf("invalid --mode %q (must be one of: lite, balanced, deep, revisit, confirm, merge, diff, status, mock)", archonMode)
 	}
 	if !archonValidPlatforms[archonAgent] {
 		return fmt.Errorf("invalid --agent %q (must be: claude, codex, opencode)", archonAgent)
@@ -141,8 +160,13 @@ func runAgentArchon(cmd *cobra.Command, args []string) error {
 	// Print vigolium-style banner.
 	printArchonBanner(archonAgent, archonMode, absTarget, pluginDir, sessionDir)
 
-	// Build the runner config.
-	streamEnabled := !archonNoStream && archonAgent == archon.PlatformClaude
+	// Build the runner config. Two independent concerns:
+	//   streamToConsole  — tee the agent's raw output to the user's stdout
+	//                      (works for all platforms)
+	//   claudeStreamJSON — decode Claude's stream-json transcript into a
+	//                      rendered activity feed (Claude-only)
+	streamToConsole := !archonNoStream
+	claudeStreamJSON := streamToConsole && archonAgent == archon.PlatformClaude
 	cfg := agent.AuditAgentConfig{
 		PluginDir:    pluginDir,
 		Mode:         archonMode,
@@ -152,10 +176,16 @@ func runAgentArchon(cmd *cobra.Command, args []string) error {
 		ProjectUUID:  projectUUID,
 		ScanUUID:     globalScanID,
 		SyncInterval: 30 * time.Second,
-		Stream:       streamEnabled,
+		Stream:       claudeStreamJSON,
 	}
-	if streamEnabled {
+	if streamToConsole {
 		cfg.StreamWriter = os.Stdout
+	}
+	// Always persist the stream to {sessionDir}/runtime.log — even in
+	// --no-stream mode — so `vigolium log <uuid>` can replay it later.
+	if tee, closer := teeToRuntimeLog(cfg.StreamWriter, sessionDir); closer != nil {
+		cfg.StreamWriter = tee
+		defer func() { _ = closer.Close() }()
 	}
 
 	runner := agent.NewAuditAgenticScanner(cfg, repo)
@@ -183,9 +213,25 @@ func runAgentArchon(cmd *cobra.Command, args []string) error {
 			status.CompletedPhases, status.TotalPhases)
 	}
 	printArchonFindingStats(stats, repo != nil)
+	printArchonCostSummary(runner.CostSummary())
 	fmt.Fprintf(os.Stderr, "%s Session: %s\n", terminal.InfoSymbol(), terminal.Cyan(sessionDir))
 
 	return runErr
+}
+
+// printArchonCostSummary renders the priced token usage for this run.
+// No-op when the cost summary is empty (unsupported backend or missing
+// transcript). Backend-specific detail (main+subagents vs just model)
+// is encoded in the Note field so this renderer stays backend-agnostic.
+func printArchonCostSummary(c agent.ScanCost) {
+	if c.IsZero() {
+		return
+	}
+	dot := terminal.Purple(terminal.SymbolInfo)
+	fmt.Fprintf(os.Stderr, "%s Cost: %s %s\n",
+		dot,
+		terminal.HiTeal(fmt.Sprintf("~$%.2f", c.CostUSD)),
+		terminal.Gray(c.Note))
 }
 
 // printArchonFindingStats writes a severity breakdown of the imported findings

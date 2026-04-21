@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/json"
@@ -20,7 +21,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/archon/claudecost"
 	"github.com/vigolium/vigolium/pkg/archon/claudestream"
+	"github.com/vigolium/vigolium/pkg/archon/codexcost"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -28,6 +31,22 @@ import (
 
 // cancelGracePeriod is how long Cancel waits for SIGTERM before escalating to SIGKILL.
 const cancelGracePeriod = 10 * time.Second
+
+// archonProtocolForPlatform maps the platform onto the AgenticScan protocol
+// vocabulary. Archon audit always shells out to a tool-using SDK CLI, so
+// these are all SDK-flavored protocols.
+func archonProtocolForPlatform(platform string) string {
+	switch platform {
+	case archon.PlatformCodex:
+		return "codex-sdk"
+	case archon.PlatformOpenCode:
+		return "opencode-sdk"
+	case archon.PlatformClaude, "":
+		return "sdk"
+	default:
+		return ""
+	}
+}
 
 // ownerRepoRE matches a single owner/repo segment, e.g. "vigolium/archon-audit".
 // Used by normalizeOwnerRepo to validate the candidate before returning it.
@@ -47,12 +66,19 @@ type AuditAgenticScanner struct {
 	done      chan struct{}
 	err       error
 	cancelled bool
+	startedAt time.Time // wall time the agent subprocess was launched
 
 	lastStateHash string           // cached hash for change detection in syncLoop
 	syncedFiles   map[string]int64 // filename → size, for incremental sync
 
 	// Populated by importArchonFindings after monitor() completes.
 	findingStats FindingStats
+
+	// Populated by finalizeAgenticScan from the backend's session transcript
+	// (audit-stream.jsonl for Claude, ~/.codex/sessions/*.jsonl for Codex).
+	// Zero-valued when the run used an unsupported backend or the transcript
+	// could not be parsed — callers must handle that.
+	costSummary ScanCost
 }
 
 // FindingStats summarises the archon findings imported by a single audit run.
@@ -86,16 +112,33 @@ func (s FindingStats) SeverityBreakdownString() string {
 }
 
 // NewAuditAgenticScanner creates a new runner for the background archon-audit.
+//
+// The AgenticScan DB row's UUID is derived as follows:
+//
+//   - Standalone archon (ParentRunUUID empty, SessionDir set): UUID is
+//     filepath.Base(cfg.SessionDir). This gives the invariant that
+//     `vigolium log <uuid>` and `vigolium log ls` resolve the session's
+//     runtime.log via the conventional `{sessions_dir}/{uuid}/` path.
+//   - Nested archon (ParentRunUUID set, e.g. spawned by autopilot/swarm):
+//     a fresh UUID is generated. The parent already owns a row at
+//     filepath.Base(SessionDir), so the child must differ to avoid a
+//     primary-key collision on create. Resolution back to runtime.log
+//     relies on the child row's persisted SessionDir column instead.
+//   - No SessionDir: a fresh UUID is generated.
 func NewAuditAgenticScanner(cfg AuditAgentConfig, repo *database.Repository) *AuditAgenticScanner {
 	if cfg.SyncInterval <= 0 {
 		cfg.SyncInterval = 30 * time.Second
 	}
+	scanUUID := uuid.New().String()
+	if cfg.SessionDir != "" && cfg.ParentRunUUID == "" {
+		scanUUID = filepath.Base(cfg.SessionDir)
+	}
 	return &AuditAgenticScanner{
-		cfg:          cfg,
-		repo:         repo,
-		agenticScanUUID: uuid.New().String(),
-		done:         make(chan struct{}),
-		syncedFiles:  make(map[string]int64),
+		cfg:             cfg,
+		repo:            repo,
+		agenticScanUUID: scanUUID,
+		done:            make(chan struct{}),
+		syncedFiles:     make(map[string]int64),
 	}
 }
 
@@ -182,7 +225,14 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	} else {
 		cmd.Stdout = &outputBuf
 	}
-	cmd.Stderr = &outputBuf
+	// Tee stderr to StreamWriter too — warnings and errors from non-Claude
+	// backends (codex, opencode) often only come through stderr, and we want
+	// them in runtime.log for later replay.
+	if r.cfg.StreamWriter != nil {
+		cmd.Stderr = io.MultiWriter(&outputBuf, r.cfg.StreamWriter)
+	} else {
+		cmd.Stderr = &outputBuf
+	}
 
 	if err := cmd.Start(); err != nil {
 		if streamRawLog != nil {
@@ -193,6 +243,7 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 
 	r.mu.Lock()
 	r.cmd = cmd
+	r.startedAt = time.Now()
 	r.mu.Unlock()
 
 	// Launch the stream-json decoder goroutine now that the child has started.
@@ -234,10 +285,12 @@ func (r *AuditAgenticScanner) createAgenticScan(ctx context.Context) {
 		ScanUUID:      r.cfg.ScanUUID,
 		Mode:          "archon",
 		AgentName:     "archon-audit",
+		Protocol:      archonProtocolForPlatform(r.cfg.Platform),
 		InputType:     "archon",
 		Status:        "running",
 		CurrentPhase:  "initializing",
 		SourcePath:    r.cfg.SourcePath,
+		SessionDir:    r.cfg.SessionDir,
 		ParentRunUUID: r.cfg.ParentRunUUID,
 		StartedAt:     time.Now(),
 	}
@@ -260,6 +313,12 @@ func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output
 			zap.L().Info("Archon audit cancelled")
 		} else {
 			zap.L().Warn("Archon audit process exited with error", zap.Error(err))
+			if info, detectErr := claudestream.DetectQuotaReset(bytes.NewReader(output.Bytes()), time.Now()); detectErr == nil && info != nil {
+				zap.L().Warn("Claude quota exhausted — resets at",
+					zap.Time("reset_at", info.ResetAt),
+					zap.Duration("wait", time.Until(info.ResetAt).Round(time.Second)),
+					zap.String("message", info.Message))
+			}
 		}
 	} else {
 		zap.L().Info("Archon audit completed successfully")
@@ -582,6 +641,11 @@ func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
 }
 
 func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processErr error) {
+	// Compute the cost summary regardless of whether a DB repo is attached
+	// — the CLI summary reads it from memory, so we want it populated even
+	// in the no-persistence path.
+	r.computeCostSummary()
+
 	if r.repo == nil {
 		return
 	}
@@ -613,7 +677,79 @@ func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processEr
 		run.ResultJSON = string(data)
 	}
 
+	applyScanCost(run, r.costSummary)
+
 	_ = r.repo.UpdateAgenticScan(ctx, run)
+}
+
+// computeCostSummary parses the archon session's backend-specific
+// transcript into a priced ScanCost and stores it on the runner.
+// Supported backends: Claude (audit-stream.jsonl in the session dir),
+// Codex (per-session rollout under ~/.codex/sessions/). For any other
+// backend, costSummary stays zero-valued.
+func (r *AuditAgenticScanner) computeCostSummary() {
+	platform := r.cfg.Platform
+	if platform == "" {
+		platform = archon.PlatformClaude
+	}
+
+	var cost ScanCost
+	switch platform {
+	case archon.PlatformClaude:
+		if r.cfg.SessionDir == "" {
+			return
+		}
+		streamPath := filepath.Join(r.cfg.SessionDir, "audit-stream.jsonl")
+		if _, err := os.Stat(streamPath); err != nil {
+			return
+		}
+		s, err := claudecost.BuildSummary(streamPath, os.Getuid())
+		if err != nil {
+			zap.L().Debug("Failed to compute archon cost summary", zap.Error(err))
+			return
+		}
+		cost = scanCostFromClaude(s)
+	case archon.PlatformCodex:
+		if r.cfg.SourcePath == "" {
+			return
+		}
+		// Use the runner's recorded StartedAt-equivalent — the scan row
+		// hasn't been reloaded yet at this point, so we approximate
+		// with the process start time by pulling it from cmd.
+		startedAt := r.processStartedAt()
+		s, err := codexcost.BuildSummary(r.cfg.SourcePath, startedAt)
+		if err != nil {
+			zap.L().Debug("Failed to compute codex cost summary", zap.Error(err))
+			return
+		}
+		cost = scanCostFromCodex(s)
+	default:
+		return
+	}
+
+	r.mu.Lock()
+	r.costSummary = cost
+	r.mu.Unlock()
+}
+
+// processStartedAt returns the wall time the archon subprocess was
+// launched. Codex's rollout matcher uses this to disambiguate rollouts
+// when multiple have the same cwd.
+func (r *AuditAgenticScanner) processStartedAt() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.startedAt
+}
+
+// CostSummary returns the priced token summary for this audit run. The
+// zero value is returned when the run is still active, used an
+// unsupported backend, or the backend transcript could not be parsed.
+func (r *AuditAgenticScanner) CostSummary() ScanCost {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Shallow copy is sufficient — ScanCost holds no slices the caller
+	// could mutate, and the Blob map is never modified post-build.
+	return r.costSummary
 }
 
 // Wait blocks until the archon audit finishes.
@@ -855,6 +991,29 @@ func normalizeOwnerRepo(raw string) string {
 
 // --- Platform command builders ---
 
+// archonModePromptSuffix renders the mode qualifier in the exact form the
+// archon codex harness (harnesses/codex/agents-dispatch.md) parses in its
+// mode-selection table. Matches the prompts emitted by the standalone
+// archon-audit CLI's codex platform BuildRunCmd.
+func archonModePromptSuffix(mode string) string {
+	switch mode {
+	case "lite":
+		return "Lite mode: Q0-Q2 only, no-git compatible"
+	case "balanced", "scan":
+		return "Balanced mode: L1-L6 only, no-git compatible"
+	case "deep":
+		return "Full deep mode: all phases"
+	case "revisit":
+		return "Revisit mode: R5-R11c — fresh pass on top of prior archon/ state"
+	case "confirm":
+		return "Confirm mode: verify findings, V1-V6"
+	case "merge":
+		return "Merge mode: M1-M7 — operate on the pre-merged archon/ tree"
+	default:
+		return "Balanced mode: L1-L6 only, no-git compatible"
+	}
+}
+
 // buildAuditAgentCommand resolves the CLI binary and builds the argument list
 // for launching archon-audit on the given platform. When stream is true and
 // the platform is Claude, the command emits stream-json events on stdout so
@@ -866,14 +1025,27 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string, stream
 		if err != nil {
 			return "", nil, "", fmt.Errorf("codex CLI not found in PATH: %w", err)
 		}
-		// Codex uses AGENTS.md dispatch — run with the audit skill prompt.
-		// The agents-dispatch.md is installed as AGENTS.md in pluginDir.
+		// Codex uses AGENTS.md dispatch. Run with the `exec` subcommand so
+		// codex stays non-interactive — without it, codex defaults to the
+		// interactive TUI and dies with "stdin is not a terminal" because
+		// our stdout is a pipe buffer. `-C sourcePath` gives agents access
+		// to the source tree and anchors relative `archon/...` artifact
+		// paths under the source dir (syncLoop/importArchonFindings both
+		// read from `<source>/archon/`).
 		args = []string{
+			"exec",
 			"--full-auto",
-			"-C", pluginDir,
-			"Run a " + mode + " security audit using the archon-audit methodology. " +
-				"Follow the AGENTS.md dispatch table to spawn the correct subagents for each phase.",
+			"--skip-git-repo-check",
+			"-C", sourcePath,
 		}
+		// Force ANSI color when the user's own stdout is a TTY, since
+		// codex's stdout is wired to a pipe and it otherwise auto-detects
+		// no-color. Non-TTY vigolium runs leave codex on --color auto so
+		// runtime.log stays free of escape codes.
+		if terminal.IsColorEnabled() {
+			args = append(args, "--color", "always")
+		}
+		args = append(args, "archon:* ("+archonModePromptSuffix(mode)+")")
 
 	case archon.PlatformOpenCode:
 		binary, err = exec.LookPath("opencode")
@@ -898,7 +1070,6 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string, stream
 			args = []string{
 				"--plugin-dir", pluginDir,
 				"--dangerously-skip-permissions",
-				"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
 				"--output-format", "stream-json",
 				"--verbose",
 				"--include-partial-messages",
@@ -909,7 +1080,6 @@ func buildAuditAgentCommand(platform, pluginDir, mode, sourcePath string, stream
 				"--print",
 				"--dangerously-skip-permissions",
 				"--plugin-dir", pluginDir,
-				"--allowedTools", "Bash,Read,Write,Edit,Glob,Grep,Agent,WebSearch,WebFetch,AskUserQuestion,TaskCreate,TaskGet,TaskList,TaskUpdate",
 				command,
 			}
 		}
@@ -1038,9 +1208,11 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 }
 
 // isValidArchonMode returns true for recognized archon audit modes.
+// "scan" is accepted as a legacy alias for "balanced"; EffectiveMode()
+// normalizes it when the slash command is dispatched.
 func isValidArchonMode(mode string) bool {
 	switch mode {
-	case "lite", "scan", "deep", "mock", "confirm", "merge", "revisit":
+	case "lite", "balanced", "scan", "deep", "mock", "confirm", "merge", "revisit":
 		return true
 	default:
 		return false

@@ -24,7 +24,7 @@ The audit agent is complementary to Vigolium's native scanning — Vigolium hand
 # Run swarm with background audit agent (lite mode, default)
 vigolium agent swarm -t https://example.com --source ./src --audit-agent
 
-# Run swarm with full 11-phase audit
+# Run swarm with full 10-phase audit
 vigolium agent swarm -t https://example.com --source ./src --audit-agent full
 
 # Run autopilot with audit agent first
@@ -93,7 +93,7 @@ Available on both `vigolium agent swarm` and `vigolium agent autopilot`.
 | *(not set)* | Disabled (unless enabled in config) |
 | `--audit-agent` | Lite mode (6-phase fast audit) |
 | `--audit-agent lite` | Lite mode (explicit) |
-| `--audit-agent full` | Full mode (11-phase deep audit) |
+| `--audit-agent full` | Full mode (10-phase deep audit) |
 | `--audit-agent off` | Disabled (overrides config) |
 
 ### Examples
@@ -135,7 +135,7 @@ The `audit_agent` field is available on both the swarm and autopilot run endpoin
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `audit_agent` | string | `"lite"` (6-phase), `"full"` (11-phase), `"off"` (disable), or omit for config default |
+| `audit_agent` | string | `"lite"` (6-phase), `"full"` (10-phase), `"off"` (disable), or omit for config default |
 
 ### POST /api/agent/run/swarm
 
@@ -150,7 +150,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "audit_agent": "lite"
   }' | jq .
 
-# Swarm with full 11-phase audit agent
+# Swarm with full 10-phase audit agent
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
@@ -224,7 +224,7 @@ agent:
   audit_agent:
     enable: true              # default: false
     plugin_dir: ""            # default: ~/.vigolium/vig-audit-agent/plugin (auto-extracted from binary)
-    mode: lite                # "lite" (6-phase) or "full" (11-phase), default: "lite"
+    mode: lite                # "lite" (6-phase) or "full" (10-phase), default: "lite"
     sync_interval: 30         # seconds between state syncs, default: 30
 ```
 
@@ -382,7 +382,7 @@ The audit agent uses a team of specialized agents, each handling a specific aspe
 
 The following security skills are embedded in the Vigolium binary for the audit agent:
 
-- **audit** — Core 11-phase methodology orchestrator
+- **audit** — Core 10-phase methodology orchestrator
 - **codeql** — CodeQL database creation and query execution
 - **semgrep** — Semgrep Pro rule management and scanning
 - **fp-check** — False positive verification methodology

@@ -97,36 +97,36 @@ type Scan struct {
 
 	UUID        string `bun:"uuid,pk,notnull" json:"uuid"`
 	ProjectUUID string `bun:"project_uuid,notnull" json:"project_uuid"`
-	Name        string `bun:"name,nullzero" json:"name,omitempty"`
-	Description string `bun:"description,nullzero" json:"description,omitempty"`
+	Name        string `bun:"name,nullzero" json:"name"`
+	Description string `bun:"description,nullzero" json:"description"`
 	Status      string `bun:"status,notnull,default:'running'" json:"status"` // running, paused, completed, failed, cancelled
 	// Target can be a URL, domain, IP, CIDR, or file path (for imported requests)
-	Target  string `bun:"target,nullzero" json:"target,omitempty"`
-	Modules string `bun:"modules,nullzero" json:"modules,omitempty"`
+	Target  string `bun:"target,nullzero" json:"target"`
+	Modules string `bun:"modules,nullzero" json:"modules"`
 	Threads int    `bun:"threads,default:0" json:"threads"`
 
 	// Scan context
-	Profile      string   `bun:"profile,nullzero" json:"profile,omitempty"`             // scanning profile used (light, full, api, etc.)
-	SourcePath   string   `bun:"source_path,nullzero" json:"source_path,omitempty"`     // source code path for whitebox/SAST scans
-	SourceType   string   `bun:"source_type,nullzero" json:"source_type,omitempty"`     // local, git-url, gcs
-	Tags         []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`         // arbitrary tags for filtering/grouping
-	TriggeredBy  string   `bun:"triggered_by,nullzero" json:"triggered_by,omitempty"`   // user, schedule, webhook, agent
-	AgenticScanUUID string   `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid,omitempty"` // link to agentic_scan that spawned this scan
+	Profile         string   `bun:"profile,nullzero" json:"profile"`                     // scanning profile used (light, full, api, etc.)
+	SourcePath      string   `bun:"source_path,nullzero" json:"source_path"`             // source code path for whitebox/SAST scans
+	SourceType      string   `bun:"source_type,nullzero" json:"source_type"`             // local, git-url, gcs
+	Tags            []string `bun:"tags,type:jsonb,nullzero" json:"tags"`                // arbitrary tags for filtering/grouping
+	TriggeredBy     string   `bun:"triggered_by,nullzero" json:"triggered_by"`           // user, schedule, webhook, agent
+	AgenticScanUUID string   `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid"` // link to agentic_scan that spawned this scan
 
 	// Soft reference to the HTTP record that triggered this scan (scan-on-receive)
-	HTTPRecordUUID string `bun:"http_record_uuid,nullzero" json:"http_record_uuid,omitempty"`
+	HTTPRecordUUID string `bun:"http_record_uuid,nullzero" json:"http_record_uuid"`
 
 	// Cursor-based scan tracking
-	ScanSource      string    `bun:"scan_source,nullzero" json:"scan_source,omitempty"`         // "cli", "api", "scan-on-receive"
-	ScanMode        string    `bun:"scan_mode,nullzero" json:"scan_mode,omitempty"`             // "incremental" or "full"
-	StartCursorAt   time.Time `bun:"start_cursor_at,nullzero" json:"start_cursor_at,omitempty"` // cursor position at scan start
-	StartCursorUUID string    `bun:"start_cursor_uuid,nullzero" json:"start_cursor_uuid,omitempty"`
-	CursorAt        time.Time `bun:"cursor_at,nullzero" json:"cursor_at,omitempty"` // current cursor position
-	CursorUUID      string    `bun:"cursor_uuid,nullzero" json:"cursor_uuid,omitempty"`
+	ScanSource      string    `bun:"scan_source,nullzero" json:"scan_source"`           // "cli", "api", "scan-on-receive"
+	ScanMode        string    `bun:"scan_mode,nullzero" json:"scan_mode"`               // "incremental" or "full"
+	StartCursorAt   time.Time `bun:"start_cursor_at,nullzero" json:"start_cursor_at"`   // cursor position at scan start
+	StartCursorUUID string    `bun:"start_cursor_uuid,nullzero" json:"start_cursor_uuid"`
+	CursorAt        time.Time `bun:"cursor_at,nullzero" json:"cursor_at"` // current cursor position
+	CursorUUID      string    `bun:"cursor_uuid,nullzero" json:"cursor_uuid"`
 	ProcessedCount  int64     `bun:"processed_count,default:0" json:"processed_count"`
 
 	StartedAt  time.Time `bun:"started_at,notnull,default:current_timestamp" json:"started_at"`
-	FinishedAt time.Time `bun:"finished_at,nullzero" json:"finished_at,omitempty"`
+	FinishedAt time.Time `bun:"finished_at,nullzero" json:"finished_at"`
 	DurationMs int64     `bun:"duration_ms,default:0" json:"duration_ms"`
 	// Summary fields (populated at end of scan)
 	TotalRequests int64 `bun:"total_requests,default:0" json:"total_requests"`
@@ -140,9 +140,9 @@ type Scan struct {
 	InfoCount     int64 `bun:"info_count,default:0" json:"info_count"`
 	SuspectCount  int64 `bun:"suspect_count,default:0" json:"suspect_count"`
 	// Error count (populated at end of scan)
-	ErrorMessage string    `bun:"error_message,nullzero" json:"error_message,omitempty"`
+	ErrorMessage string `bun:"error_message,nullzero" json:"error_message"`
 
-	StorageURL string `bun:"storage_url,nullzero" json:"storage_url,omitempty"`
+	StorageURL string `bun:"storage_url,nullzero" json:"storage_url"`
 
 	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt    time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
@@ -402,6 +402,8 @@ type AgenticScan struct {
 	// Config
 	Mode        string   `bun:"mode,notnull" json:"mode"`                                // query, autopilot, pipeline, scan
 	AgentName   string   `bun:"agent_name,notnull" json:"agent_name"`
+	Protocol    string   `bun:"protocol,nullzero" json:"protocol,omitempty"`             // pipe (native LLM call), sdk, codex-sdk, opencode-sdk
+	Model       string   `bun:"model,nullzero" json:"model,omitempty"`                   // model name used for this run (for cost audit)
 	InputRaw    string   `bun:"input_raw,nullzero" json:"input_raw,omitempty"`
 	InputType   string   `bun:"input_type,nullzero" json:"input_type,omitempty"`          // url, curl, burp, raw, record_uuid
 	TargetURL   string   `bun:"target_url,nullzero" json:"target_url,omitempty"`
@@ -422,7 +424,10 @@ type AgenticScan struct {
 	// Agent context
 	SourcePath       string                 `bun:"source_path,nullzero" json:"source_path,omitempty"`          // source code path used
 	SourceType       string                 `bun:"source_type,nullzero" json:"source_type,omitempty"`          // local, git-url, gcs
-	TokenUsage       map[string]interface{} `bun:"token_usage,type:jsonb,nullzero" json:"token_usage,omitempty"` // input/output token counts per phase
+	TokenUsage        map[string]interface{} `bun:"token_usage,type:jsonb,nullzero" json:"token_usage,omitempty"` // input/output token counts per phase
+	TotalInputTokens  int64                  `bun:"total_input_tokens,default:0" json:"total_input_tokens"`
+	TotalOutputTokens int64                  `bun:"total_output_tokens,default:0" json:"total_output_tokens"`
+	EstimatedCostUSD  float64                `bun:"estimated_cost_usd,default:0" json:"estimated_cost_usd"`
 	RetryCount       int                    `bun:"retry_count,default:0" json:"retry_count"`
 	ParentRunUUID    string                 `bun:"parent_run_uuid,nullzero" json:"parent_run_uuid,omitempty"`   // for swarm sub-runs
 	InputRecordCount int                    `bun:"input_record_count,default:0" json:"input_record_count"`

@@ -265,10 +265,19 @@ func RecordToHttpRequestResponse(record *HTTPRecord) (*httpmsg.HttpRequestRespon
 }
 
 // recordToHttpRequestResponse converts an HTTPRecord back to HttpRequestResponse.
+// The record's stored URL (which carries the original scheme) is preferred over
+// re-parsing the raw request bytes, since origin-form HTTP requests on the wire
+// don't encode the scheme and would otherwise default to http.
 func recordToHttpRequestResponse(record *HTTPRecord) (*httpmsg.HttpRequestResponse, error) {
 	// Prefer raw request if available
 	if len(record.RawRequest) > 0 {
-		rr, err := httpmsg.ParseRawRequest(string(record.RawRequest))
+		var rr *httpmsg.HttpRequestResponse
+		var err error
+		if record.URL != "" {
+			rr, err = httpmsg.ParseRawRequestWithURL(string(record.RawRequest), record.URL)
+		} else {
+			rr, err = httpmsg.ParseRawRequest(string(record.RawRequest))
+		}
 		if err != nil {
 			return nil, err
 		}

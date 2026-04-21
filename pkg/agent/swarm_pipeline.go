@@ -96,7 +96,12 @@ func (s *SwarmRunner) newSwarmPipelineState(ctx context.Context, cfg SwarmConfig
 	CopySkillsToSessionDir(sessionDir, browserEnabled)
 
 	var cleanup func()
-	if _, wait, _ := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, "", s.repo, cfg.StreamWriter, func(msg string) {
+	// Pass swarm's own AgenticScan UUID as the archon child's parentRunUUID.
+	// This marks archon as a nested run (so NewAuditAgenticScanner knows to
+	// generate a fresh UUID instead of colliding with the swarm parent's
+	// filepath.Base(SessionDir)), and wires the parent/child relationship
+	// for `vigolium agent session` display.
+	if _, wait, _ := startAuditAgentBackground(ctx, cfg.Archon, cfg.SourcePath, sessionDir, cfg.ProjectUUID, cfg.ScanUUID, agenticScan.UUID, s.repo, cfg.StreamWriter, func(msg string) {
 		fmt.Fprintf(os.Stderr, "%s archon: %s\n", terminal.InfoSymbol(), msg)
 	}); wait != nil {
 		cleanup = wait

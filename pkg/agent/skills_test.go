@@ -184,9 +184,9 @@ func TestExtractArchonHarness_Codex(t *testing.T) {
 	}
 
 	// Excluded agents should NOT be present
-	excluded := filepath.Join(agentsDir, "code-anatomist.toml")
+	excluded := filepath.Join(agentsDir, "cold-verifier.toml")
 	if _, err := os.Stat(excluded); err == nil {
-		t.Error("code-anatomist should be excluded from codex")
+		t.Error("cold-verifier should be excluded from codex")
 	}
 }
 

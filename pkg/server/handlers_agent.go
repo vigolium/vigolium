@@ -202,9 +202,9 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 	}
 
 	// Validate archon_mode if provided
-	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "scan" && mode != "deep" && mode != "mock" {
+	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "balanced" && mode != "scan" && mode != "deep" && mode != "mock" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, scan, deep, or mock", mode),
+			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, balanced, deep, or mock", mode),
 		})
 	}
 
@@ -467,19 +467,19 @@ func (h *Handlers) runBackgroundAutopilot(runID string, req AgentAutopilotReques
 	}
 
 	// Open a stream log file in the session dir so users can tail live
-	// autopilot + archon output via `tail -f {session_dir}/run.log`. The CLI
+	// autopilot + archon output via `tail -f {session_dir}/runtime.log`. The CLI
 	// writes the same stream to os.Stdout; the server has no terminal, so we
 	// persist it to disk instead. A non-nil StreamWriter also forces
 	// archon-audit down the Claude stream-json branch (the non-stream branch
 	// collides with the variadic --allowedTools flag).
 	var streamCloser io.Closer
 	if sessionDir != "" {
-		logPath := filepath.Join(sessionDir, "run.log")
+		logPath := filepath.Join(sessionDir, config.RuntimeLogFilename)
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			cfg.StreamWriter = f
 			streamCloser = f
 		} else {
-			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			zap.L().Warn("Failed to open runtime.log, falling back to discard", zap.Error(err))
 			cfg.StreamWriter = io.Discard
 		}
 	} else {
@@ -1314,16 +1314,16 @@ func (h *Handlers) runBackgroundAgentSwarm(runID string, req AgentSwarmRequest, 
 	}
 
 	// Stream live agent output to a log file in the session dir so users can
-	// `tail -f {session_dir}/run.log`. Non-nil writer is also required to
+	// `tail -f {session_dir}/runtime.log`. Non-nil writer is also required to
 	// keep archon-audit on the working Claude stream-json branch.
 	var streamCloser io.Closer
 	if sessionDir != "" {
-		logPath := filepath.Join(sessionDir, "run.log")
+		logPath := filepath.Join(sessionDir, config.RuntimeLogFilename)
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			cfg.StreamWriter = f
 			streamCloser = f
 		} else {
-			zap.L().Warn("Failed to open run.log, falling back to discard", zap.Error(err))
+			zap.L().Warn("Failed to open runtime.log, falling back to discard", zap.Error(err))
 			cfg.StreamWriter = io.Discard
 		}
 	} else {
@@ -1680,12 +1680,10 @@ func (h *Handlers) HandleAgentSessionLogs(c fiber.Ctx) error {
 	if sessionDir == "" {
 		sessionDir = filepath.Join(h.settings.Agent.EffectiveSessionsDir(), runID)
 	}
-	logPath := filepath.Join(sessionDir, "run.log")
-
-	info, statErr := os.Stat(logPath)
-	if statErr != nil || info.IsDir() {
+	logPath := resolveRuntimeLogPath(sessionDir)
+	if logPath == "" {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
-			Error: "run.log not found for this session",
+			Error: "runtime.log not found for this session",
 		})
 	}
 
@@ -1698,7 +1696,7 @@ func (h *Handlers) HandleAgentSessionLogs(c fiber.Ctx) error {
 	data, readErr := os.ReadFile(logPath)
 	if readErr != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
-			Error: "failed to read run.log: " + readErr.Error(),
+			Error: "failed to read runtime.log: " + readErr.Error(),
 		})
 	}
 	if strip {
@@ -1708,7 +1706,20 @@ func (h *Handlers) HandleAgentSessionLogs(c fiber.Ctx) error {
 	return c.Send(data)
 }
 
-// streamAgentSessionLog tails run.log and emits each new byte range as an SSE
+// resolveRuntimeLogPath returns the first existing log file path within the
+// session directory, preferring runtime.log but falling back to the legacy
+// run.log filename so older sessions still resolve.
+func resolveRuntimeLogPath(sessionDir string) string {
+	for _, name := range []string{config.RuntimeLogFilename, "run.log"} {
+		candidate := filepath.Join(sessionDir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// streamAgentSessionLog tails runtime.log and emits each new byte range as an SSE
 // "chunk" event. Exits on client disconnect (detected via a failed SSE write)
 // or once the agent run row enters a terminal status, at which point a "done"
 // event is emitted. When strip is true, ANSI escape sequences are removed from

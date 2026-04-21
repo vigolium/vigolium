@@ -17,7 +17,7 @@ confirmation bias inherent in a single agent both imagining and validating an at
 
 ### Cluster Formation
 
-After Phase 5 (enrichment) and Phase 6 (spec gap) complete, the orchestrator forms threat
+After Phase 4 (SAST + inline enrichment) and Phase 6 (spec gap) complete, the orchestrator forms threat
 clusters from the KB:
 
 1. Read `## High-Risk DFD Slices` and `## High-Risk CFD Slices` from `archon/knowledge-base-report.md`

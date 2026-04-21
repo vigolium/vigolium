@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/spf13/cobra"
 )
@@ -402,12 +404,14 @@ func runListScans(ctx context.Context, db *database.DB) error {
 		return fmt.Errorf("failed to list scans: %w", err)
 	}
 
+	views := buildScanViews(scans)
+
 	if globalJSON {
 		output := map[string]interface{}{
 			"total":  total,
 			"offset": listOffset,
 			"limit":  listLimit,
-			"scans":  scans,
+			"scans":  views,
 		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
@@ -419,8 +423,9 @@ func runListScans(ctx context.Context, db *database.DB) error {
 		min(listOffset+len(scans), int(total)),
 		total)
 
-	tbl := terminal.NewTableWithMaxWidth(globalWidth, "NAME", "TARGET", "STATUS", "THREADS", "REQUESTS", "FINDINGS", "C/H/M/L/I/S", "DURATION", "DESCRIPTION")
-	for _, s := range scans {
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "NAME", "TARGET", "TYPE", "SOURCE", "STATUS", "MODULES", "REQUESTS", "C/H/M/L/I/S", "DURATION")
+	for _, v := range views {
+		s := v.Scan
 		status := s.Status
 		switch status {
 		case "completed":
@@ -443,22 +448,110 @@ func runListScans(ctx context.Context, db *database.DB) error {
 		)
 
 		duration := fmt.Sprintf("%.1fs", float64(s.DurationMs)/1000)
+		moduleCounts := fmt.Sprintf("%s/%s",
+			terminal.Cyan(fmt.Sprintf("%d", v.TotalActiveModules)),
+			terminal.Gray(fmt.Sprintf("%d", v.TotalPassiveModules)),
+		)
 
 		tbl.AddRow(
 			truncate(s.Name, 30),
-			truncate(s.Target, 30),
+			truncate(v.Target, 30),
+			classifyTarget(s),
+			s.ScanSource,
 			status,
-			s.Threads,
+			moduleCounts,
 			terminal.Cyan(fmt.Sprintf("%d", s.TotalRequests)),
-			terminal.Yellow(fmt.Sprintf("%d", s.TotalFindings)),
 			counts,
 			duration,
-			truncate(s.Description, 40),
 		)
 	}
 	tbl.Print()
 	fmt.Println()
 	return nil
+}
+
+// buildScanViews wraps each scan with display-friendly fields: renders
+// "all" when every built-in active module is enabled, attaches active/passive
+// counts, and substitutes a generic placeholder for Target when the scan has
+// no single target (e.g. scan-on-receive groups traffic from the ingest stream).
+func buildScanViews(scans []*database.Scan) []*database.ScanView {
+	allActiveCount := len(modules.GetActiveModulesID())
+	allPassiveCount := len(modules.GetPassiveModulesID())
+
+	views := make([]*database.ScanView, len(scans))
+	for i, s := range scans {
+		active := splitCSV(s.Modules)
+		modulesDisplay := s.Modules
+		if allActiveCount > 0 && len(active) >= allActiveCount {
+			modulesDisplay = "all"
+		}
+		views[i] = &database.ScanView{
+			Scan:                s,
+			Target:              displayTarget(s),
+			Modules:             modulesDisplay,
+			TotalActiveModules:  len(active),
+			TotalPassiveModules: allPassiveCount,
+		}
+	}
+	return views
+}
+
+// displayTarget substitutes a human-readable placeholder for scans that have
+// no single target URL — these group traffic from the ingest stream rather
+// than scanning one endpoint.
+func displayTarget(s *database.Scan) string {
+	if s.Target != "" {
+		return s.Target
+	}
+	switch s.ScanSource {
+	case "scan-on-receive", "server-catchup":
+		return "<grouped-from-ingest-stream>"
+	}
+	return ""
+}
+
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// classifyTarget returns a short label describing what kind of target the scan
+// operates on. The scans table stores Target as a free-form string (URL,
+// domain, IP, CIDR, or empty for record-triggered scans), so this classifier
+// is heuristic — good enough for a summary column.
+func classifyTarget(s *database.Scan) string {
+	t := strings.TrimSpace(s.Target)
+	if t == "" {
+		if s.HTTPRecordUUID != "" || s.ScanSource == "scan-on-receive" {
+			return "record"
+		}
+		if s.SourcePath != "" || s.ScanMode == "sast" {
+			return "source"
+		}
+		return "–"
+	}
+	if strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
+		return "url"
+	}
+	if _, _, err := net.ParseCIDR(t); err == nil {
+		return "cidr"
+	}
+	if ip := net.ParseIP(t); ip != nil {
+		return "ip"
+	}
+	if strings.HasPrefix(t, "/") || strings.Contains(t, "\\") {
+		return "file"
+	}
+	return "domain"
 }
 
 // runListGenericTable handles arbitrary table listing via raw SQL.

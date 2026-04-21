@@ -2,6 +2,7 @@ package race_interference
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
@@ -175,10 +176,13 @@ func (m *Module) ScanPerInsertionPoint(
 		results = append(results, m.buildResult(finding, urlx.String(), ip.Name()))
 	}
 
-	// Request Interference: no wrongId but divergent responses in parallel
+	// Request Interference: no wrongId but divergent responses in parallel.
+	// Divergence alone is a weak signal, so we emit at most one finding per
+	// URL (scope-level grouping via ParamFindings) to keep output readable.
 	if m.options.EnableRequestInterferenceDetection &&
 		len(parallelWrongIdResults) == 0 &&
-		len(parallelDivergent) > 0 {
+		len(parallelDivergent) > 0 &&
+		m.reserveInterferenceSlot(scanCtx, urlx.Scheme, urlx.Host, urlx.Path) {
 
 		result := parallelDivergent[0]
 		finding := &Finding{
@@ -344,7 +348,8 @@ func (m *Module) buildResult(finding *Finding, url, param string) *output.Result
 		ExtractedResults: []string{finding.Anchor, finding.WrongIdSeen},
 		Info: output.Info{
 			Name:        m.Name(),
-			Severity:    m.Severity(),
+			Severity:    finding.Severity(),
+			Confidence:  finding.Confidence(),
 			Description: finding.buildDescription(),
 			Reference: []string{
 				"https://portswigger.net/research/smashing-the-state-machine",
@@ -353,4 +358,39 @@ func (m *Module) buildResult(finding *Finding, url, param string) *output.Result
 			},
 		},
 	}
+}
+
+// interferenceGroupTag is the sentinel vuln tag used to dedupe Request
+// Interference findings per URL via the scan-scoped ParameterFindingRegistry.
+const interferenceGroupTag = "race-interference-ri-group"
+
+// reserveInterferenceSlot claims the per-URL slot for a Request Interference
+// finding. Returns true on the first caller for a given URL and false for
+// every subsequent caller, collapsing noisy per-parameter emissions into one
+// finding per endpoint.
+func (m *Module) reserveInterferenceSlot(scanCtx *modkit.ScanContext, scheme, host, path string) bool {
+	reg := scanCtx.ParamFindingsRegistry()
+	if reg == nil {
+		return true
+	}
+	key := normalizeInterferenceKey(scheme, host, path)
+	if reg.HasFinding(key, "*", interferenceGroupTag) {
+		return false
+	}
+	reg.MarkFound(key, "*", interferenceGroupTag)
+	return true
+}
+
+func normalizeInterferenceKey(scheme, host, path string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if scheme == "" {
+		return host + path
+	}
+	return scheme + "://" + host + path
 }

@@ -28,7 +28,7 @@ Before executing any phase, apply these rules to avoid redundant work:
   only the sections whose source inputs changed. Mark unchanged sections with
   `[reused from <short-sha>]`. Documentation-only changes require no re-audit; changes to auth,
   core business logic, or attack-surface components invalidate the Static Analysis Summary and
-  Phase 7 Addendum sections at minimum.
+  Phase 7 Addendum (`## Phase 7 Addendum`, written by the Review Chambers) sections at minimum.
 - **Partial resumption (Phases 7-9)**: if `archon/findings-draft/` already contains draft files,
   resume from the existing drafts rather than starting fresh.
 - **State recording**: `archon/audit-state.json` is append-only. Before starting a new audit,
@@ -80,10 +80,9 @@ flowchart TD
     Setup --> P1["1. Intelligence Gathering"]
     P1 --> P2["2. Patch Bypass Analysis (per-patch parallel)"]
     P2 --> P3["3. Knowledge Base"]
-    P3 --> P4["4. Static Analysis"]
+    P3 --> P4["4. Static Analysis (incl. inline Enrichment)"]
     P3 --> P6["6. Spec Gap Analysis"]
-    P4 --> P5["5. Enrichment"]
-    P5 --> P7["7. Deep Bug Hunting"]
+    P4 --> P7["7. Deep Bug Hunting"]
     P6 --> P7
     P7 --> P8["8. P8-LITE: FP Check + Cold Verification (CRITICAL/HIGH only)"]
     P8 --> P9["9. Variant Analysis"]
@@ -181,17 +180,11 @@ Operational rules:
 - Keep SAST concurrency low enough to avoid exhausting CPU/RAM.
 - Merge SARIF outputs with `sarif-parsing` if needed.
 
-### Sub-step 4.3 — Cleanup
+### Sub-step 4.3 — Inline Enrichment (Security Relevance Filter)
 
-Delete Semgrep cache, `semgrep-res/`, and `codeql-res/`. Do **not** delete
-`archon/codeql-artifacts/db/` — it is retained for Phases 5, 7, and 9. Full database deletion
-happens at the end of Phase 9.
+After SAST runs complete and before deep bug hunting, classify each candidate finding as one of:
 
-## Phase 5 — Enrichment and Security Relevance Filter
-
-Before deep bug hunting, classify each candidate finding as one of:
-
-- likely securityx
+- likely security
 - likely correctness/robustness
 - likely environment/tooling/admin-only
 
@@ -218,10 +211,16 @@ Downgrade or exclude by default when the issue is only:
 - assessable as Low severity after answering the questions above — drop immediately; do not carry
   forward to Phase 7
 
-Update `archon/knowledge-base-report.md` with enriched conclusions. In the
+Write enrichment verdicts to the `## SAST Enrichment` section of `archon/knowledge-base-report.md`. In the
 `## CodeQL Structural Analysis` section, note any entry points from `entry-points.json` not
 present in the Phase 3 DFD slices, and any sinks from `sinks.json` mapping to unmodeled
 high-risk flows.
+
+### Sub-step 4.4 — Cleanup
+
+Delete Semgrep cache, `semgrep-res/`, and `codeql-res/`. Do **not** delete
+`archon/codeql-artifacts/db/` — it is retained for Phases 7 and 9. Full database deletion
+happens at the end of Phase 9.
 
 ## Phase 6 — Spec Gap Analysis
 
@@ -249,7 +248,7 @@ with higher creativity and lower false-positive rates.
 
 ### Chamber Formation
 
-After Phase 5 (enrichment) and Phase 6 (spec gap) complete:
+After Phase 4 (SAST + inline enrichment) and Phase 6 (spec gap) complete:
 
 1. Read `## High-Risk DFD Slices` and `## High-Risk CFD Slices` from `archon/knowledge-base-report.md`
 2. Group slices by shared trust boundary or component affinity into **threat clusters**

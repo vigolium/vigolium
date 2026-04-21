@@ -185,7 +185,7 @@ vigolium agent autopilot -t https://example.com --source ./src --archon-mode dee
 | `-t, --target` | — | Target URL (derived from `--input` if not set) |
 | `--source` | — | Path to application source code |
 | `--focus` | — | Focus area hint (e.g., "API injection") |
-| `--archon-mode` | `lite` | Archon audit mode: `lite` (3-phase), `scan` (6-phase), or `deep` (11-phase). Used when `--source` is set |
+| `--archon-mode` | `lite` | Archon audit mode: `lite` (3-phase), `balanced` (6-phase), or `deep` (10-phase). Used when `--source` is set |
 | `--no-archon` | `false` | Disable automatic archon-audit even when `--source` is set |
 | `--timeout` | 6h | Maximum session duration |
 | `--max-commands` | 100 | Maximum CLI commands the agent can execute |

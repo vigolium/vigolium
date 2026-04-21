@@ -282,9 +282,11 @@ jq -s '{ version: "2.1.0", runs: [ .[].runs[] ] }' \
 
 ---
 
-## Phase 5: Enrichment
+## Phase 4.3 — Inline SAST Enrichment
 
-**Goal**: Make the knowledge base and SAST findings more accurate by cross-referencing them.
+Runs as part of Phase 4 (SAST) — not a separate phase.
+
+**Goal**: Make the SAST findings more accurate by cross-referencing them against the threat model before chambers see them.
 
 ### SAST → Threat Model Enrichment
 
@@ -307,6 +309,8 @@ Re-evaluate each SAST finding against the threat model:
 
 Mark findings as FALSE POSITIVE or OUT OF SCOPE with explicit reasoning tied to the threat model.
 Use the DFD/CFD slices to check whether the finding crosses a real trust boundary or reaches a security-critical decision point.
+
+Write enrichment verdicts to the `## SAST Enrichment` section of `archon/knowledge-base-report.md`.
 
 ---
 

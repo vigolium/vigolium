@@ -31,7 +31,7 @@ func TestIsTerminalAgentStatus(t *testing.T) {
 
 func TestTailSessionLog_ExistingContent(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "run.log")
+	logPath := filepath.Join(dir, "runtime.log")
 	payload := "phase one\nphase two\n"
 	if err := os.WriteFile(logPath, []byte(payload), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
@@ -68,7 +68,7 @@ func TestTailSessionLog_MissingFile(t *testing.T) {
 
 func TestTailSessionLog_PollsUntilDone(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "run.log")
+	logPath := filepath.Join(dir, "runtime.log")
 	if err := os.WriteFile(logPath, []byte("first\n"), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestTailSessionLog_PollsUntilDone(t *testing.T) {
 
 func TestTailSessionLog_SafetyTimeout(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "run.log")
+	logPath := filepath.Join(dir, "runtime.log")
 	if err := os.WriteFile(logPath, []byte("only line\n"), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestTailSessionLog_SafetyTimeout(t *testing.T) {
 
 func TestTailSessionLog_StripANSI(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "run.log")
+	logPath := filepath.Join(dir, "runtime.log")
 	// Red "hello" wrapped in SGR escapes plus a plain tail.
 	payload := "\x1b[31mhello\x1b[0m world\n"
 	if err := os.WriteFile(logPath, []byte(payload), 0o644); err != nil {

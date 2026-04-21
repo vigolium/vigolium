@@ -103,18 +103,6 @@ overrides:
       plan_enter: "deny"
       plan_exit: "deny"
 
-  code-anatomist:
-    color: "#CCCC00"
-    permission:
-      edit: "allow"
-      bash:
-        "*": "deny"
-      question: "deny"
-      todowrite: "deny"
-      todoread: "deny"
-      plan_enter: "deny"
-      plan_exit: "deny"
-
   backward-reasoner:
     color: "#CC0000"
     permission:
@@ -130,19 +118,6 @@ overrides:
 
   contradiction-reasoner:
     color: "#CC6600"
-    permission:
-      edit: "allow"
-      bash:
-        "*": "allow"
-      webfetch: "allow"
-      question: "deny"
-      todowrite: "deny"
-      todoread: "deny"
-      plan_enter: "deny"
-      plan_exit: "deny"
-
-  causal-verifier:
-    color: "#00CCCC"
     permission:
       edit: "allow"
       bash:
@@ -212,10 +187,6 @@ overrides:
       todoread: "deny"
       plan_enter: "deny"
       plan_exit: "deny"
-
-  # --- Phase 7 ---
-  enrichment-filter:
-    color: "#00CC00"
 
   deep-auditor:
     color: "#CC00CC"
@@ -332,5 +303,20 @@ overrides:
       plan_enter: "deny"
       plan_exit: "deny"
 
+  # --- Phase 11b ---
+  finding-reporter:
+    color: "#CCCC00"
+    permission:
+      edit: "allow"
+      bash:
+        "*": "allow"
+      webfetch: "deny"
+      question: "deny"
+      todowrite: "deny"
+      todoread: "deny"
+      plan_enter: "deny"
+      plan_exit: "deny"
+
+  # --- Phase 11c ---
   report-assembler:
     color: "#CCCCCC"

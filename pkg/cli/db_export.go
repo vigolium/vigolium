@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/uptrace/bun"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -602,64 +603,31 @@ func exportBundle(ctx context.Context, db *database.DB, projectUUID string) erro
 		if sessionPath == "" && a.UUID != "" {
 			sessionPath = filepath.Join(sessionsDir, a.UUID)
 		}
-		if sessionPath == "" {
-			continue
-		}
-		info, err := os.Stat(sessionPath)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		baseName := filepath.Base(sessionPath)
-		err = filepath.WalkDir(sessionPath, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			rel, _ := filepath.Rel(sessionPath, path)
-			archivePath := filepath.Join("sessions", baseName, rel)
-
-			if d.IsDir() {
-				hdr := &tar.Header{
-					Typeflag: tar.TypeDir,
-					Name:     archivePath + "/",
-					Mode:     0755,
-					ModTime:  time.Now(),
-				}
-				return tw.WriteHeader(hdr)
-			}
-
-			fi, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			hdr := &tar.Header{
-				Name:    archivePath,
-				Size:    fi.Size(),
-				Mode:    0644,
-				ModTime: fi.ModTime(),
-			}
-			if err := tw.WriteHeader(hdr); err != nil {
-				return err
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			_, err = tw.Write(data)
-			return err
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s Failed to archive session %s: %v\n", terminal.WarningSymbol(), baseName, err)
-		} else {
+		if archiveSessionDir(tw, sessionPath, "sessions") {
 			sessionCount++
+		}
+	}
+
+	// --- Native scan session directories (contain runtime.log when enabled) ---
+	nativeSessionCount := 0
+	nativeSessionsDir := resolveNativeSessionsDir()
+	for _, s := range scans {
+		if s.UUID == "" {
+			continue
+		}
+		sessionPath := filepath.Join(nativeSessionsDir, s.UUID)
+		if archiveSessionDir(tw, sessionPath, "native-sessions") {
+			nativeSessionCount++
 		}
 	}
 
 	// Write metadata.json
 	meta := map[string]any{
-		"export_date":    time.Now().Format(time.RFC3339),
-		"project_uuid":   projectUUID,
-		"counts":         counts,
-		"session_count":  sessionCount,
+		"export_date":           time.Now().Format(time.RFC3339),
+		"project_uuid":          projectUUID,
+		"counts":                counts,
+		"session_count":         sessionCount,
+		"native_session_count":  nativeSessionCount,
 	}
 	metaBytes, _ := json.MarshalIndent(meta, "", "  ")
 	metaBytes = append(metaBytes, '\n')
@@ -699,10 +667,80 @@ func exportBundle(ctx context.Context, db *database.DB, projectUUID string) erro
 	if sessionCount > 0 {
 		fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Agent sessions", sessionCount)
 	}
+	if nativeSessionCount > 0 {
+		fmt.Fprintf(os.Stderr, "  %-20s %d\n", "Native sessions", nativeSessionCount)
+	}
 	if projectUUID != "" {
 		fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Cyan(projectUUID))
 	}
 
 	return nil
+}
+
+// archiveSessionDir walks sessionPath and streams its contents into tw under
+// {prefix}/{basename(sessionPath)}/. Returns true when the directory was
+// successfully archived. Silent no-op when sessionPath is empty or missing.
+func archiveSessionDir(tw *tar.Writer, sessionPath, prefix string) bool {
+	if sessionPath == "" {
+		return false
+	}
+	info, err := os.Stat(sessionPath)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	baseName := filepath.Base(sessionPath)
+	walkErr := filepath.WalkDir(sessionPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(sessionPath, path)
+		archivePath := filepath.Join(prefix, baseName, rel)
+
+		if d.IsDir() {
+			hdr := &tar.Header{
+				Typeflag: tar.TypeDir,
+				Name:     archivePath + "/",
+				Mode:     0755,
+				ModTime:  time.Now(),
+			}
+			return tw.WriteHeader(hdr)
+		}
+
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		hdr := &tar.Header{
+			Name:    archivePath,
+			Size:    fi.Size(),
+			Mode:    0644,
+			ModTime: fi.ModTime(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		_, err = tw.Write(data)
+		return err
+	})
+	if walkErr != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to archive session %s: %v\n", terminal.WarningSymbol(), baseName, walkErr)
+		return false
+	}
+	return true
+}
+
+// resolveNativeSessionsDir returns the directory where per-scan runtime.log
+// files live. Loads settings to honour user overrides; falls back to the
+// default when config can't be read.
+func resolveNativeSessionsDir() string {
+	settings, err := config.LoadSettings(globalConfig)
+	if err != nil {
+		settings = config.DefaultSettings()
+	}
+	return settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()
 }
 

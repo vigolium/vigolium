@@ -27,11 +27,11 @@ Archon-audit replaces the legacy vig-audit-agent with richer finding formats (YA
 # Swarm with background archon-audit (lite mode, default)
 vigolium agent swarm -t https://example.com --source ./src --archon
 
-# Swarm with deep 11-phase audit
+# Swarm with deep 10-phase audit
 vigolium agent swarm -t https://example.com --source ./src --archon deep
 
 # Autopilot with archon-audit first
-vigolium agent autopilot -t https://example.com --source ./src --archon-mode scan
+vigolium agent autopilot -t https://example.com --source ./src --archon-mode balanced
 
 # Explicitly disable (overrides config)
 vigolium agent swarm -t https://example.com --source ./src --archon off
@@ -151,8 +151,8 @@ Available on both `vigolium agent swarm` and `vigolium agent autopilot`.
 | *(not set)* | Disabled (unless enabled in config) |
 | `--archon` | Lite mode (3-phase fast audit) |
 | `--archon lite` | Lite mode (explicit) |
-| `--archon scan` | Scan mode (6-phase intermediate audit) |
-| `--archon deep` | Deep mode (11-phase comprehensive audit) |
+| `--archon balanced` | Balanced mode (6-phase intermediate audit) |
+| `--archon deep` | Deep mode (10-phase comprehensive audit) |
 | `--archon off` | Disabled (overrides config) |
 
 ### Examples
@@ -171,11 +171,11 @@ vigolium agent swarm \
   --discover \
   --archon deep
 
-# Autopilot: autonomous scan + scan-mode audit
+# Autopilot: autonomous scan + balanced-mode audit
 vigolium agent autopilot \
   -t https://example.com \
   --source ./backend \
-  --archon scan
+  --archon balanced
 
 # Disable archon even if config enables it
 vigolium agent swarm \
@@ -194,7 +194,7 @@ The `archon` field is available on both the swarm and autopilot run endpoints.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `archon` | string | `"lite"`, `"scan"`, `"deep"`, `"off"`, or omit for config default |
+| `archon` | string | `"lite"`, `"balanced"`, `"deep"`, `"off"`, or omit for config default |
 
 ### POST /api/agent/run/swarm
 
@@ -209,7 +209,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "archon": "lite"
   }' | jq .
 
-# Swarm with deep 11-phase archon-audit
+# Swarm with deep 10-phase archon-audit
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{

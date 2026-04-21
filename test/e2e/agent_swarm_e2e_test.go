@@ -3229,7 +3229,7 @@ func TestSwarmIntensityBalancedMatchesDefaults(t *testing.T) {
 	assert.True(t, result.CodeAudit)
 	assert.False(t, result.Triage)
 	assert.Equal(t, 3, result.MaxIterations)
-	assert.Equal(t, "scan", result.Archon)
+	assert.Equal(t, "balanced", result.Archon)
 	assert.Equal(t, 10, result.MaxPlanRecords)
 	assert.Equal(t, 12*time.Hour, result.SwarmDuration)
 }

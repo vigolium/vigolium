@@ -416,14 +416,9 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		})
 	}
 
-	// Clone settings
-	var settings *config.Settings
-	if h.settings != nil {
-		clone := *h.settings
-		settings = &clone
-	} else {
-		settings = config.DefaultSettings()
-	}
+	// Clone settings and force persist_logs so API-triggered scans always
+	// produce a runtime.log for `vigolium log <uuid>`.
+	settings := forceNativePersistLogs(h.settings)
 
 	// Clone repo_url if provided (mirrors CLI logic in pkg/cli/source_add.go)
 	if req.RepoURL != "" {
@@ -624,12 +619,66 @@ func (h *Handlers) HandleListScans(c fiber.Ctx) error {
 
 	return c.JSON(PaginatedResponse{
 		ProjectUUID: projectUUID,
-		Data:        scans,
+		Data:        buildScanViews(scans),
 		Total:       total,
 		Limit:       limit,
 		Offset:      offset,
 		HasMore:     int64(offset+limit) < total,
 	})
+}
+
+// buildScanViews wraps each scan in a display-oriented view that renders the
+// modules list as "all" when every built-in active module is enabled,
+// substitutes a placeholder Target for ingest-grouped scans, and attaches
+// active/passive module counts.
+func buildScanViews(scans []*database.Scan) []*database.ScanView {
+	allActiveCount := len(modules.GetActiveModulesID())
+	allPassiveCount := len(modules.GetPassiveModulesID())
+
+	views := make([]*database.ScanView, len(scans))
+	for i, s := range scans {
+		active := splitModuleCSV(s.Modules)
+		modulesDisplay := s.Modules
+		if allActiveCount > 0 && len(active) >= allActiveCount {
+			modulesDisplay = "all"
+		}
+		views[i] = &database.ScanView{
+			Scan:                s,
+			Target:              displayScanTarget(s),
+			Modules:             modulesDisplay,
+			TotalActiveModules:  len(active),
+			TotalPassiveModules: allPassiveCount,
+		}
+	}
+	return views
+}
+
+// displayScanTarget substitutes a human-readable placeholder for scans that
+// have no single target URL — scan-on-receive and catchup scans group traffic
+// from the ingest stream rather than scanning one endpoint.
+func displayScanTarget(s *database.Scan) string {
+	if s.Target != "" {
+		return s.Target
+	}
+	switch s.ScanSource {
+	case "scan-on-receive", "server-catchup":
+		return "<grouped-from-ingest-stream>"
+	}
+	return ""
+}
+
+func splitModuleCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // HandleGetScan handles GET /api/scans/:uuid — returns a single scan by UUID.
@@ -663,7 +712,7 @@ func (h *Handlers) HandleGetScan(c fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(scan)
+	return c.JSON(buildScanViews([]*database.Scan{scan})[0])
 }
 
 // HandleDeleteScan handles DELETE /api/scans/:uuid — deletes a scan record.

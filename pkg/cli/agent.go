@@ -188,11 +188,16 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 		defer cancel()
 	}
 
-	// Create session directory for agent artifacts
+	// Create session directory for agent artifacts. Created before engine.Run
+	// so we can tee the stream into {sessionDir}/runtime.log for `vigolium log`.
 	queryRunID := uuid.New().String()
 	sessionDir, sdErr := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), queryRunID)
 	if sdErr != nil {
 		zap.L().Warn("Failed to create session dir", zap.Error(sdErr))
+	}
+	if tee, closer := teeToRuntimeLog(opts.StreamWriter, sessionDir); closer != nil {
+		opts.StreamWriter = tee
+		defer func() { _ = closer.Close() }()
 	}
 
 	result, err := engine.Run(ctx, opts)

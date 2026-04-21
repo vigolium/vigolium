@@ -80,7 +80,6 @@ func (m *Module) ScanPerInsertionPoint(
 	// Baseline data
 	var baselineBody string
 	var baselineStatus int
-	var baselineDuration time.Duration
 	if ctx.Response() != nil {
 		baselineBody = ctx.Response().BodyToString()
 		baselineStatus = ctx.Response().StatusCode()
@@ -95,7 +94,21 @@ func (m *Module) ScanPerInsertionPoint(
 			continue // handled separately below
 		}
 
-		result, err := m.testPayload(ctx, ip, httpClient, payload, baselineBody, baselineStatus, baselineDuration)
+		if payload.detectType == detectTimeDelay {
+			result, err := m.testTimeBasedPayload(ctx, ip, httpClient, payload)
+			if err != nil {
+				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+					return nil, nil
+				}
+				continue
+			}
+			if result != nil {
+				return []*output.ResultEvent{result}, nil
+			}
+			continue
+		}
+
+		result, err := m.testPayload(ctx, ip, httpClient, payload, baselineBody, baselineStatus)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return nil, nil
@@ -127,7 +140,6 @@ func (m *Module) testPayload(
 	payload nosqliPayload,
 	baselineBody string,
 	baselineStatus int,
-	baselineDuration time.Duration,
 ) (*output.ResultEvent, error) {
 	var fuzzedValue string
 	if payload.detectType == detectAuthBypass || payload.detectType == detectSizeChange {
@@ -145,12 +157,10 @@ func (m *Module) testPayload(
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-	startTime := time.Now()
 	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
 	if err != nil {
 		return nil, err
 	}
-	probeDuration := time.Since(startTime)
 
 	body := resp.Body().String()
 	probeStatus := 0
@@ -178,11 +188,6 @@ func (m *Module) testPayload(
 			detected = true
 			detectionDesc = fmt.Sprintf("Data exfiltration: body size increased from %d to %d bytes", len(baselineBody), len(body))
 		}
-	case detectTimeDelay:
-		if analyzeTimeDelay(baselineDuration, probeDuration) {
-			detected = true
-			detectionDesc = fmt.Sprintf("Time-based injection: response delayed by %dms", probeDuration.Milliseconds()-baselineDuration.Milliseconds())
-		}
 	}
 
 	if !detected {
@@ -205,6 +210,98 @@ func (m *Module) testPayload(
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
 		},
 	}, nil
+}
+
+// testTimeBasedPayload confirms a time-based NoSQL injection by measuring a
+// fresh baseline for the insertion point and then requiring every one of
+// timeBasedConfirmationRounds probes to exceed timeDelayThresholdMs over that
+// baseline. A generally slow endpoint yields a slow baseline and is rejected;
+// a single jittery probe is rejected because subsequent rounds must also
+// confirm. Only payloads with detectType == detectTimeDelay reach this path.
+func (m *Module) testTimeBasedPayload(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	payload nosqliPayload,
+) (*output.ResultEvent, error) {
+	baselineDuration, _, _, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
+	if err != nil {
+		return nil, err
+	}
+
+	fuzzedValue := ip.BaseValue() + payload.value
+	fuzzedRaw := ip.BuildRequest([]byte(fuzzedValue))
+
+	var lastDelay time.Duration
+	for i := 0; i < timeBasedConfirmationRounds; i++ {
+		probeDuration, body, _, err := m.measureDuration(ctx, ip, httpClient, fuzzedValue)
+		if err != nil {
+			return nil, err
+		}
+		if containsNoSQLError(body) {
+			return nil, nil
+		}
+		if !analyzeTimeDelay(baselineDuration, probeDuration) {
+			return nil, nil
+		}
+		lastDelay = probeDuration - baselineDuration
+	}
+
+	urlx, _ := ctx.URL()
+	return &output.ResultEvent{
+		URL:              urlx.String(),
+		Matched:          urlx.String(),
+		Request:          string(fuzzedRaw),
+		FuzzingParameter: ip.Name(),
+		ExtractedResults: []string{payload.value},
+		Info: output.Info{
+			Name: "NoSQL Operator Injection",
+			Description: fmt.Sprintf(
+				"Time-based injection confirmed over %d rounds (baseline %dms, last probe delayed by %dms) — %s via parameter %q",
+				timeBasedConfirmationRounds, baselineDuration.Milliseconds(), lastDelay.Milliseconds(), payload.desc, ip.Name(),
+			),
+			Severity:   severity.High,
+			Confidence: severity.Firm,
+			Tags:       []string{"nosqli", "injection", "mongodb", "time-based"},
+			Reference:  []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
+		},
+		Metadata: map[string]any{
+			"baseline_ms":         baselineDuration.Milliseconds(),
+			"delay_ms":            lastDelay.Milliseconds(),
+			"sleep_ms":            timeBasedSleepMs,
+			"confirmation_rounds": timeBasedConfirmationRounds,
+		},
+	}, nil
+}
+
+// measureDuration executes a single request with the given fuzzed value and
+// returns its wall-clock duration along with the response body and status.
+func (m *Module) measureDuration(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	value string,
+) (time.Duration, string, int, error) {
+	raw := ip.BuildRequest([]byte(value))
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return 0, "", 0, err
+	}
+	req = req.WithService(ctx.Service())
+
+	start := time.Now()
+	resp, _, err := httpClient.Execute(req, http.Options{})
+	if err != nil {
+		return 0, "", 0, err
+	}
+	duration := time.Since(start)
+	body := resp.Body().String()
+	status := 0
+	if resp.Response() != nil {
+		status = resp.Response().StatusCode
+	}
+	resp.Close()
+	return duration, body, status, nil
 }
 
 // testBooleanDiff tests true/false payload pairs to detect boolean-based NoSQL injection.

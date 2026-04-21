@@ -234,6 +234,28 @@ scanning_strategy:
     # Example: validate against a "who am I" endpoint:
     # validate_url: "/api/me"
 
+  # --------------------------------------------------------------------------
+  # Native Scan Session Logs
+  # --------------------------------------------------------------------------
+  # Controls on-disk persistence of raw console output for native scans.
+  # Independent from the scan_logs database table — the DB always captures
+  # structured entries (info/warn/error/trace) via `GET /api/scans/:uuid/logs`.
+  # Enable persist_logs when you want a tail-friendly file on disk that mirrors
+  # what was printed to the terminal, retrievable via `vigolium log <scan-uuid>`.
+  scan_logs:
+    # Directory for native scan session artifacts (currently: runtime.log only).
+    # Each scan creates a subdirectory under this path:
+    #   {sessions_dir}/{scan-uuid}/runtime.log
+    # Supports ~ expansion.
+    # Default: ~/.vigolium/native-sessions/
+    sessions_dir: ~/.vigolium/native-sessions/
+
+    # Mirror raw console output to {sessions_dir}/{scan-uuid}/runtime.log during
+    # native scans. When false, logs are still captured in the scan_logs DB
+    # table and `vigolium log <scan-uuid>` falls back to replaying DB entries.
+    # Default: false
+    persist_logs: false
+
   lite:
     external_harvesting: false
     discovery: false
@@ -1298,7 +1320,7 @@ agent:
     # Default: ~/.vigolium/archon-audit/
     # plugin_dir: ~/.vigolium/archon-audit/
 
-    # Audit mode: "deep" (11-phase), "scan" (6-phase), or "lite" (3-phase).
+    # Audit mode: "deep" (10-phase), "balanced" (6-phase), or "lite" (3-phase).
     # Default: lite
     mode: lite
 

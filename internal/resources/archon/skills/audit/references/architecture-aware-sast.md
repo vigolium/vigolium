@@ -115,7 +115,7 @@ Prefer one narrow query per invariant over a broad speculative query pack.
 
 Run at the start of Phase 4, before any security scan, using the freshly built database stored at
 `archon/codeql-artifacts/db/`. The purpose is structural intelligence — not security findings.
-The outputs feed Phase 3 KB validation, Phase 5 enrichment, Phase 7 deep bug hunting, and
+The outputs feed Phase 3 KB validation, Phase 4 inline enrichment, Phase 7 deep bug hunting, and
 Phase 9 variant analysis.
 
 ### Why informational results matter
@@ -251,7 +251,7 @@ After all extraction steps complete, populate the `## CodeQL Structural Analysis
 ### When to skip
 
 Skip only if the CodeQL database build fails entirely (zero extracted files). Document the skip in
-`archon/knowledge-base-report.md`. Phases 5, 7, and 9 fall back to pure manual analysis.
+`archon/knowledge-base-report.md`. The Phase 4 enrichment substep, Phase 7, and Phase 9 fall back to pure manual analysis.
 Do not skip for small repos — call graph reachability data is most valuable where DFD construction
 is complete but unvalidated.
 

@@ -155,7 +155,7 @@ type AppIntent struct {
 	Instruction     string                `json:"instruction,omitempty"`       // leftover context
 	Discover        bool                  `json:"discover,omitempty"`          // implied by target + source combo
 	CodeAudit       bool                  `json:"code_audit,omitempty"`        // implied by source-only
-	Archon          string                `json:"archon,omitempty"`            // "lite", "scan", "deep", or "" (background archon-audit)
+	Archon          string                `json:"archon,omitempty"`            // "lite", "balanced", "deep", or "" (background archon-audit)
 	Diff            string                `json:"diff,omitempty"`              // PR URL, git ref range (main...branch), or HEAD~N
 	Files           []string              `json:"files,omitempty"`             // specific files to focus on (relative to source)
 	Browser         bool                  `json:"browser,omitempty"`           // enable browser-based interaction
@@ -173,7 +173,7 @@ type AppIntent struct {
 // AuditAgentConfig configures a background archon-audit run.
 type AuditAgentConfig struct {
 	PluginDir   string
-	Mode        string // "deep", "scan", "lite", "merge", "revisit", etc.
+	Mode        string // "deep", "balanced", "lite", "merge", "revisit", etc.
 	Platform    string // "claude" (default), "codex", or "opencode"
 	SourcePath  string
 	SessionDir  string
@@ -275,7 +275,7 @@ var AutopilotPresets = map[Intensity]AutopilotIntensityPreset{
 	IntensityBalanced: {
 		MaxCommands: 100,
 		Timeout:     6 * time.Hour,
-		ArchonMode:  "scan",
+		ArchonMode:  "balanced",
 		Browser:     false,
 		SkipSAST:    false,
 	},
@@ -310,7 +310,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        true,
 		Triage:           false,
 		MaxIterations:    3,
-		Archon:           "scan",
+		Archon:           "balanced",
 		MaxPlanRecords:   10,
 		MasterBatchSize:  5,
 		BatchConcurrency: 3,

@@ -464,9 +464,9 @@ flowchart TD
 
 ---
 
-## Phase 5 Enrichment Notes
+## SAST Enrichment
 
-*Phase 5 — enrichment pass (updated after static analysis)*
+*Written inline by the Phase 4 static-analyzer after SAST completes (formerly Phase 5 / enrichment-filter)*
 
 **New attack surfaces identified by SAST:**
 - <entry point or code path not found in Phase 3>

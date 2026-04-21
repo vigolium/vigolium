@@ -106,7 +106,7 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 		})
 	}
 
-	scanRunner.SetSettings(h.settings)
+	scanRunner.SetSettings(forceNativePersistLogs(h.settings))
 	scanRunner.SetRepository(h.repo)
 
 	// Acquire per-project scan lock
@@ -368,7 +368,7 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 		})
 	}
 
-	scanRunner.SetSettings(settings)
+	scanRunner.SetSettings(forceNativePersistLogs(settings))
 	scanRunner.SetRepository(h.repo)
 
 	// Acquire per-project scan lock

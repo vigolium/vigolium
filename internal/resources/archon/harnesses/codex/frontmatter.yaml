@@ -19,9 +19,7 @@ subagent_overrides:
 # Agents absent from codex's current installed roster.
 # Confirmation-mode agents are intentionally included for `--mode confirm`.
 exclude:
-  - code-anatomist
   - cold-verifier
   - commit-archaeologist
   - contradiction-reasoner
-  - causal-verifier
   - deep-auditor

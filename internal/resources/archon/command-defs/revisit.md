@@ -21,7 +21,7 @@ Target scope: $ARGUMENTS
 
 **What revisit is NOT:**
 - NOT `/archon:diff` — that re-audits *code changes since the last audit*. Revisit re-audits the *same code* with a fresh attempt.
-- NOT `/archon:deep` or `/archon:scan` — those start from zero. Revisit explicitly reuses the prior KB, advisories, static-analysis, and systematic matrices.
+- NOT `/archon:deep` or `/archon:balanced` — those start from zero. Revisit explicitly reuses the prior KB, advisories, static-analysis, and systematic matrices.
 - NOT `/archon:confirm` — that verifies existing findings work. Revisit hunts for new findings.
 
 ### Preflight (HARD REQUIREMENTS)
@@ -41,7 +41,7 @@ Do not proceed past preflight without an explicit user choice.
 
 ### Setup
 
-1. Read `audits[-1]` from `archon/audit-state.json` — capture `audit_id`, `commit`, `mode` (expected: `deep`; warn if prior was `scan`/`lite` but proceed).
+1. Read `audits[-1]` from `archon/audit-state.json` — capture `audit_id`, `commit`, `mode` (expected: `deep`; warn if prior was `balanced`/`lite` but proceed).
 2. Determine round number:
    - If no `revisit-audit-state.json` yet → round = 2 (round 1 = the original audit).
    - Otherwise round = `len(revisits) + 2` (the existing revisits array length plus 2, because round 1 lives in audit-state.json not revisit-audit-state.json).
@@ -140,10 +140,7 @@ Inject the following block into the prompt of every agent spawned in R5 (probe-s
 
 ### R5 — Deep Probe (fresh teams, anti-anchored)
 
-Spawn deep probe teams exactly as `/archon:deep` Phase 5 does, but with two modifications:
-
-1. **Inject the anti-anchoring block** into every probe-strategist, reasoner, and evidence-harvester prompt.
-2. **Skip the Code Anatomist** step — round-1 already produced code anatomy in `archon/probe-workspace/<component>/` before cleanup, or the fresh team can read source directly. If Code Anatomist is needed, spawn it normally.
+Spawn deep probe teams exactly as `/archon:deep` Phase 5 does, but inject the anti-anchoring block into every probe-strategist, reasoner, and evidence-harvester prompt. The strategist writes code anatomy inline during its setup (no separate Code Anatomist agent).
 
 Component grouping: read `archon/knowledge-base-report.md` sections `## DFD/CFD Slices`, `## Attack Surface`, `## Architecture Model` (same as deep.md). Form teams identically to round-1.
 
@@ -151,7 +148,7 @@ Teams write to `archon/probe-workspace/<component>/probe-summary.md`. Update `R5
 
 ### R7 — Enrichment
 
-Re-classify any SAST findings still referenced in the KB that may benefit from a second look (same classification rules as `archon:enrichment-filter`). This is optional-value — if the KB has no live SAST references, mark R7 complete with an "inline skip — no live SAST references" note. Do not re-run SAST itself (decision: SAST is skipped on revisit).
+Re-classify any SAST findings still referenced in the KB that may benefit from a second look (same classification rules as the Phase 4 `## SAST Enrichment` pass in deep mode: security / correctness / environment-only, with CodeQL reachability cross-reference). This is optional-value — if the KB has no live SAST references, mark R7 complete with an "inline skip — no live SAST references" note. Do not re-run SAST itself (decision: SAST is skipped on revisit).
 
 ### R8 — Review Chambers (fresh, anti-anchored)
 

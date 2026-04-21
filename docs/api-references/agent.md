@@ -13,7 +13,7 @@ The agent API provides three run modes that mirror the `vigolium agent` CLI subc
 | `GET /api/agent/status/:id`      | —                           | Get run status by ID                     |
 | `GET /api/agent/sessions`        | `vigolium agent sessions`   | Paginated session history from DB        |
 | `GET /api/agent/sessions/:id`    | —                           | Full session detail with debug fields    |
-| `GET /api/agent/sessions/:id/logs`| —                          | Raw console `run.log` (plain text or SSE tail)|
+| `GET /api/agent/sessions/:id/logs`| —                          | Raw console `runtime.log` (plain text or SSE tail)|
 
 All run modes share a global concurrency lock — only one agent run can be active at a time. Attempting to start a second run returns `409 Conflict`.
 
@@ -99,8 +99,8 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
 | `project_uuid`     | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header) |
 | `no_archon`        | bool     | No       | Disable automatic archon-audit (enabled by default when `source` is set) |
-| `archon_mode`      | string   | No       | Archon audit mode: `"lite"` (default, 3-phase), `"scan"` (6-phase), or `"deep"` (11-phase) |
-| `archon`           | string   | No       | **DEPRECATED** — use `no_archon` + `archon_mode` instead. Legacy values: `"lite"`, `"scan"`, `"deep"`, `"off"` |
+| `archon_mode`      | string   | No       | Archon audit mode: `"lite"` (default, 3-phase), `"balanced"` (6-phase), or `"deep"` (10-phase) |
+| `archon`           | string   | No       | **DEPRECATED** — use `no_archon` + `archon_mode` instead. Legacy values: `"lite"`, `"balanced"`, `"deep"`, `"off"` |
 
 \* At least one of `target`, `input`, `source`, `diff`, or `prompt` is required.
 
@@ -170,7 +170,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "https://oauth2:ghp_token123@github.com/org/private-repo.git",
-    "archon_mode": "scan"
+    "archon_mode": "balanced"
   }' | jq .
 ```
 
@@ -298,7 +298,7 @@ AI agents are called at phases 2, 3, 6, and 9. When inputs exceed 5 records, the
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
-| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"scan"` (6-phase), `"deep"` (11-phase), `"off"` to disable. Requires `source` |
+| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"balanced"` (6-phase), `"deep"` (10-phase), `"off"` to disable. Requires `source` |
 
 **Source resolution:** The `source` field accepts local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). The legacy `source_path` JSON key is still accepted for backward compatibility.
 
@@ -476,7 +476,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "archon": "lite"
   }' | jq .
 
-# Full 11-phase archon-audit with comprehensive scan
+# Full 10-phase archon-audit with comprehensive scan
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
@@ -593,7 +593,7 @@ curl -N -X POST http://localhost:9002/api/agent/run/swarm \
 
 The autopilot and swarm endpoints accept a `prompt` field for natural language scan requests. When `prompt` is provided and no explicit input fields are set (`target`, `input`, `source`), the prompt is parsed by an AI intent extractor that returns structured parameters.
 
-The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and archon audit level (`"lite"`, `"scan"`, or `"deep"`).
+The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and archon audit level (`"lite"`, `"balanced"`, or `"deep"`).
 
 **Extracted fields:**
 
@@ -605,7 +605,7 @@ The intent extractor recognizes: target URLs, source code paths, vulnerability f
 | `instruction`  | `instruction`        | `instruction`     | Remaining guidance                                    |
 | `discover`     | —                    | `discover`        | Inferred when both target and source are present      |
 | `code_audit`   | —                    | `code_audit`      | Inferred when source-only (no target)                 |
-| `archon`       | `archon_mode`        | `archon`          | `"lite"`, `"scan"`, or `"deep"` when archon/audit agent is mentioned |
+| `archon`       | `archon_mode`        | `archon`          | `"lite"`, `"balanced"`, or `"deep"` when archon/audit agent is mentioned |
 
 **Autopilot with natural language prompt:**
 
@@ -991,11 +991,11 @@ curl -s http://localhost:9002/api/agent/sessions/agt-550e8400-e29b-41d4-a716-446
 
 ## GET /api/agent/sessions/:id/logs — Agent Session Console Logs
 
-Returns the raw `run.log` file for a session — the same live console stream the CLI user sees when running `vigolium agent autopilot/swarm/query`. ANSI colors are preserved by default so browser terminal emulators (xterm.js, etc.) render it exactly like the CLI. Works while the run is in progress *and* after it finishes.
+Returns the raw `runtime.log` file for a session — the same live console stream the CLI user sees when running `vigolium agent autopilot/swarm/query`. ANSI colors are preserved by default so browser terminal emulators (xterm.js, etc.) render it exactly like the CLI. Works while the run is in progress *and* after it finishes.
 
 The endpoint operates in two modes, selected via the `Accept` header:
 
-- **Plain text** (default, any Accept except `text/event-stream`): `text/plain; charset=utf-8` dump of the entire `run.log` at request time.
+- **Plain text** (default, any Accept except `text/event-stream`): `text/plain; charset=utf-8` dump of the entire `runtime.log` at request time.
 - **Server-Sent Events** (`Accept: text/event-stream`): tails the file and emits each new byte range as a `chunk` event. Exits with a `done` event when the run reaches a terminal status (`completed`, `failed`, `cancelled`, `timeout`, `error`), the client disconnects, or a 2-hour safety backstop fires.
 
 **Query parameters:**
@@ -1034,8 +1034,8 @@ On a read error the stream emits `{"type":"error","error":"..."}` and closes.
 
 **Notes:**
 
-- The endpoint reads `run.log` from the session directory recorded on the DB row (`session_dir`). For rows created before that field was persisted, it falls back to `<sessions_dir>/<run_id>/run.log`.
-- All three agent modes (query, autopilot, swarm) write `run.log` when started via the REST API, so the endpoint works uniformly across modes.
+- The endpoint reads `runtime.log` from the session directory recorded on the DB row (`session_dir`). For rows created before that field was persisted, it falls back to `<sessions_dir>/<run_id>/runtime.log`.
+- All three agent modes (query, autopilot, swarm) write `runtime.log` when started via the REST API, so the endpoint works uniformly across modes.
 - Structured data (findings, attack plan, triage result, final raw output blob) still lives on `GET /api/agent/sessions/:id` — this endpoint is the *unstructured* console stream only.
 - When ANSI stripping is enabled on the SSE path, an escape sequence that happens to span a read boundary may leak through as a cosmetic artifact. The plain-text path is not affected.
 
@@ -1044,8 +1044,8 @@ On a read error the stream emits `{"type":"error","error":"..."}` and closes.
 | Status | Condition                                  |
 |--------|--------------------------------------------|
 | `400`  | Missing session ID                         |
-| `404`  | Session not found, or `run.log` missing    |
-| `500`  | Failed to read `run.log` from disk         |
+| `404`  | Session not found, or `runtime.log` missing    |
+| `500`  | Failed to read `runtime.log` from disk         |
 | `503`  | Database not configured                    |
 
 ---

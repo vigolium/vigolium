@@ -661,6 +661,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "agentic_scans", "parent_run_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "agentic_scans", "input_record_count", "INTEGER DEFAULT 0")
 	db.addColumnIfNotExists(ctx, "agentic_scans", "session_dir", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "protocol", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "model", "TEXT")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "total_input_tokens", "INTEGER NOT NULL DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "total_output_tokens", "INTEGER NOT NULL DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "agentic_scans", "estimated_cost_usd", "REAL NOT NULL DEFAULT 0")
 
 	db.addColumnIfNotExists(ctx, "scans", "storage_url", "TEXT")
 	db.addColumnIfNotExists(ctx, "agentic_scans", "storage_url", "TEXT")

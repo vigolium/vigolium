@@ -88,8 +88,10 @@ func TestAnalyzeTimeDelay(t *testing.T) {
 		probeDuration    time.Duration
 		expected         bool
 	}{
-		{"significant delay", 10 * time.Millisecond, 100 * time.Millisecond, true},
-		{"small delay", 10 * time.Millisecond, 50 * time.Millisecond, false},
+		{"full sleep delay", 20 * time.Millisecond, 10000 * time.Millisecond, true},
+		{"just above threshold", 10 * time.Millisecond, 7100 * time.Millisecond, true},
+		{"just below threshold", 10 * time.Millisecond, 6900 * time.Millisecond, false},
+		{"jitter only", 10 * time.Millisecond, 200 * time.Millisecond, false},
 		{"no delay", 10 * time.Millisecond, 10 * time.Millisecond, false},
 	}
 

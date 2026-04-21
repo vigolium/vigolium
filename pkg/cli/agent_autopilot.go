@@ -165,7 +165,7 @@ func init() {
 	f.StringVar(&autopilotBrowserStartURL, "browser-start-url", "", "Explicit browser/login start URL for auth preflight")
 	f.StringSliceVar(&autopilotFocusRoutes, "focus-routes", nil, "Protected or browser-focused routes to prioritize after auth")
 	f.BoolVar(&autopilotNoArchon, "no-archon", false, "Disable automatic archon-audit (enabled by default when --source is set)")
-	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), scan (6-phase), deep (11-phase), or mock (sample output, no agent)")
+	f.StringVar(&autopilotArchonMode, "archon-mode", "lite", "Archon audit mode: lite (3-phase), balanced (6-phase), deep (10-phase), or mock (sample output, no agent)")
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
@@ -486,6 +486,12 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 	if settings.Agent.StreamEnabled() {
 		streamWriter = os.Stdout
 	}
+	// Persist the stream to {sessionDir}/runtime.log so `vigolium log <uuid>`
+	// can replay it later, regardless of StreamEnabled.
+	if tee, closer := teeToRuntimeLog(streamWriter, sessionDir); closer != nil {
+		streamWriter = tee
+		defer func() { _ = closer.Close() }()
+	}
 
 	projectUUID, _ := resolveProjectUUID()
 
@@ -530,12 +536,19 @@ func runAutopilotAutonomous(ctx context.Context, engine *agent.Engine, settings 
 		parentRunUUID = filepath.Base(sessionDir)
 	}
 	if repo != nil && parentRunUUID != "" {
+		effectiveAutopilotAgent := autopilotAgent
+		if effectiveAutopilotAgent == "" {
+			effectiveAutopilotAgent = settings.Agent.DefaultAgent
+		}
+		parentProtocol, parentModel := settings.Agent.BackendMeta(effectiveAutopilotAgent)
 		parentRun := &database.AgenticScan{
 			UUID:        parentRunUUID,
 			ProjectUUID: projectUUID,
 			ScanUUID:    globalScanID,
 			Mode:        "autopilot",
 			AgentName:   autopilotAgent,
+			Protocol:    parentProtocol,
+			Model:       parentModel,
 			TargetURL:   autopilotTarget,
 			SourcePath:  autopilotSource,
 			SourceType:  database.InferSourceType(autopilotSource),
@@ -806,6 +819,12 @@ func runMultiAppAutopilot(ctx context.Context, engine *agent.Engine, settings *c
 		var streamWriter io.Writer
 		if settings.Agent.StreamEnabled() {
 			streamWriter = os.Stdout
+		}
+		// Persist the stream to {sessionDir}/runtime.log so `vigolium log <uuid>`
+		// can replay it later.
+		if tee, closer := teeToRuntimeLog(streamWriter, sessionDir); closer != nil {
+			streamWriter = tee
+			defer func() { _ = closer.Close() }()
 		}
 
 		projectUUID, _ := resolveProjectUUID()

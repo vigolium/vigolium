@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -164,6 +165,18 @@ var projectListCmd = &cobra.Command{
 		}
 
 		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		if active, tuiErr := tui.Active(projectLsTUI, projectLsNoTUI, jsonOutput); tuiErr != nil {
+			return tuiErr
+		} else if active {
+			if len(projects) == 0 {
+				fmt.Println("No projects found.")
+				return nil
+			}
+			activeUUID, _ := resolveProjectUUID()
+			return pickProjectLsTUI(projects, activeUUID)
+		}
+
 		if jsonOutput {
 			active, _ := resolveProjectUUID()
 			type projectJSON struct {
@@ -452,6 +465,7 @@ func init() {
 	projectCreateCmd.Flags().String("description", "", "Project description")
 	projectCreateCmd.Flags().StringSlice("allow", nil, "Allowed domains (@domain.com) or emails (user@domain.com)")
 	projectListCmd.Flags().Bool("json", false, "Output as JSON")
+	tui.AddFlags(projectListCmd, &projectLsTUI, &projectLsNoTUI)
 	projectCmd.AddCommand(projectCreateCmd)
 	projectCmd.AddCommand(projectListCmd)
 	projectCmd.AddCommand(projectUseCmd)

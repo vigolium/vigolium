@@ -4,7 +4,7 @@ For OpenCode-family platforms, this command runs with sequential orchestration s
 Use the shared deep-audit command below as the base workflow, but apply these override rules everywhere they conflict:
 
 1. Execute phases strictly in dependency order.
-   Use: `T1 -> T2 -> T3 -> T4 -> T5 -> T6 -> T7 -> T8 -> T9 -> T10 -> T11`
+   Use: `T1 -> T2 -> T3 -> T4 -> T5 -> T6 -> T8 -> T9 -> T10 -> T11`
    Do not start later phases early just because background execution is available.
 
 2. Replace every instruction that says:
@@ -34,10 +34,9 @@ Use the shared deep-audit command below as the base workflow, but apply these ov
    - Phase 1 complete if `archon/knowledge-base-report.md` contains advisory intelligence sufficient for Phase 2.
    - Phase 2 complete if each intended patch produced bypass analysis output or an explicit "no bypass found" conclusion in the KB.
    - Phase 3 complete if the required KB sections for later phases exist.
-   - Phase 4 complete if the required static-analysis artifacts exist and the KB contains `## Static Analysis Summary` plus `## CodeQL Structural Analysis`.
+   - Phase 4 complete if the required static-analysis artifacts exist and the KB contains `## Static Analysis Summary`, `## CodeQL Structural Analysis`, and `## SAST Enrichment` (enrichment runs inline inside Phase 4).
    - Phase 5 complete if probe workspace output exists and the deep-probe summary is usable by Phase 8.
    - Phase 6 complete if the KB contains `## Spec Gap Analysis` or an explicit "None identified" result.
-   - Phase 7 complete if enriched conclusions were written back to the KB.
    - Phase 8 complete if chamber workspace output exists and medium-or-higher validated findings were written, or the chamber closed with no valid findings.
    - Phase 9 complete if all current VALID drafts were processed by FP review and cold verification when required.
    - Phase 10 complete if each confirmed finding received variant output or an explicit "no variant found" result.

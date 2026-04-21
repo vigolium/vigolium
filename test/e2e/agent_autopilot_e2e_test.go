@@ -230,6 +230,6 @@ func TestAutopilotIntensityBalancedIsDefault(t *testing.T) {
 
 	assert.Equal(t, 100, result.MaxCommands)
 	assert.Equal(t, 6*time.Hour, result.Timeout)
-	assert.Equal(t, "scan", result.ArchonMode)
+	assert.Equal(t, "balanced", result.ArchonMode)
 	assert.False(t, result.Browser)
 }

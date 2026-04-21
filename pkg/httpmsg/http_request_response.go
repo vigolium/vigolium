@@ -390,11 +390,19 @@ func ParseRawRequest(raw string) (rr *HttpRequestResponse, err error) {
 	// Build raw request with all headers
 	rr.request.raw = []byte(raw)
 
-	// Populate Service from host and URL scheme
+	// Populate Service from host and URL scheme.
+	// Raw HTTP request lines use origin-form (no scheme), so absent an explicit
+	// signal we default to https — modern web is TLS by default, and downstream
+	// callers that need http explicitly should pass it via the URL field or
+	// override the service with WithService.
 	if hostValue != "" {
-		port := 80
-		protocol := "http"
-		if urlx.Scheme == "https" {
+		port := 443
+		protocol := "https"
+		// Absolute-form request lines (e.g. CONNECT, proxy form) may carry a scheme.
+		if urlx.Scheme == "http" {
+			protocol = "http"
+			port = 80
+		} else if urlx.Scheme == "https" {
 			protocol = "https"
 			port = 443
 		}
@@ -403,6 +411,14 @@ func ParseRawRequest(raw string) (rr *HttpRequestResponse, err error) {
 			hostValue = h
 			if parsed := parsePort(p); parsed > 0 {
 				port = parsed
+				// Infer scheme from well-known port only when no explicit scheme was present.
+				if urlx.Scheme == "" {
+					if parsed == 80 {
+						protocol = "http"
+					} else if parsed == 443 {
+						protocol = "https"
+					}
+				}
 			}
 		}
 		// Also try from URL path (for absolute-form request lines like CONNECT)

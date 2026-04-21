@@ -127,7 +127,7 @@ func (c *BrowserConfig) EffectiveBinaryPath() string {
 type AuditAgentConfig struct {
 	Enable       *bool  `yaml:"enable,omitempty"`        // default: false
 	PluginDir    string `yaml:"plugin_dir,omitempty"`    // path to archon-audit harness dir (default: ~/.vigolium/archon-audit/)
-	Mode         string `yaml:"mode,omitempty"`          // "deep" (11-phase), "scan" (6-phase), or "lite" (3-phase); default: "lite"
+	Mode         string `yaml:"mode,omitempty"`          // "deep" (10-phase), "balanced" (6-phase), or "lite" (3-phase); default: "lite"
 	Platform     string `yaml:"platform,omitempty"`      // "claude" (default), "codex", or "opencode"
 	SyncInterval int    `yaml:"sync_interval,omitempty"` // seconds between state syncs; default: 30
 }
@@ -159,13 +159,14 @@ func (c *AuditAgentConfig) EffectivePluginDir() string {
 }
 
 // EffectiveMode returns the archon audit mode, defaulting to "lite".
-// Accepts "deep", "scan", "lite". Maps legacy "full" to "deep".
+// Accepts "deep", "balanced", "lite". Maps legacy "full" to "deep" and
+// legacy "scan" to "balanced".
 func (c *AuditAgentConfig) EffectiveMode() string {
 	switch c.Mode {
 	case "deep", "full":
 		return "deep"
-	case "scan":
-		return "scan"
+	case "balanced", "scan":
+		return "balanced"
 	case "mock":
 		return "mock"
 	default:
@@ -297,6 +298,21 @@ func (d *AgentDef) EffectiveProtocol() string {
 		return "pipe"
 	}
 	return d.Protocol
+}
+
+// BackendMeta resolves (protocol, model) for the named backend. Returns
+// zero values when name is empty or the backend is not configured — distinct
+// from the "pipe" fallback used by engine.ResolveAgentProtocol, because the
+// zero string surfaces "unknown" through to nullzero DB columns.
+func (c *AgentConfig) BackendMeta(name string) (protocol, model string) {
+	if c == nil || name == "" {
+		return "", ""
+	}
+	def, ok := c.Backends[name]
+	if !ok {
+		return "", ""
+	}
+	return def.EffectiveProtocol(), def.Model
 }
 
 // Validate checks that AgentConfig fields are valid.

@@ -18,7 +18,7 @@ Run an incremental audit covering only changes since the last audited commit.
 ### Process
 
 1. Verify Git history is available with `git rev-parse --is-inside-work-tree >/dev/null 2>&1`.
-2. If Git is unavailable, stop and tell the user incremental diff mode is unsupported for plain source folders. Direct them to `/archon:lite`, `/archon:scan`, or `/archon:deep` instead.
+2. If Git is unavailable, stop and tell the user incremental diff mode is unsupported for plain source folders. Direct them to `/archon:lite`, `/archon:balanced`, or `/archon:deep` instead.
 3. Read `audits[-1].commit` from `archon/audit-state.json`. If no state file exists, direct the user to `/archon:deep`.
 4. If `audits[-1].history_available` is `false`, stop and tell the user the previous audit ran without local history, so there is no reliable diff base. Direct them to run a fresh audit.
 5. If `$ARGUMENTS` contains a commit range, use that instead.

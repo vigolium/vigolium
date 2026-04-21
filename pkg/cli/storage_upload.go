@@ -38,6 +38,17 @@ func uploadNativeScanResults(settings *config.Settings, opts *types.Options, rep
 		}
 	}
 
+	// Include the native scan's runtime.log when persist_logs is enabled and
+	// the file exists on disk for this scan.
+	runtimeLog := filepath.Join(
+		settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir(),
+		opts.ScanUUID,
+		config.RuntimeLogFilename,
+	)
+	if fi, err := os.Stat(runtimeLog); err == nil && !fi.IsDir() {
+		files[config.RuntimeLogFilename] = runtimeLog
+	}
+
 	if len(files) == 0 {
 		zap.L().Info("storage: no result files to upload")
 		return

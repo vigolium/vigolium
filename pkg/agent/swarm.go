@@ -24,6 +24,7 @@ import (
 	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
+	"github.com/vigolium/vigolium/pkg/archon/claudecost"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/session"
@@ -252,6 +253,10 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	if cfg.AgentName == "" && s.engine != nil && s.engine.settings != nil {
 		cfg.AgentName = s.engine.settings.Agent.DefaultAgent
 	}
+	var protocol, model string
+	if s.engine != nil && s.engine.settings != nil {
+		protocol, model = s.engine.settings.Agent.BackendMeta(cfg.AgentName)
+	}
 	// Create agent run record — use pre-assigned UUID if provided (e.g. from CLI session dir)
 	runUUID := cfg.RunUUID
 	if runUUID == "" {
@@ -263,10 +268,13 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 		ScanUUID:    cfg.ScanUUID,
 		Mode:        "swarm",
 		AgentName:   cfg.AgentName,
+		Protocol:    protocol,
+		Model:       model,
 		VulnType:    cfg.VulnType,
 		ModuleNames: cfg.ModuleNames,
 		SourcePath:  cfg.SourcePath,
 		SourceType:  database.InferSourceType(cfg.SourcePath),
+		SessionDir:  cfg.SessionDir,
 		Status:      "running",
 		StartedAt:   start,
 	}
@@ -291,6 +299,13 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	agenticScan.CompletedAt = now
 	agenticScan.DurationMs = result.Duration.Milliseconds()
 	agenticScan.FindingCount = result.TotalFindings
+	usage := claudecost.Usage{
+		InputTokens:  int64(result.TokenUsage.InputTokens),
+		OutputTokens: int64(result.TokenUsage.OutputTokens),
+	}
+	agenticScan.TotalInputTokens = usage.InputTokens
+	agenticScan.TotalOutputTokens = usage.OutputTokens
+	agenticScan.EstimatedCostUSD = usage.Price(agenticScan.Model)
 
 	if err != nil {
 		agenticScan.Status = "failed"

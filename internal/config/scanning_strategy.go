@@ -12,15 +12,16 @@ import (
 // ScanningStrategyConfig holds named scanning strategy presets.
 // Each preset controls which scan phases are enabled.
 type ScanningStrategyConfig struct {
-	DefaultStrategy string         `yaml:"default_strategy"`
-	HeuristicsCheck string         `yaml:"heuristics_check"`
-	ScanningProfile string         `yaml:"scanning_profile"`
-	ProfilesDir     string         `yaml:"profiles_dir"`
+	DefaultStrategy string                `yaml:"default_strategy"`
+	HeuristicsCheck string                `yaml:"heuristics_check"`
+	ScanningProfile string                `yaml:"scanning_profile"`
+	ProfilesDir     string                `yaml:"profiles_dir"`
 	Session         SessionStrategyConfig `yaml:"session"`
-	Lite            StrategyPhases `yaml:"lite"`
-	Balanced        StrategyPhases `yaml:"balanced"`
-	Deep            StrategyPhases `yaml:"deep"`
-	Whitebox        StrategyPhases `yaml:"whitebox"`
+	ScanLogs        ScanLogsConfig        `yaml:"scan_logs"`
+	Lite            StrategyPhases        `yaml:"lite"`
+	Balanced        StrategyPhases        `yaml:"balanced"`
+	Deep            StrategyPhases        `yaml:"deep"`
+	Whitebox        StrategyPhases        `yaml:"whitebox"`
 }
 
 // SessionStrategyConfig controls how authentication sessions behave during scanning.
@@ -80,6 +81,7 @@ func DefaultScanningStrategyConfig() *ScanningStrategyConfig {
 		HeuristicsCheck: "basic",
 		ProfilesDir:     "~/.vigolium/profiles/",
 		Session:         *DefaultSessionStrategyConfig(),
+		ScanLogs:        *DefaultScanLogsConfig(),
 		Lite: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          false,

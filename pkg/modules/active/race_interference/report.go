@@ -3,6 +3,8 @@ package race_interference
 import (
 	"fmt"
 	"strings"
+
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // FindingType represents the type of race condition finding.
@@ -36,6 +38,29 @@ type Finding struct {
 	WrongIdSeen string
 	Request     string
 	Response    string
+}
+
+// Severity returns the per-finding severity. Request Interference is demoted
+// to Suspect because divergence-only signals are noisy and frequently benign
+// (load-dependent latency, non-deterministic timestamps, cache warm-up).
+func (f *Finding) Severity() severity.Severity {
+	switch f.Type {
+	case FindingRequestInterference:
+		return severity.Suspect
+	default:
+		return ModuleSeverity
+	}
+}
+
+// Confidence returns the per-finding confidence. Request Interference is
+// downgraded to Tentative for the same reason as Severity above.
+func (f *Finding) Confidence() severity.Confidence {
+	switch f.Type {
+	case FindingRequestInterference:
+		return severity.Tentative
+	default:
+		return ModuleConfidence
+	}
 }
 
 // buildDescription generates a markdown description for the finding.

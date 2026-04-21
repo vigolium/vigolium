@@ -46,12 +46,8 @@ PHASE_REQUIREMENTS = {
             "codeql-artifacts/call-graph-slices.json",
             "codeql-artifacts/flow-paths-all-severities.md",
         ],
-        "kb_sections": ["Static Analysis Summary", "CodeQL Structural Analysis"],
-    },
-    5: {
-        # Phase 5 updates the KB in-place; Phase 5 Enrichment Notes section must be present
-        "files": [KB_FILE],
-        "kb_sections": ["Phase 5 Enrichment Notes"],
+        # Phase 4 now includes inline enrichment; all three sections must be present.
+        "kb_sections": ["Static Analysis Summary", "CodeQL Structural Analysis", "SAST Enrichment"],
     },
     6: {
         # Spec Gap Analysis section must exist (may be "None identified" if no specs found)
@@ -420,6 +416,43 @@ def lint_all(security_dir: str) -> tuple[bool, list[str]]:
                         errors.append(
                             f"findings-draft/{fname} has Verdict: VALID but was not promoted to archon/findings/"
                         )
+
+    # 5b. Finding completeness: every finding directory MUST have a non-empty report.md.
+    # This is the programmatic gate for Phase 11b (deep mode) and L6b (scan mode) —
+    # finding-reporter is responsible for authoring report.md, and it must run before
+    # report-assembler. A missing or stub report.md here is a real regression.
+    REPORT_MIN_BYTES = 500
+    if os.path.isdir(findings_dir):
+        for entry in sorted(os.listdir(findings_dir)):
+            fdir = os.path.join(findings_dir, entry)
+            if not os.path.isdir(fdir):
+                continue
+            # Only enforce for severity-prefixed finding directories (C*, H*, M*).
+            if not (entry[:1] in ("C", "H", "M") and len(entry) > 1 and entry[1:2].isdigit()):
+                continue
+            report_path = os.path.join(fdir, "report.md")
+            if not os.path.isfile(report_path):
+                errors.append(
+                    f"findings/{entry}/report.md is missing — Phase 11b/L6b finding-reporter "
+                    f"must author it before report-assembler runs."
+                )
+                continue
+            try:
+                size = os.path.getsize(report_path)
+            except OSError as e:
+                errors.append(f"findings/{entry}/report.md unreadable: {e}")
+                continue
+            if size < REPORT_MIN_BYTES:
+                errors.append(
+                    f"findings/{entry}/report.md is too small ({size} bytes, min "
+                    f"{REPORT_MIN_BYTES}) — likely a stub. Re-run finding-reporter."
+                )
+            # Also require draft.md — every promoted finding should have it.
+            if not os.path.isfile(os.path.join(fdir, "draft.md")):
+                errors.append(
+                    f"findings/{entry}/draft.md is missing — consolidation should have "
+                    f"copied it from findings-draft/."
+                )
 
     # 6. Stale separate report files must not exist (consolidated into knowledge-base-report.md)
     for stale in STALE_FILES:
