@@ -67,6 +67,25 @@ const (
 	FindingSourceArchon            = "archon"
 )
 
+// Status constants represent the lifecycle state of a Finding.
+//
+// Lifecycle:
+//
+//	draft ──triage──▶ triaged ──fix──▶ fixed
+//	             ╲──▶ false_positive
+//	             ╲──▶ accepted_risk
+//
+// Trust model: deterministic engines (native scan, SAST tools) produce
+// findings as `triaged`. LLM/agent-driven and externally imported findings
+// land as `draft` and require triage to be promoted.
+const (
+	StatusDraft         = "draft"
+	StatusTriaged       = "triaged"
+	StatusFalsePositive = "false_positive"
+	StatusAcceptedRisk  = "accepted_risk"
+	StatusFixed         = "fixed"
+)
+
 // SourceType constants classify how source code was provided.
 const (
 	SourceTypeLocal  = "local"
@@ -253,7 +272,7 @@ type Finding struct {
 	Tags          []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
 
 	// Finding lifecycle
-	Status      string `bun:"status,nullzero,default:'open'" json:"status,omitempty"` // open, confirmed, false_positive, accepted_risk, fixed
+	Status      string `bun:"status,nullzero,default:'triaged'" json:"status,omitempty"` // draft, triaged, false_positive, accepted_risk, fixed
 	Remediation string `bun:"remediation,nullzero" json:"remediation,omitempty"`
 
 	// Classification

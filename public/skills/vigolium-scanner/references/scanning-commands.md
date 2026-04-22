@@ -25,7 +25,10 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 | `--output` | `-o` | string | — | Write findings to specified output file |
 | `--stats` | — | bool | `false` | Show live progress stats during scanning |
 | `--include-response` | — | bool | `false` | Include full HTTP response body in output |
-| `--stateless` | — | bool | `false` | Use a temporary database, export results to --output, then discard |
+| `--stateless` | — | bool | `false` | Use a temporary database, export results to `--output`, then discard |
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
+
+Stateless mode is great for ephemeral CI/CD runs — it creates a temp SQLite file, runs the full scan against it, writes the export/report to `--output`, then deletes the DB (including WAL/SHM sidecars). Requires `--output`; mutually exclusive with `--db`. Combine with `--format jsonl` or `--format html` for shareable artifacts.
 
 ### Request flags (scan & run)
 
@@ -59,6 +62,8 @@ Run a full vulnerability scan pipeline. Supports multiple targets, input formats
 |------|------|---------|-------------|
 | `--discover` | bool | `false` | Enable content discovery phase before scanning |
 | `--discover-max-time` | duration | `1h` | Max time for content discovery per target |
+| `--fuzz-wordlist` | string | — | Custom fuzz wordlist path (enables fuzzing during discovery) |
+| `--no-prefix-breaker` | bool | `false` | Disable per-prefix circuit breaker that stops trap-directory recursion |
 
 ### Browser Spidering flags (scan & run)
 
@@ -332,9 +337,16 @@ vigolium run audit -t https://example.com
 
 - Default: `--heuristics-check basic`
 - Levels: `none`, `basic`, `advanced`
+- `basic` probes target root pages to detect content type (HTML / JSON / blank) and skips spidering for non-HTML targets
+- `advanced` adds deep HTML analysis to detect SPA frameworks and optimize phase selection
+- `none` runs all enabled phases unconditionally
 - `--skip-heuristics` is shorthand for `--heuristics-check=none`
 - `--only` automatically disables heuristics
 - Precedence: `--skip-heuristics` > `--heuristics-check` > config > `basic`
+
+### Intensity Presets
+
+`--intensity quick|balanced|deep` is a cross-cutting preset that maps to a scanning profile + strategy. It is also honored by `agent autopilot` and `agent swarm` with backend-specific defaults. Explicit flags always override the preset — e.g. `--intensity deep --scanning-profile foo` applies `deep`'s strategy but your custom profile.
 
 ### Scanning Pace
 

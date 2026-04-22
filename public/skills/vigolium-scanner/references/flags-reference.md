@@ -13,9 +13,11 @@ Alphabetical index of all vigolium CLI flags across all commands.
 - [Agent Flags](#agent-flags)
 - [Agent Query Flags](#agent-query-flags)
 - [Agent Autopilot Flags](#agent-autopilot-flags)
-- [Agent Pipeline Flags](#agent-pipeline-flags)
 - [Agent Swarm Flags](#agent-swarm-flags)
+- [Agent Archon Flags](#agent-archon-flags)
 - [Agent Session Flags](#agent-session-flags)
+- [Log Flags](#log-flags)
+- [Import Flags](#import-flags)
 - [Finding Flags](#finding-flags)
 - [Traffic Flags](#traffic-flags)
 - [DB Flags](#db-flags)
@@ -54,8 +56,10 @@ Persistent flags available on every command.
 | `--list-modules` | `-M` | bool | `false` | List scanner modules |
 | `--log-file` | — | string | — | Write logs to file (JSON format) |
 | `--max-host-error` | — | int | `30` | Skip host after N consecutive errors |
-| `--max-per-host` | — | int | `2` | Max concurrent requests per host |
-| `--max-findings-per-module` | — | int | `15` | Stop reporting after N findings per module (0 = unlimited) |
+| `--max-per-host` | — | int | `30` | Max concurrent requests per host |
+| `--max-findings-per-module` | — | int | `10` | Stop reporting after N findings per module (0 = unlimited) |
+| `--intensity` | — | string | — | Scan intensity preset: `quick`, `balanced`, or `deep` (maps to scanning profile + strategy) |
+| `--native-scan-on-receive` | — | bool | `false` | Run the full native scan pipeline continuously on received records |
 | `--module-tag` | — | []string | — | Filter modules by tag (OR condition, repeatable) |
 | `--modules` | `-m` | []string | `all` | Scanner modules to enable |
 | `--no-clustering` | — | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -124,6 +128,9 @@ Flags specific to `vigolium scan` and `vigolium run`.
 | `--stateless` | — | bool | `false` | Use a temporary database, export results to --output, then discard |
 | `--stats` | — | bool | `false` | Show live progress stats during scanning |
 | `--stream` | — | bool | `false` | Process targets as a stream without buffering or deduplication |
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
+| `--fuzz-wordlist` | — | string | — | Custom fuzz wordlist path (enables fuzzing during discovery) |
+| `--no-prefix-breaker` | — | bool | `false` | Disable per-prefix circuit breaker that stops trap-directory recursion |
 
 ---
 
@@ -230,40 +237,55 @@ Flags specific to `vigolium agent query`.
 
 ## Agent Autopilot Flags
 
-Flags specific to `vigolium agent autopilot`.
+Flags specific to `vigolium agent autopilot`. Also accepts a positional natural-language prompt.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
+| `--archon-mode` | — | string | `lite` | Archon audit mode: `lite`, `balanced`, `deep`, `mock` |
+| `--auth-required` | — | bool | `false` | Require auth/session preparation before the autonomous operator starts |
+| `--browser` | — | bool | `false` | Enable agent-browser for browser-based interactions |
+| `--browser-start-url` | — | string | — | Explicit browser/login start URL for auth preflight |
+| `--credentials` | — | string | — | Credentials for auth preflight (e.g. `admin/admin123, compare user/user123`) |
+| `--diff` | — | string | — | Focus on changed code: PR URL, git ref range, or `HEAD~N` |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
-| `--files` | — | []string | — | Specific files to include (relative to --source) |
+| `--files` | — | []string | — | Specific files to include (relative to `--source`) |
 | `--focus` | — | string | — | Focus area hint |
-| `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL) |
+| `--focus-routes` | — | []string | — | Protected or browser-focused routes to prioritize after auth |
+| `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL) |
 | `--instruction` | — | string | — | Custom instruction to guide the agent |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` |
+| `--last-commits` | — | int | `0` | Focus on last N commits (shorthand for `--diff HEAD~N`) |
 | `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
 | `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough |
-| `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
+| `--mcp-server` | — | []string | — | MCP servers to attach (`name=command,arg1,arg2` or `name=http://url`) |
+| `--no-archon` | — | bool | `false` | Disable automatic archon-audit (enabled by default when `--source` is set) |
+| `--requires-browser` | — | bool | `false` | Require browser-assisted auth/setup instead of HTTP-only preflight |
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
 | `--source` | — | string | — | Path to application source code |
 | `--target` | `-t` | string | — | Target URL |
 | `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
-
----
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage after completion |
 
 ---
 
 ## Agent Swarm Flags
 
-Flags specific to `vigolium agent swarm`.
+Flags specific to `vigolium agent swarm`. Also accepts a positional natural-language prompt.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
+| `--archon` | — | string | — | Run background archon-audit in parallel: `lite` (default if bare), `scan`, `deep`. Requires `--source` |
+| `--auth` | — | bool | `false` | Run browser-based auth phase before discovery (requires `--browser`) |
 | `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto) |
-| `--code-audit` | — | bool | `false` | Enable AI security code audit phase |
+| `--browser` | — | bool | `false` | Enable agent-browser for browser-based auth capture |
+| `--code-audit` | — | bool | auto | Enable AI security code audit phase (on by default when `--source` is set) |
+| `--credentials` | — | string | — | Credentials for browser auth phase |
 | `--custom-agent` | — | []string | — | Custom agents the swarm can invoke (repeatable) |
+| `--diff` | — | string | — | Focus on changed code: PR URL, git ref range, or `HEAD~N` |
 | `--discover` | — | bool | `false` | Run discovery+spidering before master agent planning |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
 | `--files` | — | []string | — | Specific source files to include |
@@ -271,6 +293,8 @@ Flags specific to `vigolium agent swarm`.
 | `--input` | — | string | — | Raw input |
 | `--instruction` | — | string | — | Custom instruction to guide the agent |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` |
+| `--last-commits` | — | int | `0` | Focus on last N commits |
 | `--master-batch-size` | — | int | `5` | Max records per master agent batch |
 | `--max-commands` | — | int | `50` | Max terminal commands per session |
 | `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
@@ -290,10 +314,24 @@ Flags specific to `vigolium agent swarm`.
 | `--source-analysis-only` | — | bool | `false` | Run only the source analysis phase and exit |
 | `--start-from` | — | string | — | Resume from a specific phase |
 | `--sub-agent-concurrency` | — | int | `3` | Max parallel source analysis sub-agents |
-| `--swarm-duration` | — | duration | `12h` | Maximum swarm duration |
-| `--target` | `-t` | string | — | Target URL |
-| `--triage` | — | bool | `false` | Enable AI triage and rescan phases (disabled by default) |
+| `--swarm-duration` | — | duration | `12h` | Maximum swarm duration (0 = unlimited) |
+| `--target` | `-t` | string | — | Target URL (required when `--source` is used) |
+| `--triage` | — | bool | `false` | Enable AI triage and rescan phases |
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage |
 | `--vuln-type` | — | string | — | Vulnerability type focus |
+
+---
+
+## Agent Archon Flags
+
+Flags specific to `vigolium agent archon`.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--agent` | — | string | `claude` | Agent platform: `claude`, `codex`, `opencode` |
+| `--mode` | — | string | `deep` | Audit mode: `lite`, `balanced` (alias `scan`), `deep`, `revisit`, `confirm`, `merge`, `diff`, `status`, `mock` |
+| `--no-stream` | — | bool | `false` | Don't echo agent output to the console (still written to `{session}/runtime.log`) |
+| `--source` | — | string | `.` | Local directory or git URL to audit |
 
 ---
 
@@ -304,8 +342,31 @@ Flags specific to `vigolium agent session`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--limit` | `-n` | int | `50` | Maximum number of records to display |
-| `--mode` | — | string | — | Filter by mode (query, autopilot, pipeline, swarm) |
+| `--mode` | — | string | — | Filter by mode (query, autopilot, swarm, archon) |
 | `--offset` | `-o` | int | `0` | Number of records to skip |
+| `--tail` | — | int | `50` | Number of raw output lines to show in detail view (0 = none, -1 = all) |
+| `--full` | — | bool | `false` | Show full raw output (shortcut for `--tail -1`) |
+| `--tui` / `--no-tui` | — | bool | — | Enable / force-disable interactive TUI picker |
+
+---
+
+## Log Flags
+
+Flags specific to `vigolium log` and `vigolium log ls`.
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--tail` | `-n` | int | `200` | Show the last N lines (0 = none, -1 = all) |
+| `--full` | — | bool | `false` | Show the full log (shortcut for `--tail -1`) |
+| `--follow` | `-f` | bool | `false` | Follow log output as it is written. Auto-enabled when the session is still running unless `--follow=false` is set |
+| `--strip-ansi` | — | bool | `false` | Strip ANSI color codes from output |
+| `--tui` / `--no-tui` | — | bool | — | Enable / force-disable the interactive picker |
+
+---
+
+## Import Flags
+
+`vigolium import <path>` has no additional flags beyond the global project/JSON flags. Path may be an archon output folder (directory) or a JSONL export (file).
 
 ---
 

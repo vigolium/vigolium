@@ -1,9 +1,13 @@
 # Data & Management Commands Reference
 
-Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, `scope`, `source`, `session`, `project`, `strategy`, `export`, and `version` commands.
+Complete reference for `init`, `import`, `log`, `doctor`, `db`, `finding`, `module`, `extensions` (alias `ext`), `js`, `config`, `scope`, `source`, `session`, `project`, `strategy`, `export`, and `version` commands.
 
 ## Table of Contents
 
+- [init](#init)
+- [import](#import)
+- [log](#log)
+- [doctor](#doctor)
 - [db](#db)
 - [db list / ls](#db-list)
 - [db stats](#db-stats)
@@ -17,12 +21,124 @@ Complete reference for `db`, `finding`, `module`, `extensions`, `js`, `config`, 
 - [extensions](#extensions)
 - [js](#js)
 - [config](#config)
+- [config clean](#config-clean)
 - [scope](#scope)
 - [source](#source)
 - [session](#session)
 - [project](#project)
 - [strategy](#strategy)
 - [version](#version)
+
+---
+
+## init
+
+**Usage:** `vigolium init [--force]`
+
+Create `~/.vigolium/` with a default config file (including a freshly generated API key), database schema, default scanning profiles, prompt templates, JavaScript extensions, and SAST rules. Idempotent: skips components that already exist unless `--force` is passed.
+
+With `--force`, the existing config is rewritten with a new API key and the preset directories (`profiles/`, `extensions/`, `prompts/`, `sast-rules/astgrep/`) are re-extracted from the embedded assets.
+
+```bash
+vigolium init
+vigolium init --force   # regenerate API key + re-extract preset data
+```
+
+Output (on success):
+
+```
+✓ Vigolium initialized successfully!
+  ℹ Config:   ~/.vigolium/vigolium-configs.yaml
+  ℹ Database: ~/.vigolium/database-vgnm.sqlite
+  ℹ Docs:     https://docs.vigolium.com
+```
+
+---
+
+## import
+
+**Usage:** `vigolium import <path>`
+
+Import scan data into the current project's database. Two input formats are supported (auto-detected by path type):
+
+- **Archon audit folder** (directory): contains `audit-state.json` and `findings-draft/`. Creates a new `agentic_scan` row plus all findings; severity breakdown is printed on completion.
+- **JSONL file** (regular file): each line is a JSON object wrapped in an envelope like `{"type": "http_record", "data": {...}}` or `{"type": "finding", "data": {...}}`. This matches the output of `vigolium export --format jsonl`. Records are saved via `SaveRecordsBatch` (batch size 500); findings are deduplicated on save.
+
+```bash
+vigolium import /path/to/archon-output-harbor/    # archon audit folder
+vigolium import scan-results.jsonl                 # JSONL export
+vigolium import /tmp/demo/juice-shop.jsonl
+```
+
+Notes:
+- Imported findings inherit the current project's UUID and default `finding_source = "import"` when the field is empty.
+- Unknown envelope types are counted and reported at the end (e.g. for forward-compatibility).
+- Use `--project-id` / `--project-name` (or `VIGOLIUM_PROJECT`) to target a specific project.
+
+---
+
+## log
+
+**Usage:** `vigolium log [uuid] [flags]`
+
+View raw `runtime.log` for a native scan or agentic scan session. When called without a UUID, behaves like `log ls` and lists all sessions.
+
+### Log resolution order
+
+1. Agentic session file: `~/.vigolium/agent-sessions/<uuid>/runtime.log`
+2. Native session file: `~/.vigolium/native-sessions/<uuid>/runtime.log`
+3. DB fallback: `scan_logs` table (used when `scanning_strategy.scan_logs.persist_logs` is disabled)
+
+The legacy `run.log` filename is also resolved for older sessions. Agent archon child runs whose UUID does not match a session directory fall back to their parent's `SessionDir` column.
+
+### log flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--tail` | `-n` | int | `200` | Show the last N lines (0 = none, -1 = all) |
+| `--full` | — | bool | `false` | Show the full log (shortcut for `--tail -1`) |
+| `--follow` | `-f` | bool | `false` | Follow log output as it is written (tail -f). Auto-enabled when the session is still running, unless `--follow=false` is set explicitly |
+| `--strip-ansi` | — | bool | `false` | Strip ANSI color codes from output |
+| `--tui` / `--no-tui` | — | bool | — | Enable / force-disable interactive picker (affects `log ls` behaviour) |
+
+### log ls
+
+`vigolium log ls` prints a merged table of native + agentic sessions (kind, UUID, status, target, log availability, size, creation time). Status is color-coded. A tip at the bottom shows how to tail a specific UUID.
+
+### Examples
+
+```bash
+# Table of sessions
+vigolium log ls
+vigolium log                               # same as `log ls`
+
+# Interactive picker
+vigolium log --tui
+
+# Stream a session's log, auto-following if it's still running
+vigolium log 550e8400-e29b-41d4-a716-446655440000
+
+# Tail the last 500 lines
+vigolium log <uuid> --tail 500
+
+# Full log, no follow, strip ANSI for grep
+vigolium log <uuid> --full --strip-ansi | grep -i sqli
+
+# Force follow
+vigolium log <uuid> -f
+```
+
+---
+
+## doctor
+
+**Usage:** `vigolium doctor`
+
+Run a health check on the installation: verifies the config and database paths, external binaries (`claude`, `codex`, `opencode`, `ast-grep`, `nuclei`, `kingfisher`), directory permissions, and extracted preset data. Use this after `vigolium init` or when an `agent` backend refuses to launch.
+
+```bash
+vigolium doctor
+```
 
 ---
 
@@ -561,6 +677,30 @@ vigolium config set notify.enabled true
 ```
 
 Config file location: `~/.vigolium/vigolium-configs.yaml`
+
+---
+
+## config clean
+
+**Usage:** `vigolium config clean [-F/--force]`
+
+Reset Vigolium to a clean state: remove the entire `~/.vigolium/` directory (config, database, extensions, prompts, SAST rules, session directories) and regenerate fresh defaults by running the same bootstrap as `vigolium init`.
+
+Prompts for `yes` confirmation unless `-F/--force` is passed.
+
+```bash
+vigolium config clean
+vigolium config clean -F            # skip confirmation
+```
+
+Warning shown:
+
+```
+✗ Warn: This will remove ~/.vigolium (config, database, and all local data)
+Proceed? (type 'yes' to confirm):
+```
+
+Use this at the start of a new engagement or when an installation has drifted out of sync with the binary. After cleaning, the default API key is regenerated and all preset data (profiles, prompts, extensions, SAST rules, archon-audit harness) is re-extracted.
 
 ---
 

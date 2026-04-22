@@ -1,6 +1,6 @@
 # Agent Commands Reference
 
-Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent swarm`, and `agent session` commands.
+Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent swarm`, `agent archon`, and `agent session` commands.
 
 ## Table of Contents
 
@@ -8,7 +8,9 @@ Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent sw
 - [agent query](#agent-query)
 - [agent autopilot](#agent-autopilot)
 - [agent swarm](#agent-swarm)
+- [agent archon](#agent-archon)
 - [agent session](#agent-session)
+- [Intensity Presets](#intensity-presets)
 - [Prompt Templates](#prompt-templates)
 - [Agent Configuration](#agent-configuration)
 - [Output Schemas](#output-schemas)
@@ -27,10 +29,11 @@ The parent command only supports `--list-templates` and `--list-agents` flags �
 
 | Subcommand | Description |
 |------------|-------------|
+| `archon` | Foreground multi-phase archon-audit of source code (lite/balanced/deep/revisit/confirm/merge/diff/status/mock) |
 | `autopilot` | Autonomous scanning with a single operator session over prepared context |
 | `query` | Single-shot prompt execution with template-based or inline prompts |
 | `session` | List or inspect agent run sessions |
-| `swarm` | AI-guided vulnerability scanning with native scan support |
+| `swarm` | AI-guided vulnerability scanning (targeted or full-scope with `--discover`) |
 
 ### agent flags
 
@@ -127,31 +130,66 @@ vigolium agent query --prompt-template security-code-review --source ./src \
 
 ## agent autopilot
 
-**Usage:** `vigolium agent autopilot [flags]`
+**Usage:** `vigolium agent autopilot [prompt] [flags]`
 
 Launch an AI agent that autonomously discovers, scans, and triages vulnerabilities by driving the vigolium CLI. With SDK protocol (default), the agent gets full coding agent tools (Read, Grep, Glob, Bash, Edit, Write).
 
-Autopilot runs a **single autonomous operator session**. When source is available, Archon runs first, the whitebox context is prepared natively, and then one operator agent handles recon, validation, scanning, exploit attempts, and reporting.
+Autopilot runs a **single autonomous operator session**. When source is available, archon-audit runs first, the whitebox context is prepared natively, and then one operator agent handles recon, validation, scanning, exploit attempts, and reporting. Disable with `--no-archon`.
+
+### Positional prompt
+
+A positional natural-language prompt is parsed by the AI to extract target URLs, source paths, and focus areas — an alternative to setting `--target`/`--source` explicitly.
+
+```bash
+vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
+vigolium agent autopilot "test auth bypass on https://app.example.com"
+```
+
+Use `--dry-run` to preview what the parser extracts without executing.
+
+### Supported `--input` types (auto-detected)
+
+| Type | Example |
+|------|---------|
+| URL | `https://example.com/api/login` |
+| Curl | `curl -X POST https://example.com/api -d '{"user":"admin"}'` |
+| Raw HTTP | `POST /api HTTP/1.1\r\nHost: example.com\r\n...` |
+| Burp XML | `<?xml...><items>...</items>` |
+| Base64 | Base64-encoded raw HTTP (Burp base64 export) |
+
+When input is piped via stdin, it is automatically read (no `--input` needed). The target URL is extracted from the input when `--target` is not provided.
 
 ### agent autopilot flags
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
+| `--archon-mode` | — | string | `lite` | Archon audit mode: `lite` (3-phase), `balanced` (6-phase), `deep` (10-phase), `mock` |
+| `--auth-required` | — | bool | `false` | Require auth/session preparation before the autonomous operator starts |
+| `--browser` | — | bool | `false` | Enable agent-browser for browser-based interactions |
+| `--browser-start-url` | — | string | — | Explicit browser/login start URL for auth preflight |
+| `--credentials` | — | string | — | Credentials for auth preflight (e.g. `admin/admin123, compare user/user123`) |
+| `--diff` | — | string | — | Focus on changed code: PR URL, git ref range (`main...branch`), or `HEAD~N` |
 | `--dry-run` | — | bool | `false` | Render the system prompt without launching the agent |
-| `--files` | — | []string | — | Specific files to include (relative to --source) |
+| `--files` | — | []string | — | Specific files to include (relative to `--source`) |
 | `--focus` | — | string | — | Focus area hint (e.g. 'API injection', 'auth bypass') |
+| `--focus-routes` | — | []string | — | Protected or browser-focused routes to prioritize after auth |
 | `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
 | `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompt) |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` (see [Intensity Presets](#intensity-presets)) |
+| `--last-commits` | — | int | `0` | Focus on last N commits (shorthand for `--diff HEAD~N`) |
 | `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
 | `--mcp-enabled` | — | bool | `false` | Enable MCP server passthrough |
-| `--mcp-server` | — | []string | — | MCP servers to attach (format: name=command,arg1,arg2 or name=http://url) |
+| `--mcp-server` | — | []string | — | MCP servers to attach (format: `name=command,arg1,arg2` or `name=http://url`) |
+| `--no-archon` | — | bool | `false` | Disable automatic archon-audit (enabled by default when `--source` is set) |
+| `--requires-browser` | — | bool | `false` | Require browser-assisted auth/setup instead of HTTP-only preflight |
 | `--resume` | — | string | — | Resume from a previous session directory |
 | `--show-prompt` | — | bool | `false` | Print rendered prompt to stderr before executing |
 | `--source` | — | string | — | Path to application source code for source-aware scanning |
-| `--target` | `-t` | string | — | Target URL (derived from --input if not set) |
+| `--target` | `-t` | string | — | Target URL (derived from `--input` if not set) |
 | `--timeout` | — | duration | `6h` | Maximum duration for the autopilot session |
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
 
 ### Examples
 
@@ -206,46 +244,63 @@ Inputs are auto-detected from their content:
 | **Burp XML** | `<?xml...><items>...</items>` | Starts with `<?xml` or `<items` |
 | **Record UUID** | `550e8400-e29b-...` | Matches UUID format (8-4-4-4-12 hex) |
 
+### Positional prompt
+
+Like autopilot, swarm accepts a positional natural-language prompt that the AI parses to extract target URLs, source paths, and focus areas.
+
+```bash
+vigolium agent swarm "scan VAmPI source at ~/src/VAmPI on localhost:3005"
+vigolium agent swarm "scan all source code from ~/src/crAPI, ~/src/DVWA"
+```
+
 ### agent swarm flags
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent` | — | string | from config | Agent backend to use |
+| `--archon` | — | string | — | Run background archon-audit in parallel: `lite` (default if flag is bare), `scan`, `deep`. Requires `--source` |
+| `--auth` | — | bool | `false` | Run browser-based auth phase before discovery (requires `--browser`) |
 | `--batch-concurrency` | — | int | `0` | Max parallel master agent batches (0 = auto, scales with CPU count) |
-| `--code-audit` | — | bool | auto | Enable AI security code audit phase (on by default when --source is provided, use `--code-audit=false` to disable) |
-| `--custom-agent` | — | []string | — | Custom agents the swarm can invoke via 'vigolium agent query --agent=X' (repeatable) |
+| `--browser` | — | bool | `false` | Enable agent-browser for browser-based auth capture and interaction |
+| `--code-audit` | — | bool | auto | Enable AI security code audit phase (on by default when `--source` is provided; use `--code-audit=false` to disable) |
+| `--credentials` | — | string | — | Credentials for browser auth phase (e.g. `username=admin,password=secret`) |
+| `--custom-agent` | — | []string | — | Custom agents the swarm can invoke via `vigolium agent query --agent=X` (repeatable) |
+| `--diff` | — | string | — | Focus on changed code: PR URL, git ref range (`main...branch`), or `HEAD~N` |
 | `--discover` | — | bool | `false` | Run discovery+spidering before master agent planning to expand attack surface |
 | `--dry-run` | — | bool | `false` | Render prompts without executing |
-| `--files` | — | []string | — | Specific source files to include (relative to --source) |
+| `--files` | — | []string | — | Specific source files to include (relative to `--source`) |
 | `--focus` | — | string | — | Focus area hint for the agent (e.g. 'API injection', 'auth bypass') |
 | `--input` | — | string | — | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
 | `--instruction` | — | string | — | Custom instruction to guide the agent (appended to prompts) |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
+| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` (see [Intensity Presets](#intensity-presets)) |
+| `--last-commits` | — | int | `0` | Focus on last N commits (shorthand for `--diff HEAD~N`) |
 | `--master-batch-size` | — | int | `0` | Max records per master agent batch (0 = default 5) |
-| `--max-commands` | — | int | `0` | Max terminal commands per session (default: 50, only applies when --custom-agent is set) |
+| `--max-commands` | — | int | `0` | Max terminal commands per session (default 50, only applies when `--custom-agent` is set) |
 | `--max-iterations` | — | int | `3` | Maximum triage-rescan iterations |
 | `--max-master-retries` | — | int | `3` | Max master agent retries on parse failure |
 | `--max-plan-records` | — | int | `10` | Max records sent to plan agent (selects most interesting; 0 = no limit) |
 | `--max-probe-body` | — | int | `0` | Max response body size in bytes during probing (0 = default 2MB) |
 | `--modules` | `-m` | []string | — | Explicit module names to include |
-| `--only` | — | string | — | Run only this scanning phase (discovery, spidering, spa, audit, external-harvest) |
+| `--only` | — | string | — | Run only this scanning phase (discovery, spidering, spa, dynamic-assessment, external-harvest) |
 | `--probe-concurrency` | — | int | `0` | Max parallel probe requests (0 = default 10) |
 | `--probe-timeout` | — | duration | `0` | Per-request probe timeout (0 = default 10s) |
 | `--profile` | — | string | — | Scanning profile to use |
 | `--record-uuid` | — | string | — | HTTP record UUID from database |
 | `--show-prompt` | — | bool | `false` | Print rendered prompts to stderr before executing |
-| `--skip` | — | []string | — | Skip specific phases (discovery, spidering, spa, audit, external-harvest, triage, rescan) |
+| `--skip` | — | []string | — | Skip specific phases (discovery, spidering, spa, dynamic-assessment, external-harvest, triage, rescan) |
 | `--skip-sast` | — | bool | `false` | Skip native SAST tools (ast-grep, osv-scanner, semgrep) during source analysis |
 | `--source` | — | string | — | Path to application source code for route discovery |
 | `--source-analysis-only` | — | bool | `false` | Run only the source analysis phase and exit |
 | `--start-from` | — | string | — | Resume from a specific phase (native-normalize, source-analysis, code-audit, native-sast, native-discover, plan, native-extension, native-scan, triage) |
 | `--sub-agent-concurrency` | — | int | `3` | Max parallel source analysis sub-agents (routes, auth, extensions) |
 | `--swarm-duration` | — | duration | `12h` | Maximum swarm duration (0 = unlimited) |
-| `--target` | `-t` | string | — | Target URL (required when --source is used) |
+| `--target` | `-t` | string | — | Target URL (required when `--source` is used) |
 | `--triage` | — | bool | `false` | Enable AI triage and rescan phases (disabled by default) |
+| `--upload-results` | — | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
 | `--vuln-type` | — | string | — | Vulnerability type focus (e.g. sqli, xss, ssrf) |
 
-At least one input is required: `--target`, `--input`, `--record-uuid`, `--source`, or piped stdin. `--source` requires `--target` for hostname filtering.
+At least one input is required: `--target`, `--input`, `--record-uuid`, `--source`, or piped stdin. `--source` requires `--target` for hostname filtering. `--auth` requires `--browser`. `--archon` requires `--source`.
 
 ### Swarm Phases
 
@@ -337,7 +392,7 @@ The master agent produces a plan with three tiers of custom checks (lightest fir
 # Target a URL
 vigolium agent swarm -t https://example.com/api/users
 
-# Full-scope scan with discovery (replaces pipeline)
+# Full-scope scan with discovery
 vigolium agent swarm -t https://example.com --discover
 
 # Analyze a curl command
@@ -402,6 +457,66 @@ vigolium agent swarm -t https://example.com/api/users --agent codex
 
 ---
 
+## agent archon
+
+**Usage:** `vigolium agent archon [flags]`
+
+Foreground multi-phase AI security audit driven by the embedded `archon-audit` harness. Extracts the harness into the plugin dir, resolves `--source` (cloning git URLs via source-aware storage), launches the configured agent backend, and imports findings into the vigolium database.
+
+### agent archon flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--agent` | — | string | `claude` | Agent platform: `claude`, `codex`, `opencode` |
+| `--mode` | — | string | `deep` | Audit mode (see table below) |
+| `--no-stream` | — | bool | `false` | Don't echo agent output to the console (still written to `{session}/runtime.log`) |
+| `--source` | — | string | `.` | Local directory or git URL to audit |
+
+### Audit modes
+
+| Mode | Phases | Description |
+|------|-------:|-------------|
+| `lite` | 3 | Fast audit (secrets + SAST triage) |
+| `balanced` (alias `scan`) | 6 | Standard audit |
+| `deep` | 10 | Full chamber-protocol audit |
+| `revisit` | 9 | Second / Nth-pass on existing results |
+| `confirm` | 6 | PoC construction for confirmed findings |
+| `merge` | — | Normalize + renumber multiple audit result dirs |
+| `diff` | — | Incremental audit over changed files only |
+| `status` | — | Read-only progress check on an existing run (no agent launched) |
+| `mock` | — | Write a sample `audit-state.json` (no agent launched) |
+
+### Examples
+
+```bash
+# Deep local audit
+vigolium agent archon --mode deep --source .
+
+# Quick lite audit of a GitHub repo (auto-clones)
+vigolium agent archon --mode lite --source https://github.com/org/repo
+
+# Balanced 6-phase audit with Codex
+vigolium agent archon --mode balanced --agent codex --source ~/code/myapp
+
+# Revisit existing audit results
+vigolium agent archon --mode revisit --source ./prior-audit-tree
+
+# PoC construction on confirmed findings
+vigolium agent archon --mode confirm --source ./audit-with-findings
+
+# Progress check on an in-progress audit (no agent launched)
+vigolium agent archon --mode status --source ./in-progress-audit
+
+# Silent console, still persist runtime.log
+vigolium agent archon --mode deep --source . --no-stream
+```
+
+### Session artifacts
+
+All audit output is synced into the agent session directory (`~/.vigolium/agent-sessions/<uuid>/archon-audit/`). Detail view (`vigolium agent session <uuid>`) renders phase breakdown, commit/branch, finding severity counts, notable reports (`knowledge-base-report.md`, `final-audit-report.md`, `commit-recon-report.md`, `attack-pattern-registry.json`), and cost breakdown when the backend supports it.
+
+---
+
 ## agent session
 
 **Usage:** `vigolium agent session [uuid] [flags]`
@@ -416,7 +531,14 @@ List or inspect agent run sessions. Without arguments, lists all agent run sessi
 |------|-------|------|---------|-------------|
 | `--limit` | `-n` | int | `50` | Maximum number of records to display |
 | `--offset` | `-o` | int | `0` | Number of records to skip |
-| `--mode` | — | string | — | Filter by mode (query, autopilot, pipeline, swarm) |
+| `--mode` | — | string | — | Filter by mode (query, autopilot, swarm, archon) |
+| `--tail` | — | int | `50` | Number of raw output lines to show in detail view (0 = none, -1 = all) |
+| `--full` | — | bool | `false` | Show full raw output (shortcut for `--tail -1`) |
+| `--tui` / `--no-tui` | — | bool | — | Enable / force-disable interactive TUI picker |
+
+### Detail view
+
+When given a session UUID, `agent session <uuid>` prints: basic info (mode, agent, target, source, parent run), timing, results (findings, records, phases run, current phase), input, prompt, archon audit stats (for archon mode), attack/swarm plan, session auth configs, token usage, triage results, errors, module names, session directory listing, extensions, a tail of raw output, and any child runs spawned by the session.
 
 ### Examples
 
@@ -429,9 +551,45 @@ vigolium agent session -n 20 -o 40
 
 # Filter by mode
 vigolium agent session --mode swarm
+vigolium agent session --mode archon
 
-# Show details for a specific session
-vigolium agent session agt-550e8400-e29b-41d4-a716-446655440000
+# Show details for a specific session (last 50 lines of output)
+vigolium agent session 550e8400-e29b-41d4-a716-446655440000
+
+# Full raw output
+vigolium agent session <uuid> --full
+
+# Interactive picker
+vigolium agent session --tui
+```
+
+---
+
+## Intensity Presets
+
+Both `agent autopilot` and `agent swarm` accept `--intensity` to bundle multiple defaults into a single flag. Explicit flags always override the preset.
+
+### Autopilot intensity
+
+| Preset | Max Commands | Timeout | Archon Mode | Browser |
+|--------|-------------:|--------:|-------------|:-------:|
+| `quick` | 30 | 1h | `lite` | off |
+| `balanced` (default) | 100 | 6h | `balanced` (6-phase) | off |
+| `deep` | 300 | 12h | `deep` (10-phase) | on |
+
+### Swarm intensity
+
+| Preset | Discover | Triage | Code Audit | Browser | Duration | Max Iterations |
+|--------|:--------:|:------:|:----------:|:-------:|---------:|---------------:|
+| `quick` | off | off | off | off | 2h | 1 |
+| `balanced` (default) | off | off | if `--source` | off | 12h | 3 |
+| `deep` | on | on | on | on | 24h | 5 |
+
+Example — use a preset, then override one setting:
+
+```bash
+vigolium agent swarm -t https://example.com --source ./src --intensity deep --triage=false
+vigolium agent autopilot -t https://example.com --intensity deep --timeout 4h
 ```
 
 ---
@@ -580,7 +738,7 @@ Used for endpoint discovery and scan target generation. Each record has:
 
 ### attack_plan
 
-Used by pipeline phase 2 (Plan). Contains:
+Used by the swarm plan phase. Contains:
 - `module_tags`, `module_ids` — which modules to run
 - `focus_areas`, `skip_paths` — scanning guidance
 - `endpoints` — prioritized targets with rationale

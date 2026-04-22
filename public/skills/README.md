@@ -8,7 +8,7 @@ Claude Code skill for operating the [Vigolium](https://www.vigolium.com/) web vu
 
 - **Multi-phase scanning** — discovery, spidering, SPA analysis, audit, and SAST
 - **Flexible input** — scan URLs directly, or import from OpenAPI specs, Burp exports, HAR files, cURL commands, and more
-- **AI agent modes** — autonomous scanning, multi-phase pipelines, and AI-assisted code review
+- **AI agent modes** — autonomous scanning (autopilot, swarm), foreground archon audits, and AI-assisted code review
 - **Extensible** — write custom scanner modules in JavaScript
 - **Source-aware** — whitebox scanning that combines static analysis with dynamic testing
 
@@ -50,7 +50,7 @@ The skill teaches the AI agent how to:
 3. **Follow scanning workflows** end-to-end (ingest → scan → triage → export)
 4. **Write custom JavaScript extensions** using the `vigolium.*` API
 5. **Execute ad-hoc JavaScript** with `vigolium js` for scripting and automation
-6. **Operate AI agent modes** (query, autopilot, pipeline, swarm)
+6. **Operate AI agent modes** (query, autopilot, swarm, archon)
 7. **Manage data** — browse traffic, filter findings, export reports, clean databases
 
 The skill uses lazy-loaded references: the main `SKILL.md` stays small, and detailed docs are loaded on demand when the agent needs deep flag information or extension authoring guidance.
@@ -65,7 +65,7 @@ skills/vigolium-scanner/
 └── references/
     ├── scanning-commands.md              # scan, scan-url, scan-request, run
     ├── server-and-ingestion.md           # server, ingest, traffic, traffic replay
-    ├── agent-commands.md                 # agent, agent query, autopilot, pipeline, swarm
+    ├── agent-commands.md                 # agent, agent query, autopilot, swarm, archon, session
     ├── data-and-management.md            # db, module, ext, js, config, scope, source, export
     ├── flags-reference.md                # Complete alphabetical flag index
     ├── session-auth-config.md            # Auth config YAML format, extract rules
@@ -558,14 +558,16 @@ vigolium ingest -t https://example.com -I burp -i export.xml --disable-fetch-res
 
 ### 6. AI Agent Modes
 
-#### Agent (Template-Based)
+#### Agent Query (Template-Based Code Review)
+
+Template-based code review + endpoint discovery runs through the `query` subcommand. The parent `vigolium agent` only supports `--list-templates` and `--list-agents`.
 
 **Security code review:**
 ```
 > Review my source code for security vulnerabilities
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src
+vigolium agent query --prompt-template security-code-review --source ./src
 ```
 
 **Endpoint discovery from source:**
@@ -573,7 +575,7 @@ vigolium agent --prompt-template security-code-review --source ./src
 > Find all API endpoints in my source code
 ```
 ```bash
-vigolium agent --prompt-template endpoint-discovery --source ./src
+vigolium agent query --prompt-template endpoint-discovery --source ./src
 ```
 
 **Review specific files only:**
@@ -581,7 +583,7 @@ vigolium agent --prompt-template endpoint-discovery --source ./src
 > Review only auth.go and middleware.go for security issues
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --files "src/auth.go,src/middleware.go"
 ```
 
@@ -590,7 +592,7 @@ vigolium agent --prompt-template security-code-review --source ./src \
 > Code review, but focus on authentication and authorization
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --append "Focus specifically on authentication and authorization vulnerabilities"
 ```
 
@@ -599,7 +601,7 @@ vigolium agent --prompt-template security-code-review --source ./src \
 > Run the agent with my own prompt template
 ```
 ```bash
-vigolium agent --prompt-file custom-prompt.md --source ./src
+vigolium agent query --prompt-file custom-prompt.md --source ./src
 ```
 
 **Select a specific agent backend:**
@@ -607,7 +609,7 @@ vigolium agent --prompt-file custom-prompt.md --source ./src
 > Use the Claude backend for code review
 ```
 ```bash
-vigolium agent --agent claude --prompt-template security-code-review --source ./src
+vigolium agent query --agent claude --prompt-template security-code-review --source ./src
 ```
 
 **Dry-run to preview the rendered prompt:**
@@ -615,7 +617,7 @@ vigolium agent --agent claude --prompt-template security-code-review --source ./
 > Show me what prompt would be sent to the agent
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src --dry-run
+vigolium agent query --prompt-template security-code-review --source ./src --dry-run
 ```
 
 **Save agent output to a file:**
@@ -623,7 +625,7 @@ vigolium agent --prompt-template security-code-review --source ./src --dry-run
 > Save the review results to a JSON file
 ```
 ```bash
-vigolium agent --prompt-template security-code-review --source ./src \
+vigolium agent query --prompt-template security-code-review --source ./src \
   --output review-results.json
 ```
 
@@ -702,12 +704,22 @@ vigolium agent query --agent-timeout 10m 'comprehensive security review of all h
 
 #### Agent Autopilot (Autonomous Scanning)
 
+Autopilot runs a single autonomous operator session that drives the vigolium CLI. When `--source` is set, archon-audit runs first to build whitebox context, then the operator takes over. Use `--intensity quick|balanced|deep` to bundle limits, timeout, archon mode, and browser into one flag. Default timeout is `6h`.
+
 **Basic autonomous scan:**
 ```
 > Let the AI autonomously scan the target
 ```
 ```bash
 vigolium agent autopilot -t https://example.com
+```
+
+**Natural-language prompt (target/source/focus auto-extracted):**
+```
+> Scan VAmPI source at ~/src/VAmPI running on localhost:3005
+```
+```bash
+vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 ```
 
 **With source code context and focus area:**
@@ -718,12 +730,51 @@ vigolium agent autopilot -t https://example.com
 vigolium agent autopilot -t https://api.example.com --source ./src --focus "auth bypass"
 ```
 
-**Custom limits (fewer commands, shorter timeout):**
+**Intensity presets (quick/balanced/deep):**
+```
+> Fast autopilot for CI; deep autopilot for a pentest
+```
+```bash
+vigolium agent autopilot -t https://example.com --source ./src --intensity quick   # 30 cmds, 1h
+vigolium agent autopilot -t https://example.com --intensity deep                    # 300 cmds, 12h, browser
+```
+
+**Scan only a PR diff or recent commits:**
+```
+> Scan the last 3 commits / a PR branch
+```
+```bash
+vigolium agent autopilot -t https://example.com --source ./src --last-commits 3
+vigolium agent autopilot -t https://example.com --source ./src --diff main...feature-branch
+```
+
+**Browser-based auth preflight:**
+```
+> Log in via the browser before autopilot starts
+```
+```bash
+vigolium agent autopilot -t https://example.com --browser --credentials "admin/admin123"
+vigolium agent autopilot -t https://example.com --browser --auth-required \
+  --browser-start-url https://example.com/login
+```
+
+**Disable or tune archon-audit (runs by default when --source is set):**
+```bash
+vigolium agent autopilot -t https://example.com --source ./src --no-archon
+vigolium agent autopilot -t https://example.com --source ./src --archon-mode deep
+```
+
+**Custom limits (explicit override of presets):**
 ```
 > Limit the agent to 50 commands and 15 minutes
 ```
 ```bash
 vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
+```
+
+**Upload results to cloud storage:**
+```bash
+vigolium agent autopilot -t https://example.com --source ./src --upload-results
 ```
 
 **Preview the system prompt (dry run):**
@@ -734,14 +785,6 @@ vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
 vigolium agent autopilot -t https://example.com --dry-run
 ```
 
-**Custom system prompt:**
-```
-> Use my own system prompt for autopilot
-```
-```bash
-vigolium agent autopilot -t https://example.com --system-prompt my-system-prompt.md
-```
-
 **Use a different agent backend:**
 ```
 > Run autopilot with Codex
@@ -750,7 +793,16 @@ vigolium agent autopilot -t https://example.com --system-prompt my-system-prompt
 vigolium agent autopilot -t https://example.com --agent codex
 ```
 
+**Resume a previous session or attach MCP servers:**
+```bash
+vigolium agent autopilot --resume ~/.vigolium/agent-sessions/<uuid>
+vigolium agent autopilot -t https://example.com --mcp-enabled \
+  --mcp-server "playwright=npx,-y,@anthropic-ai/mcp-server-playwright"
+```
+
 #### Agent Swarm (Full-Scope and Targeted)
+
+Swarm is AI-guided scanning — targeted by default, full-scope with `--discover`. Intensity presets (`--intensity quick|balanced|deep`) bundle discovery, triage, code-audit, browser, duration, and iteration defaults. Explicit flags override. Default swarm duration is `12h`; set with `--swarm-duration`.
 
 **Deep analysis of a single endpoint:**
 ```
@@ -758,6 +810,14 @@ vigolium agent autopilot -t https://example.com --agent codex
 ```
 ```bash
 vigolium agent swarm -t https://example.com/api/users
+```
+
+**Natural-language prompt:**
+```
+> Scan source at ~/src/app running on localhost:3005
+```
+```bash
+vigolium agent swarm "scan source at ~/src/app on localhost:3005"
 ```
 
 **From a curl command:**
@@ -768,12 +828,21 @@ vigolium agent swarm -t https://example.com/api/users
 vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
 ```
 
-**Pipe raw HTTP from stdin:**
+**Pipe raw HTTP from stdin (auto-detected):**
 ```
 > Scan this raw HTTP request
 ```
 ```bash
-echo -e "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test" | vigolium agent swarm --input -
+echo -e "POST /api/search HTTP/1.1\r\nHost: example.com\r\n\r\nq=test" | vigolium agent swarm
+```
+
+**Intensity presets:**
+```
+> Quick swarm for CI; deep swarm for a full pentest
+```
+```bash
+vigolium agent swarm -t https://example.com/api/users?id=1 --intensity quick
+vigolium agent swarm -t https://example.com --source ./src --intensity deep
 ```
 
 **Focus on a specific vulnerability:**
@@ -809,12 +878,49 @@ vigolium agent swarm -t http://localhost:8080 --source ./backend \
 vigolium agent swarm -t http://localhost:3000 --source ./src --source-analysis-only
 ```
 
+**Background archon-audit (runs in parallel, requires --source):**
+```
+> Scan and audit the codebase at the same time
+```
+```bash
+vigolium agent swarm -t http://localhost:3000 --source ./src --archon         # lite
+vigolium agent swarm -t http://localhost:3000 --source ./src --archon deep    # 10-phase
+```
+
+**Scan only changed code:**
+```
+> Focus the swarm on the last N commits or a PR
+```
+```bash
+vigolium agent swarm -t https://example.com --source ./src --last-commits 3
+vigolium agent swarm -t https://example.com --source ./src --diff main...feature-branch
+```
+
+**Browser-based auth capture:**
+```
+> Swarm needs to log in through the UI first
+```
+```bash
+vigolium agent swarm -t https://example.com --browser --auth \
+  --credentials "username=admin,password=secret"
+```
+
+**Upload results:**
+```bash
+vigolium agent swarm -t https://example.com --source ./src --upload-results
+```
+
 **Custom instructions:**
 ```
 > Focus the agent on GraphQL parsing vulnerabilities
 ```
 ```bash
 vigolium agent swarm -t https://example.com/graphql --instruction "Focus on GraphQL parsing"
+```
+
+**Triage + rescan loop:**
+```bash
+vigolium agent swarm -t https://example.com/api/users --triage --max-iterations 5
 ```
 
 **Preview prompts:**
@@ -824,6 +930,53 @@ vigolium agent swarm -t https://example.com/graphql --instruction "Focus on Grap
 ```bash
 vigolium agent swarm -t https://example.com/api/users --dry-run
 ```
+
+#### Agent Archon (Foreground Whitebox Audit)
+
+Agent archon runs the embedded `archon-audit` harness against a source tree as a foreground audit. Findings are imported into the vigolium database; raw output is streamed to the console and persisted to `{session}/runtime.log`.
+
+**Quick 3-phase audit (secrets + SAST triage):**
+```
+> Run a fast archon audit on this repo
+```
+```bash
+vigolium agent archon --mode lite --source .
+```
+
+**Deep 10-phase audit:**
+```
+> Full archon audit of my codebase
+```
+```bash
+vigolium agent archon --mode deep --source .
+```
+
+**Audit a remote repo (auto-clones via source-aware storage):**
+```bash
+vigolium agent archon --mode lite --source https://github.com/org/repo
+```
+
+**Balanced 6-phase audit using Codex instead of Claude:**
+```bash
+vigolium agent archon --mode balanced --agent codex --source ~/code/myapp
+```
+
+**Construct PoCs for confirmed findings in a prior audit:**
+```bash
+vigolium agent archon --mode confirm --source ./audit-with-findings
+```
+
+**Revisit an existing audit tree with fresh context:**
+```bash
+vigolium agent archon --mode revisit --source ./prior-audit-tree
+```
+
+**Read-only progress check on an in-progress run:**
+```bash
+vigolium agent archon --mode status --source ./in-progress-audit
+```
+
+Valid modes: `lite`, `balanced` (alias `scan`), `deep`, `revisit`, `confirm`, `merge`, `diff`, `status`, `mock`. Valid agents: `claude` (default), `codex`, `opencode`. Add `--no-stream` to suppress console output (log is still written).
 
 ---
 
@@ -1106,6 +1259,36 @@ vigolium db clean --vacuum
 ```
 ```bash
 vigolium db seed
+```
+
+**View the raw runtime log for a past scan or agent session:**
+```
+> Show me the log for run 550e8400-...
+```
+```bash
+vigolium log 550e8400-e29b-41d4-a716-446655440000
+vigolium log <uuid> -f              # follow like `tail -f`
+vigolium log <uuid> --tail 500      # last 500 lines
+vigolium log <uuid> --full          # whole log
+vigolium log <uuid> --strip-ansi    # plain text, safe for grep/pipe
+```
+
+**List all scan + agent sessions:**
+```
+> Show every scan and agent session, with log availability
+```
+```bash
+vigolium log ls
+vigolium log --tui                   # interactive picker
+```
+
+**Import an archon audit folder or JSONL export:**
+```
+> Import these scan results into the database
+```
+```bash
+vigolium import /path/to/archon-output-harbor/   # archon audit folder
+vigolium import scan-results.jsonl                # JSONL from `vigolium export --format jsonl`
 ```
 
 ---
@@ -1485,6 +1668,32 @@ patterns:
 
 ### 12. Configuration & Projects
 
+**First-time setup (create ~/.vigolium with defaults):**
+```
+> Initialize vigolium
+```
+```bash
+vigolium init
+vigolium init --force      # regenerate API key + re-extract preset data
+```
+
+**Reset the installation back to a clean state:**
+```
+> Wipe my vigolium installation and start over
+```
+```bash
+vigolium config clean      # prompts for confirmation
+vigolium config clean -F   # skip prompt
+```
+
+**Run a health check on the installation:**
+```
+> Is my vigolium install healthy?
+```
+```bash
+vigolium doctor
+```
+
 **View all configuration:**
 ```
 > Show the current vigolium config
@@ -1604,7 +1813,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Import my Burp export and scan it" | `vigolium scan -I burp -i export.xml` |
 | "Scan my OpenAPI spec with auth" | `vigolium scan -I openapi -i spec.yaml -t <url> --spec-header "Authorization: Bearer ..."` |
 | "Only run XSS modules" | `vigolium scan -t <url> --module-tag xss` |
-| "Review my code for security issues" | `vigolium agent --prompt-template security-code-review --source ./src` |
+| "Review my code for security issues" | `vigolium agent query --prompt-template security-code-review --source ./src` |
 | "Autonomous scan focused on injection" | `vigolium agent autopilot -t <url> --focus "injection"` |
 | "Run the full AI scan" | `vigolium agent swarm --discover -t <url>` |
 | "Deep scan this endpoint for SQLi" | `vigolium agent swarm -t <url> --vuln-type sqli` |
@@ -1627,6 +1836,20 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "List agent sessions" | `vigolium agent session` |
 | "Show session utilities" | `vigolium session list` |
 | "Scan with auth config" | `vigolium scan -t <url> --auth-config auth.yaml` |
+| "Scan VAmPI source on localhost:3005" (natural-language) | `vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"` |
+| "Fast archon audit of this repo" | `vigolium agent archon --mode lite --source .` |
+| "Deep archon audit of a GitHub repo" | `vigolium agent archon --mode deep --source https://github.com/org/repo` |
+| "Quick swarm for CI" | `vigolium agent swarm -t <url> --intensity quick` |
+| "Deep autopilot pentest" | `vigolium agent autopilot -t <url> --intensity deep` |
+| "Scan the last 3 commits" | `vigolium agent autopilot -t <url> --source ./src --last-commits 3` |
+| "Scan this PR for regressions" | `vigolium agent autopilot -t <url> --source ./src --diff main...feature-branch` |
+| "Tail the live log for that scan" | `vigolium log <uuid> -f` |
+| "List all scan + agent sessions" | `vigolium log ls` |
+| "Import archon audit results" | `vigolium import /path/to/archon-output/` |
+| "Import a JSONL scan export" | `vigolium import results.jsonl` |
+| "Initialize vigolium" | `vigolium init` |
+| "Reset vigolium to a clean install" | `vigolium config clean` |
+| "Health-check my install" | `vigolium doctor` |
 
 ---
 
@@ -1642,6 +1865,10 @@ These are examples of natural language prompts you can give to Claude Code or Co
 8. **Extensions for custom logic** — Write JS extensions instead of modifying core modules. They run alongside built-in modules with `--ext`.
 9. **Projects for isolation** — Use `vigolium project create` to keep scan data separate across engagements.
 10. **Export early** — Run `vigolium export --format html -o report.html` to share results as interactive reports.
+11. **Intensity presets** — Use `--intensity quick` for CI/PR pipelines, `--intensity balanced` (default) for day-to-day, `--intensity deep` for full pentests. Explicit flags override the preset.
+12. **Archon for whitebox** — Reach for `agent archon --mode lite/balanced/deep` when you have source code and want a structured multi-phase audit with PoC construction (`--mode confirm`) and incremental runs (`--mode diff`).
+13. **Follow sessions live** — Long-running agent runs leave a `runtime.log`; tail it with `vigolium log <uuid> -f` from another terminal instead of attaching to the process.
+14. **Start fresh between engagements** — `vigolium config clean` wipes `~/.vigolium/` and `vigolium init` reinitializes it with a new API key and preset data.
 
 ## Resources
 

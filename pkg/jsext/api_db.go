@@ -548,6 +548,7 @@ func jsToFinding(vm *sobek.Runtime, obj *sobek.Object) *database.Finding {
 		ModuleType:    stringField(vm, obj, "module_type", database.ModuleTypeExtension),
 		FindingSource: stringField(vm, obj, "finding_source", database.FindingSourceExtension),
 		ModuleShort:   stringField(vm, obj, "module_short", ""),
+		Status:        stringField(vm, obj, "status", database.StatusTriaged),
 		FoundAt:       time.Now(),
 	}
 

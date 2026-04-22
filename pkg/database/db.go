@@ -326,7 +326,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			severity TEXT NOT NULL,
 			confidence TEXT NOT NULL DEFAULT 'firm',
 			tags TEXT,
-			status TEXT DEFAULT 'open',
+			status TEXT DEFAULT 'triaged',
 			remediation TEXT,
 			cwe_id TEXT,
 			cvss_score REAL DEFAULT 0,
@@ -640,7 +640,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "findings", "agentic_scan_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "url", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "hostname", "TEXT")
-	db.addColumnIfNotExists(ctx, "findings", "status", "TEXT DEFAULT 'open'")
+	db.addColumnIfNotExists(ctx, "findings", "status", "TEXT DEFAULT 'triaged'")
 	db.addColumnIfNotExists(ctx, "findings", "remediation", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "cwe_id", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "cvss_score", "REAL DEFAULT 0")
@@ -697,6 +697,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			fmt.Sprintf("UPDATE %s SET project_uuid = ? WHERE project_uuid = ''", table),
 			DefaultProjectUUID)
 	}
+
+	// Migrate legacy finding statuses: 'open' and 'confirmed' both collapse to
+	// 'triaged' in the current state model (see models.Status* constants).
+	_, _ = db.ExecContext(ctx, "UPDATE findings SET status = ? WHERE status IN (?, ?)",
+		StatusTriaged, "open", "confirmed")
 
 	// Backfill finding_records from existing JSONB data (idempotent)
 	if db.driver == "postgres" {

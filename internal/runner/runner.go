@@ -3889,6 +3889,7 @@ func (r *Runner) ingestAstGrepFindings(ctx context.Context, scanUUID string, mat
 			AdditionalEvidence: evidence,
 			HTTPRecordUUIDs:    []string{},
 			FindingHash:        hash,
+			Status:             database.StatusTriaged,
 			FoundAt:            time.Now(),
 		}
 
@@ -3944,6 +3945,7 @@ func (r *Runner) ingestKingfisherSASTFindings(ctx context.Context, scanUUID stri
 			AdditionalEvidence: []string{f.Snippet()},
 			HTTPRecordUUIDs:    []string{},
 			FindingHash:        hash,
+			Status:             database.StatusTriaged,
 			FoundAt:            time.Now(),
 		}
 

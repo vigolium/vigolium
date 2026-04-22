@@ -1287,6 +1287,7 @@ func toDBFinding(af *ArchonFinding, auditID, agenticScanUUID, projectUUID, repoN
 		MatchedAt:       af.Locations,
 		FindingHash:     hash,
 		Remediation:     af.Remediation,
+		Status:          database.StatusDraft,
 		FoundAt:         time.Now(),
 	}
 }

@@ -209,6 +209,10 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.FindingHash = event.ID()
 	f.FoundAt = time.Now()
 
+	// Native scan results come from deterministic engines — they're trusted by
+	// default and skip the triage queue. Caller may override (e.g. user import).
+	f.Status = StatusTriaged
+
 	return nil
 }
 

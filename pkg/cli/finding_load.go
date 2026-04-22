@@ -237,6 +237,7 @@ func tryParseResultEventJSONL(raw string, scanUUID string, projectUUID string) (
 		if f.FindingSource == "" {
 			f.FindingSource = "import"
 		}
+		f.Status = database.StatusDraft
 		findings = append(findings, f)
 	}
 
@@ -268,6 +269,7 @@ func tryParseSingleResultEvent(raw string, scanUUID string, projectUUID string) 
 	if f.FindingSource == "" {
 		f.FindingSource = "import"
 	}
+	f.Status = database.StatusDraft
 	return f, nil
 }
 

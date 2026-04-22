@@ -767,6 +767,7 @@ func ToDBFinding(af agenttypes.AgentFinding, moduleID string, scanUUID string, p
 		ModuleType:       database.ModuleTypeAgent,
 		FindingSource:    database.FindingSourceAgent,
 		ModuleShort:      af.Title,
+		Status:           database.StatusDraft,
 		FoundAt:          time.Now(),
 	}
 }
