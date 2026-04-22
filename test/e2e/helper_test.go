@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"testing"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -17,7 +18,10 @@ import (
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	httpRequester "github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
@@ -163,6 +167,47 @@ func (app *VulnerableApp) Stop() error {
 		return app.Container.Terminate(app.ctx)
 	}
 	return nil
+}
+
+// runActiveScan dispatches an ActiveModule's scan method based on its declared
+// ScanScopes, mirroring the runtime Executor. Use this in canary/e2e tests
+// instead of calling ScanPerRequest directly — the base module's default
+// implementations panic when the declared scope doesn't match, which is a
+// footgun for tests that pick modules ad-hoc.
+func runActiveScan(t *testing.T, mod modules.ActiveModule, rr *httpmsg.HttpRequestResponse, infra *TestInfra) ([]*output.ResultEvent, error) {
+	t.Helper()
+
+	scopes := mod.ScanScopes()
+
+	switch {
+	case scopes.Has(modkit.ScanScopeInsertionPoint):
+		points, err := httpmsg.CreateAllInsertionPoints(rr.Request().Raw(), true)
+		if err != nil {
+			return nil, fmt.Errorf("create insertion points: %w", err)
+		}
+		allowed := mod.AllowedInsertionPointTypes()
+		var all []*output.ResultEvent
+		for _, ip := range points {
+			if !allowed.Contains(ip.Type()) {
+				continue
+			}
+			findings, err := mod.ScanPerInsertionPoint(rr, ip, infra.HTTPClient, infra.ScanCtx)
+			if err != nil {
+				return all, err
+			}
+			all = append(all, findings...)
+		}
+		return all, nil
+
+	case scopes.Has(modkit.ScanScopeRequest):
+		return mod.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+
+	case scopes.Has(modkit.ScanScopeHost):
+		return mod.ScanPerHost(rr, infra.HTTPClient, infra.ScanCtx)
+
+	default:
+		return nil, fmt.Errorf("module %q has no recognized ScanScope (%v)", mod.ID(), scopes)
+	}
 }
 
 // waitForEndpoint waits for an HTTP endpoint to become available

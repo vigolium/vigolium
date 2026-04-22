@@ -92,7 +92,7 @@ func TestVAmPI_SQLi(t *testing.T) {
 			rr, err := httpmsg.GetRawRequestFromURL(fullURL)
 			require.NoError(t, err, "Failed to create request from URL: %s", fullURL)
 
-			results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+			results, err := runActiveScan(t, scanner, rr, infra)
 			require.NoError(t, err, "Scanner returned error for %s", fullURL)
 
 			if tc.expectVuln {
@@ -162,7 +162,7 @@ func TestVAmPI_FullScan(t *testing.T) {
 		}
 
 		// Run SQLi scanner
-		results, err := sqliScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+		results, err := runActiveScan(t, sqliScanner, rr, infra)
 		if err != nil {
 			t.Logf("SQLi scan error for %s: %v", endpoint, err)
 			continue

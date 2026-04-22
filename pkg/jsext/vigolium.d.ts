@@ -1026,6 +1026,13 @@ interface ExtensionContext {
     raw: string;
     method: string;
     url: string;
+    /** Bare hostname, e.g. "example.com" (no port). */
+    hostname: string;
+    /** hostname:port, e.g. "example.com:8080" (port always included). */
+    host: string;
+    port: number;
+    /** "http" or "https". */
+    scheme: string;
     headers: Record<string, string>;
   };
   response: {

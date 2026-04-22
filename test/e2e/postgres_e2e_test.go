@@ -7,87 +7,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/queue"
 	"github.com/vigolium/vigolium/pkg/server"
 )
 
-// pgTestConfig returns a PostgreSQL database config for e2e tests.
-// Reads connection details from environment variables with sensible defaults
-// matching the docker-compose in test/testdata/postgres/.
-func pgTestConfig() *config.DatabaseConfig {
-	host := envOr("VIGOLIUM_PG_HOST", "localhost")
-	port := envOrInt("VIGOLIUM_PG_PORT", 5433)
-	user := envOr("VIGOLIUM_PG_USER", "vigolium_test")
-	password := envOr("VIGOLIUM_PG_PASSWORD", "vigolium_test_pass")
-	dbName := envOr("VIGOLIUM_PG_DATABASE", "vigolium_test")
-
-	return &config.DatabaseConfig{
-		Enabled: true,
-		Driver:  "postgres",
-		Postgres: config.PostgresConfig{
-			Host:            host,
-			Port:            port,
-			User:            user,
-			Password:        password,
-			Database:        dbName,
-			SSLMode:         "disable",
-			MaxOpenConns:    10,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: "5m",
-		},
-	}
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envOrInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		var n int
-		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-			return n
-		}
-	}
-	return fallback
-}
-
 // setupPostgresDB connects to the PostgreSQL instance, drops all tables for a
 // clean slate, then re-creates the schema. Returns the DB and a Repository.
 func setupPostgresDB(t *testing.T) (*database.DB, *database.Repository) {
 	t.Helper()
 
-	cfg := pgTestConfig()
-	db, err := database.NewDB(cfg)
+	db, err := database.NewDB(pgTestConfigFromEnv())
 	if err != nil {
 		t.Skipf("PostgreSQL not available (start with 'make postgres-up'): %v", err)
 	}
 
 	ctx := context.Background()
-
-	// Drop all tables for a clean slate
-	tables := []string{
-		"scan_logs", "oast_interactions", "source_repos", "scopes",
-		"finding_records", "findings", "http_records", "scans",
-		"projects", "users",
-	}
-	for _, tbl := range tables {
-		_, _ = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", tbl))
-	}
-
+	dropAllVigoliumTables(ctx, db)
 	require.NoError(t, db.CreateSchema(ctx))
 	require.NoError(t, db.SeedDefaults(ctx))
 	t.Cleanup(func() { db.Close() })
@@ -658,4 +601,229 @@ func TestPg_SourceRepoCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "example.com", got.Hostname)
 	assert.Equal(t, "go", got.Language)
+}
+
+// ============================================================
+// PostgreSQL: Agentic Scan CRUD
+// ============================================================
+
+func TestPg_AgenticScanCRUD(t *testing.T) {
+	_, repo := setupPostgresDB(t)
+	ctx := context.Background()
+
+	parentUUID := "11111111-1111-1111-1111-111111111111"
+	now := time.Now().UTC().Truncate(time.Second)
+
+	parent := &database.AgenticScan{
+		UUID:        parentUUID,
+		ProjectUUID: database.DefaultProjectUUID,
+		Mode:        "autopilot",
+		AgentName:   "autopilot-master",
+		Protocol:    "sdk",
+		Model:       "claude-opus-4-7",
+		InputType:   "url",
+		TargetURL:   "http://vuln.example.com/",
+		VulnType:    "xss",
+		ModuleNames: []string{"xss-reflected", "sqli-error-based"},
+		TemplateID:  "autopilot-default",
+		Status:      "running",
+		PhasesRun:   []string{"plan", "extension"},
+		TokenUsage: map[string]interface{}{
+			"plan":      map[string]interface{}{"input": 1200, "output": 350},
+			"extension": map[string]interface{}{"input": 4800, "output": 900},
+		},
+		TotalInputTokens:  6000,
+		TotalOutputTokens: 1250,
+		EstimatedCostUSD:  0.1234,
+		InputRecordCount:  3,
+		SourcePath:        "/tmp/src",
+		SourceType:        "local",
+		SessionID:         "sess-abc",
+		SessionDir:        "/tmp/sessions/abc",
+		StorageURL:        "gs://vigolium-runs/abc/bundle.tar.gz",
+		StartedAt:         now,
+	}
+	require.NoError(t, repo.CreateAgenticScan(ctx, parent))
+
+	got, err := repo.GetAgenticScan(ctx, parentUUID)
+	require.NoError(t, err)
+	assert.Equal(t, "autopilot", got.Mode)
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+	assert.Equal(t, []string{"xss-reflected", "sqli-error-based"}, got.ModuleNames)
+	assert.Equal(t, []string{"plan", "extension"}, got.PhasesRun)
+	assert.Equal(t, int64(6000), got.TotalInputTokens)
+	assert.Equal(t, int64(1250), got.TotalOutputTokens)
+	assert.InDelta(t, 0.1234, got.EstimatedCostUSD, 1e-6)
+	assert.Equal(t, "gs://vigolium-runs/abc/bundle.tar.gz", got.StorageURL)
+	require.Contains(t, got.TokenUsage, "extension")
+
+	// Update: mark completed, bump cost + tokens
+	got.Status = "completed"
+	got.CurrentPhase = ""
+	got.TotalInputTokens = 7500
+	got.TotalOutputTokens = 1800
+	got.EstimatedCostUSD = 0.2468
+	got.FindingCount = 4
+	got.RecordCount = 12
+	got.SavedCount = 4
+	got.CompletedAt = now.Add(5 * time.Minute)
+	got.DurationMs = 300_000
+	require.NoError(t, repo.UpdateAgenticScan(ctx, got))
+
+	// Update storage URL via focused method
+	require.NoError(t, repo.UpdateAgenticScanStorageURL(ctx, parentUUID, "gs://vigolium-runs/abc/final.tar.gz"))
+
+	reread, err := repo.GetAgenticScan(ctx, parentUUID)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", reread.Status)
+	assert.Equal(t, int64(7500), reread.TotalInputTokens)
+	assert.InDelta(t, 0.2468, reread.EstimatedCostUSD, 1e-6)
+	assert.Equal(t, "gs://vigolium-runs/abc/final.tar.gz", reread.StorageURL)
+
+	// Child run linked via parent_run_uuid (swarm sub-run)
+	child := &database.AgenticScan{
+		UUID:          "22222222-2222-2222-2222-222222222222",
+		ProjectUUID:   database.DefaultProjectUUID,
+		ParentRunUUID: parentUUID,
+		Mode:          "autopilot",
+		AgentName:     "autopilot-worker",
+		Status:        "completed",
+		StartedAt:     now,
+	}
+	require.NoError(t, repo.CreateAgenticScan(ctx, child))
+
+	children, err := repo.GetChildAgenticScans(ctx, parentUUID)
+	require.NoError(t, err)
+	assert.Len(t, children, 1)
+	assert.Equal(t, child.UUID, children[0].UUID)
+
+	// List excludes children (parent_run_uuid IS NULL OR '')
+	runs, total, err := repo.ListAgenticScans(ctx, database.DefaultProjectUUID, "", 50, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, runs, 1)
+	assert.Equal(t, parentUUID, runs[0].UUID)
+
+	// Filter by mode
+	_, totalFiltered, err := repo.ListAgenticScans(ctx, database.DefaultProjectUUID, "autopilot", 50, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), totalFiltered)
+
+	// DeleteOldAgenticScans: mark parent as old + completed, then delete.
+	_, err = repo.DB().NewUpdate().Model((*database.AgenticScan)(nil)).
+		Set("completed_at = ?", time.Now().Add(-48*time.Hour)).
+		Where("uuid = ?", parentUUID).
+		Exec(ctx)
+	require.NoError(t, err)
+
+	deleted, err := repo.DeleteOldAgenticScans(ctx, 24*time.Hour)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, deleted, 1)
+}
+
+// ============================================================
+// PostgreSQL: Session Hostname CRUD
+// ============================================================
+
+func TestPg_SessionHostnameCRUD(t *testing.T) {
+	_, repo := setupPostgresDB(t)
+	ctx := context.Background()
+
+	hydratedAt := time.Now().UTC().Truncate(time.Second)
+
+	sh := &database.SessionHostname{
+		ProjectUUID:  database.DefaultProjectUUID,
+		ScanUUID:     "scan-uuid-1",
+		Hostname:     "api.example.com",
+		SessionName:  "admin",
+		SessionRole:  "admin",
+		Position:     0,
+		SessionToken: "jwt-abc-123",
+		Headers: map[string]string{
+			"Authorization": "Bearer jwt-abc-123",
+			"X-Tenant-ID":   "acme",
+		},
+		LoginURL:         "https://api.example.com/login",
+		LoginMethod:      "POST",
+		LoginContentType: "application/json",
+		LoginBody:        `{"username":"admin","password":"hunter2"}`,
+		ExtractRules:     `[{"name":"token","source":"body","jsonpath":"$.token"}]`,
+		Source:           "manual",
+		HydratedAt:       &hydratedAt,
+	}
+	require.NoError(t, repo.SaveSessionHostname(ctx, sh))
+
+	rows, err := repo.GetSessionHostnamesByHostname(ctx, database.DefaultProjectUUID, "api.example.com")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	got := rows[0]
+	assert.Equal(t, "admin", got.SessionName)
+	assert.Equal(t, "jwt-abc-123", got.SessionToken)
+	assert.Equal(t, "Bearer jwt-abc-123", got.Headers["Authorization"])
+	assert.Equal(t, "acme", got.Headers["X-Tenant-ID"])
+	assert.Contains(t, got.ExtractRules, "$.token")
+	require.NotNil(t, got.HydratedAt)
+	assert.WithinDuration(t, hydratedAt, *got.HydratedAt, time.Second)
+
+	// Upsert: same (project_uuid, hostname, session_name) updates fields in place.
+	sh.SessionToken = "jwt-rotated-456"
+	sh.Headers = map[string]string{"Authorization": "Bearer jwt-rotated-456"}
+	require.NoError(t, repo.SaveSessionHostname(ctx, sh))
+
+	rows, err = repo.GetSessionHostnamesByHostname(ctx, database.DefaultProjectUUID, "api.example.com")
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "upsert must not create a duplicate row")
+	assert.Equal(t, "jwt-rotated-456", rows[0].SessionToken)
+	assert.Equal(t, "Bearer jwt-rotated-456", rows[0].Headers["Authorization"])
+
+	// Batch upsert: two more sessions (different session_name).
+	batch := []*database.SessionHostname{
+		{
+			ProjectUUID: database.DefaultProjectUUID,
+			ScanUUID:    "scan-uuid-1",
+			Hostname:    "api.example.com",
+			SessionName: "user",
+			SessionRole: "user",
+			Position:    1,
+			Source:      "harvester",
+		},
+		{
+			ProjectUUID: database.DefaultProjectUUID,
+			ScanUUID:    "scan-uuid-1",
+			Hostname:    "web.example.com",
+			SessionName: "admin",
+			SessionRole: "admin",
+			Position:    0,
+			Source:      "harvester",
+		},
+	}
+	require.NoError(t, repo.SaveSessionHostnames(ctx, batch))
+
+	// GetByProject returns all three, ordered by hostname, position.
+	allRows, err := repo.GetSessionHostnamesByProject(ctx, database.DefaultProjectUUID)
+	require.NoError(t, err)
+	assert.Len(t, allRows, 3)
+
+	// GetByScan scopes to a scan_uuid.
+	byScan, err := repo.GetSessionHostnamesByScan(ctx, database.DefaultProjectUUID, "scan-uuid-1")
+	require.NoError(t, err)
+	assert.Len(t, byScan, 3)
+
+	// DeleteByHostname removes only rows for that hostname.
+	require.NoError(t, repo.DeleteSessionHostnamesByHostname(ctx, database.DefaultProjectUUID, "api.example.com"))
+
+	rows, err = repo.GetSessionHostnamesByHostname(ctx, database.DefaultProjectUUID, "api.example.com")
+	require.NoError(t, err)
+	assert.Len(t, rows, 0)
+
+	remaining, err := repo.GetSessionHostnamesByProject(ctx, database.DefaultProjectUUID)
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	assert.Equal(t, "web.example.com", remaining[0].Hostname)
+
+	// DeleteSessionHostname by id.
+	require.NoError(t, repo.DeleteSessionHostname(ctx, remaining[0].ID))
+	remaining, err = repo.GetSessionHostnamesByProject(ctx, database.DefaultProjectUUID)
+	require.NoError(t, err)
+	assert.Len(t, remaining, 0)
 }

@@ -153,6 +153,23 @@ test-canary: install-gotestsum
 	@echo "$(PREFIX) Running canary tests (requires Docker)..."
 	$(TESTCMD) $(TESTFLAGS) -tags=canary ./test/e2e/...
 
+# Run canary tests against PostgreSQL (requires 'make postgres-up' first).
+# Per-test: drops+recreates the shared PG schema for isolation.
+test-canary-postgres: export VIGOLIUM_TEST_DB_DRIVER=postgres
+test-canary-postgres: install-gotestsum
+	@echo "$(PREFIX) Running canary tests against PostgreSQL..."
+	$(TESTCMD) $(TESTFLAGS) -tags=canary ./test/e2e/...
+
+# One-shot pre-deploy validation: spin up PG, run PG e2e + canary against it,
+# then tear down (even on test failure). Run locally before prod deploys.
+test-pg-full: install-gotestsum
+	@echo "$(PREFIX) Full PostgreSQL validation cycle (e2e + canary)..."
+	@$(MAKE) postgres-up
+	@bash -c 'trap "$(MAKE) postgres-down" EXIT; \
+		set -e; \
+		$(MAKE) test-e2e-postgres; \
+		$(MAKE) test-canary-postgres'
+
 # Run E2E VAmPI tests only (SQLi testing)
 test-e2e-vampi: install-gotestsum
 	@echo "$(PREFIX) Running VAmPI E2E tests (SQLi)..."

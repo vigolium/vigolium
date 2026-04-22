@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -277,6 +278,15 @@ func buildRequestContext(vm *sobek.Runtime, ctx *httpmsg.HttpRequestResponse) so
 		_ = reqObj.Set("raw", string(ctx.Request().Raw()))
 		_ = reqObj.Set("method", ctx.Request().Method())
 		_ = reqObj.Set("url", ctx.Target())
+
+		// hostname = bare hostname (matches browser location.hostname);
+		// host = hostname[:port] (matches browser location.host, always includes port).
+		if svc := ctx.Request().Service(); svc != nil {
+			_ = reqObj.Set("hostname", svc.Host())
+			_ = reqObj.Set("host", svc.Host()+":"+strconv.Itoa(svc.Port()))
+			_ = reqObj.Set("port", svc.Port())
+			_ = reqObj.Set("scheme", svc.Protocol())
+		}
 
 		headersObj := vm.NewObject()
 		for _, h := range ctx.Request().Headers() {

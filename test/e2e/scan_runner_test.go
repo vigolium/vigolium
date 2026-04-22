@@ -21,9 +21,29 @@ import (
 
 // --- Helpers ---
 
-// setupPipelineDB creates an in-memory SQLite database for pipeline tests.
+// setupPipelineDB creates a database for pipeline tests.
+//
+// Default: in-memory SQLite (fast, isolated per-test).
+// When VIGOLIUM_TEST_DB_DRIVER=postgres: connects to the shared PG instance
+// configured via VIGOLIUM_PG_* env vars (defaults match test/testdata/postgres/
+// docker-compose.yaml) and drops+recreates the schema for per-test isolation.
+// Intended for pre-deploy validation of schema compatibility with real PG.
 func setupPipelineDB(t *testing.T) (*database.DB, *database.Repository) {
 	t.Helper()
+	ctx := context.Background()
+
+	if os.Getenv("VIGOLIUM_TEST_DB_DRIVER") == "postgres" {
+		db, err := database.NewDB(pgTestConfigFromEnv())
+		if err != nil {
+			t.Skipf("PostgreSQL not available (start with 'make postgres-up'): %v", err)
+		}
+		dropAllVigoliumTables(ctx, db)
+		require.NoError(t, db.CreateSchema(ctx))
+		require.NoError(t, db.SeedDefaults(ctx))
+		t.Cleanup(func() { db.Close() })
+		return db, database.NewRepository(db)
+	}
+
 	cfg := &config.DatabaseConfig{
 		Enabled: true,
 		Driver:  "sqlite",
@@ -37,7 +57,7 @@ func setupPipelineDB(t *testing.T) (*database.DB, *database.Repository) {
 	}
 	db, err := database.NewDB(cfg)
 	require.NoError(t, err)
-	require.NoError(t, db.CreateSchema(context.Background()))
+	require.NoError(t, db.CreateSchema(ctx))
 	t.Cleanup(func() { db.Close() })
 	return db, database.NewRepository(db)
 }
@@ -453,7 +473,7 @@ module.exports = {
 	// --- Build custom settings with extensions enabled ---
 	settings := config.DefaultSettings()
 	settings.DynamicAssessment.Extensions.Enabled = true
-	settings.DynamicAssessment.Extensions.CustomDir = []string{scriptDir}
+	settings.DynamicAssessment.Extensions.CustomDir = []string{scriptPath}
 	settings.DynamicAssessment.Extensions.Limits = config.ScriptLimits{
 		Timeout:     "60s",
 		MaxMemoryMB: 128,

@@ -84,7 +84,7 @@ func TestJuiceShop_SQLi(t *testing.T) {
 			rr, err := httpmsg.GetRawRequestFromURL(fullURL)
 			require.NoError(t, err, "Failed to create request from URL: %s", fullURL)
 
-			results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+			results, err := runActiveScan(t, scanner, rr, infra)
 			require.NoError(t, err, "Scanner returned error for %s", fullURL)
 
 			if tc.expectVuln {
@@ -149,7 +149,7 @@ func TestJuiceShop_XSS(t *testing.T) {
 			continue
 		}
 
-		results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+		results, err := runActiveScan(t, scanner, rr, infra)
 		if err != nil {
 			t.Logf("Error scanning %s: %v", endpoint, err)
 			continue
@@ -219,7 +219,7 @@ func TestJuiceShop_FullScan(t *testing.T) {
 		}
 
 		// Run XSS scanner
-		if results, err := xssScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx); err == nil {
+		if results, err := runActiveScan(t, xssScanner, rr, infra); err == nil {
 			findings["XSS"] += len(results)
 			for _, r := range results {
 				t.Logf("XSS: endpoint=%s param=%s", endpoint, r.FuzzingParameter)
@@ -227,7 +227,7 @@ func TestJuiceShop_FullScan(t *testing.T) {
 		}
 
 		// Run SQLi scanner
-		if results, err := sqliScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx); err == nil {
+		if results, err := runActiveScan(t, sqliScanner, rr, infra); err == nil {
 			findings["SQLi"] += len(results)
 			for _, r := range results {
 				t.Logf("SQLi: endpoint=%s param=%s", endpoint, r.FuzzingParameter)

@@ -85,7 +85,7 @@ func TestDVWA_XSS(t *testing.T) {
 			rr, err := httpmsg.GetRawRequestFromURL(fullURL)
 			require.NoError(t, err, "Failed to create request from URL: %s", fullURL)
 
-			results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+			results, err := runActiveScan(t, scanner, rr, infra)
 			require.NoError(t, err, "Scanner returned error for %s", fullURL)
 
 			if tc.expectVuln {
@@ -134,7 +134,7 @@ func TestDVWA_SQLi(t *testing.T) {
 	require.NoError(t, err, "Failed to create request")
 
 	scanner := sqli_error_based.New()
-	results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+	results, err := runActiveScan(t, scanner, rr, infra)
 	require.NoError(t, err, "Scanner returned error")
 
 	assert.GreaterOrEqual(t, len(results), 1, "Expected SQLi vulnerability in DVWA")
@@ -178,7 +178,7 @@ func TestDVWA_LFI(t *testing.T) {
 	require.NoError(t, err, "Failed to create request")
 
 	scanner := lfi_generic.New()
-	results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
+	results, err := runActiveScan(t, scanner, rr, infra)
 	require.NoError(t, err, "Scanner returned error")
 
 	assert.GreaterOrEqual(t, len(results), 1, "Expected LFI vulnerability in DVWA")
@@ -241,7 +241,7 @@ func TestDVWA_FullScan(t *testing.T) {
 		}
 
 		// Run XSS scanner
-		if results, err := xssScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx); err == nil {
+		if results, err := runActiveScan(t, xssScanner, rr, infra); err == nil {
 			findings["XSS"] += len(results)
 			for _, r := range results {
 				t.Logf("XSS: endpoint=%s param=%s", endpoint, r.FuzzingParameter)
@@ -249,7 +249,7 @@ func TestDVWA_FullScan(t *testing.T) {
 		}
 
 		// Run SQLi scanner
-		if results, err := sqliScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx); err == nil {
+		if results, err := runActiveScan(t, sqliScanner, rr, infra); err == nil {
 			findings["SQLi"] += len(results)
 			for _, r := range results {
 				t.Logf("SQLi: endpoint=%s param=%s", endpoint, r.FuzzingParameter)
@@ -257,7 +257,7 @@ func TestDVWA_FullScan(t *testing.T) {
 		}
 
 		// Run LFI scanner
-		if results, err := lfiScanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx); err == nil {
+		if results, err := runActiveScan(t, lfiScanner, rr, infra); err == nil {
 			findings["LFI"] += len(results)
 			for _, r := range results {
 				t.Logf("LFI: endpoint=%s param=%s", endpoint, r.FuzzingParameter)
