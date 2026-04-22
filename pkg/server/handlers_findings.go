@@ -64,6 +64,16 @@ func (h *Handlers) HandleListFindings(c fiber.Ctx) error {
 		filters.RepoName = rn
 	}
 
+	// Status (comma-separated, e.g. ?status=draft,triaged)
+	if st := c.Query("status"); st != "" {
+		for _, s := range strings.Split(st, ",") {
+			s = strings.TrimSpace(strings.ToLower(s))
+			if s != "" {
+				filters.Status = append(filters.Status, s)
+			}
+		}
+	}
+
 	// Search
 	if s := c.Query("search"); s != "" {
 		filters.SearchTerm = s
@@ -161,6 +171,68 @@ func (h *Handlers) HandleDeleteFinding(c fiber.Ctx) error {
 		"message": "finding deleted",
 		"id":      id,
 	})
+}
+
+// UpdateFindingStatusRequest is the JSON body for PATCH /api/findings/:id/status.
+type UpdateFindingStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// HandleUpdateFindingStatus handles PATCH /api/findings/:id/status — updates the
+// lifecycle status of a finding (draft → triaged / false_positive / accepted_risk / fixed).
+func (h *Handlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
+	if h.db == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error: ErrDatabaseRequired.Error(),
+			Code:  fiber.StatusServiceUnavailable,
+		})
+	}
+
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid finding ID: must be a number",
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	var req UpdateFindingStatusRequest
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid request body: " + err.Error(),
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	status := strings.ToLower(strings.TrimSpace(req.Status))
+	if !database.IsValidFindingStatus(status) {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error: "invalid status: must be one of draft, triaged, false_positive, accepted_risk, fixed",
+			Code:  fiber.StatusBadRequest,
+		})
+	}
+
+	if err := h.repo.UpdateFindingStatus(c.Context(), id, status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+				Error: ErrFindingNotFound.Error(),
+				Code:  fiber.StatusNotFound,
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to update finding status: " + err.Error(),
+			Code:  fiber.StatusInternalServerError,
+		})
+	}
+
+	finding, err := h.repo.GetFindingByID(c.Context(), id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error: "failed to retrieve updated finding: " + err.Error(),
+			Code:  fiber.StatusInternalServerError,
+		})
+	}
+	return c.JSON(finding)
 }
 
 // HandleGetFinding handles GET /api/findings/:id — returns a single finding by numeric ID.

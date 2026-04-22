@@ -87,6 +87,7 @@ Respond with a JSON object (no markdown fences, no explanation):
       "title": "SQL Injection in /api/users",
       "module_id": "custom-sqli-json-body",
       "url": "https://example.com/api/users?id=1",
+      "finding_hash": "<echo finding_hash from input>",
       "reason": "Error-based response confirms injection via id parameter"
     }
   ],
@@ -95,6 +96,7 @@ Respond with a JSON object (no markdown fences, no explanation):
       "title": "XSS in /api/search",
       "module_id": "custom-xss-search",
       "url": "https://example.com/api/search",
+      "finding_hash": "<echo finding_hash from input>",
       "reason": "Response is JSON with Content-Type application/json, no rendering context"
     }
   ],
@@ -115,5 +117,6 @@ Respond with a JSON object (no markdown fences, no explanation):
 - `verdict` is required: "done" (no more scanning needed) or "rescan" (follow-ups recommended)
 - Set "rescan" only if `follow_up_scans` is non-empty and the follow-ups are genuinely useful
 - Every finding should appear in either `confirmed` or `false_positives`
+- **`finding_hash` is required for every confirmed and false_positive entry** — copy it verbatim from the input finding so the verdict can be persisted back to the database
 - Be conservative with false positive classification — when uncertain, confirm the finding
 - Keep `follow_up_scans` targeted and specific, not broad re-scans

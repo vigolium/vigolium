@@ -1668,6 +1668,7 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agenti
 		ShowPrompt:                cfg.ShowPrompt,
 		ScanUUID:                  cfg.ScanUUID,
 		ProjectUUID:               cfg.ProjectUUID,
+		AgenticScanUUID:           agenticScan.UUID,
 		StreamWriter:              cfg.StreamWriter,
 		MaxRounds:                 cfg.MaxIterations,
 		MaxFindingsPerTriageBatch: 25,

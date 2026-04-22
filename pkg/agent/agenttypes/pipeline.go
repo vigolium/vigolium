@@ -39,11 +39,14 @@ type TriageResult struct {
 }
 
 // TriagedFinding is a finding that has been reviewed by the triage agent.
+// FindingHash is the database finding_hash echoed back by the agent so the
+// triage verdict can be written back to Finding.Status.
 type TriagedFinding struct {
-	Title    string `json:"title"`
-	ModuleID string `json:"module_id,omitempty"`
-	URL      string `json:"url,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	Title       string `json:"title"`
+	ModuleID    string `json:"module_id,omitempty"`
+	URL         string `json:"url,omitempty"`
+	FindingHash string `json:"finding_hash,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 // FollowUpScan describes a targeted rescan recommended by the triage agent.

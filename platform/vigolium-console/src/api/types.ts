@@ -173,10 +173,26 @@ export interface FindingsQueryParams {
   finding_source?: string;
   domain?: string;
   scan_id?: string;
+  status?: string;
   search?: string;
   sort?: string;
   order?: string;
 }
+
+export type FindingStatus =
+  | 'draft'
+  | 'triaged'
+  | 'false_positive'
+  | 'accepted_risk'
+  | 'fixed';
+
+export const FINDING_STATUSES: FindingStatus[] = [
+  'draft',
+  'triaged',
+  'false_positive',
+  'accepted_risk',
+  'fixed',
+];
 
 export interface HttpRecordsQueryParams {
   limit?: number;

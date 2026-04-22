@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import {
-  apiGet, apiPost, apiPut, apiDelete, apiUpload, getProjectUUID, setDemoMode, assertNotDemo, withDemoKey,
+  apiGet, apiPost, apiPut, apiPatch, apiDelete, apiUpload, getProjectUUID, setDemoMode, assertNotDemo, withDemoKey,
 } from './client';
 import type {
   Project,
@@ -378,6 +378,19 @@ export function useDeleteFinding() {
       apiDelete<DeleteFindingResponse>(`/api/findings/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['findings'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+export function useUpdateFindingStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiPatch<Finding>(`/api/findings/${id}/status`, { status }),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ['findings'] });
+      qc.invalidateQueries({ queryKey: ['finding', updated?.id] });
       qc.invalidateQueries({ queryKey: ['stats'] });
     },
   });

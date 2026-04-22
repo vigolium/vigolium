@@ -1487,6 +1487,61 @@ func (r *Repository) DeleteRecord(ctx context.Context, uuid string) error {
 	})
 }
 
+// IsValidFindingStatus reports whether s is a recognised Finding lifecycle status.
+func IsValidFindingStatus(s string) bool {
+	switch s {
+	case StatusDraft, StatusTriaged, StatusFalsePositive, StatusAcceptedRisk, StatusFixed:
+		return true
+	}
+	return false
+}
+
+// UpdateFindingStatus sets the lifecycle status of a single finding by ID.
+// Returns sql.ErrNoRows if no finding matches.
+func (r *Repository) UpdateFindingStatus(ctx context.Context, id int64, status string) error {
+	if !IsValidFindingStatus(status) {
+		return fmt.Errorf("UpdateFindingStatus: invalid status %q", status)
+	}
+	res, err := r.db.NewUpdate().
+		Model((*Finding)(nil)).
+		Set("status = ?", status).
+		Where("id = ?", id).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("UpdateFindingStatus: %w", err)
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateFindingStatusByHash sets the lifecycle status of findings matching a finding_hash
+// within an agentic_scan_uuid scope. Used by the swarm triage writeback to promote
+// draft findings to triaged / false_positive based on agent verdicts.
+// Returns the number of rows updated.
+func (r *Repository) UpdateFindingStatusByHash(ctx context.Context, agenticScanUUID, findingHash, status string) (int64, error) {
+	if !IsValidFindingStatus(status) {
+		return 0, fmt.Errorf("UpdateFindingStatusByHash: invalid status %q", status)
+	}
+	if findingHash == "" {
+		return 0, fmt.Errorf("UpdateFindingStatusByHash: empty finding_hash")
+	}
+	q := r.db.NewUpdate().
+		Model((*Finding)(nil)).
+		Set("status = ?", status).
+		Where("finding_hash = ?", findingHash)
+	if agenticScanUUID != "" {
+		q = q.Where("agentic_scan_uuid = ?", agenticScanUUID)
+	}
+	res, err := q.Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("UpdateFindingStatusByHash: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	return rows, nil
+}
+
 // DeleteFinding deletes a finding by its numeric ID, including any finding_records junction rows.
 func (r *Repository) DeleteFinding(ctx context.Context, id int64) error {
 	return r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {

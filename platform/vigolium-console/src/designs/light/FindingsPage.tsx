@@ -197,6 +197,7 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
   const [moduleFilter, setModuleFilter] = useState('');
   const [moduleTypeFilter, setModuleTypeFilter] = useState('');
   const [findingSourceFilter, setFindingSourceFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [selectedFindingId, setSelectedFindingId] = useState<number | null>(initialId ?? null);
   const [selectedRows, setSelectedRows] = useState<Finding[]>([]);
   const gridRef = useRef<AgGridReact<Finding>>(null);
@@ -238,8 +239,9 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
       module_name: moduleFilter || undefined,
       module_type: moduleTypeFilter || undefined,
       finding_source: findingSourceFilter || undefined,
+      status: statusFilter || undefined,
     }),
-    [params, severityFilter, searchInput, domainFilter, moduleFilter, moduleTypeFilter, findingSourceFilter]
+    [params, severityFilter, searchInput, domainFilter, moduleFilter, moduleTypeFilter, findingSourceFilter, statusFilter]
   );
 
   const { data, isLoading, refetch, isFetching } = useFindings(queryParams);
@@ -404,6 +406,18 @@ export default function FindingsPage({ initialId }: { initialId?: number | null 
                   { value: 'extension', label: 'extension' },
                 ]}
                 onChange={(v) => { setFindingSourceFilter(v); resetOffset(); }}
+              />
+              <Dropdown
+                value={statusFilter}
+                options={[
+                  { value: '', label: 'status:all' },
+                  { value: 'draft', label: 'draft' },
+                  { value: 'triaged', label: 'triaged' },
+                  { value: 'false_positive', label: 'false_positive' },
+                  { value: 'accepted_risk', label: 'accepted_risk' },
+                  { value: 'fixed', label: 'fixed' },
+                ]}
+                onChange={(v) => { setStatusFilter(v); resetOffset(); }}
               />
               <div className="flex items-center border border-[#bbc3c4] bg-[#f6edda] focus-within:border-[#0078c8]/50">
                 <Search className="w-3 h-3 text-[#708e8e] ml-1.5 shrink-0" />

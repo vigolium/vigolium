@@ -6,9 +6,11 @@ import remarkGfm from 'remark-gfm';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-markdown';
 import { Eye, Code, Copy, Check, Link } from 'lucide-react';
-import { useFinding } from '@/api/hooks';
+import { useFinding, useUpdateFindingStatus } from '@/api/hooks';
 import { formatDate } from '@/lib/formatters';
 import { SEVERITY_COLORS, CONFIDENCE_COLORS } from './theme';
+import { FINDING_STATUSES } from '@/api/types';
+import { useToast } from '@/contexts/ToastContext';
 
 const mdTokenStyles: Record<string, React.CSSProperties> = {
   title: { color: '#d55d00', fontWeight: 'bold' },
@@ -63,6 +65,8 @@ interface Props {
 
 export default function FindingDetailPanel({ findingId, onClose }: Props) {
   const { data: finding, isLoading, isError } = useFinding(findingId);
+  const updateStatus = useUpdateFindingStatus();
+  const { toast } = useToast();
   const [descTab, setDescTab] = useState<'rendered' | 'raw'>('rendered');
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -120,9 +124,28 @@ export default function FindingDetailPanel({ findingId, onClose }: Props) {
             {finding.finding_source && (
               <div><span className="text-[#708e8e]">source: </span><span className="text-[#005661] font-semibold">{finding.finding_source}</span></div>
             )}
-            {finding.status && (
-              <div><span className="text-[#708e8e]">status: </span><span className="text-[#005661]">{finding.status}</span></div>
-            )}
+            <div className="flex items-center gap-1">
+              <span className="text-[#708e8e]">status: </span>
+              <select
+                value={finding.status || 'draft'}
+                disabled={updateStatus.isPending}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  updateStatus.mutate(
+                    { id: finding.id, status: next },
+                    {
+                      onSuccess: () => toast(`status → ${next}`, 'success'),
+                      onError: (err) => toast(`failed to update status: ${(err as Error).message}`, 'error'),
+                    }
+                  );
+                }}
+                className="bg-transparent border border-[#bbc3c4] text-[#005661] text-xs px-1 py-px focus:outline-none focus:border-[#0078c8] disabled:opacity-50"
+              >
+                {FINDING_STATUSES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
             {finding.cvss_score != null && finding.cvss_score > 0 && (
               <div><span className="text-[#708e8e]">cvss: </span><span className="text-[#005661] font-semibold">{finding.cvss_score}</span></div>
             )}

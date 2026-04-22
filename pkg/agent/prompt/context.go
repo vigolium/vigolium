@@ -81,11 +81,13 @@ type contextModuleEntry struct {
 }
 
 type contextFindingEntry struct {
+	FindingHash string   `json:"finding_hash"`
 	ModuleID    string   `json:"module_id"`
 	ModuleName  string   `json:"module_name"`
 	Description string   `json:"description"`
 	Severity    string   `json:"severity"`
 	Confidence  string   `json:"confidence"`
+	URL         string   `json:"url,omitempty"`
 	MatchedAt   []string `json:"matched_at,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 }
@@ -152,11 +154,13 @@ func EnrichContextFromDB(ctx context.Context, data *agenttypes.TemplateData, rep
 				entries := make([]contextFindingEntry, 0, len(findings))
 				for _, f := range findings {
 					entries = append(entries, contextFindingEntry{
+						FindingHash: f.FindingHash,
 						ModuleID:    f.ModuleID,
 						ModuleName:  f.ModuleName,
 						Description: f.Description,
 						Severity:    f.Severity,
 						Confidence:  f.Confidence,
+						URL:         f.URL,
 						MatchedAt:   f.MatchedAt,
 						Tags:        f.Tags,
 					})

@@ -28,11 +28,12 @@ type TriageLoopConfig struct {
 	Files          []string
 	Instruction    string
 	SessionKey     string // pool session key (triage reuses the same session across rounds)
-	DryRun         bool
-	ShowPrompt     bool
-	ScanUUID       string
-	ProjectUUID    string
-	StreamWriter   io.Writer
+	DryRun          bool
+	ShowPrompt      bool
+	ScanUUID        string
+	ProjectUUID     string
+	AgenticScanUUID string // when set, triage verdicts are written back to Finding.Status
+	StreamWriter    io.Writer
 
 	// Loop control
 	MaxRounds                 int
@@ -271,6 +272,13 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 		result.Confirmed += len(merged.Confirmed)
 		result.FalsePositives += len(merged.FalsePositives)
 
+		// Write triage verdicts back to Finding.Status. Confirmed → triaged,
+		// false positives → false_positive. Findings without a finding_hash
+		// (older agents not echoing it back) are left as-is for manual triage.
+		if cfg.Repository != nil {
+			writeBackTriageVerdicts(ctx, cfg.Repository, cfg.AgenticScanUUID, merged)
+		}
+
 		if cfg.ProgressCallback != nil {
 			cfg.ProgressCallback(ProgressEvent{
 				Phase:        "triage",
@@ -372,6 +380,38 @@ func aggregateFollowUps(followUps []FollowUpScan) ScanRequest {
 		TargetURLs: targetURLs,
 		IsRescan:   true,
 	}
+}
+
+// writeBackTriageVerdicts persists the triage agent's classifications back to
+// Finding.Status. Confirmed findings move draft → triaged; false positives move
+// draft → false_positive. Skips entries with empty finding_hash and logs any
+// hashes the agent emitted but that didn't match a row.
+func writeBackTriageVerdicts(ctx context.Context, repo *database.Repository, agenticScanUUID string, merged *TriageResult) {
+	if merged == nil {
+		return
+	}
+	apply := func(items []TriagedFinding, status string) {
+		for _, t := range items {
+			if t.FindingHash == "" {
+				continue
+			}
+			rows, err := repo.UpdateFindingStatusByHash(ctx, agenticScanUUID, t.FindingHash, status)
+			if err != nil {
+				zap.L().Warn("triage writeback failed",
+					zap.String("finding_hash", t.FindingHash),
+					zap.String("status", status),
+					zap.Error(err))
+				continue
+			}
+			if rows == 0 {
+				zap.L().Debug("triage writeback: no matching finding",
+					zap.String("finding_hash", t.FindingHash),
+					zap.String("agentic_scan_uuid", agenticScanUUID))
+			}
+		}
+	}
+	apply(merged.Confirmed, database.StatusTriaged)
+	apply(merged.FalsePositives, database.StatusFalsePositive)
 }
 
 func currentMaxFindingID(ctx context.Context, repo *database.Repository, projectUUID string) int64 {
