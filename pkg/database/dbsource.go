@@ -282,8 +282,7 @@ func recordToHttpRequestResponse(record *HTTPRecord) (*httpmsg.HttpRequestRespon
 			return nil, err
 		}
 		// Attach response if present
-		if record.HasResponse && len(record.RawResponse) > 0 {
-			resp := httpmsg.NewHttpResponse(record.RawResponse)
+		if resp := record.ParsedResponse(); resp != nil {
 			rr = rr.WithResponse(resp)
 		}
 		return rr, nil
