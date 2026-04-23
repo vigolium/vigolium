@@ -98,13 +98,7 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 	r.HTTPVersion = "HTTP/1.1"
 	r.URL = u.String()
 
-	// Request headers
-	r.RequestHeaders = make(map[string][]string)
-	for _, h := range req.Headers() {
-		r.RequestHeaders[h.Name] = append(r.RequestHeaders[h.Name], h.Value)
-	}
-
-	// Request body metadata
+	// Request body metadata (derived from parsed request, not persisted)
 	r.RequestContentType = req.Header("Content-Type")
 	r.RequestContentLength = int64(len(req.Body()))
 
@@ -115,9 +109,8 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 		r.RequestAuthorization = cookie
 	}
 
-	// Raw request data
+	// Raw request data (single source of truth for body + headers)
 	r.RawRequest = req.Raw()
-	r.RequestBody = req.Body()
 
 	// Request hash
 	hash := sha256.Sum256(r.RawRequest)
@@ -130,24 +123,16 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 		r.StatusCode = resp.StatusCode()
 		r.ResponseHTTPVersion = extractResponseHTTPVersion(resp.Raw())
 
-		// Response headers
-		r.ResponseHeaders = make(map[string][]string)
-		for _, h := range resp.Headers() {
-			r.ResponseHeaders[h.Name] = append(r.ResponseHeaders[h.Name], h.Value)
-		}
-
 		r.ResponseContentType = resp.Header("Content-Type")
 		r.ResponseContentLength = int64(len(resp.Body()))
 		r.RawResponse = resp.Raw()
-		r.ResponseBody = resp.Body()
 
-		// Extract HTML title for quick reference
+		// Derive title/word-count from parsed response (in-memory only, not persisted)
+		respBody := resp.Body()
 		if strings.Contains(strings.ToLower(r.ResponseContentType), "html") {
-			r.ResponseTitle = extractHTMLTitle(r.ResponseBody)
+			r.ResponseTitle = extractHTMLTitle(respBody)
 		}
-
-		// Count words in response body and headers
-		r.ResponseWords = countResponseWords(r.ResponseBody, r.ResponseHeaders)
+		r.ResponseWords = countResponseWords(respBody, resp.Headers())
 
 		respHash := sha256.Sum256(r.RawResponse)
 		r.ResponseHash = hex.EncodeToString(respHash[:])
@@ -287,13 +272,11 @@ func extractHTMLTitle(body []byte) string {
 
 // countResponseWords counts whitespace-delimited words in the response body and headers.
 // Uses byte-level scanning to avoid allocating a string copy or []string slice.
-func countResponseWords(body []byte, headers map[string][]string) int64 {
+func countResponseWords(body []byte, headers []httpmsg.HttpHeader) int64 {
 	count := int64(countWordsBytes(body))
-	for k, vals := range headers {
-		count += int64(countWordsString(k))
-		for _, v := range vals {
-			count += int64(countWordsString(v))
-		}
+	for _, h := range headers {
+		count += int64(countWordsString(h.Name))
+		count += int64(countWordsString(h.Value))
 	}
 	return count
 }

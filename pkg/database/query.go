@@ -215,10 +215,8 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 			p := "%" + qb.filters.FuzzyTerm + "%"
 			query.Where(`(r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ? OR r.method LIKE ?
 				OR r.request_content_type LIKE ? OR r.response_content_type LIKE ? OR r.source LIKE ?
-				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
-				OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-				OR r.request_headers LIKE ? OR r.response_headers LIKE ?)`,
-				p, p, p, p, p, p, p, p, p, p, p, p, p)
+				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
+				p, p, p, p, p, p, p, p, p)
 		}
 	}
 
@@ -228,24 +226,23 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 		query.Where("r.url LIKE ? OR r.path LIKE ?", searchPattern, searchPattern)
 	}
 
-	// Header search (request + response headers)
+	// Header search (scans raw request/response bytes which contain headers)
 	if qb.filters.HeaderSearch != "" {
 		searchPattern := "%" + qb.filters.HeaderSearch + "%"
-		query.Where("(r.request_headers LIKE ? OR r.response_headers LIKE ?)", searchPattern, searchPattern)
+		query.Where("(CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)",
+			searchPattern, searchPattern)
 	}
 
-	// Body search (request + response body and raw content)
+	// Body search (raw request/response covers body + headers)
 	if qb.filters.BodySearch != "" {
 		if qb.db.HasFTS() && qb.db.Driver() != "postgres" {
-			// FTS5 covers request_body and response_body
+			// FTS5 indexes raw_request + raw_response which include body bytes
 			query.Where(`r.rowid IN (SELECT rowid FROM http_records_fts WHERE http_records_fts MATCH ?)`,
 				qb.filters.BodySearch+"*")
 		} else {
-			// Fallback: original CAST approach
 			searchPattern := "%" + qb.filters.BodySearch + "%"
-			query.Where(`(CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
-				searchPattern, searchPattern, searchPattern, searchPattern)
+			query.Where(`(CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?)`,
+				searchPattern, searchPattern)
 		}
 	}
 }
@@ -629,12 +626,10 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 			WHERE fr2.finding_id = f.id AND (
 				r.url LIKE ? OR r.path LIKE ? OR r.hostname LIKE ?
 				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
-				OR CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-				OR r.request_headers LIKE ? OR r.response_headers LIKE ?
 			))`
 		query.Where("("+findingMatch+" OR "+recordMatch+")",
 			p, p, p, p, p, p, p, // finding fields
-			p, p, p, p, p, p, p, p, p) // record fields
+			p, p, p, p, p) // record fields
 	}
 
 	// Path filtering via associated HTTP records
@@ -673,23 +668,24 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 			WHERE fr2.finding_id = f.id AND r.source = ?)`, fqb.filters.Source)
 	}
 
-	// Header search via associated HTTP records
+	// Header search via associated HTTP records (raw bytes contain headers)
 	if fqb.filters.HeaderSearch != "" {
 		hp := "%" + fqb.filters.HeaderSearch + "%"
 		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
 			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
-			WHERE fr2.finding_id = f.id AND (r.request_headers LIKE ? OR r.response_headers LIKE ?))`, hp, hp)
+			WHERE fr2.finding_id = f.id AND (
+				CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+			))`, hp, hp)
 	}
 
-	// Body search via associated HTTP records
+	// Body search via associated HTTP records (raw bytes contain body)
 	if fqb.filters.BodySearch != "" {
 		bp := "%" + fqb.filters.BodySearch + "%"
 		query.Where(`EXISTS (SELECT 1 FROM finding_records fr2
 			INNER JOIN http_records r ON r.uuid = fr2.record_uuid
 			WHERE fr2.finding_id = f.id AND (
-				CAST(r.request_body AS TEXT) LIKE ? OR CAST(r.response_body AS TEXT) LIKE ?
-				OR CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
-			))`, bp, bp, bp, bp)
+				CAST(r.raw_request AS TEXT) LIKE ? OR CAST(r.raw_response AS TEXT) LIKE ?
+			))`, bp, bp)
 	}
 
 	// Date range filtering

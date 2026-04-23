@@ -118,14 +118,13 @@ func (h *Handlers) HandleListRecords(c fiber.Ctx) error {
 
 	qb := database.NewQueryBuilder(h.db, filters)
 
-	// Exclude blob fields for lightweight list responses
+	// Exclude blob fields for lightweight list responses. Raw columns are the
+	// single source of truth; omitting them here also nils the JSON-derived
+	// request_body/response_body/request_headers/response_headers fields
+	// (MarshalJSON parses raw → nil in, nil out).
 	query := qb.BuildRecordsQuery().
 		ExcludeColumn("raw_request").
-		ExcludeColumn("raw_response").
-		ExcludeColumn("request_body").
-		ExcludeColumn("response_body").
-		ExcludeColumn("request_headers").
-		ExcludeColumn("response_headers")
+		ExcludeColumn("raw_response")
 
 	var records []*database.HTTPRecord
 	ctx := c.Context()

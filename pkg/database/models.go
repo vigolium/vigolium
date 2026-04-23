@@ -186,24 +186,20 @@ type HTTPRecord struct {
 	Path                 string              `bun:"path,notnull" json:"path"`
 	URL                  string              `bun:"url,notnull" json:"url"`
 	HTTPVersion          string              `bun:"http_version,notnull" json:"http_version"`
-	RequestHeaders       map[string][]string `bun:"request_headers,type:jsonb,nullzero" json:"request_headers,omitempty"`
-	RequestContentType   string              `bun:"request_content_type,nullzero" json:"request_content_type,omitempty"`
-	RequestContentLength int64               `bun:"request_content_length,default:0" json:"request_content_length"`
-	RawRequest           []byte              `bun:"raw_request,type:bytea,nullzero" json:"raw_request,omitempty"`
-	RequestBody          []byte              `bun:"request_body,type:bytea,nullzero" json:"request_body,omitempty"`
-	RequestHash          string              `bun:"request_hash,notnull" json:"request_hash"`
-	RequestAuthorization string              `bun:"request_authorization,nullzero" json:"request_authorization,omitempty"`
+	RequestContentType   string `bun:"request_content_type,nullzero" json:"request_content_type,omitempty"`
+	RequestContentLength int64  `bun:"request_content_length,default:0" json:"request_content_length"`
+	RawRequest           []byte `bun:"raw_request,type:bytea,nullzero" json:"raw_request,omitempty"`
+	RequestHash          string `bun:"request_hash,notnull" json:"request_hash"`
+	RequestAuthorization string `bun:"request_authorization,nullzero" json:"request_authorization,omitempty"`
 
 	// Response fields
-	StatusCode            int                 `bun:"status_code,default:0" json:"status_code"`
-	StatusPhrase          string              `bun:"status_phrase,nullzero" json:"status_phrase,omitempty"`
-	ResponseHTTPVersion   string              `bun:"response_http_version,nullzero" json:"response_http_version,omitempty"`
-	ResponseHeaders       map[string][]string `bun:"response_headers,type:jsonb,nullzero" json:"response_headers,omitempty"`
-	ResponseContentType   string              `bun:"response_content_type,nullzero" json:"response_content_type,omitempty"`
-	ResponseContentLength int64               `bun:"response_content_length,default:0" json:"response_content_length"`
-	RawResponse           []byte              `bun:"raw_response,type:bytea,nullzero" json:"raw_response,omitempty"`
-	ResponseBody          []byte              `bun:"response_body,type:bytea,nullzero" json:"response_body,omitempty"`
-	ResponseHash          string              `bun:"response_hash,nullzero" json:"response_hash,omitempty"`
+	StatusCode            int    `bun:"status_code,default:0" json:"status_code"`
+	StatusPhrase          string `bun:"status_phrase,nullzero" json:"status_phrase,omitempty"`
+	ResponseHTTPVersion   string `bun:"response_http_version,nullzero" json:"response_http_version,omitempty"`
+	ResponseContentType   string `bun:"response_content_type,nullzero" json:"response_content_type,omitempty"`
+	ResponseContentLength int64  `bun:"response_content_length,default:0" json:"response_content_length"`
+	RawResponse           []byte `bun:"raw_response,type:bytea,nullzero" json:"raw_response,omitempty"`
+	ResponseHash          string `bun:"response_hash,nullzero" json:"response_hash,omitempty"`
 	ResponseTimeMs        int64               `bun:"response_time_ms,default:0" json:"response_time_ms"`
 	ResponseWords         int64               `bun:"response_words,default:0" json:"response_words"`
 	HasResponse           bool                `bun:"has_response,notnull,default:false" json:"has_response"`

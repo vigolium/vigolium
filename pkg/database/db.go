@@ -277,21 +277,17 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			path TEXT NOT NULL,
 			url TEXT NOT NULL,
 			http_version TEXT NOT NULL,
-			request_headers TEXT,
 			request_content_type TEXT,
 			request_content_length INTEGER DEFAULT 0,
 			raw_request BLOB,
-			request_body BLOB,
 			request_hash TEXT NOT NULL,
 			request_authorization TEXT,
 			status_code INTEGER DEFAULT 0,
 			status_phrase TEXT,
 			response_http_version TEXT,
-			response_headers TEXT,
 			response_content_type TEXT,
 			response_content_length INTEGER DEFAULT 0,
 			raw_response BLOB,
-			response_body BLOB,
 			response_hash TEXT,
 			response_time_ms INTEGER DEFAULT 0,
 			response_words INTEGER DEFAULT 0,
@@ -750,10 +746,8 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 				url,
 				path,
 				hostname,
-				request_headers,
-				response_headers,
-				request_body,
-				response_body,
+				raw_request,
+				raw_response,
 				content=http_records,
 				content_rowid=rowid,
 				tokenize='porter unicode61'
@@ -766,19 +760,15 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 			ftsTrigs := []string{
 				`CREATE TRIGGER IF NOT EXISTS http_records_fts_ai AFTER INSERT ON http_records BEGIN
 					INSERT INTO http_records_fts(rowid, url, path, hostname,
-						request_headers, response_headers,
-						request_body, response_body)
+						raw_request, raw_response)
 					VALUES (new.rowid, new.url, new.path, new.hostname,
-						new.request_headers, new.response_headers,
-						CAST(new.request_body AS TEXT), CAST(new.response_body AS TEXT));
+						CAST(new.raw_request AS TEXT), CAST(new.raw_response AS TEXT));
 				END`,
 				`CREATE TRIGGER IF NOT EXISTS http_records_fts_ad AFTER DELETE ON http_records BEGIN
 					INSERT INTO http_records_fts(http_records_fts, rowid, url, path, hostname,
-						request_headers, response_headers,
-						request_body, response_body)
+						raw_request, raw_response)
 					VALUES ('delete', old.rowid, old.url, old.path, old.hostname,
-						old.request_headers, old.response_headers,
-						CAST(old.request_body AS TEXT), CAST(old.response_body AS TEXT));
+						CAST(old.raw_request AS TEXT), CAST(old.raw_response AS TEXT));
 				END`,
 			}
 			for _, trig := range ftsTrigs {
@@ -797,8 +787,8 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 					coalesce(url, '') || ' ' ||
 					coalesce(path, '') || ' ' ||
 					coalesce(hostname, '') || ' ' ||
-					coalesce(request_headers, '') || ' ' ||
-					coalesce(response_headers, '')
+					coalesce(encode(raw_request, 'escape'), '') || ' ' ||
+					coalesce(encode(raw_response, 'escape'), '')
 				)
 			) STORED`)
 		if pgErr != nil {
