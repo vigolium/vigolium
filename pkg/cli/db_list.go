@@ -732,7 +732,7 @@ func displayTree(records []*database.HTTPRecord) error {
 					}
 				}
 
-				headerCount := len(rec.RequestHeaders)
+				headerCount := len(rec.RequestHeadersMap())
 				headerTag := terminal.Gray(fmt.Sprintf("[%dh]", headerCount))
 
 				respPart := ""

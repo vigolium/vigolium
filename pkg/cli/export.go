@@ -328,10 +328,6 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 						Remarks:       r.Remarks,
 					}
 				} else {
-					// Nil out large body fields to keep report size reasonable;
-					// the detail panel uses raw_request/raw_response instead.
-					r.RequestBody = nil
-					r.ResponseBody = nil
 					data = r
 				}
 				items = append(items, exportEnvelope{Type: "http_record", Data: data})

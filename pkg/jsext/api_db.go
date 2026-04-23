@@ -352,8 +352,8 @@ func httpRecordToMap(r *database.HTTPRecord) map[string]interface{} {
 		"source":       r.Source,
 		"sent_at":      r.SentAt.Format(time.RFC3339),
 		"response_body": func() string {
-			if len(r.ResponseBody) > 0 {
-				return string(r.ResponseBody)
+			if b := r.ResponseBodyBytes(); len(b) > 0 {
+				return string(b)
 			}
 			return ""
 		}(),
@@ -376,14 +376,14 @@ func httpRecordToMap(r *database.HTTPRecord) map[string]interface{} {
 	if len(r.Remarks) > 0 {
 		m["remarks"] = r.Remarks
 	}
-	if r.ResponseHeaders != nil {
-		m["response_headers"] = r.ResponseHeaders
+	if h := r.ResponseHeadersMap(); h != nil {
+		m["response_headers"] = h
 	}
-	if r.RequestHeaders != nil {
-		m["request_headers"] = r.RequestHeaders
+	if h := r.RequestHeadersMap(); h != nil {
+		m["request_headers"] = h
 	}
-	if len(r.RequestBody) > 0 {
-		m["request_body"] = string(r.RequestBody)
+	if b := r.RequestBodyBytes(); len(b) > 0 {
+		m["request_body"] = string(b)
 	}
 	return m
 }

@@ -76,7 +76,7 @@ func (r *Repository) findDuplicateRecord(ctx context.Context, record *HTTPRecord
 		Where("url = ?", record.URL).
 		Limit(1)
 
-	if len(record.RequestBody) > 0 {
+	if len(record.RequestBodyBytes()) > 0 {
 		q = q.Where("request_hash = ?", record.RequestHash)
 	}
 
@@ -1291,14 +1291,15 @@ func (r *Repository) UpdateRecordAnnotations(ctx context.Context, uuid string, r
 
 // GetRecordsWithResponseBody returns HTTP records that have a non-empty response body,
 // using UUID-based cursor pagination. Only columns needed for batch secret scanning are selected.
+// Body is decoded from RawResponse on demand via ResponseBodyBytes().
 func (r *Repository) GetRecordsWithResponseBody(ctx context.Context, projectUUID, afterUUID string, limit int) ([]*HTTPRecord, error) {
 	var records []*HTTPRecord
 	q := r.db.NewSelect().
 		Model(&records).
-		Column("uuid", "hostname", "url", "response_body", "response_content_type").
+		Column("uuid", "hostname", "url", "has_response", "raw_response", "response_content_type").
 		Where("has_response = ?", true).
-		Where("response_body IS NOT NULL").
-		Where("length(response_body) > 0")
+		Where("raw_response IS NOT NULL").
+		Where("length(raw_response) > 0")
 	if projectUUID != "" {
 		q = q.Where("project_uuid = ?", projectUUID)
 	}

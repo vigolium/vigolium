@@ -2,6 +2,7 @@ package jsext
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,23 +28,24 @@ func setupDBTestVM(t *testing.T) (*sobek.Runtime, *database.Repository) {
 // insertTestRecord creates and persists a minimal HTTPRecord for testing.
 func insertTestRecord(t *testing.T, repo *database.Repository, uuid, hostname, path string, statusCode int, body string) {
 	t.Helper()
+	rawResp := []byte("HTTP/1.1 " + fmt.Sprintf("%d OK", statusCode) + "\r\nContent-Type: text/plain\r\nContent-Length: " + fmt.Sprintf("%d", len(body)) + "\r\n\r\n" + body)
 	records := []*database.HTTPRecord{
 		{
-			UUID:         uuid,
-			ProjectUUID:  database.DefaultProjectUUID,
-			Hostname:     hostname,
-			Scheme:       "https",
-			Port:         443,
-			Method:       "GET",
-			Path:         path,
-			URL:          "https://" + hostname + path,
-			HTTPVersion:  "1.1",
-			RequestHash:  uuid + "-hash",
-			StatusCode:   statusCode,
-			HasResponse:  true,
-			ResponseBody: []byte(body),
-			SentAt:       time.Now(),
-			Source:       "test",
+			UUID:        uuid,
+			ProjectUUID: database.DefaultProjectUUID,
+			Hostname:    hostname,
+			Scheme:      "https",
+			Port:        443,
+			Method:      "GET",
+			Path:        path,
+			URL:         "https://" + hostname + path,
+			HTTPVersion: "1.1",
+			RequestHash: uuid + "-hash",
+			StatusCode:  statusCode,
+			HasResponse: true,
+			RawResponse: rawResp,
+			SentAt:      time.Now(),
+			Source:      "test",
 		},
 	}
 	_, err := repo.SaveRecordsBatch(context.Background(), records)

@@ -1724,7 +1724,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 				continue
 			}
 
-			result, scanErr := scanner.Scan(ctx, record.ResponseBody)
+			result, scanErr := scanner.Scan(ctx, record.ResponseBodyBytes())
 			if scanErr != nil || !result.HasFindings() {
 				continue
 			}

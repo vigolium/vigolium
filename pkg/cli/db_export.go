@@ -456,8 +456,6 @@ func exportBundle(ctx context.Context, db *database.DB, projectUUID string) erro
 		fmt.Fprintf(os.Stderr, "%s Failed to query HTTP records: %v\n", terminal.WarningSymbol(), err)
 	} else {
 		for _, r := range records {
-			r.RequestBody = nil
-			r.ResponseBody = nil
 			if err := appendEnvelope("http_record", r); err != nil {
 				return err
 			}

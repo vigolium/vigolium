@@ -61,8 +61,8 @@ var allTrafficColumns = []columnDef{
 	{"TITLE", func(r *database.HTTPRecord) string { return truncate(r.ResponseTitle, 30) }, 30},
 	{"AUTH", func(r *database.HTTPRecord) string { return truncate(r.RequestAuthorization, 30) }, 30},
 	{"STATUS_PHRASE", func(r *database.HTTPRecord) string { return truncate(r.StatusPhrase, 20) }, 20},
-	{"REQ_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.RequestHeaders, 40) }, 40},
-	{"RESP_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.ResponseHeaders, 40) }, 40},
+	{"REQ_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.RequestHeadersMap(), 40) }, 40},
+	{"RESP_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.ResponseHeadersMap(), 40) }, 40},
 	{"SOURCE", func(r *database.HTTPRecord) string { return r.Source }, 20},
 	{"REMARKS", func(r *database.HTTPRecord) string {
 		return truncate(strings.Join(r.Remarks, ", "), 40)

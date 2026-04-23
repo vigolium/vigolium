@@ -410,17 +410,14 @@ func ReprobeUnprobedRecords(ctx context.Context, repo *database.Repository, proj
 			rawResp.Write(body)
 
 			contentType := resp.Header.Get("Content-Type")
-			headers := resp.Header.Clone()
 
 			update := &database.RecordResponseUpdate{
 				StatusCode:            resp.StatusCode,
 				StatusPhrase:          resp.Status,
 				ResponseHTTPVersion:   resp.Proto,
-				ResponseHeaders:       headers,
 				ResponseContentType:   contentType,
 				ResponseContentLength: int64(len(body)),
 				RawResponse:           rawResp.Bytes(),
-				ResponseBody:          body,
 			}
 
 			if updateErr := repo.UpdateRecordResponse(ctx, rec.UUID, update); updateErr != nil {

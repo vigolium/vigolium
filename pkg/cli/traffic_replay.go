@@ -147,11 +147,9 @@ func replayRecord(ctx context.Context, client *http.Client, repo *database.Repos
 			StatusCode:            resp.StatusCode,
 			StatusPhrase:          resp.Status,
 			ResponseHTTPVersion:   resp.Proto,
-			ResponseHeaders:       resp.Header,
 			ResponseContentType:   contentType,
 			ResponseContentLength: int64(len(body)),
 			RawResponse:           rawResp,
-			ResponseBody:          body,
 			ResponseTimeMs:        elapsed.Milliseconds(),
 		}
 

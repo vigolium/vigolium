@@ -12,11 +12,9 @@ type RecordResponseUpdate struct {
 	StatusCode            int
 	StatusPhrase          string
 	ResponseHTTPVersion   string
-	ResponseHeaders       map[string][]string
 	ResponseContentType   string
 	ResponseContentLength int64
 	RawResponse           []byte
-	ResponseBody          []byte
 	ResponseHash          string
 	ResponseTimeMs        int64
 }
@@ -28,11 +26,9 @@ func (r *Repository) UpdateRecordResponse(ctx context.Context, uuid string, upda
 		Set("status_code = ?", update.StatusCode).
 		Set("status_phrase = ?", update.StatusPhrase).
 		Set("response_http_version = ?", update.ResponseHTTPVersion).
-		Set("response_headers = ?", update.ResponseHeaders).
 		Set("response_content_type = ?", update.ResponseContentType).
 		Set("response_content_length = ?", update.ResponseContentLength).
 		Set("raw_response = ?", update.RawResponse).
-		Set("response_body = ?", update.ResponseBody).
 		Set("response_hash = ?", update.ResponseHash).
 		Set("response_time_ms = ?", update.ResponseTimeMs).
 		Set("has_response = ?", true).
