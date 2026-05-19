@@ -1,0 +1,6 @@
+OWNER_REPO=vercel-labs/skills
+OWNER=vercel-labs
+REPO=skills
+RESOLUTION_SOURCE=git remote
+PIGOLIUM_GIT_AVAILABLE=true
+GIT_ACTUAL=true

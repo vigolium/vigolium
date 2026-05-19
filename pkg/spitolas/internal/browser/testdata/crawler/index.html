@@ -1,0 +1,22 @@
+<html>
+<head>
+    <script type="text/javascript" src="../lib/jquery-2.0.3.min.js"></script>
+</head>
+<body>
+<div id="contents">
+    <script>
+			$(function(){
+				$(S1).click(function(){
+					$.get("payload_3.html", function(data){ $(contents).html(data);});
+				});
+				$(S2).click(function(){
+					$.get("payload_2.html", function(data){ $(contents).html(data);});
+				});
+			});
+
+    </script>
+    <a id="S1" href="#">S1</a><br/>
+    <a id="S2" href="#">S2</a><br/>
+</div>
+</body>
+</html>

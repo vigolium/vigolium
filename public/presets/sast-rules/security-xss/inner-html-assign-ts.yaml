@@ -1,0 +1,10 @@
+id: security-xss-inner-html-assign-ts
+language: typescript
+severity: error
+message: "Security: direct DOM innerHTML/outerHTML assignment — if value contains user input, this is an XSS vulnerability"
+note: "Direct DOM property assignment bypasses all framework sanitization. Use textContent for text, or sanitize with DOMPurify before assigning."
+rule:
+  any:
+    - pattern: $ELEM.innerHTML = $VALUE
+    - pattern: $ELEM.outerHTML = $VALUE
+    - pattern: $ELEM.insertAdjacentHTML($POS, $VALUE)

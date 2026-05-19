@@ -1,0 +1,8 @@
+PASS src/services/__tests__/confirm-m9-searchstore-indexitems-unbounded-dos-00000000.test.ts
+  ✓ test_confirm_searchstore_indexitems_unbounded_dos_00000000 (18 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.493 s
+Ran all test suites matching /src\/services\/__tests__\/confirm-m9-searchstore-indexitems-unbounded-dos-00000000.test.ts/i.

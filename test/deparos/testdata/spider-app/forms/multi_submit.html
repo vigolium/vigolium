@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multiple Submit Buttons Form Test</title>
+</head>
+<body>
+    <h1>Multiple Submit Buttons Form</h1>
+    <p>A form with multiple submit buttons. Spider should generate 3 variants (one per button).</p>
+
+    <form action="/form-result/action" method="POST">
+        <label for="item">Item ID:</label>
+        <input type="text" id="item" name="item" value="product-123">
+
+        <div>
+            <input type="submit" name="action" value="add_to_cart">
+            <input type="submit" name="action" value="buy_now">
+            <input type="submit" name="action" value="save_for_later">
+        </div>
+    </form>
+</body>
+</html>

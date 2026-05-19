@@ -1,0 +1,13 @@
+id: security-cors-websocket-message-dom
+language: javascript
+severity: warning
+message: "Security: WebSocket onmessage handler — verify messages are sanitized before DOM insertion or eval-like processing"
+note: "WebSocket messages from the server may contain user-generated content. If rendered directly in the DOM via innerHTML, this creates a stored XSS vulnerability."
+rule:
+  any:
+    - pattern: $WS.onmessage = $HANDLER
+    - pattern: $WS.addEventListener("message", $HANDLER)
+    - pattern: $WS.addEventListener('message', $HANDLER)
+constraints:
+  WS:
+    regex: "(?i)(ws|socket|websocket|conn)"

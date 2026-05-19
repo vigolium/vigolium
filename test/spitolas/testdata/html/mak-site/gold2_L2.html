@@ -1,0 +1,12 @@
+<script>
+$(function() {
+    $("#gold2_L2_a").click(function() { $.get("gold2_L3.html", function(data) { $('#contents').html(data); }); });
+    $("#gold2_L2_b").click(function() { $.get("gold2_L3_b.html", function(data) { $('#contents').html(data); }); });
+    $("#gold2_L2_c").click(function() { $.get("gold2_L3_c.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>GOLD 2 Level 2 (Depth 2)</h2>
+<p>HIGH REWARD: 3 more actions!</p>
+<button id="gold2_L2_a" type="button">Gold 2-L2-A</button>
+<button id="gold2_L2_b" type="button">Gold 2-L2-B</button>
+<button id="gold2_L2_c" type="button">Gold 2-L2-C</button>

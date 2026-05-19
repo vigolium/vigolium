@@ -1,0 +1,270 @@
+{
+  "session": "",
+  "timestamp": "2026-04-30T20:16:33Z",
+  "inventory_path": "piolium/confirm-workspace/findings-inventory.json",
+  "env_connection_path": "piolium/confirm-workspace/env-connection.json",
+  "target": "local",
+  "base_url": null,
+  "method_used": "node-cli-binary",
+  "reachability": {
+    "timestamp": "2026-04-30T20:16:12Z",
+    "mode": "cli-healthcheck-base-url-null",
+    "base_url": null,
+    "method_used": "node-cli-binary",
+    "command": "/bin/bash -lc 'node ./bin/cli.mjs --version'",
+    "reachable": true,
+    "exit_code": 0,
+    "timed_out": false,
+    "stdout": "1.5.3\n",
+    "stderr": "",
+    "notes": "env-connection.json has base_url=null because this repository is a local CLI target; no persistent HTTP app is expected."
+  },
+  "total": 14,
+  "summary": {
+    "confirmed-live": 5,
+    "failed": 0,
+    "blocked": 9,
+    "analytical-only": 0,
+    "false-positive": 0,
+    "inconclusive": 0,
+    "no-poc": 0,
+    "local-routed-to-v5": 9,
+    "network_attempted": 5
+  },
+  "results": [
+    {
+      "finding_key": "p10-001-direct-git-url-ref-reaches-simple-git-clone",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p10-002-symlink-dereference-copies-out-of-tree-files",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p10-009-project-scope-symlinked-agent-base-escape",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p10-010-experimental-install-unlocked-node-modules-skills",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p10-003-http-well-known-skill-discovery",
+      "id": "p10-003",
+      "slug": "http-well-known-skill-discovery",
+      "status": "confirmed-live",
+      "notes": "MITM marker persisted in installed SKILL.md and auxiliary file",
+      "evidence": "piolium/findings/p10-003-http-well-known-skill-discovery/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 1,
+      "attempts": [
+        {
+          "variant": 1,
+          "command": "/opt/homebrew/bin/python3 /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-003-http-well-known-skill-discovery/poc.py",
+          "cwd": "/Users/bytedance/Desktop/oss-to-run/skills",
+          "exit_code": 0,
+          "timed_out": false,
+          "duration_s": 1.578,
+          "structured": {
+            "status": "confirmed",
+            "evidence": "MITM marker persisted in installed SKILL.md and auxiliary file",
+            "notes": "/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-003-http-well-known-skill-discovery/evidence/runtime/project/.agents/skills/mitm-persisted/SKILL.md"
+          }
+        }
+      ],
+      "structured": {
+        "status": "confirmed",
+        "evidence": "MITM marker persisted in installed SKILL.md and auxiliary file",
+        "notes": "/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-003-http-well-known-skill-discovery/evidence/runtime/project/.agents/skills/mitm-persisted/SKILL.md"
+      },
+      "queued_for_v5": false
+    },
+    {
+      "finding_key": "p10-004-unbounded-well-known-fetch-and-frontmatter-parse",
+      "id": "p10-004",
+      "slug": "unbounded-well-known-fetch-and-frontmatter-parse",
+      "status": "confirmed-live",
+      "notes": "CLI hung on never-ending well-known SKILL.md body for 3005ms",
+      "evidence": "piolium/findings/p10-004-unbounded-well-known-fetch-and-frontmatter-parse/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 1,
+      "attempts": [
+        {
+          "variant": 1,
+          "command": "/opt/homebrew/bin/node /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-004-unbounded-well-known-fetch-and-frontmatter-parse/poc.js",
+          "cwd": "/Users/bytedance/Desktop/oss-to-run/skills",
+          "exit_code": 0,
+          "timed_out": false,
+          "duration_s": 3.526,
+          "structured": {
+            "status": "confirmed",
+            "evidence": "CLI hung on never-ending well-known SKILL.md body for 3005ms",
+            "notes": "large=true; stall=true; bytes=4194826; aux=8/8"
+          }
+        }
+      ],
+      "structured": {
+        "status": "confirmed",
+        "evidence": "CLI hung on never-ending well-known SKILL.md body for 3005ms",
+        "notes": "large=true; stall=true; bytes=4194826; aux=8/8"
+      },
+      "queued_for_v5": false
+    },
+    {
+      "finding_key": "p10-005-duplicate-skill-name-first-wins",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p10-006-blob-snapshot-not-verified-against-github-tree",
+      "id": "p10-006",
+      "slug": "blob-snapshot-not-verified-against-github-tree",
+      "status": "confirmed-live",
+      "notes": "installed web-design-guidelines/SKILL.md contains attacker marker P10_006_SNAPSHOT_SUBSTITUTION_MARKER",
+      "evidence": "piolium/findings/p10-006-blob-snapshot-not-verified-against-github-tree/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 1,
+      "attempts": [
+        {
+          "variant": 1,
+          "command": "/opt/homebrew/bin/python3 /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-006-blob-snapshot-not-verified-against-github-tree/poc.py",
+          "cwd": "/Users/bytedance/Desktop/oss-to-run/skills",
+          "exit_code": 0,
+          "timed_out": false,
+          "duration_s": 1.98,
+          "structured": {
+            "evidence": "installed web-design-guidelines/SKILL.md contains attacker marker P10_006_SNAPSHOT_SUBSTITUTION_MARKER",
+            "notes": "real CLI used GitHub discovery but wrote snapshot API contents",
+            "status": "confirmed"
+          }
+        }
+      ],
+      "structured": {
+        "evidence": "installed web-design-guidelines/SKILL.md contains attacker marker P10_006_SNAPSHOT_SUBSTITUTION_MARKER",
+        "notes": "real CLI used GitHub discovery but wrote snapshot API contents",
+        "status": "confirmed"
+      },
+      "queued_for_v5": false
+    },
+    {
+      "finding_key": "p10-007-rfc8615-path-relative-well-known-shadowing",
+      "id": "p10-007",
+      "slug": "rfc8615-path-relative-well-known-shadowing",
+      "status": "confirmed-live",
+      "notes": "attacker path-local evil-shadow skill installed while origin-root trusted-root existed",
+      "evidence": "piolium/findings/p10-007-rfc8615-path-relative-well-known-shadowing/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 1,
+      "attempts": [
+        {
+          "variant": 1,
+          "command": "/opt/homebrew/bin/python3 /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-007-rfc8615-path-relative-well-known-shadowing/poc.py",
+          "cwd": "/Users/bytedance/Desktop/oss-to-run/skills",
+          "exit_code": 0,
+          "timed_out": false,
+          "duration_s": 1.277,
+          "structured": {
+            "status": "confirmed",
+            "evidence": "attacker path-local evil-shadow skill installed while origin-root trusted-root existed",
+            "notes": "/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-007-rfc8615-path-relative-well-known-shadowing/evidence/runtime/project/.agents/skills/evil-shadow/SKILL.md"
+          }
+        }
+      ],
+      "structured": {
+        "status": "confirmed",
+        "evidence": "attacker path-local evil-shadow skill installed while origin-root trusted-root existed",
+        "notes": "/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-007-rfc8615-path-relative-well-known-shadowing/evidence/runtime/project/.agents/skills/evil-shadow/SKILL.md"
+      },
+      "queued_for_v5": false
+    },
+    {
+      "finding_key": "p10-008-agent-skill-name-constraints-not-enforced",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p12-cleartext-http-git-sources",
+      "id": "p12",
+      "slug": "cleartext-http-git-sources",
+      "status": "confirmed-live",
+      "notes": "installed SKILL.md contains P12_CLEAR_HTTP_GIT_MITM_MARKER from HTTP git clone",
+      "evidence": "piolium/findings/p12-cleartext-http-git-sources/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 1,
+      "attempts": [
+        {
+          "variant": 1,
+          "command": "/opt/homebrew/bin/python3 /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p12-cleartext-http-git-sources/poc.py",
+          "cwd": "/Users/bytedance/Desktop/oss-to-run/skills",
+          "exit_code": 0,
+          "timed_out": false,
+          "duration_s": 12.298,
+          "structured": {
+            "status": "confirmed",
+            "evidence": "installed SKILL.md contains P12_CLEAR_HTTP_GIT_MITM_MARKER from HTTP git clone"
+          }
+        }
+      ],
+      "structured": {
+        "status": "confirmed",
+        "evidence": "installed SKILL.md contains P12_CLEAR_HTTP_GIT_MITM_MARKER from HTTP git clone"
+      },
+      "queued_for_v5": false
+    },
+    {
+      "finding_key": "p12-node-modules-sync-duplicate-name-overwrite",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p12-project-scope-remove-symlinked-agent-base-escape",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    },
+    {
+      "finding_key": "p12-unbounded-git-local-frontmatter-parse",
+      "status": "blocked",
+      "notes": "local-only finding routed to V5; V4 executes only network-exploitable PoCs for this run",
+      "evidence": "piolium/findings/p12-unbounded-git-local-frontmatter-parse/evidence/confirmed-20260430T201612Z.log",
+      "variant_count": 0,
+      "queued_for_v5": true,
+      "route": "V5-local"
+    }
+  ],
+  "notes": [
+    "base_url was null for this CLI target, so V4 used the discovered CLI healthcheck before running network-shaped PoCs that start local attacker-controlled servers.",
+    "local-exploitable findings were not executed in V4 and are marked blocked/queued_for_v5 as requested.",
+    "A confirmed-live result is based only on structured PoC output plus inline command/stdout/stderr and generated impact logs in each evidence file."
+  ]
+}

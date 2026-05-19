@@ -1,0 +1,175 @@
+{
+  "generated": "2026-04-30T19:17:08Z",
+  "phase": "P10",
+  "patterns": [
+    {
+      "id": "AP-001",
+      "title": "Untrusted source/ref passed to simple-git clone",
+      "severity": "HIGH",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-001-direct-git-url-ref-reaches-simple-git-clone.md"
+      ],
+      "detection_signature": {
+        "grep": "simpleGit\\(|\\.clone\\(",
+        "semgrep": "pattern: $G.clone($URL, $DIR, $OPTS)"
+      },
+      "untested_candidates": [
+        "src/git.ts:30",
+        "src/git.ts:62"
+      ]
+    },
+    {
+      "id": "AP-002",
+      "title": "Untrusted skill tree copied with symlink dereference",
+      "severity": "HIGH",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-002-symlink-dereference-copies-out-of-tree-files.md"
+      ],
+      "detection_signature": {
+        "grep": "dereference:\\s*true",
+        "semgrep": "pattern: cp($SRC, $DST, { ..., dereference: true, ... })"
+      },
+      "untested_candidates": [
+        "src/installer.ts:370"
+      ]
+    },
+    {
+      "id": "AP-003",
+      "title": "Lexical-only install path containment before writes/deletes",
+      "severity": "HIGH",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-009-project-scope-symlinked-agent-base-escape.md",
+        "piolium/findings-draft/p12-003-project-scope-remove-symlinked-agent-base-escape.md"
+      ],
+      "detection_signature": {
+        "grep": "isPathSafe\\(|normalize\\(resolve",
+        "semgrep": "pattern: normalize(resolve($PATH))"
+      },
+      "untested_candidates": [
+        "src/installer.ts:63",
+        "src/installer.ts:260",
+        "src/installer.ts:617",
+        "src/installer.ts:745"
+      ]
+    },
+    {
+      "id": "AP-004",
+      "title": "Cleartext HTTP accepted for remote skill discovery",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-003-http-well-known-skill-discovery.md",
+        "piolium/findings-draft/p12-001-cleartext-http-git-sources.md"
+      ],
+      "detection_signature": {
+        "grep": "startsWith('http://')|startsWith(\"http://\")",
+        "semgrep": "pattern: $URL.startsWith('http://')"
+      },
+      "untested_candidates": [
+        "src/source-parser.ts:396",
+        "src/providers/wellknown.ts:67"
+      ]
+    },
+    {
+      "id": "AP-005",
+      "title": "Remote fetch/body parse without timeout or size limit",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-004-unbounded-well-known-fetch-and-frontmatter-parse.md",
+        "piolium/findings-draft/p12-002-unbounded-git-local-frontmatter-parse.md"
+      ],
+      "detection_signature": {
+        "grep": "fetch\\(|response\\.text\\(|response\\.json\\(|parseFrontmatter\\(",
+        "semgrep": "pattern: await fetch($URL)"
+      },
+      "untested_candidates": [
+        "src/providers/wellknown.ts:134",
+        "src/providers/wellknown.ts:271",
+        "src/providers/wellknown.ts:294"
+      ]
+    },
+    {
+      "id": "AP-006",
+      "title": "Duplicate untrusted frontmatter names silently first-wins",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-005-duplicate-skill-name-first-wins.md",
+        "piolium/findings-draft/p12-004-node-modules-sync-duplicate-name-overwrite.md"
+      ],
+      "detection_signature": {
+        "grep": "seenNames\\.has",
+        "semgrep": "pattern: if ($SKILL && !seenNames.has($SKILL.name)) { ... }"
+      },
+      "untested_candidates": [
+        "src/skills.ts:198",
+        "src/skills.ts:217"
+      ]
+    },
+    {
+      "id": "AP-007",
+      "title": "External snapshot installed without upstream tree verification",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-006-blob-snapshot-not-verified-against-github-tree.md"
+      ],
+      "detection_signature": {
+        "grep": "SKILLS_DOWNLOAD_URL|api/download|installBlobSkillForAgent",
+        "semgrep": "pattern-either: [{pattern: fetch($URL)}, {pattern: installBlobSkillForAgent(...)}]"
+      },
+      "untested_candidates": [
+        "src/blob.ts:44",
+        "src/blob.ts:277",
+        "src/installer.ts:720"
+      ]
+    },
+    {
+      "id": "AP-008",
+      "title": "Path-relative RFC 8615 well-known discovery before origin root",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-007-rfc8615-path-relative-well-known-shadowing.md"
+      ],
+      "detection_signature": {
+        "grep": "basePath.*wellKnownPath|Path-relative",
+        "semgrep": "pattern: $URLS.push({ indexUrl: `${$PROTO}//${$HOST}${$BASEPATH}/${$WK}/index.json`, ... })"
+      },
+      "untested_candidates": [
+        "src/providers/wellknown.ts:101",
+        "src/providers/wellknown.ts:115"
+      ]
+    },
+    {
+      "id": "AP-009",
+      "title": "Spec-required skill name constraints not enforced before install naming",
+      "severity": "MEDIUM",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-008-agent-skill-name-constraints-not-enforced.md"
+      ],
+      "detection_signature": {
+        "grep": "data.name|sanitizeName\\(skill.name|nameRegex",
+        "semgrep": "pattern: if (typeof $DATA.name !== 'string') return null"
+      },
+      "untested_candidates": [
+        "src/skills.ts:37",
+        "src/installer.ts:245",
+        "src/providers/wellknown.ts:185"
+      ]
+    },
+    {
+      "id": "AP-010",
+      "title": "Lock restore triggers broad node_modules sync without allowlist",
+      "severity": "HIGH",
+      "confirmed_instances": [
+        "piolium/findings-draft/p10-010-experimental-install-unlocked-node-modules-skills.md"
+      ],
+      "detection_signature": {
+        "grep": "sourceType === 'node_modules'|runSync\\(.*yes:\\s*true",
+        "semgrep": "pattern: runSync($ARGS, { ..., yes: true, ... })"
+      },
+      "untested_candidates": [
+        "src/install.ts:38",
+        "src/install.ts:84",
+        "src/sync.ts:142"
+      ]
+    }
+  ]
+}

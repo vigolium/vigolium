@@ -1,0 +1,7 @@
+services:
+  vulnerable-java:
+    image: ghcr.io/datadog/vulnerable-java-application:latest
+    container_name: vulnerable-java
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

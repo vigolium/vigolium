@@ -1,0 +1,471 @@
+{
+	"audits": [
+		{
+			"audit_id": "2026-04-30T17:51:36.608Z",
+			"mode": "deep",
+			"started_at": "2026-04-30T17:51:36.608Z",
+			"completed_at": "2026-04-30T20:27:41.360Z",
+			"status": "complete",
+			"phases": {
+				"P1": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T17:51:36.637Z",
+					"completed_at": "2026-04-30T18:06:25.021Z"
+				},
+				"P2": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:06:25.030Z",
+					"summary_path": "piolium/attack-surface/patch-bypass-summary.md",
+					"completed_at": "2026-04-30T18:15:37.080Z"
+				},
+				"P3": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:15:37.089Z",
+					"summary_path": "piolium/attack-surface/knowledge-base-report.md",
+					"architecture_entrypoints_path": "piolium/attack-surface/architecture-entrypoints.md",
+					"completed_at": "2026-04-30T18:30:02.531Z"
+				},
+				"P4": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:30:02.540Z",
+					"summary_path": "piolium/attack-surface/knowledge-base-report.md",
+					"source_sink_flows_path": "piolium/attack-surface/source-sink-flows-all-severities.md",
+					"draft_findings_dir": "piolium/findings-draft",
+					"completed_at": "2026-04-30T18:53:04.060Z"
+				},
+				"P5": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:53:04.069Z",
+					"summary_path": "piolium/attack-surface/knowledge-base-report.md",
+					"matrix_path": "piolium/attack-surface/public-routes-authz-matrix.md",
+					"coverage_gaps_path": "piolium/authz-coverage-gaps.md",
+					"draft_findings_dir": "piolium/findings-draft",
+					"completed_at": "2026-04-30T18:57:55.424Z"
+				},
+				"P6": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:53:04.077Z",
+					"summary_path": "piolium/attack-surface/state-concurrency-summary.md",
+					"draft_findings_dir": "piolium/findings-draft",
+					"drafts_filed": 1,
+					"completed_at": "2026-04-30T18:57:39.428Z"
+				},
+				"P7": {
+					"status": "complete",
+					"attempt": 3,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T18:53:04.089Z",
+					"completed_at": "2026-04-30T19:03:12.646Z"
+				},
+				"P8": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:03:12.656Z",
+					"summary_path": "piolium/attack-surface/deep-probe-summary.md",
+					"manual_inventory_path": "piolium/attack-surface/manual-attack-surface-inventory.md",
+					"draft_findings_dir": "piolium/findings-draft",
+					"drafts_filed": 2,
+					"completed_at": "2026-04-30T19:10:05.507Z"
+				},
+				"P9": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:10:05.514Z",
+					"completed_at": "2026-04-30T19:11:35.349Z"
+				},
+				"P10": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:11:35.356Z",
+					"summary_path": "piolium/chamber-workspace/index.md",
+					"findings_survived": 10,
+					"drafts_deleted": 3,
+					"patterns_registered": 10,
+					"completed_at": "2026-04-30T19:18:11.692Z"
+				},
+				"P11": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:18:11.717Z",
+					"completed_at": "2026-04-30T19:18:24.002Z"
+				},
+				"P12": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:18:24.014Z",
+					"summary_path": "piolium/variant-summary.md",
+					"variants_found": 4,
+					"draft_findings_dir": "piolium/findings-draft",
+					"completed_at": "2026-04-30T19:26:42.106Z"
+				},
+				"P13": {
+					"status": "complete",
+					"started_at": "2026-04-30T19:26:42.123Z",
+					"completed_at": "2026-04-30T19:50:24.740Z"
+				},
+				"P14": {
+					"status": "complete",
+					"started_at": "2026-04-30T19:50:24.750Z",
+					"completed_at": "2026-04-30T19:58:55.249Z"
+				},
+				"P15": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T19:58:55.258Z",
+					"completed_at": "2026-04-30T20:05:28.783Z"
+				},
+				"P16": {
+					"status": "complete",
+					"started_at": "2026-04-30T20:05:28.796Z",
+					"last_completed_subphase": "V6",
+					"env_connection_path": "piolium/confirm-workspace/env-connection.json",
+					"test_mapping_path": "piolium/confirm-workspace/test-mapping.json",
+					"completed_at": "2026-04-30T20:27:41.357Z",
+					"confirmation_report_path": "piolium/confirmation-report.md"
+				},
+				"P13:p10-001": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:26:42.137Z",
+					"completed_at": "2026-04-30T19:32:59.741Z"
+				},
+				"P13:p10-002": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:26:42.141Z",
+					"poc_status": "executed",
+					"completed_at": "2026-04-30T19:32:51.844Z"
+				},
+				"P13:p10-003": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:26:42.144Z",
+					"completed_at": "2026-04-30T19:31:12.608Z"
+				},
+				"P13:p10-004": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:31:12.614Z",
+					"completed_at": "2026-04-30T19:35:21.029Z"
+				},
+				"P13:p10-005": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:32:51.853Z",
+					"completed_at": "2026-04-30T19:37:10.370Z"
+				},
+				"P13:p10-006": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:32:59.753Z",
+					"completed_at": "2026-04-30T19:39:22.489Z"
+				},
+				"P13:p10-007": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:35:21.040Z",
+					"completed_at": "2026-04-30T19:39:32.080Z"
+				},
+				"P13:p10-008": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:37:10.382Z",
+					"completed_at": "2026-04-30T19:40:32.991Z"
+				},
+				"P13:p10-009": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:39:22.503Z",
+					"poc_status": "executed",
+					"completed_at": "2026-04-30T19:45:35.147Z"
+				},
+				"P13:p10-010": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:39:32.090Z",
+					"completed_at": "2026-04-30T19:43:35.821Z"
+				},
+				"P13:p12-cleartext-http-git": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:40:32.998Z",
+					"poc_status": "executed",
+					"completed_at": "2026-04-30T19:45:22.632Z"
+				},
+				"P13:p12-node-modules-sync-duplicate-name": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:43:35.832Z",
+					"completed_at": "2026-04-30T19:47:09.992Z"
+				},
+				"P13:p12-project-scope-remove-symlinked-agent-base": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:45:22.639Z",
+					"completed_at": "2026-04-30T19:48:19.636Z"
+				},
+				"P13:p12-unbounded-git-local-frontmatter": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:45:35.158Z",
+					"completed_at": "2026-04-30T19:50:24.731Z"
+				},
+				"P14:p10-001": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:50:24.761Z",
+					"completed_at": "2026-04-30T19:52:08.720Z"
+				},
+				"P14:p10-002": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:50:24.767Z",
+					"completed_at": "2026-04-30T19:51:56.443Z"
+				},
+				"P14:p10-003": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:50:24.773Z",
+					"completed_at": "2026-04-30T19:51:58.926Z"
+				},
+				"P14:p10-004": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:51:56.449Z",
+					"completed_at": "2026-04-30T19:53:46.946Z"
+				},
+				"P14:p10-005": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:51:58.930Z",
+					"completed_at": "2026-04-30T19:53:56.938Z"
+				},
+				"P14:p10-006": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:52:08.723Z",
+					"completed_at": "2026-04-30T19:54:13.406Z"
+				},
+				"P14:p10-007": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:53:46.956Z",
+					"completed_at": "2026-04-30T19:55:15.110Z"
+				},
+				"P14:p10-008": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:53:56.948Z",
+					"completed_at": "2026-04-30T19:55:39.218Z"
+				},
+				"P14:p10-009": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:54:13.416Z",
+					"completed_at": "2026-04-30T19:56:12.450Z"
+				},
+				"P14:p10-010": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:55:15.117Z",
+					"completed_at": "2026-04-30T19:56:51.807Z"
+				},
+				"P14:p12-cleartext-http-git": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:55:39.228Z",
+					"completed_at": "2026-04-30T19:57:10.485Z"
+				},
+				"P14:p12-node-modules-sync-duplicate-name": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:56:12.461Z",
+					"completed_at": "2026-04-30T19:58:17.131Z"
+				},
+				"P14:p12-project-scope-remove-symlinked-agent-base": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:56:51.815Z",
+					"completed_at": "2026-04-30T19:58:32.160Z"
+				},
+				"P14:p12-unbounded-git-local-frontmatter": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-04-30T19:57:10.494Z",
+					"completed_at": "2026-04-30T19:58:55.236Z"
+				},
+				"P16:V1": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:05:28.806Z",
+					"completed_at": "2026-04-30T20:09:20.610Z",
+					"inventory_path": "piolium/confirm-workspace/findings-inventory.json",
+					"total_findings": 14,
+					"with_poc": 14,
+					"by_severity": {
+						"HIGH": 4,
+						"MEDIUM": 10
+					},
+					"by_class": {
+						"network-exploitable": 5,
+						"local-exploitable": 9,
+						"non-exploitable": 0
+					}
+				},
+				"P16:V2": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:09:20.613Z",
+					"env_strategies_path": "piolium/confirm-workspace/env-strategies.json",
+					"auth_spec_path": "piolium/confirm-workspace/auth-spec.json",
+					"app_strategies": 4,
+					"test_strategies": 4,
+					"top_strategy": "node-cli-binary",
+					"top_strategy_confidence": "high",
+					"completed_at": "2026-04-30T20:11:53.877Z"
+				},
+				"P16:V3": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:11:53.881Z",
+					"completed_at": "2026-04-30T20:13:02.166Z"
+				},
+				"P16:V4": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:13:02.170Z",
+					"results_path": "piolium/confirm-workspace/poc-results.json",
+					"total_findings": 14,
+					"network_attempted": 5,
+					"confirmed_live": 5,
+					"blocked": 9,
+					"inconclusive": 0,
+					"completed_at": "2026-04-30T20:17:06.276Z"
+				},
+				"P16:V5": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:17:06.287Z",
+					"results_path": "piolium/confirm-workspace/test-mapping.json",
+					"targeted_findings": 9,
+					"confirmed_test": 9,
+					"failed": 0,
+					"blocked": 0,
+					"false_positive": 0,
+					"completed_at": "2026-04-30T20:23:26.371Z"
+				},
+				"P16:V6": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-04-30T20:23:26.382Z",
+					"completed_at": "2026-04-30T20:27:39.964Z",
+					"last_completed_subphase": "V6",
+					"confirmation_report_path": "piolium/confirmation-report.md",
+					"confirmed_live": 5,
+					"confirmed_test": 9,
+					"confirmed_fp": 0,
+					"confirmation_rate": "14/14 (100%)"
+				}
+			},
+			"agent_sdk": "pi",
+			"commit": "7c0a9af3f8738965b71341712710ac7371089b34",
+			"branch": "main",
+			"repository": "vercel-labs/skills",
+			"history_available": true,
+			"confirmation": {
+				"session": "c44d2b43-8b4d-48e7-ae92-850980bd6884",
+				"confirmed_at": "2026-04-30T20:26:47Z",
+				"environment_method": "node-cli-binary",
+				"target_url": "local-cli:node ./bin/cli.mjs",
+				"results": {
+					"confirmed_live": 5,
+					"confirmed_test": 9,
+					"confirmed_fp": 0,
+					"analytical_only": 0,
+					"unconfirmed": 0,
+					"inconclusive": 0,
+					"blocked": 0,
+					"no_poc": 0,
+					"error": 0
+				},
+				"by_class": {
+					"network-exploitable": 5,
+					"local-exploitable": 9,
+					"non-exploitable": 0
+				},
+				"confirmation_rate": "14/14 (100%)"
+			},
+			"confirmation_history": [
+				{
+					"session": "c44d2b43-8b4d-48e7-ae92-850980bd6884",
+					"started_at": "2026-04-30T20:05:28.796Z",
+					"completed_at": "2026-04-30T20:26:47Z",
+					"target_url": "local-cli:node ./bin/cli.mjs",
+					"results": {
+						"confirmed_live": 5,
+						"confirmed_test": 9,
+						"confirmed_fp": 0,
+						"analytical_only": 0,
+						"unconfirmed": 0,
+						"inconclusive": 0,
+						"blocked": 0,
+						"no_poc": 0,
+						"error": 0
+					}
+				}
+			]
+		}
+	]
+}

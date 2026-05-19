@@ -1,0 +1,27 @@
+framework: gohttp
+source_dir: gohttp
+detect_framework: false
+
+expected_match_count:
+  min: 2
+  max: 15
+
+expected_routes:
+  - method: ""
+    path: "/health"
+    file: main.go
+    assertion: strict
+
+  - method: ""
+    path: "/users"
+    file: main.go
+    assertion: strict
+
+  - method: ""
+    path: "/users/create"
+    file: main.go
+    assertion: strict
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"

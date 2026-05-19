@@ -1,0 +1,87 @@
+app:
+  name: vulnerable-nginx
+  type: docker
+  image: "detectify/vulnerable-nginx:latest"
+  port: 80
+  wait_endpoint: "/"
+  startup_timeout: 60s
+
+test_cases:
+  # === Active Module Tests ===
+
+  # Nginx off-by-slash misconfiguration
+  - id: "nginx-off-by-slash"
+    endpoint: "/cats/"
+    method: GET
+    modules: ["nginx-off-by-slash"]
+    vuln_types: ["nginx-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Nginx off-by-slash alias traversal on /cats/ endpoint"
+
+  # Nginx path escape
+  - id: "nginx-path-escape"
+    endpoint: "/cats/"
+    method: GET
+    modules: ["nginx-path-escape"]
+    vuln_types: ["nginx-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Nginx path escape misconfiguration on /cats/ endpoint"
+
+  # Path normalization
+  - id: "nginx-path-normalization"
+    endpoint: "/cats/"
+    method: GET
+    modules: ["path-normalization"]
+    vuln_types: ["path-normalization"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Path normalization issues on Nginx endpoint"
+
+  # Host header injection
+  - id: "nginx-host-header"
+    endpoint: "/"
+    method: GET
+    modules: ["host-header-injection"]
+    vuln_types: ["host-header-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Host header injection on Nginx"
+
+  # CRLF injection
+  - id: "nginx-crlf"
+    endpoint: "/cats/"
+    method: GET
+    modules: ["crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection on Nginx endpoint"
+
+  # === Passive Module Tests ===
+
+  # Missing security headers
+  - id: "nginx-headers"
+    endpoint: "/cats/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers on Nginx"
+
+  # Info disclosure
+  - id: "nginx-info-disclosure"
+    endpoint: "/"
+    method: GET
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: passive
+    description: "Information disclosure check on Nginx"

@@ -1,0 +1,381 @@
+{
+	"audits": [
+		{
+			"audit_id": "2026-05-01T05:32:59.050Z",
+			"mode": "deep",
+			"started_at": "2026-05-01T05:32:59.050Z",
+			"status": "complete",
+			"phases": {
+				"P1": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T05:32:59.168Z",
+					"completed_at": "2026-05-01T05:48:19.320Z"
+				},
+				"P2": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T05:48:19.328Z",
+					"completed_at": "2026-05-01T05:57:16.306Z"
+				},
+				"P3": {
+					"status": "complete",
+					"attempt": 2,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T05:57:16.317Z",
+					"completed_at": "2026-05-01T06:29:08.146Z"
+				},
+				"P4": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T06:29:08.156Z",
+					"completed_at": "2026-05-01T07:09:13.377Z"
+				},
+				"P5": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:09:13.388Z",
+					"completed_at": "2026-05-01T07:17:29.983Z"
+				},
+				"P6": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:09:13.397Z",
+					"completed_at": "2026-05-01T07:16:42.744Z"
+				},
+				"P7": {
+					"status": "complete",
+					"attempt": 3,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:09:13.409Z",
+					"completed_at": "2026-05-01T07:22:51.993Z"
+				},
+				"P8": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:22:52.000Z",
+					"completed_at": "2026-05-01T07:30:22.423Z"
+				},
+				"P9": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:30:22.432Z",
+					"completed_at": "2026-05-01T07:37:31.996Z"
+				},
+				"P10": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:37:32.003Z",
+					"completed_at": "2026-05-01T07:47:44.872Z"
+				},
+				"P11": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:47:44.894Z",
+					"completed_at": "2026-05-01T07:48:36.471Z"
+				},
+				"P12": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T07:48:36.482Z",
+					"completed_at": "2026-05-01T08:00:29.430Z"
+				},
+				"P13": {
+					"status": "complete",
+					"started_at": "2026-05-01T08:00:29.452Z",
+					"completed_at": "2026-05-01T08:25:52.240Z"
+				},
+				"P14": {
+					"status": "complete",
+					"started_at": "2026-05-01T08:25:52.248Z",
+					"completed_at": "2026-05-01T08:33:08.214Z"
+				},
+				"P15": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T08:33:08.221Z",
+					"completed_at": "2026-05-01T08:37:51.141Z"
+				},
+				"P16": {
+					"status": "complete",
+					"started_at": "2026-05-01T08:37:51.155Z",
+					"completed_at": "2026-05-01T09:17:32.013Z"
+				},
+				"P17": {
+					"status": "complete",
+					"started_at": "2026-05-01T09:17:32.018Z",
+					"completed_at": "2026-05-01T09:17:33.801Z"
+				},
+				"P13:p10-agentic-gardener-issue-prompt": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:00:29.461Z",
+					"completed_at": "2026-05-01T08:03:08.160Z"
+				},
+				"P13:p10-app-assets-prefix-path": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:00:29.463Z",
+					"completed_at": "2026-05-01T08:11:27.228Z"
+				},
+				"P13:p10-cloudflared-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:00:29.466Z",
+					"completed_at": "2026-05-01T08:07:42.596Z"
+				},
+				"P13:p10-extension-asset-symlink-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:03:08.172Z",
+					"completed_at": "2026-05-01T08:09:30.511Z"
+				},
+				"P13:p10-extension-dev-server-unauthenticated-control": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:07:42.607Z",
+					"completed_at": "2026-05-01T08:12:52.156Z"
+				},
+				"P13:p10-graphiql-script-context": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:09:30.514Z",
+					"completed_at": "2026-05-01T08:15:05.782Z"
+				},
+				"P13:p10-liquid-template-root-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:11:27.236Z",
+					"completed_at": "2026-05-01T08:16:03.207Z"
+				},
+				"P13:p10-tree-kill-windows-command": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:12:52.165Z",
+					"completed_at": "2026-05-01T08:16:26.941Z"
+				},
+				"P13:p12-extension-generate-liquid-root-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:15:05.792Z",
+					"completed_at": "2026-05-01T08:22:18.738Z"
+				},
+				"P13:p12-function-toolchain-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:16:03.211Z",
+					"completed_at": "2026-05-01T08:20:45.301Z"
+				},
+				"P13:p12-include-assets-source-containment-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:16:26.951Z",
+					"completed_at": "2026-05-01T08:25:52.228Z"
+				},
+				"P13:p12-mkcert-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:20:45.308Z",
+					"completed_at": "2026-05-01T08:25:01.652Z"
+				},
+				"P14:p10-agentic-gardener-issue-prompt": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:25:52.258Z",
+					"completed_at": "2026-05-01T08:28:05.966Z"
+				},
+				"P14:p10-app-assets-prefix-path": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:25:52.263Z",
+					"completed_at": "2026-05-01T08:27:39.969Z"
+				},
+				"P14:p10-cloudflared-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:25:52.266Z",
+					"completed_at": "2026-05-01T08:27:37.993Z"
+				},
+				"P14:p10-extension-asset-symlink-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:27:37.996Z",
+					"completed_at": "2026-05-01T08:28:51.087Z"
+				},
+				"P14:p10-extension-dev-server-unauthenticated-control": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:27:39.972Z",
+					"completed_at": "2026-05-01T08:29:14.136Z"
+				},
+				"P14:p10-graphiql-script-context": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:28:05.979Z",
+					"completed_at": "2026-05-01T08:29:41.796Z"
+				},
+				"P14:p10-liquid-template-root-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:28:51.097Z",
+					"completed_at": "2026-05-01T08:30:36.737Z"
+				},
+				"P14:p10-tree-kill-windows-command": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:29:14.150Z",
+					"completed_at": "2026-05-01T08:30:39.927Z"
+				},
+				"P14:p12-extension-generate-liquid-root-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:29:41.804Z",
+					"completed_at": "2026-05-01T08:31:29.620Z"
+				},
+				"P14:p12-function-toolchain-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:30:36.748Z",
+					"completed_at": "2026-05-01T08:32:09.722Z"
+				},
+				"P14:p12-include-assets-source-containment-file": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:30:39.939Z",
+					"completed_at": "2026-05-01T08:32:50.622Z"
+				},
+				"P14:p12-mkcert-download-exec-no": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 1,
+					"started_at": "2026-05-01T08:31:29.633Z",
+					"completed_at": "2026-05-01T08:33:08.205Z"
+				},
+				"P16:V1": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T08:37:51.163Z",
+					"completed_at": "2026-05-01T08:41:24.050Z"
+				},
+				"P16:V2": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T08:41:24.059Z",
+					"completed_at": "2026-05-01T08:48:38.802Z"
+				},
+				"P16:V3": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T08:48:38.812Z",
+					"completed_at": "2026-05-01T08:55:43.550Z"
+				},
+				"P16:V4": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T08:55:43.561Z",
+					"completed_at": "2026-05-01T09:01:50.394Z"
+				},
+				"P16:V5": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T09:01:50.407Z",
+					"completed_at": "2026-05-01T09:12:13.256Z"
+				},
+				"P16:V6": {
+					"status": "complete",
+					"attempt": 1,
+					"max_attempts": 3,
+					"started_at": "2026-05-01T09:12:13.311Z",
+					"completed_at": "2026-05-01T09:17:31.756Z"
+				}
+			},
+			"agent_sdk": "pi",
+			"commit": "c3e54bea421d23743b5f2b83b34347f5bb729cc4",
+			"branch": "main",
+			"repository": "shopify/cli",
+			"history_available": true,
+			"confirmation": {
+				"session": "613a6a3b-ccce-475e-b192-09025e326d01",
+				"confirmed_at": "2026-05-01T09:16:47Z",
+				"environment_method": "test-server",
+				"target_url": "http://localhost:3469",
+				"results": {
+					"confirmed_live": 4,
+					"confirmed_test": 8,
+					"confirmed_fp": 0,
+					"analytical_only": 0,
+					"unconfirmed": 0,
+					"inconclusive": 0,
+					"blocked": 0,
+					"no_poc": 0,
+					"error": 0
+				},
+				"by_class": {
+					"network-exploitable": 5,
+					"local-exploitable": 7,
+					"non-exploitable": 0
+				},
+				"confirmation_rate": "12/12 (100%)"
+			},
+			"confirmation_history": [
+				{
+					"session": "613a6a3b-ccce-475e-b192-09025e326d01",
+					"started_at": "2026-05-01T08:37:51.155Z",
+					"completed_at": "2026-05-01T09:16:47Z",
+					"target_url": "http://localhost:3469",
+					"results": {
+						"confirmed_live": 4,
+						"confirmed_test": 8,
+						"confirmed_fp": 0,
+						"analytical_only": 0,
+						"unconfirmed": 0,
+						"inconclusive": 0,
+						"blocked": 0,
+						"no_poc": 0,
+						"error": 0
+					}
+				}
+			],
+			"completed_at": "2026-05-01T09:17:33.805Z"
+		}
+	]
+}

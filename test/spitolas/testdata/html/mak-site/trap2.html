@@ -1,0 +1,12 @@
+<script>
+$(function() {
+    $("#trap2_a").click(function() { $.get("trap2_a.html", function(data) { $('#contents').html(data); }); });
+    $("#trap2_b").click(function() { $.get("trap2_b.html", function(data) { $('#contents').html(data); }); });
+    $("#trap2_c").click(function() { $.get("trap2_c.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>TRAP 2: Looks Promising (Depth 1)</h2>
+<p>3 branches but each leads to dead end quickly. Reward: 3 (but no future rewards)</p>
+<button id="trap2_a" type="button">Trap 2-A</button>
+<button id="trap2_b" type="button">Trap 2-B</button>
+<button id="trap2_c" type="button">Trap 2-C</button>

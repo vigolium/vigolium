@@ -1,0 +1,7 @@
+id: security-nextjs-use-server-directive
+language: typescript
+severity: warning
+message: "Security: 'use server' directive — verify all exported functions perform authentication and authorization before mutations"
+note: "Server Actions can be invoked directly via POST by unauthenticated clients. Every exported function in a 'use server' file must validate auth and sanitize inputs."
+rule:
+  pattern: '"use server"'

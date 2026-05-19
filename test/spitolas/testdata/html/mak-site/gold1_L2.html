@@ -1,0 +1,14 @@
+<script>
+$(function() {
+    $("#gold1_L2_a").click(function() { $.get("gold1_L3.html", function(data) { $('#contents').html(data); }); });
+    $("#gold1_L2_b").click(function() { $.get("gold1_L3_b.html", function(data) { $('#contents').html(data); }); });
+    $("#gold1_L2_c").click(function() { $.get("gold1_L3_c.html", function(data) { $('#contents').html(data); }); });
+    $("#gold1_L2_d").click(function() { $.get("gold1_L3_d.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>GOLD 1 Level 2 (Depth 2)</h2>
+<p>HIGH REWARD: 4 more actions!</p>
+<button id="gold1_L2_a" type="button">Gold 1-L2-A (main path)</button>
+<button id="gold1_L2_b" type="button">Gold 1-L2-B</button>
+<button id="gold1_L2_c" type="button">Gold 1-L2-C</button>
+<button id="gold1_L2_d" type="button">Gold 1-L2-D</button>

@@ -1,0 +1,32 @@
+<html>
+<head>
+    <title>Sub Iframe</title>
+
+    <script language="javascript" src="../lib/jquery-2.0.3.min.js"
+            type="text/javascript"></script>
+
+    <script type="text/javascript">
+
+function doLoad(textf){
+     
+	$('#content').html(textf);
+	
+}
+
+
+    </script>
+</head>
+
+<body>
+
+<p>This content is from the iframe.</p>
+
+<a href="javascript:void(0)" id="click-in-subiframe-1"
+   onclick="doLoad('some text from sub iframe 2')">load-c10</a></p>
+
+<div id="content"></div>
+
+
+</body>
+
+</html> 

@@ -1,0 +1,2882 @@
+{
+  "audit_id": "2026-05-18T17:45:30Z",
+  "audits": [
+    "2026-05-18T17:45:30Z"
+  ],
+  "files": {
+    ".dockerignore": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 143
+    },
+    ".editorconfig": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 179
+    },
+    ".eslintrc.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1567
+    },
+    ".github/CODEOWNERS": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 62
+    },
+    ".github/CONTRIBUTING.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3435
+    },
+    ".github/ISSUE_TEMPLATE/bug_report.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 476
+    },
+    ".github/ISSUE_TEMPLATE/feature_request.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 551
+    },
+    ".github/pull_request_template.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 171
+    },
+    ".github/styles/Rules/BritishEnglish.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2340
+    },
+    ".github/styles/Rules/FutureTense.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 384
+    },
+    ".github/styles/Rules/HeaderGerunds.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 347
+    },
+    ".[REDACTED].yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 406
+    },
+    ".github/styles/Rules/OxfordComma.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 228
+    },
+    ".[REDACTED].txt": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1655
+    },
+    ".[REDACTED].txt": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 0
+    },
+    ".github/workflows/docs-tests.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 842
+    },
+    ".github/workflows/e2e-tests.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 197
+    },
+    ".github/workflows/main.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1034
+    },
+    ".github/workflows/publish.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3940
+    },
+    ".github/workflows/unit-tests.yml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 196
+    },
+    ".gitignore": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 729
+    },
+    ".husky/_/.gitignore": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1
+    },
+    ".husky/_/husky.sh": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 600
+    },
+    ".husky/pre-commit": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 61
+    },
+    ".markdownlint.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 954
+    },
+    ".mlc.toml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 175
+    },
+    ".npmignore": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 60
+    },
+    ".prettierignore": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5
+    },
+    ".vale.ini": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1657
+    },
+    "CHANGELOG.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 128062
+    },
+    "LICENSE": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1091
+    },
+    "README.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 7568
+    },
+    "benchmark/benchmark.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3473
+    },
+    "benchmark/index.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 633
+    },
+    "benchmark/index.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3332
+    },
+    "config/docker/Dockerfile": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1731
+    },
+    "config/docker/README.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2516
+    },
+    "config/docker/docker-run.sh": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 494
+    },
+    "config/docker/hooks/build": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 160
+    },
+    "config/docker/index.tpl.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 647
+    },
+    "config/docker/nginx.conf": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2773
+    },
+    "config/webpack-utils.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 171
+    },
+    "custom.d.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 524
+    },
+    "cypress.config.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 557
+    },
+    "demo/ComboBox.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5029
+    },
+    "demo/big-openapi.json": {
+      "large_file": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 857980
+    },
+    "demo/components/FileInput.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1337
+    },
+    "demo/favicon.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 8215
+    },
+    "demo/index.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1727
+    },
+    "demo/index.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5545
+    },
+    "demo/museum-logo.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2601
+    },
+    "demo/museum.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 25468
+    },
+    "demo/openapi-3-1.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 41057
+    },
+    "demo/openapi.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 37941
+    },
+    "demo/petstore-logo.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5346
+    },
+    "demo/playground/hmr-playground.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 799
+    },
+    "demo/playground/index.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 499
+    },
+    "demo/acme-demo.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 276557
+    },
+    "demo/ssr/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2111
+    },
+    "demo/swagger.yaml": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 24002
+    },
+    "demo/webpack.config.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3080
+    },
+    "docs/config.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 12750
+    },
+    "docs/deployment/cli.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1136
+    },
+    "docs/deployment/docker.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1132
+    },
+    "docs/deployment/html.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4900
+    },
+    "docs/deployment/intro.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2868
+    },
+    "docs/deployment/react.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1903
+    },
+    "docs/images/code-samples-demo.gif": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 316908
+    },
+    "docs/images/discriminator-demo.gif": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 269402
+    },
+    "docs/images/nested-demo.gif": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 479975
+    },
+    "docs/images/progressive-loading-demo.gif": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 521996
+    },
+    "docs/images/acme-logo.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 13438
+    },
+    "docs/images/acme.png": {
+      "binary": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 8047
+    },
+    "docs/index.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3697
+    },
+    "docs/quickstart.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1692
+    },
+    "docs/acme-vendor-extensions.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 12603
+    },
+    "docs/security-definitions-injection.md": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 646
+    },
+    "e2e/e2e.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 119
+    },
+    "e2e/index.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 119
+    },
+    "e2e/integration/menu.e2e.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4684
+    },
+    "e2e/integration/misc.e2e.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1833
+    },
+    "e2e/integration/search.e2e.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2633
+    },
+    "e2e/integration/standalone.e2e.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 621
+    },
+    "e2e/integration/urls.e2e.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 600
+    },
+    "e2e/plugins/cy-ts-preprocessor.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 520
+    },
+    "e2e/plugins/index.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 158
+    },
+    "e2e/standalone-3-1.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 161
+    },
+    "e2e/standalone-compatibility.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 139
+    },
+    "e2e/standalone.html": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 156
+    },
+    "e2e/tsconfig.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 535
+    },
+    "package-lock.json": {
+      "large_file": true,
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1326697
+    },
+    "package.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 7049
+    },
+    "scripts/invalidate-cache.sh": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 593
+    },
+    "scripts/publish-cdn.sh": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1208
+    },
+    "scripts/version.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 49
+    },
+    "src/__tests__/ssr.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 589
+    },
+    "src/__tests__/standalone.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 628
+    },
+    "src/common-elements/CopyButtonWrapper.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1183
+    },
+    "src/common-elements/Dropdown/Dropdown.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1856
+    },
+    "src/common-elements/Dropdown/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 51
+    },
+    "src/common-elements/Dropdown/styled.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2297
+    },
+    "src/common-elements/Dropdown/types.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 516
+    },
+    "src/common-elements/PrismDiv.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1907
+    },
+    "src/common-elements/Tooltip.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1360
+    },
+    "src/common-elements/fields-layout.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4614
+    },
+    "src/common-elements/fields.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3963
+    },
+    "src/common-elements/headers.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1330
+    },
+    "src/common-elements/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 307
+    },
+    "src/common-elements/linkify.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3137
+    },
+    "src/common-elements/mixins.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 133
+    },
+    "src/common-elements/panels.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1887
+    },
+    "src/common-elements/perfect-scrollbar.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2799
+    },
+    "src/common-elements/samples.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1067
+    },
+    "src/common-elements/schema.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1641
+    },
+    "src/common-elements/shelfs.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1755
+    },
+    "src/common-elements/tabs.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2662
+    },
+    "src/components/ApiInfo/ApiInfo.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3406
+    },
+    "src/components/ApiInfo/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 37
+    },
+    "src/components/ApiInfo/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1148
+    },
+    "src/components/ApiLogo/ApiLogo.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 844
+    },
+    "src/components/ApiLogo/styled.elements.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 549
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1015
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2491
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1806
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 824
+    },
+    "src/components/Callbacks/CallbackTitle.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1645
+    },
+    "src/components/Callbacks/CallbacksList.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1015
+    },
+    "src/components/Callbacks/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 103
+    },
+    "src/components/Callbacks/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 624
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2718
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 731
+    },
+    "src/components/Endpoint/Endpoint.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3047
+    },
+    "src/components/Endpoint/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2929
+    },
+    "src/components/ErrorBoundary.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1024
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 810
+    },
+    "src/components/Fields/ArrayItemDetails.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1120
+    },
+    "src/components/Fields/EnumValues.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4316
+    },
+    "src/components/Fields/Examples.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1337
+    },
+    "src/components/Fields/Extensions.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1104
+    },
+    "src/components/Fields/Field.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4198
+    },
+    "src/components/Fields/FieldConstraints.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 536
+    },
+    "src/components/Fields/FieldDetail.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 595
+    },
+    "src/components/Fields/FieldDetails.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4137
+    },
+    "src/components/Fields/Pattern.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1047
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1873
+    },
+    "src/components/JsonViewer/JsonViewer.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3790
+    },
+    "src/components/JsonViewer/index.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 30
+    },
+    "src/components/JsonViewer/style.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2004
+    },
+    "src/components/Loading/Loading.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 662
+    },
+    "src/components/Loading/Spinner.svg.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2206
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1626
+    },
+    "src/components/Markdown/Markdown.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 881
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1226
+    },
+    "src/components/Markdown/styled.elements.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3647
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1754
+    },
+    "src/components/Operation/Operation.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3873
+    },
+    "src/components/OptionsProvider.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 306
+    },
+    "src/components/Parameters/Parameters.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3750
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 987
+    },
+    "src/components/PayloadSamples/Example.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1233
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 687
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2374
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1221
+    },
+    "[REDACTED].ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 787
+    },
+    "src/components/PayloadSamples/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1660
+    },
+    "src/components/Acme/Acme.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2193
+    },
+    "src/components/Acme/styled.elements.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1518
+    },
+    "src/components/AcmeStandalone.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1491
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1931
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1415
+    },
+    "src/components/Responses/Response.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1350
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1548
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 901
+    },
+    "src/components/Responses/ResponseTitle.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1032
+    },
+    "src/components/Responses/ResponsesList.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 980
+    },
+    "src/components/Responses/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1153
+    },
+    "src/components/Schema/ArraySchema.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1684
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1360
+    },
+    "src/components/Schema/ObjectSchema.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2732
+    },
+    "src/components/Schema/OneOfSchema.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1835
+    },
+    "src/components/Schema/RecursiveSchema.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 520
+    },
+    "src/components/Schema/Schema.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2587
+    },
+    "src/components/Schema/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 161
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2765
+    },
+    "src/components/SearchBox/SearchBox.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4827
+    },
+    "src/components/SearchBox/styled.elements.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2956
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2136
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 410
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1908
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1497
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3366
+    },
+    "[REDACTED].elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2590
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1377
+    },
+    "src/components/SeeMore/SeeMore.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1558
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 574
+    },
+    "src/components/SideMenu/Logo.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 418
+    },
+    "src/components/SideMenu/MenuItem.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4079
+    },
+    "src/components/SideMenu/MenuItems.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 959
+    },
+    "src/components/SideMenu/SideMenu.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1649
+    },
+    "src/components/SideMenu/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 120
+    },
+    "src/components/SideMenu/styled.elements.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5309
+    },
+    "src/components/SourceCode/SourceCode.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 891
+    },
+    "src/components/StickySidebar/ChevronSvg.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1775
+    },
+    "[REDACTED].tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3821
+    },
+    "src/components/StoreBuilder.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2182
+    },
+    "src/components/__tests__/Callbacks.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2444
+    },
+    "src/components/__tests__/DiscriminatorDropdown.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2089
+    },
+    "src/components/__tests__/FieldDetails.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3216
+    },
+    "src/components/__tests__/JsonViewer.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3254
+    },
+    "src/components/__tests__/OneOfSchema.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2614
+    },
+    "src/components/__tests__/Schema.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1868
+    },
+    "src/components/__tests__/SchemaDefinition.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2189
+    },
+    "src/components/__tests__/SecurityRequirement.test.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2870
+    },
+    "src/components/__tests__/__snapshots__/DiscriminatorDropdown.test.tsx.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 114219
+    },
+    "src/components/__tests__/__snapshots__/FieldDetails.test.tsx.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3371
+    },
+    "src/components/__tests__/__snapshots__/OneOfSchema.test.tsx.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 874
+    },
+    "src/components/__tests__/__snapshots__/SecurityRequirement.test.tsx.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 8386
+    },
+    "src/components/__tests__/fixtures/simple-callback.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1772
+    },
+    "src/components/__tests__/fixtures/simple-discriminator.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 880
+    },
+    "src/components/__tests__/fixtures/simple-security-fixture.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1796
+    },
+    "src/components/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1461
+    },
+    "src/components/testProviders.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 550
+    },
+    "src/empty.js": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 21
+    },
+    "src/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 398
+    },
+    "src/polyfills.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 61
+    },
+    "src/services/AppStore.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4887
+    },
+    "src/services/ClipboardService.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2381
+    },
+    "src/services/HistoryService.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1540
+    },
+    "src/services/Labels.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 879
+    },
+    "src/services/MarkdownRenderer.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 7029
+    },
+    "src/services/MarkerService.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 952
+    },
+    "src/services/MenuBuilder.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 9369
+    },
+    "src/services/MenuStore.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 6741
+    },
+    "src/services/OpenAPIParser.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 12145
+    },
+    "src/services/AcmeNormalizedOptions.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 13377
+    },
+    "src/services/ScrollService.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2455
+    },
+    "src/services/SearchStore.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1540
+    },
+    "src/services/SearchWorker.worker.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2330
+    },
+    "src/services/SpecStore.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1459
+    },
+    "src/services/__tests__/MarkdownRenderer.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4830
+    },
+    "src/services/__tests__/MarkerService.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2623
+    },
+    "src/services/__tests__/OpenAPIParser.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3044
+    },
+    "src/services/__tests__/__snapshots__/OpenAPIParser.test.ts.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3835
+    },
+    "src/services/__tests__/__snapshots__/prism.test.ts.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 257
+    },
+    "src/services/__tests__/fixtures/3.1/conditionalField.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 907
+    },
+    "src/services/__tests__/fixtures/3.1/conditionalSchema.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 834
+    },
+    "src/services/__tests__/fixtures/3.1/pathItems.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1638
+    },
+    "src/services/__tests__/fixtures/3.1/patternProperties.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1081
+    },
+    "src/services/__tests__/fixtures/3.1/prefixItems.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3992
+    },
+    "src/services/__tests__/fixtures/3.1/schemaDefinition.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 994
+    },
+    "src/services/__tests__/fixtures/3.1/unevaluatedProperties.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1158
+    },
+    "src/services/__tests__/fixtures/arrayItems.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4012
+    },
+    "src/services/__tests__/fixtures/callback.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1871
+    },
+    "src/services/__tests__/fixtures/discriminator.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1317
+    },
+    "src/services/__tests__/fixtures/fields.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1049
+    },
+    "src/services/__tests__/fixtures/mergeAllOf.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1153
+    },
+    "src/services/__tests__/fixtures/nestedEnumDescroptionSample.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 668
+    },
+    "src/services/__tests__/fixtures/oneOfHoist.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1769
+    },
+    "src/services/__tests__/fixtures/oneOfTitles.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1537
+    },
+    "src/services/__tests__/fixtures/siblingRefDescription.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 781
+    },
+    "src/services/__tests__/history.service.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1039
+    },
+    "src/services/__tests__/models/ApiInfo.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 5675
+    },
+    "src/services/__tests__/models/Callback.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 853
+    },
+    "src/services/__tests__/models/FieldModel.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3439
+    },
+    "src/services/__tests__/models/MenuBuilder.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 858
+    },
+    "src/services/__tests__/models/RequestBody.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3034
+    },
+    "src/services/__tests__/models/Response.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 4323
+    },
+    "src/services/__tests__/models/Schema.circular.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 22179
+    },
+    "src/services/__tests__/models/Schema.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 26218
+    },
+    "src/services/__tests__/models/__snapshots__/Schema.test.ts.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3180
+    },
+    "src/services/__tests__/models/helpers.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2073
+    },
+    "src/services/__tests__/prism.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 701
+    },
+    "src/services/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 446
+    },
+    "src/services/models/ApiInfo.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2305
+    },
+    "src/services/models/Callback.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1576
+    },
+    "src/services/models/Example.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1782
+    },
+    "src/services/models/Field.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3670
+    },
+    "src/services/models/Group.model.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2246
+    },
+    "src/services/models/MediaContent.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1552
+    },
+    "src/services/models/MediaType.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2790
+    },
+    "src/services/models/Operation.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 8071
+    },
+    "src/services/models/RequestBody.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1016
+    },
+    "src/services/models/Response.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2023
+    },
+    "src/services/models/Schema.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 17760
+    },
+    "src/services/models/SecurityRequirement.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1128
+    },
+    "src/services/models/SecuritySchemes.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1719
+    },
+    "src/services/models/Webhook.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1494
+    },
+    "src/services/models/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 378
+    },
+    "src/services/types.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2703
+    },
+    "src/setupTests.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 265
+    },
+    "src/standalone.tsx": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2889
+    },
+    "src/styled-components.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1424
+    },
+    "src/theme.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 10156
+    },
+    "src/types/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 100
+    },
+    "src/types/open-api.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 7609
+    },
+    "src/utils/JsonPointer.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2593
+    },
+    "src/utils/__tests__/__snapshots__/loadAndBundleSpec.test.ts.snap": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 143710
+    },
+    "src/utils/__tests__/helpers.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3748
+    },
+    "src/utils/__tests__/loadAndBundleSpec.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1044
+    },
+    "src/utils/__tests__/object.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1448
+    },
+    "src/utils/__tests__/openapi.test.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 39825
+    },
+    "src/utils/debug.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 249
+    },
+    "src/utils/decorators.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1071
+    },
+    "src/utils/dom.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2458
+    },
+    "src/utils/helpers.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 6145
+    },
+    "src/utils/highlight.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 2266
+    },
+    "src/utils/index.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 281
+    },
+    "src/utils/jsonToHtml.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3738
+    },
+    "src/utils/loadAndBundleSpec.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1790
+    },
+    "src/utils/memoize.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1586
+    },
+    "src/utils/object.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 763
+    },
+    "src/utils/openapi.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 20635
+    },
+    "src/utils/sort.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 571
+    },
+    "src/utils/test-utils.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 583
+    },
+    "tsconfig.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 752
+    },
+    "tsconfig.lib.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 181
+    },
+    "tslint.json": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 1051
+    },
+    "typings/styled-patch.d.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 638
+    },
+    "webpack.config.ts": {
+      "hash": "[REDACTED]",
+      "last_audit_id": "2026-05-18T17:45:30Z",
+      "last_audits": [
+        "2026-05-18T17:45:30Z"
+      ],
+      "last_phases": [],
+      "size": 3622
+    }
+  },
+  "schema_version": 1,
+  "stamped_at": "2026-05-19T02:31:35.294717+00:00",
+  "target": "/Users/<user>/Desktop/oss-to-run/acme"
+}

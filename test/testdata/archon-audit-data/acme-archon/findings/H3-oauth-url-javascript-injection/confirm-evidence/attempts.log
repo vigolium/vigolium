@@ -1,0 +1,29 @@
+--- variant 1 @ 2026-05-19T04:01:58Z ---
+[*] Step 1: verifying unguarded href patterns in source files
+    [FOUND] authorizationUrl  →  [REDACTED].tsx
+    [FOUND] info.contact.url  →  src/components/ApiInfo/ApiInfo.tsx
+    [FOUND] info.license.url  →  src/components/ApiInfo/ApiInfo.tsx
+    [FOUND] info.termsOfService  →  src/components/ApiInfo/ApiInfo.tsx
+    [FOUND] externalDocs.url  →  [REDACTED].tsx
+
+[*] Step 2: checking for absence of scheme guards
+    [CONFIRMED] No scheme validation guards found in any sink file.
+
+[*] Step 3: generating HTML proof page → /Users/<user>/Desktop/oss-to-run/acme/archon/findings/H3-oauth-url-javascript-injection/confirm-evidence/xss_demo.html
+    HTML proof page written.
+
+[*] Step 4: writing impact log
+    impact.log written.
+
+[*] Summary:
+    authorizationUrl: VULNERABLE
+    info.contact.url: VULNERABLE
+    info.license.url: VULNERABLE
+    info.termsOfService: VULNERABLE
+    externalDocs.url: VULNERABLE
+    Scheme guards: ABSENT (confirmed)
+
+[*] HTML PoC page: /Users/<user>/Desktop/oss-to-run/acme/archon/findings/H3-oauth-url-javascript-injection/confirm-evidence/xss_demo.html
+[*] Open it in a browser (with internet access for CDN Acme) and click any red-outlined link to trigger XSS.
+
+{"status":"confirmed","evidence":"all five <a href> sinks contain unvalidated spec-sourced javascript: URLs (authorizationUrl, contact.url, license.url, termsOfService, externalDocs.url) — no scheme guard present in any file","notes":"HTML proof page at evidence/xss_demo.html; 5/5 sinks verified; no scheme guards found"}

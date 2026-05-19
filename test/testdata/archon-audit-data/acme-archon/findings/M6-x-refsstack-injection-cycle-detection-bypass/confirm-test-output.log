@@ -1,0 +1,9 @@
+PASS src/services/__tests__/confirm.x-refsstack-injection-cycle-detection-bypass.00000000.test.ts
+  confirmation
+    ✓ test_confirm_x_refsstack_injection_cycle_detection_bypass_00000000 (4 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.253 s, estimated 3 s
+Ran all test suites matching /src\/services\/__tests__\/confirm.x-refsstack-injection-cycle-detection-bypass.00000000.test.ts/i.

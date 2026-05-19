@@ -1,0 +1,66 @@
+id: ai-response-analyzer
+name: AI Response Analyzer
+description: >
+  Passive module that uses an LLM to semantically analyze HTTP response bodies
+  for security issues — SQL errors, stack traces, credential leaks, debug output,
+  and sensitive data — complementing regex-based modules with natural-language
+  understanding. Falls back gracefully when the agent API is unavailable.
+type: passive
+severity: medium
+scope: response
+tags:
+  - ai
+  - agent
+  - information-disclosure
+scan_types:
+  - per_request
+
+script: |
+  scanPerRequest: function(ctx) {
+    if (typeof vigolium.agent === "undefined") return null;
+    if (!ctx.response || !ctx.response.body) return null;
+
+    var body = ctx.response.body;
+    // Skip tiny responses — nothing to analyze
+    if (body.length < 50) return null;
+
+    // Truncate large bodies to keep prompt within token limits
+    var snippet = body.length > 3000
+      ? body.substring(0, 3000) + "\n... [truncated]"
+      : body;
+
+    var answer;
+    try {
+      answer = vigolium.agent.ask(
+        "You are a web security analyst. Analyze the HTTP response body below for " +
+        "security issues such as SQL error messages, stack traces, credential or " +
+        "secret leaks, internal IP/path disclosure, debug output, or other sensitive data.\n\n" +
+        "If you find a security issue respond EXACTLY with: ISSUE:<type>:<short description>\n" +
+        "If there are no security issues respond EXACTLY with: OK\n\n" +
+        "Response body:\n" + snippet,
+        { max_tokens: 150 }
+      );
+    } catch (e) {
+      vigolium.log.warn("ai-response-analyzer: ask failed: " + e);
+      return null;
+    }
+
+    if (!answer || answer.indexOf("ISSUE:") !== 0) return null;
+
+    // Parse "ISSUE:<type>:<description>"
+    var firstColon = answer.indexOf(":");
+    var secondColon = answer.indexOf(":", firstColon + 1);
+    if (firstColon === -1 || secondColon === -1) return null;
+
+    var issueType = answer.substring(firstColon + 1, secondColon).trim();
+    var description = answer.substring(secondColon + 1).trim();
+    if (!issueType || !description) return null;
+
+    return [{
+      matched: issueType,
+      url: ctx.request.url,
+      name: "AI-detected: " + issueType,
+      description: description,
+      severity: "medium"
+    }];
+  }

@@ -1,0 +1,8 @@
+PASS archon/findings/M1-parseprops-redos/confirm-test.ts
+  ✓ test_confirm_parseprops_redos_00000000 (326 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.61 s
+Ran all test suites.

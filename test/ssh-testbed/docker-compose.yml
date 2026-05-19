@@ -1,0 +1,30 @@
+services:
+  ubuntu:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+    container_name: ssh-testbed-ubuntu
+    hostname: ubuntu-vps
+    ports:
+      - "2222:22"
+    volumes:
+      - ./keys:/tmp/ssh-pubkey:ro
+    environment:
+      - SSH_USER=deploy
+      - SSH_PASSWORD=deploy123
+    restart: unless-stopped
+
+  debian:
+    build:
+      context: .
+      dockerfile: Dockerfile.debian
+    container_name: ssh-testbed-debian
+    hostname: debian-vps
+    ports:
+      - "2223:22"
+    volumes:
+      - ./keys:/tmp/ssh-pubkey:ro
+    environment:
+      - SSH_USER=deploy
+      - SSH_PASSWORD=deploy123
+    restart: unless-stopped

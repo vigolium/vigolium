@@ -1,0 +1,5 @@
+Target: http://localhost:80
+Timestamp: 2026-05-19T04:03:21Z
+Method: dockerfile
+Session: 00000000-0000-4000-8000-000000000000
+Protocol: http

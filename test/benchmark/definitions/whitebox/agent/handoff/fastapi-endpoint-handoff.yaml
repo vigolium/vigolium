@@ -1,0 +1,21 @@
+fixture: fastapi-endpoint-discovery.json
+expected:
+  convertible_count: 10
+  skipped_count: 0
+  records:
+    - method: GET
+      url_prefix: "http://localhost:8000/users"
+      has_host: true
+      assertion: strict
+    - method: POST
+      url_prefix: "http://localhost:8000/users"
+      has_host: true
+      assertion: strict
+    - method: GET
+      url_prefix: "http://localhost:8000/items"
+      has_host: true
+      assertion: strict
+    - method: OPTIONS
+      url_prefix: "http://localhost:8000/config"
+      has_host: true
+      assertion: strict

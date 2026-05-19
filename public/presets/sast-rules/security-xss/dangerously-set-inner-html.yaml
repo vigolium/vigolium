@@ -1,0 +1,8 @@
+id: security-xss-dangerously-set-inner-html
+language: tsx
+severity: warning
+message: "Security: dangerouslySetInnerHTML — trace the __html source; if user-controlled or from untrusted API, this is a stored/reflected XSS"
+note: "React's dangerouslySetInnerHTML bypasses DOM sanitization. The __html value must be sanitized with DOMPurify or equivalent before rendering."
+rule:
+  kind: jsx_attribute
+  regex: "^dangerouslySetInnerHTML"

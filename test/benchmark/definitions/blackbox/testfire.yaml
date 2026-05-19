@@ -1,0 +1,84 @@
+app:
+  name: testfire
+  type: external
+  base_url: "http://demo.testfire.net"
+  rate_limit: 2
+
+test_cases:
+  # === Active Module Tests ===
+
+  # SQLi - Login page
+  - id: "testfire-sqli-login"
+    endpoint: "/login.jsp?uid=test&passw=test"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in login parameters"
+
+  # XSS - Search
+  - id: "testfire-xss-search"
+    endpoint: "/search.jsp?query=test"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Reflected XSS in search"
+
+  # Swagger Disclosure
+  - id: "testfire-swagger"
+    endpoint: "/swagger/index.html"
+    method: GET
+    modules: ["swagger-disclose"]
+    vuln_types: ["swagger-disclosure"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Swagger documentation exposed"
+
+  # CORS Misconfiguration
+  - id: "testfire-cors"
+    endpoint: "/"
+    method: GET
+    modules: ["cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration check"
+
+  # === Passive Module Tests ===
+
+  # Security Headers
+  - id: "testfire-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers"
+
+  # Cookie Security
+  - id: "testfire-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cookie security flags"
+
+  # Info Disclosure
+  - id: "testfire-info-disclosure"
+    endpoint: "/"
+    method: GET
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Server information disclosure"

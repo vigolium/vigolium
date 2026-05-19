@@ -1,0 +1,48 @@
+# Build stage
+FROM golang:1.26-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        make \
+        curl \
+        unzip \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# bun is required by `make build` (compiles embedded archon + jsscan binaries).
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# Force a static binary so it runs on the alpine (musl) runtime stage.
+# sqliteshim falls back to the pure-go modernc.org/sqlite driver when CGO=0.
+ENV CGO_ENABLED=0
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN make ensure-jsscan \
+    && make build \
+    && mkdir -p /out \
+    && cp bin/vigolium /out/vigolium
+
+# Runtime stage
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+RUN adduser -D -u 1000 vigolium
+
+# Allow the bundled `claude` CLI to run without refusing on root-like
+# environments by signalling a sandboxed context.
+ENV IS_SANDBOX=1
+
+COPY --from=builder /out/vigolium /usr/local/bin/vigolium
+
+USER vigolium
+WORKDIR /home/vigolium
+
+ENTRYPOINT ["vigolium"]

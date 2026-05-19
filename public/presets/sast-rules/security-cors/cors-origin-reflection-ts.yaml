@@ -1,0 +1,11 @@
+id: security-cors-origin-reflection-ts
+language: typescript
+severity: error
+message: "Security: CORS origin reflection — Access-Control-Allow-Origin set directly from request Origin header without validation"
+note: "Reflecting the request Origin back as Access-Control-Allow-Origin allows any site to make credentialed cross-origin requests. Validate origin against an exact allowlist."
+rule:
+  any:
+    - pattern: $RES.setHeader("Access-Control-Allow-Origin", $REQ.headers.origin)
+    - pattern: $RES.setHeader("Access-Control-Allow-Origin", $ORIGIN)
+    - pattern: $RES.header("Access-Control-Allow-Origin", $REQ.headers.origin)
+    - pattern: $RES.set("Access-Control-Allow-Origin", $REQ.headers.origin)

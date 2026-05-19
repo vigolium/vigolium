@@ -1,0 +1,66 @@
+framework: nextjs
+source_dir: nextjs-vulnexamples
+detect_framework: true
+
+expected_match_count:
+  min: 8
+  max: 30
+
+expected_routes:
+  # Vulnerable: Missing authentication (no session check)
+  - method: GET
+    path: ""
+    file: example-1-missing-authentication/vulnerable/route.ts
+    assertion: strict
+
+  # Solution 1: Authentication via session-scoped query
+  - method: GET
+    path: ""
+    file: example-1-missing-authentication/solution-1/route.ts
+    assertion: soft
+
+  # Solution 2: Authentication via user validation
+  - method: GET
+    path: ""
+    file: example-1-missing-authentication/solution-2/route.ts
+    assertion: soft
+
+  # Vulnerable: Missing authorization (returns all users' data)
+  - method: GET
+    path: ""
+    file: example-3-missing-authorization/vulnerable/route.ts
+    assertion: strict
+
+  # Solution 1: Authorization via session-scoped query
+  - method: GET
+    path: ""
+    file: example-3-missing-authorization/solution-1/route.ts
+    assertion: soft
+
+  # Solution 2: Authorization via user ID filtering
+  - method: GET
+    path: ""
+    file: example-3-missing-authorization/solution-2/route.ts
+    assertion: soft
+
+  # Secrets exposure solution route handler
+  - method: GET
+    path: ""
+    file: example-5-secrets-exposure/route.ts
+    assertion: soft
+
+  # Auth login endpoint
+  - method: POST
+    path: ""
+    file: auth/login/route.ts
+    assertion: strict
+
+  # Auth logout endpoint
+  - method: GET
+    path: ""
+    file: auth/logout/route.ts
+    assertion: soft
+
+negative_routes:
+  - method: PATCH
+    path: "/nonexistent"

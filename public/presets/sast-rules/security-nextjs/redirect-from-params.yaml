@@ -1,0 +1,9 @@
+id: security-nextjs-redirect-from-params
+language: typescript
+severity: warning
+message: "Security: redirect() call — verify the target is validated against an allowlist to prevent open redirect"
+note: "If redirect() uses unvalidated user input (query params, headers, request body), attackers can redirect users to malicious sites."
+rule:
+  any:
+    - pattern: redirect($URL)
+    - pattern: permanentRedirect($URL)

@@ -1,0 +1,454 @@
+<p align="center">
+  <img alt="Vigolium" src="https://avatars.githubusercontent.com/u/266502139?s=200&v=4" height="140" />
+  <br />
+  <strong>Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</strong>
+
+  <p align="center">
+  <a href="https://www.vigolium.com/"><img src="https://img.shields.io/badge/Website-0078D4?style=flat&logo=Google-Chrome&logoColor=39ff14&labelColor=black&color=black"></a>
+  <a href="https://docs.vigolium.com/"><img src="https://img.shields.io/badge/Documentation-0078D4?style=flat&logo=GitBook&logoColor=39ff14&labelColor=black&color=black"></a>
+  <a href="https://twitter.com/Vigolium"><img src="https://img.shields.io/badge/Vigolium-0078D4?style=flat&logo=X&logoColor=39ff14&labelColor=black&color=black"></a>
+  <a href="https://discord.gg/aHFypbAu6Y"><img src="https://img.shields.io/badge/Discord%20Server-0078D4?style=flat&logo=Discord&logoColor=39ff14&labelColor=black&color=black"></a>
+  <a href="https://www.linkedin.com/company/vigolium"><img src="https://custom-icon-badges.demolab.com/badge/LinkedIn-black?logo=linkedin-white&logoColor=39ff14"></a>
+  </p>
+</p>
+
+***
+
+Vigolium provides two complementary scanning modes:
+
+- **Native Scan** (`vigolium scan`) — **Fast, powerful, and flexible.** Deterministic, multi-phase scanning with 235 modules across content discovery, browser/SPA spidering, and active/passive audit — covering injection, access control, file/path, API/protocol, framework-specific, cloud/infra, and out-of-band (OAST) vulnerability classes.
+
+- **Agentic Scan** (`vigolium agent`) — **Thoroughly audits your codebase.** AI-driven scanning that autonomously plans attacks, selects modules, generates custom extensions, and triages results — combining deep source-code audit with autonomous and targeted vulnerability scanning.
+
+
+| UI Dashboard | Traffic Dashboard |
+|:---:|:---:|
+| ![Dashboard 1](https://github.com/vigolium/docs/blob/main/images/vigolium-main-workbench.png?raw=true) | ![Dashboard 2](https://github.com/vigolium/docs/blob/main/images/vigolium-ui-dashboard-2.png?raw=true) |
+
+| Static Reports | Static Reports |
+|:---:|:---:|
+| ![Static Report 1](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-1.png?raw=true) | ![Static Report 2](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-2.png?raw=true) |
+
+| Native scan | Agentic Scan |
+|:---:|:---:|
+| ![Native scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-native-scan.png?raw=true) | ![Agentic Scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-agent-audit-1.png?raw=true) |
+
+
+## Installation
+
+### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://vigolium.com/install.sh | bash
+```
+
+### npm
+
+```bash
+npm install -g @vigolium/vigolium
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/vigolium/vigolium.git
+cd vigolium
+make build         # build and install to $GOPATH/bin
+```
+
+Requires **Go 1.26+** and **bun 1.3.11+**. See [HACKING.md](HACKING.md#build-and-run) for prerequisites and build details.
+
+### Docker
+
+```bash
+docker pull j3ssie/vigolium:latest
+docker run --rm j3ssie/vigolium:latest scan -h
+```
+
+## Key Features
+
+### Native Scan
+
+- **235+ scanner modules** — 144+ active (fuzzing) + 91+ passive (pattern matching), covering OWASP Top 10 and beyond
+- **Out-of-band testing (OAST)** — blind XSS/SSRF/command injection via interactsh callbacks with automatic payload correlation
+- **Value-aware mutation** — classifies parameters by semantic type (integer, UUID, JWT, email) and mutates per intent
+- **Multi-phase pipeline** — external harvesting, content discovery (Deparos), browser/SPA spidering (Spitolas), and audit, controlled by strategy presets and scanning profiles
+- **Flexible inputs** — URLs, OpenAPI/Swagger, Postman, Burp Suite, cURL, Nuclei JSONL
+- **Multi-session authentication** — inline sessions, session files, or full auth configs with login flows, token extraction, and IDOR/BOLA testing
+- **JavaScript extensions** — custom modules and hooks via embedded JS engine with session-aware HTTP APIs
+- **Scalable & reportable** — concurrent worker pool with per-host rate limiting, hybrid in-memory/disk/Redis queue, and self-contained HTML reports
+
+### Agentic Scan
+
+- **In-process olium runtime** — every agent mode runs on the native Go `pkg/olium` engine: turn-based loop, built-in tool registry, skills support, and pluggable provider drivers (no subprocess SDK pools)
+- **Autopilot** — agent autonomously discovers endpoints, runs scans, and triages findings, with optional multi-specialist pipeline and session resume
+- **Swarm** — master agent selects modules, generates custom JS attack extensions, runs code audit + SAST, executes scans, and triages results; targeted or full-scope (`--discover`), with `--diff`/`--last-commits` for change-focused runs
+- **Source-audit drivers** — `archon`, `piolium`, and the unified `audit` dispatcher run foreground source-code audits sharing one finding schema and DB tagging
+- **Query mode** — single-shot prompts for code review, endpoint discovery, and secret detection
+- **Pluggable providers** — `openai-codex-oauth` (default), `anthropic-api-key`, `anthropic-oauth`, `openai-api-key`, `anthropic-cli`, `google-vertex`. Same modes exposed over the REST API with SSE streaming and an OpenAI-compatible chat endpoint
+
+## Quick Start — Native Scan
+
+```bash
+# Scan a single target (default: balanced strategy)
+vigolium scan -t https://example.com
+
+# Scan with a strategy preset
+vigolium scan -t https://example.com --strategy deep
+
+# Scan specific modules only
+vigolium scan -t https://example.com -m xss-reflected,sqli-error
+
+# Scan from an OpenAPI spec
+vigolium scan -T openapi.yaml -I openapi
+
+# Pipe URLs from stdin
+cat urls.txt | vigolium scan
+
+# Run a single phase directly
+vigolium run discovery -t https://example.com
+
+# Generate an HTML report
+vigolium scan -t https://example.com --only discovery --format html -o report.html
+```
+
+See [docs/architecture/overview.md](docs/architecture/overview.md) for the full overview and [docs/native-scan/strategies.md](docs/native-scan/strategies.md) for strategies, profiles, and pace configuration.
+
+## Server Mode
+
+```bash
+# Start API server with authentication
+vigolium server -k my-secret-key
+
+# Enable transparent HTTP proxy for traffic recording
+vigolium server -k my-key --ingest-proxy-port 9003
+
+# Auto-scan ingested traffic
+vigolium server -k my-key --scan-on-receive
+```
+
+```bash
+# Ingest traffic to a running server
+cat urls.txt | vigolium ingest -s http://localhost:9002
+
+# Ingest an OpenAPI spec
+vigolium ingest -s http://localhost:9002 -i api.yaml -I openapi
+```
+
+See [docs/server-mode/running-the-server.md](docs/server-mode/running-the-server.md) for server setup, [docs/server-mode/ingestion.md](docs/server-mode/ingestion.md) for ingestion workflows, and [docs/api-overview.md](docs/api-overview.md) for the full REST API reference.
+
+## Authenticated Scanning
+
+Vigolium supports multi-session authenticated scanning for IDOR/BOLA testing and privilege escalation checks:
+
+```bash
+# Inline session via CLI flag (name:Header:value)
+vigolium scan -t https://example.com \
+  --session "admin:Cookie:session_id=abc123" \
+  --session "user:Cookie:session_id=xyz789"
+
+# Load session from YAML/JSON file
+vigolium scan -t https://example.com --session-file ./admin-session.yaml
+
+# Full auth configuration with login flows
+vigolium scan -t https://example.com --auth-config ./auth-config.yaml
+
+# Add custom headers (works with sessions)
+vigolium scan -t https://example.com -H "Authorization: Bearer token123"
+```
+
+Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs/native-scan/authentication.md](docs/native-scan/authentication.md) for the full guide.
+
+## Agentic Scan
+
+AI-driven scanning where agents autonomously plan, execute, and triage vulnerability assessments with the native scan engine underneath:
+
+```bash
+# Autopilot: autonomous AI-driven scanning (in-process olium engine)
+vigolium agent autopilot -t https://example.com
+vigolium agent autopilot -t https://example.com --source ./src --focus "auth bypass"
+vigolium agent autopilot -t https://example.com --diff main...feature/auth   # diff-focused
+vigolium agent autopilot -t https://example.com --intensity deep             # preset bundle
+
+# Swarm: AI-guided targeted or full-scope vulnerability scanning
+vigolium agent swarm -t https://example.com/api/users --vuln-type sqli
+vigolium agent swarm -t https://example.com --discover                       # full-scope
+vigolium agent swarm -t https://example.com --source ./src --discover        # source-aware full-scope
+vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
+
+# Source-audit drivers (separate harness — do not route through olium)
+vigolium agent archon --source ./src --mode deep                            # claude harness only (anthropic-*)
+vigolium agent piolium --source ./src --mode balanced                       # Pi-native (pi extension)
+vigolium agent audit --source ./src --mode balanced                         # both archon + piolium back-to-back
+vigolium agent audit --source ./src --driver piolium --fallback             # piolium with archon fallback
+
+# Direct olium access (TUI or headless)
+vigolium ol                             # launch the olium TUI
+vigolium ol --prompt "..."              # one-shot prompt (-p implies headless)
+```
+
+Agentic scan modes:
+- **Autopilot** — autonomous scanning. CLI calls `pkg/olium/autopilot.Run` directly; the server adds archon-audit prep, auth setup, and a frozen context bundle around the same loop
+- **Swarm** — AI-guided vulnerability scanning supporting targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results
+- **Archon / Piolium / Audit** — three source-audit driver subcommands (`vigolium agent {archon,piolium,audit}`). Separate harnesses — **do not** route through olium. `audit` is a unified dispatcher that runs both back-to-back with per-driver child rows under one parent AgenticScan and post-pass findings dedup
+
+See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
+
+## Native Scan Layers
+
+The native scan pipeline is composed of modular layers, each documented separately:
+
+| Layer | Description | Docs |
+|-------|-------------|------|
+| **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs/native-scan/phases/discovery.md](docs/native-scan/phases/discovery.md) |
+| **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs/native-scan/phases/spidering.md](docs/native-scan/phases/spidering.md) |
+| **SPA Scanning** | Single Page Application handling with DOM mutation tracking and async API capture | [docs/native-scan/phases/spa.md](docs/native-scan/phases/spa.md) |
+| **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs/native-scan/phases/audit.md](docs/native-scan/phases/audit.md) |
+| **Scanner Modules** | 144 active and 91 passive modules covering OWASP Top 10 and beyond | [docs/native-scan/modules-reference.md](docs/native-scan/modules-reference.md) |
+
+## Documentation
+
+| Topic | Link |
+|-------|------|
+| Architecture Overview | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| Getting Started | [docs/getting-started.md](docs/getting-started.md) |
+| Configuration | [docs/configuration.md](docs/configuration.md) |
+| Output & Reporting | [docs/output-and-reporting.md](docs/output-and-reporting.md) |
+| Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
+| Scanning Modes Overview | [docs/native-scan/scanning-modes-overview.md](docs/native-scan/scanning-modes-overview.md) |
+| Scanning Strategies | [docs/native-scan/strategies.md](docs/native-scan/strategies.md) |
+| Authenticated Scanning | [docs/native-scan/authentication.md](docs/native-scan/authentication.md) |
+| Content Discovery (Deparos) | [docs/native-scan/phases/discovery.md](docs/native-scan/phases/discovery.md) |
+| Browser Spider (Spitolas) | [docs/native-scan/phases/spidering.md](docs/native-scan/phases/spidering.md) |
+| SPA Scanning | [docs/native-scan/phases/spa.md](docs/native-scan/phases/spa.md) |
+| Audit | [docs/native-scan/phases/audit.md](docs/native-scan/phases/audit.md) |
+| Scanner Modules Reference | [docs/native-scan/modules-reference.md](docs/native-scan/modules-reference.md) |
+| Agent Mode | [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) |
+| Native Scan Architecture | [docs/architecture/native-scan.md](docs/architecture/native-scan.md) |
+| Agentic Scan Architecture | [docs/architecture/agentic-scan.md](docs/architecture/agentic-scan.md) |
+| Data & Storage Architecture | [docs/architecture/data-and-storage.md](docs/architecture/data-and-storage.md) |
+| Server & API Architecture | [docs/architecture/server-and-api.md](docs/architecture/server-and-api.md) |
+| Autopilot | [docs/agentic-scan/autopilot.md](docs/agentic-scan/autopilot.md) |
+| Swarm | [docs/agentic-scan/swarm.md](docs/agentic-scan/swarm.md) |
+| Query Mode | [docs/agentic-scan/query.md](docs/agentic-scan/query.md) |
+| Server Mode | [docs/server-mode/running-the-server.md](docs/server-mode/running-the-server.md) |
+| Ingestion | [docs/server-mode/ingestion.md](docs/server-mode/ingestion.md) |
+| REST API Reference | [docs/api-overview.md](docs/api-overview.md) |
+| Writing Extensions | [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) |
+| Extending Vigolium | [docs/customization/extending-vigolium.md](docs/customization/extending-vigolium.md) |
+| Developing Modules | [HACKING.md](HACKING.md#adding-a-scanner-module-go) |
+| Building from Source | [HACKING.md](HACKING.md#build-and-run) |
+| Project Structure | [HACKING.md](HACKING.md#project-structure-summary) |
+| CI/CD Integration | [docs/guides/ci-cd-integration.md](docs/guides/ci-cd-integration.md) |
+
+## JavaScript Engine
+
+Run JavaScript/TypeScript code directly or write custom scan modules and hooks without recompiling:
+
+```bash
+# Execute inline JavaScript
+vigolium js --code 'let r = vigolium.http.get(TARGET); console.log(r.statusCode)' -t https://example.com
+
+# Run a JS file with timeout
+vigolium js --code-file ./my-script.js -t https://example.com --timeout 60s
+
+# Manage extensions
+vigolium ext ls                # list loaded extensions
+vigolium ext docs --example    # browse API with code examples
+vigolium ext preset            # install starter scripts
+```
+
+The JS engine exposes session-aware HTTP APIs for authenticated testing:
+
+```javascript
+// Create a persistent session with shared cookie jar
+let session = vigolium.http.session();
+session.post("https://app.example.com/login", { user: "admin", pass: "secret" });
+session.get("https://app.example.com/dashboard"); // cookies auto-sent
+
+// Automated login flow with token extraction
+let authed = vigolium.http.login({
+  url: "https://app.example.com/api/auth",
+  method: "POST",
+  body: JSON.stringify({ username: "admin", password: "pass" }),
+  extract: [{ source: "json", path: "$.token", apply_as: "Authorization: Bearer {value}" }]
+});
+
+// IDOR/BOLA testing across multiple sessions
+let results = vigolium.http.authTest({
+  sessions: { admin: adminSession, user: userSession },
+  requests: [{ method: "GET", url: "https://app.example.com/api/users/1" }]
+});
+
+// Multi-step authentication sequences
+let result = vigolium.http.sequence([
+  { url: "/csrf", extract: [{ source: "cookie", name: "csrf_token", as: "token" }] },
+  { url: "/login", method: "POST", body: "csrf={token}&user=admin" }
+]);
+
+// Parallel request batching (race conditions, IDOR)
+let responses = vigolium.http.batch([req1, req2, req3], { concurrency: 10 });
+
+// CSRF token extraction
+let csrf = vigolium.http.csrf("https://app.example.com/form");
+
+// HTTP request replay with variations
+let varied = vigolium.http.replay(rawRequest, [
+  { headers: { "Authorization": "Bearer admin_token" } },
+  { headers: { "Authorization": "Bearer user_token" } }
+]);
+```
+
+See [docs/customization/writing-extensions.md](docs/customization/writing-extensions.md) for the extension authoring guide and `pkg/jsext/vigolium.d.ts` for the full TypeScript API definitions.
+
+## CLI Reference
+
+### Commands
+
+```
+Scanning:
+  vigolium scan                Run a native scan — deterministic multi-phase vulnerability scanning
+  vigolium run <phase>         Run a single native scan phase (alias for scan --only <phase>)
+  vigolium scan-url <url>      Quick native scan of a single URL
+  vigolium scan-request        Native scan from a raw HTTP request
+
+Agentic scan (in-process olium engine):
+  vigolium agent autopilot     Autonomous AI-driven vulnerability scanning
+  vigolium agent swarm         AI-guided targeted or full-scope vulnerability scanning
+  vigolium agent query         Single-shot prompt (code review, endpoint discovery)
+  vigolium agent olium         Direct olium TUI (or one-shot non-interactive via -p)
+  vigolium agent archon        Foreground archon-audit (separate harness, claude only)
+  vigolium agent piolium       Foreground piolium audit (Pi-native, drives the user's pi extension)
+  vigolium agent audit         Unified driver dispatcher (archon and/or piolium, --driver=both|archon|piolium)
+  vigolium agent session       Browse/replay agent session artifacts
+  vigolium olium | vigolium ol Top-level alias for `vigolium agent olium`
+
+Server & ingestion:
+  vigolium server              Start the API server with traffic ingestion
+  vigolium ingest              Ingest traffic to a running server
+
+Data & projects:
+  vigolium db                  Database operations (list, stats, export, clean, seed)
+  vigolium finding             Browse and manage findings (load, tui)
+  vigolium traffic             Browse and replay HTTP records (tui, replay)
+  vigolium project             Manage projects (create, list, use, config)
+  vigolium scope               Manage scope rules
+  vigolium source              Manage source repositories (add, scan)
+  vigolium import              Import findings/data from external sources
+  vigolium export              Export scan results
+
+Extensions & sessions:
+  vigolium js                  Execute JavaScript/TypeScript code
+  vigolium ext                 Manage JavaScript extensions (eval, lint)
+  vigolium session             Manage authentication sessions (load, ls, lint, totp)
+
+Setup & introspection:
+  vigolium init                Initialize a Vigolium workspace
+  vigolium config              Manage configuration (ls, set, path, clean)
+  vigolium strategy            Inspect scanning strategies and phases
+  vigolium module              Inspect/enable scanner modules
+  vigolium doctor              Diagnose environment & dependencies
+  vigolium examples            Show usage examples
+  vigolium version             Show version info
+```
+
+### Flags
+
+```
+Native Scan (vigolium scan / run):
+  -t, --target           Target URL
+  -T, --target-file      File containing target URLs
+  -i, --input            Input file path (- for stdin)
+  -I, --input-mode       Input format: urls, openapi, nuclei, burpxml, curl, postman
+  -m, --modules          Modules to run (comma-separated or 'all')
+      --strategy         Strategy preset: lite, balanced, deep
+      --scanning-profile Scanning profile name or YAML path
+      --only             Single phase: ingestion, discover (deparos), spidering (spitolas),
+                         external-harvest, spa, audit
+
+Authentication:
+      --session           Inline session definition (name:Header:value, repeatable)
+      --session-file      Session YAML/JSON file path (repeatable)
+      --auth-config       Full auth configuration file path
+  -H, --header           Custom HTTP header (repeatable)
+
+Performance:
+  -c, --concurrency      Concurrent workers (default: 50)
+  -r, --rate-limit       Max requests/sec (default: 0 = unlimited)
+      --max-per-host     Per-host concurrency cap (default: 2)
+      --proxy            HTTP/SOCKS5 proxy URL
+      --timeout          HTTP request timeout (default: 15s)
+
+Agentic Scan (vigolium agent autopilot / swarm / query):
+      --source             Path to source code for source-aware scanning
+      --files              Specific files to include relative to --source
+      --source-label       Label for source code ingestion
+      --provider           Olium provider: openai-codex-oauth, anthropic-api-key,
+                           anthropic-oauth, openai-api-key, anthropic-cli,
+                           google-vertex
+      --model              Model ID override
+      --oauth-token        OAuth bearer token (anthropic-oauth)
+      --oauth-cred         OAuth/SA file path (openai-codex-oauth, google-vertex)
+      --llm-api-key        API key (anthropic-api-key, openai-api-key)
+      --vuln-type          Vulnerability type focus (sqli, xss, ssrf, ...)
+      --focus              Focus area for the agentic scan
+      --intensity          Preset bundle: quick, balanced, deep
+      --diff               Diff range / PR URL / HEAD~N for change-focused scans
+      --last-commits       Shorthand for --diff HEAD~N
+      --code-audit         Enable AI code audit (default: on with --source)
+      --discover           Run discovery+spidering before planning (swarm)
+      --archon             Archon-audit mode: lite, balanced, deep, off (autopilot/swarm)
+      --driver             Audit driver: both, archon, piolium (agent audit)
+      --fallback           Fall back to archon when piolium fails (agent audit)
+      --no-preflight       Skip 'claude -p' preflight (agent archon)
+      --max-iterations     Max triage-rescan iterations
+      --max-commands       Cap on agent tool calls
+      --token-budget       Cap on aggregate tokens
+      --max-duration       Max agent wall-clock time (0 = no limit)
+      --only / --skip / --start-from   Phase control (swarm)
+
+JavaScript:
+      --code             Inline JavaScript to execute
+      --code-file        Path to JS/TS file to execute
+      --timeout          Execution timeout (default: 30s)
+
+Output:
+  -j, --json             JSON output
+      --format           Output format: console, jsonl, html
+  -o, --output           Output file path
+      --silent           Suppress all output except findings
+  -v, --verbose          Verbose logging
+```
+
+## Repository Layout
+
+The `platform/` directory contains external tooling, UI Dashboard and is not part of the core scanner. No changes should be made to it.
+
+## Benchmarks
+
+Vigolium is continuously benchmarked against intentionally vulnerable applications and also heavily tested against real-world targets through bug bounty and responsible disclosure programs.
+
+- **Self-hosted (Docker):** [DVWA](https://github.com/digininja/DVWA), [OWASP Juice Shop](https://github.com/juice-shop/juice-shop), [VAmPI](https://github.com/erev0s/VAmPI), [crAPI](https://github.com/OWASP/crAPI), [Vulnerable Java App](https://github.com/DataDog/vulnerable-java-application), [Vulnerable Nginx](https://github.com/detectify/vulnerable-nginx), [OopsSec Store](https://github.com/kOaDT/oss-oopssec-store) (custom Next.js app)
+- **External (hosted):** [Acunetix TestPHP](http://testphp.vulnweb.com), [Gin & Juice Shop](https://ginandjuice.shop), [Testfire](http://demo.testfire.net)
+- **XSS & multi-vuln:** [BruteLogic XSS](test/benchmark/xss_scanner/), [XBOW](test/benchmark/definitions/xbow/) (XSS, SQLi, SSTI, LFI, SSRF, XXE, command injection)
+
+Run benchmarks with `make test-canary` (Docker apps) or `make test-integration` (XSS). See [docs/benchmark/benchmark-testing.md](docs/benchmark/benchmark-testing.md) for details.
+
+## Development
+
+```bash
+make build          # build and install
+make test           # run all tests (auto-installs gotestsum)
+make test-unit      # fast unit tests (-short, no external deps)
+make test-e2e       # E2E tests (requires Docker)
+make lint           # run linter
+make fmt            # format code
+```
+
+See [HACKING.md](HACKING.md) for the full build guide, codebase map, and module development guide.
+
+## License
+
+Vigolium is released under the [GNU Affero General Public License v3.0](LICENSE). Derivative works must remain open under the same terms.
+
+Crafted with ♥ by [@j3ssie](https://x.com/j3ssie), with [@theblackturtle](https://github.com/theblackturtle) as a core initial contributor.

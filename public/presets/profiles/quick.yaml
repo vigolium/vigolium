@@ -1,0 +1,56 @@
+# description: Fast scan — minimal discovery, no spidering, host-only known-issue-scan targets
+scanning_strategy:
+  default_strategy: lite
+
+scanning_pace:
+  concurrency: 100
+  rate_limit: 200
+  max_per_host: 20
+  discovery:
+    concurrency: 100
+    max_duration: 10m
+  dynamic-assessment:
+    concurrency: 100
+    max_duration: 30m
+
+discovery:
+  mode: files_only
+  scope_mode: subdomain
+  save_response_body: false
+  enable_malformed_path_probe: false
+  recursion:
+    enabled: false
+  wordlists:
+    use_observed_names: true
+    use_observed_paths: true
+    use_observed_files: true
+    enable_numeric_fuzzing: false
+  extensions:
+    test_custom: false
+    test_observed: true
+    test_backup_extensions: false
+    test_no_extension: true
+  engine:
+    case_sensitivity: auto_detect
+    timeout: 5s
+    enable_cookie_jar: false
+    max_consecutive_errors: 10
+    max_consecutive_waf_blocks: 5
+    observed_max_items: 1000
+    disable_kingfisher: true
+
+known_issue_scan:
+  enrich_targets: false
+  exclude_tags:
+    - dos
+
+dynamic-assessment:
+  enabled_modules:
+    active_modules:
+      - all
+    passive_modules:
+      - all
+
+mutation_strategy:
+  default_modes:
+    - append

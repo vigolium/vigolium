@@ -1,0 +1,28 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+COPY configs/.parcelrc ./.parcelrc
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+RUN npm install @parcel/transformer-typescript-tsc --save-dev
+
+# Copy source
+COPY tsconfig.json ./
+COPY src/ ./src/
+
+# Create output directory
+RUN mkdir -p dist/parcel
+
+# Fix package.json main field for Parcel compatibility
+RUN sed -i 's/"main": "src\/index.ts"/"main": "dist\/parcel\/index.js"/' package.json
+
+# Build with Parcel
+# Parcel 2 uses different CLI syntax
+RUN npx parcel build src/index.ts --dist-dir dist/parcel --no-cache --no-source-maps
+
+# Output will be in /app/dist/parcel/
+CMD ["ls", "-la", "dist/parcel/"]

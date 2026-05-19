@@ -1,0 +1,9 @@
+id: nextjs-dynamic-route-params
+language: typescript
+severity: info
+message: "Route: PARAM dynamic"
+rule:
+  any:
+    - pattern: useRouter()
+    - pattern: useSearchParams()
+    - pattern: $PARAMS = useParams()

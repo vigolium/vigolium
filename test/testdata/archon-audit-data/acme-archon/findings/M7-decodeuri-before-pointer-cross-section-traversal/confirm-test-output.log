@@ -1,0 +1,9 @@
+PASS src/services/__tests__/confirm.decodeuri-before-pointer-cross-section-traversal.00000000.test.ts
+  confirmation
+    ✓ test_confirm_decodeuri_before_pointer_cross_section_traversal_00000000 (3 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.664 s
+Ran all test suites matching /src\/services\/__tests__\/confirm.decodeuri-before-pointer-cross-section-traversal.00000000.test.ts/i.

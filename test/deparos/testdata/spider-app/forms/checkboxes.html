@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Checkboxes Form Test</title>
+</head>
+<body>
+    <h1>Checkboxes Form</h1>
+    <p>A form with checkbox options. Spider should generate 4 variants (2^2 combinations).</p>
+    <p>Variants: none checked, newsletter only, marketing only, both checked.</p>
+
+    <form action="/form-result/preferences" method="POST">
+        <fieldset>
+            <legend>Email Preferences:</legend>
+
+            <label>
+                <input type="checkbox" name="newsletter" value="1"> Subscribe to newsletter
+            </label>
+
+            <label>
+                <input type="checkbox" name="marketing" value="1"> Receive marketing emails
+            </label>
+        </fieldset>
+
+        <input type="submit" value="Save Preferences">
+    </form>
+</body>
+</html>

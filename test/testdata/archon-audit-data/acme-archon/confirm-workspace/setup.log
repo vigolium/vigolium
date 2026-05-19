@@ -1,0 +1,251 @@
+[attempt] dockerfile config/docker/Dockerfile port=80
+[build-step] docker build -f config/docker/Dockerfile -t acme .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.77kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/nginx:alpine
+#2 ...
+
+#3 [auth] library/node:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#4 [auth] library/nginx:pull token for registry-1.docker.io
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/node:18-alpine
+#5 DONE 4.2s
+
+#2 [internal] load metadata for docker.io/library/nginx:alpine
+#2 DONE 4.2s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 185B 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-0  1/11] FROM docker.io/library/node:18-alpine@sha256:[REDACTED]
+#7 resolve docker.io/library/node:18-alpine@sha256:[REDACTED] done
+#7 DONE 0.1s
+
+#8 [stage-1 1/7] FROM docker.io/library/nginx:alpine@sha256:[REDACTED]
+#8 resolve docker.io/library/nginx:alpine@sha256:[REDACTED] 0.0s done
+#8 ...
+
+#9 [internal] load build context
+#9 transferring context: 2.21MB 0.1s done
+#9 DONE 0.2s
+
+#8 [stage-1 1/7] FROM docker.io/library/nginx:alpine@sha256:[REDACTED]
+#8 sha256:[REDACTED] 0B / 19.78MB 0.2s
+#8 sha256:[REDACTED] 0B / 1.40kB 0.2s
+#8 sha256:[REDACTED] 1.05MB / 19.78MB 1.1s
+#8 sha256:[REDACTED] 0B / 1.21kB 0.2s
+#8 sha256:[REDACTED] 2.10MB / 19.78MB 1.2s
+#8 sha256:[REDACTED] 3.15MB / 19.78MB 1.4s
+#8 sha256:[REDACTED] 5.24MB / 19.78MB 1.5s
+#8 sha256:[REDACTED] 1.40kB / 1.40kB 0.6s done
+#8 sha256:[REDACTED] 7.34MB / 19.78MB 1.7s
+#8 sha256:[REDACTED] 1.21kB / 1.21kB 0.9s done
+#8 sha256:[REDACTED] 0B / 404B 0.2s
+#8 sha256:[REDACTED] 9.44MB / 19.78MB 1.8s
+#8 sha256:[REDACTED] 0B / 954B 0.2s
+#8 sha256:[REDACTED] 404B / 404B 0.6s done
+#8 sha256:[REDACTED] 11.53MB / 19.78MB 2.1s
+#8 sha256:[REDACTED] 0B / 626B 0.2s
+#8 sha256:[REDACTED] 12.58MB / 19.78MB 2.3s
+#8 sha256:[REDACTED] 954B / 954B 0.6s done
+#8 sha256:[REDACTED] 13.63MB / 19.78MB 2.4s
+#8 sha256:[REDACTED] 0B / 1.90MB 0.2s
+#8 sha256:[REDACTED] 15.73MB / 19.78MB 2.6s
+#8 sha256:[REDACTED] 626B / 626B 0.6s done
+#8 sha256:[REDACTED] 17.83MB / 19.78MB 2.7s
+#8 sha256:[REDACTED] 19.78MB / 19.78MB 2.8s done
+#8 sha256:[REDACTED] 1.05MB / 1.90MB 1.1s
+#8 sha256:[REDACTED] 1.90MB / 1.90MB 1.2s done
+#8 extracting sha256:[REDACTED] 0.1s done
+#8 extracting sha256:[REDACTED] done
+#8 extracting sha256:[REDACTED] done
+#8 extracting sha256:[REDACTED] 0.0s done
+#8 extracting sha256:[REDACTED] done
+#8 DONE 3.8s
+
+#7 [stage-0  1/11] FROM docker.io/library/node:18-alpine@sha256:[REDACTED]
+#7 sha256:[REDACTED] 1.26MB / 1.26MB 0.9s done
+#7 sha256:[REDACTED] 443B / 443B 0.9s done
+#7 sha256:[REDACTED] 14.68MB / 39.66MB 3.6s
+#7 sha256:[REDACTED] 16.78MB / 39.66MB 3.8s
+#7 ...
+
+#8 [stage-1 1/7] FROM docker.io/library/nginx:alpine@sha256:[REDACTED]
+#8 extracting sha256:[REDACTED] done
+#8 extracting sha256:[REDACTED] 0.2s done
+#8 DONE 4.0s
+
+#7 [stage-0  1/11] FROM docker.io/library/node:18-alpine@sha256:[REDACTED]
+#7 sha256:[REDACTED] 18.87MB / 39.66MB 3.9s
+#7 sha256:[REDACTED] 22.02MB / 39.66MB 4.2s
+#7 sha256:[REDACTED] 24.12MB / 39.66MB 4.4s
+#7 sha256:[REDACTED] 26.21MB / 39.66MB 4.7s
+#7 sha256:[REDACTED] 28.31MB / 39.66MB 4.8s
+#7 sha256:[REDACTED] 30.41MB / 39.66MB 5.0s
+#7 sha256:[REDACTED] 33.55MB / 39.66MB 5.3s
+#7 sha256:[REDACTED] 35.65MB / 39.66MB 5.4s
+#7 sha256:[REDACTED] 38.80MB / 39.66MB 5.7s
+#7 sha256:[REDACTED] 39.66MB / 39.66MB 5.8s done
+#7 extracting sha256:[REDACTED]
+#7 extracting sha256:[REDACTED] 0.5s done
+#7 DONE 6.3s
+
+#7 [stage-0  1/11] FROM docker.io/library/node:18-alpine@sha256:[REDACTED]
+#7 extracting sha256:[REDACTED] 0.0s done
+#7 extracting sha256:[REDACTED] done
+#7 DONE 6.4s
+
+#10 [stage-0  2/11] RUN apk update && apk add --no-cache git
+#10 0.190 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/APKINDEX.tar.gz
+#10 0.454 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/community/aarch64/APKINDEX.tar.gz
+#10 0.780 v3.21.7-77-gff1514be714 [https://dl-cdn.alpinelinux.org/alpine/v3.21/main]
+#10 0.780 v3.21.7-77-gff1514be714 [https://dl-cdn.alpinelinux.org/alpine/v3.21/community]
+#10 0.780 OK: 25260 distinct packages available
+#10 0.809 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/APKINDEX.tar.gz
+#10 1.015 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/community/aarch64/APKINDEX.tar.gz
+#10 1.229 (1/12) Installing brotli-libs (1.1.0-r2)
+#10 1.261 (2/12) Installing c-ares (1.34.6-r0)
+#10 1.279 (3/12) Installing libunistring (1.2-r0)
+#10 1.317 (4/12) Installing libidn2 (2.3.7-r0)
+#10 1.332 (5/12) Installing nghttp2-libs (1.69.0-r0)
+#10 1.439 (6/12) Installing libpsl (0.21.5-r3)
+#10 1.456 (7/12) Installing zstd-libs (1.5.6-r2)
+#10 1.493 (8/12) Installing libcurl (8.14.1-r2)
+#10 1.524 (9/12) Installing libexpat (2.7.5-r0)
+#10 1.537 (10/12) Installing pcre2 (10.43-r0)
+#10 1.571 (11/12) Installing git (2.47.3-r0)
+#10 1.768 (12/12) Installing git-init-template (2.47.3-r0)
+#10 1.780 Executing busybox-1.37.0-r12.trigger
+#10 1.786 OK: 22 MiB in 29 packages
+#10 DONE 1.9s
+
+#11 [stage-0  3/11] WORKDIR /build
+#11 DONE 0.0s
+
+#12 [stage-0  4/11] COPY package.json package-lock.json /build/
+#12 DONE 0.0s
+
+#13 [stage-0  5/11] RUN npm ci --no-optional --ignore-scripts
+#13 0.175 npm warn config optional Use `--omit=optional` to exclude optional dependencies, or
+#13 0.175 npm warn config `--include=optional` to include them.
+#13 0.175 npm warn config
+#13 0.175 npm warn config       Default value does install optional deps unless otherwise omitted.
+#13 2.175 npm warn deprecated uuid@3.4.0: Please upgrade  to version 7 or higher.  Older versions may use Math.random() in certain circumstances, which is known to be problematic.  See https://v8.dev/blog/math-random for details.
+#13 27.98 
+#13 27.98 added 1575 packages, and audited 1576 packages in 28s
+#13 27.98 
+#13 27.98 246 packages are looking for funding
+#13 27.98   run `npm fund` for details
+#13 28.01 
+#13 28.01 30 vulnerabilities (8 low, 10 moderate, 12 high)
+#13 28.01 
+#13 28.01 To address issues that do not require attention, run:
+#13 28.01   npm audit fix
+#13 28.01 
+#13 28.01 To address all issues (including breaking changes), run:
+#13 28.01   npm audit fix --force
+#13 28.01 
+#13 28.01 Run `npm audit` for details.
+#13 28.01 npm notice
+#13 28.01 npm notice New major version of npm available! 10.8.2 -> 11.14.1
+#13 28.01 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+#13 28.01 npm notice To update run: npm install -g npm@11.14.1
+#13 28.01 npm notice
+#13 DONE 28.3s
+
+#14 [stage-0  6/11] RUN npm explore esbuild -- npm run postinstall
+#14 0.430 
+#14 0.430 > esbuild@0.25.0 postinstall
+#14 0.430 > node install.js
+#14 0.430 
+#14 0.452 [esbuild] Failed to find package "@esbuild/linux-arm64" on the file system
+#14 0.452 
+#14 0.452 This can happen if you use the "--no-optional" flag. The "optionalDependencies"
+#14 0.452 package.json feature is used by esbuild to install the correct binary executable
+#14 0.452 for your current platform. This install script will now attempt to work around
+#14 0.452 this. If that fails, you need to remove the "--no-optional" flag to use esbuild.
+#14 0.452 
+#14 0.453 [esbuild] Trying to install package "@esbuild/linux-arm64" using npm
+#14 DONE 1.2s
+
+#15 [stage-0  7/11] COPY src /build/src
+#15 DONE 0.0s
+
+#16 [stage-0  8/11] COPY webpack.config.ts tsconfig.json custom.d.ts  /build/
+#16 DONE 0.0s
+
+#17 [stage-0  9/11] COPY config/webpack-utils.ts /build/config/
+#17 DONE 0.0s
+
+#18 [stage-0 10/11] COPY typings/styled-patch.d.ts /build/typings/styled-patch.d.ts
+#18 DONE 0.0s
+
+#19 [stage-0 11/11] RUN npm run bundle:standalone
+#19 0.157 
+#19 0.157 > acme@2.5.2 bundle:standalone
+#19 0.157 > webpack --env production --env standalone --mode=production
+#19 0.157 
+#19 1.018 fatal: not a git repository (or any of the parent directories): .git
+#19 1.019 Skipping ACME_REVISION
+#19 1.118 Browserslist: caniuse-lite is outdated. Please run:
+#19 1.118   npx update-browserslist-db@latest
+#19 1.118   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+#19 1.621 (node:17) [DEP_WEBPACK_COMPILATION_CACHE] DeprecationWarning: Compilation.cache was removed in favor of Compilation.getCache()
+#19 1.621 (Use `node --trace-deprecation ...` to show where the warning was created)
+#19 8.155 asset acme.standalone.js 911 KiB [emitted] [minimized] (name: main) 2 related assets
+#19 8.155 asset cfb294d7f6536ffa8d42.worker.js.map 148 KiB [emitted] [dev]
+#19 8.155 asset cfb294d7f6536ffa8d42.worker.js.LICENSE.txt 1.13 KiB [emitted]
+#19 8.155 orphan modules 1.16 MiB [orphan] 240 modules
+#19 8.155 runtime modules 1.35 KiB 7 modules
+#19 8.155 built modules 2.02 MiB [built]
+#19 8.155   modules by path ./node_modules/ 973 KiB
+#19 8.155     javascript modules 970 KiB 220 modules
+#19 8.155     json modules 2.07 KiB
+#19 8.155       ./node_modules/swagger2openapi/package.json 1.05 KiB [built] [code generated]
+#19 8.155       ./node_modules/@acmely/openapi-core/package.json 1.02 KiB [built] [code generated]
+#19 8.155   modules by path ./src/ 1.07 MiB
+#19 8.155     ./src/polyfills.ts 61 bytes [built] [code generated]
+#19 8.155     ./src/standalone.tsx + 219 modules 1.03 MiB [built] [code generated]
+#19 8.155     ./node_modules/workerize-loader/dist/index.js?inline&fallback=false!./src/services/SearchWorker.worker.ts 31.8 KiB [not cacheable] [built] [code generated]
+#19 8.155     ./src/empty.js 21 bytes [built] [code generated]
+#19 8.155   + 7 modules
+#19 8.155 webpack 5.94.0 compiled successfully in 6966 ms
+#19 DONE 8.2s
+
+#20 [stage-1 2/7] COPY --from=0 build/bundles /usr/share/nginx/html
+#20 DONE 0.0s
+
+#21 [stage-1 3/7] COPY config/docker/index.tpl.html /usr/share/nginx/html/index.html
+#21 DONE 0.0s
+
+#22 [stage-1 4/7] COPY demo/favicon.png /usr/share/nginx/html/
+#22 DONE 0.0s
+
+#23 [stage-1 5/7] COPY config/docker/nginx.conf /etc/nginx/
+#23 DONE 0.0s
+
+#24 [stage-1 6/7] COPY config/docker/docker-run.sh /usr/local/bin
+#24 DONE 0.0s
+
+#25 [stage-1 7/7] RUN chgrp -R 0 /etc/nginx &&     chgrp -R 0 /usr/share/nginx/html &&     chgrp -R 0 /var/cache/nginx &&     chgrp -R 0 /var/log/nginx &&     chgrp -R 0 /var/run &&     chmod -R g+rwX /etc/nginx &&     chmod -R g+rwX /usr/share/nginx/html &&     chmod -R g+rwX /var/cache/nginx &&     chmod -R g+rwX /var/log/nginx &&     chmod -R g+rwX /var/run
+#25 DONE 0.1s
+
+#26 exporting to image
+#26 exporting layers
+#26 exporting layers 0.2s done
+#26 exporting manifest sha256:[REDACTED] done
+#26 exporting config sha256:[REDACTED] done
+#26 exporting attestation manifest sha256:[REDACTED] done
+#26 exporting manifest list sha256:[REDACTED] done
+#26 naming to docker.io/library/archon-confirm-00000000:latest done
+#26 unpacking to docker.io/library/archon-confirm-00000000:latest 0.1s done
+#26 DONE 0.3s
+[REDACTED]

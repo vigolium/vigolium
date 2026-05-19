@@ -1,0 +1,9 @@
+id: gin-route-handler
+language: go
+severity: info
+message: "Route: $METHOD $PATH"
+rule:
+  pattern: $ROUTER.$METHOD($PATH, $$$HANDLERS)
+constraints:
+  METHOD:
+    regex: "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|Any|Handle)$"

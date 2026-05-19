@@ -1,0 +1,469 @@
+{
+	"summaryPath": "piolium/confirm-workspace/cleanup-summary.json",
+	"checkedFindingDirs": [
+		"p10-001-direct-git-url-ref-reaches-simple-git-clone",
+		"p10-002-symlink-dereference-copies-out-of-tree-files",
+		"p10-003-http-well-known-skill-discovery",
+		"p10-004-unbounded-well-known-fetch-and-frontmatter-parse",
+		"p10-005-duplicate-skill-name-first-wins",
+		"p10-006-blob-snapshot-not-verified-against-github-tree",
+		"p10-007-rfc8615-path-relative-well-known-shadowing",
+		"p10-008-agent-skill-name-constraints-not-enforced",
+		"p10-009-project-scope-symlinked-agent-base-escape",
+		"p10-010-experimental-install-unlocked-node-modules-skills",
+		"p12-cleartext-http-git-sources",
+		"p12-node-modules-sync-duplicate-name-overwrite",
+		"p12-project-scope-remove-symlinked-agent-base-escape",
+		"p12-unbounded-git-local-frontmatter-parse"
+	],
+	"createdEvidenceDirs": [],
+	"formatIssues": [],
+	"falsePositiveRenames": [],
+	"redactedFiles": [],
+	"skippedFiles": [
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/COMMIT_EDITMSG",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/config",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/description",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/applypatch-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/fsmonitor-watchman.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/post-update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-applypatch.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-merge-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-push.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-rebase.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/pre-receive.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/prepare-commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/push-to-checkout.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/sendemail-validate.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/hooks/update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/index",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/info/exclude",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/logs/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/logs/refs/heads/master",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/objects/12/99bf5b2b5baa6ea8a3d4f81461d2bb31f63347",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/objects/42/68ff639a728afd19edd8d76b752c22c75abc3a",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/objects/82/313e964e6713ecf90671b9d74fbe8e8b2c6831",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/objects/ec/8a8861e098553e93d2fa08f5d7f5c503c769dd",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/malicious-skill-repo/.git/refs/heads/master",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/work/victim-home/.config/cloud-token",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/COMMIT_EDITMSG",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/config",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/description",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/applypatch-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/fsmonitor-watchman.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/post-update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-applypatch.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-merge-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-push.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-rebase.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/pre-receive.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/prepare-commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/push-to-checkout.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/sendemail-validate.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/hooks/update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/index",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/info/exclude",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/logs/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/logs/refs/heads/master",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/01/c6c5493bd6468891d546be11ae5e077110eb43",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/0f/a2ed144e2fe56ecdecec4551e0a2a0ed012305",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/32/b7db4c0ff9d579fb17493a525d8005b49afb76",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/53/b3297ee5023ddfdb925b4adff6b635bf2b9c2c",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/a5/d31508ff358b382553ef2d49e069bb3bea6dae",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/objects/d5/f00162fc0f85441cbf73d861fdcaa7e98e77cb",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/runtime/victim-home/work/victim-project/.git/refs/heads/master",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/COMMIT_EDITMSG",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/config",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/description",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/applypatch-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/fsmonitor-watchman.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/post-update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-applypatch.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-merge-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-push.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-rebase.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/pre-receive.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/prepare-commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/push-to-checkout.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/sendemail-validate.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/hooks/update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/index",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/info/exclude",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/logs/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/logs/refs/heads/main",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/62/70556c47cc021efc0a349f1573278e055b1dac",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/7c/ae594d5ea1aecc464f150ee23e9cb83c100bd4",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/87/1f23b2e2c0bba4b8d251a8f3824f5f2b134c2e",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/8e/acfbd31f5738a21698dc532caa872d9131c5e8",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/ac/05cfe9110213884c6ec5788c85fa574f73befa",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/objects/f0/f1bfdc7e0d5352a909ccda3d5892b7bab54603",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/attacker-src/.git/refs/heads/main",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/HEAD",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/config",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/description",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/applypatch-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/fsmonitor-watchman.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/post-update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-applypatch.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-merge-commit.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-push.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-rebase.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/pre-receive.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/prepare-commit-msg.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/push-to-checkout.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/sendemail-validate.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/hooks/update.sample",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/info/exclude",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/62/70556c47cc021efc0a349f1573278e055b1dac",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/7c/ae594d5ea1aecc464f150ee23e9cb83c100bd4",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/87/1f23b2e2c0bba4b8d251a8f3824f5f2b134c2e",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/8e/acfbd31f5738a21698dc532caa872d9131c5e8",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/ac/05cfe9110213884c6ec5788c85fa574f73befa",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/objects/f0/f1bfdc7e0d5352a909ccda3d5892b7bab54603",
+			"reason": "not a known text artifact extension"
+		},
+		{
+			"path": "piolium/findings/p12-cleartext-http-git-sources/evidence/workdir/git-root/group/repo.git/packed-refs",
+			"reason": "not a known text artifact extension"
+		}
+	]
+}

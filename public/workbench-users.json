@@ -1,0 +1,26 @@
+[
+  {
+    "name": "vigolium-admin",
+    "email": "",
+    "access_code": "",
+    "role": "admin"
+  },
+  {
+    "name": "vigolium-operator",
+    "email": "",
+    "access_code": "",
+    "role": "operator"
+  },
+  {
+    "name": "vigolium-analyst",
+    "email": "",
+    "access_code": "",
+    "role": "viewer"
+  },
+  {
+    "name": "vigolium-auditor",
+    "email": "",
+    "access_code": "",
+    "role": "viewer"
+  }
+]

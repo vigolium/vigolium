@@ -1,0 +1,159 @@
+a:link 		{ color: #0069CE; text-decoration: none;}
+a:visited 	{ color: #0069CE; text-decoration: none;}
+a:hover 	{ color: orange; text-decoration: none;}
+
+#menubar a:link 		{ color: #0069CE; text-decoration: none;}
+#menubar a:visited 	{ color: #0069CE; text-decoration: none;}
+#menubar a:hover 	{ color: orange; text-decoration: none;}
+
+#header h1{
+	color: black;
+	font-size: 18pt;
+}
+
+h1{
+	color: #0069CE;
+	font-size: 14pt
+}
+
+h2{ 
+	color: orange; 
+	font-size: 11pt
+}
+
+h3{
+	color: #0069CE;
+	font-size: 10pt
+}
+
+span.foo{
+	color: orange;
+}
+
+#header{
+	padding-left: 20px;
+}
+
+#menubar ul{
+	padding: 0px;
+	margin: 0px;
+}
+
+#menubar li{
+	display: inline;
+	margin-right: 10px;
+}
+
+#menubar, #footer{
+	border-bottom: 1px solid #C6D7EF;
+	border-top: 1px solid #C6D7EF;
+	padding-top: 5px;
+	padding-bottom: 5px;
+	padding-left: 20px;
+	padding-right: 20px;
+    background-image: url('img/nav.gif');
+	background-position: top;
+	background-repeat: repeat-x;
+	color: #0069CE;
+	font-size: 11pt;
+	font-weight: bold;
+}
+
+#content{
+	margin-right: 20px;
+}
+
+div.clickable{
+	cursor: pointer;
+	text-decoration: underline;
+	color: orange;
+}
+
+#left{
+	width: 220px;
+	border-right: 2px solid #C6D7EF;
+	border-bottom: 2px solid #C6D7EF;
+	margin-right: 20px;
+	padding-left: 20px;
+}
+
+#left h2{
+	color: orange;
+	font-size: 11pt;	
+}
+
+#content{
+}
+
+#errors{
+	background: red;
+	color: white;
+	padding: 10px;
+	font-size: 12pt;
+	font-weight: bold;
+}
+
+#footer{
+	margin-top: 20px;
+}
+
+
+form {
+	display: inline;
+}
+
+img {
+	border: none;
+}
+
+table.default{
+	border: 1px solid #C6D7EF;
+	border-collapse:collapse;
+	cell-spacing: 1px;
+}
+
+td{
+	vertical-align: top;
+	text-align: left;
+}	
+
+table.default th, table.default td{
+	padding: 5px;
+	border:1px solid #C6D7EF;
+}
+table.default th{
+	color: #0069CE;
+	height: 25px;	
+    background-image: url('img/nav.gif');
+}
+
+.java{
+	font-family:"courier";
+	color: #0069CE;
+}
+
+.separator{
+	border-bottom: 1px solid #C6D7EF;
+}
+
+pre {
+   display: block;
+   white-space: pre;
+   overflow: auto;
+   line-height: 1.4;
+   border: 1px solid #ccc;
+   background: #ece9d8;
+   padding: 8px;
+}
+
+table.instruction pre{
+	width: 550px;  
+}
+
+body{
+    margin: 0px;
+    background: white;
+    color: black;
+    font-family: tahoma, Arial;
+    font-size: 10pt;
+}

@@ -1,0 +1,7 @@
+id: security-nextjs-production-source-maps
+language: typescript
+severity: warning
+message: "Security: productionBrowserSourceMaps enabled — source maps expose original source code, comments, and internal structure to attackers"
+note: "Source maps in production allow attackers to reconstruct the original unminified source code, revealing business logic, API endpoints, and potential vulnerabilities."
+rule:
+  pattern: "productionBrowserSourceMaps: true"

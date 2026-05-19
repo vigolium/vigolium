@@ -1,0 +1,548 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>button (type=submit) element</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta name="author" content="Diego Ponce de León">
+    <meta name="description" content="Collection of HTML5 tutorials and reference. Simple, complete, accessible, easy to navigate and free.">
+    <meta name="Keywords" content="HTML5, tutorials, reference, tags, free, learn">
+    <link rel="stylesheet" type="text/css" href="/assets/css/default.min.css">
+  </head>
+  <!--[if lt IE 7 ]> <body class="ie6"> <![endif]-->
+  <!--[if IE 7 ]>    <body class="ie7"> <![endif]-->
+  <!--[if IE 8 ]>    <body class="ie8"> <![endif]-->
+  <!--[if IE 9 ]>    <body class="ie9"> <![endif]-->
+  <!--[if (gt IE 9)]><body class="modern"> <![endif]-->
+  <!--[!(IE)]><!-->
+    <body class="notIE modern">
+  <!--<![endif]-->
+    <div id="document">
+      <header>
+        <div id="header-sm"><div></div></div>
+        <nav id="main-menu" class="unselectable">
+          <div id="small-main-menu-button">&Xi;</div>
+          <ul id="main-menu-list">
+
+<li><a href="/">HOME</a></li><li><a href="/tutorials.html">TUTORIALS</a></li><li><a href="/reference.html">REFERENCE</a></li><li id="main-menu-elements" class="selected"><a href="/reference/tags.html">ELEMENTS</a></li>
+          </ul>
+        </nav>
+        <div id="animation">
+          <div id="animation-background-container">
+            <div id="animation-background"></div>
+            <div class="pics">
+              <div id="animation-planet"></div>
+            </div>
+            <div id="animation-planet-and-light-ray-container">
+              <div id="animation-planet-and-light-ray-group" class="pics">
+                <div id="animation-light-ray-left"></div>
+                <div id="animation-planet-lit"></div>
+                <div id="animation-light-ray"></div>
+              </div>
+            </div>
+            <div id="animation-arrow-container">
+              <div id="animation-arrow"></div>
+            </div>
+          </div>
+          <div class="picr">
+            <div id="animation-star-shine">
+              <div id="animation-thin-star-shine"></div>
+              <div id="animation-thick-star-shine"></div>
+            </div>
+          </div>
+        </div>
+        <div id="animation-separator"></div>
+        <nav id="header-sub-bar">
+          <a id="change-language" class="es" href="/es/reference/tags/button-submit.html" rel="alternate" hreflang="es" title="Cambiar a la versión en español"><span></span></a>
+          <div id="breadcrum">
+
+<a href="/">Home</a>
+ &rsaquo; <a href="/reference.html">Reference</a>
+ &rsaquo; <a href="/reference/tags.html">Elements</a>
+ &rsaquo; button (type=submit) element
+
+          </div>
+        </nav>
+      </header>
+      <main id="content">
+<article>
+  <header>
+    <h1>button (<span class="typ">type=submit</span>) element</h1>
+    <p class="alert"><span class="image"></span>If you don't know what an element is or how you must use it, I recommend you read the <a href="/tutorials/tags-attributes.html">"<abbr title="Hyper Text Markup Language">HTML</abbr> tags and attributes" tutorial</a> that you can find in the <a href="/tutorials.html"><abbr title="Hyper Text Markup Language">HTML</abbr> tutorials</a> section.</p>
+    <div class="table-of-contents">
+      <p>Table of contents</p>
+      <ul>
+        <li><a class="toc-main-link" href="#description"><span class="toc-number">01</span><span class="toc-title">Description</span></a></li>
+        <li><a class="toc-main-link" href="#examples"><span class="toc-number">02</span><span class="toc-title">Examples</span></a></li>
+        <li><a class="toc-main-link" href="#attributes"><span class="toc-number">03</span><span class="toc-title">Attributes</span></a>
+          <ul class="toc-list-level-2">
+            <li><a href="#specific-attributes">Specific attributes</a></li>
+            <li><a href="#global-attributes">Global attributes</a></li>
+          </ul>
+        </li>
+        <li><a class="toc-main-link" href="#events"><span class="toc-number">04</span><span class="toc-title">Events</span></a>
+          <ul class="toc-list-level-2">
+            <li><a href="#global-events">Global events</a></li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </header>
+  <section id="description">
+    <h2>Description</h2>
+    <p>The <code class="element">button</code> element, having the "submit" value in its <code class="attribute">type</code> attribute, represents a button that, when pressed, submits the <a href="form.html"><code class="element">form</code></a> it belongs to. The label of a <code class="element">button</code> is represented by the content of the element.</p>
+    <p>With the arrival of <abbr title="Hypertext Markup Language">HTML</abbr>5, several new attributes have been added to this element (<code class="attribute">formaction</code>, <code class="attribute">formenctype</code>, <code class="attribute">formmethod</code>, <code class="attribute">formnovalidate</code> and <code class="attribute">formtarget</code>) that define and override certain parameters pertaining how the <a href="form.html"><code class="element">form</code></a> must be submitted. These new attributes can be used, for example, to provide more than one submit button in one <a href="form.html"><code class="element">form</code></a>, and make each of them perform a different type of submission.</p>
+    <p class="info message-right"><span class="image"></span>In contrast with the <a href="input.html"><code class="element">input</code> (type=submit) element</a>, this type of button can contain other non-interactive elements.</p>
+  </section>
+  <section id="examples">
+    <h2>Examples</h2>
+    <p>In our first example we'll create a basic <a href="form.html"><code class="element">form</code></a> with a couple of fields and a submit button. Here you'll be able to see and test the functionality of the submit button: when you press it, the <a href="form.html"><code class="element">form</code></a> is automatically submitted.</p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span>Username: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;username&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">  <span class="tag">&lt;p&gt;</span>Password: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;password&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span><span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Submit form<span class="tag">&lt;/button&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>Username: <input type="text" name="username"></p>
+  <p>Password: <input type="text" name="password"></p>
+  <p><button type="submit">Submit form</button></p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+    <p>Now, we'll provide two submit buttons in the same <a href="form.html"><code class="element">form</code></a>, and we'll make each perform a different type of submission. While the first button uses the default configuration declared in the <a href="form.html"><code class="element">form</code> element</a>, the second overrides some of the original attributes and produces a submission using the GET method, with no validation of data.</p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> method=</span><span class="atv">&quot;post&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span>Username: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;user&quot;</span><span class="atn"> pattern=</span><span class="atv">&quot;^[a-zA-Z][a-zA-Z0-9-_\.]{3,15}$&quot;</span><span class="atn"> title=</span><span class="atv">&quot;A proper username must begin with a letter, contain letters, numbers, scores and stops, and have between 3 and 15 characters long&quot;</span><span class="atn"> required&gt;</span></span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">  <span class="tag">&lt;p&gt;</span>Password: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;password&quot;</span><span class="atn"> name=</span><span class="atv">&quot;pass&quot;</span><span class="atn"> pattern=</span><span class="atv">&quot;[a-zA-Z0-9]{6,15}&quot;</span><span class="atn"> title=</span><span class="atv">&quot;A valid password must be composed by letters and/or numbers and have a length between 6 and 15 characters&quot;</span><span class="atn"> required&gt;</span></span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Send<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formmethod=</span><span class="atv">&quot;get&quot;</span><span class="atn"> formnovalidate&gt;</span></span>Send without validation<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="7."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="8."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" method="post" target="_blank">
+  <p>Username: <input type="text" name="user" pattern="^[a-zA-Z][a-zA-Z0-9-_\.]{3,15}$" title="A proper username must begin with a letter, contain letters, numbers, scores and stops, and have between 3 and 15 characters long" required></p>
+  <p>Password: <input type="password" name="pass" pattern="[a-zA-Z0-9]{6,15}" title="A valid password must be composed by letters and/or numbers and have a length between 6 and 15 characters" required></p>
+  <p>
+    <button type="submit">Send</button>
+    <button type="submit" formmethod="get" formnovalidate>Send without validation</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+    <p>Our last example will show the special feature of the <code class="element">button</code> element, which lets it hold other non-interactive elements. This is one of the main differences it has with the <a href="input-button.html"><code class="element">intput</code> (type=submit) element</a>.</p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span>Search: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;search&quot;</span><span class="atn"> name=</span><span class="atv">&quot;searchstring&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">  <span class="tag">&lt;p&gt;</span><span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Submit <span class="tag">&lt;b&gt;</span>this<span class="tag">&lt;/b&gt;</span> form<span class="tag">&lt;br&gt;</span>Ha! ha! ha!<span class="tag">&lt;/button&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>Search: <input type="search" name="searchstring"></p>
+  <p><button type="submit">Submit <b>this</b> form<br>Ha! ha! ha!</button></p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+  </section>
+  <section id="attributes">
+    <h2>Attributes</h2>
+    <section id="specific-attributes">
+      <h3>Specific attributes</h3>
+      <details class="attribute">
+        <summary>
+          <h4>autofocus</h4>
+        </summary>
+        <p>A boolean value instructing the browser to set the focus to this control when the document has finished loading or when the <a href="dialog.html"><code class="element">dialog</code></a> where the control finds itself is shown. If the attribute has the value "autofocus" or the empty string (""), or if it's just present, the control should get the focus as soon as possible, after the page or <a href="dialog.html"><code class="element">dialog</code></a> has been loaded.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> autofocus&gt;</span></span>Submit form<span class="tag">&lt;/button&gt;</span></span></span>
+</code></pre>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>disabled</h4>
+        </summary>
+        <p>A boolean value indicating wether the control is disabled or not. If the attribute takes the value "disabled" or the empty string (""), or if it's just present, the control will be disabled.</p>
+        <p class="info"><span class="image"></span>Disabled controls are rendered greyed out (if visible), are blocked from user interaction and, more importantly, their values (if any) aren't sent when the <a href="form.html"><code class="element">form</code></a> is submitted.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Search for an item: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;search&quot;</span><span class="atn"> name=</span><span class="atv">&quot;searchitem&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> disabled&gt;</span></span>Search<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>
+    Search for an item: <input type="search" name="searchitem">
+    <button type="submit" disabled>Search</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>form</h4>
+        </summary>
+        <p>The value of the <code class="attribute">id</code> attribute of the form with which this control is associated to.</p>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and helps defining the pertenence of controls in nested or distant forms.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> id=</span><span class="atv">&quot;form1&quot;</span><span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span>Names: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;names&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1"><span class="tag">&lt;/form&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2"><span class="tag">&lt;p&gt;</span><span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> form=</span><span class="atv">&quot;form1&quot;</span>&gt;</span>Submit<span class="tag">&lt;/button&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form id="form1" action="../../form-result.php" target="_blank">
+  <p>Names: <input type="text" name="names"></p>
+</form>
+<p><button type="submit" form="form1">Submit</button></p>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>formaction</h4>
+        </summary>
+        <p>A <a href="../uri-url.html"><abbr title="Uniform Resource Identifier">URI</abbr></a> indicating the location of the script responsible for the manipulation of the data sent by the <a href="form.html"><code class="element">form</code></a>. This script is usually written in a server-side language like <abbr title="Active Server Page">ASP</abbr>, <abbr title="PHP: Hypertext Preprocessor">PHP</abbr>, Python, etc.</p>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and, if present, overrides the <code class="attribute">action</code> attribute of the <a href="form.html"><code class="element">form</code> element</a>. This allows authors to provide one <a href="form.html"><code class="element">form</code></a> with two or more buttons that perform different types of submissions.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Type: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;type&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formaction=</span><span class="atv">&quot;../../form-result.php&quot;</span>&gt;</span>Submit<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form target="_blank">
+  <p>
+    Type: <input type="text" name="type">
+    <button type="submit" formaction="../../form-result.php">Submit</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>formenctype</h4>
+        </summary>
+        <p>A value indicating the encoding method to be used for data when the form is submitted. There are three possible case-insensitive values:</p>
+        <ul>
+          <li><b>application/x-www-form-urlencoded</b>: spaces are replaced with plus signs ("+") and special characters are converted to <i>HEX</i> values. This is the default value.</li>
+          <li><b>multipart/form-data</b>: no encoding is performed. This value is necessary for file uploads.</li>
+          <li><b>text/plain</b>: only spaces are replaced by plus signs ("+").</li>
+        </ul>
+        <p class="info"><span class="image"></span>Remember you must use the value "multipart/form-data" whenever a file is going to be uploaded in the form. Without this configuration, file uploads will fail.</p>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and, if present, overrides the <code class="attribute">action</code> attribute of the <a href="form.html"><code class="element">form</code> element</a>. This allows authors to provide one <a href="form.html"><code class="element">form</code></a> with two or more buttons that perform different types of submissions.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> method=</span><span class="atv">&quot;post&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span>Full name: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;fullname&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">  <span class="tag">&lt;p&gt;</span>Picture: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;file&quot;</span><span class="atn"> name=</span><span class="atv">&quot;picture&quot;</span>&gt;</span><span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formenctype=</span><span class="atv">&quot;multipart/form-data&quot;</span>&gt;</span>Send with picture<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Send without picture<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="7."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="8."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" method="post" target="_blank">
+  <p>Full name: <input type="text" name="fullname"></p>
+  <p>Picture: <input type="file" name="picture"></p>
+  <p>
+    <button type="submit" formenctype="multipart/form-data">Send with picture</button>
+    <button type="submit">Send without picture</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>formmethod</h4>
+        </summary>
+        <p>The method browsers should use to send the form's data. There are three possible case-insensitive values:</p>
+        <ul>
+          <li><b>get</b>: data is attached to the <a href="../uri-url.html"><abbr title="Uniform Resource Locator">URL</abbr></a> of the request (the one provided in the <code class="attribute">action</code> attribute). The name-value pairs are arranged in the form "name=value" and separated each other with an ampersand sign ("&amp;"). All this string is appended to the request <a href="../uri-url.html"><abbr title="Uniform Resource Locator">URL</abbr></a> preceded by a question mark ("?"). For example, a GET string could be: "form-result.php?user=john&amp;pass=123456"</li>
+          <li><b>post</b>: data is attached to the body of the request.</li>
+          <li><b>dialog</b>: specific for forms inside a <a href="dialog.html"><code class="element">dialog</code> element</a>. Instructs the browser to close the dialog box upon form submission. Form results should be handled by scripts.</li>
+        </ul>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and, if present, overrides the <code class="attribute">action</code> attribute of the <a href="form.html"><code class="element">form</code> element</a>. This allows authors to provide one <a href="form.html"><code class="element">form</code></a> with two or more buttons that perform different types of submissions.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    City: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;city&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formmethod=</span><span class="atv">&quot;get&quot;</span>&gt;</span>Send with GET<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formmethod=</span><span class="atv">&quot;post&quot;</span>&gt;</span>Send with POST<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="7."></span><span class="line-1"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>
+    City: <input type="text" name="city">
+    <button type="submit" formmethod="get">Send with GET</button>
+    <button type="submit" formmethod="post">Send with POST</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>formtarget</h4>
+        </summary>
+        <p>A value specifiyng where the results of the script in charge of processing the data should be loaded. This value can be a browsing-context name (like the value of the <code class="attribute">name</code> attribute of an <code class="element">iframe</code>) or any of the following values (case-insensitive):</p>
+        <ul>
+          <li><b>_blank</b>: in a new window/tab.</li>
+          <li><b>_parent</b>: in the immediate parent context.</li>
+          <li><b>_self</b>: in the same context that's containing the form.</li>
+          <li><b>_top</b>: in the topmost context (the greatest parent context containing the form).</li>
+        </ul>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and, if present, overrides the <code class="attribute">action</code> attribute of the <a href="form.html"><code class="element">form</code> element</a>. This allows authors to provide one <a href="form.html"><code class="element">form</code></a> with two or more buttons that perform different types of submissions.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> method=</span><span class="atv">&quot;post&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Group: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;group&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formtarget=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span>Submit<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" method="post">
+  <p>
+    Group: <input type="text" name="group">
+    <button type="submit" formtarget="_blank">Submit</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>formnovalidate</h4>
+        </summary>
+        <p>A boolean value instructing the browser not to validate the form's data upon submission. If this attribute takes the value "formnovalidate" or the empty string (""), or if it's just present, the browser should omit the form's validation during submission.</p>
+        <p class="info"><span class="image"></span>This attribute is new in <abbr title="Hypertext Markup Language">HTML</abbr>5 and, if present, overrides the <code class="attribute">action</code> attribute of the <a href="form.html"><code class="element">form</code> element</a>. This allows authors to provide one <a href="form.html"><code class="element">form</code></a> with two or more buttons that perform different types of submissions.</p>
+        <p class="info"><span class="image"></span>This attribute is part of the Constraint Validation <abbr title="Application Programming Interface">API</abbr>, a new feature that allows authors to provide <a href="form.html"><code class="element">form</code></a> validation with minimal programming intervention.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Username: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;user&quot;</span><span class="atn"> pattern=</span><span class="atv">&quot;^[a-zA-Z][a-zA-Z0-9-_\.]{3,15}$&quot;</span><span class="atn"> title=</span><span class="atv">&quot;A proper username must begin with a letter, contain letters, numbers, scores and stops, and have between 3 and 15 characters long&quot;</span><span class="atn"> required&gt;</span></span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Send<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> formnovalidate&gt;</span></span>Send without validating<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="7."></span><span class="line-1"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>
+    Username: <input type="text" name="user" pattern="^[a-zA-Z][a-zA-Z0-9-_\.]{3,15}$" title="A proper username must begin with a letter, contain letters, numbers, scores and stops, and have between 3 and 15 characters long" required>
+    <button type="submit">Send</button>
+    <button type="submit" formnovalidate>Send without validating</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>name</h4>
+        </summary>
+        <p>A name for the control. This name will be sent by the browser to the processing agent, paired with the content of the <code class="attribute">value</code> attribute. Both attributes together will conform a name-value pair that will be used to process the form data.</p>
+        <p class="warning"><span class="image"></span>Currently, the value <code>isindex</code>, formerly used in a special way by some browsers and included in the <abbr title="Lenguaje de marcas de hipertexto">HTML</abbr> standard, isn't permitted in this attribute.</p>
+        <p class="info"><span class="image"></span>The name-value pair of a button is submitted, with the other form data, only if the button has been used to submit the form.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Username: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;username&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> name=</span><span class="atv">&quot;coolsubmitbutton&quot;</span><span class="atn"> value=</span><span class="atv">&quot;pressed&quot;</span>&gt;</span>Submit<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>
+    Username: <input type="text" name="username">
+    <button type="submit" name="coolsubmitbutton" value="pressed">Submit</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>type</h4>
+        </summary>
+
+        <p>A value indicating the expected behavior of the button. There are four possible values (case-insensitive) that will decide the default action carried out by the button when it's pressed:</p>
+        <ul>
+          <li><a href="button-button.html">button</a>: there's no default action associated to the control. The behavior of this type of buttons is usually provided by a script.</li>
+          <li><a href="button-reset.html">reset</a>: the controls of the associated form are reset to their initial values.</li>
+          <li><a href="button-submit.html">submit</a>: the associated form is submitted. This is the deafult value.</li>
+          <li><a href="button-menu.html">menu</a>: the context menu associated to this button is deployed.</li>
+        </ul>
+        <p>When this attribute isn't present, the button behaves as a "submit" button.</p>
+
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span>&gt;</span>Submit data<span class="tag">&lt;/button&gt;</span></span></span>
+</code></pre>
+
+      </details>
+      <details class="attribute">
+        <summary>
+          <h4>value</h4>
+        </summary>
+        <p>A value for the control. This value will be sent by the browser to the processing agent, paired with the content of the <code class="attribute">name</code> attribute. Both attributes together will conform a name-value pair that will be used to process the form data.</p>
+        <p class="info"><span class="image"></span>The name-value pair of a button is submitted, with the other form data, only if the button has been used to submit the form.</p>
+        <p class="code-view-title"><span>Example</span></p>
+
+<pre class="code-view"><code><span class="line"><span class="number" data-num="1."></span><span class="line-1"><span class="tag">&lt;form<span class="atn"> action=</span><span class="atv">&quot;../../form-result.php&quot;</span><span class="atn"> target=</span><span class="atv">&quot;_blank&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="2."></span><span class="line-2">  <span class="tag">&lt;p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="3."></span><span class="line-1">    Model: <span class="tag">&lt;input<span class="atn"> type=</span><span class="atv">&quot;text&quot;</span><span class="atn"> name=</span><span class="atv">&quot;model&quot;</span>&gt;</span></span></span>
+<span class="line"><span class="number" data-num="4."></span><span class="line-2">    <span class="tag">&lt;button<span class="atn"> type=</span><span class="atv">&quot;submit&quot;</span><span class="atn"> name=</span><span class="atv">&quot;coolsubmitbutton&quot;</span><span class="atn"> value=</span><span class="atv">&quot;pressed&quot;</span>&gt;</span>Submit<span class="tag">&lt;/button&gt;</span></span></span>
+<span class="line"><span class="number" data-num="5."></span><span class="line-1">  <span class="tag">&lt;/p&gt;</span></span></span>
+<span class="line"><span class="number" data-num="6."></span><span class="line-2"><span class="tag">&lt;/form&gt;</span></span></span>
+</code></pre>
+<div class="code-view">
+  <div class="code-view-lines">
+<form action="../../form-result.php" target="_blank">
+  <p>
+    Model: <input type="text" name="model">
+    <button type="submit" name="coolsubmitbutton" value="pressed">Submit</button>
+  </p>
+</form>
+    <div class="clear-both"></div>
+  </div>
+</div>
+
+      </details>
+    </section>
+    <section>
+  <h3 id="global-attributes">Global attributes</h3>
+  <p>For information about global attributes refer to this <a href="../attributes.html">list of global attributes in <abbr title="Hypertext Markup Language">HTML</abbr>5</a>.</p>
+</section>
+  </section>
+  <section id="events">
+    <h2>Events</h2>
+    <section>
+  <h3 id="global-events">Global events</h3>
+  <p>For information about global events refer to this <a href="../events.html">list of global events in <abbr title="Hypertext Markup Language">HTML</abbr>5</a>.</p>
+</section>
+  </section>
+</article>
+    	<!-- script data-ad-client="ca-pub-3474820532303962" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script -->
+      </main>
+      <footer id="footer">
+        <div id="footer-line"></div>
+        <div id="footer-content">
+          <div id="footer-column-1">
+            <h1>Tutorials</h1>
+            <ul>
+              <li><a href="/tutorials/how-to-begin.html"><span>How to begin</span></a>
+              <li><a href="/tutorials/tags-attributes.html"><span><abbr title="Hyper Text Markup Language">HTML</abbr> tags and attributes</span></a>
+              <li><a href="/tutorials/document-structure.html"><span>The document structure</span></a>
+              <li><a href="/tutorials/content-grouping-and-structure.html"><span>Content grouping and structure</span></a>
+              <li><a href="/tutorials/links.html"><span>Links in <abbr title="Hyper Text Markup Language">HTML</abbr></span></a>
+              <li><a href="/tutorials/organizing-website.html"><span>Organizing a website</span></a>
+              <li><a href="/tutorials/tables.html"><span>Tables in <abbr title="Hyper Text Markup Language">HTML</abbr></span></a>
+              <li><a href="/tutorials/forms.html"><span>Basic <abbr title="Hyper Text Markup Language">HTML</abbr> forms</span></a>
+              <li><a href="/tutorials/css.html"><span>Cascading Style Sheets (CSS)</span></a>
+            </ul>
+          </div><div id="footer-column-2">
+            <h1>Reference</h1>
+            <ul>
+              <li><a href="/reference/tags.html"><span><abbr title="Hyper Text Markup Language">HTML</abbr> elements</span></a>
+              <li><a href="/reference/character-encoding.html"><span>Character encoding</span></a>
+              <li><a href="/reference/character-entity-reference.html"><span>Character entity reference</span></a>
+              <li><a href="/reference/events.html"><span>Global events</span></a>
+              <li><a href="/reference/attributes.html"><span>Global attributes</span></a>
+              <li><a href="/reference/color-codes.html"><span>Color codes</span></a>
+              <li><a href="/reference/language-codes.html"><span>Language tags</span></a>
+              <li><a href="/reference/mime-types.html"><span>Internet media types</span></a>
+              <li><a href="/reference/uri-url.html"><span><abbr title="Uniform Resource Identifier">URIs</abbr> and <abbr title="Uniform Resource Locators">URLs</abbr></span></a>
+            </ul>
+          </div><div id="footer-column-3">
+            <h1>More</h1>
+            <ul>
+              <li><a href="/contactus.php"><span>Contact me</span></a>
+              <li><a href="/beyond-html.html"><span>Beyond <abbr title="Hyper Text Markup Language">HTML</abbr></span></a>
+              <li><a href="/tools-resources.html"><span>Tools and resources</span></a>
+              <li><a href="/webmaster.html"><span>About me</span></a>
+            </ul>
+            <h1>Help me</h1>
+            <ul>
+              <li><a href="/contactus.php"><span>Inform errors</span></a>
+              <li><a href="/donate.html"><span>Donate</span></a>
+            </ul>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script type="text/javascript" src="/assets/js/default.min.js"></script>
+
+    <script>
+      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+      ga('create', 'UA-420622-2', 'auto');
+      ga('send', 'pageview');
+    </script>
+
+  </body>
+</html>

@@ -1,0 +1,14 @@
+id: security-xss-eval-sink-js
+language: javascript
+severity: error
+message: "Security: JavaScript execution sink — eval/Function/setTimeout with string argument allows arbitrary code execution"
+note: "If the argument is user-controlled, this is a code injection vulnerability. Replace with safe alternatives (JSON.parse for data, dedicated parsers for expressions)."
+rule:
+  any:
+    - pattern: eval($ARG)
+    - pattern: new Function($$$ARGS)
+    - pattern: setTimeout($CALLBACK, $$$REST)
+    - pattern: setInterval($CALLBACK, $$$REST)
+constraints:
+  CALLBACK:
+    regex: "^['\"`]"

@@ -1,0 +1,17 @@
+{
+	"summaryPath": "piolium/confirm-workspace/deep-cleanup-summary.json",
+	"removed": [
+		"piolium/tmp/piolium/runs",
+		"piolium/findings-draft",
+		"piolium/chamber-workspace",
+		"piolium/adversarial-reviews"
+	],
+	"missing": [],
+	"retained": [
+		"piolium/attack-surface/",
+		"piolium/findings/",
+		"piolium/final-audit-report.md",
+		"piolium/confirmation-report.md",
+		"piolium/confirm-workspace/"
+	]
+}

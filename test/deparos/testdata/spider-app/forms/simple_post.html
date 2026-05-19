@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple POST Form Test</title>
+</head>
+<body>
+    <h1>Simple POST Form</h1>
+    <p>A basic login form using POST method with hidden CSRF token.</p>
+
+    <form action="/form-result/login" method="POST">
+        <input type="hidden" name="csrf" value="token123">
+
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" value="testuser">
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" value="testpass">
+
+        <input type="submit" value="Login">
+    </form>
+</body>
+</html>

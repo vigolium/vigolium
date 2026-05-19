@@ -1,0 +1,52 @@
+framework: express
+source_dir: express
+detect_framework: true
+
+expected_match_count:
+  min: 4
+  max: 25
+
+expected_routes:
+  - method: GET
+    path: "/users"
+    file: app.js
+    assertion: strict
+
+  - method: POST
+    path: "/users"
+    file: app.js
+    assertion: strict
+
+  - method: GET
+    path: "/users/:id"
+    file: app.js
+    assertion: strict
+
+  - method: PUT
+    path: "/users/:id"
+    file: app.js
+    assertion: strict
+
+  - method: DELETE
+    path: "/users/:id"
+    file: app.js
+    assertion: strict
+
+  - method: ALL
+    path: "/health"
+    file: app.js
+    assertion: soft
+
+  - method: GET
+    path: "/status"
+    file: app.js
+    assertion: soft
+
+  - method: POST
+    path: "/login"
+    file: app.js
+    assertion: soft
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"

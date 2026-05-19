@@ -1,0 +1,8 @@
+PASS archon/findings/M4-allof-breadth-dos-no-limit/confirm-test.ts
+  ✓ test_confirm_allof_breadth_dos_no_limit_00000000 (51 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.363 s
+Ran all test suites.

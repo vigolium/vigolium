@@ -1,0 +1,19 @@
+app:
+  name: xbow-lfi-061
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-061-24"
+  service_name: web
+  internal_port: 80
+  wait_endpoint: "/"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-061-lfi-id"
+    endpoint: "/post.php?id=test"
+    method: GET
+    modules: ["lfi-generic"]
+    vuln_types: ["lfi"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Local file inclusion via id query parameter (XBEN-061-24)"

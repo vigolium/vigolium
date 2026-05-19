@@ -1,0 +1,82 @@
+framework: nextjs
+source_dir: nextjs-oopssec
+detect_framework: true
+
+expected_match_count:
+  min: 15
+  max: 40
+
+expected_routes:
+  - method: POST
+    path: ""
+    file: auth/signup/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: auth/login/route.ts
+    assertion: soft
+
+  - method: GET
+    path: ""
+    file: products/route.ts
+    assertion: soft
+
+  - method: GET
+    path: ""
+    file: products/search/route.ts
+    assertion: soft
+
+  - method: GET
+    path: ""
+    file: products/[id]/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: products/[id]/reviews/route.ts
+    assertion: soft
+
+  - method: GET
+    path: ""
+    file: orders/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: orders/search/route.ts
+    assertion: soft
+
+  - method: PATCH
+    path: ""
+    file: orders/[id]/route.ts
+    assertion: soft
+
+  - method: GET
+    path: ""
+    file: files/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: support/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: tracking/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: user/export/route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: admin/suppliers/import-order/route.ts
+    assertion: soft
+
+negative_routes:
+  - method: PATCH
+    path: "/nonexistent"

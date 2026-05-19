@@ -1,0 +1,107 @@
+# If you prefer a global ignore file, keep this minimal.
+
+# Binaries
+bin/
+dist/**
+dist/config.yaml
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+.DS_Store
+node_modules
+.turbo
+*.log
+dist
+*.local
+.env
+.cache
+server/dist
+public/dist
+**/.vitepress/dist/**
+**/.vitepress/cache/**
+.netlify
+bin
+.vscode
+
+# Go build artifacts
+*.test
+*.out
+*.cover
+coverage.out
+coverage.html
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+.trae
+
+# cgo / compiler outputs
+*.o
+*.a
+*.obj
+
+# Logs
+*.log
+
+# SQLite databases (test artifacts)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Checked-in test fixtures are real test data, not runtime output. The
+# generic artifact rules above (*.log, *.sqlite, ...) must never silently
+# drop fixture files — e.g. archon evidence logs (exploit.log, attempts.log,
+# confirm-test-output.log) under the harness fixture corpus. No parent dir of
+# these is ignored, so this file-level negation re-includes them.
+!test/testdata/archon-audit-data/**
+
+# Test workspace artifacts (state exports from executor tests)
+internal/executor/*/run-*.json
+internal/executor/*/run-*.yaml
+test/integration/*-test/
+!test/integration/*_test.go
+
+# Audit output dirs written by the harnesses into <source>/<harness-name>/
+# whenever vigolium is self-audited (e.g. `vigolium agent archon --source .`).
+# Excludes the harness embedded resources under internal/resources/archon/.
+/archon/
+/piolium/
+**/archon/audit-state.json
+**/archon/audit-context.md
+**/archon/findings/
+**/archon/findings-draft/
+**/archon/longshot/
+**/archon/attack-surface/
+**/piolium/audit-state.json
+**/piolium/file-records/
+**/piolium/attack-surface/
+**/piolium/findings-draft/
+
+# some binaries and outputs from the skill that we don't want to accidentally commit
+# better to ignore the whole directory since there are multiple outputs and it can be hard to keep track of them all
+public/presets/deparos/jsscan/jsscan-*
+internal/resources/deparos/jsscan/*
+
+internal/resources/spitolas/chromium/*
+
+# sometimes the skill just build a binary in the root of the repo, so let's ignore that too
+./vigolium
+
+.claude
+OPTIMIZE.md
+OPTIMIZE-*.md
+PLANNING.md
+PLANNING-*.md
+INTERNAL.md
+INTERNAL-*.md
+vigolium
+build/dist-license/
+build/dist-public/
+build/dist-npm/
+
+# Private deployment infra — never publish to the open-source repo
+platform/vigolium-console/

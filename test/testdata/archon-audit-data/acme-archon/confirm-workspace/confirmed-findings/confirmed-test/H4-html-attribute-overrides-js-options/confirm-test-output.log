@@ -1,0 +1,9 @@
+PASS archon/findings/H4-html-attribute-overrides-js-options/confirm-test.test.ts
+  confirm H4 html attribute overrides js options
+    ✓ test_confirm_html_attribute_overrides_js_options_00000000 (4 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.271 s
+Ran all test suites matching /archon\/findings\/H4-html-attribute-overrides-js-options\/confirm-test.test.ts/i.

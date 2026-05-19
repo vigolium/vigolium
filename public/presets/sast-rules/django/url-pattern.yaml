@@ -1,0 +1,8 @@
+id: django-url-pattern
+language: python
+severity: info
+message: "Route: ANY $PATH"
+rule:
+  any:
+    - pattern: path($PATH, $$$HANDLERS)
+    - pattern: re_path($PATH, $$$HANDLERS)

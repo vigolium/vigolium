@@ -1,0 +1,11 @@
+id: security-cors-postmessage-no-origin-ts
+language: typescript
+severity: warning
+message: "Security: message event listener — verify event.origin is checked before processing message data"
+note: "Without origin validation, any window/iframe (including attacker-controlled) can send messages to this handler. Always validate event.origin against an exact-match allowlist."
+rule:
+  any:
+    - pattern: window.addEventListener("message", $HANDLER)
+    - pattern: window.addEventListener('message', $HANDLER)
+    - pattern: addEventListener("message", $HANDLER)
+    - pattern: addEventListener('message', $HANDLER)

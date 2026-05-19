@@ -1,0 +1,141 @@
+app:
+  name: dvwa
+  type: docker
+  image: "vulnerables/web-dvwa:latest"
+  port: 80
+  wait_endpoint: "/"
+  startup_timeout: 120s
+
+test_cases:
+  # === Active Module Tests ===
+
+  # XSS - Reflected (existing canary coverage)
+  - id: "dvwa-xss-reflected"
+    endpoint: "/vulnerabilities/xss_r/?name=test"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Reflected XSS in name parameter"
+
+  # XSS - DOM-based (DVWA DOM XSS uses client-side JS sink, not reflected in response body)
+  - id: "dvwa-xss-dom"
+    endpoint: "/vulnerabilities/xss_d/?default=English"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-dom"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "DOM-based XSS in default parameter (soft: scanner may not detect client-side DOM sinks)"
+
+  # SQLi - Error-based (existing canary coverage)
+  - id: "dvwa-sqli-error"
+    endpoint: "/vulnerabilities/sqli/?id=1&Submit=Submit"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Error-based SQL injection in id parameter"
+
+  # LFI - Local File Inclusion (existing canary coverage)
+  - id: "dvwa-lfi"
+    endpoint: "/vulnerabilities/fi/?page=include.php"
+    method: GET
+    modules: ["lfi-generic"]
+    vuln_types: ["lfi"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Local File Inclusion in page parameter"
+
+  # Command Injection (Phase 2 expansion)
+  - id: "dvwa-cmd-injection"
+    endpoint: "/vulnerabilities/exec/?ip=127.0.0.1&Submit=Submit"
+    method: GET
+    modules: ["code-exec"]
+    vuln_types: ["code-exec"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Command injection in ip parameter (soft: DVWA exec uses POST form, time-based detection may need tuning)"
+
+  # CRLF Injection
+  - id: "dvwa-crlf"
+    endpoint: "/vulnerabilities/xss_r/?name=test"
+    method: GET
+    modules: ["crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection attempt on reflected XSS endpoint"
+
+  # Cookie injection (INS_PARAM_COOKIE) - tests insertion points in Cookie header values
+  - id: "dvwa-sqli-cookie"
+    endpoint: "/vulnerabilities/sqli/?id=1&Submit=Submit"
+    method: GET
+    headers:
+      Cookie: "security=low; PHPSESSID=test; trackingId=abc"
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via cookie parameter insertion points"
+
+  # === Passive Module Tests ===
+
+  # Security Headers - Missing
+  - id: "dvwa-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: passive
+    description: "DVWA should be missing security headers (no CSP, HSTS, etc.)"
+
+  # Cookie Security
+  - id: "dvwa-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "DVWA cookies should lack Secure/HttpOnly flags"
+
+  # SQL Syntax Detection (passive)
+  - id: "dvwa-sql-syntax-passive"
+    endpoint: "/vulnerabilities/sqli/?id=1'&Submit=Submit"
+    method: GET
+    modules: ["sql-syntax-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "SQL error messages visible in response when injecting single quote"
+
+  # DOM XSS Detection (passive)
+  - id: "dvwa-dom-xss-passive"
+    endpoint: "/vulnerabilities/xss_d/?default=English"
+    method: GET
+    modules: ["dom-xss-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "DOM XSS sinks in stored XSS page JavaScript"
+
+  # Info Disclosure
+  - id: "dvwa-info-disclosure"
+    endpoint: "/phpinfo.php"
+    method: GET
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "PHP info disclosure page"

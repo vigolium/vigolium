@@ -1,0 +1,146 @@
+<HTML xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<HEAD>
+<META http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<META content="text/html; charset=UTF-8" http-equiv="Content-Type">
+<META content="PHP-Addressbook" name="Description">
+<META content="" name="Keywords">
+<STYLE type="text/css">
+		
+    body {background-image:url('./skins/header-red.jpg');background-repeat:repeat-x;background-position:top left;}
+    table#maintable th {text-align:center;border:1px solid #ccc;font-size:12px;background:#b63a3a;color:#fff;}
+    table#birthdays th {color:#fff;background:#b63a3a;margin:25px;border:1px solid #ccc;}
+		table#maintable th a {color:#fff;}
+body,#footer,ul {margin:0;padding:0;}
+body,p,td,h1,h2,a,a:hover {font-family:Verdana,Helvetica,sans-serif;font-size:12px}
+h1 {font-size:18px}
+h2 {font-size:14px}
+a {color:#036}
+a:hover {color:#06C;text-decoration:none}
+img {border:0;}
+textarea {font-family:Arial,Helvetica,sans-serif;font-size:10pt}
+
+#container {margin:0 auto;width:780px;border:0}
+#top{color:#fff;margin:5px 0 0;height:20px;text-align:right;}
+#header {height:80px;}
+#header h1 {display:none;}
+
+#nav {margin:0 0 20px;height:25px;width:770px;float:left;border:0;display:inline;}
+#nav ul li a {color:#fff;padding:0 4px;}
+#nav ul li img {display:none;}
+
+#content {margin:20px 0 0;width:780px;}
+#footer {margin:45px 0 0;padding:20px 0;clear:both;}
+
+ul {list-style:none;}
+ul li {display:inline;}
+#footer ul li {display:block;}
+
+label {margin-right:0.5em;width:10em;float:left;text-align:left;display:block;}
+
+#search-az {text-align:center;padding:2px;}
+#a-z a {font-size:75%;} 
+
+.odd {background:#e5e5e5;}
+.even {background:#f3f3f3;}
+
+#right,.right {float:right;}
+#left,.left {float:left;}
+.clear {clear:both;}
+
+.msgbox {padding:16px;border:1px solid #ccc;background:#fff4b4;width:60%;font-weight:700;}
+.msgbox i {font-weight:400;}
+
+table {width:100%;border:1px solid #ccc;border-collapse:collapse;}
+table tr td {border:1px solid #ccc;padding:2px 1px}
+table img,.center {text-align:center;}
+table th {text-align:left;font-size:14px;padding:8px 4px;}
+
+table#birthdays {border:0;}
+.tablespace td {border:0;}
+
+/* View.php */
+table#view,table#view td {border:1px solid #000;border-collapse:collapse;}
+table#view td {padding:5px;}
+
+/* Edit.php */
+#content input[type=text],#content textarea {width:220px; margin-bottom:3px;}
+#content input[type=text] {height:1,1em}
+// #content textarea {height:8em}
+input.byear{width:4em !important;}
+
+/* Source Forge */
+#download {margin:0;width:180px;background:#63A624;color:#fff;border:1px solid #000;text-align:center;}
+#download a,#top a {color:#fff;}
+
+/* Login */
+#content input[name=user],input[name=pass] {width:150px; margin-bottom:3px;}	</STYLE>
+<LINK href="iphone.css" media="only screen and (max-device-width: 480px)" rel="stylesheet" type="text/css">
+<META content="width=320; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;" name="viewport">
+<LINK href="icons/font.png" rel="icon" type="image/png">
+<TITLE>Groups | Address Book</TITLE>
+</HEAD>
+<BODY alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:0,&quot;y&quot;:5,&quot;width&quot;:1200,&quot;height&quot;:745}">
+<DIV alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" fragparent="0" id="container" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:5,&quot;width&quot;:780,&quot;height&quot;:745}">
+<DIV alreadydivided="" background-color="" bgcolor="" doc="5" fontsize="12" fontweight="400" id="top" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:5,&quot;width&quot;:780,&quot;height&quot;:20}">
+<FORM alreadydivided="" background-color="" bgcolor="" class="header" doc="8" fontsize="12" fontweight="400" fragparent="2" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="6" method="post" name="logout" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:5,&quot;width&quot;:780,&quot;height&quot;:15}">
+<INPUT background-color="" bgcolor="" fontsize="11" fontweight="400" imagecount="0" isdisplayed="false" isdividable="false" isvisualblock="false" linktextlength="0" name="logout" pcount="0" rectangle="{&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:0,&quot;height&quot;:0}" type="hidden" value="yes"><B background-color="" bgcolor="" doc="10" fontsize="12" fontweight="700" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:890,&quot;y&quot;:5,&quot;width&quot;:55,&quot;height&quot;:15}">(admin)</B><A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" href="#" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="6" onclick="document.logout.submit();" pcount="0" rectangle="{&quot;x&quot;:949,&quot;y&quot;:5,&quot;width&quot;:41,&quot;height&quot;:15}">Logout</A>
+</FORM>
+</DIV>
+<DIV alreadydivided="" background-color="" bgcolor="" doc="8" fontsize="12" fontweight="400" id="header" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:25,&quot;width&quot;:780,&quot;height&quot;:80}">
+<H1 background-color="" bgcolor="" doc="8" fontsize="18" fontweight="700" imagecount="0" isdisplayed="false" isdividable="false" isvisualblock="false" linktextlength="12" pcount="0" rectangle="{&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:0,&quot;height&quot;:0}">
+<A background-color="" bgcolor="" fontsize="12" fontweight="700" href="." isdisplayed="false" rectangle="{&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:0,&quot;height&quot;:0}">Address Book</A>
+</H1>
+<A alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" href="." imagecount="1" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:88,&quot;width&quot;:340,&quot;height&quot;:15}"><IMG alt="Addressbook" background-color="" bgcolor="" doc="11" fontsize="12" fontweight="400" fragparent="5" height="75" id="logo" imagecount="1" isdisplayed="true" isdividable="true" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:25,&quot;width&quot;:340,&quot;height&quot;:75}" src="title_x2.png" title="Addressbook" width="340"></A>
+</DIV>
+<DIV alreadydivided="" background-color="" bgcolor="" doc="5" fontsize="12" fontweight="400" id="nav" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:105,&quot;width&quot;:770,&quot;height&quot;:25}">
+<UL alreadydivided="" background-color="" bgcolor="" doc="8" fontsize="12" fontweight="400" fragparent="7" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:105,&quot;width&quot;:770,&quot;height&quot;:15}">
+<LI alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="4" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:105,&quot;width&quot;:46,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="8" href="./" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="4" pcount="0" rectangle="{&quot;x&quot;:214,&quot;y&quot;:105,&quot;width&quot;:34,&quot;height&quot;:15}">home</A>
+</LI>
+<LI alreadydivided="" background-color="" bgcolor="" class="all" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="7" pcount="0" rectangle="{&quot;x&quot;:256,&quot;y&quot;:105,&quot;width&quot;:63,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="10" href="edit.php" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="7" pcount="0" rectangle="{&quot;x&quot;:260,&quot;y&quot;:105,&quot;width&quot;:51,&quot;height&quot;:15}">add new</A>
+</LI>
+<LI alreadydivided="" background-color="" bgcolor="" class="admin" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="6" pcount="0" rectangle="{&quot;x&quot;:319,&quot;y&quot;:105,&quot;width&quot;:53,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="12" href="group.php" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="6" pcount="0" rectangle="{&quot;x&quot;:323,&quot;y&quot;:105,&quot;width&quot;:41,&quot;height&quot;:15}">groups</A>
+</LI>
+<LI alreadydivided="" background-color="" bgcolor="" class="all" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="14" pcount="0" rectangle="{&quot;x&quot;:373,&quot;y&quot;:105,&quot;width&quot;:99,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="14" href="birthdays.php" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="14" pcount="0" rectangle="{&quot;x&quot;:377,&quot;y&quot;:105,&quot;width&quot;:87,&quot;height&quot;:15}">next birthdays</A>
+</LI>
+<LI alreadydivided="" background-color="" bgcolor="" class="export" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="9" pcount="0" rectangle="{&quot;x&quot;:472,&quot;y&quot;:105,&quot;width&quot;:58,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="16" href="view.php?all&amp;print" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="9" pcount="0" rectangle="{&quot;x&quot;:476,&quot;y&quot;:105,&quot;width&quot;:46,&quot;height&quot;:15}">print all</A>
+</LI>
+<LI alreadydivided="" background-color="" bgcolor="" class="export" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="12" pcount="0" rectangle="{&quot;x&quot;:530,&quot;y&quot;:105,&quot;width&quot;:84,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="18" href="view.php?all&amp;print&amp;phones" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="12" pcount="0" rectangle="{&quot;x&quot;:534,&quot;y&quot;:105,&quot;width&quot;:76,&quot;height&quot;:15}">print phones</A>
+</LI>
+</UL>
+</DIV>
+<DIV alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" fragparent="-1" id="content" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:125,&quot;width&quot;:780,&quot;height&quot;:525}">
+<H1 background-color="" bgcolor="" doc="10" fontsize="18" fontweight="700" fragparent="22" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:125,&quot;width&quot;:780,&quot;height&quot;:47}">Groups</H1>
+<FORM accept-charset="utf-8" action="/addressbook/addressbook-mod/addressbook/group.php" alreadydivided="" background-color="" bgcolor="" doc="8" fontsize="12" fontweight="400" fragparent="25" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" method="post" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:184,&quot;width&quot;:780,&quot;height&quot;:421}">
+<INPUT background-color="" bgcolor="" fontsize="11" fontweight="400" imagecount="0" isdisplayed="false" isdividable="false" isvisualblock="false" linktextlength="0" name="id" pcount="0" rectangle="{&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:0,&quot;height&quot;:0}" type="hidden" value=""><LABEL background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="27" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:184,&quot;width&quot;:120,&quot;height&quot;:15}">Group name</LABEL><INPUT background-color="" bgcolor="" doc="11" fontsize="11" fontweight="400" fragparent="29" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="true" linktextlength="0" name="group_name" pcount="0" rectangle="{&quot;x&quot;:339,&quot;y&quot;:187,&quot;width&quot;:220,&quot;height&quot;:13}" size="35" type="text" value="">
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:562,&quot;y&quot;:198,&quot;width&quot;:0,&quot;height&quot;:0}">
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:206,&quot;width&quot;:0,&quot;height&quot;:15}">
+<LABEL background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="32" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:221,&quot;width&quot;:120,&quot;height&quot;:15}">Parent group</LABEL><SELECT alreadydivided="" background-color="" bgcolor="" fontsize="11" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" name="group_parent_id" pcount="0" rectangle="{&quot;x&quot;:336,&quot;y&quot;:221,&quot;width&quot;:66,&quot;height&quot;:18}"><OPTION background-color="" bgcolor="" doc="10" fontsize="11" fontweight="400" imagecount="0" isdisplayed="false" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:2,&quot;y&quot;:0,&quot;width&quot;:-4,&quot;height&quot;:-1}" selected value="none">[none]</OPTION></SELECT>
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:402,&quot;y&quot;:234,&quot;width&quot;:0,&quot;height&quot;:0}">
+<BR background-color="" bgcolor="" class="clear" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:239,&quot;width&quot;:0,&quot;height&quot;:15}">
+<LABEL background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="34" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:254,&quot;width&quot;:120,&quot;height&quot;:30}">Group header (Logo):</LABEL><TEXTAREA background-color="" bgcolor="" cols="40" fontsize="13" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" name="group_header" pcount="0" rectangle="{&quot;x&quot;:339,&quot;y&quot;:257,&quot;width&quot;:220,&quot;height&quot;:150}" rows="10"></TEXTAREA>
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:562,&quot;y&quot;:413,&quot;width&quot;:0,&quot;height&quot;:0}">
+<LABEL background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" fragparent="36" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:413,&quot;width&quot;:120,&quot;height&quot;:30}">Group footer (Comment):</LABEL><TEXTAREA background-color="" bgcolor="" cols="40" fontsize="13" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" name="group_footer" pcount="0" rectangle="{&quot;x&quot;:339,&quot;y&quot;:416,&quot;width&quot;:220,&quot;height&quot;:150}" rows="10"></TEXTAREA>
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:562,&quot;y&quot;:572,&quot;width&quot;:0,&quot;height&quot;:0}">
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:572,&quot;width&quot;:0,&quot;height&quot;:15}">
+<INPUT background-color="" bgcolor="" doc="11" fontsize="11" fontweight="400" fragparent="38" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="true" linktextlength="0" name="update" pcount="0" rectangle="{&quot;x&quot;:218,&quot;y&quot;:589,&quot;width&quot;:38,&quot;height&quot;:13}" type="submit" value="Update">
+</FORM>
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:605,&quot;width&quot;:0,&quot;height&quot;:15}">
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:620,&quot;width&quot;:0,&quot;height&quot;:15}">
+<BR background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:635,&quot;width&quot;:0,&quot;height&quot;:15}">
+</DIV>
+<DIV alreadydivided="" background-color="" bgcolor="" doc="5" fontsize="12" fontweight="400" id="footer" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:715,&quot;width&quot;:780,&quot;height&quot;:15}">
+<UL alreadydivided="" background-color="" bgcolor="" fontsize="12" fontweight="400" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="0" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:715,&quot;width&quot;:780,&quot;height&quot;:15}">
+<LI alreadydivided="" background-color="" bgcolor="" doc="8" fontsize="12" fontweight="400" fragparent="41" imagecount="0" isdisplayed="true" isdividable="true" isvisualblock="false" linktextlength="21" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:715,&quot;width&quot;:780,&quot;height&quot;:15}">
+<A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" href="http://sourceforge.net/projects/php-addressbook/" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="15" pcount="0" rectangle="{&quot;x&quot;:210,&quot;y&quot;:715,&quot;width&quot;:104,&quot;height&quot;:15}">php-addressbook</A><A background-color="" bgcolor="" doc="10" fontsize="12" fontweight="400" href="notes.htm" imagecount="0" isdisplayed="true" isdividable="false" isvisualblock="true" linktextlength="6" pcount="0" rectangle="{&quot;x&quot;:318,&quot;y&quot;:715,&quot;width&quot;:39,&quot;height&quot;:15}">v8.2.5</A>
+</LI>
+</UL>
+</DIV>
+</DIV>
+</BODY>
+</HTML>

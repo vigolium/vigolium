@@ -1,0 +1,11 @@
+id: security-xss-postmessage-wildcard-js
+language: javascript
+severity: warning
+message: "Security: postMessage with wildcard targetOrigin '*' — sensitive data may be sent to any origin"
+note: "Using '*' as targetOrigin means any window/iframe can receive the message. Specify the exact intended origin to prevent data leakage to malicious windows."
+rule:
+  any:
+    - pattern: $TARGET.postMessage($DATA, "*")
+    - pattern: window.postMessage($DATA, "*")
+    - pattern: parent.postMessage($DATA, "*")
+    - pattern: opener.postMessage($DATA, "*")

@@ -1,0 +1,176 @@
+openapi: 3.1.0
+info:
+  title: VAmPI
+  description: OpenAPI v3 specs for VAmPI
+  version: '0.1'
+servers:
+  - url: http://hackthebox:5000
+paths:
+  /createdb:
+    get:
+      summary: Creates and populates the database
+      responses:
+        '200':
+          description: Success
+  /:
+    get:
+      summary: VAmPI home
+      responses:
+        '200':
+          description: Home
+  /users/v1:
+    get:
+      summary: Retrieves all users
+      responses:
+        '200':
+          description: Success
+  /users/v1/_debug:
+    get:
+      summary: Debug endpoint
+      responses:
+        '200':
+          description: Success
+  /users/v1/register:
+    post:
+      summary: Register new user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  example: 'John.Doe'
+                password:
+                  type: string
+                  example: 'password123'
+                email:
+                  type: string
+                  example: 'user@tempmail.com'
+      responses:
+        '200':
+          description: Success
+  /users/v1/login:
+    post:
+      summary: Login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  example: 'John.Doe'
+                password:
+                  type: string
+                  example: 'password123'
+      responses:
+        '200':
+          description: Success
+  /users/v1/{username}:
+    get:
+      summary: Get user by username
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'John.Doe'
+      responses:
+        '200':
+          description: Success
+    delete:
+      summary: Delete user
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'name1'
+      responses:
+        '200':
+          description: Success
+  /users/v1/{username}/email:
+    put:
+      summary: Update email
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'name1'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: 'mail3@mail.com'
+      responses:
+        '204':
+          description: Success
+  /users/v1/{username}/password:
+    put:
+      summary: Update password
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'name1'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  example: 'pass4'
+      responses:
+        '204':
+          description: Success
+  /books/v1:
+    get:
+      summary: Get all books
+      responses:
+        '200':
+          description: Success
+    post:
+      summary: Add new book
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                book_title:
+                  type: string
+                  example: 'book99'
+                secret:
+                  type: string
+                  example: 'pass1secret'
+      responses:
+        '200':
+          description: Success
+  /books/v1/{book_title}:
+    get:
+      summary: Get book by title
+      parameters:
+        - name: book_title
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'bookTitle77'
+      responses:
+        '200':
+          description: Success

@@ -1,0 +1,12 @@
+id: fastapi-query-params
+language: python
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: "Query($$$PARAMS)"
+    - pattern: "Body($$$PARAMS)"
+    - pattern: "Form($$$PARAMS)"
+    - pattern: "$VAR: $TYPE = Query($$$PARAMS)"
+    - pattern: "$VAR: $TYPE = Body($$$PARAMS)"
+    - pattern: "$VAR: $TYPE = Form($$$PARAMS)"

@@ -1,0 +1,12 @@
+id: security-secrets-laravel-app-key
+language: php
+severity: warning
+message: "Security: hardcoded Laravel APP_KEY fallback — if this value is a known default, attackers can decrypt cookies and forge sessions"
+note: "Laravel's APP_KEY is used for encryption and session signing. The env() fallback means a missing environment variable silently uses the hardcoded default."
+rule:
+  any:
+    - pattern: env('APP_KEY', $SECRET)
+    - pattern: env("APP_KEY", $SECRET)
+constraints:
+  SECRET:
+    regex: "^['\"]"

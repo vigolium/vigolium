@@ -1,0 +1,66 @@
+# Example multi-session config with login flow automation.
+# The scanner will execute the login requests at scan start and extract credentials.
+# Usage:
+#   vigolium scan https://app.com --auth-file ~/.vigolium/sessions/login-flow-example.yaml
+#   vigolium scan https://app.com --auth-file login-flow-example   # bare name resolved against session_dir
+
+sessions:
+  # Primary session: login via JSON API, extract Bearer token (shorthand)
+  - name: admin
+    role: primary
+    login:
+      url: "https://app.com/api/auth/login"
+      method: POST
+      body: '{"username":"${ADMIN_USER}","password":"${ADMIN_PASS}"}'
+      type: bearer
+      token_path: ".data.access_token"
+      expect:
+        status: [200]
+        body_contains: "access_token"
+
+  # Compare session: login via form POST, extract all session cookies (shorthand)
+  - name: regular_user
+    role: compare
+    login:
+      url: "https://app.com/login"
+      method: POST
+      content_type: "application/x-www-form-urlencoded"
+      body: "username=${USER_NAME}&password=${USER_PASS}"
+      type: cookie
+
+  # Compare session: extract token via regex from HTML response
+  - name: legacy_user
+    role: compare
+    login:
+      url: "https://app.com/legacy/login"
+      method: POST
+      content_type: "application/x-www-form-urlencoded"
+      body: "user=legacy&pass=legacy123"
+      extract:
+        - source: regex
+          pattern: 'token="([^"]+)"'
+          apply_as: "Authorization: Bearer {value}"
+
+  # Compare session: multi-step login (fetch CSRF token, then login)
+  - name: csrf_app_user
+    role: compare
+    login:
+      steps:
+        - url: "https://app.com/login"
+          method: GET
+          extract:
+            - source: regex
+              pattern: 'name="csrf_token" value="([^"]+)"'
+              apply_as: "var:csrf"
+        - url: "https://app.com/login"
+          method: POST
+          content_type: "application/x-www-form-urlencoded"
+          body: "username=user1&password=pass123&csrf_token={csrf}"
+          extract:
+            - source: cookie
+
+  # Compare session: static token (no login needed)
+  - name: api_key_user
+    role: compare
+    headers:
+      X-API-Key: "${API_KEY}"

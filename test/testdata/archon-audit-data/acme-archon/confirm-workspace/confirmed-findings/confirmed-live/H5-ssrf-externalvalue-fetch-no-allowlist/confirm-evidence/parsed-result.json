@@ -1,0 +1,5 @@
+{
+  "status": "confirmed",
+  "evidence": "bare fetch() dispatched to http://169.254.169.254/latest/meta-data/iam/security-credentials/ with no allowlist check; ExampleModel.externalValueUrl=http://169.254.169.254/latest/meta-data/iam/security-credentials/; response body rendered: {\"instance-id\":\"i-deadbeef\",\"iam-role\":\"ssrf-victim-role\"}",
+  "notes": "ExampleModel.getExternalValue() at src/services/models/Example.ts:41 calls fetch() directly; no scheme/host validation; URL derived verbatim from spec externalValue field."
+}

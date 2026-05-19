@@ -1,0 +1,6 @@
+id: express-route-group
+language: javascript
+severity: info
+message: "Route: GROUP $PATH"
+rule:
+  pattern: $ROUTER.use($PATH, $$$HANDLERS)

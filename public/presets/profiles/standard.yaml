@@ -1,0 +1,68 @@
+# description: Balanced scan — discovery, spidering, and dynamic-assessment with moderate pace
+scanning_strategy:
+  default_strategy: balanced
+
+scanning_pace:
+  concurrency: 50
+  rate_limit: 100
+  max_per_host: 10
+  discovery:
+    concurrency: 50
+    max_duration: 30m
+  spidering:
+    max_duration: 30m
+  dynamic-assessment:
+    concurrency: 50
+
+discovery:
+  mode: files_and_dirs
+  scope_mode: subdomain
+  save_response_body: true
+  enable_malformed_path_probe: false
+  recursion:
+    enabled: true
+    max_depth: 5
+  wordlists:
+    use_observed_names: true
+    use_observed_paths: true
+    use_observed_files: true
+    enable_numeric_fuzzing: false
+  extensions:
+    test_custom: true
+    test_observed: true
+    test_backup_extensions: true
+    test_no_extension: true
+  engine:
+    case_sensitivity: auto_detect
+    timeout: 10s
+    enable_cookie_jar: false
+    max_consecutive_errors: 20
+    max_consecutive_waf_blocks: 10
+    observed_max_items: 4000
+    disable_kingfisher: true
+
+spidering:
+  max_depth: 0
+  max_states: 0
+  max_duration: 30m
+  max_consecutive_fails: 100
+  headless: true
+  browser_count: 1
+  strategy: adaptive
+  browser_engine: chromium
+
+known_issue_scan:
+  enrich_targets: true
+  exclude_tags:
+    - dos
+
+dynamic-assessment:
+  enabled_modules:
+    active_modules:
+      - all
+    passive_modules:
+      - all
+
+mutation_strategy:
+  default_modes:
+    - append

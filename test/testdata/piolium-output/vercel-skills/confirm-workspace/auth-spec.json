@@ -1,0 +1,4 @@
+{
+  "supported": false,
+  "notes": "No registration/login endpoints, auth framework imports, role/permission schemas, user seed scripts, or user fixtures were found. This is a local CLI without account identities."
+}

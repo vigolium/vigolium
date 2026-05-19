@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "fastapi",
+    "template": "endpoint-discovery",
+    "agent_name": "claude",
+    "output_schema": "http_records",
+    "generated_at": "2026-02-15T11:25:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "{\"http_records\": [{\"method\": \"GET\", \"url\": \"http://localhost:8000/users?q=test&page=1\", \"headers\": {\"Host\": \"localhost:8000\", \"Accept\": \"application/json\"}, \"notes\": \"List users with search\"}, {\"method\": \"POST\", \"url\": \"http://localhost:8000/users\", \"headers\": {\"Host\": \"localhost:8000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"name\\\": \\\"test\\\", \\\"email\\\": \\\"test@example.com\\\"}\", \"notes\": \"Create user\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8000/users/1\", \"headers\": {\"Host\": \"localhost:8000\", \"Accept\": \"application/json\"}, \"notes\": \"Get user by ID\"}, {\"method\": \"PUT\", \"url\": \"http://localhost:8000/users/1\", \"headers\": {\"Host\": \"localhost:8000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"name\\\": \\\"updated\\\"}\", \"notes\": \"Update user\"}, {\"method\": \"DELETE\", \"url\": \"http://localhost:8000/users/1\", \"headers\": {\"Host\": \"localhost:8000\"}, \"notes\": \"Delete user\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8000/health\", \"headers\": {\"Host\": \"localhost:8000\"}, \"notes\": \"Health check\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8000/items?category=electronics&limit=10\", \"headers\": {\"Host\": \"localhost:8000\", \"Accept\": \"application/json\"}, \"notes\": \"List items with filter\"}, {\"method\": \"POST\", \"url\": \"http://localhost:8000/items\", \"headers\": {\"Host\": \"localhost:8000\", \"Content-Type\": \"application/json\"}, \"body\": \"{\\\"title\\\": \\\"Test Item\\\", \\\"price\\\": 9.99}\", \"notes\": \"Create item\"}, {\"method\": \"GET\", \"url\": \"http://localhost:8000/items/1\", \"headers\": {\"Host\": \"localhost:8000\", \"Accept\": \"application/json\"}, \"notes\": \"Get item by ID\"}, {\"method\": \"OPTIONS\", \"url\": \"http://localhost:8000/config\", \"headers\": {\"Host\": \"localhost:8000\"}, \"notes\": \"Config options\"}]}",
+  "parsed": {
+    "finding_count": 0,
+    "record_count": 10
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "session_uuid": "00000000-0000-4000-8000-000000000000",
+  "generated_at": "2026-05-19T03:54:38Z",
+  "target": "/Users/<user>/Desktop/oss-to-run/acme",
+  "remote_target": null,
+  "findings": [
+    {
+      "id": "H1",
+      "slug": "spec-href-javascript-scheme-xss",
+      "directory": "archon/findings/H1-spec-href-javascript-scheme-xss",
+      "report_path": "archon/findings/H1-spec-href-javascript-scheme-xss/report.md",
+      "severity": "High",
+      "vulnerability_class": "XSS",
+      "title": "Spec Href Javascript Scheme Xss",
+      "poc_script_path": "archon/findings/H1-spec-href-javascript-scheme-xss/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/H1-spec-href-javascript-scheme-xss/evidence/poc.html",
+        "archon/findings/H1-spec-href-javascript-scheme-xss/evidence/poc.js"
+      ],
+      "protocol": "http",
+      "auth_required": "no",
+      "exploitability_class": "network-exploitable"
+    },
+    {
+      "id": "H2",
+      "slug": "dompurify-outdated-mxss",
+      "directory": "archon/findings/H2-dompurify-outdated-mxss",
+      "report_path": "archon/findings/H2-dompurify-outdated-mxss/report.md",
+      "severity": "High",
+      "vulnerability_class": "XSS",
+      "title": "Dompurify Outdated Mxss",
+      "poc_script_path": "archon/findings/H2-dompurify-outdated-mxss/evidence/exploit.sh",
+      "all_poc_candidates": [
+        "archon/findings/H2-dompurify-outdated-mxss/evidence/exploit.sh",
+        "archon/findings/H2-dompurify-outdated-mxss/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "H3",
+      "slug": "oauth-url-javascript-injection",
+      "directory": "archon/findings/H3-oauth-url-javascript-injection",
+      "report_path": "archon/findings/H3-oauth-url-javascript-injection/report.md",
+      "severity": "High",
+      "vulnerability_class": "XSS",
+      "title": "Oauth Url Javascript Injection",
+      "poc_script_path": "archon/findings/H3-oauth-url-javascript-injection/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/H3-oauth-url-javascript-injection/evidence/poc.js"
+      ],
+      "protocol": "http",
+      "auth_required": "no",
+      "exploitability_class": "network-exploitable"
+    },
+    {
+      "id": "H4",
+      "slug": "html-attribute-overrides-js-options",
+      "directory": "archon/findings/H4-html-attribute-overrides-js-options",
+      "report_path": "archon/findings/H4-html-attribute-overrides-js-options/report.md",
+      "severity": "High",
+      "vulnerability_class": "hidden-control-channel",
+      "title": "Html Attribute Overrides Js Options",
+      "poc_script_path": "archon/findings/H4-html-attribute-overrides-js-options/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/H4-html-attribute-overrides-js-options/evidence/exploit.html",
+        "archon/findings/H4-html-attribute-overrides-js-options/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "H5",
+      "slug": "ssrf-externalvalue-fetch-no-allowlist",
+      "directory": "archon/findings/H5-ssrf-externalvalue-fetch-no-allowlist",
+      "report_path": "archon/findings/H5-ssrf-externalvalue-fetch-no-allowlist/report.md",
+      "severity": "High",
+      "vulnerability_class": "SSRF / Read-Out SSRF",
+      "title": "Ssrf Externalvalue Fetch No Allowlist",
+      "poc_script_path": "archon/findings/H5-ssrf-externalvalue-fetch-no-allowlist/evidence/poc.ts",
+      "all_poc_candidates": [
+        "archon/findings/H5-ssrf-externalvalue-fetch-no-allowlist/evidence/poc.ts"
+      ],
+      "protocol": "http",
+      "auth_required": "no",
+      "exploitability_class": "network-exploitable"
+    },
+    {
+      "id": "H6",
+      "slug": "ssrf-via-ref-customfetch-no-allowlist",
+      "directory": "archon/findings/H6-ssrf-via-ref-customfetch-no-allowlist",
+      "report_path": "archon/findings/H6-ssrf-via-ref-customfetch-no-allowlist/report.md",
+      "severity": "High",
+      "vulnerability_class": "SSRF / Bundler-Side",
+      "title": "Ssrf Via Ref Customfetch No Allowlist",
+      "poc_script_path": "archon/findings/H6-ssrf-via-ref-customfetch-no-allowlist/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/H6-ssrf-via-ref-customfetch-no-allowlist/evidence/poc.js"
+      ],
+      "protocol": "http",
+      "auth_required": "no",
+      "exploitability_class": "network-exploitable"
+    },
+    {
+      "id": "M1",
+      "slug": "parseprops-redos",
+      "directory": "archon/findings/M1-parseprops-redos",
+      "report_path": "archon/findings/M1-parseprops-redos/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "ReDoS",
+      "title": "Parseprops Redos",
+      "poc_script_path": "archon/findings/M1-parseprops-redos/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M1-parseprops-redos/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M2",
+      "slug": "component-regexp-cross-line-redos",
+      "directory": "archon/findings/M2-component-regexp-cross-line-redos",
+      "report_path": "archon/findings/M2-component-regexp-cross-line-redos/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "ReDoS",
+      "title": "Component Regexp Cross Line Redos",
+      "poc_script_path": "archon/findings/M2-component-regexp-cross-line-redos/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M2-component-regexp-cross-line-redos/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M4",
+      "slug": "allof-breadth-dos-no-limit",
+      "directory": "archon/findings/M4-allof-breadth-dos-no-limit",
+      "report_path": "archon/findings/M4-allof-breadth-dos-no-limit/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Parser DoS / Algorithmic Complexity",
+      "title": "Allof Breadth Dos No Limit",
+      "poc_script_path": "archon/findings/M4-allof-breadth-dos-no-limit/evidence/run_poc.sh",
+      "all_poc_candidates": [
+        "archon/findings/M4-allof-breadth-dos-no-limit/evidence/poc.ts",
+        "archon/findings/M4-allof-breadth-dos-no-limit/evidence/run_poc.sh"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M5",
+      "slug": "hoistoneofs-exponential-schema-dos",
+      "directory": "archon/findings/M5-hoistoneofs-exponential-schema-dos",
+      "report_path": "archon/findings/M5-hoistoneofs-exponential-schema-dos/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Parser DoS / Exponential Complexity",
+      "title": "Hoistoneofs Exponential Schema Dos",
+      "poc_script_path": "archon/findings/M5-hoistoneofs-exponential-schema-dos/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M5-hoistoneofs-exponential-schema-dos/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M6",
+      "slug": "x-refsstack-injection-cycle-detection-bypass",
+      "directory": "archon/findings/M6-x-refsstack-injection-cycle-detection-bypass",
+      "report_path": "archon/findings/M6-x-refsstack-injection-cycle-detection-bypass/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Integrity / Cycle Detection Bypass",
+      "title": "X Refsstack Injection Cycle Detection Bypass",
+      "poc_script_path": "archon/findings/M6-x-refsstack-injection-cycle-detection-bypass/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M6-x-refsstack-injection-cycle-detection-bypass/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M7",
+      "slug": "decodeuri-before-pointer-cross-section-traversal",
+      "directory": "archon/findings/M7-decodeuri-before-pointer-cross-section-traversal",
+      "report_path": "archon/findings/M7-decodeuri-before-pointer-cross-section-traversal/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Pointer Injection / Type Confusion",
+      "title": "Decodeuri Before Pointer Cross Section Traversal",
+      "poc_script_path": "archon/findings/M7-decodeuri-before-pointer-cross-section-traversal/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M7-decodeuri-before-pointer-cross-section-traversal/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M8",
+      "slug": "webhooks-parser-bug-parity",
+      "directory": "archon/findings/M8-webhooks-parser-bug-parity",
+      "report_path": "archon/findings/M8-webhooks-parser-bug-parity/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Parser DoS / Attack Surface Multiplier",
+      "title": "Webhooks Parser Bug Parity",
+      "poc_script_path": "archon/findings/M8-webhooks-parser-bug-parity/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M8-webhooks-parser-bug-parity/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M9",
+      "slug": "searchstore-indexitems-unbounded-dos",
+      "directory": "archon/findings/M9-searchstore-indexitems-unbounded-dos",
+      "report_path": "archon/findings/M9-searchstore-indexitems-unbounded-dos/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Post-Parse DoS / Search Worker",
+      "title": "Searchstore Indexitems Unbounded Dos",
+      "poc_script_path": "archon/findings/M9-searchstore-indexitems-unbounded-dos/evidence/exploit.sh",
+      "all_poc_candidates": [
+        "archon/findings/M9-searchstore-indexitems-unbounded-dos/evidence/exploit.sh",
+        "archon/findings/M9-searchstore-indexitems-unbounded-dos/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    },
+    {
+      "id": "M10",
+      "slug": "findderived-quadratic-dos",
+      "directory": "archon/findings/M10-findderived-quadratic-dos",
+      "report_path": "archon/findings/M10-findderived-quadratic-dos/report.md",
+      "severity": "Medium",
+      "vulnerability_class": "Parser DoS / Algorithmic Complexity",
+      "title": "Findderived Quadratic Dos",
+      "poc_script_path": "archon/findings/M10-findderived-quadratic-dos/evidence/poc.js",
+      "all_poc_candidates": [
+        "archon/findings/M10-findderived-quadratic-dos/evidence/poc.js"
+      ],
+      "protocol": "local",
+      "auth_required": "no",
+      "exploitability_class": "local-exploitable"
+    }
+  ]
+}

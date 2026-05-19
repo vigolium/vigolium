@@ -1,0 +1,50 @@
+{
+  "name": "jsscan",
+  "version": "1.0.0",
+  "description": "Extract API endpoints and HTTP request patterns from JavaScript bundles",
+  "author": "theblackturtle",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": "dist/cli.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts src/cli.ts --outdir dist --target node --packages=external --sourcemap=external && bun run build:types",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build:bin": "mkdir -p bin && bun run build:bin:linux-amd64 && bun run build:bin:linux-arm64 && bun run build:bin:darwin-amd64 && bun run build:bin:darwin-arm64 && bun run build:bin:windows",
+    "build:bin:linux-amd64": "bun build src/cli.ts --compile --target=bun-linux-x64 --outfile bin/jsscan-linux-amd64",
+    "build:bin:linux-arm64": "bun build src/cli.ts --compile --target=bun-linux-arm64 --outfile bin/jsscan-linux-arm64",
+    "build:bin:darwin-amd64": "bun build src/cli.ts --compile --target=bun-darwin-x64 --outfile bin/jsscan-darwin-amd64",
+    "build:bin:darwin-arm64": "bun build src/cli.ts --compile --target=bun-darwin-arm64 --outfile bin/jsscan-darwin-arm64",
+    "build:bin:windows": "bun build src/cli.ts --compile --target=bun-windows-x64 --outfile bin/jsscan-windows-amd64.exe",
+    "dev": "bun build src/index.ts src/cli.ts --outdir dist --target bun --sourcemap=external --watch",
+    "start": "bun dist/cli.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.28.5",
+    "@babel/helper-validator-identifier": "^7.28.5",
+    "@babel/parser": "^7.28.5",
+    "@babel/template": "^7.27.2",
+    "@babel/traverse": "^7.28.5",
+    "@babel/types": "^7.28.5",
+    "@codemod/matchers": "^1.7.1",
+    "commander": "^14.0.2",
+    "debug": "^4.4.3"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__helper-validator-identifier": "^7.15.2",
+    "@types/babel__template": "^7.4.4",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/debug": "^4.1.12",
+    "@types/node": "^25.0.3",
+    "bun-types": "^1.3.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

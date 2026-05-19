@@ -1,0 +1,84 @@
+app:
+  name: ginandjuice
+  type: external
+  base_url: "https://ginandjuice.shop"
+  rate_limit: 2
+
+test_cases:
+  # === Active Module Tests ===
+
+  # XSS - Reflected
+  - id: "ginandjuice-xss-reflected"
+    endpoint: "/blog?search=test"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Reflected XSS in search parameter"
+
+  # CORS Misconfiguration
+  - id: "ginandjuice-cors"
+    endpoint: "/"
+    method: GET
+    modules: ["cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration"
+
+  # Prototype Pollution
+  - id: "ginandjuice-proto-pollution"
+    endpoint: "/"
+    method: GET
+    modules: ["prototype-pollution"]
+    vuln_types: ["prototype-pollution"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Client-side prototype pollution"
+
+  # Web Cache Poisoning
+  - id: "ginandjuice-cache-poison"
+    endpoint: "/"
+    method: GET
+    modules: ["web-cache-poisoning"]
+    vuln_types: ["web-cache-poisoning"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Web cache poisoning via headers"
+
+  # === Passive Module Tests ===
+
+  # DOM XSS Detection
+  - id: "ginandjuice-dom-xss"
+    endpoint: "/"
+    method: GET
+    modules: ["dom-xss-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "DOM XSS sinks in page JavaScript"
+
+  # Security Headers
+  - id: "ginandjuice-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Security headers check"
+
+  # Sourcemap Detection
+  - id: "ginandjuice-sourcemap"
+    endpoint: "/"
+    method: GET
+    modules: ["sourcemap-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "JavaScript source maps"

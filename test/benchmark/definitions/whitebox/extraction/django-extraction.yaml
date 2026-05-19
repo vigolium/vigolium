@@ -1,0 +1,52 @@
+framework: django
+source_dir: django
+detect_framework: true
+
+expected_match_count:
+  min: 3
+  max: 30
+
+expected_routes:
+  - method: ""
+    path: "users/"
+    file: urls.py
+    assertion: strict
+
+  - method: ""
+    path: "users/create/"
+    file: urls.py
+    assertion: strict
+
+  - method: ""
+    path: "users/<int:pk>/"
+    file: urls.py
+    assertion: soft
+
+  - method: ""
+    path: "health/"
+    file: urls.py
+    assertion: soft
+
+  - method: LIST
+    path: ""
+    file: views.py
+    assertion: soft
+
+  - method: CREATE
+    path: ""
+    file: views.py
+    assertion: soft
+
+  - method: RETRIEVE
+    path: ""
+    file: views.py
+    assertion: soft
+
+  - method: UPDATE
+    path: ""
+    file: views.py
+    assertion: soft
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"

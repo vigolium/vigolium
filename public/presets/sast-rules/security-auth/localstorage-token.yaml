@@ -1,0 +1,14 @@
+id: security-auth-localstorage-token-js
+language: javascript
+severity: warning
+message: "Security: auth token stored in localStorage/sessionStorage — accessible to XSS, use HttpOnly cookies instead"
+note: "localStorage and sessionStorage are accessible to any JavaScript on the page. A single XSS vulnerability allows token theft. Store auth tokens in HttpOnly, Secure, SameSite cookies."
+rule:
+  any:
+    - pattern: localStorage.setItem($KEY, $VALUE)
+    - pattern: localStorage.getItem($KEY)
+    - pattern: sessionStorage.setItem($KEY, $VALUE)
+    - pattern: sessionStorage.getItem($KEY)
+constraints:
+  KEY:
+    regex: "(?i)(token|auth|jwt|session|access.token|refresh.token|id.token|api.key|bearer)"

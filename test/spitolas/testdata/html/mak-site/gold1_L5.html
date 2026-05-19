@@ -1,0 +1,12 @@
+<script>
+$(function() {
+    $("#gold1_bonus_a").click(function() { $.get("gold1_bonus_a.html", function(data) { $('#contents').html(data); }); });
+    $("#gold1_bonus_b").click(function() { $.get("gold1_bonus_b.html", function(data) { $('#contents').html(data); }); });
+    $("#gold1_bonus_c").click(function() { $.get("gold1_bonus_c.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>GOLD 1 Level 5 - BONUS ZONE! (Depth 5)</h2>
+<p>JACKPOT: 3 bonus actions at the deepest level!</p>
+<button id="gold1_bonus_a" type="button">Bonus A</button>
+<button id="gold1_bonus_b" type="button">Bonus B</button>
+<button id="gold1_bonus_c" type="button">Bonus C</button>

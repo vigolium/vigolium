@@ -1,0 +1,31 @@
+package server
+
+import "errors"
+
+var (
+	ErrMissingAuthHeader       = errors.New("missing Authorization header")
+	ErrInvalidAuthToken        = errors.New("invalid Bearer token")
+	ErrMissingMode             = errors.New("'input_mode' field is required")
+	ErrInvalidMode             = errors.New("unsupported input mode")
+	ErrMissingContent          = errors.New("'content', 'content_base64', or 'http_request_base64' is required")
+	ErrQueueFull               = errors.New("queue is full, try again later")
+	ErrServerClosed            = errors.New("server is shutting down")
+	ErrDatabaseRequired        = errors.New("database is required for this endpoint")
+	ErrScanAlreadyRunning      = errors.New("a scan is already running")
+	ErrNoRecordsToScan         = errors.New("no records found after scan cursor")
+	ErrAgentNotFound           = errors.New("agent run not found")
+	ErrMissingPrompt           = errors.New("prompt_template, prompt_file, or prompt is required")
+	ErrMissingTarget           = errors.New("'target' field is required")
+	ErrRecordNotFound          = errors.New("HTTP record not found")
+	ErrFindingNotFound         = errors.New("finding not found")
+	ErrOASTInteractionNotFound = errors.New("OAST interaction not found")
+	ErrMissingURL              = errors.New("'url' field is required")
+	ErrMissingRawRequest       = errors.New("'raw_request' field is required")
+	ErrInvalidRawRequest       = errors.New("failed to parse raw HTTP request")
+	ErrScanNotFound            = errors.New("scan not found")
+	ErrMissingRecordUUIDs      = errors.New("'record_uuids' field is required")
+	ErrNoValidRecords          = errors.New("no valid records found for the provided UUIDs")
+	ErrExtensionNotFound       = errors.New("extension not found")
+	ErrForbidden               = errors.New("insufficient permissions")
+	ErrInvalidCredentials      = errors.New("invalid username or access code")
+)

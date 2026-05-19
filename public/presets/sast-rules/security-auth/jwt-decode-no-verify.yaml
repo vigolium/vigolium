@@ -1,0 +1,7 @@
+id: security-auth-jwt-decode-no-verify
+language: javascript
+severity: error
+message: "Security: jwt.decode() used without jwt.verify() — decoded tokens are NOT signature-verified and must not be trusted for authorization"
+note: "jwt.decode() only base64-decodes the payload without verifying the signature. An attacker can forge arbitrary claims. Always use jwt.verify() for authorization decisions."
+rule:
+  pattern: jwt.decode($$$ARGS)

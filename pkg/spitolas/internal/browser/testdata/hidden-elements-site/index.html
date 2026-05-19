@@ -1,0 +1,42 @@
+<html>
+<head>
+    <title>Index</title>
+</head>
+<body>
+<div>
+    <h1>Index</h1>
+    <p>This is the index and it shows two more sites:</p>
+    <ul>
+        <li>A is clickable as a anchor with an <i>href</i> leading to a.html</li>
+        <li>B is clickable as a anchor but without an <i>href</i>. It has a Javascript function
+            attached that directs you to B.
+        </li>
+    </ul>
+    <div id="hooverDiv" style="border: 1px solid red; padding-left: 10px;">
+        <p>Hover me to see the links</p>
+        <div id="links" style="display: none;">
+            <ul>
+                <li><a href="a.html">Go to A</a></li>
+                <li><a id='anchorB'>Go to B</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="../lib/jquery-2.0.3.min.js"></script>
+<script>
+	$('#hooverDiv').hover(
+		function () {
+			$('#links').show();
+		}, 
+		function () {
+			$('#links').hide();
+		}
+	);
+
+	$('#anchorB').click(function() {
+		window.location = "b.html";
+	});
+
+</script>
+</body>
+</html>

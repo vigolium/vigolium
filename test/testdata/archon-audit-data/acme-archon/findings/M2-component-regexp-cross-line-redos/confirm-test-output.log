@@ -1,0 +1,8 @@
+PASS archon/findings/M2-component-regexp-cross-line-redos/confirm-test.test.ts (8.766 s)
+  ✓ test_confirm_component_regexp_cross_line_redos_00000000 (193 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        13.713 s
+Ran all test suites within paths "archon/findings/M2-component-regexp-cross-line-redos/confirm-test.test.ts".

@@ -1,0 +1,40 @@
+# Test image with a snap stub for chromium-browser (mimics Ubuntu devcontainers).
+# On Ubuntu, `apt install chromium-browser` installs a shell script at
+# /usr/bin/chromium-browser that prints "requires the chromium snap" and exits.
+# Vigolium should detect this and skip the stub.
+
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-s -w" \
+    -o /out/vigolium ./cmd/vigolium
+
+# Runtime: Debian with a fake snap stub (simulates Ubuntu chromium-browser package)
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        chromium \
+        ca-certificates \
+        dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a snap stub at /usr/bin/chromium-browser that mimics Ubuntu's behavior.
+# The real chromium stays at /usr/bin/chromium for LookPath to find after
+# skipping the stub.
+RUN printf '#!/bin/sh\necho "Command '\''chromium-browser'\'' requires the chromium snap to be installed."\necho "Please install it with:"\necho ""\necho "snap install chromium"\nexit 1\n' > /usr/bin/chromium-browser && \
+    chmod +x /usr/bin/chromium-browser
+
+COPY --from=builder /out/vigolium /usr/local/bin/vigolium
+
+WORKDIR /root
+ENTRYPOINT ["dumb-init", "--"]

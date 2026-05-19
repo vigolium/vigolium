@@ -1,0 +1,44 @@
+framework: gin
+base_url: http://localhost:8080
+
+routes:
+  - method: GET
+    path: "/users"
+    params: ["q", "page"]
+    expected_request:
+      method: GET
+      uri: "/users?q=FUZZ&page=FUZZ"
+      host: localhost:8080
+
+  - method: POST
+    path: "/users"
+    expected_request:
+      method: POST
+      uri: "/users"
+      host: localhost:8080
+
+  - method: GET
+    path: "/users/:id"
+    params: ["id"]
+    expected_request:
+      method: GET
+      uri: "/users/:id?id=FUZZ"
+      host: localhost:8080
+
+  - method: ANY
+    path: "/health"
+    expected_request:
+      method: GET
+      uri: "/health"
+      host: localhost:8080
+
+  - method: ""
+    path: ""
+    expected_skip: true
+
+  - method: HANDLE
+    path: "/custom"
+    expected_request:
+      method: GET
+      uri: "/custom"
+      host: localhost:8080

@@ -1,0 +1,8 @@
+PASS src/components/__tests__/confirm-h2-dompurify-outdated-mxss.test.ts
+  ✓ test_confirm_dompurify_outdated_mxss_00000000 (9 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.583 s
+Ran all test suites matching /src\/components\/__tests__\/confirm-h2-dompurify-outdated-mxss.test.ts/i.

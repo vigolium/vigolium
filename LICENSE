@@ -1,0 +1,28 @@
+Vigolium — high-fidelity web vulnerability scanner
+Copyright (C) 2026 Vigolium
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public
+License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+The full text of the AGPL-3.0 is available at:
+
+  https://www.gnu.org/licenses/agpl-3.0.txt
+
+Because Vigolium can be operated as a network service (the REST API
+server), AGPL section 13 applies: operators who make a modified version
+available to users over a network must also make the corresponding source
+code available to those users. The unmodified source is published at:
+
+  https://github.com/vigolium/vigolium
+
+Third-party components are acknowledged in THIRD_PARTY_NOTICES.md.

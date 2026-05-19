@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multiple Clickables Test</title>
+    <style>
+        .clickable { cursor: pointer; }
+        .hidden { display: none; }
+        .invisible { visibility: hidden; }
+    </style>
+</head>
+<body>
+    <!-- Standard clickable elements -->
+    <a href="/page1" id="link1">Link 1</a>
+    <a href="/page2" id="link2">Link 2</a>
+    <a href="/page3" id="link3">Link 3</a>
+
+    <!-- Button elements -->
+    <button id="btn1">Button 1</button>
+    <button id="btn2" type="button">Button 2</button>
+    <button id="btn3" type="submit">Submit Button</button>
+
+    <!-- Input buttons -->
+    <input type="button" id="inputBtn1" value="Input Button">
+    <input type="submit" id="inputSubmit" value="Input Submit">
+
+    <!-- Div with onclick attribute -->
+    <div id="clickableDiv" onclick="alert('clicked')">Click me div</div>
+
+    <!-- Div with role=button -->
+    <div id="roleButton" role="button">Role Button</div>
+
+    <!-- Element with tabindex (focusable) -->
+    <span id="focusable" tabindex="0">Focusable Span</span>
+
+    <!-- Hidden elements (should NOT be extracted) -->
+    <a href="/hidden" class="hidden" id="hiddenLink">Hidden Link</a>
+    <a href="/invisible" class="invisible" id="invisibleLink">Invisible Link</a>
+
+    <!-- Excluded container -->
+    <div id="menubar" class="excluded">
+        <a href="/excluded1" id="excludedLink1">Excluded Link 1</a>
+        <a href="/excluded2" id="excludedLink2">Excluded Link 2</a>
+    </div>
+
+    <!-- Links to skip -->
+    <a href="mailto:test@example.com" id="mailtoLink">Email Link</a>
+    <a href="tel:+1234567890" id="telLink">Phone Link</a>
+    <a href="javascript:void(0)" id="jsLink">JavaScript Link</a>
+    <a href="#" id="hashLink">Hash Link</a>
+    <a href="#section" id="fragmentLink">Fragment Link</a>
+</body>
+</html>

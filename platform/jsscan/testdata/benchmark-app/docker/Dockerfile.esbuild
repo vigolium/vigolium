@@ -1,0 +1,23 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy source and config
+COPY tsconfig.json ./
+COPY src/ ./src/
+COPY configs/esbuild.config.js ./configs/
+
+# Create output directory
+RUN mkdir -p dist/esbuild
+
+# Build
+RUN node configs/esbuild.config.js
+
+# Output will be in /app/dist/esbuild/bundle.js
+CMD ["ls", "-la", "dist/esbuild/"]

@@ -1,0 +1,8 @@
+PASS src/components/__tests__/confirm-h1-spec-href-javascript-scheme-xss.test.ts
+  ✓ test_confirm_spec_href_javascript_scheme_xss_00000000 (4 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.431 s
+Ran all test suites within paths "src/components/__tests__/confirm-h1-spec-href-javascript-scheme-xss.test.ts".

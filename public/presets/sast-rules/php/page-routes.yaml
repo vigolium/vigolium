@@ -1,0 +1,7 @@
+id: php-page-routes
+language: php
+message: "DVWA page endpoint: $$$"
+note: "Matches DVWA file-based page routing via dvwaPageStartup calls"
+severity: hint
+rule:
+  pattern: dvwaPageStartup($$$)

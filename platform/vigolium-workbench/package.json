@@ -1,0 +1,51 @@
+{
+  "name": "vigolium-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
+    "dev:clean": "rm -rf dist && NEXT_PUBLIC_API_BASE_URL=http://localhost:9002 next dev --turbopack -p 3002",
+    "build": "rm -rf dist && next build && rm -rf dist/__next.* dist/dev",
+    "preview": "bunx serve dist",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.100.9",
+    "ag-grid-community": "^35.2.1",
+    "ag-grid-react": "^35.2.1",
+    "fflate": "^0.8.2",
+    "lucide-react": "^1.14.0",
+    "next": "^16.2.6",
+    "prismjs": "^1.30.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "react-simple-code-editor": "^0.14.1",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^25.6.2",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/ui": "^4.1.5",
+    "happy-dom": "^20.9.0",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

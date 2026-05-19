@@ -1,0 +1,23 @@
+id: security-nextjs-getprops-data-leak
+language: typescript
+severity: hint
+message: "Security: getServerSideProps/getStaticProps — review returned props for sensitive data that will be serialized into __NEXT_DATA__"
+note: "All data returned from getServerSideProps and getStaticProps is serialized into the HTML as __NEXT_DATA__ JSON, visible to any client. Never return secrets, tokens, internal IDs, or full database records."
+rule:
+  any:
+    - pattern: |
+        export async function getServerSideProps($$$PARAMS) {
+          $$$BODY
+        }
+    - pattern: |
+        export async function getStaticProps($$$PARAMS) {
+          $$$BODY
+        }
+    - pattern: |
+        export function getServerSideProps($$$PARAMS) {
+          $$$BODY
+        }
+    - pattern: |
+        export function getStaticProps($$$PARAMS) {
+          $$$BODY
+        }

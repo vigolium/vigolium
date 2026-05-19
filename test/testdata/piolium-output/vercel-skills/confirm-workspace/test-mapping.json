@@ -1,0 +1,253 @@
+{
+  "session": "c44d2b43-8b4d-48e7-ae92-850980bd6884",
+  "timestamp": "2026-04-30T20:21:16Z",
+  "mode": "confirm-v5-test-mapper",
+  "framework": "vitest",
+  "target_repository": "/Users/bytedance/Desktop/oss-to-run/skills",
+  "summary": {
+    "total_findings": 14,
+    "targeted_for_v5": 9,
+    "confirmed-test": 9,
+    "skipped-confirmed-live": 5,
+    "failed": 0,
+    "blocked": 0,
+    "false-positive": 0
+  },
+  "findings": [
+    {
+      "finding_key": "p10-001-direct-git-url-ref-reaches-simple-git-clone",
+      "id": "p10-001",
+      "slug": "direct-git-url-ref-reaches-simple-git-clone",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/evidence/confirm-test-output.log",
+        "piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/evidence/confirm-test-evidence.log",
+        "piolium/findings/p10-001-direct-git-url-ref-reaches-simple-git-clone/evidence/confirm-impact.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer ran the real CLI with an ext:: direct-git source under an isolated HOME that enabled protocol.ext; native git executed the helper and wrote uid/gid to confirm-impact.log before clone failure."
+    },
+    {
+      "finding_key": "p10-002-symlink-dereference-copies-out-of-tree-files",
+      "id": "p10-002",
+      "slug": "symlink-dereference-copies-out-of-tree-files",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/confirm-test-output.log",
+        "piolium/findings/p10-002-symlink-dereference-copies-out-of-tree-files/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer installed a skill source containing a symlink to an out-of-tree secret in copy mode; the installed artifact was a regular file containing the secret marker."
+    },
+    {
+      "finding_key": "p10-009-project-scope-symlinked-agent-base-escape",
+      "id": "p10-009",
+      "slug": "project-scope-symlinked-agent-base-escape",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/confirm-test-output.log",
+        "piolium/findings/p10-009-project-scope-symlinked-agent-base-escape/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer installed project-scoped into a checkout whose .agents was a symlink; realpath of the lexical project install landed under the outside target."
+    },
+    {
+      "finding_key": "p10-010-experimental-install-unlocked-node-modules-skills",
+      "id": "p10-010",
+      "slug": "experimental-install-unlocked-node-modules-skills",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/evidence/confirm-test-output.log",
+        "piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer ran the real CLI experimental_install with a lockfile listing only safe-locked-skill; an unlisted transitive-evil-package skill was installed and added to skills-lock.json."
+    },
+    {
+      "finding_key": "p10-003-http-well-known-skill-discovery",
+      "id": "p10-003",
+      "slug": "http-well-known-skill-discovery",
+      "verdict": "skipped-confirmed-live",
+      "confirm_status": "confirmed-live",
+      "framework": null,
+      "test": null,
+      "command": null,
+      "exit_code": null,
+      "evidence": [
+        "piolium/findings/p10-003-http-well-known-skill-discovery/evidence/confirmed-20260430T201612Z.log"
+      ],
+      "identity": "none",
+      "notes": "MITM marker persisted in installed SKILL.md and auxiliary file during V4 live PoC. V5 did not generate a test because V4 already had live confirmation."
+    },
+    {
+      "finding_key": "p10-004-unbounded-well-known-fetch-and-frontmatter-parse",
+      "id": "p10-004",
+      "slug": "unbounded-well-known-fetch-and-frontmatter-parse",
+      "verdict": "skipped-confirmed-live",
+      "confirm_status": "confirmed-live",
+      "framework": null,
+      "test": null,
+      "command": null,
+      "exit_code": null,
+      "evidence": [
+        "piolium/findings/p10-004-unbounded-well-known-fetch-and-frontmatter-parse/evidence/confirmed-20260430T201612Z.log"
+      ],
+      "identity": "none",
+      "notes": "V4 live PoC observed CLI hang on never-ending well-known SKILL.md response. V5 did not generate a test because V4 already had live confirmation."
+    },
+    {
+      "finding_key": "p10-005-duplicate-skill-name-first-wins",
+      "id": "p10-005",
+      "slug": "duplicate-skill-name-first-wins",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-005-duplicate-skill-name-first-wins/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-005-duplicate-skill-name-first-wins/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/confirm-test-output.log",
+        "piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer created duplicate trusted-build skills in attacker and curated paths; discover/install surfaced one candidate from the attacker path and installed the attacker marker."
+    },
+    {
+      "finding_key": "p10-006-blob-snapshot-not-verified-against-github-tree",
+      "id": "p10-006",
+      "slug": "blob-snapshot-not-verified-against-github-tree",
+      "verdict": "skipped-confirmed-live",
+      "confirm_status": "confirmed-live",
+      "framework": null,
+      "test": null,
+      "command": null,
+      "exit_code": null,
+      "evidence": [
+        "piolium/findings/p10-006-blob-snapshot-not-verified-against-github-tree/evidence/confirmed-20260430T201612Z.log"
+      ],
+      "identity": "none",
+      "notes": "V4 live PoC observed attacker marker installed from substituted blob snapshot. V5 did not generate a test because V4 already had live confirmation."
+    },
+    {
+      "finding_key": "p10-007-rfc8615-path-relative-well-known-shadowing",
+      "id": "p10-007",
+      "slug": "rfc8615-path-relative-well-known-shadowing",
+      "verdict": "skipped-confirmed-live",
+      "confirm_status": "confirmed-live",
+      "framework": null,
+      "test": null,
+      "command": null,
+      "exit_code": null,
+      "evidence": [
+        "piolium/findings/p10-007-rfc8615-path-relative-well-known-shadowing/evidence/confirmed-20260430T201612Z.log"
+      ],
+      "identity": "none",
+      "notes": "V4 live PoC observed path-local evil-shadow skill installed over origin-root metadata. V5 did not generate a test because V4 already had live confirmation."
+    },
+    {
+      "finding_key": "p10-008-agent-skill-name-constraints-not-enforced",
+      "id": "p10-008",
+      "slug": "agent-skill-name-constraints-not-enforced",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/confirm-test-output.log",
+        "piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer parsed name ../trusted-skill, installed it after a legitimate trusted-skill, and observed the sanitized destination overwrite with attacker content."
+    },
+    {
+      "finding_key": "p12-cleartext-http-git-sources",
+      "id": "p12",
+      "slug": "cleartext-http-git-sources",
+      "verdict": "skipped-confirmed-live",
+      "confirm_status": "confirmed-live",
+      "framework": null,
+      "test": null,
+      "command": null,
+      "exit_code": null,
+      "evidence": [
+        "piolium/findings/p12-cleartext-http-git-sources/evidence/confirmed-20260430T201612Z.log"
+      ],
+      "identity": "none",
+      "notes": "V4 live PoC observed attacker marker installed from cleartext HTTP git clone. V5 did not generate a test because V4 already had live confirmation."
+    },
+    {
+      "finding_key": "p12-node-modules-sync-duplicate-name-overwrite",
+      "id": "p12",
+      "slug": "node-modules-sync-duplicate-name-overwrite",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/evidence/confirm-test-output.log",
+        "piolium/findings/p12-node-modules-sync-duplicate-name-overwrite/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer ran the real CLI experimental_sync over two node_modules skills with name shared-name; final .agents/skills/shared-name and lock provenance came from zzz-malicious."
+    },
+    {
+      "finding_key": "p12-project-scope-remove-symlinked-agent-base-escape",
+      "id": "p12",
+      "slug": "project-scope-remove-symlinked-agent-base-escape",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/confirm-test-output.log",
+        "piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer ran the real CLI remove in a project whose .agents symlink pointed outside; the outside victim-skill directory existed before and was deleted after the project-scoped command."
+    },
+    {
+      "finding_key": "p12-unbounded-git-local-frontmatter-parse",
+      "id": "p12",
+      "slug": "unbounded-git-local-frontmatter-parse",
+      "verdict": "confirmed-test",
+      "confirm_status": "confirmed-test",
+      "framework": "vitest",
+      "test": "piolium/findings/p12-unbounded-git-local-frontmatter-parse/confirm-test.test.ts",
+      "command": "PIGOLIUM_SESSION_UUID=c44d2b43-8b4d-48e7-ae92-850980bd6884 PIGOLIUM_CONNECTION=piolium/confirm-workspace/env-connection.json timeout 90 pnpm exec vitest run piolium/findings/p12-unbounded-git-local-frontmatter-parse/confirm-test.test.ts --testTimeout=60000 --reporter=verbose 2>&1 | tee piolium/findings/p12-unbounded-git-local-frontmatter-parse/evidence/confirm-test-output.log",
+      "exit_code": 0,
+      "evidence": [
+        "piolium/findings/p12-unbounded-git-local-frontmatter-parse/evidence/confirm-test-output.log",
+        "piolium/findings/p12-unbounded-git-local-frontmatter-parse/evidence/confirm-test-evidence.log"
+      ],
+      "identity": "none",
+      "notes": "Vitest reproducer ran the real CLI against a local SKILL.md with 500k frontmatter keys under NODE_OPTIONS=--max-old-space-size=32; the child process aborted with V8 heap out-of-memory stack trace."
+    }
+  ],
+  "existing_test_search": "piolium/confirm-workspace/existing-test-search.md"
+}

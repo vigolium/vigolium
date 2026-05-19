@@ -1,0 +1,25 @@
+id: test-passive-scanner
+name: Test Passive Scanner
+description: A test passive scanner for unit tests
+type: passive
+severity: info
+scope: response
+scan_types:
+  - per_request
+
+rules:
+  - match:
+      response_header: X-Powered-By
+    finding:
+      name: "X-Powered-By exposed"
+      description: "Server leaks technology info"
+      matched: "{{matched}}"
+      severity: info
+
+  - match:
+      body_contains: "debug_mode=true"
+    finding:
+      name: "Debug mode enabled"
+      description: "Debug mode is enabled on this endpoint"
+      matched: "debug_mode=true"
+      severity: low

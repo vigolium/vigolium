@@ -1,0 +1,116 @@
+app:
+  name: acunetix-testphp
+  type: external
+  base_url: "http://testphp.vulnweb.com"
+  rate_limit: 2
+
+test_cases:
+  # === Active Module Tests ===
+
+  # XSS - Search endpoint
+  - id: "acunetix-xss-search"
+    endpoint: "/search.php?test=query"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Reflected XSS in search parameter"
+
+  # SQLi - Error-based
+  - id: "acunetix-sqli-listproducts"
+    endpoint: "/listproducts.php?cat=1"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Error-based SQL injection in cat parameter"
+
+  # LFI
+  - id: "acunetix-lfi-showimage"
+    endpoint: "/showimage.php?file=test"
+    method: GET
+    modules: ["lfi-generic"]
+    vuln_types: ["lfi"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Local File Inclusion in file parameter"
+
+  # CRLF Injection
+  - id: "acunetix-crlf-redir"
+    endpoint: "/redir.php?url=test"
+    method: GET
+    modules: ["crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection in redirect parameter"
+
+  # Open Redirect
+  - id: "acunetix-open-redirect"
+    endpoint: "/redir.php?url=http://evil.com"
+    method: GET
+    modules: ["open-redirect"]
+    vuln_types: ["open-redirect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Open redirect in redirect parameter"
+
+  # XSS via path
+  - id: "acunetix-xss-path"
+    endpoint: "/artists.php?artist=1"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XSS in artist parameter"
+
+  # === Passive Module Tests ===
+
+  # Security Headers
+  - id: "acunetix-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers on testphp.vulnweb.com"
+
+  # Cookie Security
+  - id: "acunetix-cookie-security"
+    endpoint: "/"
+    method: GET
+    modules: ["cookie-security-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Cookie security flags"
+
+  # Info Disclosure
+  - id: "acunetix-info-disclosure"
+    endpoint: "/"
+    method: GET
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Information disclosure in server headers"
+
+  # SQL Syntax in Error Response
+  - id: "acunetix-sql-syntax-passive"
+    endpoint: "/listproducts.php?cat=1'"
+    method: GET
+    modules: ["sql-syntax-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "SQL error syntax visible in response"

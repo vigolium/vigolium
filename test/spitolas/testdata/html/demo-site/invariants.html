@@ -1,0 +1,35 @@
+<h1>Invariants</h1>
+<p>Invariants can be used to perform tests on the current state</p>
+
+<h2>Methods in CrawlSpecification</h2>
+<p>
+<span class="java">
+addInvariant(String description, Condition condition)<br/>
+addInvariant(String description, Condition condition, Condition...preConditions)
+</span><br/>
+</p>
+
+<h2>Example 1</h2>
+<p>Use the generic conditions</p>
+<pre>
+addInvariant("No error messages", new NotRegexCondition("Error [0-9]+");
+</pre>
+
+<h2>Example 2</h2>
+<p>Create your own condition</p>
+<pre>
+crawler.addInvariant("Test count myList", new ConditionAbstract(){
+
+  @Override
+    public boolean check(EmbeddedBrowser browser) {
+      WebDriver driver = browser.getDriver();
+      try{
+        WebElement myList = driver.findElement(By.id("myList"));
+        return new Select(myList).getOptions().size() > 0;
+      }catch(NoSuchElementException e){
+        //not found
+        return true;
+      }
+    }
+});
+</pre>

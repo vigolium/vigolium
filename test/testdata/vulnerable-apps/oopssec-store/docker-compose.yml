@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: https://github.com/kOaDT/oss-oopssec-store.git
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:/app/data/dev.db
+      - NEXT_PUBLIC_BASE_URL=http://localhost:3000
+    volumes:
+      - oss-data:/app/data
+      - oss-uploads:/app/uploads
+      - oss-documents:/app/documents
+
+volumes:
+  oss-data:
+  oss-uploads:
+  oss-documents:

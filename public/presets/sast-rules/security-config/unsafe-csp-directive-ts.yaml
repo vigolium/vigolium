@@ -1,0 +1,11 @@
+id: security-config-unsafe-csp-ts
+language: typescript
+severity: warning
+message: "Security: CSP with unsafe-inline or unsafe-eval — these directives negate most XSS protection provided by CSP"
+note: "unsafe-inline allows inline <script> tags and event handlers (XSS). unsafe-eval allows eval() and new Function(). Use nonces or hashes for inline scripts, and eliminate eval usage."
+rule:
+  any:
+    - pattern: "'unsafe-inline'"
+    - pattern: '"unsafe-inline"'
+    - pattern: "'unsafe-eval'"
+    - pattern: '"unsafe-eval"'

@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy source and config
+COPY tsconfig.json ./
+COPY src/ ./src/
+COPY configs/rollup.config.mjs ./configs/
+
+# Build
+RUN npx rollup -c configs/rollup.config.mjs
+
+# Output will be in /app/dist/rollup/bundle.js
+CMD ["ls", "-la", "dist/rollup/"]

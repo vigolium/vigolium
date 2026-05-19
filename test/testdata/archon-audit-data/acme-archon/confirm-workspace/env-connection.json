@@ -1,0 +1,29 @@
+{
+  "status": "running",
+  "session": "00000000-0000-4000-8000-000000000000",
+  "base_url": "http://localhost:80",
+  "method_used": "dockerfile",
+  "file_used": "config/docker/Dockerfile",
+  "healthcheck_passed": true,
+  "healthcheck_endpoint": "/",
+  "containers": ["archon-confirm-app-00000000"],
+  "ports": {
+    "app": 80,
+    "actual_port_was_fallback": false
+  },
+  "cleanup_cmd": "docker rm -f $(docker ps -aq --filter label=archon.session=00000000-0000-4000-8000-000000000000)",
+  "process_pid": null,
+  "test_identities": [],
+  "snapshot_spec": null,
+  "attempts": [
+    {
+      "method": "dockerfile",
+      "result": "success",
+      "duration_s": 52,
+      "actual_port": 80,
+      "build_steps_run": [
+        "docker build -f config/docker/Dockerfile -t acme ."
+      ]
+    }
+  ]
+}

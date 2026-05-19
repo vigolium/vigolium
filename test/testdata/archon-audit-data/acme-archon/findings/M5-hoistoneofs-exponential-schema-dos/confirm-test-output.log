@@ -1,0 +1,13 @@
+  console.log
+    {"baseline":{"mergeCalls":1006,"oneOfCount":3},"attack":{"mergeCalls":12965,"oneOfCount":4}}
+
+      at Object.<anonymous> (archon/findings/M5-hoistoneofs-exponential-schema-dos/confirm-test.ts:45:11)
+
+PASS src/services/__tests__/confirm-m5-hoistoneofs-exponential-schema-dos-00000000.test.ts
+  ✓ test_confirm_hoistoneofs_exponential_schema_dos_00000000 (295 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.986 s, estimated 3 s
+Ran all test suites matching /src\/services\/__tests__\/confirm-m5-hoistoneofs-exponential-schema-dos-00000000.test.ts/i.

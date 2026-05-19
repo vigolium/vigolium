@@ -1,0 +1,8 @@
+PASS archon/findings/M10-findderived-quadratic-dos/confirm-test.ts
+  ✓ test_confirm_findderived_quadratic_dos_00000000 (8 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.495 s, estimated 5 s
+Ran all test suites with tests matching "test_confirm_findderived_quadratic_dos_00000000".

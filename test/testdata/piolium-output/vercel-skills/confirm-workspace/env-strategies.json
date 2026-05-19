@@ -1,0 +1,199 @@
+{
+  "app_strategies": [
+    {
+      "method": "node-cli-binary",
+      "file": "package.json",
+      "binary_path": "./bin/cli.mjs",
+      "cmd": "node ./bin/cli.mjs --help",
+      "confidence": "high",
+      "framework": "Node.js/TypeScript CLI (ES modules)",
+      "package_manager": "pnpm@10.17.1",
+      "services": [],
+      "ports": {},
+      "build_required": false,
+      "build_steps": [
+        {
+          "cmd": "corepack enable && pnpm install --frozen-lockfile",
+          "produces": "node_modules/",
+          "when": "dependencies missing"
+        },
+        {
+          "cmd": "pnpm build",
+          "produces": "dist/cli.mjs",
+          "when": "dist/cli.mjs missing or stale"
+        }
+      ],
+      "healthcheck_cmd": "node ./bin/cli.mjs --version",
+      "verified": {
+        "node_version": "v25.9.0",
+        "pnpm_version": "10.17.1",
+        "command": "node ./bin/cli.mjs --version",
+        "observed_output": "1.5.3"
+      },
+      "notes": "This repository is a CLI, not a long-running HTTP service. The package bin maps both `skills` and `add-skill` to ./bin/cli.mjs, which imports ./dist/cli.mjs. Current checkout already has dist/cli.mjs and node_modules installed. No listening port or base_url is needed for CLI PoCs."
+    },
+    {
+      "method": "package-script-dev",
+      "file": "package.json",
+      "script": "dev",
+      "cmd": "pnpm dev -- --help",
+      "confidence": "medium",
+      "framework": "Node.js/TypeScript CLI source entrypoint",
+      "package_manager": "pnpm@10.17.1",
+      "services": [],
+      "ports": {},
+      "build_required": false,
+      "build_steps": [
+        {
+          "cmd": "corepack enable && pnpm install --frozen-lockfile",
+          "produces": "node_modules/",
+          "when": "dependencies missing"
+        }
+      ],
+      "healthcheck_cmd": "pnpm dev -- --version",
+      "notes": "Runs `node src/cli.ts` directly via the package script. This depends on a Node runtime that can execute TypeScript source (current local Node v25 can); the built binary strategy is safer for older Node versions despite package engines allowing >=18."
+    },
+    {
+      "method": "dist-entrypoint",
+      "file": "dist/cli.mjs",
+      "cmd": "node ./dist/cli.mjs --help",
+      "confidence": "medium",
+      "framework": "Bundled Node.js CLI artifact",
+      "services": [],
+      "ports": {},
+      "build_required": false,
+      "build_steps": [
+        {
+          "cmd": "corepack enable && pnpm install --frozen-lockfile",
+          "produces": "node_modules/",
+          "when": "dependencies missing"
+        },
+        {
+          "cmd": "pnpm build",
+          "produces": "dist/cli.mjs",
+          "when": "dist/cli.mjs missing or stale"
+        }
+      ],
+      "healthcheck_cmd": "node ./dist/cli.mjs --version",
+      "notes": "Directly invokes the bundled artifact produced by obuild. Useful if the bin wrapper is not executable."
+    },
+    {
+      "method": "npx-published-package",
+      "file": "README.md",
+      "cmd": "npx skills --help",
+      "confidence": "low",
+      "framework": "Published npm CLI",
+      "services": [],
+      "ports": {},
+      "build_required": false,
+      "build_steps": [],
+      "notes": "README examples use `npx skills ...`. This may fetch the published npm package rather than the local checkout, so it is a fallback only and should not be used when confirming source-tree findings."
+    }
+  ],
+  "test_strategies": [
+    {
+      "framework": "vitest",
+      "config": "package.json:scripts.test",
+      "cmd": "pnpm test",
+      "test_dir": "src/*.test.ts and tests/*.test.ts",
+      "deps_installed": true,
+      "install_cmd": "corepack enable && pnpm install --frozen-lockfile",
+      "notes": "package.json defines `test: vitest`; node_modules/.bin/vitest is present. No separate vitest.config.* file was found."
+    },
+    {
+      "framework": "typescript",
+      "config": "tsconfig.json",
+      "cmd": "pnpm type-check",
+      "test_dir": "src/",
+      "deps_installed": true,
+      "install_cmd": "corepack enable && pnpm install --frozen-lockfile",
+      "notes": "CI also relies on TypeScript checking; tsconfig has noEmit enabled."
+    },
+    {
+      "framework": "prettier",
+      "config": ".prettierrc",
+      "cmd": "pnpm format:check",
+      "test_dir": "src/**/*.ts and scripts/**/*.ts",
+      "deps_installed": true,
+      "install_cmd": "corepack enable && pnpm install --frozen-lockfile",
+      "notes": "CI runs this check on ubuntu-latest only."
+    },
+    {
+      "framework": "custom-script",
+      "config": "scripts/validate-agents.ts",
+      "cmd": "node scripts/validate-agents.ts",
+      "test_dir": "src/agents.ts",
+      "deps_installed": true,
+      "install_cmd": "corepack enable && pnpm install --frozen-lockfile",
+      "notes": "Agents CI workflow runs this when src/agents.ts changes."
+    }
+  ],
+  "dependencies": {
+    "databases": [],
+    "services": [],
+    "external_apis": [
+      "https://skills.sh (default search/download API)",
+      "https://api.github.com / raw.githubusercontent.com (GitHub tree/frontmatter fetches)",
+      "git remotes via simple-git for add/update operations"
+    ],
+    "needs_migration": null,
+    "seed_command": null,
+    "notes": "No Docker Compose, Dockerfile, Makefile, ORM schema, migration directory, seed directory, or database connection config was found in the application source. Persistent state is local filesystem state (installed skill folders and skills-lock.json files).",
+    "datastores": [
+      "local filesystem: project/global agent skill directories",
+      "JSON lockfiles: skills-lock.json in project or ~/.agents / XDG_STATE_HOME"
+    ],
+    "migrations": [],
+    "seed_data": []
+  },
+  "env_vars": {
+    "required": [],
+    "have_defaults": [
+      "SKILLS_DOWNLOAD_URL=https://skills.sh",
+      "SKILLS_API_URL=https://skills.sh",
+      "SKILLS_CLONE_TIMEOUT_MS=300000",
+      "CODEX_HOME=~/.codex",
+      "CLAUDE_CONFIG_DIR=~/.claude",
+      "VIBE_HOME=~/.vibe",
+      "XDG_STATE_HOME falls back to ~/.agents",
+      "GIT_TERMINAL_PROMPT=0 set internally for clones",
+      "GIT_LFS_SKIP_SMUDGE=1 set internally for clones"
+    ],
+    "optional": [
+      "INSTALL_INTERNAL_SKILLS",
+      "DISABLE_TELEMETRY",
+      "DO_NOT_TRACK",
+      "GITHUB_TOKEN",
+      "GH_TOKEN",
+      "CI",
+      "GITHUB_ACTIONS",
+      "GITLAB_CI",
+      "CIRCLECI",
+      "TRAVIS",
+      "BUILDKITE",
+      "JENKINS_URL",
+      "TEAMCITY_VERSION"
+    ],
+    "example_file": null,
+    "blocking_startup": [],
+    "notes": "README documents INSTALL_INTERNAL_SKILLS, DISABLE_TELEMETRY, and DO_NOT_TRACK. Source references additional optional variables for API endpoints, GitHub rate-limit credentials, clone timeout, agent home directories, lockfile location, and CI telemetry suppression. None are required for basic CLI startup/help/version."
+  },
+  "ports": {},
+  "multi_tenant": {
+    "detected": false,
+    "mechanism": null,
+    "suggested_seed": null
+  },
+  "ci_build_steps": [
+    "corepack enable",
+    "pnpm install --frozen-lockfile",
+    "pnpm build",
+    "pnpm format:check (ubuntu-latest only)",
+    "pnpm test"
+  ],
+  "discovery_notes": [
+    "No docker-compose*.yml, compose.yml, Dockerfile*, Makefile, Cargo.toml, go.mod, pyproject.toml, setup.py, pom.xml, or build.gradle files were found at the searched project depths.",
+    "build.config.mjs uses obuild with entry ./src/cli.ts; package script `build` runs `node scripts/generate-licenses.ts && obuild`.",
+    "Port discovery found no first-party server listen/bind/EXPOSE patterns. Test/PoC files may start ephemeral local HTTP servers on port 0, but the application itself does not listen."
+  ]
+}

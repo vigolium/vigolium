@@ -1,0 +1,33 @@
+Test for crawltags
+
+<!--general -->
+<a href="javascript:void(0)" onclick="loadRandomAllowedPage()">CLICK_ME</a>
+<div onclick="loadForbiddenPage('DONT_CLICK_ME_BECAUSE_I_AM_A_NORMALE_DIV')">
+    DONT_CLICK_ME_BECAUSE_I_AM_A_NORMALE_DIV
+</div>
+<button onclick="loadRandomAllowedPage()">CLICK_ME</button>
+
+<!--attributes -->
+<div class="CLICK_ME" onclick="loadRandomAllowedPage()">CLICK_ME</div>
+<div class="DONT_CLICK_ME"
+     onclick="loadForbiddenPage('DONT_CLICK_ME because of class attribute DIV')">DONT_CLICK_ME
+</div>
+<a href="javascript:void(0)" class="DONT_CLICK_ME"
+   onclick="loadForbiddenPage('DONT_CLICK_ME because of class attribute A')">DONT_CLICK_ME</a>
+
+<!-- with text -->
+<div onclick="loadRandomAllowedPage()">CLICK_ME</div>
+<a href="javascript:void(0)" onclick="loadForbiddenPage('DONT_CLICK_ME because of text')">DONT_CLICK_ME</a>
+
+<!-- underxpath -->
+<span id="CLICK_IN_HERE">
+	<div onclick="loadRandomAllowedPage()">CLICK_ME_UNDER_HERE</div>
+</span>
+
+<div id="DONT_CLICK_IN_HERE">
+    <a href="javascript:void(0)" onclick="loadForbiddenPage('DONT_CLICK_ME_UNDER_HERE')">DONT_CLICK_ME_UNDER_HERE</a>
+</div>
+
+<!-- condition -->
+REGEX_CONDITION_TRUE
+<div class="condition" onclick="loadRandomAllowedPage()">CLICK_ME_BECAUSE_OF_CONDITION</div>

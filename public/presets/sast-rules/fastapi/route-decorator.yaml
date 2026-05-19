@@ -1,0 +1,12 @@
+id: fastapi-route-decorator
+language: python
+severity: info
+message: "Route: $METHOD $PATH"
+rule:
+  pattern: |
+    @$APP.$METHOD($PATH)
+    def $FUNC($$$PARAMS):
+      $$$BODY
+constraints:
+  METHOD:
+    regex: "^(get|post|put|delete|patch|options|head)$"

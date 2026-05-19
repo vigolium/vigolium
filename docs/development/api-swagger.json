@@ -1,0 +1,6039 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vigolium API",
+    "description": "Vigolium \u2014 High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Vigolium",
+      "url": "https://vigolium.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:9002",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Info",
+      "description": "Server information and health checks"
+    },
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints"
+    },
+    {
+      "name": "Scans",
+      "description": "Scan management and execution"
+    },
+    {
+      "name": "Findings",
+      "description": "Vulnerability findings"
+    },
+    {
+      "name": "Records",
+      "description": "HTTP request/response records"
+    },
+    {
+      "name": "Ingest",
+      "description": "HTTP traffic ingestion"
+    },
+    {
+      "name": "Agent",
+      "description": "AI agent execution and management"
+    },
+    {
+      "name": "Modules",
+      "description": "Scanner module information"
+    },
+    {
+      "name": "Stats",
+      "description": "Project statistics"
+    },
+    {
+      "name": "Scope",
+      "description": "Scan scope configuration"
+    },
+    {
+      "name": "Config",
+      "description": "Server configuration management"
+    },
+    {
+      "name": "Projects",
+      "description": "Project management"
+    },
+    {
+      "name": "Extensions",
+      "description": "JavaScript scanning extensions"
+    },
+    {
+      "name": "OAST",
+      "description": "Out-of-band application security testing interactions"
+    },
+    {
+      "name": "Database",
+      "description": "Direct database table access"
+    },
+    {
+      "name": "Diagnostics",
+      "description": "Server diagnostics"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "Info"
+        ],
+        "summary": "Application info",
+        "description": "Returns basic application metadata. No authentication required.",
+        "operationId": "getAppInfo",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Application info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Info"
+        ],
+        "summary": "Health check",
+        "description": "Returns server health status. No authentication required.",
+        "operationId": "healthCheck",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/server-info": {
+      "get": {
+        "tags": [
+          "Info"
+        ],
+        "summary": "Server information",
+        "description": "Returns detailed server information including uptime, database driver, queue depth, and record/finding counts. Requires authentication.",
+        "operationId": "getServerInfo",
+        "responses": {
+          "200": {
+            "description": "Server information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Login",
+        "description": "Authenticate with username and access code. Returns a bearer token for subsequent API calls.",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/run": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Run a target-based scan",
+        "description": "Triggers an asynchronous target-based scan. Accepts one or more targets (domains/URLs) and optional configuration for modules, concurrency, strategy, and scope. The scan runs in the background; use GET /api/scan/status or GET /api/scans/{uuid} to monitor progress. Returns 409 if a scan is already running for the project, or 429 if the scan queue is full.",
+        "operationId": "runScan",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID to scope the scan",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Scan queued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Scan already running for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Scan queue is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan-records": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Scan specific HTTP records",
+        "description": "Triggers a scan on specific HTTP records identified by their UUIDs. Optionally restrict to specific modules.",
+        "operationId": "scanRecords",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRecordsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Scan queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan-all-records": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Scan all matching HTTP records",
+        "description": "Triggers a scan on all HTTP records matching the filter criteria. Supports filtering by hostname, methods, path, status codes, source, and other parameters.",
+        "operationId": "scanAllRecords",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanAllRecordsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Scan queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan-url": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Scan a single URL inline",
+        "description": "Performs a synchronous scan of a single URL and returns findings inline. Useful for quick ad-hoc checks. The scan blocks until complete and returns results directly in the response.",
+        "operationId": "scanURL",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanURLRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scan results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Inline findings result"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan-request": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Scan a raw HTTP request inline",
+        "description": "Performs a synchronous scan of a raw HTTP request and returns findings inline. Accepts a full raw HTTP request string and optional target URL override.",
+        "operationId": "scanRequest",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scan results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Inline findings result"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{uuid}/stop": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Stop a scan",
+        "description": "Stops a running scan identified by its UUID.",
+        "operationId": "stopScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{uuid}/pause": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Pause a scan",
+        "description": "Pauses a running scan identified by its UUID.",
+        "operationId": "pauseScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{uuid}/resume": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Resume a paused scan",
+        "description": "Resumes a previously paused scan identified by its UUID.",
+        "operationId": "resumeScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{uuid}": {
+      "get": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Get scan detail",
+        "description": "Returns detailed information about a specific scan including its configuration, status, statistics, and timing.",
+        "operationId": "getScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Full Scan database object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Scan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Delete a scan",
+        "description": "Deletes a scan record. Requires admin role.",
+        "operationId": "deleteScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "scan deleted"
+                    },
+                    "uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "project_uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Scan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans": {
+      "get": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "List scans",
+        "description": "Returns a paginated list of scans for the current project.",
+        "operationId": "listScans",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results to return",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated scan list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/status": {
+      "get": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Get current scan status",
+        "description": "Returns the current scan state for the project. Useful for polling scan progress.",
+        "operationId": "getScanStatus",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Project UUID override",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current scan status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{uuid}/logs": {
+      "get": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Get scan logs",
+        "description": "Returns paginated scan logs for a specific scan. Supports filtering by log level and scan phase.",
+        "operationId": "getScanLogs",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of log entries",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of entries to skip",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "description": "Filter by log level (e.g. info, warn, error)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phase",
+            "in": "query",
+            "description": "Filter by scan phase",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "logs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Scan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/findings": {
+      "get": {
+        "tags": [
+          "Findings"
+        ],
+        "summary": "List findings",
+        "description": "Returns a paginated list of vulnerability findings for the current project. Supports extensive filtering by severity, domain, module, scan, and text search. Results can be sorted by any field.",
+        "operationId": "listFindings",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "description": "Filter by severity (comma-separated). Values: critical, high, medium, low, info",
+            "schema": {
+              "type": "string"
+            },
+            "example": "critical,high"
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "description": "Filter by domain/hostname",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scan_uuid",
+            "in": "query",
+            "description": "Filter by scan UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "module_name",
+            "in": "query",
+            "description": "Filter by module name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "module_type",
+            "in": "query",
+            "description": "Filter by module type (active or passive)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "passive"
+              ]
+            }
+          },
+          {
+            "name": "finding_source",
+            "in": "query",
+            "description": "Filter by finding source",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Full-text search across finding fields",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Field to sort by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "Sort order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated findings list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/findings/{id}": {
+      "get": {
+        "tags": [
+          "Findings"
+        ],
+        "summary": "Get finding detail",
+        "description": "Returns a single finding by its numeric ID, including full request/response data and evidence.",
+        "operationId": "getFinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Finding numeric ID",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finding detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Finding"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Finding not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Findings"
+        ],
+        "summary": "Delete a finding",
+        "description": "Deletes a finding by its numeric ID. Requires admin role.",
+        "operationId": "deleteFinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Finding numeric ID",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finding deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "finding deleted"
+                    },
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Finding not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/http-records": {
+      "get": {
+        "tags": [
+          "Records"
+        ],
+        "summary": "List HTTP records",
+        "description": "Returns a paginated list of HTTP request/response records. Blob fields (raw_request, raw_response, request_body, response_body) are excluded from list results for performance.",
+        "operationId": "listHttpRecords",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "description": "Filter by hostname/domain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status_code",
+            "in": "query",
+            "description": "Filter by status code (comma-separated)",
+            "schema": {
+              "type": "string"
+            },
+            "example": "200,301"
+          },
+          {
+            "name": "content_type",
+            "in": "query",
+            "description": "Filter by response content type",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "description": "Filter by HTTP method (comma-separated)",
+            "schema": {
+              "type": "string"
+            },
+            "example": "GET,POST"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Filter by URL path (substring match)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Full-text search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by record source",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "min_risk",
+            "in": "query",
+            "description": "Minimum risk score",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "remark",
+            "in": "query",
+            "description": "Filter by remark (comma-separated)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Field to sort by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "Sort order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated HTTP records list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/http-records/{uuid}": {
+      "get": {
+        "tags": [
+          "Records"
+        ],
+        "summary": "Get HTTP record detail",
+        "description": "Returns a single HTTP record with full blob fields (raw_request, raw_response, request_body, response_body).",
+        "operationId": "getHttpRecord",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "HTTP record UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTTP record detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Records"
+        ],
+        "summary": "Delete an HTTP record",
+        "description": "Deletes an HTTP record by UUID. Requires admin role.",
+        "operationId": "deleteHttpRecord",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "HTTP record UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "HTTP record deleted"
+                    },
+                    "uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ingest-http": {
+      "post": {
+        "tags": [
+          "Ingest"
+        ],
+        "summary": "Ingest HTTP traffic",
+        "description": "Imports HTTP traffic from various formats into the project's record store. Supports Burp Suite exports, cURL commands, OpenAPI/Swagger specs, Postman collections, HAR files, and raw URLs.",
+        "operationId": "ingestHttp",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestHTTPRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ingestion result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestHTTPResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or unsupported input mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/run/query": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Run agent query",
+        "description": "Executes a single-shot AI agent query with template-based or inline prompts. Supports source code context via the source field. When stream is true, returns a Server-Sent Events (SSE) stream of agent output. Good for code review, endpoint discovery, and secret detection.",
+        "operationId": "agentRunQuery",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Agent run started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "SSE stream (when stream=true)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/run/autopilot": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Run autopilot agent",
+        "description": "Starts an autonomous autopilot agent scan. When source is provided, autopilot runs Archon first, prepares native context and planning artifacts, and then launches a single operator session with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) via the SDK protocol. Supports warm session pooling, MCP servers, and session resume. Returns 409 if a heavy agent is already running for the project.",
+        "operationId": "agentRunAutopilot",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAutopilotRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Autopilot agent started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "SSE stream (when stream=true)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Heavy agent already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/run/swarm": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Run swarm agent",
+        "description": "Starts an AI-guided swarm vulnerability scan. The master agent analyzes inputs, selects scanner modules, generates custom JS extensions, executes scans, and optionally triages results. Phases: normalize, source analysis, code audit, SAST, SAST review, discover, plan, extension, native scan, triage, rescan. Supports both targeted single-request and full-scope scanning. Returns 409 if a heavy agent is already running.",
+        "operationId": "agentRunSwarm",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSwarmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Swarm agent started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "SSE stream (when stream=true)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Heavy agent already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/chat/completions": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "OpenAI-compatible chat completions",
+        "description": "Provides an OpenAI-compatible chat completions endpoint. Accepts standard chat messages and returns a completion response.",
+        "operationId": "agentChatCompletions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat completion response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/status/list": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List agent run statuses",
+        "description": "Returns a list of all agent run statuses for the current project, including running, completed, and failed runs.",
+        "operationId": "listAgentStatuses",
+        "responses": {
+          "200": {
+            "description": "List of agent run statuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRunStatusResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/status/{id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Get agent run status",
+        "description": "Returns the status of a specific agent run by its run ID.",
+        "operationId": "getAgentStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent run ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent run status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/sessions": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List agent sessions",
+        "description": "Returns a paginated list of agent sessions with summary information.",
+        "operationId": "listAgentSessions",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated agent sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/sessions/{id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Get agent session detail",
+        "description": "Returns detailed information about a specific agent session, including the full prompt, raw output, attack plan, and triage results.",
+        "operationId": "getAgentSession",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent session UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent session detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSessionDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/sessions/{id}/logs": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Stream or fetch the runtime.log for an agent session",
+        "description": "Returns the agent session's runtime.log. Default content type is text/plain. With `Accept: text/event-stream`, the file is tailed as SSE chunks until the run reaches a terminal status. Pass `?strip=1` to remove ANSI color codes.",
+        "operationId": "getAgentSessionLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent session UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "strip",
+            "in": "query",
+            "description": "When truthy, remove ANSI escape sequences",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "runtime.log contents (text/plain) or SSE stream",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or log not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/sessions/{id}/artifacts": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "List files in an agent session directory",
+        "description": "Recursively walks the session directory and returns metadata for each file. Walk is capped at 500 entries; the response sets `truncated: true` when the cap is hit.",
+        "operationId": "listAgentSessionArtifacts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent session UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentArtifactListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/sessions/{id}/artifacts/{path}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Read a single artifact file from an agent session",
+        "description": "Streams the named file from the session directory. Path traversal (\"..\", absolute paths, symlinks pointing outside the session dir) is rejected with 400. Default cap is 10 MiB; pass `?max_bytes=N` to override (hard cap 100 MiB). When truncated, the response sets `X-Artifact-Truncated: 1` and `X-Artifact-Total-Size: <bytes>`.",
+        "operationId": "getAgentSessionArtifact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent session UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "description": "Path relative to the session directory (e.g. \"runtime.log\", \"archon-audit/audit-state.json\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_bytes",
+            "in": "query",
+            "description": "Override default 10 MiB cap (hard cap 100 MiB)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact contents",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid artifact name (e.g. path traversal)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/modules": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "List scanner modules",
+        "description": "Returns all registered scanner modules (active and passive). Supports text search filtering.",
+        "operationId": "listModules",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Filter modules by name or description",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "modules": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ModuleInfo"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Get project statistics",
+        "description": "Returns aggregated statistics for the current project including HTTP record counts, module counts, and findings breakdown by severity.",
+        "operationId": "getStats",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scope": {
+      "get": {
+        "tags": [
+          "Scope"
+        ],
+        "summary": "Get scope configuration",
+        "description": "Returns the current scan scope configuration with include/exclude rules for hosts, paths, status codes, and content types.",
+        "operationId": "getScope",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scope configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeConfig"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Scope"
+        ],
+        "summary": "Update scope configuration",
+        "description": "Replaces the scan scope configuration. Requires admin role.",
+        "operationId": "updateScope",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScopeConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scope updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Get server configuration",
+        "description": "Returns all configuration entries. Sensitive values are masked.",
+        "operationId": "getConfig",
+        "responses": {
+          "200": {
+            "description": "Configuration list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Update configuration",
+        "description": "Updates one or more configuration entries. Accepts a map of key-value pairs. Requires admin role.",
+        "operationId": "updateConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "List projects",
+        "description": "Returns all projects with their statistics.",
+        "operationId": "listProjects",
+        "responses": {
+          "200": {
+            "description": "Project list with stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "Project with embedded stats"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Create project",
+        "description": "Creates a new project. Requires admin role.",
+        "operationId": "createProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Created project"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/domain-map": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Get domain-to-project mapping",
+        "description": "Returns a mapping of domains to their associated project UUIDs.",
+        "operationId": "getProjectDomainMap",
+        "responses": {
+          "200": {
+            "description": "Domain mapping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{uuid}": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Get project detail",
+        "description": "Returns a single project with its statistics.",
+        "operationId": "getProject",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project with stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Project with embedded stats"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Update project",
+        "description": "Updates an existing project. Requires admin role.",
+        "operationId": "updateProject",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Project updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Updated project"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Delete project",
+        "description": "Deletes a project and all associated data. Requires admin role.",
+        "operationId": "deleteProject",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extensions/docs": {
+      "get": {
+        "tags": [
+          "Extensions"
+        ],
+        "summary": "List extension API functions",
+        "description": "Returns documentation for all available JavaScript extension API functions.",
+        "operationId": "listExtensionDocs",
+        "responses": {
+          "200": {
+            "description": "Extension API documentation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExtensionAPIFunction"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extensions": {
+      "get": {
+        "tags": [
+          "Extensions"
+        ],
+        "summary": "List extensions",
+        "description": "Returns all registered JavaScript scanning extensions.",
+        "operationId": "listExtensions",
+        "responses": {
+          "200": {
+            "description": "Extension list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "extensions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ExtensionInfo"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extensions/{name}": {
+      "get": {
+        "tags": [
+          "Extensions"
+        ],
+        "summary": "Get extension detail",
+        "description": "Returns detailed information about a specific extension including its raw source content.",
+        "operationId": "getExtension",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Extension name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extension detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Extension not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Extensions"
+        ],
+        "summary": "Edit extension",
+        "description": "Updates the content of a JavaScript extension. Requires admin role.",
+        "operationId": "editExtension",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Extension name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionEditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extension updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Extension not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/oast-interactions": {
+      "get": {
+        "tags": [
+          "OAST"
+        ],
+        "summary": "List OAST interactions",
+        "description": "Returns all out-of-band application security testing interactions for the current project.",
+        "operationId": "listOASTInteractions",
+        "parameters": [
+          {
+            "name": "X-Project-UUID",
+            "in": "header",
+            "description": "Project UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAST interaction list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OASTInteraction"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/oast-interactions/{id}": {
+      "get": {
+        "tags": [
+          "OAST"
+        ],
+        "summary": "Get OAST interaction detail",
+        "description": "Returns a single OAST interaction.",
+        "operationId": "getOASTInteraction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "OAST interaction ID",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAST interaction detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OASTInteraction"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Interaction not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "OAST"
+        ],
+        "summary": "Delete OAST interaction",
+        "description": "Deletes an OAST interaction. Requires admin role.",
+        "operationId": "deleteOASTInteraction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "OAST interaction ID",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Interaction deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Interaction not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/db/tables": {
+      "get": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "List database tables",
+        "description": "Returns a list of all database tables.",
+        "operationId": "listTables",
+        "responses": {
+          "200": {
+            "description": "Table list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/db/tables/{table}/columns": {
+      "get": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "List table columns",
+        "description": "Returns column definitions for a specific database table.",
+        "operationId": "listTableColumns",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Column list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Table not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/db/tables/{table}/records": {
+      "get": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "List table records",
+        "description": "Returns paginated records from a specific database table.",
+        "operationId": "listTableRecords",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated table records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Table not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "Create table record",
+        "description": "Creates a new record in a database table. Requires admin role.",
+        "operationId": "createTableRecord",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Table not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/db/tables/{table}/records/{id}": {
+      "get": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "Get table record",
+        "description": "Returns a single record from a database table by ID.",
+        "operationId": "getTableRecord",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Record ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "Update table record",
+        "description": "Updates an existing record in a database table. Requires admin role.",
+        "operationId": "updateTableRecord",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Record ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Database"
+        ],
+        "summary": "Delete table record",
+        "description": "Deletes a record from a database table. Requires admin role.",
+        "operationId": "deleteTableRecord",
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Record ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Record not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diagnostics": {
+      "get": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Get diagnostics",
+        "description": "Returns server diagnostic information for troubleshooting.",
+        "operationId": "getDiagnostics",
+        "responses": {
+          "200": {
+            "description": "Diagnostic information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token obtained from POST /api/auth/login or configured API key"
+      }
+    },
+    "schemas": {
+      "AppInfoResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "vigolium"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "author": {
+            "type": "string",
+            "example": "vigolium"
+          },
+          "docs": {
+            "type": "string",
+            "example": "https://docs.vigolium.com"
+          },
+          "build_time": {
+            "type": "string",
+            "example": "2026-01-01T00:00:00Z"
+          },
+          "commit": {
+            "type": "string",
+            "example": "abc1234"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ServerInfoResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "vigolium"
+          },
+          "version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "author": {
+            "type": "string"
+          },
+          "docs": {
+            "type": "string"
+          },
+          "build_time": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "uptime": {
+            "type": "string",
+            "example": "2h30m15s"
+          },
+          "service_addr": {
+            "type": "string",
+            "example": "0.0.0.0:9002"
+          },
+          "proxy_addr": {
+            "type": "string",
+            "example": "0.0.0.0:9003"
+          },
+          "queue_depth": {
+            "type": "integer",
+            "example": 0
+          },
+          "total_records": {
+            "type": "integer",
+            "example": 1500
+          },
+          "total_findings": {
+            "type": "integer",
+            "example": 42
+          },
+          "license": {
+            "type": "string",
+            "example": "enterprise"
+          },
+          "demo_only": {
+            "type": "boolean",
+            "example": false
+          },
+          "view_only": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "access_code"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "admin"
+          },
+          "access_code": {
+            "type": "string",
+            "example": "my-secret-key"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          },
+          "user": {
+            "$ref": "#/components/schemas/LoginUser"
+          }
+        }
+      },
+      "LoginUser": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "admin"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "type": "string",
+            "example": "admin"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "invalid request"
+          },
+          "code": {
+            "type": "integer",
+            "example": 400
+          },
+          "details": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "PaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "example": 150
+          },
+          "limit": {
+            "type": "integer",
+            "example": 50
+          },
+          "offset": {
+            "type": "integer",
+            "example": 0
+          },
+          "has_more": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "RunScanRequest": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of target domains or URLs to scan",
+            "example": [
+              "https://example.com"
+            ]
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of specific URLs to scan"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "If true, only report what would be scanned without executing",
+            "default": false
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "lite",
+              "balanced",
+              "deep"
+            ],
+            "description": "Scan strategy controlling depth and thoroughness",
+            "example": "balanced"
+          },
+          "only": {
+            "type": "string",
+            "description": "Only run this specific scan phase"
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Phases to skip"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific module IDs to enable",
+            "example": [
+              "xss-reflected",
+              "sqli-error"
+            ]
+          },
+          "module_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Enable modules matching these tags",
+            "example": [
+              "xss",
+              "light"
+            ]
+          },
+          "concurrency": {
+            "type": "integer",
+            "description": "Number of concurrent scan workers"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Per-request timeout in seconds"
+          },
+          "max_per_host": {
+            "type": "integer",
+            "description": "Maximum concurrent requests per host"
+          },
+          "rate_limit": {
+            "type": "integer",
+            "description": "Maximum requests per second per host"
+          },
+          "scanning_max_duration": {
+            "type": "string",
+            "description": "Maximum total scan duration (e.g. 30m, 1h)",
+            "example": "30m"
+          },
+          "scope_origin": {
+            "type": "string",
+            "enum": [
+              "all",
+              "relaxed",
+              "balanced",
+              "strict"
+            ],
+            "description": "Scope enforcement level for discovered URLs"
+          },
+          "heuristics_check": {
+            "type": "string",
+            "enum": [
+              "none",
+              "basic",
+              "advanced"
+            ],
+            "description": "Level of heuristic pre-checks before scanning"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom HTTP headers to include in all scan requests",
+            "example": {
+              "Authorization": "Bearer token123"
+            }
+          },
+          "scanning_profile": {
+            "type": "string",
+            "description": "Name of a scanning profile to apply"
+          },
+          "source": {
+            "type": "string",
+            "description": "Path to source code"
+          }
+        }
+      },
+      "ScanAllRecordsRequest": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "Filter records by hostname"
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by HTTP methods"
+          },
+          "path": {
+            "type": "string",
+            "description": "Filter by URL path"
+          },
+          "status_codes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Filter by status codes"
+          },
+          "source": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "min_risk_score": {
+            "type": "number"
+          },
+          "remark": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Force re-scan of already scanned records"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "module_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "concurrency": {
+            "type": "integer"
+          },
+          "timeout": {
+            "type": "integer"
+          },
+          "max_per_host": {
+            "type": "integer"
+          },
+          "rate_limit": {
+            "type": "integer"
+          },
+          "scanning_max_duration": {
+            "type": "string"
+          },
+          "heuristics_check": {
+            "type": "string",
+            "enum": [
+              "none",
+              "basic",
+              "advanced"
+            ]
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "scanning_profile": {
+            "type": "string"
+          }
+        }
+      },
+      "ScanURLRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scan",
+            "example": "https://example.com/api/users?id=1"
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method",
+            "default": "GET"
+          },
+          "body": {
+            "type": "string",
+            "description": "Request body for POST/PUT requests"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "modules": {
+            "type": "string",
+            "description": "Comma-separated module IDs to enable"
+          },
+          "no_passive": {
+            "type": "boolean",
+            "description": "Disable passive modules",
+            "default": false
+          }
+        }
+      },
+      "ScanRequestRequest": {
+        "type": "object",
+        "required": [
+          "raw_request"
+        ],
+        "properties": {
+          "raw_request": {
+            "type": "string",
+            "description": "Full raw HTTP request string",
+            "example": "GET /api/users?id=1 HTTP/1.1\nHost: example.com\n\n"
+          },
+          "target_url": {
+            "type": "string",
+            "description": "Override target URL (scheme + host)"
+          },
+          "modules": {
+            "type": "string",
+            "description": "Comma-separated module IDs to enable"
+          },
+          "no_passive": {
+            "type": "boolean",
+            "description": "Disable passive modules",
+            "default": false
+          }
+        }
+      },
+      "ScanRecordsRequest": {
+        "type": "object",
+        "required": [
+          "record_uuids"
+        ],
+        "properties": {
+          "record_uuids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "UUIDs of HTTP records to scan",
+            "example": [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          },
+          "enable_modules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific module IDs to enable for this scan"
+          }
+        }
+      },
+      "ScanResponse": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "status": {
+            "type": "string",
+            "example": "queued"
+          },
+          "message": {
+            "type": "string",
+            "example": "Scan queued successfully"
+          },
+          "records_to_scan": {
+            "type": "integer",
+            "example": 150
+          },
+          "targets_count": {
+            "type": "integer",
+            "example": 1
+          },
+          "scan_mode": {
+            "type": "string",
+            "example": "target"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "ScanStatusResponse": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "running": {
+            "type": "boolean",
+            "example": true
+          },
+          "status": {
+            "type": "string",
+            "example": "running"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "IngestHTTPRequest": {
+        "type": "object",
+        "required": [
+          "input_mode"
+        ],
+        "properties": {
+          "input_mode": {
+            "type": "string",
+            "enum": [
+              "burp_base64",
+              "curl",
+              "openapi",
+              "swagger",
+              "postman_collection",
+              "har",
+              "http_archive",
+              "url",
+              "url_file"
+            ],
+            "description": "Format of the input content",
+            "example": "curl"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to fetch content from (for url and url_file modes)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw content string (for curl, openapi, swagger, postman_collection, har modes)",
+            "example": "curl -X GET https://example.com/api/users"
+          },
+          "content_base64": {
+            "type": "string",
+            "description": "Base64-encoded content"
+          },
+          "http_request_base64": {
+            "type": "string",
+            "description": "Base64-encoded raw HTTP request"
+          },
+          "http_response_base64": {
+            "type": "string",
+            "description": "Base64-encoded raw HTTP response"
+          }
+        }
+      },
+      "IngestHTTPResponse": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "imported": {
+            "type": "integer",
+            "example": 25
+          },
+          "skipped": {
+            "type": "integer",
+            "example": 3
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string",
+            "example": "Imported 25 records, skipped 3"
+          }
+        }
+      },
+      "AgentRunRequest": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "Agent backend to use"
+          },
+          "prompt_template": {
+            "type": "string",
+            "description": "Name of a prompt template to use",
+            "example": "code-review"
+          },
+          "prompt_file": {
+            "type": "string",
+            "description": "Path to a prompt file"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Inline prompt text",
+            "example": "Review this code for security vulnerabilities"
+          },
+          "source": {
+            "type": "string",
+            "description": "Path to source code directory for context"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific files to include in context"
+          },
+          "append": {
+            "type": "string",
+            "description": "Text to append to the prompt"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "Additional instruction to prepend"
+          },
+          "source_label": {
+            "type": "string",
+            "description": "Label for source ingestion"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Associate results with this scan"
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "If true, return SSE stream instead of waiting for completion",
+            "default": false
+          }
+        }
+      },
+      "AgentAutopilotRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language scan prompt. Parsed into target/source/focus when explicit fields are empty.",
+            "example": "Find authentication bypass vulnerabilities in the login flow"
+          },
+          "intensity": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "balanced",
+              "deep"
+            ],
+            "description": "Scan intensity preset (default: balanced)"
+          },
+          "target": {
+            "type": "string",
+            "description": "Target URL. Derived from input when omitted.",
+            "example": "https://example.com"
+          },
+          "input": {
+            "type": "string",
+            "description": "Raw input (curl command, raw HTTP, Burp XML, base64, or URL); target is auto-extracted."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent backend identifier"
+          },
+          "source": {
+            "type": "string",
+            "description": "Path to application source code"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific source files to include"
+          },
+          "focus": {
+            "type": "string",
+            "description": "Focus area hint"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "Custom instruction appended to the prompt"
+          },
+          "timeout": {
+            "type": "string",
+            "description": "Go duration string (default \"6h\")",
+            "example": "6h"
+          },
+          "max_commands": {
+            "type": "integer",
+            "description": "Max CLI commands the agent can execute (default 100)"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Render prompt and prepare artifacts without launching the operator"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable SSE streaming"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "archon": {
+            "type": "string",
+            "description": "DEPRECATED: use no_archon + archon_mode. Legacy values: \"lite\", \"balanced\", \"deep\", \"off\"."
+          },
+          "no_archon": {
+            "type": "boolean",
+            "description": "Disable automatic archon-audit (enabled by default when source is set)"
+          },
+          "archon_mode": {
+            "type": "string",
+            "enum": [
+              "lite",
+              "balanced",
+              "deep",
+              "mock"
+            ],
+            "description": "Archon audit depth (default \"lite\"). \"mock\" writes a sample audit-state.json without launching any agent."
+          },
+          "diff": {
+            "type": "string",
+            "description": "PR URL, git ref range, or HEAD~N to focus the scan on changed code"
+          },
+          "last_commits": {
+            "type": "integer",
+            "description": "Focus on last N commits (shorthand for diff HEAD~N)"
+          },
+          "browser": {
+            "type": "boolean",
+            "description": "Explicitly enable browser tooling"
+          },
+          "credentials": {
+            "type": "string",
+            "description": "Compact credential hint for preflight auth setup"
+          },
+          "credential_sets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Structured roles/accounts for preflight auth setup"
+          },
+          "auth_required": {
+            "type": "boolean",
+            "description": "Authenticate before scan"
+          },
+          "requires_browser": {
+            "type": "boolean",
+            "description": "Browser is required for login/auth setup"
+          },
+          "browser_start_url": {
+            "type": "string",
+            "description": "Explicit login/start URL for browser-based flows"
+          },
+          "focus_routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Protected/browser focus routes"
+          },
+          "upload_results": {
+            "type": "boolean",
+            "description": "Upload session-dir bundle to cloud storage on completion"
+          }
+        }
+      },
+      "AgentSwarmRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language prompt parsed into structured fields when explicit fields are empty"
+          },
+          "intensity": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "balanced",
+              "deep"
+            ],
+            "description": "Scan intensity preset (default: balanced)"
+          },
+          "input": {
+            "type": "string",
+            "description": "Single input (curl, raw HTTP, URL, Burp XML, or record UUID)",
+            "example": "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\",\"pass\":\"test\"}'"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Multiple inputs (e.g. for auth flows)"
+          },
+          "http_request_base64": {
+            "type": "string",
+            "description": "Base64-encoded raw HTTP request; ingested into DB and the resulting record UUID is used as input"
+          },
+          "http_response_base64": {
+            "type": "string",
+            "description": "Base64-encoded raw HTTP response attached to http_request_base64"
+          },
+          "url": {
+            "type": "string",
+            "description": "Optional URL hint for parsing the base64 request"
+          },
+          "source": {
+            "type": "string",
+            "description": "Path to source code for source-aware route discovery (triggers source analysis phase)"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific source files to include (relative to source)"
+          },
+          "source_analysis_only": {
+            "type": "boolean",
+            "description": "Only run source analysis phase, then exit"
+          },
+          "vuln_type": {
+            "type": "string",
+            "description": "Focus on specific vulnerability type",
+            "example": "xss"
+          },
+          "focus": {
+            "type": "string",
+            "description": "Broad focus area hint (e.g. \"API injection\", \"auth bypass\")"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "Custom instruction appended to agent prompts"
+          },
+          "module_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit scanner module IDs"
+          },
+          "only_phase": {
+            "type": "string",
+            "description": "Isolate a single phase"
+          },
+          "skip_phases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Phases to skip"
+          },
+          "start_from": {
+            "type": "string",
+            "description": "Resume from a specific phase via synthetic checkpoint"
+          },
+          "max_iterations": {
+            "type": "integer",
+            "description": "Max triage-rescan rounds (default 3)"
+          },
+          "discover": {
+            "type": "boolean",
+            "description": "Run discovery+spidering before master agent planning"
+          },
+          "code_audit": {
+            "type": "boolean",
+            "description": "Enable AI security code audit phase"
+          },
+          "triage": {
+            "type": "boolean",
+            "description": "Enable AI triage and rescan phases (disabled by default)"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Scanning profile name (e.g. \"light\", \"thorough\")"
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent backend identifier"
+          },
+          "browser": {
+            "type": "boolean",
+            "description": "Explicitly enable browser tooling"
+          },
+          "auth": {
+            "type": "boolean",
+            "description": "Run browser auth phase"
+          },
+          "credentials": {
+            "type": "string",
+            "description": "Compact credential hint"
+          },
+          "credential_sets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Structured roles/accounts"
+          },
+          "auth_required": {
+            "type": "boolean",
+            "description": "Authenticate before scan"
+          },
+          "requires_browser": {
+            "type": "boolean",
+            "description": "Browser is required for login/auth setup"
+          },
+          "browser_start_url": {
+            "type": "string",
+            "description": "Explicit login/start URL"
+          },
+          "focus_routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Protected/browser focus routes"
+          },
+          "batch_concurrency": {
+            "type": "integer",
+            "description": "Max parallel master agent batches (0 = auto)"
+          },
+          "max_master_retries": {
+            "type": "integer",
+            "description": "Max master agent retries on parse failure (0 = default 3)"
+          },
+          "sa_max_concurrency": {
+            "type": "integer",
+            "description": "Max parallel source analysis sub-agents (0 = default 3)"
+          },
+          "max_plan_records": {
+            "type": "integer",
+            "description": "Max records sent to plan agent (0 = default 10)"
+          },
+          "master_batch_size": {
+            "type": "integer",
+            "description": "Max records per master agent batch (0 = default 5)"
+          },
+          "probe_concurrency": {
+            "type": "integer",
+            "description": "Max parallel probe requests (0 = default 10)"
+          },
+          "probe_timeout": {
+            "type": "string",
+            "description": "Per-request probe timeout as Go duration (default \"10s\")",
+            "example": "10s"
+          },
+          "max_probe_body": {
+            "type": "integer",
+            "description": "Max response body size in bytes during probing (0 = default 2 MB)"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false
+          },
+          "show_prompt": {
+            "type": "boolean",
+            "description": "Include the rendered prompts in output"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "timeout": {
+            "type": "string",
+            "description": "Overall timeout as Go duration string (default \"12h\")",
+            "example": "12h"
+          },
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "archon": {
+            "type": "string",
+            "enum": [
+              "lite",
+              "balanced",
+              "deep",
+              "off",
+              ""
+            ],
+            "description": "Run background archon-audit. Empty/\"off\" disables (swarm uses opt-in archon)."
+          },
+          "diff": {
+            "type": "string",
+            "description": "PR URL, git ref range, or HEAD~N"
+          },
+          "last_commits": {
+            "type": "integer",
+            "description": "Focus on last N commits"
+          },
+          "upload_results": {
+            "type": "boolean",
+            "description": "Upload session-dir bundle to cloud storage on completion"
+          }
+        }
+      },
+      "AgentRunResponse": {
+        "type": "object",
+        "properties": {
+          "agentic_scan_uuid": {
+            "type": "string",
+            "example": "run_abc123"
+          },
+          "status": {
+            "type": "string",
+            "example": "started"
+          },
+          "message": {
+            "type": "string",
+            "example": "Agent run started"
+          }
+        }
+      },
+      "AgentRunStatusResponse": {
+        "type": "object",
+        "properties": {
+          "agentic_scan_uuid": {
+            "type": "string",
+            "example": "run_abc123"
+          },
+          "mode": {
+            "type": "string",
+            "example": "swarm"
+          },
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "finding_count": {
+            "type": "integer",
+            "example": 5
+          },
+          "record_count": {
+            "type": "integer",
+            "example": 20
+          },
+          "saved_count": {
+            "type": "integer",
+            "example": 15
+          },
+          "error": {
+            "type": "string"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_phase": {
+            "type": "string",
+            "example": "triage"
+          },
+          "phases_run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "normalize",
+              "plan",
+              "extension",
+              "scan",
+              "triage"
+            ]
+          }
+        }
+      },
+      "AgentSessionSummary": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "type": "string",
+            "example": "swarm"
+          },
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "target_url": {
+            "type": "string"
+          },
+          "vuln_type": {
+            "type": "string"
+          },
+          "input_type": {
+            "type": "string"
+          },
+          "current_phase": {
+            "type": "string"
+          },
+          "phases_run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "finding_count": {
+            "type": "integer"
+          },
+          "record_count": {
+            "type": "integer"
+          },
+          "saved_count": {
+            "type": "integer"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AgentSessionDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentSessionSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "input_raw": {
+                "type": "string"
+              },
+              "module_names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "prompt_sent": {
+                "type": "string"
+              },
+              "agent_raw_output": {
+                "type": "string"
+              },
+              "attack_plan": {
+                "type": "object"
+              },
+              "triage_result": {
+                "type": "object"
+              },
+              "result_json": {
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "AgentArtifact": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Path relative to the session directory"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "log",
+              "json",
+              "markdown",
+              "yaml",
+              "jsonl",
+              "text",
+              "binary"
+            ]
+          }
+        }
+      },
+      "AgentArtifactListResponse": {
+        "type": "object",
+        "properties": {
+          "agentic_scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_dir": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentArtifact"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the walk hit the 500-entry cap"
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "required": [
+          "model",
+          "messages"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "example": "vigolium"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "content"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ],
+                  "example": "user"
+                },
+                "content": {
+                  "type": "string",
+                  "example": "Analyze this endpoint for XSS"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "chatcmpl-abc123"
+          },
+          "object": {
+            "type": "string",
+            "example": "chat.completion"
+          },
+          "created": {
+            "type": "integer",
+            "example": 1700000000
+          },
+          "model": {
+            "type": "string",
+            "example": "vigolium"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "example": 0
+                },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "example": "assistant"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "finish_reason": {
+                  "type": "string",
+                  "example": "stop"
+                }
+              }
+            }
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "prompt_tokens": {
+                "type": "integer",
+                "example": 100
+              },
+              "completion_tokens": {
+                "type": "integer",
+                "example": 250
+              },
+              "total_tokens": {
+                "type": "integer",
+                "example": 350
+              }
+            }
+          }
+        }
+      },
+      "Finding": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "http_record_uuids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "module_id": {
+            "type": "string",
+            "example": "xss-reflected"
+          },
+          "module_name": {
+            "type": "string",
+            "example": "Reflected XSS"
+          },
+          "module_type": {
+            "type": "string",
+            "enum": [
+              "active",
+              "passive"
+            ]
+          },
+          "module_short": {
+            "type": "string"
+          },
+          "finding_source": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "example": "high"
+          },
+          "confidence": {
+            "type": "string",
+            "example": "confirmed"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "matched_at": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extracted_results": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "additional_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "request": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "finding_hash": {
+            "type": "string"
+          },
+          "found_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HTTPRecord": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scheme": {
+            "type": "string",
+            "example": "https"
+          },
+          "hostname": {
+            "type": "string",
+            "example": "example.com"
+          },
+          "port": {
+            "type": "integer",
+            "example": 443
+          },
+          "ip": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "example": "GET"
+          },
+          "path": {
+            "type": "string",
+            "example": "/api/users"
+          },
+          "url": {
+            "type": "string",
+            "example": "https://example.com/api/users"
+          },
+          "http_version": {
+            "type": "string",
+            "example": "HTTP/1.1"
+          },
+          "request_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "request_content_type": {
+            "type": "string"
+          },
+          "request_content_length": {
+            "type": "integer"
+          },
+          "request_hash": {
+            "type": "string"
+          },
+          "status_code": {
+            "type": "integer",
+            "example": 200
+          },
+          "status_phrase": {
+            "type": "string",
+            "example": "OK"
+          },
+          "response_content_type": {
+            "type": "string",
+            "example": "application/json"
+          },
+          "response_content_length": {
+            "type": "integer"
+          },
+          "response_time_ms": {
+            "type": "integer",
+            "example": 150
+          },
+          "response_words": {
+            "type": "integer"
+          },
+          "has_response": {
+            "type": "boolean"
+          },
+          "response_title": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmbeddedParam"
+            }
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string"
+          },
+          "remarks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk_score": {
+            "type": "number",
+            "example": 0.75
+          },
+          "raw_request": {
+            "type": "string",
+            "description": "Full raw HTTP request (detail view only)"
+          },
+          "raw_response": {
+            "type": "string",
+            "description": "Full raw HTTP response (detail view only)"
+          },
+          "request_body": {
+            "type": "string",
+            "description": "Request body (detail view only)"
+          },
+          "response_body": {
+            "type": "string",
+            "description": "Response body (detail view only)"
+          },
+          "response_hash": {
+            "type": "string"
+          },
+          "response_http_version": {
+            "type": "string"
+          },
+          "response_headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "EmbeddedParam": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "id"
+          },
+          "value": {
+            "type": "string",
+            "example": "1"
+          },
+          "type": {
+            "type": "string",
+            "example": "query"
+          }
+        }
+      },
+      "ModuleInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "xss-reflected"
+          },
+          "name": {
+            "type": "string",
+            "example": "Reflected XSS"
+          },
+          "description": {
+            "type": "string"
+          },
+          "short_description": {
+            "type": "string"
+          },
+          "confirmation_criteria": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "example": "high"
+          },
+          "confidence": {
+            "type": "string",
+            "example": "confirmed"
+          },
+          "scan_scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "xss",
+              "injection",
+              "light"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "active",
+              "passive"
+            ],
+            "example": "active"
+          }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "http_records": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 1500
+              }
+            }
+          },
+          "modules": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "example": 45
+                  },
+                  "enabled": {
+                    "type": "integer",
+                    "example": 45
+                  }
+                }
+              },
+              "passive": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "example": 15
+                  },
+                  "enabled": {
+                    "type": "integer",
+                    "example": 15
+                  }
+                }
+              }
+            }
+          },
+          "findings": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 42
+              },
+              "by_severity": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "example": {
+                  "critical": 2,
+                  "high": 8,
+                  "medium": 15,
+                  "low": 10,
+                  "info": 7
+                }
+              }
+            }
+          }
+        }
+      },
+      "ScopeConfig": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "path": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "status_code": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "request_content_type": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "response_content_type": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "request_string": {
+            "$ref": "#/components/schemas/ScopeRule"
+          },
+          "response_string": {
+            "$ref": "#/components/schemas/ScopeRule"
+          }
+        }
+      },
+      "ScopeRule": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "*.example.com"
+            ]
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "*.static.example.com"
+            ]
+          }
+        }
+      },
+      "ScopeUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Scope updated"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeConfig"
+          }
+        }
+      },
+      "ConfigListResponse": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigEntryResponse"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "ConfigEntryResponse": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "scanning.concurrency"
+          },
+          "value": {
+            "type": "string",
+            "example": "10"
+          },
+          "sensitive": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "ConfigUpdateRequest": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "example": {
+          "scanning.concurrency": "20",
+          "scanning.timeout": "30"
+        }
+      },
+      "ConfigUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Configuration updated"
+          },
+          "updated": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigEntryResponse"
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ProjectRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "My Web App"
+          },
+          "description": {
+            "type": "string"
+          },
+          "owner_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allowed_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "example.com",
+              "api.example.com"
+            ]
+          },
+          "allowed_emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ProjectStats": {
+        "type": "object",
+        "properties": {
+          "http_records": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "success": {
+                "type": "integer"
+              },
+              "redirect": {
+                "type": "integer"
+              },
+              "client_err": {
+                "type": "integer"
+              },
+              "server_err": {
+                "type": "integer"
+              }
+            }
+          },
+          "findings": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "critical": {
+                "type": "integer"
+              },
+              "high": {
+                "type": "integer"
+              },
+              "medium": {
+                "type": "integer"
+              },
+              "low": {
+                "type": "integer"
+              },
+              "info": {
+                "type": "integer"
+              }
+            }
+          },
+          "scans": {
+            "type": "integer"
+          },
+          "agent_runs": {
+            "type": "integer"
+          },
+          "source_repos": {
+            "type": "integer"
+          },
+          "oast_interactions": {
+            "type": "integer"
+          }
+        }
+      },
+      "SourceRepoRequest": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "example": "example.com"
+          },
+          "name": {
+            "type": "string",
+            "example": "my-web-app"
+          },
+          "root_path": {
+            "type": "string",
+            "example": "/home/user/projects/my-web-app"
+          },
+          "repo_type": {
+            "type": "string",
+            "example": "git"
+          },
+          "language": {
+            "type": "string",
+            "example": "python"
+          },
+          "framework": {
+            "type": "string",
+            "example": "django"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "route_params": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sinks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "OASTInteraction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unique_id": {
+            "type": "string"
+          },
+          "full_id": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string",
+            "example": "dns"
+          },
+          "q_type": {
+            "type": "string"
+          },
+          "raw_request": {
+            "type": "string"
+          },
+          "raw_response": {
+            "type": "string"
+          },
+          "remote_address": {
+            "type": "string"
+          },
+          "interacted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "target_url": {
+            "type": "string"
+          },
+          "parameter_name": {
+            "type": "string"
+          },
+          "injection_type": {
+            "type": "string"
+          },
+          "module_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ExtensionInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "custom-xss-check"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "js",
+              "yaml"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "active",
+              "passive",
+              "pre_hook",
+              "post_hook"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "scan_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "confirmation_criteria": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ExtensionDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ExtensionInfo"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "raw_content": {
+                "type": "string",
+                "description": "Raw JavaScript or YAML source code of the extension"
+              }
+            }
+          }
+        ]
+      },
+      "ExtensionEditRequest": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Updated extension source code"
+          }
+        }
+      },
+      "ExtensionAPIFunction": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "example": "http"
+          },
+          "namespace": {
+            "type": "string",
+            "example": "vigolium.http"
+          },
+          "name": {
+            "type": "string",
+            "example": "sendRequest"
+          },
+          "full_name": {
+            "type": "string",
+            "example": "vigolium.http.sendRequest"
+          },
+          "signature": {
+            "type": "string",
+            "example": "sendRequest(request: HttpRequest): HttpResponse"
+          },
+          "returns": {
+            "type": "string",
+            "example": "HttpResponse"
+          },
+          "description": {
+            "type": "string"
+          },
+          "example": {
+            "type": "string"
+          }
+        }
+      },
+      "RepoUploadResponse": {
+        "type": "object",
+        "properties": {
+          "repo_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "source": {
+            "type": "string",
+            "example": "/path/to/extracted/repo"
+          },
+          "message": {
+            "type": "string",
+            "example": "Repository uploaded successfully"
+          }
+        }
+      },
+      "RepoDeleteResponse": {
+        "type": "object",
+        "properties": {
+          "repo_id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string",
+            "example": "Repository deleted"
+          }
+        }
+      }
+    }
+  }
+}

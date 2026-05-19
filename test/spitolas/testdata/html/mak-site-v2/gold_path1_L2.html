@@ -1,0 +1,9 @@
+<h3>Gold Path 1 - Level 2</h3>
+<p>Going deeper!</p>
+<button onclick="$.get('gold_path1_L3.html', function(d){$('#main-content').html(d);})">Gold L3</button>
+<button onclick="$.get('gold_path1_L3b.html', function(d){$('#main-content').html(d);})">Gold L3 Alt</button>
+<button onclick="$.get('gold_path1_L3c.html', function(d){$('#main-content').html(d);})">Gold L3 Bonus</button>
+<form onsubmit="$.get('gold_path1_form.html', function(d){$('#main-content').html(d);}); return false;">
+    <input type="text" name="gold-input" placeholder="Gold Form Input">
+    <button type="submit">Submit Gold Form</button>
+</form>

@@ -1,0 +1,33 @@
+swagger: "2.0"
+info:
+  title: Sample API
+  version: 1.0.0
+host: localhost
+basePath: /v1
+schemes:
+  - https
+paths:
+  /users:
+    get:
+      summary: Returns a list of users
+      produces:
+        - application/json
+      responses:
+        200:
+          description: OK
+  /users/{userId}:
+    get:
+      summary: Returns a user by ID
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          type: integer
+          default: 1
+        - in: query
+          name: sort
+          type: string
+          enum: [asc, desc]
+      responses:
+        200:
+          description: OK

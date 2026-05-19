@@ -1,0 +1,444 @@
+{
+  "single_service": false,
+  "assessment": {
+    "topology": "multi-component CLI/runtime with local HTTP, WebSocket, proxy, subprocess, and browser-client boundaries; not a deployed microservice stack",
+    "heuristics_triggered": [
+      "knowledge-base Architecture Model names multiple runtime components/processes (CLI, app/theme/store local servers, UI extension dev console, reverse proxy, cloudflared subprocess)",
+      "packages/* contains independent package entry points (shopify CLI, create-app, plugin packages, browser dev console package)",
+      "runtime code contains local HTTP/WebSocket/proxy client calls between browser clients, local dev servers, and user-app processes"
+    ],
+    "no_findings_reason": "No new cross-service-only taint issue was identified beyond already drafted P4/P5/P8 local-dev findings; out-of-repo user app and Shopify platform consumers were recorded as coverage/exclusion edges rather than drafted findings."
+  },
+  "services": [
+    {
+      "name": "ui-extensions-dev-console",
+      "root": "packages/ui-extensions-dev-console/",
+      "language": "typescript/react",
+      "frameworks": [
+        "vite",
+        "react"
+      ],
+      "process": "browser client served by extension dev server",
+      "in_repo": true
+    },
+    {
+      "name": "ui-extensions-server-kit-client",
+      "root": "packages/ui-extensions-server-kit/src/",
+      "language": "typescript",
+      "frameworks": [
+        "browser WebSocket API",
+        "react context"
+      ],
+      "process": "browser library used by dev console",
+      "in_repo": true
+    },
+    {
+      "name": "app-extension-dev-server",
+      "root": "packages/app/src/cli/services/dev/extension/",
+      "language": "typescript",
+      "frameworks": [
+        "h3",
+        "node:http",
+        "ws"
+      ],
+      "process": "local HTTP/WebSocket dev server",
+      "in_repo": true
+    },
+    {
+      "name": "graphiql-browser-client",
+      "root": "packages/app/src/cli/services/dev/graphiql/templates/",
+      "language": "typescript/html-js",
+      "frameworks": [
+        "GraphiQL browser app"
+      ],
+      "process": "browser client served by GraphiQL dev server",
+      "in_repo": true
+    },
+    {
+      "name": "app-graphiql-dev-server",
+      "root": "packages/app/src/cli/services/dev/graphiql/",
+      "language": "typescript",
+      "frameworks": [
+        "h3",
+        "node:http"
+      ],
+      "process": "local HTTP GraphiQL/Admin API proxy",
+      "in_repo": true
+    },
+    {
+      "name": "app-reverse-proxy",
+      "root": "packages/app/src/cli/utilities/app/",
+      "language": "typescript",
+      "frameworks": [
+        "node:http",
+        "http-proxy-node16"
+      ],
+      "process": "local reverse proxy created by app dev",
+      "in_repo": true
+    },
+    {
+      "name": "app-webhook-trigger",
+      "root": "packages/app/src/cli/services/webhook/",
+      "language": "typescript",
+      "frameworks": [
+        "node-fetch via cli-kit"
+      ],
+      "process": "CLI command path that emits test webhooks",
+      "in_repo": true
+    },
+    {
+      "name": "theme-dev-server",
+      "root": "packages/theme/src/cli/utilities/theme-environment/",
+      "language": "typescript",
+      "frameworks": [
+        "h3",
+        "node-fetch"
+      ],
+      "process": "local theme dev HTTP proxy/renderer",
+      "in_repo": true
+    },
+    {
+      "name": "external-user-app",
+      "root": "out-of-repo user project process",
+      "language": "unknown",
+      "frameworks": [],
+      "process": "developer app web/backend process",
+      "in_repo": false
+    },
+    {
+      "name": "shopify-platform",
+      "root": "external Shopify services",
+      "language": "unknown",
+      "frameworks": [
+        "Admin GraphQL",
+        "Storefront renderer",
+        "CDN",
+        "Partners API"
+      ],
+      "process": "remote third-party/platform services",
+      "in_repo": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "E001",
+      "channel": "websocket",
+      "producer": {
+        "service": "ui-extensions-dev-console",
+        "file": "packages/ui-extensions-dev-console/src/App.tsx",
+        "line": 16,
+        "pattern": "return `${protocol}//${location.host}/extensions`",
+        "additional_locations": [
+          {
+            "service": "ui-extensions-server-kit-client",
+            "file": "packages/ui-extensions-server-kit/src/ExtensionServerClient/ExtensionServerClient.ts",
+            "line": 80,
+            "pattern": "this.connection?.send(JSON.stringify({event, data}))"
+          },
+          {
+            "service": "ui-extensions-server-kit-client",
+            "file": "packages/ui-extensions-server-kit/src/ExtensionServerClient/ExtensionServerClient.ts",
+            "line": 137,
+            "pattern": "this.connection?.send(JSON.stringify({event: 'dispatch', data: {type: event, payload: data}}))"
+          }
+        ]
+      },
+      "consumer": {
+        "service": "app-extension-dev-server",
+        "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+        "line": 19,
+        "pattern": "if (request.url !== '/extensions') return; ... JSON.parse(data.toString())"
+      },
+      "data_shape": "WebSocket JSON messages {event: update|dispatch|log, data: ...} sent by the dev console or any browser/tunnel client that can reach /extensions.",
+      "sanitization_at_boundary": "URL equality only; no Origin/key/session check. Update messages check app.apiKey only when an app object is present; extension-only updates are accepted.",
+      "attacker_control": "yes when a malicious browser origin or tunnel visitor can connect; corroborated by P8-001 and P5-001.",
+      "consumer_sinks": [
+        {
+          "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+          "line": 99,
+          "kind": "deserialization",
+          "pattern": "const jsonData = JSON.parse(data.toString())"
+        },
+        {
+          "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+          "line": 119,
+          "kind": "state-mutation",
+          "pattern": "options.payloadStore.updateExtensions(eventData.extensions)"
+        },
+        {
+          "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+          "line": 128,
+          "kind": "broadcast",
+          "pattern": "notifyClients(wss, outGoingMessage, options)"
+        },
+        {
+          "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+          "line": 93,
+          "kind": "terminal-output",
+          "pattern": "options.stdout.write(getOutput(eventData))"
+        }
+      ],
+      "trust_tagged": "server treats the WebSocket channel as a trusted dev console channel after path match",
+      "status": "already-covered-by-existing-drafts",
+      "existing_drafts": [
+        "piolium/findings-draft/p5-001-ui-extension-dev-server-missing-auth.md",
+        "piolium/findings-draft/p8-001-extension-dev-websocket-cross-site-hijack.md"
+      ]
+    },
+    {
+      "id": "E002",
+      "channel": "websocket",
+      "producer": {
+        "service": "app-extension-dev-server",
+        "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+        "line": 36,
+        "pattern": "ws.send(JSON.stringify(connectedPayload))",
+        "additional_locations": [
+          {
+            "service": "app-extension-dev-server",
+            "file": "packages/app/src/cli/services/dev/extension/websocket/handlers.ts",
+            "line": 169,
+            "pattern": "wss.clients.forEach((ws) => ws.send(stringPayload))"
+          }
+        ]
+      },
+      "consumer": {
+        "service": "ui-extensions-server-kit-client",
+        "file": "packages/ui-extensions-server-kit/src/ExtensionServerClient/ExtensionServerClient.ts",
+        "line": 163,
+        "pattern": "this.connection?.addEventListener('message', ... JSON.parse(message.data))"
+      },
+      "data_shape": "Connected/update/dispatch JSON carrying app metadata, store FQDN, extension payloads, asset URLs, and localization blobs.",
+      "sanitization_at_boundary": "client catches JSON parse failures and filters by surface; no schema validation or URL allowlist is applied in the browser client. Server payload source is local app config/build output plus updates from E001.",
+      "attacker_control": "indirect via E001 if the extension WebSocket is reachable to an attacker; otherwise local project/config controlled by developer repository.",
+      "consumer_sinks": [
+        {
+          "file": "packages/ui-extensions-server-kit/src/ExtensionServerClient/ExtensionServerClient.ts",
+          "line": 165,
+          "kind": "deserialization",
+          "pattern": "const {event, data} = JSON.parse(message.data)"
+        },
+        {
+          "file": "packages/ui-extensions-server-kit/src/context/ExtensionServerProvider.tsx",
+          "line": 35,
+          "kind": "state-update",
+          "pattern": "client.on('update', (payload) => dispatch(createUpdateAction(payload)))"
+        },
+        {
+          "file": "packages/ui-extensions-dev-console/src/sections/Extensions/components/PreviewLink/PreviewLink.tsx",
+          "line": 48,
+          "kind": "browser-link-render",
+          "pattern": "<a href={rootUrl} ...>"
+        }
+      ],
+      "trust_tagged": "browser client trusts the colocated dev server as authoritative for extension state",
+      "status": "edge-recorded-no-new-draft",
+      "notes": "Potential downstream effects are consequences of E001 and are not duplicated as a separate P9 draft."
+    },
+    {
+      "id": "E003",
+      "channel": "http",
+      "producer": {
+        "service": "graphiql-browser-client",
+        "file": "packages/app/src/cli/services/dev/graphiql/templates/graphiql.tsx",
+        "line": 251,
+        "pattern": "url: '{{url}}/graphiql/graphql.json?key=...&api_version=' + apiVersion",
+        "additional_locations": [
+          {
+            "service": "graphiql-browser-client",
+            "file": "packages/app/src/cli/services/dev/graphiql/templates/graphiql.tsx",
+            "line": 323,
+            "pattern": "fetch('{{ url }}/graphiql/status?key=${encodeURIComponent(key)}')"
+          },
+          {
+            "service": "graphiql-browser-client",
+            "file": "packages/app/src/cli/services/dev/graphiql/templates/unauthorized.tsx",
+            "line": 119,
+            "pattern": "fetch('{{ url }}/graphiql/status')"
+          }
+        ]
+      },
+      "consumer": {
+        "service": "app-graphiql-dev-server",
+        "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+        "line": 233,
+        "pattern": "router.post('/graphiql/graphql.json', defineEventHandler(async (event) => { ... }))"
+      },
+      "data_shape": "Browser-provided GraphQL JSON body, custom headers, and api_version query; status polling requests.",
+      "sanitization_at_boundary": "GraphQL POST/UI routes check the per-run key before proxying; /graphiql/status is not key-gated. api_version is passed to adminUrl without an observed allowlist at this boundary.",
+      "attacker_control": "yes if the key is known/exposed or for /status without key; corroborated by P4/P5 GraphiQL findings.",
+      "consumer_sinks": [
+        {
+          "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+          "line": 237,
+          "kind": "query-read",
+          "pattern": "const query = getQuery(event)"
+        },
+        {
+          "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+          "line": 244,
+          "kind": "url-construction",
+          "pattern": "const graphqlUrl = adminUrl(storeFqdn, query.api_version as string)"
+        },
+        {
+          "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+          "line": 261,
+          "kind": "http-request",
+          "pattern": "return fetch(graphqlUrl, {method: 'POST', headers, body: reqBody})"
+        }
+      ],
+      "trust_tagged": "POST is treated as trusted after key match; status route is implicitly trusted local-only",
+      "status": "already-covered-by-existing-drafts",
+      "existing_drafts": [
+        "piolium/findings-draft/p4-003-graphiql-api-version-path-injection.md",
+        "piolium/findings-draft/p5-002-graphiql-status-missing-key-gate.md"
+      ]
+    },
+    {
+      "id": "E004",
+      "channel": "http-external",
+      "producer": {
+        "service": "app-graphiql-dev-server",
+        "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+        "line": 261,
+        "pattern": "return fetch(graphqlUrl, { method: 'POST', headers, body: reqBody })",
+        "additional_locations": [
+          {
+            "service": "app-graphiql-dev-server",
+            "file": "packages/app/src/cli/services/dev/graphiql/server.ts",
+            "line": 101,
+            "pattern": "fetch(`https://${storeFqdn}/admin/oauth/access_token`, ...)"
+          }
+        ]
+      },
+      "consumer": {
+        "service": "shopify-platform",
+        "file": "external",
+        "line": 0,
+        "pattern": "Shopify Admin OAuth / Admin GraphQL endpoints"
+      },
+      "data_shape": "Token-bearing OAuth and Admin GraphQL requests derived from local dev session plus browser GraphiQL body.",
+      "sanitization_at_boundary": "Bearer/Admin access token added by GraphiQL server; custom request headers filtered by filterCustomHeaders; destination host fixed to storeFqdn/adminUrl.",
+      "attacker_control": "GraphQL query body can be browser-controlled after key gate; destination is Shopify platform, not in-repo.",
+      "consumer_sinks": [],
+      "trust_tagged": "external platform enforces final authorization",
+      "status": "external-platform-excluded-from-p9-drafting"
+    },
+    {
+      "id": "E005",
+      "channel": "http-proxy",
+      "producer": {
+        "service": "app-reverse-proxy",
+        "file": "packages/app/src/cli/utilities/app/http-reverse-proxy.ts",
+        "line": 73,
+        "pattern": "return proxy.web(req, res, {target}, ...)"
+      },
+      "consumer": {
+        "service": "external-user-app",
+        "file": "out-of-repo",
+        "line": 0,
+        "pattern": "developer app web/backend process selected by app dev rules"
+      },
+      "data_shape": "Raw HTTP request method/path/body/headers and WebSocket upgrades from browser/tunnel visitors, forwarded to localhost user app ports.",
+      "sanitization_at_boundary": "path-prefix routing only; targets are generated as localhost ports for app web/extension processes in setup-dev-processes.ts. Unmatched HTTP returns 500; unmatched WS is destroyed.",
+      "attacker_control": "yes for any browser/tunnel requester reaching the reverse proxy; consumer code is user project and not available in this repository.",
+      "consumer_sinks": [],
+      "trust_tagged": "delegated to user application process",
+      "status": "coverage-gap-out-of-repo-consumer"
+    },
+    {
+      "id": "E006",
+      "channel": "http",
+      "producer": {
+        "service": "app-webhook-trigger",
+        "file": "packages/app/src/cli/services/webhook/trigger-local-webhook.ts",
+        "line": 20,
+        "pattern": "const response = await fetch(address, options)",
+        "additional_locations": [
+          {
+            "service": "app-webhook-trigger",
+            "file": "packages/app/src/cli/services/webhook/trigger.ts",
+            "line": 84,
+            "pattern": "triggerLocalWebhook(options.address, sample.samplePayload, sample.headers)"
+          }
+        ]
+      },
+      "consumer": {
+        "service": "external-user-app",
+        "file": "out-of-repo",
+        "line": 0,
+        "pattern": "local webhook endpoint specified by --address / prompt"
+      },
+      "data_shape": "POST JSON webhook sample body and JSON-parsed headers returned by Shopify sendSampleWebhook for localhost delivery.",
+      "sanitization_at_boundary": "address/method compatibility is validated by trigger-flags.ts; headers are parsed with JSON.parse and forwarded. Local receiver validation is out of repo.",
+      "attacker_control": "address is CLI/user-controlled; sample payload/headers come from Shopify platform response for the chosen topic/api version.",
+      "consumer_sinks": [],
+      "trust_tagged": "the CLI assumes the configured localhost address is the intended app receiver",
+      "status": "coverage-gap-out-of-repo-consumer"
+    },
+    {
+      "id": "E007",
+      "channel": "http-external",
+      "producer": {
+        "service": "theme-dev-server",
+        "file": "packages/theme/src/cli/utilities/theme-environment/proxy.ts",
+        "line": 337,
+        "pattern": "return fetch(url, { method: event.method, body, redirect: 'manual', headers: finalHeaders })"
+      },
+      "consumer": {
+        "service": "shopify-platform",
+        "file": "external",
+        "line": 0,
+        "pattern": "Shopify store/CDN/storefront renderer endpoints"
+      },
+      "data_shape": "Theme-dev browser request path/query/body/headers forwarded to fixed Shopify storeFqdn or cdn.shopify.com with theme dev cookies/token.",
+      "sanitization_at_boundary": "destination host is fixed to ctx.session.storeFqdn or cdn.shopify.com and hostname mismatch is rejected; hop-by-hop/CORS headers stripped; Authorization only added for theme-dev context.",
+      "attacker_control": "browser/tunnel path and headers influence request path and forwarded headers; host is constrained.",
+      "consumer_sinks": [],
+      "trust_tagged": "external platform enforces final authorization; local proxy protects host selection",
+      "status": "external-platform-excluded-from-p9-drafting"
+    }
+  ],
+  "coverage_gaps": [
+    {
+      "reason": "Out-of-repo user app receivers/handlers are dynamic and not analyzable in this repository.",
+      "locations": [
+        "packages/app/src/cli/utilities/app/http-reverse-proxy.ts:73",
+        "packages/app/src/cli/services/webhook/trigger-local-webhook.ts:20"
+      ]
+    },
+    {
+      "reason": "External Shopify platform/Admin/CDN consumers are outside P9 drafting scope unless reflected back into in-repo services.",
+      "locations": [
+        "packages/app/src/cli/services/dev/graphiql/server.ts:261",
+        "packages/theme/src/cli/utilities/theme-environment/proxy.ts:337"
+      ]
+    },
+    {
+      "reason": "No in-repo gRPC/proto services, Kafka/SQS/Rabbit/NATS/Redis queues, Celery/Bull workers, or shared application database topology were found. Pub/Sub strings are webhook address validation only, not in-repo publishers/consumers.",
+      "locations": [
+        "packages/app/src/cli/services/webhook/trigger-flags.ts:13",
+        "packages/app/src/cli/models/extensions/specifications/validation/common.ts:5"
+      ]
+    },
+    {
+      "reason": "Local credential/session files are shared by CLI packages but are not independent service/database write-driven flows; they remain covered by earlier token/storage phases.",
+      "locations": [
+        "packages/cli-kit/src/private/node/session/store.ts"
+      ]
+    }
+  ],
+  "drafts_filed": [],
+  "counts": {
+    "services_in_repo": 8,
+    "services_external_or_out_of_repo": 2,
+    "edges_total": 7,
+    "http": 3,
+    "http_external": 2,
+    "websocket": 2,
+    "grpc": 0,
+    "queue": 0,
+    "db_write": 0,
+    "file": 0
+  }
+}

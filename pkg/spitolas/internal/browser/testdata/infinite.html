@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script type="text/javascript">
+
+	var state = 0;
+	function randomState() {
+		var newLink = document.createElement('button');
+		newLink.setAttribute("onclick","randomState();");
+		newLink.innerHTML = "State " + state++;
+		newLink.setAttribute("class","state" + state);
+		var li = document.createElement('li');
+		li.appendChild(newLink);
+		document.getElementById('links').appendChild(li);
+		
+	}
+
+    </script>
+</head>
+
+<body>
+<h1>Loads an infinite number of states</h1>
+<ul id='links'>
+    <li><a href="#" onclick="randomState();" id='clicker'>Initial state</a></li>
+</ul>
+</body>
+</html>

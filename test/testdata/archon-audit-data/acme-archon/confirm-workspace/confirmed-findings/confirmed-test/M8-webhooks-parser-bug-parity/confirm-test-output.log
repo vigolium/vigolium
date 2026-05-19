@@ -1,0 +1,8 @@
+PASS src/services/__tests__/archon.M8.confirm.test.ts (7.494 s)
+  ✓ test_confirm_webhooks_parser_bug_parity_00000000 (553 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        12.319 s
+Ran all test suites within paths "src/services/__tests__/archon.M8.confirm.test.ts".

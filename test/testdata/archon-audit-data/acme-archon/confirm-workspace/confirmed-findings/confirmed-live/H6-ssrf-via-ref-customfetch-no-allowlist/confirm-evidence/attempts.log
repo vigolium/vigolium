@@ -1,0 +1,4 @@
+--- variant 1 @ 2026-05-19T04:04:02Z ---
+exit_code=0
+structured_status=confirmed
+structured_evidence=internal-server received GET /latest/meta-data/iam/security-credentials/ec2-default — HTTP request emitted to attacker-specified $ref URL with no allow-list check

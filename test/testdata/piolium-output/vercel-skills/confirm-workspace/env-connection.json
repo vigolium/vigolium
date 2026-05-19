@@ -1,0 +1,28 @@
+{
+  "status": "running",
+  "session": "c44d2b43-8b4d-48e7-ae92-850980bd6884",
+  "base_url": null,
+  "method_used": "node-cli-binary",
+  "file_used": "package.json",
+  "healthcheck_passed": true,
+  "healthcheck_endpoint": "cli:node ./bin/cli.mjs --version",
+  "healthcheck_output": "1.5.3",
+  "containers": [],
+  "ports": {},
+  "cleanup_cmd": "true # no persistent process/container; local CLI only",
+  "process_pid": null,
+  "test_identities": [],
+  "snapshot_spec": null,
+  "cli_command": "node ./bin/cli.mjs",
+  "cli_version": "1.5.3",
+  "attempts": [
+    {
+      "method": "node-cli-binary",
+      "result": "success",
+      "duration_s": 1,
+      "actual_port": null,
+      "build_steps_run": [],
+      "notes": "CLI target; no long-running HTTP service or auth identities."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meta Refresh URL Extraction Test</title>
+    <!-- InlineURLScanner only finds URLs with protocol, so use absolute URL with {{BASEURL}} -->
+    <meta http-equiv="Refresh" content="5;url={{BASEURL}}/meta/redirect-target.html">
+</head>
+<body>
+    <h1>Meta Refresh Test</h1>
+    <p>This page will redirect to /meta/redirect-target.html in 5 seconds.</p>
+    <p>The spider should extract the redirect URL from the meta refresh tag.</p>
+</body>
+</html>

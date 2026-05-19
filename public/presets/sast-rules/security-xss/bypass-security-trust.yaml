@@ -1,0 +1,12 @@
+id: security-xss-bypass-security-trust
+language: typescript
+severity: error
+message: "Security: Angular bypassSecurityTrust$METHOD — if the input is user-controlled, this disables Angular's built-in XSS protection"
+note: "Angular's DomSanitizer.bypassSecurityTrust* methods mark values as safe, bypassing all sanitization. Only use with truly trusted content."
+rule:
+  any:
+    - pattern: $SANITIZER.bypassSecurityTrustHtml($VALUE)
+    - pattern: $SANITIZER.bypassSecurityTrustScript($VALUE)
+    - pattern: $SANITIZER.bypassSecurityTrustUrl($VALUE)
+    - pattern: $SANITIZER.bypassSecurityTrustResourceUrl($VALUE)
+    - pattern: $SANITIZER.bypassSecurityTrustStyle($VALUE)

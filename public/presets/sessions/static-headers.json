@@ -1,0 +1,23 @@
+{
+  "sessions": [
+    {
+      "name": "admin",
+      "role": "primary",
+      "headers": {
+        "Cookie": "session=abc123; csrftoken=xyz",
+        "X-CSRF-Token": "xyz"
+      }
+    },
+    {
+      "name": "regular_user",
+      "role": "compare",
+      "headers": {
+        "Cookie": "session=def456"
+      }
+    },
+    {
+      "name": "unauthenticated",
+      "role": "compare"
+    }
+  ]
+}

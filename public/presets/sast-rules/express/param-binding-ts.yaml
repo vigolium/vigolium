@@ -1,0 +1,12 @@
+id: express-param-binding-ts
+language: typescript
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: $REQ.params.$PARAMS
+    - pattern: $REQ.query.$PARAMS
+    - pattern: $REQ.body.$PARAMS
+    - pattern: $REQ.params[$PARAMS]
+    - pattern: $REQ.query[$PARAMS]
+    - pattern: $REQ.body[$PARAMS]

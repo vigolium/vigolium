@@ -1,0 +1,59 @@
+# Production image: installs the published Vigolium CLI from the CDN, then
+# runs `vigolium doctor --fix` to bake in every runtime dependency. No Go
+# toolchain, no source tree — just the released binary plus its host tools.
+#
+# Multi-arch via `docker buildx build --platform linux/amd64,linux/arm64`.
+# Each platform gets its own native build VM; install-deps.sh and the
+# Vigolium install script handle arch detection internally via `uname -m`.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        wget \
+        git \
+        bash \
+        unzip \
+        python3 \
+        python3-pip \
+        chromium \
+        dumb-init \
+        fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Chromium headless environment
+ENV CHROME_NO_SANDBOX=true
+ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
+
+# Install semgrep + codeql via the shared script (multi-arch via uname -m).
+COPY build/scripts/install-deps.sh /tmp/install-deps.sh
+RUN bash /tmp/install-deps.sh && rm /tmp/install-deps.sh
+
+# Install the published Vigolium CLI binary. The install
+# script writes to $HOME/.local/bin (i.e. /root/.local/bin for the root user
+# in this image) and auto-detects arch via `uname -m`.
+RUN curl -fsSL https://www.vigolium.com/install.sh | bash \
+    && ln -sf /root/.local/bin/vigolium /usr/local/bin/vigolium
+
+# Tools installed by `vigolium doctor --fix` land in well-known per-user paths.
+ENV PATH="/root/.bun/bin:/root/.local/bin:/root/.pi/bin:/opt/codeql:${PATH}"
+
+# The bundled piolium installer drops its config at $HOME/.piolium/agent
+# instead of the ~/.pi default. Pointing PIOLIUM_HOME there makes doctor and
+# the audit driver pick up the install without an explicit $HOME/.pi/ fallback.
+ENV PIOLIUM_HOME=/root/.piolium
+
+# The image runs as root; the bundled `claude` CLI refuses to run as root
+# unless it detects a sandboxed environment. IS_SANDBOX=1 opts in.
+ENV IS_SANDBOX=1
+
+# Pull in runtime dependencies: bun, claude, agent-browser, piolium
+# (bun+pi+extension), nuclei-templates, chrome-for-testing.
+RUN vigolium doctor --fix
+
+WORKDIR /root
+
+ENTRYPOINT ["dumb-init", "--", "vigolium"]

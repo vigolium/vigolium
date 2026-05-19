@@ -1,0 +1,10 @@
+<script>
+$(function() {
+    $("#med2_L1_a").click(function() { $.get("medium2_L2.html", function(data) { $('#contents').html(data); }); });
+    $("#med2_L1_b").click(function() { $.get("medium2_L2_b.html", function(data) { $('#contents').html(data); }); });
+});
+</script>
+<h2>MEDIUM 2 Level 1 (Depth 1)</h2>
+<p>Medium reward: 2 actions</p>
+<button id="med2_L1_a" type="button">Med 2-L1-A</button>
+<button id="med2_L1_b" type="button">Med 2-L1-B</button>

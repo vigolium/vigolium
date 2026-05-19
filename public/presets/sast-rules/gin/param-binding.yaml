@@ -1,0 +1,13 @@
+id: gin-param-binding
+language: go
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: $CTX.Param($PARAMS)
+    - pattern: $CTX.Query($PARAMS)
+    - pattern: $CTX.PostForm($PARAMS)
+    - pattern: $CTX.DefaultQuery($PARAMS, $$$DEFAULTS)
+    - pattern: $CTX.ShouldBindJSON($$$PARAMS)
+    - pattern: $CTX.BindJSON($$$PARAMS)
+    - pattern: $CTX.ShouldBind($$$PARAMS)

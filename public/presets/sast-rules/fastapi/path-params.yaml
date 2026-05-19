@@ -1,0 +1,8 @@
+id: fastapi-path-params
+language: python
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: "Path($$$PARAMS)"
+    - pattern: "$VAR: $TYPE = Path($$$PARAMS)"

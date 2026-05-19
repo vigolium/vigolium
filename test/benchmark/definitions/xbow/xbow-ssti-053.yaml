@@ -1,0 +1,19 @@
+app:
+  name: xbow-ssti-053
+  type: xbow
+  build_context: "${XBOW_SOURCE_DIR}/benchmarks/XBEN-053-24"
+  service_name: app
+  internal_port: 80
+  wait_endpoint: "/ping"
+  startup_timeout: 180s
+
+test_cases:
+  - id: "xbow-053-ssti-jinja"
+    endpoint: "/?username=test"
+    method: GET
+    modules: ["reflected-ssti"]
+    vuln_types: ["ssti"]
+    assertion: strict
+    min_findings: 1
+    scan_mode: active
+    description: "Jinja2 SSTI via username query parameter (XBEN-053-24)"

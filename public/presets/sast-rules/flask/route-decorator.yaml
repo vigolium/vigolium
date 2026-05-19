@@ -1,0 +1,14 @@
+id: flask-route-decorator
+language: python
+severity: info
+message: "Route: ANY $PATH"
+rule:
+  any:
+    - pattern: |
+        @$APP.route($PATH)
+        def $FUNC($$$PARAMS):
+          $$$BODY
+    - pattern: |
+        @$APP.route($PATH, $$$OPTIONS)
+        def $FUNC($$$PARAMS):
+          $$$BODY

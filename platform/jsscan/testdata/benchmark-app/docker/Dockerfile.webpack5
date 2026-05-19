@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy source and config
+COPY tsconfig.json ./
+COPY src/ ./src/
+COPY configs/webpack5.config.js ./configs/
+
+# Build
+RUN npx webpack --config configs/webpack5.config.js
+
+# Output will be in /app/dist/webpack5/bundle.js
+CMD ["ls", "-la", "dist/webpack5/"]

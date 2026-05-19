@@ -1,0 +1,37 @@
+framework: fastapi
+base_url: http://localhost:8000
+
+routes:
+  - method: GET
+    path: "/users"
+    params: ["q", "page"]
+    expected_request:
+      method: GET
+      uri: "/users?q=FUZZ&page=FUZZ"
+      host: localhost:8000
+
+  - method: POST
+    path: "/users"
+    expected_request:
+      method: POST
+      uri: "/users"
+      host: localhost:8000
+
+  - method: GET
+    path: "/users/{user_id}"
+    params: ["user_id"]
+    expected_request:
+      method: GET
+      uri: "/users/{user_id}?user_id=FUZZ"
+      host: localhost:8000
+
+  - method: DELETE
+    path: "/users/{user_id}"
+    expected_request:
+      method: DELETE
+      uri: "/users/{user_id}"
+      host: localhost:8000
+
+  - method: ""
+    path: ""
+    expected_skip: true

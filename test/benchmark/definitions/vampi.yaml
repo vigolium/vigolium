@@ -1,0 +1,424 @@
+app:
+  name: vampi
+  type: docker
+  image: "erev0s/vampi:latest"
+  port: 5000
+  wait_endpoint: "/"
+  startup_timeout: 60s
+  env:
+    vulnerable: "1"
+
+test_cases:
+  # === Active Module Tests ===
+
+  # SQLi - Error-based in debug endpoint (existing canary coverage)
+  # VAmPI uses blind SQLi (different results, no error messages), so error-based detection is soft
+  - id: "vampi-sqli-debug"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in username parameter of debug endpoint (blind SQLi, not error-based)"
+
+  # SQLi - Error-based in books (existing canary coverage)
+  - id: "vampi-sqli-books"
+    endpoint: "/books/v1?book=test"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in book search parameter (blind SQLi, not error-based)"
+
+  # SQLi - Error-based in user profile path (writeup: /users/v1/{username})
+  # The writeup confirms unsanitized input in "SELECT * FROM users WHERE username = ..."
+  - id: "vampi-sqli-user-profile"
+    endpoint: "/users/v1/admin"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection in user profile endpoint - unsanitized username in SELECT query"
+
+  # SQLi - Time-based in debug endpoint
+  - id: "vampi-sqli-time-debug"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["sqli-time-based-params"]
+    vuln_types: ["sqli-time-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    timeout: 60s
+    description: "Time-based SQL injection in debug endpoint username parameter"
+
+  # SQLi - Time-based in books search
+  - id: "vampi-sqli-time-books"
+    endpoint: "/books/v1?book=test"
+    method: GET
+    modules: ["sqli-time-based-params"]
+    vuln_types: ["sqli-time-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    timeout: 60s
+    description: "Time-based SQL injection in book search parameter"
+
+  # Safe endpoint - negative test (existing canary coverage)
+  - id: "vampi-safe-users"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: active
+    description: "Safe endpoint without injection points"
+
+  # NoSQLi - Error-based (Phase 2 expansion)
+  - id: "vampi-nosqli"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["nosqli-error-based"]
+    vuln_types: ["nosqli"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "NoSQL injection in username parameter"
+
+  # CORS Misconfiguration (Phase 2 expansion)
+  - id: "vampi-cors"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CORS misconfiguration on API endpoint"
+
+  # JWT vulnerability - weak signing key (writeup: key crackable with rockyou.txt)
+  # VAmPI uses HS256 with a weak secret; the login endpoint returns a JWT token
+  - id: "vampi-jwt-login"
+    endpoint: "/users/v1/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"name1","password":"pass1"}'
+    modules: ["jwt-vulnerability"]
+    vuln_types: ["jwt-vulnerability"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "JWT authentication bypass via weak signing key (HS256 with dictionary-crackable secret)"
+
+  # XSS on user registration endpoint (writeup: mass assignment via extra params)
+  # Tests if the registration endpoint reflects/stores unsanitized input
+  - id: "vampi-xss-register"
+    endpoint: "/users/v1/register"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"xsstest","password":"xsspass123","email":"xss@test.com"}'
+    modules: ["xss-light"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XSS in user registration endpoint JSON parameters"
+
+  # XSS on book title search
+  - id: "vampi-xss-books"
+    endpoint: "/books/v1?book=test"
+    method: GET
+    modules: ["xss-light-url-params"]
+    vuln_types: ["xss-reflected"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "XSS in book search query parameter"
+
+  # CRLF injection on API endpoints
+  - id: "vampi-crlf-api"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["crlf-injection"]
+    vuln_types: ["crlf-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "CRLF injection in API debug endpoint parameters"
+
+  # Host header injection
+  - id: "vampi-host-header"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["host-header-injection"]
+    vuln_types: ["host-header-injection"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Host header injection on VAmPI API"
+
+  # Open redirect check on API
+  - id: "vampi-open-redirect"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["open-redirect"]
+    vuln_types: ["open-redirect"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: active
+    description: "Open redirect check on API endpoint (negative expected for VAmPI)"
+
+  # SQLi on password change endpoint (writeup: unauthorized password change)
+  # PUT /users/v1/{username}/password - no auth check at object level
+  - id: "vampi-sqli-password-change"
+    endpoint: "/users/v1/name1/password"
+    method: PUT
+    headers:
+      Content-Type: "application/json"
+    body: '{"password":"newpass123"}'
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection on password change endpoint (writeup: unauthorized password change via BOLA)"
+
+  # SQLi on email update endpoint (writeup: RegexDOS via evil regex)
+  # PUT /users/v1/{username}/email - the endpoint accepts email param
+  - id: "vampi-sqli-email-update"
+    endpoint: "/users/v1/name1/email"
+    method: PUT
+    headers:
+      Content-Type: "application/json"
+    body: '{"email":"test@example.com"}'
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection on email update endpoint (also vulnerable to RegexDOS per writeup)"
+
+  # DELETE method test (Area 1 fix: ensures DELETE is dispatched correctly)
+  - id: "vampi-delete-user"
+    endpoint: "/users/v1/benchuser"
+    method: DELETE
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: active
+    description: "DELETE endpoint for user removal - tests method dispatch fix"
+
+  # OPTIONS pre-flight for CORS (Area 1 fix: ensures OPTIONS is dispatched correctly)
+  - id: "vampi-options-cors"
+    endpoint: "/users/v1"
+    method: OPTIONS
+    modules: ["cors-misconfiguration"]
+    vuln_types: ["cors-misconfiguration"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: active
+    description: "OPTIONS pre-flight request for CORS testing - validates method dispatch"
+
+  # JSON body injection (INS_PARAM_JSON) - tests JSON parameter insertion points
+  - id: "vampi-sqli-json-body"
+    endpoint: "/users/v1/register"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"test","password":"Pass!123","email":"t@t.com"}'
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via JSON body parameters on registration endpoint"
+
+  # Header injection (INS_HEADER) - tests synthetic header insertion points
+  # createHeaderInsertionPoints adds X-Forwarded-For, Referer, True-Client-IP, etc.
+  - id: "vampi-sqli-header-injection"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["sqli-time-based-header"]
+    vuln_types: ["sqli-time-based"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: active
+    timeout: 60s
+    description: "SQL injection via header insertion points (X-Forwarded-For, Referer, etc.)"
+
+  # REST path segment injection (INS_URL_PATH_FOLDER) - tests path segment insertion points
+  - id: "vampi-sqli-path-segment"
+    endpoint: "/users/v1/admin/books"
+    method: GET
+    modules: ["sqli-error-based"]
+    vuln_types: ["sqli-error-based"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "SQL injection via REST path segment /users/v1/{username}/books"
+
+  # OAST probe on debug endpoint
+  - id: "vampi-oast-debug"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["oast-probe"]
+    vuln_types: ["oast"]
+    assertion: soft
+    min_findings: 0
+    requires_oast: true
+    scan_mode: active
+    description: "OAST probe for blind vulnerability detection on debug endpoint"
+
+  # Swagger/API documentation disclosure
+  - id: "vampi-swagger-disclose"
+    endpoint: "/"
+    method: GET
+    modules: ["swagger-disclose"]
+    vuln_types: ["swagger-disclose"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: active
+    description: "Swagger UI/API documentation exposed (VAmPI ships with Swagger UI)"
+
+  # === Passive Module Tests ===
+
+  # Security Headers
+  - id: "vampi-security-headers"
+    endpoint: "/"
+    method: GET
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "VAmPI missing security headers (soft: Flask API may have minimal headers)"
+
+  # Info Disclosure - Debug endpoint
+  - id: "vampi-info-disclosure"
+    endpoint: "/users/v1/_debug"
+    method: GET
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Debug endpoint exposes sensitive information"
+
+  # Auth Headers Detection
+  - id: "vampi-auth-headers"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["auth-headers-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Auth headers in API responses"
+
+  # Content Type Mismatch
+  - id: "vampi-content-type"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["content-type-mismatch"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: passive
+    description: "Content type mismatch check on API endpoint"
+
+  # JWT weak secret - passive detection on login response (writeup: HS256 with weak key)
+  - id: "vampi-jwt-weak-secret"
+    endpoint: "/users/v1/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"name1","password":"pass1"}'
+    modules: ["jwt-weak-secret"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "JWT weak signing key detection in login response (writeup: key crackable from rockyou.txt)"
+
+  # CORS headers passive detection
+  - id: "vampi-cors-headers"
+    endpoint: "/users/v1"
+    method: GET
+    modules: ["cors-headers-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "CORS headers passive detection on API endpoint"
+
+  # SQL syntax in error responses - debug endpoint returns raw SQL errors
+  - id: "vampi-sql-syntax-debug"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["sql-syntax-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Passive SQL syntax/error detection in debug endpoint response"
+
+  # Secret detection on debug endpoint (writeup: exposes all user passwords)
+  - id: "vampi-secret-debug"
+    endpoint: "/users/v1/_debug"
+    method: GET
+    modules: ["secret-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Secret/credential exposure in debug endpoint (writeup: passwords leaked via excessive data exposure)"
+
+  # Sensitive URL parameters
+  - id: "vampi-sensitive-params"
+    endpoint: "/users/v1/_debug?username=admin"
+    method: GET
+    modules: ["sensitive-url-params"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Sensitive URL parameters in debug endpoint"
+
+  # Cookie security on login endpoint
+  - id: "vampi-cookie-security"
+    endpoint: "/users/v1/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"name1","password":"pass1"}'
+    modules: ["cookie-security-detect"]
+    assertion: soft
+    min_findings: 0
+    scan_mode: passive
+    description: "Cookie security flags check on login endpoint (VAmPI uses JWT, may not set cookies)"
+
+  # Security headers on login endpoint
+  - id: "vampi-security-headers-login"
+    endpoint: "/users/v1/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"name1","password":"pass1"}'
+    modules: ["security-headers-missing"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "Missing security headers on authentication endpoint"
+
+  # Info disclosure on user enumeration (writeup: different error messages for invalid user vs wrong password)
+  - id: "vampi-info-disclosure-login"
+    endpoint: "/users/v1/login"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"username":"nonexistent","password":"wrong"}'
+    modules: ["info-disclosure-detect"]
+    assertion: soft
+    min_findings: 1
+    scan_mode: passive
+    description: "User enumeration via verbose error messages on login (writeup: different messages for invalid user vs wrong password)"

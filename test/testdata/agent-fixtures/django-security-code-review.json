@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "stub": "django",
+    "template": "security-code-review",
+    "agent_name": "claude",
+    "output_schema": "findings",
+    "generated_at": "2026-02-15T11:10:00Z",
+    "agent_model": "claude-sonnet-4-20250514"
+  },
+  "raw_output": "{\"findings\": [{\"title\": \"Reflected Query Parameter in JSON Response\", \"description\": \"The list_users view echoes the 'q' query parameter directly in the JSON response without sanitization, creating a reflected XSS risk.\", \"severity\": \"medium\", \"confidence\": \"firm\", \"file\": \"views.py\", \"line\": 12, \"snippet\": \"return JsonResponse({'query': q, 'page': page})\", \"cwe\": \"CWE-79\", \"tags\": [\"xss\", \"reflection\"]}, {\"title\": \"Regex Path Parameter Injection\", \"description\": \"The search view uses a regex-captured path parameter that is echoed directly in the response. The regex pattern (?P<query>.+) accepts any input including special characters.\", \"severity\": \"high\", \"confidence\": \"firm\", \"file\": \"views.py\", \"line\": 40, \"snippet\": \"return JsonResponse({'query': query, 'limit': limit})\", \"cwe\": \"CWE-20\", \"tags\": [\"input-validation\", \"injection\"]}, {\"title\": \"Missing CSRF Exemption Documentation\", \"description\": \"State-changing views lack explicit CSRF protection configuration. While Django includes CSRF middleware by default, the API views may need @csrf_exempt for API clients.\", \"severity\": \"low\", \"confidence\": \"tentative\", \"file\": \"views.py\", \"line\": 1, \"snippet\": \"from django.http import JsonResponse\", \"cwe\": \"CWE-352\", \"tags\": [\"csrf\"]}]}",
+  "parsed": {
+    "finding_count": 3,
+    "record_count": 0
+  }
+}

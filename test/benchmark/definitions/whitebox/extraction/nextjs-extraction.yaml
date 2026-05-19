@@ -1,0 +1,27 @@
+framework: nextjs
+source_dir: nextjs
+detect_framework: true
+
+expected_match_count:
+  min: 2
+  max: 15
+
+expected_routes:
+  - method: GET
+    path: ""
+    file: route.ts
+    assertion: soft
+
+  - method: POST
+    path: ""
+    file: route.ts
+    assertion: soft
+
+  - method: DELETE
+    path: ""
+    file: route.ts
+    assertion: soft
+
+negative_routes:
+  - method: PATCH
+    path: "/nonexistent"

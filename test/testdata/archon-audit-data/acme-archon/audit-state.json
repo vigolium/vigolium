@@ -1,0 +1,122 @@
+{
+  "audits": [
+    {
+      "audit_id": "2026-05-18T17:45:30Z",
+      "commit": "1111111111111111111111111111111111111111",
+      "branch": "main",
+      "repository": "acme",
+      "history_available": true,
+      "mode": "deep",
+      "model": "claude-opus-4-7",
+      "agent_sdk": "claude-code",
+      "started_at": "2026-05-18T17:45:30Z",
+      "completed_at": "2026-05-19T12:45:00Z",
+      "status": "complete",
+      "phases": {
+        "D1": {
+          "status": "complete",
+          "completed_at": "2026-05-18T18:15:00Z"
+        },
+        "D2": {
+          "status": "complete",
+          "completed_at": "2026-05-18T18:15:00Z"
+        },
+        "D3": {
+          "status": "complete",
+          "completed_at": "2026-05-18T18:15:00Z"
+        },
+        "D4": {
+          "status": "complete",
+          "completed_at": "2026-05-18T19:00:00Z"
+        },
+        "D5": {
+          "status": "complete",
+          "completed_at": "2026-05-18T19:00:00Z"
+        },
+        "D6": {
+          "status": "complete",
+          "completed_at": "2026-05-18T20:00:00Z"
+        },
+        "D7": {
+          "status": "complete",
+          "completed_at": "2026-05-18T19:00:00Z"
+        },
+        "D8": {
+          "status": "complete",
+          "started_at": "2026-05-18T20:00:00Z",
+          "completed_at": "2026-05-19T09:30:00Z",
+          "notes": "Chambers ran on prior session; resume completed inline FP tail (Stage 1 fp-check: 19/19 TRUE-POSITIVE; Stage 2 skipped \u2014 0 CRITICAL; Stage 3 triage: 8 P1, 18 P2, 1 skip) and wrote Phase 10 Addendum."
+        },
+        "D9": {
+          "status": "complete",
+          "started_at": "2026-05-19T09:30:00Z",
+          "completed_at": "2026-05-19T09:45:00Z",
+          "notes": "context-reviewer reconciled 27 VALID drafts: 21 genuine, 5 intentional-design, 1 documented-feature. 5 strong-intent drafts routed to Triage-Priority: skip (p5-003, p6-002, p10-004, p10-001, p10-030). intent-corpus/verdicts/reconciliation files written."
+        },
+        "D10": {
+          "status": "complete",
+          "started_at": "2026-05-19T09:45:00Z",
+          "completed_at": "2026-05-19T11:00:00Z",
+          "notes": "Consolidation: 16 actionable + 5 deferred (intent-skip). 16 PoCs authored \u2014 15 executed, 1 theoretical (M3 demoted to findings-theoretical). Final layout: 15 confirmed + 6 theoretical = 21 total findings."
+        },
+        "D11": {
+          "status": "complete",
+          "started_at": "2026-05-19T11:00:00Z",
+          "completed_at": "2026-05-19T12:30:00Z",
+          "notes": "Authored report.md for 15 confirmed + 6 theoretical = 21 findings. finding-writer agents ran in isolated worktrees and writes did not land; rebuilt reports inline via consolidation script over draft.md + evidence/. All 21 reports >500 bytes; gate satisfied."
+        },
+        "D12": {
+          "status": "complete",
+          "started_at": "2026-05-19T12:30:00Z",
+          "completed_at": "2026-05-19T12:45:00Z",
+          "notes": "final-audit-report.md composed (48,656 bytes). Consistency: 15 confirmed (6H + 9M) + 6 theoretical = 21 IDs unique; PoC scripts present for all 15 confirmed; Intent Reconciliation surfaced in Executive Summary. file-state.json stamped (319 tracked). Post-audit cleanup completed."
+        }
+      },
+      "confirmation": {
+        "session": "00000000-0000-4000-8000-000000000000",
+        "status": "complete",
+        "confirmed_at": "2026-05-19T04:42:41Z",
+        "completed_at": "2026-05-19T04:42:41Z",
+        "environment_method": "dockerfile",
+        "target_url": "http://localhost:80",
+        "results": {
+          "confirmed_live": 3,
+          "confirmed_test": 12,
+          "confirmed_fp": 0,
+          "analytical_only": 0,
+          "unconfirmed": 0,
+          "inconclusive": 0,
+          "blocked": 0,
+          "no_poc": 0,
+          "error": 0
+        },
+        "by_class": {
+          "network-exploitable": 4,
+          "local-exploitable": 11,
+          "non-exploitable": 0
+        },
+        "confirmation_rate": "15/15 (100.0%)",
+        "started_at": "2026-05-19T03:54:38Z"
+      },
+      "confirmation_history": [
+        {
+          "session": "00000000-0000-4000-8000-000000000000",
+          "started_at": "2026-05-19T03:54:38Z",
+          "completed_at": "2026-05-19T04:42:41Z",
+          "target_url": "http://localhost:80",
+          "results": {
+            "confirmed_live": 3,
+            "confirmed_test": 12,
+            "confirmed_fp": 0,
+            "analytical_only": 0,
+            "unconfirmed": 0,
+            "inconclusive": 0,
+            "blocked": 0,
+            "no_poc": 0,
+            "error": 0
+          }
+        }
+      ]
+    }
+  ]
+}

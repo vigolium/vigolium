@@ -1,0 +1,32 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<title>First iframe</title>
+<head>
+    <script type="text/javascript">
+	
+	function toggle1() {
+		if(document.getElementById("button01").value == "Click Me !")
+			document.getElementById("button01").value = "I'm clicked";
+		else
+			document.getElementById("button01").value = "Click Me !";
+		//document.getElementById("button02").disabled = false;		
+	}
+	
+	function toggle2() {
+		//document.getElementById("button01").disabled = false;
+		document.getElementById("button02").disabled = true;		
+	}
+	
+
+    </script>
+</head>
+
+<body>
+<input id="button01" style="display:block" class="btn" type="button"
+       name="firstButton" onclick="toggle1();" value="Click Me !"/>
+<input id="button02" style="display:block" class="btn" type="button"
+       name="secondButton" onclick="toggle2();" value="Click Me Too!"/>
+<iframe name="frame0-0" src="./page0-0-0.html"/>
+</body>
+
+</html>

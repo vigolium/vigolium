@@ -1,0 +1,103 @@
+{
+  "app_strategies": [
+    {
+      "method": "dockerfile",
+      "file": "config/docker/Dockerfile",
+      "confidence": "high",
+      "services": ["nginx-static-acme"],
+      "ports": {"app": 80},
+      "build_required": true,
+      "build_steps": [
+        {
+          "cmd": "docker build -f config/docker/Dockerfile -t acme .",
+          "produces": "local Docker image 'acme'"
+        }
+      ],
+      "notes": "Multi-stage Docker build runs npm ci, esbuild postinstall, and npm run bundle:standalone; container serves static Acme via nginx and docker-run.sh. Typical run command: docker run -p 8080:80 -e SPEC_URL=<openapi-url> acme."
+    },
+    {
+      "method": "package-scripts",
+      "file": "package.json",
+      "confidence": "high",
+      "command": "npm start",
+      "ports": {"app": 9090},
+      "build_required": false,
+      "build_steps": [],
+      "notes": "package.json start script runs webpack-dev-server with demo/webpack.config.ts in playground mode. start:demo uses the same dev server on port 9090."
+    },
+    {
+      "method": "package-scripts",
+      "file": "package.json",
+      "confidence": "medium",
+      "command": "npm run build:demo && npx http-server demo/dist",
+      "ports": {"app": 8080},
+      "build_required": true,
+      "build_steps": [
+        {
+          "cmd": "npm run build:demo",
+          "produces": "demo/dist/acme-demo.bundle.js"
+        }
+      ],
+      "notes": "No first-party static file server script is provided, but build:demo creates demo/dist for serving with a generic static HTTP server."
+    },
+    {
+      "method": "ts-node-demo",
+      "file": "demo/ssr/index.ts",
+      "confidence": "low",
+      "command": "npx ts-node demo/ssr/index.ts",
+      "ports": {"app": 9999},
+      "build_required": true,
+      "build_steps": [
+        {
+          "cmd": "npm run bundle:standalone",
+          "produces": "bundles/acme.standalone.js"
+        }
+      ],
+      "notes": "SSR demo file starts a Node HTTP server on port 9999 and expects bundles/acme.standalone.js to exist; no package script exposes this path."
+    }
+  ],
+  "test_strategies": [
+    {
+      "framework": "jest",
+      "config": "package.json#jest",
+      "cmd": "npm run unit",
+      "test_dir": "src/**/__tests__/",
+      "deps_installed": true,
+      "install_cmd": "npm ci"
+    },
+    {
+      "framework": "cypress",
+      "config": "cypress.config.ts",
+      "cmd": "npm run e2e",
+      "test_dir": "e2e/integration/",
+      "deps_installed": true,
+      "install_cmd": "npm ci"
+    }
+  ],
+  "dependencies": {
+    "databases": [],
+    "services": [],
+    "needs_migration": null,
+    "seed_command": null
+  },
+  "env_vars": {
+    "required": [],
+    "have_defaults": ["PAGE_TITLE", "PAGE_FAVICON", "BASE_PATH", "SPEC_URL", "PORT", "ACME_OPTIONS"],
+    "example_file": null
+  },
+  "ports": {
+    "app": 9090,
+    "app_fallback": [9091, 9092, 9093, 9094, 9095, 9096, 9097, 9098, 9099, 9100],
+    "docker_http": 80,
+    "docker_http_fallback": [81, 82, 83, 84, 85, 86, 87, 88, 89, 90],
+    "demo_static": 8080,
+    "demo_static_fallback": [8081, 8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089, 8090],
+    "ssr_demo": 9999,
+    "ssr_demo_fallback": [10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009]
+  },
+  "multi_tenant": {
+    "detected": false,
+    "mechanism": null,
+    "suggested_seed": null
+  }
+}

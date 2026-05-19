@@ -1,0 +1,21 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+        "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+</head>
+<body bgcolor="white">
+TEST_WAITCONDITION
+
+<div id="panel">
+    loading...
+</div>
+<script type="text/javascript">
+window.setTimeout(loadWidget, 1000);
+function loadWidget(){
+	document.getElementById("panel").innerHTML = "<div id='SLOW_WIDGET'>LOADED_SLOW_WIDGET<br /><a href='index.html'>SLOW_WIDGET_HOME</a></div>";
+}
+
+</script>
+</body>
+</html>

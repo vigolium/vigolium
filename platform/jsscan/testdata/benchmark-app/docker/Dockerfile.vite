@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy source and config
+COPY tsconfig.json ./
+COPY src/ ./src/
+COPY configs/vite.config.ts ./configs/
+
+# Build
+RUN npx vite build --config configs/vite.config.ts
+
+# Output will be in /app/dist/vite/bundle.js
+CMD ["ls", "-la", "dist/vite/"]

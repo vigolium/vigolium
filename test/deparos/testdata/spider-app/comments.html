@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Comments URL Extraction Test</title>
+</head>
+<body>
+    <h1>HTML Comments Extraction Test</h1>
+    <p>This page contains URLs hidden in HTML comments.</p>
+
+    <!-- Admin panel: {{BASEURL}}/comment/admin-panel.html -->
+
+    <div>Some content here</div>
+
+    <!-- Old API endpoint: {{BASEURL}}/comment/old-api/v1 -->
+
+    <!-- Debug server: {{BASEURL}}/comment/debug-server.html -->
+
+    <!--
+        Multi-line comment with URLs:
+        - Internal tool: {{BASEURL}}/comment/internal-tool
+        - Dev endpoint: {{BASEURL}}/comment/dev/endpoint
+    -->
+
+    <p>More visible content.</p>
+
+    <!-- Staging server at {{BASEURL}}/comment/staging-server -->
+
+    <!-- TODO: Remove before production {{BASEURL}}/comment/todo-endpoint -->
+</body>
+</html>

@@ -1,0 +1,7 @@
+id: security-nextjs-unstable-cache
+language: typescript
+severity: warning
+message: "Security: unstable_cache usage — verify cache key includes user identity to prevent cross-user data leaks"
+note: "If unstable_cache caches user-specific data without including userId or session in the key array, one user's data may be served to another."
+rule:
+  pattern: unstable_cache($$$ARGS)

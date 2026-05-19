@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Validation Constraints Test Form</title>
+</head>
+<body>
+    <h1>HTML5 Validation Test Form</h1>
+
+    <form id="validation-form" action="/submit" method="POST">
+        <!-- Pattern constraint tests -->
+        <div>
+            <label for="code">Product Code (3 uppercase letters):</label>
+            <input type="text" id="code" name="code" pattern="[A-Z]{3}" required>
+        </div>
+
+        <div>
+            <label for="phone_pattern">Phone (digits only):</label>
+            <input type="text" id="phone_pattern" name="phone_pattern" pattern="[0-9]{10}">
+        </div>
+
+        <!-- Number constraint tests -->
+        <div>
+            <label for="quantity">Quantity (1-100, step 5):</label>
+            <input type="number" id="quantity" name="quantity" min="1" max="100" step="5">
+        </div>
+
+        <div>
+            <label for="price">Price (0.01-999.99):</label>
+            <input type="number" id="price" name="price" min="0.01" max="999.99" step="0.01">
+        </div>
+
+        <div>
+            <label for="rating">Rating (1-5):</label>
+            <input type="range" id="rating" name="rating" min="1" max="5">
+        </div>
+
+        <!-- String length constraint tests -->
+        <div>
+            <label for="username">Username (5-20 chars):</label>
+            <input type="text" id="username" name="username" minlength="5" maxlength="20">
+        </div>
+
+        <div>
+            <label for="bio">Bio (max 500 chars):</label>
+            <textarea id="bio" name="bio" maxlength="500"></textarea>
+        </div>
+
+        <!-- Date constraint tests -->
+        <div>
+            <label for="event_date">Event Date (2024):</label>
+            <input type="date" id="event_date" name="event_date" min="2024-01-01" max="2024-12-31">
+        </div>
+
+        <!-- Time constraint tests -->
+        <div>
+            <label for="meeting_time">Meeting Time (9:00-17:00):</label>
+            <input type="time" id="meeting_time" name="meeting_time" min="09:00" max="17:00">
+        </div>
+
+        <!-- Placeholder detection tests -->
+        <div>
+            <input type="text" id="plain_input" name="plain_input" placeholder="Enter your email address">
+        </div>
+
+        <!-- Label detection tests (for="id" style) -->
+        <div>
+            <label for="contact_email">Your Contact Email</label>
+            <input type="text" id="contact_email" name="contact">
+        </div>
+
+        <!-- Label detection tests (wrapping style) -->
+        <div>
+            <label>
+                Phone Number:
+                <input type="text" id="wrapped_phone" name="wrapped_phone">
+            </label>
+        </div>
+
+        <!-- aria-label detection tests -->
+        <div>
+            <input type="text" id="aria_field" name="aria_field" aria-label="Company Name">
+        </div>
+
+        <!-- Combined constraints -->
+        <div>
+            <label for="postal_code">Postal Code:</label>
+            <input type="text" id="postal_code" name="postal_code" pattern="[0-9]{5}" minlength="5" maxlength="5">
+        </div>
+
+        <button type="submit">Submit</button>
+    </form>
+</body>
+</html>

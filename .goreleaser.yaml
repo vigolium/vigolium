@@ -1,0 +1,56 @@
+version: 2
+
+project_name: vigolium
+dist: build/dist
+
+snapshot:
+  version_template: "{{ if .Env.VIGOLIUM_VERSION }}{{ .Env.VIGOLIUM_VERSION }}{{ else }}0.0.1-alpha{{ end }}"
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: vigolium
+    main: ./cmd/vigolium
+    binary: vigolium
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w
+      - -X github.com/vigolium/vigolium/pkg/cli.Version=v{{.Version}}
+      - -X github.com/vigolium/vigolium/pkg/cli.Commit={{.ShortCommit}}
+      - -X github.com/vigolium/vigolium/pkg/cli.BuildTime={{.Date}}
+    goos:
+      - linux
+      - darwin
+      # - windows
+    goarch:
+      - amd64
+      - arm64
+    # ignore:
+    #   - goos: windows
+    #     goarch: arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "vigolium_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: vigolium
+    name: vigolium

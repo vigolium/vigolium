@@ -1,0 +1,14 @@
+fixture: flask-api-input-gen.json
+app:
+  name: vampi
+  compose_file: vampi/docker-compose.yaml
+  base_url: "http://localhost:3006"
+  wait_path: "/"
+scan_config:
+  modules:
+    - "sqli-error-based"
+    - "xss-reflected"
+  max_records: 10
+expected:
+  min_findings: 1
+  assertion: soft

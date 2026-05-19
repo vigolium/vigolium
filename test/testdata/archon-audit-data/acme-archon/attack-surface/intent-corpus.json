@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-05-19T00:00:00Z",
+  "target_dir": "/Users/<user>/Desktop/oss-to-run/acme",
+  "contract": "audit",
+  "sources_scanned": [
+    {"path": "README.md", "tier": "weak", "lines_read": 145, "truncated": false},
+    {"path": "docs/config.md", "tier": "weak", "lines_read": 312, "truncated": false},
+    {"path": "docs/security-definitions-injection.md", "tier": "weak", "lines_read": 24, "truncated": false},
+    {"path": "docs/acme-vendor-extensions.md", "tier": "weak", "lines_read": 100, "truncated": true},
+    {"path": "CHANGELOG.md", "tier": "medium", "lines_read": 30, "truncated": true},
+    {"path": "archon/attack-surface/knowledge-base-report.md", "tier": "medium", "lines_read": 600, "truncated": true}
+  ],
+  "stats": {
+    "intentional_behaviors": 4,
+    "acknowledged_risks": 2,
+    "by_confidence": {"strong": 5, "medium": 1, "weak": 0},
+    "by_scope": {"xss": 2, "data-exposure": 1, "input-validation": 1, "other": 2}
+  },
+  "intentional_behaviors": [
+    {
+      "claim": "sanitize option is opt-in; default-false means the operator is trusted to vet spec content. Setting sanitize:true is the documented mitigation for untrusted specs.",
+      "quote": "sanitize — If set to true, the API definition is considered untrusted and all HTML/Markdown is sanitized to prevent XSS.",
+      "source": "docs/config.md:77-80",
+      "confidence": "strong",
+      "scope": "xss",
+      "applies_to": "[REDACTED].tsx + every <Markdown source=...> consumer"
+    },
+    {
+      "claim": "untrustedSpec is the deprecated alias of sanitize; same opt-in semantics.",
+      "quote": "untrustedSpec — If set to true, the API definition is considered untrusted and all HTML/Markdown is sanitized to prevent XSS.",
+      "source": "docs/config.md:212-214",
+      "confidence": "strong",
+      "scope": "xss",
+      "applies_to": "AcmeNormalizedOptions.ts:317 (sanitize ||= untrustedSpec)"
+    },
+    {
+      "claim": "MDX-style vendor tags <security-definitions>, <security-definition>, <schema-definition> are operator-facing surface meant to be injected into spec description text.",
+      "quote": "You can inject the Security Definitions widget anywhere in your specification description: <!-- Acme-Inject: <security-definitions> -->",
+      "source": "docs/security-definitions-injection.md:3-13",
+      "confidence": "strong",
+      "scope": "other",
+      "applies_to": "src/services/MarkdownRenderer.ts COMPONENT_REGEXP + allowedMdComponents DEFAULT_OPTIONS"
+    },
+    {
+      "claim": "demo/ is the public playground site, not a published library asset; remediation of demo-only issues lies outside the npm package.",
+      "quote": "demo/** — demo site, not shipped with the library.",
+      "source": "archon/attack-surface/knowledge-base-report.md:1104",
+      "confidence": "strong",
+      "scope": "other",
+      "applies_to": "demo/**"
+    },
+    {
+      "claim": "marked raw HTML pass-through is by design; default sanitize=off means operator opts in to DOMPurify only when needed.",
+      "quote": "marked raw HTML — by design; only relevant when options.sanitize=false AND spec is untrusted. Default config is 'sanitize off'; do NOT report unless paired with a use-case where spec is untrusted.",
+      "source": "archon/attack-surface/knowledge-base-report.md:1095",
+      "confidence": "medium",
+      "scope": "xss",
+      "applies_to": "[REDACTED].tsx"
+    },
+    {
+      "claim": "SourceCode and JsonViewer dangerouslySetInnerHTML sinks are gated by Prism HTML-escaping and jsonToHtml htmlEncode respectively; KB declares them review-required, not auto-finding.",
+      "quote": "dangerouslySetInnerHTML in SourceCode.tsx and JsonViewer.tsx — protected by Prism's internal HTML escaping and by jsonToHtml's htmlEncode; mark as review-required, not auto-finding.",
+      "source": "archon/attack-surface/knowledge-base-report.md:1094",
+      "confidence": "medium",
+      "scope": "xss",
+      "applies_to": "src/components/SourceCode/SourceCode.tsx + src/components/JsonViewer/JsonViewer.tsx"
+    }
+  ],
+  "acknowledged_risks": [
+    {
+      "claim": "CHANGELOG explicitly records untrusted-spec as the XSS-prevention option — i.e. the project acknowledges that without it, spec-driven XSS is in scope.",
+      "quote": "prevent possible XSS using `untrusted-spec` option",
+      "source": "CHANGELOG.md:1965",
+      "confidence": "strong",
+      "scope": "xss",
+      "applies_to": "spec description rendering path"
+    },
+    {
+      "claim": "KB Threat Model T1/T2/T6/T7/T8 explicitly enumerate spec-driven XSS, href-scheme injection, sanitize-default risk, and reflected-attr risks as in-scope threats.",
+      "quote": "T1 Spec author injects <img onerror>/<script> in description markdown; embedder did not enable sanitize -> XSS in embedder origin — Critical",
+      "source": "archon/attack-surface/knowledge-base-report.md:963",
+      "confidence": "medium",
+      "scope": "xss",
+      "applies_to": "all spec-content sinks"
+    }
+  ]
+}

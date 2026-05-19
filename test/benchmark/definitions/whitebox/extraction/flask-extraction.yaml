@@ -1,0 +1,37 @@
+framework: flask
+source_dir: flask
+detect_framework: true
+
+expected_match_count:
+  min: 3
+  max: 20
+
+expected_routes:
+  - method: ""
+    path: "/users"
+    file: app.py
+    assertion: strict
+
+  - method: ""
+    path: "/users/<int:user_id>"
+    file: app.py
+    assertion: soft
+
+  - method: GET
+    path: "/health"
+    file: app.py
+    assertion: soft
+
+  - method: POST
+    path: "/upload"
+    file: app.py
+    assertion: soft
+
+  - method: DELETE
+    path: "/users/<int:user_id>"
+    file: app.py
+    assertion: soft
+
+negative_routes:
+  - method: GET
+    path: "/nonexistent"

@@ -1,0 +1,11 @@
+id: nextjs-app-route-handler
+language: typescript
+severity: info
+message: "Route: handler: $METHOD"
+rule:
+  kind: export_statement
+  has:
+    kind: function_declaration
+    has:
+      kind: identifier
+      regex: "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$"

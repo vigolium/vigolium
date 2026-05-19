@@ -1,0 +1,11 @@
+id: test-pre-hook
+name: Test Pre Hook
+description: A test pre-hook for unit tests
+type: pre_hook
+
+skip_when:
+  config_empty: api_key
+
+add_headers:
+  X-API-Key: "{{config.api_key}}"
+  X-Custom: "static-value"

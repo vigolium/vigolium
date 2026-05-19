@@ -1,0 +1,14 @@
+id: flask-param-binding
+language: python
+severity: info
+message: "Route: PARAM $PARAMS"
+rule:
+  any:
+    - pattern: request.args.get($PARAMS)
+    - pattern: request.args[$PARAMS]
+    - pattern: request.form.get($PARAMS)
+    - pattern: request.form[$PARAMS]
+    - pattern: request.json.get($PARAMS)
+    - pattern: request.json[$PARAMS]
+    - pattern: request.values.get($PARAMS)
+    - pattern: request.values[$PARAMS]
