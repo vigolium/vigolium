@@ -641,7 +641,8 @@ update-archon:
 # binary instead of failing with ErrBinaryMissing.
 ensure-archon:
 	@f="$(ARCHON_BIN_HOST)"; \
-	size=$$(wc -c < "$$f" 2>/dev/null | tr -d ' '); \
+	size=0; \
+	if [ -f "$$f" ]; then size=$$(wc -c < "$$f" | tr -d ' '); fi; \
 	if [ -z "$$size" ] || [ "$$size" -lt 1048576 ]; then \
 		echo "$(PREFIX) archon binary missing or stub, building from source..."; \
 		$(MAKE) update-archon; \
