@@ -41,14 +41,14 @@ jq '{name: .name, severity: .severity, url: .url}' results.jsonl
 
 ## With Source Code (Agent Modes)
 
-When the source code is available in the CI workspace, agent modes can use it for richer analysis. Both `swarm` and `autopilot` accept `--source .` and will route source-derived endpoints into the dynamic scanner. For pure code review without dynamic scanning, use `agent query` or `agent archon`:
+When the source code is available in the CI workspace, agent modes can use it for richer analysis. Both `swarm` and `autopilot` accept `--source .` and will route source-derived endpoints into the dynamic scanner. For pure code review without dynamic scanning, use `agent query` or `agent audit`:
 
 ```bash
 # Swarm: AI plans modules, optionally runs source analysis + native scan
 vigolium agent swarm -t $TARGET_URL --source . --format jsonl -o results.jsonl
 
 # Multi-phase AI source-code audit (no live target needed)
-vigolium agent archon --source .
+vigolium agent audit --source .
 ```
 
 See [Agent mode](../agentic-scan/agent-mode.md) for full coverage of each mode.

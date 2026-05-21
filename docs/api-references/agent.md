@@ -75,14 +75,14 @@ curl -s -X POST http://localhost:9002/api/agent/run/query \
 
 ## POST /api/agent/run/autopilot — Autonomous Scanning Session
 
-Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands. When `source` is provided, archon-audit runs first, native context and planning artifacts are prepared, and then the autonomous operator session starts.
+Launches an AI agent that autonomously discovers, scans, and triages vulnerabilities using vigolium CLI commands. When `source` is provided, vigolium-audit runs first, native context and planning artifacts are prepared, and then the autonomous operator session starts.
 
 **Request body:**
 
 | Field              | Type     | Required | Description                                                    |
 |--------------------|----------|----------|----------------------------------------------------------------|
 | `prompt`           | string   | No       | Natural language scan prompt (parsed into target/source/focus when explicit fields are empty) |
-| `intensity`        | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `max_commands`, `timeout`, `archon_mode`, and `browser` settings |
+| `intensity`        | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `max_commands`, `timeout`, `audit_mode`, and `browser` settings |
 | `target`           | string   | No*      | Target URL to scan (derived from `input` if not set)           |
 | `input`            | string   | No       | Raw input (curl, raw HTTP, Burp XML, URL) — target extracted automatically |
 | `agent`            | string   | No       | Optional descriptive label persisted to the run record (provider is server-side from `agent.olium.*`) |
@@ -93,14 +93,14 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `focus`            | string   | No       | Focus area hint (e.g. `"API injection"`, `"auth bypass"`)      |
 | `instruction`      | string   | No       | Custom instruction appended to the prompt                      |
 | `timeout`          | string   | No       | Go duration string (default `"6h"`)                            |
-| `max_commands`     | int      | No       | Max CLI commands the agent can execute (default `100`)         |
+| `max_commands`     | int      | No       | Max CLI commands the agent can execute (default `500` at `intensity: balanced`; `150` quick / `1500` deep) |
 | `dry_run`          | bool     | No       | Render the prompt without executing the agent                  |
 | `stream`           | bool     | No       | If `true`, returns an SSE stream                               |
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
 | `project_uuid`     | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header) |
-| `no_archon`        | bool     | No       | Disable automatic archon-audit (enabled by default when `source` is set) |
-| `archon_mode`      | string   | No       | Archon audit mode: `"lite"` (default, 3-phase), `"balanced"` (6-phase), or `"deep"` (10-phase) |
-| `archon`           | string   | No       | **DEPRECATED** — use `no_archon` + `archon_mode` instead. Legacy values: `"lite"`, `"balanced"`, `"deep"`, `"off"` |
+| `no_audit`        | bool     | No       | Disable automatic vigolium-audit (enabled by default when `source` is set) |
+| `audit_mode`      | string   | No       | Audit audit mode: `"lite"` (default, 3-phase), `"balanced"` (6-phase), or `"deep"` (10-phase) |
+| `audit`           | string   | No       | **DEPRECATED** — use `no_audit` + `audit_mode` instead. Legacy values: `"lite"`, `"balanced"`, `"deep"`, `"off"` |
 
 \* At least one of `target`, `input`, `source`, `diff`, or `prompt` is required.
 
@@ -108,7 +108,7 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 
 **Diff resolution:** When `diff` is set, the changed file list auto-populates `files` and the patch content is included in the agent prompt. For PR URLs without `source`, the repo is auto-cloned. GitHub PRs use the GitHub REST API directly (no `gh` CLI required). OAuth tokens embedded in the URL (`https://oauth2:TOKEN@github.com/...`) are extracted and passed as `Authorization: Bearer` header. The `GITHUB_TOKEN` env var is used as a fallback.
 
-**Quick scan (CI/PR review)** — lite archon, diff-focused, tight limits:
+**Quick scan (CI/PR review)** — lite audit, diff-focused, tight limits:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -121,7 +121,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   }' | jq .
 ```
 
-**Balanced scan (routine assessment)** — scan-mode archon, standard limits (`"balanced"` is the default when `intensity` is omitted):
+**Balanced scan (routine assessment)** — scan-mode audit, standard limits (`"balanced"` is the default when `intensity` is omitted):
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -134,7 +134,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   }'
 ```
 
-**Deep scan (thorough pentest)** — deep archon, browser, extended timeout:
+**Deep scan (thorough pentest)** — deep audit, browser, extended timeout:
 
 ```bash
 curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
@@ -156,7 +156,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://staging.example.com",
     "diff": "https://github.com/org/repo/pull/123",
-    "archon_mode": "lite",
+    "audit_mode": "lite",
     "max_commands": 25,
     "timeout": "15m"
   }' | jq .
@@ -170,7 +170,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
   -d '{
     "target": "http://localhost:3000",
     "source": "https://oauth2:ghp_token123@github.com/org/private-repo.git",
-    "archon_mode": "balanced"
+    "audit_mode": "balanced"
   }' | jq .
 ```
 
@@ -221,7 +221,7 @@ AI agents are called at phases 3, 4, 6, and 9. When inputs exceed `master_batch_
 | Field                  | Type     | Required | Description                                                           |
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `prompt`               | string   | No       | Natural language scan prompt (parsed into structured fields when explicit fields are empty) |
-| `intensity`            | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `discover`, `triage`, `code_audit`, `max_iterations`, `archon`, concurrency, and duration settings |
+| `intensity`            | string   | No       | Scan intensity preset: `"quick"`, `"balanced"` (default), or `"deep"`. Bundles `discover`, `triage`, `code_audit`, `max_iterations`, `audit`, concurrency, and duration settings |
 
 *Inputs:*
 
@@ -296,7 +296,7 @@ AI agents are called at phases 3, 4, 6, and 9. When inputs exceed `master_batch_
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
-| `archon`               | string   | No       | Run background archon-audit: `"lite"` (3-phase), `"balanced"` (6-phase), `"deep"` (10-phase), `"off"` to disable. Requires `source` |
+| `audit`               | string   | No       | Run background vigolium-audit: `"lite"` (3-phase), `"balanced"` (6-phase), `"deep"` (10-phase), `"off"` to disable. Requires `source` |
 
 **Source resolution:** The `source` field accepts local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). The legacy `source_path` JSON key is still accepted for backward compatibility.
 
@@ -409,7 +409,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -d '{
     "input": "http://localhost:3000",
     "diff": "https://oauth2:ghp_token@github.com/org/private-repo/pull/7",
-    "archon": "lite"
+    "audit": "lite"
   }' | jq .
 ```
 
@@ -455,17 +455,17 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "profile": "thorough"
   }' | jq .
 
-# Source-aware with background archon-audit (parallel deep code audit)
+# Source-aware with background vigolium-audit (parallel deep code audit)
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
     "input": "https://example.com",
     "source": "/home/user/src/my-app",
     "discover": true,
-    "archon": "lite"
+    "audit": "lite"
   }' | jq .
 
-# Full 10-phase archon-audit with comprehensive scan
+# Full 10-phase vigolium-audit with comprehensive scan
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{
@@ -473,7 +473,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "source": "/home/user/src/my-app",
     "discover": true,
     "code_audit": true,
-    "archon": "deep"
+    "audit": "deep"
   }' | jq .
 ```
 
@@ -582,7 +582,7 @@ curl -N -X POST http://localhost:9002/api/agent/run/swarm \
 
 The autopilot and swarm endpoints accept a `prompt` field for natural language scan requests. When `prompt` is provided and no explicit input fields are set (`target`, `input`, `source`), the prompt is parsed by an AI intent extractor that returns structured parameters.
 
-The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and archon audit level (`"lite"`, `"balanced"`, or `"deep"`).
+The intent extractor recognizes: target URLs, source code paths, vulnerability focus areas, custom instructions, discovery mode, code audit mode, and audit level (`"lite"`, `"balanced"`, or `"deep"`).
 
 **Extracted fields:**
 
@@ -594,7 +594,7 @@ The intent extractor recognizes: target URLs, source code paths, vulnerability f
 | `instruction`  | `instruction`        | `instruction`     | Remaining guidance                                    |
 | `discover`     | —                    | `discover`        | Inferred when both target and source are present      |
 | `code_audit`   | —                    | `code_audit`      | Inferred when source-only (no target)                 |
-| `archon`       | `archon_mode`        | `archon`          | `"lite"`, `"balanced"`, or `"deep"` when archon/audit agent is mentioned |
+| `audit`       | `audit_mode`        | `audit`          | `"lite"`, `"balanced"`, or `"deep"` when audit/audit agent is mentioned |
 
 **Autopilot with natural language prompt:**
 
@@ -651,7 +651,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
         "target": "http://localhost:3005",
         "source_path": "~/src/VAmPI",
         "discover": true,
-        "archon": "lite"
+        "audit": "lite"
       }
     ],
     "raw": "scan source at ~/src/VAmPI on localhost:3005 with audit agent"
@@ -659,7 +659,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
 }
 ```
 
-> **Note:** Explicit fields always take precedence. If you pass both `prompt` and `target`/`input`/`source`, the prompt is ignored and explicit fields are used directly. The `archon` field from intent extraction is only applied when `archon`/`archon_mode` is not already set in the request body.
+> **Note:** Explicit fields always take precedence. If you pass both `prompt` and `target`/`input`/`source`, the prompt is ignored and explicit fields are used directly. The `audit` field from intent extraction is only applied when `audit`/`audit_mode` is not already set in the request body.
 
 ---
 

@@ -21,7 +21,7 @@ package server
 //
 // Evidence JSON is written to
 //
-//	pkg/server/archon/findings/H2-db-api-all-projects-bypass/evidence/
+//	pkg/server/audit/findings/H2-db-api-all-projects-bypass/evidence/
 import (
 	"context"
 	"encoding/json"
@@ -56,7 +56,7 @@ func pocEvidenceDir(t *testing.T) string {
 	// thisFile = .../pkg/server/poc_h2_db_bypass_test.go
 	dir := filepath.Join(
 		filepath.Dir(thisFile),
-		"archon", "findings", "H2-db-api-all-projects-bypass", "evidence",
+		"vigolium-results", "findings", "H2-db-api-all-projects-bypass", "evidence",
 	)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir evidence: %v", err)

@@ -188,7 +188,7 @@ func TestM1_CORSReflectOrigin(t *testing.T) {
 	}
 
 	evidenceDir := filepath.Join(
-		"archon", "findings", "M1-cors-reflect-origin", "evidence",
+		"vigolium-results", "findings", "M1-cors-reflect-origin", "evidence",
 	)
 	if err := os.MkdirAll(evidenceDir, 0o755); err == nil {
 		outBytes, _ := json.MarshalIndent(evidenceResult, "", "  ")

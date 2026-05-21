@@ -20,8 +20,8 @@ func ResolveAutopilotIntensity(intensity agenttypes.Intensity, current agenttype
 	if changed["timeout"] {
 		result.Timeout = current.Timeout
 	}
-	if changed["archon-mode"] || changed["no-archon"] {
-		result.ArchonMode = current.ArchonMode
+	if changed["audit-mode"] || changed["no-audit"] {
+		result.AuditDriverMode = current.AuditDriverMode
 	}
 	if changed["browser"] {
 		result.Browser = current.Browser
@@ -55,8 +55,8 @@ func ResolveSwarmIntensity(intensity agenttypes.Intensity, current agenttypes.Sw
 	if changed["max-iterations"] {
 		result.MaxIterations = current.MaxIterations
 	}
-	if changed["archon"] {
-		result.Archon = current.Archon
+	if changed["audit"] {
+		result.Audit = current.Audit
 	}
 	if changed["max-plan-records"] {
 		result.MaxPlanRecords = current.MaxPlanRecords
@@ -83,21 +83,21 @@ func ResolveSwarmIntensity(intensity agenttypes.Intensity, current agenttypes.Sw
 	return result
 }
 
-// ResolveArchonIntensity merges intensity preset values with user-provided overrides.
+// ResolveAuditDriverIntensity merges intensity preset values with user-provided overrides.
 // The changed map indicates which fields were explicitly set by the user (CLI flag or API field).
 // Explicit values in current take precedence over the preset.
 //
-// Note: archon also accepts operational modes (revisit, confirm, merge, diff,
+// Note: audit also accepts operational modes (revisit, confirm, merge, diff,
 // status, mock) that are not intensity-driven. Callers must pass changed["mode"]=true
 // (or changed["modes"]=true for a chain) when the user supplied an explicit
 // --mode / --modes field, which then bypasses the preset's chain entirely.
 //
 // Mode and Modes are kept consistent on the result: Mode is always Modes[0]
 // so single-mode consumers stay correct even when a chain preset is selected.
-func ResolveArchonIntensity(intensity agenttypes.Intensity, current agenttypes.ArchonIntensityPreset, changed map[string]bool) agenttypes.ArchonIntensityPreset {
-	preset, ok := agenttypes.ArchonPresets[intensity]
+func ResolveAuditDriverIntensity(intensity agenttypes.Intensity, current agenttypes.AuditDriverIntensityPreset, changed map[string]bool) agenttypes.AuditDriverIntensityPreset {
+	preset, ok := agenttypes.AuditDriverPresets[intensity]
 	if !ok {
-		preset = agenttypes.ArchonPresets[agenttypes.IntensityBalanced]
+		preset = agenttypes.AuditDriverPresets[agenttypes.IntensityBalanced]
 	}
 
 	result := preset

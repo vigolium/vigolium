@@ -35,7 +35,7 @@ const pioliumAuthLockFileName = ".vigolium-auth.lock"
 
 // pioliumLockBreadcrumb is the JSON written to .vigolium-auth.lock so a
 // later sweep (or operator) can identify the holder. Kept compatible with
-// the archon-ts lock breadcrumb shape (engine/auth-overrides.ts) so a
+// the vigolium-audit lock breadcrumb shape (engine/auth-overrides.ts) so a
 // single tool can parse either.
 type pioliumLockBreadcrumb struct {
 	Run        string `json:"run"`

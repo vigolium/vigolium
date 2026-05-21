@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-archon update-archon ensure-archon update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -54,7 +54,7 @@ PUBLIC_VERSION=$(patsubst v%,%,$(VERSION))
 all: build
 
 # Build main binary and install to GOBIN
-build: ensure-archon
+build: ensure-audit
 	@if [ -z "$$(ls $(JSSCAN_RES_DST_DIR)/ 2>/dev/null)" ]; then \
 		echo "$(PREFIX) First build on this machine — jsscan binaries not found, running 'make deps' to prepare dependencies..."; \
 		$(MAKE) deps; \
@@ -69,7 +69,7 @@ build: ensure-archon
 	@echo "$(PREFIX) Build complete! Binary: $(BINARY_DIR)/$(BINARY_NAME) and $(GOPATH_BIN)/$(BINARY_NAME)"
 
 # Build with embedded Chromium (requires 'make deps-chrome' first)
-build-embedded: ensure-archon
+build-embedded: ensure-audit
 	@echo "$(PREFIX) Building $(BINARY_NAME) with embedded Chromium..."
 	@mkdir -p $(BINARY_DIR)
 	$(GOBUILD) $(LDFLAGS) -tags=embed_chromium -o $(BINARY_DIR)/$(BINARY_NAME) ./cmd/vigolium
@@ -184,7 +184,7 @@ test-pg-full: install-gotestsum
 # Sanity-check: real-target end-to-end smoke test of the REST API + storage
 # upload flow documented in docs/api-references/scan-with-storage.md.
 # Boots a local server with the cloudrun GCS credentials, runs native +
-# archon + autopilot scans against ginandjuice.shop / VAmPI / juice-shop with
+# audit + autopilot scans against ginandjuice.shop / VAmPI / juice-shop with
 # upload_results=true, and verifies bundles land at the documented keys.
 #
 # Required: jq, tar, gzip, uuidgen, python3 on PATH; network access to the
@@ -562,36 +562,36 @@ ensure-jsscan:
 		echo "$(PREFIX) jsscan binaries built and copied"; \
 	fi
 
-# archon-audit security audit binary management.
-# Source lives under platform/archon-audit/. `bun run build` produces a host
-# binary at platform/archon-audit/build/dist/archon-<os>-<arch>; we copy it to
-# pkg/archon/archonbin/_bin/archon, which is consumed by go:embed at vigolium
-# build time. Cross-compile note: the embed is host-only — to cross-compile
-# vigolium, stage the matching archon-<os>-<arch> blob at the same path before
-# running the cross GOOS/GOARCH build.
-ARCHON_TS_DIR=platform/archon-audit
-ARCHON_BIN_DST_DIR=pkg/archon/archonbin/_bin
-ARCHON_BIN_HOST=$(ARCHON_BIN_DST_DIR)/archon
+# vigolium-audit security audit binary management.
+# Source lives under platform/vigolium-audit/. `bun run build` produces a host
+# binary at platform/vigolium-audit/build/dist/vigolium-audit-<os>-<arch>; we
+# copy it to pkg/audit/bin/_bin/vigolium-audit, which is consumed by go:embed
+# at vigolium build time. Cross-compile note: the embed is host-only — to
+# cross-compile vigolium, stage the matching vigolium-audit-<os>-<arch> blob
+# at the same path before running the cross GOOS/GOARCH build.
+AUDIT_TS_DIR=platform/vigolium-audit
+AUDIT_BIN_DST_DIR=pkg/audit/bin/_bin
+AUDIT_BIN_HOST=$(AUDIT_BIN_DST_DIR)/vigolium-audit
 
-# Upstream archon-audit checkout, expected as a sibling of the vigolium repo.
-# Override on the command line, e.g. `make sync-archon ARCHON_UPSTREAM=...`.
-ARCHON_UPSTREAM ?= ../archon-audit
+# Upstream vigolium-audit checkout, expected as a sibling of the vigolium repo.
+# Override on the command line, e.g. `make sync-audit AUDIT_UPSTREAM=...`.
+AUDIT_UPSTREAM ?= ../vigolium-audit
 
-# Sync platform/archon-audit/ from a sibling archon-audit checkout. Manual —
+# Sync platform/vigolium-audit/ from a sibling vigolium-audit checkout. Manual —
 # there is no automated mirror. Excludes node_modules, build artifacts, the
 # generated content bundle, and .git so the vendored copy stays minimal.
-# Warns and exits 0 when ARCHON_UPSTREAM does not exist (so CI invocations
+# Warns and exits 0 when AUDIT_UPSTREAM does not exist (so CI invocations
 # don't fail just because the sibling checkout isn't present).
-sync-archon:
+sync-audit:
 	@set -e; \
-	if [ ! -d "$(ARCHON_UPSTREAM)" ]; then \
-		echo "\033[33m[!] archon-audit upstream not found at $(ARCHON_UPSTREAM); skipping sync.\033[0m"; \
-		echo "    Clone archon-audit as a sibling of this repo, or override with"; \
-		echo "    'make sync-archon ARCHON_UPSTREAM=/path/to/archon-audit'."; \
+	if [ ! -d "$(AUDIT_UPSTREAM)" ]; then \
+		echo "\033[33m[!] vigolium-audit upstream not found at $(AUDIT_UPSTREAM); skipping sync.\033[0m"; \
+		echo "    Clone vigolium-audit as a sibling of this repo, or override with"; \
+		echo "    'make sync-audit AUDIT_UPSTREAM=/path/to/vigolium-audit'."; \
 		exit 0; \
 	fi; \
-	echo "$(PREFIX) Syncing $(ARCHON_UPSTREAM)/ → $(ARCHON_TS_DIR)/"; \
-	mkdir -p $(ARCHON_TS_DIR); \
+	echo "$(PREFIX) Syncing $(AUDIT_UPSTREAM)/ → $(AUDIT_TS_DIR)/"; \
+	mkdir -p $(AUDIT_TS_DIR); \
 	rsync -a --delete \
 		--exclude='node_modules' \
 		--exclude='build/dist' \
@@ -599,54 +599,57 @@ sync-archon:
 		--exclude='.DS_Store' \
 		--exclude='src/content-bundle.json' \
 		--exclude='src/content/sdk-variants/' \
-		"$(ARCHON_UPSTREAM)/" "$(ARCHON_TS_DIR)/"; \
+		"$(AUDIT_UPSTREAM)/" "$(AUDIT_TS_DIR)/"; \
 	echo "$(PREFIX) Sync complete. Rebuilding embedded binary..."; \
-	$(MAKE) update-archon
+	$(MAKE) update-audit
 
-# Cross-compile targets the bun build can produce. Mirrors archon-ts's
+# Cross-compile targets the bun build can produce. Mirrors vigolium-audit's
 # build.ts ALL_TARGETS list. The host's matching artifact is staged at
-# $(ARCHON_BIN_HOST) for go:embed; the rest stay under the dist dir for
-# cross-compile workflows that swap _bin/archon manually.
-ARCHON_BIN_TARGETS=darwin-arm64 darwin-x64 linux-arm64 linux-x64
-ARCHON_DIST_DIR=$(ARCHON_TS_DIR)/build/dist
+# $(AUDIT_BIN_HOST) for go:embed; the rest stay under the dist dir for
+# cross-compile workflows that swap _bin/vigolium-audit manually.
+AUDIT_BIN_TARGETS=darwin-arm64 darwin-x64 linux-arm64 linux-x64
+AUDIT_DIST_DIR=$(AUDIT_TS_DIR)/build/dist
 
-# Build archon binary for every supported os/arch and stage the host's
-# artifact at $(ARCHON_BIN_HOST) for embedding into vigolium. Run once
+# Build vigolium-audit binary for every supported os/arch and stage the host's
+# artifact at $(AUDIT_BIN_HOST) for embedding into vigolium. Run once
 # per machine after a fresh clone, or whenever you sync new source
-# under platform/archon-audit/.
-update-archon:
-	@echo "$(PREFIX) Building archon for all targets ($(ARCHON_TS_DIR))..."
-	@cd $(ARCHON_TS_DIR) && bun install && ARCHON_BUILD_NO_INSTALL=1 bun run build:all
-	@mkdir -p $(ARCHON_BIN_DST_DIR)
+# under platform/vigolium-audit/.
+update-audit:
+	@echo "$(PREFIX) Building vigolium-audit for all targets ($(AUDIT_TS_DIR))..."
+	@cd $(AUDIT_TS_DIR) && bun install && VIGOLIUM_AUDIT_BUILD_NO_INSTALL=1 bun run build:all
+	@mkdir -p $(AUDIT_BIN_DST_DIR)
 	@set -e; \
-	for target in $(ARCHON_BIN_TARGETS); do \
-		bin="$(ARCHON_DIST_DIR)/archon-$$target"; \
+	for target in $(AUDIT_BIN_TARGETS); do \
+		bin="$(AUDIT_DIST_DIR)/vigolium-audit-$$target"; \
 		if [ ! -x "$$bin" ]; then \
-			echo "\033[31m[!] archon binary not produced at $$bin\033[0m"; \
+			echo "\033[31m[!] vigolium-audit binary not produced at $$bin\033[0m"; \
 			exit 1; \
 		fi; \
 		echo "  $$target  $$(wc -c < "$$bin" | tr -d ' ') bytes"; \
 	done
 	@host_arch=$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); \
 	host_os=$$(uname | tr '[:upper:]' '[:lower:]'); \
-	host_bin="$(ARCHON_DIST_DIR)/archon-$$host_os-$$host_arch"; \
-	cp "$$host_bin" $(ARCHON_BIN_HOST); \
-	chmod +x $(ARCHON_BIN_HOST); \
-	echo "$(PREFIX) Staged $(ARCHON_BIN_HOST) (archon-$$host_os-$$host_arch)"; \
-	echo "$(PREFIX) Cross-compile artifacts available under $(ARCHON_DIST_DIR)/"
+	host_bin="$(AUDIT_DIST_DIR)/vigolium-audit-$$host_os-$$host_arch"; \
+	cp "$$host_bin" $(AUDIT_BIN_HOST); \
+	chmod +x $(AUDIT_BIN_HOST); \
+	echo "$(PREFIX) Staged $(AUDIT_BIN_HOST) (vigolium-audit-$$host_os-$$host_arch)"; \
+	echo "$(PREFIX) Cross-compile artifacts available under $(AUDIT_DIST_DIR)/"
 
-# Pre-build step: compile archon when the embedded binary is missing or is the
-# .gitkeep stub. The `go:embed all:_bin` pattern accepts an empty/stub _bin
-# directory at build time — this guard ensures the runtime extract finds a real
-# binary instead of failing with ErrBinaryMissing.
-ensure-archon:
-	@f="$(ARCHON_BIN_HOST)"; \
+# Pre-build step: compile vigolium-audit when the embedded binary is missing
+# or is the .gitkeep stub. The `go:embed all:_bin` pattern accepts an empty/
+# stub _bin directory at build time — this guard ensures the runtime extract
+# finds a real binary instead of failing with ErrBinaryMissing.
+ensure-audit:
+	@f="$(AUDIT_BIN_HOST)"; \
 	size=0; \
 	if [ -f "$$f" ]; then size=$$(wc -c < "$$f" | tr -d ' '); fi; \
 	if [ -z "$$size" ] || [ "$$size" -lt 1048576 ]; then \
-		echo "$(PREFIX) archon binary missing or stub, building from source..."; \
-		$(MAKE) update-archon; \
+		echo "$(PREFIX) vigolium-audit binary missing or stub, building from source..."; \
+		$(MAKE) update-audit; \
 	fi
+
+# Alias for ensure-audit used by build targets — kept short for readability.
+build-audit: update-audit
 
 # Copy fresh UI builds into embedded public/ paths
 update-ui:

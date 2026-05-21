@@ -21,7 +21,7 @@ func TestValidateAuthOverride(t *testing.T) {
 		},
 		{
 			name:    "api key alone",
-			o:       agenttypes.AuthOverride{APIKey: "sk-ant", Agent: string(agenttypes.ArchonAgentClaude)},
+			o:       agenttypes.AuthOverride{APIKey: "sk-ant", Agent: string(agenttypes.AuditDriverAgentClaude)},
 			wantErr: "",
 		},
 		{
@@ -31,22 +31,22 @@ func TestValidateAuthOverride(t *testing.T) {
 		},
 		{
 			name:    "cred file codex",
-			o:       agenttypes.AuthOverride{OAuthCredFile: "/tmp/auth.json", Agent: string(agenttypes.ArchonAgentCodex)},
+			o:       agenttypes.AuthOverride{OAuthCredFile: "/tmp/auth.json", Agent: string(agenttypes.AuditDriverAgentCodex)},
 			wantErr: "",
 		},
 		{
 			name:    "two flags set is rejected",
-			o:       agenttypes.AuthOverride{APIKey: "x", OAuthToken: "y", Agent: string(agenttypes.ArchonAgentClaude)},
+			o:       agenttypes.AuthOverride{APIKey: "x", OAuthToken: "y", Agent: string(agenttypes.AuditDriverAgentClaude)},
 			wantErr: "at most one",
 		},
 		{
 			name:    "all three flags set is rejected",
-			o:       agenttypes.AuthOverride{APIKey: "x", OAuthToken: "y", OAuthCredFile: "z", Agent: string(agenttypes.ArchonAgentClaude)},
+			o:       agenttypes.AuthOverride{APIKey: "x", OAuthToken: "y", OAuthCredFile: "z", Agent: string(agenttypes.AuditDriverAgentClaude)},
 			wantErr: "at most one",
 		},
 		{
 			name:    "oauth token on codex is rejected",
-			o:       agenttypes.AuthOverride{OAuthToken: "oat", Agent: string(agenttypes.ArchonAgentCodex)},
+			o:       agenttypes.AuthOverride{OAuthToken: "oat", Agent: string(agenttypes.AuditDriverAgentCodex)},
 			wantErr: "only valid for the claude agent",
 		},
 	}
@@ -82,7 +82,7 @@ func TestPiAuthEnv(t *testing.T) {
 		},
 		{
 			name: "claude api key",
-			o:    agenttypes.AuthOverride{APIKey: "sk-ant", Agent: string(agenttypes.ArchonAgentClaude)},
+			o:    agenttypes.AuthOverride{APIKey: "sk-ant", Agent: string(agenttypes.AuditDriverAgentClaude)},
 			want: []string{"ANTHROPIC_API_KEY=sk-ant"},
 		},
 		{
@@ -92,17 +92,17 @@ func TestPiAuthEnv(t *testing.T) {
 		},
 		{
 			name: "codex api key",
-			o:    agenttypes.AuthOverride{APIKey: "sk-openai", Agent: string(agenttypes.ArchonAgentCodex)},
+			o:    agenttypes.AuthOverride{APIKey: "sk-openai", Agent: string(agenttypes.AuditDriverAgentCodex)},
 			want: []string{"OPENAI_API_KEY=sk-openai"},
 		},
 		{
 			name: "claude oauth token",
-			o:    agenttypes.AuthOverride{OAuthToken: "oat", Agent: string(agenttypes.ArchonAgentClaude)},
+			o:    agenttypes.AuthOverride{OAuthToken: "oat", Agent: string(agenttypes.AuditDriverAgentClaude)},
 			want: []string{"CLAUDE_CODE_OAUTH_TOKEN=oat"},
 		},
 		{
 			name: "cred file is staged separately, not via env",
-			o:    agenttypes.AuthOverride{OAuthCredFile: "/tmp/auth.json", Agent: string(agenttypes.ArchonAgentCodex)},
+			o:    agenttypes.AuthOverride{OAuthCredFile: "/tmp/auth.json", Agent: string(agenttypes.AuditDriverAgentCodex)},
 			want: nil,
 		},
 	}
@@ -116,32 +116,32 @@ func TestPiAuthEnv(t *testing.T) {
 	}
 }
 
-func TestApplyAuthOverrideToArchon(t *testing.T) {
+func TestApplyAuthOverrideToAudit(t *testing.T) {
 	t.Run("empty override leaves invocation alone", func(t *testing.T) {
-		inv := agenttypes.ArchonInvocation{
-			Agent: agenttypes.ArchonAgentClaude,
-			Auth:  agenttypes.ArchonAuthFlags{APIKey: "from-config"},
+		inv := agenttypes.AuditDriverInvocation{
+			Agent: agenttypes.AuditDriverAgentClaude,
+			Auth:  agenttypes.AuditDriverAuthFlags{APIKey: "from-config"},
 		}
-		ApplyAuthOverrideToArchon(&inv, agenttypes.AuthOverride{})
+		ApplyAuthOverrideToAudit(&inv, agenttypes.AuthOverride{})
 		if inv.Auth.APIKey != "from-config" {
 			t.Fatalf("override was empty but APIKey changed to %q", inv.Auth.APIKey)
 		}
 	})
 
 	t.Run("override replaces existing auth wholesale", func(t *testing.T) {
-		inv := agenttypes.ArchonInvocation{
-			Agent: agenttypes.ArchonAgentCodex,
-			Auth:  agenttypes.ArchonAuthFlags{OAuthCredFile: "/old/path"},
+		inv := agenttypes.AuditDriverInvocation{
+			Agent: agenttypes.AuditDriverAgentCodex,
+			Auth:  agenttypes.AuditDriverAuthFlags{OAuthCredFile: "/old/path"},
 		}
-		ApplyAuthOverrideToArchon(&inv, agenttypes.AuthOverride{APIKey: "new-key", Agent: string(agenttypes.ArchonAgentCodex)})
-		want := agenttypes.ArchonAuthFlags{APIKey: "new-key"}
+		ApplyAuthOverrideToAudit(&inv, agenttypes.AuthOverride{APIKey: "new-key", Agent: string(agenttypes.AuditDriverAgentCodex)})
+		want := agenttypes.AuditDriverAuthFlags{APIKey: "new-key"}
 		if !reflect.DeepEqual(inv.Auth, want) {
 			t.Fatalf("got %+v, want %+v", inv.Auth, want)
 		}
 	})
 
 	t.Run("nil invocation is a no-op", func(t *testing.T) {
-		ApplyAuthOverrideToArchon(nil, agenttypes.AuthOverride{APIKey: "x"})
+		ApplyAuthOverrideToAudit(nil, agenttypes.AuthOverride{APIKey: "x"})
 	})
 }
 

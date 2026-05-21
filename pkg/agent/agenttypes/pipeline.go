@@ -319,7 +319,7 @@ type ScanRequest struct {
 type ScanFunc func(ctx context.Context, req ScanRequest) error
 
 // DiffContext holds parsed diff information for focused scanning.
-// When present, the agent and archon-audit prioritize the changed files.
+// When present, the agent and vigolium-audit prioritize the changed files.
 type DiffContext struct {
 	ChangedFiles []string `json:"changed_files"`           // changed file paths relative to source root
 	PatchContent string   `json:"patch_content,omitempty"` // unified diff patch content

@@ -1,0 +1,5 @@
+{
+  "name": "vigolium-audit",
+  "description": "Vigolium-Audit security audit orchestration — /vigolium-audit:* commands and specialized agents",
+  "version": "1.0.0"
+}

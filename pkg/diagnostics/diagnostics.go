@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/archon/archonbin"
+	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/olium/auth"
@@ -79,7 +79,7 @@ type Report struct {
 	Agent           *AgentCheck           `json:"agent"`
 	Browser         *CheckResult          `json:"browser"`
 	SessionsDir     *CheckResult          `json:"sessions_dir"`
-	Archon          *CheckResult          `json:"archon,omitempty"`  // omitted when archon integration is disabled
+	Audit          *CheckResult          `json:"audit,omitempty"`  // omitted when audit integration is disabled
 	Piolium         *CheckResult          `json:"piolium,omitempty"` // soft check — feature-gates audit --driver=piolium
 	Tools           map[string]*ToolCheck `json:"tools"`
 	TemplatesDir    *CheckResult          `json:"templates_dir"`
@@ -106,9 +106,9 @@ type AuditPathStatus struct {
 	Reasons []string // one line per failing component (e.g. "claude: not found in PATH")
 }
 
-// AuditPathA reports the status of the claude/archon driver path used by
-// `vigolium agent audit --driver=archon`. Both the `claude` CLI and the
-// embedded archon-ts binary are required; when `agent.archon.enabled=false`
+// AuditPathA reports the status of the claude/audit driver path used by
+// `vigolium agent audit --driver=audit`. Both the `claude` CLI and the
+// embedded vigolium-audit binary are required; when `agent.audit.enabled=false`
 // the path is treated as unavailable (the user has explicitly opted out).
 func AuditPathA(r *Report) AuditPathStatus {
 	var reasons []string
@@ -116,10 +116,10 @@ func AuditPathA(r *Report) AuditPathStatus {
 		reasons = append(reasons, "claude CLI not found in PATH")
 	}
 	switch {
-	case r.Archon == nil:
-		reasons = append(reasons, "archon disabled (set agent.archon.enable=true)")
-	case r.Archon.Status != StatusOK:
-		reasons = append(reasons, "archon: "+r.Archon.Message)
+	case r.Audit == nil:
+		reasons = append(reasons, "audit disabled (set agent.audit.enable=true)")
+	case r.Audit.Status != StatusOK:
+		reasons = append(reasons, "audit: "+r.Audit.Message)
 	}
 	return AuditPathStatus{OK: len(reasons) == 0, Reasons: reasons}
 }
@@ -180,16 +180,16 @@ func Run(deps Deps) *Report {
 	claudeOK := r.Tools["claude"] != nil && r.Tools["claude"].Status == StatusOK
 	if t := r.Tools["pi"]; t != nil && t.Status != StatusOK {
 		if claudeOK {
-			t.Tip = "optional — claude CLI is already available for `vigolium agent audit --driver=archon`; install pi only if you also want the piolium driver."
+			t.Tip = "optional — claude CLI is already available for `vigolium agent audit --driver=audit`; install pi only if you also want the piolium driver."
 		} else {
 			t.Tip = "`vigolium agent audit --driver=piolium` will not work — install with `vigolium doctor --fix --only piolium`."
 		}
 	}
 	if t := r.Tools["claude"]; t != nil && t.Status != StatusOK {
-		t.Tip = "`vigolium agent audit --driver=archon` (claude platform) will not work — install with `vigolium doctor --fix --only claude`."
+		t.Tip = "`vigolium agent audit --driver=audit` (claude platform) will not work — install with `vigolium doctor --fix --only claude`."
 	}
 	if t := r.Tools["codex"]; t != nil && t.Status != StatusOK {
-		t.Tip = "install with `bun add -g @openai/codex` — needed for `vigolium agent audit --driver=archon` (codex platform)"
+		t.Tip = "install with `bun add -g @openai/codex` — needed for `vigolium agent audit --driver=audit` (codex platform)"
 	}
 
 	// If no system chromium found, check CfT cache only (no download).
@@ -213,7 +213,7 @@ func Run(deps Deps) *Report {
 	}
 
 	r.SessionsDir = checkSessionsDir(settings)
-	r.Archon = checkArchon(settings)
+	r.Audit = checkAudit(settings)
 	r.Piolium = checkPiolium()
 	// When claude (Path A) is available, frame a missing piolium as optional
 	// rather than a problem to fix — the user already has a working audit
@@ -596,21 +596,21 @@ func probeWritable(dir string) error {
 	return nil
 }
 
-// checkArchon validates the embedded archon-ts binary was staged at
+// checkAudit validates the embedded vigolium-audit binary was staged at
 // vigolium build time. Returns nil when the integration is disabled so
 // the caller can omit the section from the report entirely.
-func checkArchon(settings *config.Settings) *CheckResult {
-	if !settings.Agent.Archon.IsEnabled() {
+func checkAudit(settings *config.Settings) *CheckResult {
+	if !settings.Agent.Audit.IsEnabled() {
 		return nil
 	}
-	mode := settings.Agent.Archon.EffectiveMode()
+	mode := settings.Agent.Audit.EffectiveMode()
 	details := []string{fmt.Sprintf("mode: %s", mode)}
-	if !archonbin.Available() {
+	if !bin.Available() {
 		return &CheckResult{
 			Status:  StatusError,
-			Message: "archon binary not embedded",
+			Message: "vigolium-audit binary not embedded",
 			Details: details,
-			Tip:     "Run `make build-archon` and rebuild vigolium to embed the archon-ts binary.",
+			Tip:     "Run `make build-audit` and rebuild vigolium to embed the vigolium-audit binary.",
 		}
 	}
 	return &CheckResult{
@@ -786,7 +786,7 @@ func checkNucleiTemplates(settings *config.Settings) *CheckResult {
 //     sessions dir, prompt templates dir, and (when explicitly enabled) the
 //     agent browser. Failures drop to "degraded".
 //
-// Audit mode (archon Path A and piolium Path B) and the codex/pi/claude tool
+// Audit mode (audit Path A and piolium Path B) and the codex/pi/claude tool
 // rows are intentionally NOT status-affecting — audit is opt-in, both of its
 // driver paths are independently optional, and degrading the verdict for a
 // missing optional mode would mislead users about what's actually broken.

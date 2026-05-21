@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-// TestStream_ArchonStreamCustomMessages verifies that piolium's
-// "role":"custom","customType":"archon-stream" events — which Pi emits
+// TestStream_AuditDriverStreamCustomMessages verifies that piolium's
+// "role":"custom","customType":"audit-stream" events — which Pi emits
 // for every phase/tool action — are rendered. Before the custom-message
 // path was added, json.Unmarshal failed silently because content is a
 // string (not a []contentBlock) and the entire feed would collapse to
 // just the session header.
-func TestStream_ArchonStreamCustomMessages(t *testing.T) {
+func TestStream_AuditDriverStreamCustomMessages(t *testing.T) {
 	in := strings.Join([]string{
 		`{"type":"session","version":3,"id":"019de4a7-7388-719e-95d9-a857414db37e","timestamp":"2026-05-01T17:47:52.584Z","cwd":"/tmp/repo"}`,
 		// duplicated start/end events as observed in the wild — should render once
-		`{"type":"message_start","message":{"role":"custom","customType":"archon-stream","content":"[Q2] → read  piolium/attack-surface/lite-recon.md","display":true,"details":{"kind":"tool-start","phase":"Q2","toolName":"read","body":"piolium/attack-surface/lite-recon.md"},"timestamp":1777657678251}}`,
-		`{"type":"message_end","message":{"role":"custom","customType":"archon-stream","content":"[Q2] → read  piolium/attack-surface/lite-recon.md","display":true,"details":{"kind":"tool-start","phase":"Q2","toolName":"read","body":"piolium/attack-surface/lite-recon.md"},"timestamp":1777657678251}}`,
-		`{"type":"message_end","message":{"role":"custom","customType":"archon-stream","content":"[Q2] ← read  # Lite Recon — Q0","display":true,"details":{"kind":"tool-end","phase":"Q2","toolName":"read","body":"# Lite Recon"},"timestamp":1777657678260}}`,
-		`{"type":"message_end","message":{"role":"custom","customType":"archon-stream","content":"[Q2] ✗ read  ENOENT: no such file","display":true,"details":{"kind":"tool-error","phase":"Q2","toolName":"read","body":"ENOENT"},"timestamp":1777657678255}}`,
+		`{"type":"message_start","message":{"role":"custom","customType":"audit-stream","content":"[Q2] → read  piolium/attack-surface/lite-recon.md","display":true,"details":{"kind":"tool-start","phase":"Q2","toolName":"read","body":"piolium/attack-surface/lite-recon.md"},"timestamp":1777657678251}}`,
+		`{"type":"message_end","message":{"role":"custom","customType":"audit-stream","content":"[Q2] → read  piolium/attack-surface/lite-recon.md","display":true,"details":{"kind":"tool-start","phase":"Q2","toolName":"read","body":"piolium/attack-surface/lite-recon.md"},"timestamp":1777657678251}}`,
+		`{"type":"message_end","message":{"role":"custom","customType":"audit-stream","content":"[Q2] ← read  # Lite Recon — Q0","display":true,"details":{"kind":"tool-end","phase":"Q2","toolName":"read","body":"# Lite Recon"},"timestamp":1777657678260}}`,
+		`{"type":"message_end","message":{"role":"custom","customType":"audit-stream","content":"[Q2] ✗ read  ENOENT: no such file","display":true,"details":{"kind":"tool-error","phase":"Q2","toolName":"read","body":"ENOENT"},"timestamp":1777657678255}}`,
 	}, "\n")
 
 	var out bytes.Buffer
@@ -67,7 +67,7 @@ func TestStream_StandardAgentMessageStillRenders(t *testing.T) {
 // custom events stay hidden so we don't leak suppressed-by-design
 // piolium internals into the CLI feed.
 func TestStream_CustomMessageRespectsDisplayFlag(t *testing.T) {
-	in := `{"type":"message_end","message":{"role":"custom","customType":"archon-stream","content":"hidden noise","display":false,"details":{"kind":"tool-start"}}}`
+	in := `{"type":"message_end","message":{"role":"custom","customType":"audit-stream","content":"hidden noise","display":false,"details":{"kind":"tool-start"}}}`
 
 	var out bytes.Buffer
 	if err := Stream(strings.NewReader(in), &out, Options{}); err != nil {

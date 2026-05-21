@@ -17,7 +17,7 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 | `query`      | Single-shot prompt (template or inline). Code review, secret hunt, endpoint discovery. | `pkg/cli/agent.go`          |
 | `autopilot`  | Agentic scan: autonomous operator with full tool access.         | `pkg/cli/agent_autopilot.go`|
 | `swarm`      | Agentic scan: 10-phase guided pipeline (plan → extension → scan → triage). | `pkg/cli/agent_swarm.go`    |
-| `archon`     | Foreground archon-audit (multi-phase AI source-code audit).      | `pkg/cli/agent_archon.go`   |
+| `audit`     | Foreground vigolium-audit (multi-phase AI source-code audit).      | `pkg/cli/agent_audit.go`   |
 | `olium`      | Interactive olium TUI or headless prompt.                        | `pkg/cli/agent_olium.go`    |
 | `session`    | List or inspect past agent runs (sessions list / detail view).   | `pkg/cli/agent_session.go`  |
 
@@ -30,7 +30,7 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  CLI                          pkg/cli/agent_*.go                │
-│  query · autopilot · swarm · archon · olium · session           │
+│  query · autopilot · swarm · audit · olium · session           │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────────┐
@@ -41,7 +41,7 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 │     discovery → plan → extension → scan → triage → finalize     │
 │                                                                 │
 │   AutopilotPipelineRunner    autopilot_pipeline.go              │
-│     archon (optional, foreground) → autonomous operator         │
+│     audit (optional, foreground) → autonomous operator         │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────────┐
@@ -191,7 +191,7 @@ Phase names prefixed `native-` are pure-Go (no LLM). The pipeline is gated by:
 - `cfg.Discover`, `cfg.CodeAudit`, `cfg.Triage` toggles
 - checkpoint resume — `--resume <session-dir>` skips already-completed phases
 
-A parallel **archon-audit** subprocess can run in the background (`cfg.Archon != ""`) when source is provided, contributing source-code audit findings without blocking the swarm.
+A parallel **vigolium-audit** subprocess can run in the background (`cfg.Audit != ""`) when source is provided, contributing source-code audit findings without blocking the swarm.
 
 ### Plan & extension phases
 
@@ -230,14 +230,14 @@ If `FollowUpScans` is non-empty and rescan is enabled, the pipeline loops back t
 
 ```
    ┌─────────────────────────────────────────────┐
-   │ archon (optional, foreground)               │
-   │   if --source: run archon-audit, freeze     │
-   │   findings into archon-audit/ directory     │
+   │ audit (optional, foreground)               │
+   │   if --source: run vigolium-audit, freeze     │
+   │   findings into vigolium-results/ directory     │
    └─────────────────┬───────────────────────────┘
                      ▼
    ┌─────────────────────────────────────────────┐
    │ Context preparation                         │
-   │   - load frozen archon findings             │
+   │   - load frozen audit findings             │
    │   - prepareAutopilotAuth → AuthHeaders      │
    │   - buildAutopilotContextBundle             │
    │     (routes, auth flows, browser decision)  │
@@ -261,11 +261,11 @@ If `FollowUpScans` is non-empty and rescan is enabled, the pipeline loops back t
    └─────────────────────────────────────────────┘
 ```
 
-Effort level (`low`/`medium`) is picked from archon mode: `balanced`/`deep` archon → `medium` effort, else `low`. The operator stream is captured to `<session>/output.md`.
+Effort level (`low`/`medium`) is picked from audit mode: `balanced`/`deep` audit → `medium` effort, else `low`. The operator stream is captured to `<session>/output.md`.
 
 ### Intensity presets (autopilot)
 
-| Intensity | MaxCommands | Timeout | Archon mode | Browser |
+| Intensity | MaxCommands | Timeout | Audit mode | Browser |
 |-----------|-------------|---------|-------------|---------|
 | quick     | 30          | 1h      | lite        | off     |
 | balanced  | 100         | 6h      | balanced    | off     |
@@ -283,7 +283,7 @@ Every swarm and autopilot run writes a session dir under `agent.sessions_dir` (d
 ├── plan.json               # serialized SwarmPlan
 ├── session-config.json     # auth session definitions (login flows, token rules)
 ├── extensions/             # compiled JS extensions (sanitized filenames)
-├── archon-audit/           # archon subprocess output (audit-state.json + findings)
+├── vigolium-results/         # audit subprocess output (audit-state.json + findings)
 ├── master-prompt.md        # rendered prompt sent to master agent (debug)
 ├── source-analysis-prompt.md
 ├── output.md               # autopilot: agent stream / final transcript
@@ -326,7 +326,7 @@ agent:
       api_key: ""                            # optional; empty = no Authorization header
       extra_headers:                         # optional; applied after standard headers
         # X-Provider: custom
-  archon:
+  audit:
     # …
   browser:
     # optional agent-browser integration
@@ -343,7 +343,7 @@ CLI flags (`--provider`, `--model`, `--oauth-token`, `--llm-api-key`, `--base-ur
 | Subcommand wiring             | `pkg/cli/agent*.go`                             |
 | Swarm orchestrator            | `pkg/agent/swarm.go`, `swarm_pipeline.go`       |
 | Autopilot orchestrator        | `pkg/agent/autopilot_pipeline.go`               |
-| Archon audit runner           | `pkg/agent/audit_agent.go`                      |
+| Audit audit runner           | `pkg/agent/audit_agent.go`                      |
 | Engine (prompt → dispatch)    | `pkg/agent/engine.go`                           |
 | Prompt templates / rendering  | `pkg/agent/prompt/`, `public/presets/prompts/`  |
 | Output parsers (JSON-tolerant)| `pkg/agent/parsing/`                            |
@@ -362,4 +362,4 @@ CLI flags (`--provider`, `--model`, `--oauth-token`, `--llm-api-key`, `--base-ur
 - **Orchestrator** sequences many engine calls plus native steps (discovery, scan), checkpoints state, and writes a session directory.
 - **Olium** is the agent runtime — it holds conversation state and dispatches to a provider. One olium engine can serve many engine calls cheaply (prompt cache hits).
 - **Phases** are the unit of resumable work. `--only`, `--skip`, `--start-from`, and `--resume` operate on phase names.
-- **Intensity** is a single knob that hydrates a bundle of toggles (commands, timeout, archon mode, discover/audit/triage flags, browser/auth).
+- **Intensity** is a single knob that hydrates a bundle of toggles (commands, timeout, audit mode, discover/audit/triage flags, browser/auth).

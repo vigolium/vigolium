@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/audit"
 )
 
 type AutopilotContextBundle struct {
@@ -21,8 +21,8 @@ type AutopilotContextBundle struct {
 	AuthFlows       []AutopilotAuthFlow       `json:"auth_flows,omitempty"`
 	Findings        []AutopilotFindingSummary `json:"findings,omitempty"`
 	Priorities      []string                  `json:"priorities,omitempty"`
-	ArchonAvailable bool                      `json:"archon_available"`
-	ArchonStatus    string                    `json:"archon_status,omitempty"`
+	AuditDriverAvailable bool                      `json:"audit_available"`
+	AuditDriverStatus    string                    `json:"audit_status,omitempty"`
 	PreparedAuth    *AutopilotPreparedAuth    `json:"prepared_auth,omitempty"`
 	BrowserDecision string                    `json:"browser_decision,omitempty"`
 	BrowserReason   string                    `json:"browser_reason,omitempty"`
@@ -108,7 +108,7 @@ type AutopilotVerificationReport struct {
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
-func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *archonContext, archonStatus string, warnings []string) AutopilotContextBundle {
+func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *auditContextStruct, auditStatus string, warnings []string) AutopilotContextBundle {
 	mode := "target-only"
 	switch {
 	case cfg.TargetURL != "" && cfg.SourcePath != "":
@@ -122,8 +122,8 @@ func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *archonContext,
 		Mode:            mode,
 		TargetURL:       cfg.TargetURL,
 		SourcePath:      cfg.SourcePath,
-		ArchonAvailable: ac != nil,
-		ArchonStatus:    archonStatus,
+		AuditDriverAvailable: ac != nil,
+		AuditDriverStatus:    auditStatus,
 		Warnings:        append([]string(nil), warnings...),
 	}
 
@@ -133,8 +133,8 @@ func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *archonContext,
 	}
 
 	if ac != nil {
-		bundle.Findings = summarizeArchonFindings(ac.Findings)
-		bundle.Routes = inferRoutesFromArchon(ac.Findings)
+		bundle.Findings = summarizeFindings(ac.Findings)
+		bundle.Routes = inferRoutesFromAudit(ac.Findings)
 		bundle.AuthFlows = inferAuthFlows(ac.Findings)
 	}
 	if cfg.PreparedAuth != nil {
@@ -296,7 +296,7 @@ func buildStopCriteria(cfg AutopilotPipelineConfig, bundle AutopilotContextBundl
 	return criteria
 }
 
-func summarizeArchonFindings(findings []*archon.ArchonFinding) []AutopilotFindingSummary {
+func summarizeFindings(findings []*audit.Finding) []AutopilotFindingSummary {
 	out := make([]AutopilotFindingSummary, 0, len(findings))
 	for i, f := range findings {
 		summary := AutopilotFindingSummary{
@@ -316,7 +316,7 @@ func summarizeArchonFindings(findings []*archon.ArchonFinding) []AutopilotFindin
 	return out
 }
 
-func inferRoutesFromArchon(findings []*archon.ArchonFinding) []AutopilotRouteSummary {
+func inferRoutesFromAudit(findings []*audit.Finding) []AutopilotRouteSummary {
 	seen := map[string]struct{}{}
 	var routes []AutopilotRouteSummary
 	for _, f := range findings {
@@ -332,13 +332,13 @@ func inferRoutesFromArchon(findings []*archon.ArchonFinding) []AutopilotRouteSum
 		routes = append(routes, AutopilotRouteSummary{
 			Path:   route,
 			Method: "",
-			Source: "archon",
+			Source: "audit",
 		})
 	}
 	return routes
 }
 
-func inferAuthFlows(findings []*archon.ArchonFinding) []AutopilotAuthFlow {
+func inferAuthFlows(findings []*audit.Finding) []AutopilotAuthFlow {
 	seen := map[string]struct{}{}
 	var flows []AutopilotAuthFlow
 	for _, f := range findings {
@@ -373,7 +373,7 @@ func buildAutopilotPriorities(cfg AutopilotPipelineConfig, bundle AutopilotConte
 		priorities = append(priorities, "Validate changed-code paths before broad discovery")
 	}
 	if len(bundle.Findings) > 0 {
-		priorities = append(priorities, "Exploit or disprove high-confidence frozen Archon findings first")
+		priorities = append(priorities, "Exploit or disprove high-confidence frozen Audit findings first")
 	}
 	if len(bundle.AuthFlows) > 0 {
 		priorities = append(priorities, "Establish or rule out authentication before scanning protected routes")
@@ -398,12 +398,12 @@ func prepareAutopilotArtifacts(sessionDir string) (AutopilotArtifactSpec, error)
 	if sessionDir == "" {
 		return spec, nil
 	}
-	archonDir := filepath.Join(sessionDir, "archon")
+	auditDirLocal := filepath.Join(sessionDir, "audit")
 	autopilotDir := filepath.Join(sessionDir, "autopilot")
 	evidenceDir := filepath.Join(autopilotDir, "evidence")
 	for _, dir := range []string{
-		filepath.Join(archonDir, "raw"),
-		filepath.Join(archonDir, "findings"),
+		filepath.Join(auditDirLocal, "raw"),
+		filepath.Join(auditDirLocal, "findings"),
 		autopilotDir,
 		evidenceDir,
 	} {
@@ -545,7 +545,7 @@ func hasEvidence(item map[string]any, evidenceDir string) bool {
 	return err == nil && len(entries) > 0
 }
 
-func inferFindingAction(f *archon.ArchonFinding) string {
+func inferFindingAction(f *audit.Finding) string {
 	switch strings.ToLower(f.Severity) {
 	case "critical", "high":
 		return "exploit"
@@ -566,7 +566,7 @@ func inferFindingKind(text string) string {
 	return ""
 }
 
-func inferRouteFromFinding(f *archon.ArchonFinding) string {
+func inferRouteFromFinding(f *audit.Finding) string {
 	for _, loc := range compactStrings(f.Locations) {
 		if idx := strings.Index(loc, "/"); idx >= 0 {
 			return loc[idx:]

@@ -2261,7 +2261,7 @@
             "name": "path",
             "in": "path",
             "required": true,
-            "description": "Path relative to the session directory (e.g. \"runtime.log\", \"archon-audit/audit-state.json\")",
+            "description": "Path relative to the session directory (e.g. \"runtime.log\", \"vigolium-audit/audit-state.json\")",
             "schema": {
               "type": "string"
             }
@@ -4528,15 +4528,15 @@
             "type": "string",
             "format": "uuid"
           },
-          "archon": {
+          "audit": {
             "type": "string",
-            "description": "DEPRECATED: use no_archon + archon_mode. Legacy values: \"lite\", \"balanced\", \"deep\", \"off\"."
+            "description": "DEPRECATED: use no_audit + audit_mode. Legacy values: \"lite\", \"balanced\", \"deep\", \"off\"."
           },
-          "no_archon": {
+          "no_audit": {
             "type": "boolean",
-            "description": "Disable automatic archon-audit (enabled by default when source is set)"
+            "description": "Disable automatic vigolium-audit (enabled by default when source is set)"
           },
-          "archon_mode": {
+          "audit_mode": {
             "type": "string",
             "enum": [
               "lite",
@@ -4804,7 +4804,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "archon": {
+          "audit": {
             "type": "string",
             "enum": [
               "lite",
@@ -4813,7 +4813,7 @@
               "off",
               ""
             ],
-            "description": "Run background archon-audit. Empty/\"off\" disables (swarm uses opt-in archon)."
+            "description": "Run background vigolium-audit. Empty/\"off\" disables (swarm uses opt-in audit)."
           },
           "diff": {
             "type": "string",

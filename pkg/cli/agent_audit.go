@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
-	"github.com/vigolium/vigolium/pkg/archon/archonbin"
+	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/piolium"
@@ -28,20 +28,22 @@ var (
 	auditListModes     bool
 	auditSource        string
 	auditNoStream      bool
+	auditShowThinking  bool
 	auditUploadResults bool
 	auditInteractive   bool
 
 	// Resolved mode chain (intensity- or --modes-derived) and the
 	// per-driver filtered chains, populated by runAgentAudit and consumed
-	// by runAuditDriver. archon gets the modes it understands; piolium
+	// by runAuditDriver. audit gets the modes it understands; piolium
 	// gets the modes it understands. For driver=auto/both these may
 	// differ (per-driver skip-unsupported).
 	auditModeChain      []string
-	auditArchonModes    []string
+	auditDriverModes    []string
 	auditPioliumModes   []string
 	auditCommitDepth    int
 	auditNoDedup        bool
-	auditArchonProvider string
+	auditKeepRaw        bool
+	auditProvider string
 	auditAgent          string
 
 	auditPiProvider string
@@ -59,7 +61,7 @@ var (
 	auditPlmLongshotLangs   string
 
 	// BYOK auth override flags. Apply to whichever driver(s) actually
-	// run — archon receives them as --api-key/--oauth-token/--oauth-cred-file
+	// run — audit receives them as --api-key/--oauth-token/--oauth-cred-file
 	// flags; piolium receives them as env vars on the pi subprocess
 	// (and, for codex cred files, a staged <pi-agent-dir>/auth.json).
 	// Each accepts literal, $ENV_NAME, or @path indirection (CLI only —
@@ -71,26 +73,27 @@ var (
 
 var agentAuditCmd = &cobra.Command{
 	Use:   "audit",
-	Short: "Run archon and/or piolium back-to-back as a unified security audit",
-	Long: `Run a unified security audit that drives archon and/or piolium against
+	Short: "Run audit and/or piolium back-to-back as a unified security audit",
+	Long: `Run a unified security audit that drives audit and/or piolium against
 the same source tree under a single AgenticScan, with post-pass findings
 deduplication.
 
 Driver selection (--driver):
-  auto       run archon first; only fall back to piolium if archon fails
-             (default — a clean archon run finishes the audit and piolium
-             is never consulted, so a missing piolium runtime is silent)
-  both       run archon then piolium unconditionally (sequential)
-  archon     run only archon (equivalent to: vigolium agent archon)
+  auto       preflight the resolved coding-agent CLI (claude or codex) on
+             PATH; if present run audit, else fall back to piolium without
+             ever launching the embedded binary (default). Mid-run audit
+             failures surface — piolium is not silently retried.
+  both       run audit then piolium unconditionally (sequential)
+  audit      run only audit
   piolium    run only piolium (equivalent to: vigolium agent piolium)
 
 When --driver=auto or --driver=both, --mode is restricted to modes both
 drivers understand:
 lite, balanced, deep, revisit, confirm, merge. To use a driver-specific
-mode (piolium's longshot/smoke or archon's reinvest/mock), pass
---driver=piolium or --driver=archon explicitly.
+mode (piolium's longshot/smoke or audit's reinvest/mock), pass
+--driver=piolium or --driver=audit explicitly.
 
-Each driver runs in its own session subdirectory ({session}/archon/ and
+Each driver runs in its own session subdirectory ({session}/vigolium-results/ and
 {session}/piolium/) under one parent AgenticScan UUID. Per-driver runtime
 logs, audit-state.json, and findings stay separated on disk and in the DB
 (child AgenticScan rows), but are scored as one logical audit. After both
@@ -99,15 +102,17 @@ severity, url) duplicates that escaped INSERT-time hash dedup.
 
 Under --driver=both, if one driver fails the other still runs and the
 parent run reports per-driver status. Under --driver=auto, piolium runs
-only when archon fails. Use --driver=piolium or --driver=archon when you
-only want one harness's perspective.
+only when the audit driver's claude/codex CLI is missing from PATH; a
+mid-run audit failure surfaces directly without silently switching.
+Use --driver=piolium or --driver=audit when you only want one harness's
+perspective.
 
---interactive (-i) drops you into the coding agent with the archon
-harness installed and lets you drive the audit yourself (archon-only).
+--interactive (-i) drops you into the coding agent with the audit
+harness installed and lets you drive the audit yourself (audit-only).
 It skips NDJSON streaming, the AgenticScan row, and findings
-auto-import: archon writes results to <source>/archon/, which you then
+auto-import: audit writes results to <source>/vigolium-results/, which you then
 load and turn into a report in one command with
-'vigolium import <source>/archon --format html -o archon-report.html'.`,
+'vigolium import <source>/vigolium-results --format html -o audit-report.html'.`,
 	RunE: runAgentAudit,
 }
 
@@ -115,24 +120,26 @@ func init() {
 	agentCmd.AddCommand(agentAuditCmd)
 
 	f := agentAuditCmd.Flags()
-	f.StringVar(&auditDriver, "driver", agent.AuditDriverAuto, "Audit driver: auto (archon, fall back to piolium on failure), both (archon then piolium), archon, or piolium (default auto)")
+	f.StringVar(&auditDriver, "driver", agent.AuditDriverAuto, "Audit driver: auto (audit; fall back to piolium when claude/codex CLI missing), both (audit then piolium), audit, or piolium (default auto)")
 	f.StringVar(&auditIntensity, "intensity", "balanced", "Audit intensity preset: quick, balanced, or deep")
-	f.StringVar(&auditMode, "mode", "", "Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, archon=reinvest/mock/diff/status")
-	f.StringVar(&auditModes, "modes", "", "Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. archon runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg.")
-	f.BoolVar(&auditListModes, "list-modes", false, "List the available audit modes (archon's mode graph: phases, time estimate, descriptions) and exit")
+	f.StringVar(&auditMode, "mode", "", "Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/mock/diff/status")
+	f.StringVar(&auditModes, "modes", "", "Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg.")
+	f.BoolVar(&auditListModes, "list-modes", false, "List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit")
 	f.StringVar(&auditSource, "source", ".", "Source: local directory, git URL, gs://<project>/<key> archive, or local .zip/.tar.gz")
-	f.BoolVarP(&auditInteractive, "interactive", "i", false, "Drop into the coding agent with the archon harness installed and drive the audit yourself (archon-only; the embedded archon binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/archon/; import them afterward with 'vigolium import'. Not valid with --driver=piolium.")
+	f.BoolVarP(&auditInteractive, "interactive", "i", false, "Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium.")
 	f.BoolVar(&auditNoStream, "no-stream", false, "Don't echo agent output to the console (still written to {session}/<driver>/runtime.log)")
+	f.BoolVar(&auditShowThinking, "show-thinking", false, "Render the agent's internal thinking blocks (audit NDJSON `thinking` events) in the live stream. Off by default — thinking is verbose and produces many lines per phase.")
 	f.BoolVar(&auditUploadResults, "upload-results", false, "Upload session bundle to cloud storage after completion (requires storage config)")
 	f.IntVar(&auditCommitDepth, "commit-depth", 1, "git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity)")
 	f.BoolVar(&auditNoDedup, "no-dedup", false, "Skip the post-pass project-wide findings dedup that runs after the audit completes")
+	f.BoolVar(&auditKeepRaw, "keep-raw", false, "[audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). No effect on the piolium leg.")
 
-	// Archon-only. archon now drives both Claude Code and Codex
+	// Audit-only. audit now drives both Claude Code and Codex
 	// internally, so anthropic-* and openai-* providers are both
-	// accepted; ResolveArchonInvocation maps the prefix to the right
+	// accepted; ResolveAuditDriverInvocation maps the prefix to the right
 	// `--agent` value.
-	f.StringVar(&auditArchonProvider, "archon-provider", "", "[archon] Olium provider hint to drive archon's --agent: anthropic-* → claude, openai-* → codex (also forwards that provider's BYOK auth). Empty inherits agent.olium.provider. For a pure agent switch without changing auth, prefer --agent.")
-	f.StringVar(&auditAgent, "agent", "", "[archon] Coding agent for the archon leg: claude or codex. Overrides the agent implied by --archon-provider while keeping its resolved auth. No effect on the piolium leg.")
+	f.StringVar(&auditProvider, "provider", "", "[audit] Olium provider hint to drive audit's --agent: anthropic-* → claude, openai-* → codex (also forwards that provider's BYOK auth). Empty inherits agent.olium.provider. For a pure agent switch without changing auth, prefer --agent.")
+	f.StringVar(&auditAgent, "agent", "", "[audit] Coding agent for the audit leg: claude or codex. Overrides the agent implied by --provider while keeping its resolved auth. No effect on the piolium leg.")
 
 	// Piolium-only.
 	f.StringVar(&auditPiProvider, "pi-provider", "", "[piolium] Override pi's defaultProvider (e.g. vertex-anthropic, google-vertex)")
@@ -160,7 +167,7 @@ func init() {
 // session subdir lives, and (after Run) the captured outcome that feeds
 // the combined banner.
 type driverPlan struct {
-	name       string // "archon" or "piolium"
+	name       string // "audit" or "piolium"
 	sessionDir string
 
 	// Set after the driver runs. AuditRunner so a multi-mode piolium
@@ -171,7 +178,7 @@ type driverPlan struct {
 }
 
 func runAgentAudit(cmd *cobra.Command, args []string) error {
-	// --list-modes is an early-return info flag: print archon's mode
+	// --list-modes is an early-return info flag: print audit's mode
 	// graph and exit before requiring --source / settings / a DB.
 	if auditListModes {
 		return runListModes(false)
@@ -181,30 +188,38 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
 	if !agent.IsValidAuditDriver(auditDriver) {
-		return fmt.Errorf("invalid --driver %q (must be: auto, both, archon, or piolium)", auditDriver)
+		return fmt.Errorf("invalid --driver %q (must be: auto, both, audit, or piolium)", auditDriver)
 	}
 
-	// --agent is a pure agent selector for the archon leg. Reject bad
+	// --agent is a pure agent selector for the audit leg. Reject bad
 	// values up front rather than silently falling back to the
 	// provider-derived agent. It has no piolium equivalent, so warn
 	// (don't error) when it can't take effect on a piolium-only run.
 	auditAgent = strings.TrimSpace(auditAgent)
 	if auditAgent != "" {
-		if !agent.IsValidArchonAgent(auditAgent) {
+		if !agent.IsValidAuditDriverAgent(auditAgent) {
 			return fmt.Errorf("invalid --agent %q (must be: claude or codex)", auditAgent)
 		}
 		if auditDriver == agent.AuditDriverPiolium {
-			fmt.Fprintf(os.Stderr, "%s --agent is archon-only and has no effect with --driver=piolium\n",
+			fmt.Fprintf(os.Stderr, "%s --agent is audit-only and has no effect with --driver=piolium\n",
 				terminal.WarningSymbol())
 		}
 	}
 
 	// --interactive hands the terminal to the user inside the coding
-	// agent (archon's -i). piolium has no equivalent, so combining it
-	// with --driver=piolium is contradictory; auto/both/archon all run
-	// the archon leg interactively (the piolium leg is dropped).
+	// agent (audit's -i). piolium has no equivalent, so combining it
+	// with --driver=piolium is contradictory; auto/both/audit all run
+	// the audit leg interactively (the piolium leg is dropped).
 	if auditInteractive && auditDriver == agent.AuditDriverPiolium {
-		return fmt.Errorf("--interactive is archon-only and cannot be combined with --driver=piolium (omit --driver or use --driver=archon)")
+		return fmt.Errorf("--interactive is audit-only and cannot be combined with --driver=piolium (omit --driver or use --driver=audit)")
+	}
+
+	// --keep-raw forwards to vigolium-audit's own --keep-raw; piolium has
+	// no equivalent. Warn (don't error) so --driver=auto/both runs that
+	// happen to fall through to piolium still proceed.
+	if auditKeepRaw && auditDriver == agent.AuditDriverPiolium {
+		fmt.Fprintf(os.Stderr, "%s --keep-raw is audit-only and has no effect with --driver=piolium\n",
+			terminal.WarningSymbol())
 	}
 
 	intensity, err := agent.ValidateIntensity(auditIntensity)
@@ -218,7 +233,7 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 			"mode":         cmd.Flags().Changed("mode"),
 			"commit-depth": cmd.Flags().Changed("commit-depth"),
 		}
-		preset := agent.ResolveArchonIntensity(intensity, agent.ArchonIntensityPreset{
+		preset := agent.ResolveAuditDriverIntensity(intensity, agent.AuditDriverIntensityPreset{
 			Mode:        auditMode,
 			Modes:       explicitModes,
 			CommitDepth: auditCommitDepth,
@@ -230,30 +245,30 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 		auditModeChain = []string{auditMode}
 	}
 
-	archonModes, pioliumModes, err := agent.ValidateAuditDriverModes(
-		auditDriver, auditModeChain, piolium.IsValidMode, agent.IsValidArchonMode)
+	auditChain, pioliumModes, err := agent.ValidateAuditDriverModes(
+		auditDriver, auditModeChain, piolium.IsValidMode, agent.IsValidAuditDriverMode)
 	if err != nil {
 		return err
 	}
-	auditArchonModes = archonModes
+	auditDriverModes = auditChain
 	auditPioliumModes = pioliumModes
 	if auditSource == "" {
 		return fmt.Errorf("--source is required (local path or git URL)")
 	}
 
-	// Interactive mode always drives archon, so the embedded binary must
+	// Interactive mode always drives audit, so the embedded binary must
 	// be present and the resolved chain must contain at least one mode
-	// archon understands. Fail before the git clone.
+	// audit understands. Fail before the git clone.
 	if auditInteractive {
-		if !archonbin.Available() {
-			return fmt.Errorf("--interactive requires the embedded archon binary — run `make build-archon` and rebuild vigolium")
+		if !bin.Available() {
+			return fmt.Errorf("--interactive requires the embedded vigolium-audit binary — run `make build-audit` and rebuild vigolium")
 		}
-		if len(auditArchonModes) == 0 {
-			return fmt.Errorf("--interactive runs the archon leg, but mode chain %q contains no archon-supported modes", agent.JoinModes(auditModeChain))
+		if len(auditDriverModes) == 0 {
+			return fmt.Errorf("--interactive runs the audit leg, but mode chain %q contains no audit-supported modes", agent.JoinModes(auditModeChain))
 		}
 	}
-	// archon-provider is now permissive — anthropic-* + openai-* both
-	// resolve via ResolveArchonInvocation. Empty inherits olium config.
+	// --provider is now permissive — anthropic-* + openai-* both
+	// resolve via ResolveAuditDriverInvocation. Empty inherits olium config.
 
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
@@ -266,7 +281,7 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	// network-supplied string probe the server's process env. The resolved
 	// override carries the agent (claude/codex) it applies to so both
 	// drivers see the same answer.
-	authOverride, err := resolveAuditAuthOverride(auditAPIKey, auditOAuthToken, auditOAuthCredFile, auditArchonProvider, settings.Agent.Olium.Provider)
+	authOverride, err := resolveAuditAuthOverride(auditAPIKey, auditOAuthToken, auditOAuthCredFile, auditProvider, settings.Agent.Olium.Provider)
 	if err != nil {
 		return err
 	}
@@ -312,15 +327,15 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Interactive: hand the terminal to the user inside the coding agent
-	// with archon's harness installed. This bypasses the headless
+	// with audit's harness installed. This bypasses the headless
 	// orchestrator entirely — no AgenticScan rows, no NDJSON decode, no
-	// findings auto-import. archon writes to <source>/archon/; the
+	// findings auto-import. audit writes to <source>/vigolium-results/; the
 	// operator imports + exports afterward (hint printed below).
 	if auditInteractive {
-		invocation := resolveAuditArchonInvocation(settings.Agent.Olium, authOverride)
-		cfg := agent.BuildArchonAuditCfg(agent.ArchonCfgInput{
-			Mode:                  agent.FirstMode(auditArchonModes),
-			Modes:                 auditArchonModes,
+		invocation := resolveAuditDriverInvocation(settings.Agent.Olium, authOverride)
+		cfg := agent.BuildAuditDriverCfg(agent.AuditDriverCfgInput{
+			Mode:                  agent.FirstMode(auditDriverModes),
+			Modes:                 auditDriverModes,
 			SourcePath:            absTarget,
 			SessionDir:            parentSessionDir,
 			ProjectUUID:           projectUUID,
@@ -328,15 +343,16 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 			ParentAgenticScanUUID: parentUUID,
 			Invocation:            invocation,
 			Stream:                false,
+			KeepRaw:               auditKeepRaw,
 			AuthOverride:          authOverride,
 		})
 
 		fmt.Fprintf(os.Stderr, "%s %s\n",
 			terminal.Green(terminal.SymbolStart),
-			terminal.BoldHiBlue("Interactive Audit (archon)"))
+			terminal.BoldHiBlue("Interactive Audit (audit)"))
 		fmt.Fprintf(os.Stderr, "  %s Mode: %s | Agent: %s\n",
 			terminal.Purple(terminal.SymbolInfo),
-			terminal.HiTeal(agent.JoinModes(auditArchonModes)),
+			terminal.HiTeal(agent.JoinModes(auditDriverModes)),
 			terminal.HiTeal(string(invocation.Agent)))
 		fmt.Fprintf(os.Stderr, "  %s Source: %s\n",
 			terminal.Purple(terminal.SymbolTarget),
@@ -347,21 +363,21 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		runErr := agent.RunArchonInteractive(ctx, cfg)
+		runErr := agent.RunAuditDriverInteractive(ctx, cfg)
 
-		archonDir := filepath.Join(absTarget, "archon")
+		auditDirLocal := filepath.Join(absTarget, "audit")
 		fmt.Fprintln(os.Stderr)
 		if runErr != nil {
-			fmt.Fprintf(os.Stderr, "%s interactive archon session exited with error: %v\n",
+			fmt.Fprintf(os.Stderr, "%s interactive audit session exited with error: %v\n",
 				terminal.WarningSymbol(), runErr)
 		} else {
-			fmt.Fprintf(os.Stderr, "%s interactive archon session ended\n", terminal.SuccessSymbol())
+			fmt.Fprintf(os.Stderr, "%s interactive audit session ended\n", terminal.SuccessSymbol())
 		}
 		fmt.Fprintf(os.Stderr, "%s Next step — import the on-disk results and write a report in one command:\n",
 			terminal.Purple(terminal.SymbolInfo))
 		fmt.Fprintf(os.Stderr, "  %s %s\n",
 			terminal.Gray(terminal.SymbolDot),
-			terminal.HiCyan(fmt.Sprintf("vigolium import %s --format html -o archon-report.html", terminal.ShortenHome(archonDir))))
+			terminal.HiCyan(fmt.Sprintf("vigolium import %s --format html -o audit-report.html", terminal.ShortenHome(auditDirLocal))))
 		return runErr
 	}
 
@@ -488,7 +504,7 @@ func driverOutcomes(plans []*driverPlan) (allOK, allFailed bool) {
 // Errors land on plan.runErr — the caller continues to the next driver.
 //
 // authOverride carries any BYOK creds the operator passed via the audit
-// CLI flags. It is folded into archon's invocation (via the resolver's
+// CLI flags. It is folded into audit's invocation (via the resolver's
 // variadic override) and into the piolium cfg's AuthOverride field, so
 // each driver picks it up via its own auth path.
 func runAuditDriver(ctx context.Context, name, parentSessionDir, parentUUID, projectUUID, absTarget string,
@@ -509,14 +525,14 @@ func runAuditDriver(ctx context.Context, name, parentSessionDir, parentUUID, pro
 		defer streamCloser()
 	}
 
-	printAuditDriverBanner(name, plan.sessionDir, auditDriverAgentLine(name, settings, authOverride))
+	printAuditDriverBanner(name, plan.sessionDir)
 
 	switch name {
-	case agent.AuditDriverArchon:
-		invocation := resolveAuditArchonInvocation(settings.Agent.Olium, authOverride)
-		cfg := agent.BuildArchonAuditCfg(agent.ArchonCfgInput{
-			Mode:                  agent.FirstMode(auditArchonModes),
-			Modes:                 auditArchonModes,
+	case agent.AuditDriverAudit:
+		invocation := resolveAuditDriverInvocation(settings.Agent.Olium, authOverride)
+		cfg := agent.BuildAuditDriverCfg(agent.AuditDriverCfgInput{
+			Mode:                  agent.FirstMode(auditDriverModes),
+			Modes:                 auditDriverModes,
 			SourcePath:            absTarget,
 			SessionDir:            plan.sessionDir,
 			ProjectUUID:           projectUUID,
@@ -525,13 +541,15 @@ func runAuditDriver(ctx context.Context, name, parentSessionDir, parentUUID, pro
 			Invocation:            invocation,
 			Stream:                true,
 			StreamWriter:          streamWriter,
+			ShowThinking:          auditShowThinking,
+			KeepRaw:               auditKeepRaw,
 			AuthOverride:          authOverride,
 		})
 		plan.runner = agent.NewAuditRunner(cfg, repo)
 
 	case agent.AuditDriverPiolium:
 		// Preflight before piolium kicks in — cheap insurance against
-		// archon's results getting stamped "complete" while piolium
+		// audit's results getting stamped "complete" while piolium
 		// silently never started.
 		if !auditNoPreflight {
 			if err := runPiPreflight(auditPiProvider, auditPiModel, auditPreflightTimeout); err != nil {
@@ -570,16 +588,16 @@ func runAuditDriver(ctx context.Context, name, parentSessionDir, parentUUID, pro
 	return plan
 }
 
-// resolveAuditArchonInvocation resolves archon's agent+auth tuple for
+// resolveAuditDriverInvocation resolves audit's agent+auth tuple for
 // this run (provider/BYOK precedence) and then applies the CLI --agent
-// override as a pure agent selector layered on top. Every archon-leg
+// override as a pure agent selector layered on top. Every audit-leg
 // call site in the audit command — the dispatch banner, the driver
 // banner, the interactive path, and the actual driver run — goes
 // through here so --agent takes effect uniformly and what the banner
 // reports is exactly what runs.
-func resolveAuditArchonInvocation(olium config.OliumConfig, authOverride agent.AuthOverride) agent.ArchonInvocation {
-	inv := agent.ResolveArchonInvocation(olium, auditArchonProvider, authOverride)
-	agent.ForceArchonAgent(&inv, auditAgent)
+func resolveAuditDriverInvocation(olium config.OliumConfig, authOverride agent.AuthOverride) agent.AuditDriverInvocation {
+	inv := agent.ResolveAuditDriverInvocation(olium, auditProvider, authOverride)
+	agent.ForceAuditDriverAgent(&inv, auditAgent)
 	return inv
 }
 
@@ -588,8 +606,8 @@ func resolveAuditArchonInvocation(olium config.OliumConfig, authOverride agent.A
 // glance whether the audit is running on codex, claude, or pi (and with
 // which provider/model) without grepping the harness's own output.
 //
-// archon's agent (claude|codex) is read back from the *resolved*
-// invocation, so it reflects any --archon-provider override and BYOK
+// audit's agent (claude|codex) is read back from the *resolved*
+// invocation, so it reflects any --provider override and BYOK
 // auth-driven agent selection, not just the static olium config.
 func auditDriverAgentLine(name string, settings *config.Settings, authOverride agent.AuthOverride) string {
 	orDefault := func(v, fallback string) string {
@@ -599,13 +617,13 @@ func auditDriverAgentLine(name string, settings *config.Settings, authOverride a
 		return fallback
 	}
 	switch name {
-	case agent.AuditDriverArchon:
-		// archon dispatches the claude/codex CLI directly — it passes
+	case agent.AuditDriverAudit:
+		// audit dispatches the claude/codex CLI directly — it passes
 		// only `--agent <claude|codex>` (+ auth), never `--model`. The
 		// model is whatever that CLI is configured with, NOT the
 		// in-process olium model (which only powers autopilot/swarm/
 		// query). Reporting olium's provider/model here was misleading.
-		inv := resolveAuditArchonInvocation(settings.Agent.Olium, authOverride)
+		inv := resolveAuditDriverInvocation(settings.Agent.Olium, authOverride)
 		return fmt.Sprintf("agent=%s · runs the %s CLI (model from its own config)", inv.Agent, inv.Agent)
 	case agent.AuditDriverPiolium:
 		provider := orDefault(auditPiProvider, "(pi config)")
@@ -615,14 +633,15 @@ func auditDriverAgentLine(name string, settings *config.Settings, authOverride a
 	return ""
 }
 
-// auditAgentDispatchSummary composes the dispatch-banner "Agent" line for
-// whichever driver(s) the run will touch. For --driver=auto it leads
-// with archon (the driver that actually runs first) and notes piolium as
-// the fallback.
-func auditAgentDispatchSummary(driver string, settings *config.Settings, authOverride agent.AuthOverride) string {
+// auditAgentDispatchSummary composes the dispatch-banner "Agent" entries,
+// one per driver the run will touch. For --driver=auto it leads with audit
+// (the driver that actually runs first) and notes piolium as the fallback.
+// Each entry is rendered on its own line by the banner so a two-driver
+// summary stays readable instead of becoming one very long row.
+func auditAgentDispatchSummary(driver string, settings *config.Settings, authOverride agent.AuthOverride) []string {
 	var parts []string
-	if agent.DriverIncludesArchon(driver) {
-		parts = append(parts, "archon["+auditDriverAgentLine(agent.AuditDriverArchon, settings, authOverride)+"]")
+	if agent.DriverIncludesAudit(driver) {
+		parts = append(parts, "audit["+auditDriverAgentLine(agent.AuditDriverAudit, settings, authOverride)+"]")
 	}
 	if agent.DriverIncludesPiolium(driver) {
 		label := "piolium[" + auditDriverAgentLine(agent.AuditDriverPiolium, settings, authOverride) + "]"
@@ -631,7 +650,7 @@ func auditAgentDispatchSummary(driver string, settings *config.Settings, authOve
 		}
 		parts = append(parts, label)
 	}
-	return strings.Join(parts, "  |  ")
+	return parts
 }
 
 // printAuditDispatchBanner renders the audit startup banner. It mirrors
@@ -639,7 +658,7 @@ func auditAgentDispatchSummary(driver string, settings *config.Settings, authOve
 // bullets, HiTeal values, home-shortened/Muted paths, and the yellow ◇
 // "tail logs" hint) so audit, autopilot, and `vigolium scan` look like
 // the same product when an operator switches between them.
-func printAuditDispatchBanner(driver, mode, target, parentSessionDir, agentSummary, agenticScanUUID string) {
+func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, agentEntries []string, agenticScanUUID string) {
 	w := os.Stderr
 	_, _ = fmt.Fprintf(w, "%s %s\n",
 		terminal.Green(terminal.SymbolStart),
@@ -650,10 +669,21 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir, agentSumma
 		terminal.HiTeal(valueOrNone(driver)),
 		terminal.HiTeal(valueOrNone(mode)))
 
-	if agentSummary != "" {
-		_, _ = fmt.Fprintf(w, "  %s Agent: %s\n",
-			terminal.Purple(terminal.SymbolInfo),
-			terminal.HiTeal(agentSummary))
+	// Agent: render one driver per line. The first row carries the
+	// "Agent:" label and bullet; subsequent rows indent to the same
+	// column so a two-driver summary reads as a small block instead of
+	// a runaway single line.
+	for i, entry := range agentEntries {
+		if entry == "" {
+			continue
+		}
+		if i == 0 {
+			_, _ = fmt.Fprintf(w, "  %s Agent: %s\n",
+				terminal.Purple(terminal.SymbolInfo),
+				terminal.HiTeal(entry))
+		} else {
+			_, _ = fmt.Fprintf(w, "           %s\n", terminal.HiTeal(entry))
+		}
 	}
 
 	if target != "" {
@@ -679,19 +709,16 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir, agentSumma
 
 // printAuditDriverBanner marks the start of one driver's phase. Uses the
 // orange ▶ "start" symbol — same glyph as the dispatch banner so the
-// driver leg reads as a clear section start — followed by the resolved
-// agent line so the operator sees who's running before output scrolls.
-func printAuditDriverBanner(driver, sessionDir, agentDesc string) {
+// driver leg reads as a clear section start. The agent details are
+// already shown in the dispatch banner's multi-line Agent block (one
+// entry per driver), so this banner stays compact: one line marking the
+// transition, with the session path muted.
+func printAuditDriverBanner(driver, sessionDir string) {
 	w := os.Stderr
 	_, _ = fmt.Fprintf(w, "\n%s %s %s\n",
 		terminal.Orange(terminal.SymbolStart),
 		terminal.BoldHiBlue(driver),
 		terminal.Muted("· "+terminal.ShortenHome(sessionDir)))
-	if agentDesc != "" {
-		_, _ = fmt.Fprintf(w, "  %s %s\n",
-			terminal.Purple(terminal.SymbolInfo),
-			terminal.HiTeal(agentDesc))
-	}
 }
 
 func printAuditCombinedSummary(plans []*driverPlan, parentSessionDir string, dedupDeleted, dedupGroups int64, persisted bool) {
@@ -720,8 +747,8 @@ func printAuditCombinedSummary(plans []*driverPlan, parentSessionDir string, ded
 				terminal.HiTeal(status.Status),
 				status.CompletedPhases, status.TotalPhases)
 		}
-		printArchonFindingStats(stats, persisted)
-		printArchonCostSummary(p.runner.CostSummary())
+		printFindingStats(stats, persisted)
+		printAuditDriverCostSummary(p.runner.CostSummary())
 		fmt.Fprintf(os.Stderr, "  %s Session: %s\n", terminal.InfoSymbol(), terminal.Gray(p.sessionDir))
 	}
 
@@ -729,7 +756,7 @@ func printAuditCombinedSummary(plans []*driverPlan, parentSessionDir string, ded
 		totalParsed, totalSaved, totalCost := driverTotals(plans)
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintf(os.Stderr, "%s Combined: %s parsed, %s saved",
-			terminal.Purple(terminal.SymbolFlag),
+			terminal.Purple(terminal.SymbolBowtie),
 			terminal.HiTeal(fmt.Sprintf("%d", totalParsed)),
 			terminal.HiTeal(fmt.Sprintf("%d", totalSaved)))
 		if totalCost > 0 {
@@ -785,18 +812,18 @@ func collectAuditPlmFlags() []string {
 // orchestrateAuditDrivers, when piolium is actually chosen or about to
 // run — never eagerly on every audit invocation.
 //
-// Archon is the embedded archon-ts binary (no external CLI lookup);
-// availability is archonbin.Available(). piolium.Diagnose() is only
+// Audit is the embedded vigolium-audit binary (no external CLI lookup);
+// availability is bin.Available(). piolium.Diagnose() is only
 // consulted when the requested driver actually requires piolium to be
 // present up front (--driver=piolium, or a both/auto run that has no
-// archon to fall back on).
+// audit to fall back on).
 func ensureAuditDriversFeasible(driver string) error {
-	archonAvailable := archonbin.Available()
+	auditAvailable := bin.Available()
 
 	switch driver {
-	case agent.AuditDriverArchon:
-		if !archonAvailable {
-			return fmt.Errorf("archon binary not embedded (required for --driver=%s) — run `make build-archon` and rebuild vigolium", driver)
+	case agent.AuditDriverAudit:
+		if !auditAvailable {
+			return fmt.Errorf("vigolium-audit binary not embedded (required for --driver=%s) — run `make build-audit` and rebuild vigolium", driver)
 		}
 		return nil
 
@@ -809,16 +836,16 @@ func ensureAuditDriversFeasible(driver string) error {
 		return nil
 
 	case agent.AuditDriverBoth, agent.AuditDriverAuto:
-		// archon present → the run is feasible regardless of piolium, so
+		// audit present → the run is feasible regardless of piolium, so
 		// don't probe (and don't warn about) piolium here.
-		if archonAvailable {
+		if auditAvailable {
 			return nil
 		}
-		// No archon: piolium is the only thing that can run, so it must
+		// No audit: piolium is the only thing that can run, so it must
 		// be present. Probing it here is consistent with "report piolium
 		// when it's effectively the chosen driver".
 		if err := piolium.Diagnose(); err != nil {
-			return fmt.Errorf("neither archon nor piolium is available — run `make build-archon` (for archon) or `pi install git:git@github.com:vigolium/piolium.git` (for piolium)")
+			return fmt.Errorf("neither audit nor piolium is available — run `make build-audit` (for audit) or `pi install git:git@github.com:vigolium/piolium.git` (for piolium)")
 		}
 		return nil
 	}
@@ -829,14 +856,14 @@ func ensureAuditDriversFeasible(driver string) error {
 // per-driver outcomes. It owns the deferred per-driver availability
 // messaging: the "piolium runtime unavailable; skipping piolium" warning
 // is printed here, only when piolium is actually about to run, so it
-// never appears on archon-only or clean --driver=auto runs.
+// never appears on audit-only or clean --driver=auto runs.
 //
-//   - archon / piolium  → run that single driver.
-//   - both              → run archon (if embedded) then piolium (if its
+//   - audit / piolium  → run that single driver.
+//   - both              → run audit (if embedded) then piolium (if its
 //     runtime is available), each independently; a failure of one does
 //     not abort the other.
-//   - auto              → run archon; if it succeeds the audit is done
-//     and piolium is never consulted. Only when archon fails (or isn't
+//   - auto              → run audit; if it succeeds the audit is done
+//     and piolium is never consulted. Only when audit fails (or isn't
 //     embedded) does piolium run as a fallback — and only then is its
 //     availability checked and any "skipping piolium" message shown.
 func orchestrateAuditDrivers(ctx context.Context, driver, parentSessionDir, parentUUID, projectUUID, absTarget string,
@@ -853,29 +880,29 @@ func orchestrateAuditDrivers(ctx context.Context, driver, parentSessionDir, pare
 	// For driver=auto/both a chain may contain modes only one driver
 	// understands; the other driver's filtered chain is then empty and
 	// that leg is skipped with a note rather than running a bogus mode.
-	archonHasModes := len(auditArchonModes) > 0
+	auditHasModes := len(auditDriverModes) > 0
 	pioliumHasModes := len(auditPioliumModes) > 0
 	noteEmptyChain := func(d string) {
 		fmt.Fprintf(os.Stderr, "%s %s: no modes in the chain are supported by %s; skipping %s\n",
 			terminal.WarningSymbol(), d, d, d)
 	}
-	archonAvailable := archonbin.Available()
+	auditAvailable := bin.Available()
 
 	switch driver {
-	case agent.AuditDriverArchon:
-		return []*driverPlan{run(agent.AuditDriverArchon)}
+	case agent.AuditDriverAudit:
+		return []*driverPlan{run(agent.AuditDriverAudit)}
 
 	case agent.AuditDriverPiolium:
 		return []*driverPlan{run(agent.AuditDriverPiolium)}
 
 	case agent.AuditDriverBoth:
 		plans := make([]*driverPlan, 0, 2)
-		if !archonHasModes {
-			noteEmptyChain(agent.AuditDriverArchon)
-		} else if archonAvailable {
-			plans = append(plans, run(agent.AuditDriverArchon))
+		if !auditHasModes {
+			noteEmptyChain(agent.AuditDriverAudit)
+		} else if auditAvailable {
+			plans = append(plans, run(agent.AuditDriverAudit))
 		} else {
-			fmt.Fprintf(os.Stderr, "%s archon binary not embedded; skipping archon (run `make build-archon`)\n",
+			fmt.Fprintf(os.Stderr, "%s vigolium-audit binary not embedded; skipping audit (run `make build-audit`)\n",
 				terminal.WarningSymbol())
 		}
 		if !pioliumHasModes {
@@ -889,22 +916,26 @@ func orchestrateAuditDrivers(ctx context.Context, driver, parentSessionDir, pare
 
 	case agent.AuditDriverAuto:
 		plans := make([]*driverPlan, 0, 2)
-		if archonHasModes && archonAvailable {
-			ap := run(agent.AuditDriverArchon)
-			plans = append(plans, ap)
-			if ap.runErr == nil {
-				// Clean archon run — the audit is complete. piolium is
-				// never consulted, so its runtime state stays silent.
-				return plans
-			}
-			fmt.Fprintf(os.Stderr, "%s archon audit failed (%v); falling back to piolium\n",
-				terminal.WarningSymbol(), ap.runErr)
-		} else if !archonHasModes {
-			fmt.Fprintf(os.Stderr, "%s archon: no modes in the chain are supported by archon; falling back to piolium\n",
+		inv := resolveAuditDriverInvocation(settings.Agent.Olium, authOverride)
+		cliName, cliOK := agent.AuditDriverCLIAvailable(inv.Agent)
+		// Preflight: if the coding-agent CLI (claude/codex) the audit
+		// driver would drive isn't on PATH, audit can't run — fall back
+		// to piolium without launching it. Mid-run audit failures (CLI
+		// present but the agent errors during the audit) surface
+		// directly; they are not silently retried with piolium.
+		switch {
+		case auditHasModes && auditAvailable && cliOK:
+			plans = append(plans, run(agent.AuditDriverAudit))
+			return plans
+		case !auditHasModes:
+			fmt.Fprintf(os.Stderr, "%s audit: no modes in the chain are supported by audit; falling back to piolium\n",
 				terminal.WarningSymbol())
-		} else {
-			fmt.Fprintf(os.Stderr, "%s archon binary not embedded; falling back to piolium (run `make build-archon`)\n",
+		case !auditAvailable:
+			fmt.Fprintf(os.Stderr, "%s vigolium-audit binary not embedded; falling back to piolium (run `make build-audit`)\n",
 				terminal.WarningSymbol())
+		case !cliOK:
+			fmt.Fprintf(os.Stderr, "%s %s CLI not found on PATH; falling back to piolium\n",
+				terminal.WarningSymbol(), cliName)
 		}
 		// Fallback path: piolium is now the effective driver, so this is
 		// exactly when its availability should be reported.

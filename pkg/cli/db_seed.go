@@ -3430,7 +3430,7 @@ func enrichFindings(findings []*database.Finding, records []*database.HTTPRecord
 		case "sqli-union-based":
 			f.Status = database.StatusTriaged
 		}
-		if f.FindingSource == database.FindingSourceAgent || f.FindingSource == database.FindingSourceArchon {
+		if f.FindingSource == database.FindingSourceAgent || f.FindingSource == database.FindingSourceAudit {
 			f.Status = database.StatusDraft
 		}
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 // These tests cover the *deterministic* halves of the audit-harness picker
-// (no source path → no audit; explicit `archon: "off"` → archon-disabled
+// (no source path → no audit; explicit `audit: "off"` → audit-disabled
 // path; explicit `piolium: <mode>` → piolium harness). The auto-pick branch
 // itself depends on `piolium.IsAvailable()` (which probes PATH and Pi
 // settings.json) and is exercised end-to-end via the e2e tier.
@@ -38,7 +38,7 @@ func TestResolveAutopilotAudit_ExplicitPioliumWinsOverDefault(t *testing.T) {
 	req := AgentAutopilotRequest{
 		SourcePath: "/some/source",
 		Piolium:    "balanced",
-		// Archon omitted — explicit piolium means archon stays off.
+		// Audit omitted — explicit piolium means audit stays off.
 	}
 	cfg, harness := h.resolveAutopilotAuditCfgServer(req, "/some/source")
 	if cfg == nil {
@@ -52,26 +52,26 @@ func TestResolveAutopilotAudit_ExplicitPioliumWinsOverDefault(t *testing.T) {
 	}
 }
 
-func TestResolveAutopilotAudit_ExplicitArchonOffPicksNothingWhenSourceMissing(t *testing.T) {
-	// archon=off + no source → no audit at all; piolium stays empty.
+func TestResolveAutopilotAudit_ExplicitAuditDriverOffPicksNothingWhenSourceMissing(t *testing.T) {
+	// audit=off + no source → no audit at all; piolium stays empty.
 	h := stubHandlers()
-	req := AgentAutopilotRequest{Archon: "off"}
+	req := AgentAutopilotRequest{Audit: "off"}
 	cfg, harness := h.resolveAutopilotAuditCfgServer(req, "")
 	if cfg != nil {
-		t.Errorf("expected nil cfg with archon=off and no source, got %+v", cfg)
+		t.Errorf("expected nil cfg with audit=off and no source, got %+v", cfg)
 	}
 	if harness.Name != "" {
 		t.Errorf("expected zero harness, got %q", harness.Name)
 	}
 }
 
-func TestResolveAutopilotAudit_ExplicitArchonModePicksArchon(t *testing.T) {
+func TestResolveAutopilotAudit_ExplicitAuditDriverModePicksAudit(t *testing.T) {
 	h := stubHandlers()
 	req := AgentAutopilotRequest{
 		SourcePath: "/some/source",
-		ArchonMode: "deep",
-		// Piolium omitted — explicit archon should win even if pi is
-		// available, because archon-explicit suppresses auto-pick.
+		AuditDriverMode: "deep",
+		// Piolium omitted — explicit audit should win even if pi is
+		// available, because audit-explicit suppresses auto-pick.
 	}
 	cfg, harness := h.resolveAutopilotAuditCfgServer(req, "/some/source")
 	if cfg == nil {
@@ -80,13 +80,13 @@ func TestResolveAutopilotAudit_ExplicitArchonModePicksArchon(t *testing.T) {
 	if cfg.Mode != "deep" {
 		t.Errorf("expected Mode=deep, got %q", cfg.Mode)
 	}
-	if harness.Name != agent.DefaultArchonHarness().Name {
-		t.Errorf("expected archon harness, got %q", harness.Name)
+	if harness.Name != agent.DefaultAuditHarness().Name {
+		t.Errorf("expected audit harness, got %q", harness.Name)
 	}
 }
 
 func TestResolveSwarmAudit_OptInOnly_NoFlagsNoAudit(t *testing.T) {
-	// Swarm is opt-in: empty archon AND empty piolium AND no source → nothing.
+	// Swarm is opt-in: empty audit AND empty piolium AND no source → nothing.
 	h := stubHandlers()
 	req := AgentSwarmRequest{}
 	cfg, harness := h.resolveSwarmAuditCfgServer(req, "")
@@ -98,12 +98,12 @@ func TestResolveSwarmAudit_OptInOnly_NoFlagsNoAudit(t *testing.T) {
 	}
 }
 
-func TestResolveSwarmAudit_ExplicitPioliumOverridesArchon(t *testing.T) {
+func TestResolveSwarmAudit_ExplicitPioliumOverridesAudit(t *testing.T) {
 	h := stubHandlers()
 	req := AgentSwarmRequest{
 		SourcePath: "/some/source",
 		Piolium:    "longshot",
-		Archon:     "deep", // ignored when piolium is explicit
+		Audit:     "deep", // ignored when piolium is explicit
 	}
 	cfg, harness := h.resolveSwarmAuditCfgServer(req, "/some/source")
 	if cfg == nil {

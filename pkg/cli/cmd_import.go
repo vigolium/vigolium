@@ -22,11 +22,11 @@ import (
 
 var importCmd = &cobra.Command{
 	Use:   "import <path|gs://...>",
-	Short: "Import scan data from archon output folder, JSONL, or compressed archive",
+	Short: "Import scan data from audit output folder, JSONL, or compressed archive",
 	Long: `Import scan data into the database from various sources.
 
 Supported inputs:
-  - Archon output folder: contains audit-state.json and findings-draft/
+  - Audit output folder: contains audit-state.json and findings-draft/
   - JSONL file: exported data with {"type": "...", "data": {...}} envelopes
     Supports http_record and finding types (e.g. from 'vigolium export --format jsonl')
   - .tar.gz / .tgz / .zip archive containing either of the above
@@ -37,8 +37,8 @@ or --upload-key=<key> to choose an explicit storage key (folders are bundled to
 tar.gz unless the key ends in .zip).
 
 Use --format with -o/--output to write a report in the same step, e.g.
-'vigolium import ./archon --format html -o archon-report.html'. This replaces
-the import-then-export two-step: when the import created an archon audit the
+'vigolium import ./audit --format html -o audit-report.html'. This replaces
+the import-then-export two-step: when the import created an audit the
 report is scoped to that audit's findings. Formats mirror 'vigolium export':
 html, report, pdf, markdown (alias md).`,
 	Args: cobra.ExactArgs(1),
@@ -130,7 +130,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// cliSessionDirArchiver copies an archon source folder into the per-run agent
+// cliSessionDirArchiver copies an audit source folder into the per-run agent
 // session directory keyed by scan UUID and returns the resulting session dir.
 // Best-effort: failures are logged to stderr and result in an empty return so
 // the import still completes. Mirrors the prior in-CLI helper.
@@ -144,13 +144,13 @@ func cliSessionDirArchiver(scanUUID, srcDir string) (string, error) {
 		fmt.Fprintf(os.Stderr, "%s Failed to create session dir for %s: %v\n", terminal.WarningSymbol(), scanUUID, err)
 		return "", nil
 	}
-	dst := filepath.Join(sessionDir, "archon")
+	dst := filepath.Join(sessionDir, "audit")
 	if entries, statErr := os.ReadDir(dst); statErr == nil && len(entries) > 0 {
 		fmt.Fprintf(os.Stderr, "%s Session dir %s already populated; skipping copy\n", terminal.WarningSymbol(), dst)
 		return sessionDir, nil
 	}
 	if err := dbimport.CopyDirContents(srcDir, dst); err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to copy archon source into session dir: %v\n", terminal.WarningSymbol(), err)
+		fmt.Fprintf(os.Stderr, "%s Failed to copy audit source into session dir: %v\n", terminal.WarningSymbol(), err)
 		return "", nil
 	}
 	return sessionDir, nil
@@ -194,7 +194,7 @@ func printImportResult(localPath string, r *dbimport.Result) {
 	fmt.Fprint(os.Stderr, GetBanner())
 	if r.AgenticScan != nil {
 		scan := r.AgenticScan
-		fmt.Printf("%s Imported archon audit: %d findings (%d new, %d duplicates skipped)\n",
+		fmt.Printf("%s Imported audit: %d findings (%d new, %d duplicates skipped)\n",
 			terminal.SuccessSymbol(), r.FindingsTotal, r.FindingsSaved, r.FindingsSkipped)
 		fmt.Printf("  Agent run: %s (mode=%s, status=%s)\n", scan.UUID, scan.Mode, scan.Status)
 		if scan.TargetURL != "" {
@@ -237,7 +237,7 @@ func printImportResult(localPath string, r *dbimport.Result) {
 
 // emitImportReport renders a static report for the data just imported, reusing
 // the exact generators behind `vigolium export` (single source of truth via
-// reportGenerator). When the import created an archon AgenticScan the report is
+// reportGenerator). When the import created an audit AgenticScan the report is
 // scoped to that audit's findings; otherwise it falls back to all findings in
 // the project DB. This collapses the historical import-then-export two-step
 // into one command.

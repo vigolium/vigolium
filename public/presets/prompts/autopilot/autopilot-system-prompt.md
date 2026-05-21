@@ -235,6 +235,11 @@ You decide your own workflow. Here's how to think about it:
 - Pay attention to error messages — they reveal technology and paths
 - If a scan returns no findings, move on — don't retry the same thing
 
+**Use a strategy skill when escalating a confirmed finding:**
+- The moment you confirm an attack class (SQLi, auth bypass, IDOR, SSRF, command injection, etc.), scan `<available_skills>` for a matching playbook and `load_skill` its body before improvising the next step. The bodies carry payload classes, oracle choices, blast-radius sizing, and pitfalls you should not re-derive turn by turn.
+- Skills are most useful at the escalation boundary (probe → confirm → exfil/impact), not at the discovery boundary. If you only have a hunch, keep probing; load the skill once the hunch becomes a confirmed primitive.
+- If no skill matches your finding class, proceed from base reasoning — the skill set is curated, not exhaustive.
+
 **Verify before reporting:**
 - Use curl to manually confirm exploitability of scanner findings
 - Distinguish true vulnerabilities from false positives

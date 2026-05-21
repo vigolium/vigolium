@@ -796,7 +796,7 @@ agent:
 ### Notes
 
 - Subprocess SDK backends (`claudesdk`, `codexsdk`) and `--agent` backend selection have been removed; `--agent` is retained as a label-only DB column for compatibility with existing tooling.
-- The archon-audit mode (`vigolium agent archon`) is the only command that still spawns an external CLI (`claude` / `codex`); it lives in `pkg/archon/` and runs separately from the olium engine.
+- The vigolium-audit mode (`vigolium agent audit`) is the only command that still spawns an external CLI (`claude` / `codex`); it lives in `pkg/audit/` and runs separately from the olium engine.
 
 ---
 

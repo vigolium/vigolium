@@ -80,7 +80,7 @@ func Stream(r io.Reader, w io.Writer, opts Options) error {
 		case "turn_start", "turn_end", "message_start", "message_update", "tool_execution_update", "queue_update", "session_info_changed":
 			// Dropped: redundant with the *_end events we render below, or
 			// UI-state-only and uninteresting on a CLI feed. (Piolium's
-			// archon-stream custom messages are emitted on both
+			// audit-stream custom messages are emitted on both
 			// message_start and message_end with identical payloads — we
 			// render them on message_end to avoid double-printing.)
 		case "message_end":
@@ -170,7 +170,7 @@ type envelope struct {
 //
 // Content is RawMessage rather than a typed slice because Pi serializes
 // "role": "custom" messages with a *string* content (piolium emits these
-// as customType="archon-stream" tool/phase events) while every other
+// as customType="audit-stream" tool/phase events) while every other
 // role serializes content as []contentBlock. Decoding both shapes is
 // done lazily in renderMessage.
 type agentMessage struct {
@@ -194,7 +194,7 @@ type contentBlock struct {
 	Input    json.RawMessage `json:"input,omitempty"`
 }
 
-// streamDetails decodes the `details` field on piolium's archon-stream
+// streamDetails decodes the `details` field on piolium's audit-stream
 // custom messages. Only Kind drives rendering today (it picks the line
 // color); piolium attaches more fields per kind but the content string
 // already includes the human-readable rendering of those values.
@@ -237,7 +237,7 @@ func renderMessage(w io.Writer, env envelope, opts Options) {
 		return
 	}
 	// Piolium's phase/tool activity arrives as role:"custom" messages with
-	// customType:"archon-stream" and a *string* content (already prefixed
+	// customType:"audit-stream" and a *string* content (already prefixed
 	// with [Q2] →/←/✗ markers). Handle those before falling through to the
 	// standard []contentBlock path.
 	if msg.Role == "custom" {
@@ -289,7 +289,7 @@ func decodeContentBlocks(raw json.RawMessage) ([]contentBlock, error) {
 	return blocks, nil
 }
 
-// renderCustomMessage renders piolium's archon-stream events. The
+// renderCustomMessage renders piolium's audit-stream events. The
 // content string is already pre-formatted by piolium (e.g.
 // "[Q2] → read piolium/attack-surface/lite-recon.md"), so we just
 // reprint it with a color picked from details.kind so the feed reads

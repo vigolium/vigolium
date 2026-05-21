@@ -75,7 +75,7 @@ Endpoints group by concern; each group has a dedicated page under [api-reference
 | Projects | `GET/POST/PUT/DELETE /api/projects[/:uuid]`, `/domain-map` | Multi-tenancy management |
 | Storage | `/api/storage/{source,results,upload-source,presign}` | Cloud bundles (storage enabled) |
 | DB browse | `/api/db/tables/...` | Generic table inspection (admin) |
-| Agent | `POST /api/agent/run/{query,autopilot,swarm,archon,audit}`, sessions/status | AI runs (see §4) |
+| Agent | `POST /api/agent/run/{query,autopilot,swarm,audit,audit}`, sessions/status | AI runs (see §4) |
 
 ### Asynchronous job pattern
 
@@ -95,7 +95,7 @@ Opting into `"stream": true` on a run endpoint switches to Server-Sent Events in
 
 - **Provider is server-config only.** The CLI's per-invocation provider flags (`--provider`, `--model`, `--oauth-token`, …) are *not* mirrored on the REST schemas. The server resolves the provider once from `agent.olium.*` in `vigolium-configs.yaml` and reuses it, keeping warm sessions and prompt caches stable. Switching providers means editing YAML and reloading.
 - **Backward-compatible source field.** Request types expose `EffectiveSourcePath()` to accept both `source` and legacy `repo_path` JSON keys.
-- **Audit driver dispatch.** `POST /api/agent/run/audit` takes `driver: "auto"|"both"|"archon"|"piolium"`; multi-driver modes run sequentially and multiplex SSE chunks with a `driver` field when streaming.
+- **Audit driver dispatch.** `POST /api/agent/run/audit` takes `driver: "auto"|"both"|"audit"|"piolium"`; multi-driver modes run sequentially and multiplex SSE chunks with a `driver` field when streaming.
 
 ---
 

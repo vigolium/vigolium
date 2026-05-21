@@ -58,7 +58,7 @@ Agentic scanning uses AI agents to drive or augment the scanning process. Invoke
 | **Query** | `vigolium agent query` | Single-shot prompt execution. Good for code review, endpoint discovery, secret detection. No network scanning. |
 | **Autopilot** | `vigolium agent autopilot` | One long-running LLM session with full bash/file/web tools plus `report_finding` and `halt_scan`. The agent decides what to scan, runs scans, inspects results, and iterates until it halts. |
 | **Swarm** | `vigolium agent swarm` | Multi-phase pipeline where native Go handles heavy lifting and AI intervenes at checkpoints -- planning attacks, triaging results, and generating custom JS scanner extensions. |
-| **Archon** | `vigolium agent archon` | Foreground multi-phase AI source-code audit. Drives a separate Claude Code / Codex harness against a source tree. |
+| **Audit** | `vigolium agent audit` | Foreground multi-phase AI source-code audit. Drives a separate Claude Code / Codex harness against a source tree. |
 | **Olium** | `vigolium agent olium` (or `vigolium ol`) | Direct interactive TUI access to the olium engine. Use `-p` for a non-interactive one-shot prompt. |
 
 All agent modes support `--source` for source-aware analysis and store session artifacts (plans, extensions, output) in a configurable sessions directory.

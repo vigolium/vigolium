@@ -4,7 +4,7 @@ import "strings"
 
 // secretEnvNames is the set of env-var names the audit BYOK paths inject
 // that must be redacted before they hit logs, runtime.log, or the session
-// bundle. Pi providers honor several of these (and the archon harness
+// bundle. Pi providers honor several of these (and the audit harness
 // sets the same ones via its own --api-key/--oauth-token flags).
 //
 // GOOGLE_APPLICATION_CREDENTIALS is included because vigolium does NOT
@@ -28,11 +28,11 @@ var secretEnvNames = map[string]struct{}{
 // string when debugging whether redaction fired.
 const redactedSecretValue = "<redacted>"
 
-// archonAuthFlagsToRedact is the set of archon-ts CLI flags whose value
+// auditAuthFlagsToRedact is the set of vigolium-audit CLI flags whose value
 // is a secret and must be redacted in the printed cmdline. Names match
-// ArchonAuthFlags.Args() exactly; keep this list in lockstep with that
+// AuditDriverAuthFlags.Args() exactly; keep this list in lockstep with that
 // renderer.
-var archonAuthFlagsToRedact = map[string]struct{}{
+var auditAuthFlagsToRedact = map[string]struct{}{
 	"--api-key":         {},
 	"--oauth-token":     {},
 	"--oauth-cred-file": {}, // a file PATH, not a key — but it can leak the operator's filesystem layout, so still redacted in logs/streams.
@@ -65,23 +65,23 @@ func redactEnvSlice(envs []string) []string {
 	return out
 }
 
-// redactArchonCmdLine takes a rendered command line (e.g. the cmdLine
+// redactAuditDriverCmdLine takes a rendered command line (e.g. the cmdLine
 // builder output in audit_agent.go) and replaces the value following any
-// known archon auth flag with redactedSecretValue. Operates on whole
+// known audit auth flag with redactedSecretValue. Operates on whole
 // space-separated tokens so a value containing internal whitespace —
 // which the cmdline builder already wraps in single quotes — is still
 // redacted as one chunk.
 //
-// Best-effort, log-only: the live argv handed to the archon subprocess
-// is built from cfg.ArchonInvocation.Args() and is never affected by
+// Best-effort, log-only: the live argv handed to the audit subprocess
+// is built from cfg.AuditDriverInvocation.Args() and is never affected by
 // this transform.
-func redactArchonCmdLine(line string) string {
+func redactAuditDriverCmdLine(line string) string {
 	if line == "" {
 		return line
 	}
 	tokens := strings.Split(line, " ")
 	for i := 0; i < len(tokens)-1; i++ {
-		if _, ok := archonAuthFlagsToRedact[tokens[i]]; ok {
+		if _, ok := auditAuthFlagsToRedact[tokens[i]]; ok {
 			tokens[i+1] = redactedSecretValue
 		}
 	}

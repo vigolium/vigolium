@@ -115,7 +115,7 @@ func TestE2EPioliumAudit_Lite(t *testing.T) {
 	// is still useful for proving the wiring even in that case.
 	stateAtSession := filepath.Join(sessionDir, "piolium-audit", "audit-state.json")
 	if _, err := os.Stat(stateAtSession); err == nil {
-		assertValidAuditState(t, stateAtSession, "lite")
+		assertValidState(t, stateAtSession, "lite")
 	} else {
 		t.Logf("piolium-audit/audit-state.json absent — pi likely failed before Q0; check %s", streamPath)
 		dumpAuditStream(t, streamPath, 30)
@@ -226,7 +226,7 @@ func readFirstNonEmptyLine(t *testing.T, path string) string {
 	return ""
 }
 
-func assertValidAuditState(t *testing.T, path, wantMode string) {
+func assertValidState(t *testing.T, path, wantMode string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)

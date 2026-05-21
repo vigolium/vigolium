@@ -118,7 +118,7 @@ pkg/
     tui/                Bubble Tea interactive TUI
     stream/             SSE / event streaming
     headless.go         Headless one-shot helper
-  archon/               Archon-audit harness (claudecost, claudestream, codexcost, parser, transform, preflight)
+  audit/               Audit harness (claudecost, claudestream, codexcost, parser, transform, preflight)
   piolium/              Pi-native audit harness (picost, pistream, preflight) — drives the user's pi extension
   deparos/              Content discovery engine (Deparos)
   spitolas/             Browser spider (Spitolas) — Chromium, state machine, forms
@@ -276,7 +276,7 @@ See [docs/customization/writing-extensions.md](docs/customization/writing-extens
 
 ### Agent Mode Architecture
 
-The agent system has two cooperating layers, plus three foreground source-audit drivers (`archon`, `piolium`, and the unified `audit` dispatcher):
+The agent system has two cooperating layers, plus three foreground source-audit drivers (`audit`, `piolium`, and the unified `audit` dispatcher):
 
 - **`pkg/agent/`** — orchestration: prompt templates, context enrichment (`autopilot_context.go`), swarm pipeline (`swarm.go`), autopilot pipeline runner (`autopilot_pipeline.go`), audit-driver dispatch (`audit_drivers.go`, `audit_agent.go`), prompt-safety guardrail (`guardrail.go`), output parsing (`parsing/`), DB ingestion. The dispatch shim is `olium_adapter.go` — every AI call ultimately goes through olium.
 - **`pkg/olium/`** — the in-process Go agent runtime:
@@ -289,8 +289,8 @@ The agent system has two cooperating layers, plus three foreground source-audit 
   - `tui/` — Bubble Tea interactive TUI; `headless.go` for one-shot non-TUI execution
   - `stream/` — text/toolCall/result/error events; SSE streaming
   - `auth/` — Codex OAuth credential loader (`~/.codex/auth.json`) and Vertex SA-credential resolver (`vertex.go` — env/YAML/file fallbacks for project, location, credentials)
-- **`pkg/archon/`** — archon-audit harness: `setup.go`, `parser.go`, `transform.go`, `preflight.go` (roundtrips `claude -p` before audit; codex skips via `ErrPreflightUnsupported`), plus per-platform cost/stream support (`claudecost/`, `claudestream/`, `codexcost/`). Runs the `claude` / `codex` CLIs directly — does **not** use olium.
-- **`pkg/piolium/`** — Pi-native audit harness: `piolium.go` (driver + availability detection via `pi -h` + `Diagnose()`), `picost/`, `pistream/`, `preflight.go`. Drives the user's installed piolium Pi extension via `pi --mode json -p /piolium-<mode>`. Same finding schema as archon; tagged separately in the DB.
+- **`pkg/audit/`** — vigolium-audit harness: `setup.go`, `parser.go`, `transform.go`, `preflight.go` (roundtrips `claude -p` before audit; codex skips via `ErrPreflightUnsupported`), plus per-platform cost/stream support (`claudecost/`, `claudestream/`, `codexcost/`). Runs the `claude` / `codex` CLIs directly — does **not** use olium.
+- **`pkg/piolium/`** — Pi-native audit harness: `piolium.go` (driver + availability detection via `pi -h` + `Diagnose()`), `picost/`, `pistream/`, `preflight.go`. Drives the user's installed piolium Pi extension via `pi --mode json -p /piolium-<mode>`. Same finding schema as audit; tagged separately in the DB.
 
 There are no subprocess SDK backends — `claudesdk/` and `codexsdk/` were removed when the runtime moved in-process. Provider selection lives in `agent.olium.provider` (`openai-codex-oauth` (default), `anthropic-api-key`, `anthropic-oauth`, `openai-api-key`, `anthropic-cli`, `google-vertex`).
 
@@ -299,21 +299,21 @@ Operational modes (CLI entry → backend):
 | Mode | CLI | CLI file | Backend |
 |------|-----|----------|---------|
 | Query | `vigolium agent query` | `pkg/cli/agent_query.go` (in `agent.go`) | `pkg/agent/engine.go` `Engine.Run` — render template, call olium, parse structured JSON |
-| Autopilot | `vigolium agent autopilot` | `pkg/cli/agent_autopilot.go`, `agent_autopilot_olium.go` | CLI calls `pkg/olium/autopilot.Run` directly. Server (`pkg/agent/autopilot_pipeline.go` `RunAutonomous`) layers archon-audit prep, auth preparation, and a frozen context bundle, then delegates to `olium/autopilot.Run` with the assembled brief on `Options.InitialPrompt` |
+| Autopilot | `vigolium agent autopilot` | `pkg/cli/agent_autopilot.go`, `agent_autopilot_olium.go` | CLI calls `pkg/olium/autopilot.Run` directly. Server (`pkg/agent/autopilot_pipeline.go` `RunAutonomous`) layers vigolium-audit prep, auth preparation, and a frozen context bundle, then delegates to `olium/autopilot.Run` with the assembled brief on `Options.InitialPrompt` |
 | Swarm | `vigolium agent swarm` | `pkg/cli/agent_swarm.go` | `pkg/agent/swarm.go` — multi-phase pipeline (normalize → source analysis → code audit → SAST → discover → plan → extension → scan → triage → rescan). Native Go handles scanning; AI checkpoints go through `Engine.Run` |
 | Olium | `vigolium agent olium` (alias `vigolium olium` / `vigolium ol`) | `pkg/cli/agent_olium.go` | Direct olium TUI (or `-p` one-shot non-interactive) — useful for ad-hoc prompts and provider debugging |
-| Archon | `vigolium agent archon` | `pkg/cli/agent_archon.go` | Separate harness in `pkg/archon/` — spawns `claude` / `codex` CLI directly. Optional `claude -p` preflight (`--no-preflight` / `--preflight-timeout`) |
+| Audit | `vigolium agent audit` | `pkg/cli/agent_audit.go` | Separate harness in `pkg/audit/` — spawns `claude` / `codex` CLI directly. Optional `claude -p` preflight (`--no-preflight` / `--preflight-timeout`) |
 | Piolium | `vigolium agent piolium` | `pkg/cli/agent_piolium.go` | Separate harness in `pkg/piolium/` — drives the user's piolium Pi extension via `pi --mode json -p /piolium-<mode>` |
-| Audit | `vigolium agent audit` | `pkg/cli/agent_audit.go` | Unified driver dispatcher in `pkg/agent/audit_drivers.go` + `audit_agent.go`: runs archon and/or piolium back-to-back under one parent AgenticScan with per-driver child rows, `--driver={both,archon,piolium}` (default `both`), `--fallback` for archon-on-piolium-failure, post-pass project-wide findings dedup once both drivers exit |
+| Audit | `vigolium agent audit` | `pkg/cli/agent_audit.go` | Unified driver dispatcher in `pkg/agent/audit_drivers.go` + `audit_agent.go`: runs audit and/or piolium back-to-back under one parent AgenticScan with per-driver child rows, `--driver={both,audit,piolium}` (default `both`), `--fallback` for audit-on-piolium-failure, post-pass project-wide findings dedup once both drivers exit |
 | Session | `vigolium agent session` | `pkg/cli/agent_session.go`, `agent_session_tui.go` | Browse / replay session artifacts under `agent.sessions_dir` |
 
 REST API exposes the same modes:
-- `POST /api/agent/run/query`, `POST /api/agent/run/autopilot`, `POST /api/agent/run/swarm`, `POST /api/agent/run/archon`, `POST /api/agent/run/audit` (handlers under `pkg/server/handlers_agent_audit*.go`; takes `driver: "piolium"|"archon"|"both"`, default `"both"`, with multiplexed SSE `driver` field when `stream: true`)
+- `POST /api/agent/run/query`, `POST /api/agent/run/autopilot`, `POST /api/agent/run/swarm`, `POST /api/agent/run/audit`, `POST /api/agent/run/audit` (handlers under `pkg/server/handlers_agent_audit*.go`; takes `driver: "piolium"|"audit"|"both"`, default `"both"`, with multiplexed SSE `driver` field when `stream: true`)
 - `GET /api/agent/status/list`, `GET /api/agent/status/:id`
 - `GET /api/agent/sessions`, `GET /api/agent/sessions/:id`, `…/logs`, `…/artifacts`, `…/artifacts/:filename`
 - `POST /api/agent/chat/completions` — OpenAI-compatible endpoint
 
-Prompt templates are Markdown with YAML frontmatter in `public/presets/prompts/` (overridable via `~/.vigolium/prompts/`). Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`. Session artifacts (per run) live under `agent.sessions_dir` (default `~/.vigolium/agent-sessions/`): `runtime.log`, `extensions/`, `session-config.json`, `swarm-plan.json`, per-phase `*-output.md`, `audit-stream.jsonl` (archon / piolium), `checkpoint.json` (swarm resume). Combined audit runs use per-driver subdirs (`{session}/archon/`, `{session}/piolium/`).
+Prompt templates are Markdown with YAML frontmatter in `public/presets/prompts/` (overridable via `~/.vigolium/prompts/`). Output schemas: `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`. Session artifacts (per run) live under `agent.sessions_dir` (default `~/.vigolium/agent-sessions/`): `runtime.log`, `extensions/`, `session-config.json`, `swarm-plan.json`, per-phase `*-output.md`, `audit-stream.jsonl` (audit / piolium), `checkpoint.json` (swarm resume). Combined audit runs use per-driver subdirs (`{session}/audit/`, `{session}/piolium/`).
 
 See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
 

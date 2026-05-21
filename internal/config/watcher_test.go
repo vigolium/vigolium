@@ -8,7 +8,7 @@ import (
 )
 
 // TestConfigWatcher_HotReloadsStorage covers the path that previously caused
-// archon runs to fail with "storage is not enabled in config" after the user
+// audit runs to fail with "storage is not enabled in config" after the user
 // edited the YAML to enable storage post-startup. The watcher used to drop
 // storage edits on the floor (storage was missing from reloadableSections).
 func TestConfigWatcher_HotReloadsStorage(t *testing.T) {

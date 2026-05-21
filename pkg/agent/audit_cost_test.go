@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
-	"github.com/vigolium/vigolium/pkg/archon/archonstream"
+	"github.com/vigolium/vigolium/pkg/audit/stream"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/piolium/picost"
 )
@@ -25,29 +25,29 @@ func TestScanCost_IsZero(t *testing.T) {
 	}
 }
 
-func TestScanCostFromArchon_Empty(t *testing.T) {
-	if got := scanCostFromArchon(archonstream.Result{}, agenttypes.ArchonAgentClaude); !got.IsZero() {
+func TestScanCostFromAudit_Empty(t *testing.T) {
+	if got := scanCostFromAudit(stream.Result{}, agenttypes.AuditDriverAgentClaude); !got.IsZero() {
 		t.Errorf("empty Result should yield zero ScanCost, got %+v", got)
 	}
 }
 
-func TestScanCostFromArchon_Full(t *testing.T) {
-	res := archonstream.Result{
+func TestScanCostFromAudit_Full(t *testing.T) {
+	res := stream.Result{
 		AuditID:     "aud-1",
 		Status:      "complete",
 		TotalUSD:    1.42,
-		TotalTokens: archonstream.Tokens{Input: 250_000, Output: 8_500},
-		Findings: archonstream.Findings{
+		TotalTokens: stream.Tokens{Input: 250_000, Output: 8_500},
+		Findings: stream.Findings{
 			Total:      4,
 			BySeverity: map[string]int{"High": 4},
 		},
 	}
-	got := scanCostFromArchon(res, agenttypes.ArchonAgentCodex)
-	if got.Backend != "archon" {
-		t.Errorf("Backend = %q, want archon", got.Backend)
+	got := scanCostFromAudit(res, agenttypes.AuditDriverAgentCodex)
+	if got.Backend != "audit" {
+		t.Errorf("Backend = %q, want audit", got.Backend)
 	}
-	if got.Model != "archon-codex" {
-		t.Errorf("Model = %q, want archon-codex", got.Model)
+	if got.Model != "audit-codex" {
+		t.Errorf("Model = %q, want audit-codex", got.Model)
 	}
 	if got.CostUSD != 1.42 {
 		t.Errorf("CostUSD = %v", got.CostUSD)
@@ -66,16 +66,16 @@ func TestScanCostFromArchon_Full(t *testing.T) {
 	}
 }
 
-func TestScanCostFromArchon_DefaultsToClaudeAgent(t *testing.T) {
-	res := archonstream.Result{
+func TestScanCostFromAudit_DefaultsToClaudeAgent(t *testing.T) {
+	res := stream.Result{
 		AuditID:     "aud-2",
 		Status:      "complete",
 		TotalUSD:    0.05,
-		TotalTokens: archonstream.Tokens{Input: 100, Output: 20},
-		Findings:    archonstream.Findings{Total: 0},
+		TotalTokens: stream.Tokens{Input: 100, Output: 20},
+		Findings:    stream.Findings{Total: 0},
 	}
-	got := scanCostFromArchon(res, "")
-	if got.Model != "archon-claude" {
+	got := scanCostFromAudit(res, "")
+	if got.Model != "audit-claude" {
 		t.Errorf("empty agent should default to claude, got %q", got.Model)
 	}
 }

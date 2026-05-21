@@ -3,7 +3,7 @@
 `olium` is the in-process AI agent runtime that powers every agentic feature in vigolium. It ships as both:
 
 - **A user-facing command** — `vigolium agent olium` (aliases: `vigolium olium`, `vigolium ol`) — for interactive chat in a TUI or scripted one-shot prompts.
-- **A library** — `pkg/olium/` — that the autopilot, swarm, query, archon-prep, and source-analysis paths all dispatch through. There are **no subprocess SDK backends**; every AI call in vigolium goes through this engine.
+- **A library** — `pkg/olium/` — that the autopilot, swarm, query, audit-prep, and source-analysis paths all dispatch through. There are **no subprocess SDK backends**; every AI call in vigolium goes through this engine.
 
 This document covers what the olium agent is, what it does, and how to use it. For a higher-level comparison against the other agent subcommands, see [`agent-mode.md`](agent-mode.md).
 
@@ -227,7 +227,7 @@ Adjacent config blocks worth knowing:
 
 - `agent.sessions_dir` — where per-run session directories go. Default `~/.vigolium/agent-sessions/`.
 - `agent.browser` — toggles `agent-browser` integration (the binary `web_fetch` shells out to in `mode: browser`).
-- `agent.archon` — controls the optional archon-audit prep step that autopilot/swarm can stack ahead of the olium loop.
+- `agent.audit` — controls the optional vigolium-audit prep step that autopilot/swarm can stack ahead of the olium loop.
 
 ---
 
@@ -240,7 +240,7 @@ Inside a session dir you may find:
 - `runtime.log` — per-turn event log (text deltas, tool start/end, turn-done summaries).
 - `tool-results/<tool>-<call-id>.txt` — spilled oversized tool outputs (when the engine's `SpillDir` is set).
 - `session-config.json` — run metadata (project / scan UUIDs, options).
-- `swarm-plan.json`, `master-output.md`, `audit-stream.jsonl`, `checkpoint.json` — produced by the higher-level modes that wrap olium (swarm, archon, autopilot).
+- `swarm-plan.json`, `master-output.md`, `audit-stream.jsonl`, `checkpoint.json` — produced by the higher-level modes that wrap olium (swarm, audit, autopilot).
 
 Browse past runs with `vigolium agent session list` / `--full` / `--tail`.
 

@@ -2,9 +2,9 @@
 
 Piolium is Vigolium's **Pi-native multi-phase whitebox security audit harness**. It runs as a foreground subcommand, `vigolium agent piolium`, driving a user-installed Pi extension via `pi --mode json -p "/piolium-<mode>"`. Findings are automatically ingested into the Vigolium database alongside native scanner results.
 
-> **Looking for the unified driver?** `vigolium agent audit` runs piolium and [archon](archon-audit.md) back-to-back under one AgenticScan, with per-driver child rows and a post-pass findings dedup. Use `--driver=piolium` (or `--driver=archon`) to force a single driver. This page describes piolium standalone; see the audit subcommand's `--help` for the unified shape.
+> **Looking for the unified driver?** `vigolium agent audit` runs piolium and [audit](vigolium-audit.md) back-to-back under one AgenticScan, with per-driver child rows and a post-pass findings dedup. Use `--driver=piolium` (or `--driver=audit`) to force a single driver. This page describes piolium standalone; see the audit subcommand's `--help` for the unified shape.
 
-Piolium shares its on-disk schema (`audit-state.json`, finding markdown, frontmatter conventions) with [`archon-audit`](archon-audit.md) — the parser, importer, and reporting tooling are shared between the two. The differences are runtime (Pi instead of Claude Code / Codex), folder name (`piolium/` instead of `archon/`), env-var prefix (`PIOLIUM_*` instead of `ARCHON_*`), and database tagging (`mode=piolium` instead of `archon`).
+Piolium shares its on-disk schema (`audit-state.json`, finding markdown, frontmatter conventions) with [`vigolium-audit`](vigolium-audit.md) — the parser, importer, and reporting tooling are shared between the two. The differences are runtime (Pi instead of Claude Code / Codex), folder name (`piolium/` instead of `audit/`), env-var prefix (`PIOLIUM_*` instead of `ARCHON_*`), and database tagging (`mode=piolium` instead of `audit`).
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ Piolium shares its on-disk schema (`audit-state.json`, finding markdown, frontma
 - [Session Artifacts](#session-artifacts)
 - [Finding Format](#finding-format)
 - [Finding Ingestion](#finding-ingestion)
-- [Comparison: piolium vs archon](#comparison-piolium-vs-archon)
+- [Comparison: piolium vs audit](#comparison-piolium-vs-audit)
 - [Comparison with Native Scanning](#comparison-with-native-scanning)
 - [End-to-End Tests](#end-to-end-tests)
 
@@ -30,26 +30,26 @@ Piolium shares its on-disk schema (`audit-state.json`, finding markdown, frontma
 
 ## Why & When to Use It
 
-Piolium and [archon-audit](archon-audit.md) share the same on-disk schema, finding format, and reporting tooling — they differ in **which model family drives the audit**. Pick based on what credentials you actually have:
+Piolium and [vigolium-audit](vigolium-audit.md) share the same on-disk schema, finding format, and reporting tooling — they differ in **which model family drives the audit**. Pick based on what credentials you actually have:
 
-- **Use [archon-audit](archon-audit.md)** when you have access to the **Claude Opus** family (Claude Code, Vertex Anthropic, Bedrock Anthropic). Archon's prompt orchestration was tuned against Opus and consistently produces the highest-quality findings on that family.
+- **Use [vigolium-audit](vigolium-audit.md)** when you have access to the **Claude Opus** family (Claude Code, Vertex Anthropic, Bedrock Anthropic). Audit's prompt orchestration was tuned against Opus and consistently produces the highest-quality findings on that family.
 - **Use piolium** when your available provider is **OpenAI (GPT/Codex)**, **Google (Gemini)**, or any other non-Claude model. Pi's adapter layer abstracts the provider, and piolium's phase prompts are designed to extract solid audit results from non-Opus models without sacrificing the adversarial-debate / cold-verify quality controls.
 
 ### When to use it
 
 Reach for `vigolium agent piolium` (piolium) when:
 
-- You're running on an **OpenAI key** (`gpt-5.5`, Codex) and want quality comparable to a Claude-Opus archon run.
+- You're running on an **OpenAI key** (`gpt-5.5`, Codex) and want quality comparable to a Claude-Opus audit run.
 - You're using **Gemini** or another Vertex/Bedrock-hosted non-Anthropic model.
 - You want a model-agnostic harness so you can swap providers (`--pi-provider` / `--pi-model`) without changing the audit pipeline.
-- You need the `longshot` mode (file-by-file hail-mary hunt) — it's piolium-only and not available in archon.
+- You need the `longshot` mode (file-by-file hail-mary hunt) — it's piolium-only and not available in audit.
 
-Reach for [archon-audit](archon-audit.md) instead when:
+Reach for [vigolium-audit](vigolium-audit.md) instead when:
 
 - You have Claude Opus access and want the best-possible audit fidelity.
-- You want to lock the swarm/autopilot audit to Claude/Codex regardless of what's installed locally — pass `--archon=<mode>` to opt out of the auto-pick.
+- You want to lock the swarm/autopilot audit to Claude/Codex regardless of what's installed locally — pass `--audit=<mode>` to opt out of the auto-pick.
 
-Both harnesses can run as the in-pipeline audit during `vigolium agent autopilot` and `vigolium agent swarm`. When you don't pass `--archon` or `--piolium`, the CLI auto-picks: piolium runs if `pi`+the piolium extension are installed locally, otherwise it falls back to archon. The two are interoperable: findings from either land in the same `findings` table tagged with their source and can be reported together.
+Both harnesses can run as the in-pipeline audit during `vigolium agent autopilot` and `vigolium agent swarm`. When you don't pass `--audit` or `--piolium`, the CLI auto-picks: piolium runs if `pi`+the piolium extension are installed locally, otherwise it falls back to audit. The two are interoperable: findings from either land in the same `findings` table tagged with their source and can be reported together.
 
 ---
 
@@ -180,13 +180,13 @@ Piolium exposes 8 audit modes via `--mode`. Audit modes (`merge`, `diff`, `confi
 
 Operator commands (`/piolium-status`, `/piolium-smoke`, `/piolium-export`, `/piolium-learn`) are not exposed through `vigolium agent piolium` — invoke them directly with `pi -p /piolium-<cmd>`. They don't produce findings vigolium ingests, so routing them through the audit pipeline (session sync, database tagging, dedup) just adds noise.
 
-The phase ID space is intentionally interchangeable with `archon-audit` (Q*, L*, P*, V*, R*, M*) so the same parser, finding format, and reporting tooling apply.
+The phase ID space is intentionally interchangeable with `vigolium-audit` (Q*, L*, P*, V*, R*, M*) so the same parser, finding format, and reporting tooling apply.
 
 For full per-phase semantics see piolium's own [`docs/phase-reference.md`](https://github.com/vigolium/piolium/blob/main/docs/phase-reference.md) and [`docs/output-structure.md`](https://github.com/vigolium/piolium/blob/main/docs/output-structure.md).
 
 ### Intensity presets
 
-`--intensity` bundles the audit mode and clone depth into a single flag, matching the autopilot/swarm/archon intensity model:
+`--intensity` bundles the audit mode and clone depth into a single flag, matching the autopilot/swarm/audit intensity model:
 
 | Intensity | Mode | Commit depth | Use case |
 |---|---|---|---|
@@ -276,28 +276,28 @@ vigolium agent piolium --source ./backend \
   --pi-model gemini-3.1-pro
 ```
 
-### Running piolium and archon together
+### Running piolium and audit together
 
-The standalone `vigolium agent piolium` command runs piolium only — there is no harness fallback. If you want both archon and piolium to score the same source tree (under one AgenticScan, with per-driver child rows and a post-pass project-wide findings dedup), use the unified driver:
+The standalone `vigolium agent piolium` command runs piolium only — there is no harness fallback. If you want both audit and piolium to score the same source tree (under one AgenticScan, with per-driver child rows and a post-pass project-wide findings dedup), use the unified driver:
 
 ```bash
-# Default — runs archon then piolium sequentially
+# Default — runs audit then piolium sequentially
 vigolium agent audit --source ./backend
 
 # Just piolium (equivalent to `vigolium agent piolium`)
 vigolium agent audit --driver piolium --source ./backend --mode lite
 
-# Just archon (equivalent to `vigolium agent archon`)
-vigolium agent audit --driver archon --source ./backend
+# Just audit (equivalent to `vigolium agent audit`)
+vigolium agent audit --driver audit --source ./backend
 ```
 
-Mode must be in the shared set (`lite`/`balanced`/`deep`/`revisit`/`confirm`/`merge`) when `--driver=both`. Driver-specific modes (`longshot` for piolium, `mock` for archon) require `--driver=piolium` or `--driver=archon`.
+Mode must be in the shared set (`lite`/`balanced`/`deep`/`revisit`/`confirm`/`merge`) when `--driver=both`. Driver-specific modes (`longshot` for piolium, `mock` for audit) require `--driver=piolium` or `--driver=audit`.
 
 ---
 
 ## REST API
 
-`POST /api/agent/run/audit` is the **unified driver endpoint** — it dispatches archon and/or piolium based on the `driver` field. To run only piolium, pass `driver: "piolium"`. To run only archon, use `driver: "archon"` (or hit `POST /api/agent/run/archon` directly). The default `driver: "both"` runs archon then piolium under one AgenticScan with per-driver child rows and a post-pass findings dedup. Same lifecycle and `AgenticScan` row shape as [`/api/agent/run/archon`](archon-audit.md) — the existing `/agent/status/:id`, `/agent/sessions/:id/logs`, and `/agent/sessions/:id/artifacts` endpoints work uniformly across both harnesses.
+`POST /api/agent/run/audit` is the **unified driver endpoint** — it dispatches audit and/or piolium based on the `driver` field. To run only piolium, pass `driver: "piolium"`. To run only audit, use `driver: "audit"` (or hit `POST /api/agent/run/audit` directly). The default `driver: "both"` runs audit then piolium under one AgenticScan with per-driver child rows and a post-pass findings dedup. Same lifecycle and `AgenticScan` row shape as [`/api/agent/run/audit`](vigolium-audit.md) — the existing `/agent/status/:id`, `/agent/sessions/:id/logs`, and `/agent/sessions/:id/artifacts` endpoints work uniformly across both harnesses.
 
 The server-side handler does **not** run the CLI's preflight roundtrip (`pi --mode json` is started straight after request validation). Auth/quota failures surface in the SSE/runtime.log stream instead.
 
@@ -308,8 +308,8 @@ The server-side handler does **not** run the CLI's preflight roundtrip (`pi --mo
 | `source` | string | **Required.** Local path, git URL, `gs://<bucket>/<key>` archive (auto-downloaded + extracted server-side), or local `.zip`/`.tar.gz`/`.tar.bz2`/`.tar.xz`. With `driver: "both"`, the source is resolved once and reused by both drivers. |
 | `target` | string | Optional target URL stored on the run row for cross-referencing scans. |
 | `intensity` | string | `quick` / `balanced` (default) / `deep`. Bundles `mode` + `timeout` + `commit_depth` (quick → `lite`/1h/depth 1, balanced → `balanced`/6h/depth 1, deep → `deep`/12h/depth 0). Explicit `mode`/`timeout`/`commit_depth` win per-field over the preset. |
-| `mode` | string | Audit mode override. With `driver: "both"`, must be in the shared set: `lite` / `balanced` / `deep` / `revisit` / `confirm` / `merge`. Single-driver mode adds `diff` plus driver-specific values (`longshot` for piolium, `status`/`mock` for archon). |
-| `timeout` | string | Go duration (e.g. `"2h"`). Overrides intensity preset. Applied per-driver under `driver: "both"` so an archon hang doesn't burn piolium's budget. |
+| `mode` | string | Audit mode override. With `driver: "both"`, must be in the shared set: `lite` / `balanced` / `deep` / `revisit` / `confirm` / `merge`. Single-driver mode adds `diff` plus driver-specific values (`longshot` for piolium, `status`/`mock` for audit). |
+| `timeout` | string | Go duration (e.g. `"2h"`). Overrides intensity preset. Applied per-driver under `driver: "both"` so an audit hang doesn't burn piolium's budget. |
 | `diff` | string | Focus on changed code: PR URL, git ref range, or `HEAD~N`. |
 | `last_commits` | int | Focus on last N commits (shorthand for `diff HEAD~N`). |
 | `commit_depth` | int | `git clone --depth` for git URLs. `0` = full history. Overrides intensity. |
@@ -318,10 +318,10 @@ The server-side handler does **not** run the CLI's preflight roundtrip (`pi --mo
 | `upload_results` | bool | Upload session bundle to cloud storage on completion. With `driver: "both"`, skipped when any driver failed. |
 | `project_uuid` | string | Project UUID for data scoping. Falls back to `X-Project-UUID` header. |
 | `scan_uuid` | string | Optional scan UUID. |
-| `driver` | string | `"piolium"` / `"archon"` / `"both"` (default). With `"both"`, mode must be in the shared set. |
+| `driver` | string | `"piolium"` / `"audit"` / `"both"` (default). With `"both"`, mode must be in the shared set. |
 | `no_dedup` | bool | Skip the post-pass project-wide findings dedup that runs after `driver: "both"` completes. Ignored for single-driver runs (those already INSERT-time-dedup by `finding_hash`). |
-| `agent` | string | Archon platform when archon participates: `claude` (default) / `codex`. Ignored when `driver: "piolium"`. |
-| `pi_provider` | string | Forwarded as `pi --provider <name>`. Ignored when `driver: "archon"`. |
+| `agent` | string | Audit platform when audit participates: `claude` (default) / `codex`. Ignored when `driver: "piolium"`. |
+| `pi_provider` | string | Forwarded as `pi --provider <name>`. Ignored when `driver: "audit"`. |
 | `pi_model` | string | Forwarded as `pi --model <id>`. |
 | `plm_scan_limit` | int | `--plm-scan-limit` passthrough. |
 | `plm_scan_since` | string | `--plm-scan-since` passthrough. |
@@ -338,7 +338,7 @@ All `pi_*` and `plm_*` fields are optional and only emit their flag when populat
 ### Examples
 
 ```bash
-# Default — driver=both with intensity=balanced (archon then piolium,
+# Default — driver=both with intensity=balanced (audit then piolium,
 # project-wide findings dedup after both exit)
 curl -s -X POST http://localhost:9002/api/agent/run/audit \
   -H "Content-Type: application/json" \
@@ -379,12 +379,12 @@ curl -s -X POST http://localhost:9002/api/agent/run/audit \
     "project_uuid": "11111111-2222-3333-4444-555555555555"
   }' | jq .
 
-# gs:// + driver=archon only (skip piolium even though it's installed)
+# gs:// + driver=audit only (skip piolium even though it's installed)
 curl -s -X POST http://localhost:9002/api/agent/run/audit \
   -H "Content-Type: application/json" \
   -d '{
     "source": "gs://vigolium-uploads/acme/backend-2026-05-02.zip",
-    "driver": "archon",
+    "driver": "audit",
     "agent": "claude",
     "intensity": "balanced"
   }' | jq .
@@ -424,7 +424,7 @@ The endpoint returns `202 Accepted` with the **parent** run UUID; tail progress 
 }
 ```
 
-Single-driver runs (`driver: "piolium"` or `"archon"`) return `"message": "audit run started"`.
+Single-driver runs (`driver: "piolium"` or `"audit"`) return `"message": "audit run started"`.
 
 Pass `"stream": true` in the request to keep the connection open and receive an SSE stream of `chunk` / `error` / `done` events instead of the 202.
 
@@ -432,13 +432,13 @@ Pass `"stream": true` in the request to keep the connection open and receive an 
 
 | Status | Cause |
 |---|---|
-| 400 | Missing `source`; invalid `mode`/`intensity`/`driver`; a driver-specific mode (`longshot`/`mock`) under `driver: "both"`; or invalid archon `agent` (`claude`/`codex`) when archon participates. |
+| 400 | Missing `source`; invalid `mode`/`intensity`/`driver`; a driver-specific mode (`longshot`/`mock`) under `driver: "both"`; or invalid audit `agent` (`claude`/`codex`) when audit participates. |
 | 429 | Heavy-agent semaphore is full — retry after the in-flight audit completes. |
-| 503 | The **single requested driver's** runtime is unavailable: `driver: "piolium"` returns 503 when `pi` isn't on `PATH` or the piolium extension isn't registered in `~/.pi/agent/settings.json`; `driver: "archon"` returns 503 when the configured platform binary (`claude`/`codex`) isn't on `PATH`. **`driver: "both"` never returns 503 for missing runtimes** — a missing `pi` or platform binary becomes a server warning log, the available driver still runs, and the failed driver surfaces as a per-driver error on the child run (parent ends `completed_with_errors`). The request only fails if both drivers turn out to be unavailable, which still produces a `202 Accepted` followed by a `completed_with_errors` parent row that names both. |
+| 503 | The **single requested driver's** runtime is unavailable: `driver: "piolium"` returns 503 when `pi` isn't on `PATH` or the piolium extension isn't registered in `~/.pi/agent/settings.json`; `driver: "audit"` returns 503 when the configured platform binary (`claude`/`codex`) isn't on `PATH`. **`driver: "both"` never returns 503 for missing runtimes** — a missing `pi` or platform binary becomes a server warning log, the available driver still runs, and the failed driver surfaces as a per-driver error on the child run (parent ends `completed_with_errors`). The request only fails if both drivers turn out to be unavailable, which still produces a `202 Accepted` followed by a `completed_with_errors` parent row that names both. |
 
 ### Combined-driver SSE events
 
-When `driver: "both"` and `stream: true`, archon-then-piolium output is multiplexed into one SSE stream. Each event includes a `driver` field (`"archon"` or `"piolium"`); `driver_start` and `driver_end` events bracket each driver's slot so clients can render per-driver progress. The `error` field on `driver_end` carries the per-driver failure (if any), and a final `done` event fires only when both drivers completed without errors.
+When `driver: "both"` and `stream: true`, audit-then-piolium output is multiplexed into one SSE stream. Each event includes a `driver` field (`"audit"` or `"piolium"`); `driver_start` and `driver_end` events bracket each driver's slot so clients can render per-driver progress. The `error` field on `driver_end` carries the per-driver failure (if any), and a final `done` event fires only when both drivers completed without errors.
 
 ```bash
 # Run both drivers, multiplexed SSE
@@ -456,14 +456,14 @@ curl -N -s -X POST http://localhost:9002/api/agent/run/audit \
 
 ## In-Pipeline Audit (autopilot / swarm)
 
-`vigolium agent autopilot` and `vigolium agent swarm` can drive piolium as the in-pipeline audit that runs alongside (and feeds findings into) the operator agent. The same CLI that historically defaulted to archon now auto-picks piolium when it's locally available.
+`vigolium agent autopilot` and `vigolium agent swarm` can drive piolium as the in-pipeline audit that runs alongside (and feeds findings into) the operator agent. The same CLI that historically defaulted to audit now auto-picks piolium when it's locally available.
 
 ### Auto-pick
 
-When `--source` is set and **neither** `--archon` nor `--piolium` is passed:
+When `--source` is set and **neither** `--audit` nor `--piolium` is passed:
 
 - If `pi` is on `$PATH` **and** the piolium extension is registered in `~/.pi/agent/settings.json` → **piolium** runs (mode = whatever the intensity preset chose, default `lite`).
-- Otherwise → **archon** runs (existing default).
+- Otherwise → **audit** runs (existing default).
 
 This preserves the prior behavior on machines without Pi while picking up piolium automatically once a user installs it.
 
@@ -471,15 +471,15 @@ This preserves the prior behavior on machines without Pi while picking up pioliu
 
 | Flag combination | Result |
 |---|---|
-| `--piolium` (explicit, any mode) | Piolium runs at that mode; archon turns off. |
-| `--archon` (explicit, any mode) | Archon runs at that mode; piolium stays off. |
-| `--archon=off --piolium=off` | No audit. |
+| `--piolium` (explicit, any mode) | Piolium runs at that mode; audit turns off. |
+| `--audit` (explicit, any mode) | Audit runs at that mode; piolium stays off. |
+| `--audit=off --piolium=off` | No audit. |
 
 Only one harness runs per scan — there's no "run both" mode. If you want to compare both harnesses on the same source, run two scans.
 
 ### REST API equivalents
 
-Both `POST /api/agent/run/autopilot` and `POST /api/agent/run/swarm` accept a new `piolium` field that mirrors the CLI flag exactly. The same auto-pick rule applies server-side: omitting both `archon` and `piolium` triggers piolium when the **server process** has pi+piolium installed, archon otherwise.
+Both `POST /api/agent/run/autopilot` and `POST /api/agent/run/swarm` accept a new `piolium` field that mirrors the CLI flag exactly. The same auto-pick rule applies server-side: omitting both `audit` and `piolium` triggers piolium when the **server process** has pi+piolium installed, audit otherwise.
 
 ```bash
 # Autopilot — explicit piolium audit
@@ -514,11 +514,11 @@ curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
 
 Whichever harness runs:
 
-- The audit's `audit-state.json` and `findings/` tree are synced into `<sessionDir>/<harness.SessionSubdir>/` (`archon-audit/` or `piolium-audit/`).
-- The autopilot pipeline blocks on the audit before launching the operator agent, then folds the findings into the operator's frozen context bundle (same flow that archon has used).
-- Findings land in the database tagged with `finding_source = "archon"` or `"piolium"`. Mix and match in queries:
+- The audit's `audit-state.json` and `findings/` tree are synced into `<sessionDir>/<harness.SessionSubdir>/` (`vigolium-results/` or `piolium-audit/`).
+- The autopilot pipeline blocks on the audit before launching the operator agent, then folds the findings into the operator's frozen context bundle (same flow that audit has used).
+- Findings land in the database tagged with `finding_source = "audit"` or `"piolium"`. Mix and match in queries:
   ```bash
-  vigolium finding list --source piolium,archon
+  vigolium finding list --source piolium,audit
   ```
 
 ### Caveats
@@ -635,7 +635,7 @@ Vigolium replicates piolium's expected env contract before launching:
 ```
 <source_path>/
 └── piolium/
-    ├── audit-state.json               # Phase progress (snake_case keys, archon-compatible)
+    ├── audit-state.json               # Phase progress (snake_case keys, audit-compatible)
     ├── attack-surface/                # Recon, KB, SAST, probe summaries
     │   ├── lite-recon.md
     │   ├── knowledge-base-report.md
@@ -680,7 +680,7 @@ Vigolium replicates piolium's expected env contract before launching:
 
 ## Finding Format
 
-Piolium's finding format is identical to archon's — same YAML frontmatter, same body conventions, same cold-verify overlay pattern. The only naming difference is the **directory layout**: piolium keeps the source phase ID on its promoted findings (`p10-001-<slug>/`) instead of renumbering to severity-letter format (`C1-<slug>/` in archon). Vigolium's parser handles both.
+Piolium's finding format is identical to audit's — same YAML frontmatter, same body conventions, same cold-verify overlay pattern. The only naming difference is the **directory layout**: piolium keeps the source phase ID on its promoted findings (`p10-001-<slug>/`) instead of renumbering to severity-letter format (`C1-<slug>/` in audit). Vigolium's parser handles both.
 
 ### Frontmatter (lowercase YAML, piolium-style)
 
@@ -714,9 +714,9 @@ Auth-Required: no
 …
 ```
 
-The frontmatter parser is case-insensitive on field names: archon's `Phase`/`Severity-Final` and piolium's `phase`/`severity` both work. Piolium's single `severity` field is mapped onto archon's `SeverityFinal` slot so the existing "prefer final over original" resolution still applies.
+The frontmatter parser is case-insensitive on field names: audit's `Phase`/`Severity-Final` and piolium's `phase`/`severity` both work. Piolium's single `severity` field is mapped onto audit's `SeverityFinal` slot so the existing "prefer final over original" resolution still applies.
 
-For a full schema see [archon-audit's Finding Format section](archon-audit.md#finding-format) — both harnesses share it.
+For a full schema see [vigolium-audit's Finding Format section](vigolium-audit.md#finding-format) — both harnesses share it.
 
 ---
 
@@ -761,13 +761,13 @@ vigolium finding list --source piolium
 # Via API
 GET /api/findings?source=piolium
 
-# Combined with archon
-vigolium finding list --source piolium,archon
+# Combined with audit
+vigolium finding list --source piolium,audit
 ```
 
 ### Manual import
 
-Piolium output from external runs imports through the same path as archon — the parser detects the `findings/p<phase>-<seq>-<slug>/` directory layout and tags rows correctly:
+Piolium output from external runs imports through the same path as audit — the parser detects the `findings/p<phase>-<seq>-<slug>/` directory layout and tags rows correctly:
 
 ```bash
 vigolium import /path/to/piolium-output/
@@ -777,25 +777,25 @@ The folder must contain `audit-state.json` and either `findings/` or `findings-d
 
 ---
 
-## Comparison: piolium vs archon
+## Comparison: piolium vs audit
 
-| Aspect | `vigolium agent archon` | `vigolium agent piolium` (piolium) |
+| Aspect | `vigolium agent audit` | `vigolium agent piolium` (piolium) |
 |---|---|---|
 | **Runtime** | Claude Code or Codex | Pi (`pi` CLI + piolium extension) |
 | **Install model** | Embedded harness, auto-extracted at runtime | User installs piolium via `pi install` |
-| **Slash command** | `/archon-audit:archon:<mode>` | `/piolium-<mode>` |
-| **Output folder** | `<source>/archon/` → `<sessionDir>/archon-audit/` | `<source>/piolium/` → `<sessionDir>/piolium-audit/` |
+| **Slash command** | `/vigolium-audit:audit:<mode>` | `/piolium-<mode>` |
+| **Output folder** | `<source>/vigolium-results/` → `<sessionDir>/vigolium-results/` | `<source>/piolium/` → `<sessionDir>/piolium-audit/` |
 | **Env prefix** | `ARCHON_*` | `PIOLIUM_*` |
 | **Session-flag prefix** | n/a | `--plm-*` (passthrough on the `pi` argv) |
 | **Modes** | `lite`/`balanced`/`deep`/`revisit`/`confirm`/`merge`/`diff`/`status`/`mock` | `lite`/`balanced`/`deep`/`revisit`/`confirm`/`merge`/`diff`/`longshot` |
 | **Cost source** | `claudecost` (audit-stream.jsonl), `codexcost` (~/.codex/sessions) | `picost` (~/.pi/agent/sessions) |
-| **DB tagging** | `mode=archon`, `module_id=archon:…` | `mode=piolium`, `module_id=piolium:…` |
+| **DB tagging** | `mode=audit`, `module_id=audit:…` | `mode=piolium`, `module_id=piolium:…` |
 | **Audit-state.json** | Same schema (snake_case keys, interchangeable) | Same schema |
 | **Finding format** | Same (YAML frontmatter + cold-verify overlays) | Same |
 | **Promoted-findings layout** | `findings/C1-<slug>/` (severity-prefixed) | `findings/p<phase>-<seq>-<slug>/` (phase-prefixed) |
-| **Background-during-scan** | Yes — `--archon` flag on `swarm`/`autopilot` | No — foreground subcommand only |
+| **Background-during-scan** | Yes — `--audit` flag on `swarm`/`autopilot` | No — foreground subcommand only |
 
-The two are intentionally interoperable. You can run a piolium audit and import the output into a project that has archon-tagged findings; the parser, finding deduplication, and reporting tooling all apply uniformly.
+The two are intentionally interoperable. You can run a piolium audit and import the output into a project that has audit-tagged findings; the parser, finding deduplication, and reporting tooling all apply uniformly.
 
 ---
 

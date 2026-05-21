@@ -11,7 +11,7 @@ For end-to-end walkthroughs of the audit-driver BYOK path, see
 ## Endpoint × field matrix
 
 All agent endpoints accept the BYOK fields described in the schema section.
-"Driver" tells you whether the credentials land in a subprocess (archon /
+"Driver" tells you whether the credentials land in a subprocess (audit /
 piolium) or in the in-process olium engine.
 
 | Endpoint                          | Driver               | BYOK body fields | Bearer header | Per-driver overrides |
@@ -19,11 +19,11 @@ piolium) or in the in-process olium engine.
 | `POST /api/agent/run/query`       | in-process olium     | yes              | no            | n/a                  |
 | `POST /api/agent/run/autopilot`   | in-process olium     | yes              | no            | n/a                  |
 | `POST /api/agent/run/swarm`       | in-process olium     | yes              | no            | n/a                  |
-| `POST /api/agent/run/archon`      | subprocess (archon)  | yes              | no            | n/a                  |
-| `POST /api/agent/run/audit`       | subprocess (archon + piolium) | yes     | no            | `archon_auth`, `piolium_auth` |
+| `POST /api/agent/run/audit`      | subprocess (audit)  | yes              | no            | n/a                  |
+| `POST /api/agent/run/audit`       | subprocess (audit + piolium) | yes     | no            | `audit_auth`, `piolium_auth` |
 | `POST /api/agent/chat/completions`| in-process olium     | yes              | yes (no-auth mode only) | n/a                  |
 
-The autopilot endpoint can also kick off a background archon-audit when a
+The autopilot endpoint can also kick off a background vigolium-audit when a
 source path is provided; that background audit inherits the same BYOK
 overlay as the in-process operator agent.
 
@@ -40,7 +40,7 @@ overlay as the in-process operator agent.
   // Audit endpoint only — override the inherited fields per driver. Each
   // sub-object accepts the same four fields above. Only valid with
   // driver=both; single-driver runs reject these.
-  "archon_auth":     { "api_key": "..." },
+  "audit_auth":     { "api_key": "..." },
   "piolium_auth":    { "oauth_cred_json": "..." }
 }
 ```
@@ -65,7 +65,7 @@ The provider switch is validated against the key shape:
 - Any field still containing an unexpanded `${VAR}` after YAML load fails
   fast with a "set the env var in your shell" hint.
 
-The subprocess (archon / piolium) path uses the explicit `agent` field
+The subprocess (audit / piolium) path uses the explicit `agent` field
 (`claude` / `codex`) instead and validates that `oauth_token` is only used
 on the claude side.
 
@@ -95,15 +95,15 @@ For all other endpoints, BYOK must come from the JSON body.
 
 ## Per-driver overrides (`driver=both` only)
 
-`POST /api/agent/run/audit` with `driver: "both"` accepts `archon_auth`
+`POST /api/agent/run/audit` with `driver: "both"` accepts `audit_auth`
 and `piolium_auth` sub-objects that override the top-level BYOK for one
 driver only. Use this to run a single audit with two tenants' credentials —
-e.g. one operator's Claude OAuth on the archon side and another operator's
+e.g. one operator's Claude OAuth on the audit side and another operator's
 Codex auth.json on the piolium side. Each sub-override is staged and
 cleaned up independently.
 
-Single-driver runs (`driver=archon` / `driver=piolium`) reject
-`archon_auth` / `piolium_auth` with a 400 — pass the top-level fields
+Single-driver runs (`driver=audit` / `driver=piolium`) reject
+`audit_auth` / `piolium_auth` with a 400 — pass the top-level fields
 instead.
 
 ## Lifecycle and on-disk staging
@@ -112,19 +112,19 @@ instead.
 | ---------------- | -------------------------------------------------------- | ------- |
 | `api_key`        | provider struct field (wrapped in formatter-safe `secret`) | engine teardown |
 | `oauth_token`    | provider struct field (wrapped in formatter-safe `secret`) | engine teardown |
-| `oauth_cred_file` | argv flag (archon) / staged file (piolium) | per-run cleanup |
+| `oauth_cred_file` | argv flag (audit) / staged file (piolium) | per-run cleanup |
 | `oauth_cred_json` | 0600 file under `<sessions_dir>/byok-creds/byok-<uuid>.json` | per-run cleanup |
 
 The piolium codex BYOK additionally swaps `<pi-agent-dir>/auth.json` and
-its lock file (`.vigolium-auth.lock`). Archon-ts does the same dance with
-`.archon-auth.lock`. Both lock files carry a JSON breadcrumb
+its lock file (`.vigolium-auth.lock`). Audit-ts does the same dance with
+`.audit-auth.lock`. Both lock files carry a JSON breadcrumb
 (`run`, `pid`, `started_at`) so an operator can attribute a stale lock.
 
 If vigolium SIGKILLs mid-run, the next audit boot runs a sweep:
 
 - Go side (`SweepStalePioliumAuth`) — restores the matching
   `auth.json.vigolium-bak-<uuid>` if the holder PID is dead.
-- TS side (`sweepStaleAuthBackups`) — same for `.archon-backup-<uuid>`.
+- TS side (`sweepStaleAuthBackups`) — same for `.audit-backup-<uuid>`.
 
 Operators see one log line per swept entry.
 
@@ -184,7 +184,7 @@ Two-tenant `driver=both`:
 {
   "source": "/repo",
   "driver": "both",
-  "archon_auth":  { "oauth_token":    "sk-ant-oat01-tenant-A-..." },
+  "audit_auth":  { "oauth_token":    "sk-ant-oat01-tenant-A-..." },
   "piolium_auth": { "oauth_cred_json": "{\"tokens\":{...tenant B...}}" }
 }
 ```

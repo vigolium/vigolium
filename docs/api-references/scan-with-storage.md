@@ -16,7 +16,7 @@ Every scan mode supports an opt-in result-upload flow. When `upload_results: tru
 | Agent query                         | `POST /api/agent/run/query`       | `--upload-results` | `<project>/agentic-scans/<agentic-scan-uuid>/results.tar.gz`             |
 | Agent autopilot                     | `POST /api/agent/run/autopilot`   | `--upload-results` | `<project>/agentic-scans/<agentic-scan-uuid>/results.tar.gz`             |
 | Agent swarm                         | `POST /api/agent/run/swarm`       | `--upload-results` | `<project>/agentic-scans/<agentic-scan-uuid>/results.tar.gz`             |
-| Agent archon                        | `POST /api/agent/run/archon`      | `--upload-results` | `<project>/agentic-scans/<agentic-scan-uuid>/results.tar.gz`             |
+| Agent audit                        | `POST /api/agent/run/audit`      | `--upload-results` | `<project>/agentic-scans/<agentic-scan-uuid>/results.tar.gz`             |
 
 All bundles live under `<bucket>/<project-uuid>/...`; the project UUID comes from the `X-Project-UUID` header (or the request body's `project_uuid`) — see [storage.md → Security](./storage.md#security).
 
@@ -175,7 +175,7 @@ vigolium agent autopilot \
   --upload-results
 ```
 
-The bundle is the full session directory: `runtime.log`, `archon-audit/` artifacts, operator transcripts, frozen context, and any findings emitted by the agent.
+The bundle is the full session directory: `runtime.log`, `vigolium-results/` artifacts, operator transcripts, frozen context, and any findings emitted by the agent.
 
 ---
 
@@ -213,12 +213,12 @@ vigolium agent swarm \
 
 ---
 
-## Agent Archon
+## Agent Audit
 
-Foreground archon-audit (multi-phase source code security audit).
+Foreground vigolium-audit (multi-phase source code security audit).
 
 ```bash
-curl -s -X POST http://localhost:9002/api/agent/run/archon \
+curl -s -X POST http://localhost:9002/api/agent/run/audit \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -H "X-Project-UUID: <project-uuid>" \
@@ -231,18 +231,18 @@ curl -s -X POST http://localhost:9002/api/agent/run/archon \
   }' | jq .
 ```
 
-Archon runs are typically long-lived (`deep` mode can run for hours), so pinning `scan_uuid` is especially useful when a dispatcher wants to surface the run's UUID to end users *before* the audit starts — the same UUID will be returned as `agentic_scan_uuid` and used as the bundle key under `<project-uuid>/agentic-scans/<scan_uuid>/results.tar.gz`.
+Audit runs are typically long-lived (`deep` mode can run for hours), so pinning `scan_uuid` is especially useful when a dispatcher wants to surface the run's UUID to end users *before* the audit starts — the same UUID will be returned as `agentic_scan_uuid` and used as the bundle key under `<project-uuid>/agentic-scans/<scan_uuid>/results.tar.gz`.
 
 ### CLI equivalent
 
 ```bash
-vigolium agent archon \
+vigolium agent audit \
   --source https://github.com/example/myapp \
   --mode deep \
   --upload-results
 ```
 
-The bundle contains `runtime.log`, `audit-stream.jsonl`, `archon-audit-output.md`, and the synced `archon-audit/` artifact tree (per-phase reports, advisory matrices, audit-state.json).
+The bundle contains `runtime.log`, `audit-stream.jsonl`, `vigolium-audit-output.md`, and the synced `vigolium-results/` artifact tree (per-phase reports, advisory matrices, audit-state.json).
 
 ---
 
@@ -258,7 +258,7 @@ The bundle contains `runtime.log`, `audit-stream.jsonl`, `archon-audit-output.md
         results.tar.gz                  # runtime.log + output.{jsonl,html} when output_formats requested
     agentic-scans/
       <agentic-scan-uuid>/
-        results.tar.gz                  # full session dir for query/autopilot/swarm/archon
+        results.tar.gz                  # full session dir for query/autopilot/swarm/audit
 ```
 
 Both native and agentic scan trees are flat: one directory per UUID, one bundle per scan.
@@ -313,7 +313,7 @@ curl -s http://localhost:9002/api/scans/<scan-uuid> \
   -H "Authorization: Bearer <token>" | jq .storage_url
 # "gs://<project-uuid>/native-scans/<scan-uuid>/results.tar.gz"
 
-# Agentic scan (query / autopilot / swarm / archon)
+# Agentic scan (query / autopilot / swarm / audit)
 curl -s http://localhost:9002/api/agent/sessions/<agentic-scan-uuid> \
   -H "Authorization: Bearer <token>" | jq .storage_url
 # "gs://<project-uuid>/agentic-scans/<agentic-scan-uuid>/results.tar.gz"
@@ -378,7 +378,7 @@ Findings and http_records emitted by Node B carry `scan_uuid = $SCAN_UUID` — e
 
 ### Agentic equivalent
 
-The same pattern applies to `vigolium agent autopilot|swarm|query|archon` and `POST /api/agent/run/*` — `--scan-uuid` (or the request body's `scan_uuid` field) pins `AgenticScan.uuid` instead of `Scan.uuid`. The response surfaces the pinned value as `agentic_scan_uuid`.
+The same pattern applies to `vigolium agent autopilot|swarm|query|audit` and `POST /api/agent/run/*` — `--scan-uuid` (or the request body's `scan_uuid` field) pins `AgenticScan.uuid` instead of `Scan.uuid`. The response surfaces the pinned value as `agentic_scan_uuid`.
 
 **Node A** — dispatcher pre-creates an autopilot run (e.g. so a UI can show the run UUID before the worker picks it up). Pre-creation is most ergonomic via the agentic API itself with `dry_run: true` (avoids spending agent budget on an empty run):
 
@@ -428,7 +428,7 @@ curl -s -X POST http://node-b:9002/api/agent/run/autopilot \
 
 Both nodes' findings, http_records, and OAST interactions carry `scan_uuid = $AGENTIC_SCAN_UUID`. Node A's `GET /api/agent/sessions/$AGENTIC_SCAN_UUID` returns the in-progress status (Node B updates the same row), and the uploaded bundle ends up at `<project-uuid>/agentic-scans/$AGENTIC_SCAN_UUID/results.tar.gz`.
 
-The same flow works for `swarm`, `query`, and `archon` — substitute the endpoint and the relevant request fields. For `archon`, pinning is especially useful because deep-mode runs can take hours and the dispatcher often wants to surface the run UUID immediately.
+The same flow works for `swarm`, `query`, and `audit` — substitute the endpoint and the relevant request fields. For `audit`, pinning is especially useful because deep-mode runs can take hours and the dispatcher often wants to surface the run UUID immediately.
 
 ---
 
@@ -486,7 +486,7 @@ ls -la
 - **Storage disabled** — When `storage.enabled` is `false`, `upload_results: true` is a silent no-op. The server logs `"upload_results requested but storage is not enabled"` at warn level. Scans still complete normally.
 - **Scan failure** — Bundles are uploaded only on successful completion. Failed/cancelled scans skip the upload (the runtime.log is still on disk under the session/scan-logs directory).
 - **No output to upload** — If a native scan has neither output files nor a runtime.log on disk (e.g. `persist_logs` disabled and no `--output`), the upload step logs `"storage: no native scan files to upload"` and exits cleanly.
-- **Bundle size** — Agentic bundles include the full session dir, which can grow large (archon-audit deep mode produces 10s of MB of phase reports). Use presigned URLs for large downloads.
+- **Bundle size** — Agentic bundles include the full session dir, which can grow large (vigolium-audit deep mode produces 10s of MB of phase reports). Use presigned URLs for large downloads.
 - **Project scoping** — All keys are prefixed with the project UUID. A bundle uploaded under project A is not visible to project B even if the run UUID is known.
 - **Idempotency** — Re-running a scan with the same UUID overwrites the previous bundle. UUIDs are server-generated by default; clients deliberately pin them via `scan_uuid` / `--scan-uuid` for cross-node sync, in which case attaching to an existing record under the same project is the intended path (see [Pinning Scan UUIDs](#pinning-scan-uuids-cross-node-sync)). A pinned UUID that exists under a *different* project returns HTTP 409 instead of overwriting.
 
@@ -495,7 +495,7 @@ ls -la
 ## Related
 
 - [storage.md](./storage.md) — full storage API reference (upload-source, presign, GCS/S3/MinIO setup)
-- [agent.md](./agent.md) — agent run endpoints (query, autopilot, swarm, archon, status, sessions, logs)
+- [agent.md](./agent.md) — agent run endpoints (query, autopilot, swarm, audit, status, sessions, logs)
 - [scan.md](./scan.md) — native scan run/list/status endpoints
 - [projects.md](./projects.md) — project scoping and multi-tenancy
 - Run `make sanity-check` to exercise this entire flow end-to-end against real targets (ginandjuice.shop / VAmPI / juice-shop).

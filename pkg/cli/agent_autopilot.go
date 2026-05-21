@@ -41,7 +41,7 @@ var (
 	autopilotRequiresBrowser  bool
 	autopilotBrowserStartURL  string
 	autopilotFocusRoutes      []string
-	autopilotArchon           string // canonical archon control: "" | "lite" | "balanced" | "deep" | "off"
+	autopilotAudit           string // canonical audit control: "" | "lite" | "balanced" | "deep" | "off"
 	autopilotPiolium          string // piolium audit control: "" (auto/off) | "lite"|"balanced"|"deep"|... | "off"
 	autopilotDiff             string
 	autopilotLastCommits      int
@@ -58,6 +58,15 @@ var (
 	autopilotOliumOAuthToken  string
 	autopilotOliumLLMAPIKey   string
 	autopilotDisableGuardrail bool
+
+	// autopilotInstructionPrefix holds the verbatim natural-language prompt
+	// when autopilot was invoked with a positional `<prompt>` argument. It is
+	// prepended in front of any --instruction / --instruction-file content so
+	// nuanced guidance the user typed (e.g. exploitation hints, origin
+	// constraints) reaches the operator agent unaltered. Structured fields
+	// (target/source/focus/audit/intensity) are still extracted by the LLM
+	// intent parser; only the instruction channel is replaced with verbatim.
+	autopilotInstructionPrefix string
 )
 
 var agentAutopilotCmd = &cobra.Command{
@@ -70,17 +79,23 @@ The agent runs commands like scan-url, finding, traffic via its terminal
 capabilities to discover endpoints, scan for vulnerabilities, review
 results, and iterate until done.
 
-When --source is provided, archon-audit runs before the autonomous agent.
+When --source is provided, vigolium-audit runs before the autonomous agent.
 Autopilot prepares the source audit into a stable context bundle and native
 plan, then launches the operator against that prepared context.
-Use --archon=off to disable this behavior.
+Use --audit=off to disable this behavior.
 
 Supports natural language prompts as a positional argument:
   vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
   vigolium agent autopilot "scan all source code from ~/src/crAPI, ~/src/DVWA"
+  vigolium agent autopilot "There is an XSS on https://target/page — popup origin must be target, not localhost"
 
-The prompt is parsed by an AI to extract target URLs, source paths, and focus areas.
-Use --dry-run to preview what the parser extracts without executing.
+The prompt is parsed by an AI to extract target URLs, source paths, and focus
+areas, AND is also forwarded verbatim to the operator agent as its primary
+instruction. Nuanced hints in the prompt (exploitation goals, origin
+constraints, false-positive caveats) reach the agent word-for-word. When
+--instruction / --instruction-file is also supplied, it is appended after
+the verbatim prompt. Use --dry-run to preview what the parser extracts
+without executing.
 
 Supported input types for --input (auto-detected):
   - URL:         https://example.com/api/login
@@ -102,14 +117,14 @@ context. --plan-file cannot be combined with --input/--instruction/
   vigolium agent autopilot --plan-file ginandjuice-plan.md
 
 Intensity presets (--intensity) bundle multiple settings into a single flag:
-  quick     — Fast CI/PR scans: 30 commands, 1h timeout, lite archon, lite pre-scan
-  balanced  — Standard assessment (default): 100 commands, 6h timeout, balanced archon, balanced pre-scan
-  deep      — Thorough pentest: 300 commands, 12h timeout, deep archon, deep pre-scan
+  quick     — Fast CI/PR scans: 30 commands, 1h timeout, lite audit, lite pre-scan
+  balanced  — Standard assessment (default): 100 commands, 6h timeout, balanced audit, balanced pre-scan
+  deep      — Thorough pentest: 300 commands, 12h timeout, deep audit, deep pre-scan
 
 Browser-assisted probing is enabled at every intensity. Pre-scan runs a native
 discovery + dynamic-assessment pass against --target before the operator agent
 starts so it has real http_records to reason about; pass --no-prescan to skip.
-The pre-scan only fires in target-only runs — when --source is set, archon (or
+The pre-scan only fires in target-only runs — when --source is set, audit (or
 piolium) provides the structured pre-context instead.
 
 Explicit flags always override intensity presets.`,
@@ -146,8 +161,8 @@ func init() {
 	f.BoolVar(&autopilotRequiresBrowser, "requires-browser", false, "Require browser-assisted auth/setup instead of HTTP-only preflight")
 	f.StringVar(&autopilotBrowserStartURL, "browser-start-url", "", "Explicit browser/login start URL for auth preflight")
 	f.StringSliceVar(&autopilotFocusRoutes, "focus-routes", nil, "Protected or browser-focused routes to prioritize after auth")
-	f.StringVar(&autopilotArchon, "archon", "lite", "Archon audit mode: lite (3-phase), balanced (6-phase), deep (10-phase), mock (sample output), or off (disable). Default: lite when --source is set")
-	f.StringVar(&autopilotPiolium, "piolium", "", "Piolium audit mode: lite, balanced, deep, longshot, etc. Default: empty triggers auto-pick (piolium when pi is installed, else archon). Set explicitly to force piolium; set --archon=off alongside to disable archon")
+	f.StringVar(&autopilotAudit, "audit", "lite", "Audit audit mode: lite (3-phase), balanced (6-phase), deep (10-phase), mock (sample output), or off (disable). Default: lite when --source is set")
+	f.StringVar(&autopilotPiolium, "piolium", "", "Piolium audit mode: lite, balanced, deep, longshot, etc. Default: empty triggers auto-pick (piolium when pi is installed, else audit). Set explicitly to force piolium; set --audit=off alongside to disable audit")
 	f.StringVar(&autopilotDiff, "diff", "", "Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N")
 	f.IntVar(&autopilotLastCommits, "last-commits", 0, "Focus on last N commits (shorthand for --diff HEAD~N)")
 	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
@@ -174,47 +189,47 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if cmd != nil {
-		// ResolveAutopilotIntensity still takes the legacy (mode, noArchon) pair —
+		// ResolveAutopilotIntensity still takes the legacy (mode, noAudit) pair —
 		// translate, resolve, then translate back.
-		archonChanged := cmd.Flags().Changed("archon")
-		archonMode := autopilotArchon
-		noArchon := autopilotArchon == "off"
-		if noArchon {
-			archonMode = ""
+		auditChanged := cmd.Flags().Changed("audit")
+		auditModeLocal := autopilotAudit
+		noAudit := autopilotAudit == "off"
+		if noAudit {
+			auditModeLocal = ""
 		}
 		changed := map[string]bool{
 			"timeout":     cmd.Flags().Changed("max-duration"),
-			"archon-mode": archonChanged,
-			"no-archon":   archonChanged && noArchon,
+			"audit-mode": auditChanged,
+			"no-audit":   auditChanged && noAudit,
 			"browser":     cmd.Flags().Changed("browser"),
 			"no-prescan":  cmd.Flags().Changed("no-prescan"),
 		}
 		intensityResult := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
 			MaxCommands: autopilotMaxCommands,
 			Timeout:     autopilotMaxDuration,
-			ArchonMode:  archonMode,
+			AuditDriverMode:  auditModeLocal,
 			Browser:     autopilotBrowser,
 			NoPrescan:   autopilotNoPrescan,
 		}, changed)
 		autopilotMaxCommands = intensityResult.MaxCommands
 		autopilotMaxDuration = intensityResult.Timeout
-		if !noArchon {
-			autopilotArchon = intensityResult.ArchonMode
+		if !noAudit {
+			autopilotAudit = intensityResult.AuditDriverMode
 		}
 		autopilotBrowser = intensityResult.Browser
 		autopilotNoPrescan = intensityResult.NoPrescan
 
 		// Audit-harness auto-pick: when neither flag is explicit, prefer
-		// piolium if pi+piolium are installed; otherwise archon's existing
-		// lite-default applies. Explicit --piolium turns archon off so the
+		// piolium if pi+piolium are installed; otherwise audit's existing
+		// lite-default applies. Explicit --piolium turns audit off so the
 		// two harnesses don't double-run.
 		pioliumChanged := cmd.Flags().Changed("piolium")
 		switch {
-		case !archonChanged && !pioliumChanged && piolium.IsAvailable():
-			autopilotPiolium = autopilotArchon
-			autopilotArchon = "off"
-		case pioliumChanged && !archonChanged:
-			autopilotArchon = "off"
+		case !auditChanged && !pioliumChanged && piolium.IsAvailable():
+			autopilotPiolium = autopilotAudit
+			autopilotAudit = "off"
+		case pioliumChanged && !auditChanged:
+			autopilotAudit = "off"
 		}
 	}
 
@@ -320,6 +335,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	instruction = prependVerbatimPrompt(instruction, autopilotInstructionPrefix)
 
 	// Auto-cleanup:
 	//   - stale run.pid files from prior crashed olium runs (and, in the
@@ -340,7 +356,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	if storage.IsGCSURI(autopilotSource) {
 		// Pass the active project so --project-uuid (or --project-name) can
 		// override the project component parsed from the gs:// URI, matching
-		// archon/swarm/scan behavior.
+		// audit/swarm/scan behavior.
 		projectUUID, _ := resolveProjectUUID()
 		extractedPath, cleanup, gcsErr := storage.ResolveGCSSource(&settings.Storage, autopilotSource, projectUUID)
 		if gcsErr != nil {
@@ -379,6 +395,15 @@ func runAutopilotFromPrompt(prompt string) error {
 		defer intent.Cleanup.Cleanup()
 	}
 
+	// Forward the verbatim prompt to the operator agent as its primary
+	// instruction. The LLM extractor populated app.Instruction with a
+	// paraphrase that may drop nuance (e.g. exploitation hints, origin
+	// constraints) — clear it so only the verbatim text reaches the agent.
+	autopilotInstructionPrefix = intent.Raw
+	for i := range intent.Apps {
+		intent.Apps[i].Instruction = ""
+	}
+
 	if autopilotDryRun {
 		return printIntentDryRun(intent)
 	}
@@ -408,12 +433,12 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	}
 	if app.Piolium != "" {
 		autopilotPiolium = app.Piolium
-		if app.Archon == "" {
-			autopilotArchon = "off"
+		if app.Audit == "" {
+			autopilotAudit = "off"
 		}
 	}
-	if app.Archon != "" {
-		autopilotArchon = app.Archon
+	if app.Audit != "" {
+		autopilotAudit = app.Audit
 	}
 	if app.Diff != "" && autopilotDiff == "" {
 		autopilotDiff = app.Diff
@@ -482,6 +507,7 @@ func runMultiAppAutopilot(ctx context.Context, _ *agent.Engine, settings *config
 			valueOrNone(terminal.ShortenHome(app.SourcePath)))
 
 		instruction := mergeIntentInstruction(autopilotInstruction, autopilotInstructionFile, app)
+		instruction = prependVerbatimPrompt(instruction, autopilotInstructionPrefix)
 
 		// Snapshot globals, apply per-app overrides, then restore on exit.
 		savedTarget := autopilotTarget

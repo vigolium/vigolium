@@ -78,7 +78,7 @@ Vigolium uses a small set of conventional prefixes inside each project. You can 
 | `ugc/<filename>` | `vigolium storage upload` (default key) | Free-form user uploads |
 | `imports/<basename>-<ts>.<ext>` | `vigolium import --upload` (default key) | Bundles of import sources |
 | `native-scans/<scan-uuid>/results.tar.gz` | `vigolium scan --upload-results` | Native scan output bundle |
-| `agentic-scans/<run-uuid>/results.tar.gz` | `vigolium agent {autopilot,swarm,archon} --upload-results` | Agent session bundle |
+| `agentic-scans/<run-uuid>/results.tar.gz` | `vigolium agent {autopilot,swarm,audit} --upload-results` | Agent session bundle |
 
 ## The `vigolium storage` command
 
@@ -117,22 +117,22 @@ vigolium storage delete ...                       # alias for rm
 ### Import from storage
 
 ```bash
-vigolium import gs://<project-uuid>/imports/litellm-archon.tar.gz
+vigolium import gs://<project-uuid>/imports/litellm-audit.tar.gz
 ```
 
 `vigolium import` accepts `gs://` URLs as the input argument. The flow:
 
 1. Download the object to a temp file.
 2. If it's a `.tar.gz` / `.tgz` / `.zip`, extract it to a temp dir; otherwise treat as JSONL.
-3. Detect archon folders (`audit-state.json`) or JSONL envelopes and run the matching importer.
-4. For archon imports, copy the resolved folder verbatim into `~/.vigolium/agent-sessions/<run-uuid>/archon/` and stamp `session_dir` and `storage_url` (the original `gs://` URL) on the agentic_scan row.
+3. Detect audit folders (`audit-state.json`) or JSONL envelopes and run the matching importer.
+4. For audit imports, copy the resolved folder verbatim into `~/.vigolium/agent-sessions/<run-uuid>/audit/` and stamp `session_dir` and `storage_url` (the original `gs://` URL) on the agentic_scan row.
 5. Clean up the temp dir.
 
 ### Push the import source up after importing
 
 ```bash
-vigolium import ./local-archon-folder --upload                # default key: imports/<base>-<ts>.tar.gz
-vigolium import ./local-archon-folder --upload-key imports/manual.zip   # zip instead
+vigolium import ./local-audit-folder --upload                # default key: imports/<base>-<ts>.tar.gz
+vigolium import ./local-audit-folder --upload-key imports/manual.zip   # zip instead
 ```
 
 `--upload` bundles the local folder to `.tar.gz` (or `.zip` if `--upload-key` ends in `.zip`) and uploads it. Single files are uploaded as-is. `--upload-key` implies `--upload`. The flag is silently ignored if the input was already a `gs://` URL.
@@ -182,7 +182,7 @@ Agent runs:
 ```bash
 vigolium agent autopilot --input req.txt           --upload-results
 vigolium agent swarm     --input req.txt --discover --upload-results
-vigolium agent archon    --source ./repo --upload-results
+vigolium agent audit    --source ./repo --upload-results
 # → uploads agentic-scans/<run-uuid>/results.tar.gz and stamps storage_url on the agentic_scan row
 ```
 
@@ -190,7 +190,7 @@ Both flags require storage to be enabled; they emit a warning and skip the uploa
 
 ## Round-tripping a bundle
 
-Because `vigolium import` understands tar.gz / zip archives and detects nested archon folders or JSONL files within them, you can ship a `bundle` export to another machine and re-import it:
+Because `vigolium import` understands tar.gz / zip archives and detects nested audit folders or JSONL files within them, you can ship a `bundle` export to another machine and re-import it:
 
 ```bash
 # machine A
@@ -201,7 +201,7 @@ vigolium storage upload /tmp/snapshot.tar.gz --key snapshots/snapshot.tar.gz
 vigolium import gs://<project-uuid>/snapshots/snapshot.tar.gz
 ```
 
-Caveat: an imported bundle currently re-creates a new `agentic_scans` row from the embedded archon folder while the embedded `export.jsonl` re-imports the findings. The findings are de-duplicated, but the agentic_scan row is fresh — the new row will reference the same source data but won't share its UUID with the original.
+Caveat: an imported bundle currently re-creates a new `agentic_scans` row from the embedded audit folder while the embedded `export.jsonl` re-imports the findings. The findings are de-duplicated, but the agentic_scan row is fresh — the new row will reference the same source data but won't share its UUID with the original.
 
 ## Security notes
 

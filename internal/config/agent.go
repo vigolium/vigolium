@@ -16,7 +16,7 @@ type AgentConfig struct {
 	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
 	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
 	Browser       BrowserConfig       `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
-	Archon        AuditAgentConfig    `yaml:"archon,omitempty"`         // optional archon-audit integration for background security audits
+	Audit        AuditAgentConfig    `yaml:"audit,omitempty"`         // optional vigolium-audit integration for background security audits
 	Olium         OliumConfig         `yaml:"olium"`                    // native in-process olium agent engine settings
 }
 
@@ -173,9 +173,9 @@ func (c *BrowserConfig) EffectiveBinaryPath() string {
 	return "agent-browser"
 }
 
-// AuditAgentConfig controls the optional archon-audit integration.
+// AuditAgentConfig controls the optional vigolium-audit integration.
 // When enabled and a source path is provided, agent modes (swarm, autopilot)
-// launch the embedded archon binary as a background process for parallel
+// launch the embedded vigolium-audit binary as a background process for parallel
 // security auditing.
 type AuditAgentConfig struct {
 	Enable       *bool  `yaml:"enable,omitempty"`        // default: false
@@ -183,12 +183,12 @@ type AuditAgentConfig struct {
 	SyncInterval int    `yaml:"sync_interval,omitempty"` // seconds between state syncs; default: 30
 }
 
-// IsEnabled returns whether archon-audit integration is enabled. Defaults to false.
+// IsEnabled returns whether vigolium-audit integration is enabled. Defaults to false.
 func (c *AuditAgentConfig) IsEnabled() bool {
 	return c.Enable != nil && *c.Enable
 }
 
-// EffectiveMode returns the archon audit mode, defaulting to "lite".
+// EffectiveMode returns the audit mode, defaulting to "lite".
 // Accepts "deep", "balanced", "lite". Maps legacy "full" to "deep" and
 // legacy "scan" to "balanced".
 func (c *AuditAgentConfig) EffectiveMode() string {

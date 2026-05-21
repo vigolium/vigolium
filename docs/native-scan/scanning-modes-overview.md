@@ -15,7 +15,7 @@ Vigolium supports multiple scanning modes depending on what you have available: 
 | **Agent (query)** | Source code | `vigolium agent query --prompt-template X --source ./app` | AI-powered single-shot code review |
 | **Agent (swarm)** | URL ± source | `vigolium agent swarm -t URL [--source ./app]` | AI plans modules + extensions, native scanner runs them, optional triage loop |
 | **Agent (autopilot)** | URL ± source | `vigolium agent autopilot -t URL [--source ./app]` | One long LLM session driving the scan autonomously |
-| **Agent (archon)** | Source code | `vigolium agent archon --source ./app` | Foreground multi-phase AI source-code audit |
+| **Agent (audit)** | Source code | `vigolium agent audit --source ./app` | Foreground multi-phase AI source-code audit |
 
 ## Decision Guide
 
@@ -31,7 +31,7 @@ Do you want AI in the loop?
 └── Yes
     ├── Have source code only (no live target)?
     │   ├── One-shot code review? ───────── vigolium agent query --prompt-template security-code-review --source ./app
-    │   └── Multi-phase AI audit? ────────── vigolium agent archon --source ./app
+    │   └── Multi-phase AI audit? ────────── vigolium agent audit --source ./app
     │
     └── Have a target URL?
         ├── AI directs the native scanner ── vigolium agent swarm -t URL [--source ./app]

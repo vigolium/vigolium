@@ -17,7 +17,7 @@ const redactedPlaceholder = "<redacted>"
 //
 // Keep this set in sync with:
 //   - the BYOK fields on AgentAuditRequest / AgentAutopilotRequest /
-//     AgentSwarmRequest / AgentArchonRequest / AgenticScanRequest
+//     AgentSwarmRequest / AgentAuditDriverRequest / AgenticScanRequest
 //   - the cred fields on OliumConfig (agent.olium.*) since the same body
 //     can be sent to the config-write endpoint
 var sensitiveJSONFields = map[string]struct{}{

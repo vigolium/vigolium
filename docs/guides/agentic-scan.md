@@ -2,7 +2,7 @@
 
 ## Overview
 
-Vigolium's agent mode uses AI to drive vulnerability scanning. The main subcommands are: **Query** for single-shot analysis, **Swarm** for AI-planned targeted scanning, **Autopilot** for fully autonomous assessments, **Archon** for multi-phase source-code audit, and **Olium** for direct interactive TUI access to the engine.
+Vigolium's agent mode uses AI to drive vulnerability scanning. The main subcommands are: **Query** for single-shot analysis, **Swarm** for AI-planned targeted scanning, **Autopilot** for fully autonomous assessments, **Audit** for multi-phase source-code audit, and **Olium** for direct interactive TUI access to the engine.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ All AI dispatch runs through the in-process **olium** engine. Provider selection
 vigolium config ls agent
 ```
 
-Per-invocation provider overrides for olium-backed commands are CLI flags only: `--provider`, `--model`, `--llm-api-key`, `--oauth-cred`, `--oauth-token`. The standalone `vigolium agent archon` (and the archon leg of `vigolium agent audit`) instead picks its coding agent with `--archon-provider <olium-provider>` (resolves the agent **and** that provider's BYOK auth: `anthropic-*` → claude, `openai-*` → codex) or `--agent {claude|codex}` (a pure agent selector that overrides the provider-implied agent while keeping its resolved auth).
+Per-invocation provider overrides for olium-backed commands are CLI flags only: `--provider`, `--model`, `--llm-api-key`, `--oauth-cred`, `--oauth-token`. The standalone `vigolium agent audit` (and the audit leg of `vigolium agent audit`) instead picks its coding agent with `--provider <olium-provider>` (resolves the agent **and** that provider's BYOK auth: `anthropic-*` → claude, `openai-*` → codex) or `--agent {claude|codex}` (a pure agent selector that overrides the provider-implied agent while keeping its resolved auth).
 
 ## Query: Single-Shot Analysis
 
@@ -90,7 +90,7 @@ vigolium agent swarm --input "https://example.com/api/users?id=1" --intensity qu
 # Deep — discovery, triage, browser + auth, extended duration
 vigolium agent swarm -t https://example.com --source ./app --intensity deep
 
-# Deep autopilot — 300 commands, 12h timeout, deep archon, browser
+# Deep autopilot — 300 commands, 12h timeout, deep audit, browser
 vigolium agent autopilot -t https://example.com --source ./app --intensity deep
 ```
 
@@ -185,7 +185,7 @@ vigolium agent autopilot -t https://example.com
 ### Flow
 
 1. **Prepare** - resolve target, source, diff, and session artifacts
-2. **Archon (optional)** - when `--source` is set, run an archon-audit pass first; findings flow into the operator's context
+2. **Audit (optional)** - when `--source` is set, run an vigolium-audit pass first; findings flow into the operator's context
 3. **Operator session** - one olium engine loop with bash/read/write/edit/grep/glob/web_fetch tools plus `report_finding` and `halt_scan`
 4. **Halt** - the agent halts itself, hits `--max-commands`, or runs out the `--timeout`
 
@@ -275,6 +275,6 @@ vigolium agent swarm --show-prompt \
 | **Query** | 1 | Code review, endpoint discovery, CI checks |
 | **Swarm** | 2-10+ | Targeted scanning where AI plans and the native scanner executes |
 | **Autopilot** | Many (turns) | Open-ended autonomous assessment when target/scope is fuzzy |
-| **Archon** | Many (multi-phase) | Deep AI source-code audit |
+| **Audit** | Many (multi-phase) | Deep AI source-code audit |
 
-The agentic-scan modes (`swarm`, `autopilot`, `archon`) all support the `--intensity` flag (`quick`, `balanced`, `deep`) to control scan depth, duration, and resource usage with a single setting.
+The agentic-scan modes (`swarm`, `autopilot`, `audit`) all support the `--intensity` flag (`quick`, `balanced`, `deep`) to control scan depth, duration, and resource usage with a single setting.

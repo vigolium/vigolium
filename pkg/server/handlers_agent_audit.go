@@ -7,7 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/vigolium/vigolium/pkg/agent"
-	"github.com/vigolium/vigolium/pkg/archon/archonbin"
+	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/piolium/pistream"
 	"go.uber.org/zap"
@@ -18,7 +18,7 @@ import (
 // the REST endpoint does NOT honor $ENV / @path indirection (resolving
 // either against a network-supplied string would let a caller probe
 // the server's process env or filesystem). The agent (claude/codex)
-// is resolved via the same precedence as ResolveArchonInvocation:
+// is resolved via the same precedence as ResolveAuditDriverInvocation:
 // req.Agent → server's olium provider → claude default.
 //
 // When req.OAuthCredJSON is set, the JSON is staged to a per-request
@@ -30,14 +30,14 @@ import (
 // compat but emits a deprecation warning; new integrations should use
 // req.OAuthCredJSON.
 func (h *Handlers) resolveAuditRequestAuthOverride(req *AgentAuditRequest) (agent.AuthOverride, func(), error) {
-	return h.resolveBYOKForAudit(req.AgentBYOK, h.archonPlatformForReq(req))
+	return h.resolveBYOKForAudit(req.AgentBYOK, h.auditPlatformForReq(req))
 }
 
 // resolveBYOKForAudit is the reusable resolver: it takes the embedded
 // AgentBYOK plus an agent platform hint and returns a fully-validated
 // agent.AuthOverride + a cleanup func that tears down any per-request
 // staged cred file. Used by every subprocess-driver endpoint
-// (audit, archon, and the per-driver paths under driver=both).
+// (audit, audit, and the per-driver paths under driver=both).
 func (h *Handlers) resolveBYOKForAudit(byok AgentBYOK, agentPlatform string) (agent.AuthOverride, func(), error) {
 	override := agent.AuthOverride{
 		APIKey:        strings.TrimSpace(byok.APIKey),
@@ -76,7 +76,7 @@ func (h *Handlers) resolveBYOKForAudit(byok AgentBYOK, agentPlatform string) (ag
 }
 
 // HandleAgentAudit handles POST /api/agent/run/audit — launches one or both
-// audit drivers (archon and piolium) against a source tree.
+// audit drivers (audit and piolium) against a source tree.
 //
 // `driver` selects which harnesses participate; "both" (default) runs them
 // sequentially under one parent AgenticScan with per-driver child rows,
@@ -103,7 +103,7 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	}
 	if !agent.IsValidAuditDriver(driver) {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: fmt.Sprintf("invalid driver %q: must be auto, both, archon, or piolium", driver),
+			Error: fmt.Sprintf("invalid driver %q: must be auto, both, audit, or piolium", driver),
 		})
 	}
 
@@ -116,7 +116,7 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	explicitMode := strings.TrimSpace(req.Mode)
 	explicitTimeout := strings.TrimSpace(req.Timeout)
 	explicitModes := agent.ParseModesCSV(strings.Join(req.Modes, ","))
-	preset := agent.ResolveArchonIntensity(intensity, agent.ArchonIntensityPreset{
+	preset := agent.ResolveAuditDriverIntensity(intensity, agent.AuditDriverIntensityPreset{
 		Mode:        explicitMode,
 		Modes:       explicitModes,
 		Timeout:     parseDurationOrDefault(req.Timeout, 0),
@@ -129,8 +129,8 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	})
 	modeChain := preset.Modes
 
-	archonModes, pioliumModes, err := agent.ValidateAuditDriverModes(
-		driver, modeChain, piolium.IsValidMode, agent.IsValidArchonMode)
+	auditChain, pioliumModes, err := agent.ValidateAuditDriverModes(
+		driver, modeChain, piolium.IsValidMode, agent.IsValidAuditDriverMode)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: err.Error()})
 	}
@@ -140,14 +140,14 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	// installed — fail fast). For driver=both we never block: a missing
 	// runtime becomes a warning log here, and the per-driver dispatch will
 	// surface the failure on the child run while the other driver still runs.
-	archonOK, archonReason := h.archonAvailable(&req)
+	auditOK, auditReason := h.auditAvailable(&req)
 	pioliumOK := h.pioliumAvailableCached()
 
-	if agent.DriverIncludesArchon(driver) {
-		platform := h.archonPlatformForReq(&req)
-		if !agent.IsValidArchonPlatform(platform) {
+	if agent.DriverIncludesAudit(driver) {
+		platform := h.auditPlatformForReq(&req)
+		if !agent.IsValidAuditDriverPlatform(platform) {
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-				Error: fmt.Sprintf("invalid archon platform %q: must be claude or codex", platform),
+				Error: fmt.Sprintf("invalid audit platform %q: must be claude or codex", platform),
 			})
 		}
 	}
@@ -159,21 +159,21 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 				Error: "pi CLI not found in server PATH (install: https://www.npmjs.com/package/@earendil-works/pi-coding-agent), or piolium is not registered in ~/.pi/agent/settings.json",
 			})
 		}
-	case agent.AuditDriverArchon:
-		if !archonOK {
+	case agent.AuditDriverAudit:
+		if !auditOK {
 			return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
-				Error: archonReason,
+				Error: auditReason,
 			})
 		}
 	case agent.AuditDriverBoth, agent.AuditDriverAuto:
 		// Never block a multi-driver run on a single missing runtime — the
 		// per-driver dispatch runs whatever's installed. For driver=auto a
-		// missing piolium is expected and benign (it only runs if archon
+		// missing piolium is expected and benign (it only runs if audit
 		// fails), so this stays a debug-level note rather than a warning.
-		if !archonOK {
-			zap.L().Warn("audit: archon runtime unavailable",
+		if !auditOK {
+			zap.L().Warn("audit: audit runtime unavailable",
 				zap.String("driver", driver),
-				zap.String("reason", archonReason))
+				zap.String("reason", auditReason))
 		}
 		if !pioliumOK {
 			zap.L().Debug("audit: piolium runtime unavailable (fallback only for driver=auto)",
@@ -217,21 +217,21 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	}()
 
 	// Per-driver BYOK overrides (multi-driver runs only: both/auto). Each
-	// sub-override gets its own staging + cleanup so an archon-side
+	// sub-override gets its own staging + cleanup so an audit-side
 	// oauth_cred_json stays isolated from a piolium-side one.
-	archonOverride := authOverride
+	auditOverride := authOverride
 	pioliumOverride := authOverride
 	if agent.IsMultiDriverAudit(driver) {
-		if req.ArchonAuth != nil && !req.ArchonAuth.IsZero() {
-			ov, cl, perr := h.resolveBYOKForAudit(*req.ArchonAuth, h.archonPlatformForReq(&req))
+		if req.AuditDriverAuth != nil && !req.AuditDriverAuth.IsZero() {
+			ov, cl, perr := h.resolveBYOKForAudit(*req.AuditDriverAuth, h.auditPlatformForReq(&req))
 			if perr != nil {
-				return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "archon_auth: " + perr.Error()})
+				return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "audit_auth: " + perr.Error()})
 			}
-			archonOverride = ov
+			auditOverride = ov
 			cleanups = append(cleanups, cl)
 		}
 		if req.PioliumAuth != nil && !req.PioliumAuth.IsZero() {
-			ov, cl, perr := h.resolveBYOKForAudit(*req.PioliumAuth, h.archonPlatformForReq(&req))
+			ov, cl, perr := h.resolveBYOKForAudit(*req.PioliumAuth, h.auditPlatformForReq(&req))
 			if perr != nil {
 				return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "piolium_auth: " + perr.Error()})
 			}
@@ -241,9 +241,9 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	} else {
 		// Reject per-driver overrides on single-driver runs — the top-level
 		// AgentBYOK already targets the one driver that runs.
-		if req.ArchonAuth != nil && !req.ArchonAuth.IsZero() {
+		if req.AuditDriverAuth != nil && !req.AuditDriverAuth.IsZero() {
 			return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-				Error: "archon_auth is only valid with driver=both or driver=auto; use the top-level api_key/oauth_token/oauth_cred_json fields instead",
+				Error: "audit_auth is only valid with driver=both or driver=auto; use the top-level api_key/oauth_token/oauth_cred_json fields instead",
 			})
 		}
 		if req.PioliumAuth != nil && !req.PioliumAuth.IsZero() {
@@ -259,8 +259,8 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 		plan.authCleanup = chainedCleanup
 		dispatched = true
 		return h.startAuditRun(c, plan)
-	case agent.AuditDriverArchon:
-		plan, err := h.buildArchonAuditPlan(req, archonModes, preset, archonOverride)
+	case agent.AuditDriverAudit:
+		plan, err := h.buildAuditDriverPlan(req, auditChain, preset, auditOverride)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{Error: err.Error()})
 		}
@@ -269,7 +269,7 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 		return h.startAuditRun(c, plan)
 	case agent.AuditDriverBoth, agent.AuditDriverAuto:
 		dispatched = true
-		return h.startCombinedAuditRun(c, driver, req, archonModes, pioliumModes, preset, additionalArgs, archonOverride, pioliumOverride, chainedCleanup)
+		return h.startCombinedAuditRun(c, driver, req, auditChain, pioliumModes, preset, additionalArgs, auditOverride, pioliumOverride, chainedCleanup)
 	}
 	// Unreachable: validation above rejects unknown drivers and the switch
 	// is exhaustive over the constants. A panic here would catch a future
@@ -277,7 +277,7 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 	panic("audit dispatcher: unreachable driver " + driver)
 }
 
-func (h *Handlers) buildPioliumAuditPlan(req AgentAuditRequest, modes []string, preset agent.ArchonIntensityPreset, additionalArgs []string, authOverride agent.AuthOverride) auditRunPlan {
+func (h *Handlers) buildPioliumAuditPlan(req AgentAuditRequest, modes []string, preset agent.AuditDriverIntensityPreset, additionalArgs []string, authOverride agent.AuthOverride) auditRunPlan {
 	return auditRunPlan{
 		source:        req.Source,
 		target:        req.Target,
@@ -309,8 +309,8 @@ func (h *Handlers) buildPioliumAuditPlan(req AgentAuditRequest, modes []string, 
 	}
 }
 
-func (h *Handlers) buildArchonAuditPlan(req AgentAuditRequest, modes []string, preset agent.ArchonIntensityPreset, authOverride agent.AuthOverride) (auditRunPlan, error) {
-	invocation := agent.ResolveArchonInvocation(h.settings.Agent.Olium, h.archonPlatformForReq(&req), authOverride)
+func (h *Handlers) buildAuditDriverPlan(req AgentAuditRequest, modes []string, preset agent.AuditDriverIntensityPreset, authOverride agent.AuthOverride) (auditRunPlan, error) {
+	invocation := agent.ResolveAuditDriverInvocation(h.settings.Agent.Olium, h.auditPlatformForReq(&req), authOverride)
 	return auditRunPlan{
 		source:        req.Source,
 		target:        req.Target,
@@ -323,37 +323,38 @@ func (h *Handlers) buildArchonAuditPlan(req AgentAuditRequest, modes []string, p
 		projectUUID:   req.ProjectUUID,
 		scanUUID:      req.ScanUUID,
 		timeout:       preset.Timeout,
-		harness:       agent.DefaultArchonHarness(),
+		harness:       agent.DefaultAuditHarness(),
 		buildCfg: func(cfg *agent.AuditAgentConfig) {
 			cfg.Mode = agent.FirstMode(modes)
 			cfg.Modes = modes
-			cfg.Platform = agent.PlatformArchonBin
-			cfg.ArchonInvocation = invocation
+			cfg.Platform = agent.PlatformAuditBin
+			cfg.AuditDriverInvocation = invocation
 			cfg.AuthOverride = authOverride
 			cfg.Stream = true
+			cfg.KeepRaw = req.KeepRaw
 		},
 	}, nil
 }
 
-// archonPlatformForReq returns the request's `agent` override (if set)
-// or empty (signaling "inherit from olium config") for the archon
+// auditPlatformForReq returns the request's `agent` override (if set)
+// or empty (signaling "inherit from olium config") for the audit
 // invocation resolver.
-func (h *Handlers) archonPlatformForReq(req *AgentAuditRequest) string {
+func (h *Handlers) auditPlatformForReq(req *AgentAuditRequest) string {
 	return strings.TrimSpace(req.Agent)
 }
 
-// archonAvailable checks whether the embedded archon binary was staged
+// auditAvailable checks whether the embedded vigolium-audit binary was staged
 // at vigolium build time. Returns the resolved error message when the
 // binary is missing or the request's `agent` value is unrecognized —
 // used both to gate single-driver requests with 503 and to warn-log
 // under driver=both.
-func (h *Handlers) archonAvailable(req *AgentAuditRequest) (bool, string) {
-	platform := h.archonPlatformForReq(req)
-	if !agent.IsValidArchonPlatform(platform) {
-		return false, fmt.Sprintf("invalid archon platform %q: must be claude or codex", platform)
+func (h *Handlers) auditAvailable(req *AgentAuditRequest) (bool, string) {
+	platform := h.auditPlatformForReq(req)
+	if !agent.IsValidAuditDriverPlatform(platform) {
+		return false, fmt.Sprintf("invalid audit platform %q: must be claude or codex", platform)
 	}
-	if !archonbin.Available() {
-		return false, "archon binary not embedded — rebuild vigolium with `make build-archon`"
+	if !bin.Available() {
+		return false, "vigolium-audit binary not embedded — rebuild vigolium with `make build-audit`"
 	}
 	return true, ""
 }

@@ -209,7 +209,7 @@ which is most of the prefix on a long autopilot run.
 
 `--intensity` bundles several settings; explicit flags always override.
 
-| Preset     | `MaxCommands` | `Timeout` | `ArchonMode` | `Browser` |
+| Preset     | `MaxCommands` | `Timeout` | `AuditMode` | `Browser` |
 | ---------- | ------------- | --------- | ------------ | --------- |
 | `quick`    | 30            | 1h        | `lite`       | off       |
 | `balanced` (default) | 100  | 6h        | `balanced`   | off       |

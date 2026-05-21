@@ -23,19 +23,19 @@ type (
 	RetryConfig    = agenttypes.RetryConfig
 )
 
-// Archon invocation
+// Audit invocation
 type (
-	ArchonAgent      = agenttypes.ArchonAgent
-	ArchonAuthFlags  = agenttypes.ArchonAuthFlags
-	ArchonInvocation = agenttypes.ArchonInvocation
+	AuditDriverAgent      = agenttypes.AuditDriverAgent
+	AuditDriverAuthFlags  = agenttypes.AuditDriverAuthFlags
+	AuditDriverInvocation = agenttypes.AuditDriverInvocation
 )
 
-// Audit BYOK auth override (CLI/REST → archon flags + piolium env)
+// Audit BYOK auth override (CLI/REST → audit flags + piolium env)
 type AuthOverride = agenttypes.AuthOverride
 
 const (
-	ArchonAgentClaude = agenttypes.ArchonAgentClaude
-	ArchonAgentCodex  = agenttypes.ArchonAgentCodex
+	AuditDriverAgentClaude = agenttypes.AuditDriverAgentClaude
+	AuditDriverAgentCodex  = agenttypes.AuditDriverAgentCodex
 )
 
 // Findings & HTTP records
@@ -94,7 +94,7 @@ type (
 	Intensity                = agenttypes.Intensity
 	AutopilotIntensityPreset = agenttypes.AutopilotIntensityPreset
 	SwarmIntensityPreset     = agenttypes.SwarmIntensityPreset
-	ArchonIntensityPreset    = agenttypes.ArchonIntensityPreset
+	AuditDriverIntensityPreset    = agenttypes.AuditDriverIntensityPreset
 )
 
 // Intent types

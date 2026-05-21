@@ -251,6 +251,49 @@ func (c *ScratchpadContext) render() string {
 	return b.String()
 }
 
+// Digest returns a compact plan-state snapshot the engine pins to every tool
+// result tail. The full render() (~1 KiB markdown) is echoed only when
+// update_plan or remember are called; on every other tool call this short
+// form keeps the latest plan checkboxes (and the in-progress task's full
+// text, since that's what the agent is actively working on) at the
+// conversation tail so it survives the long stretches between scratchpad
+// touches. Returns empty string when there's nothing tracked yet so the
+// hook doesn't add noise to tool results during an unplanned warm-up.
+func (c *ScratchpadContext) Digest() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.plan) == 0 && len(c.notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n--- working memory (pinned by engine) ---\n")
+	if len(c.plan) > 0 {
+		for _, p := range c.plan {
+			box := "[ ]"
+			switch p.Status {
+			case planInProgress:
+				box = "[~]"
+			case planDone:
+				box = "[x]"
+			case planDropped:
+				box = "[-]"
+			}
+			line := fmt.Sprintf("%s %s", box, p.ID)
+			// Only inline the task text for in-progress items — that's
+			// what the agent's currently working on. Pending/done items
+			// can be re-read via update_plan recall if needed.
+			if p.Status == planInProgress && p.Task != "" {
+				line += ": " + p.Task
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+	if len(c.notes) > 0 {
+		b.WriteString(fmt.Sprintf("notes=%d (call `remember` with recall=true to read)\n", len(c.notes)))
+	}
+	return b.String()
+}
+
 // ---- update_plan tool ----
 
 // NewUpdatePlanTool returns the update_plan tool. Replace-semantics: the

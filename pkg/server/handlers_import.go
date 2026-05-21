@@ -45,7 +45,7 @@ type ImportResponse struct {
 //
 //   - multipart/form-data with file=*.jsonl|*.ndjson: bulk JSONL import.
 //   - multipart/form-data with file=*.tar.gz|*.tgz|*.zip: archive containing
-//     archon audit output or JSONL files.
+//     audit output or JSONL files.
 //   - application/json with {"url": "gs://..."}: backend fetches the archive
 //     or JSONL from cloud storage, then imports it.
 //
@@ -170,7 +170,7 @@ func (h *Handlers) importFromJSON(c fiber.Ctx, ctx context.Context, projectUUID 
 }
 
 // runImportAndRespond invokes dbimport.ImportPath and returns the response.
-// originalSource is recorded as StorageURL on archon imports when it is a
+// originalSource is recorded as StorageURL on audit imports when it is a
 // gs:// URL; otherwise it serves only as a debug breadcrumb.
 func (h *Handlers) runImportAndRespond(c fiber.Ctx, ctx context.Context, localPath, projectUUID, agenticScanUUID, originalSource string) error {
 	opts := dbimport.Options{
@@ -205,8 +205,8 @@ func (h *Handlers) runImportAndRespond(c fiber.Ctx, ctx context.Context, localPa
 	})
 }
 
-// serverSessionDirArchiver mirrors the CLI's archon archival behavior: copy
-// the imported archon source folder into <agent.sessions_dir>/<uuid>/archon.
+// serverSessionDirArchiver mirrors the CLI's audit archival behavior: copy
+// the imported audit source folder into <agent.sessions_dir>/<uuid>/audit.
 // Returns nil when the server has no usable sessions dir, in which case
 // dbimport simply skips the copy.
 func (h *Handlers) serverSessionDirArchiver() func(string, string) (string, error) {
@@ -225,12 +225,12 @@ func (h *Handlers) serverSessionDirArchiver() func(string, string) (string, erro
 				zap.Error(err))
 			return "", nil
 		}
-		dst := filepath.Join(sessionDir, "archon")
+		dst := filepath.Join(sessionDir, "audit")
 		if entries, statErr := os.ReadDir(dst); statErr == nil && len(entries) > 0 {
 			return sessionDir, nil
 		}
 		if err := dbimport.CopyDirContents(srcDir, dst); err != nil {
-			zap.L().Warn("import: failed to copy archon source",
+			zap.L().Warn("import: failed to copy audit source",
 				zap.String("scan_uuid", scanUUID),
 				zap.Error(err))
 			return "", nil

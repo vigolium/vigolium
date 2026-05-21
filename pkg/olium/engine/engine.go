@@ -55,6 +55,15 @@ type Config struct {
 	// (with the on-disk path), so the model can `read_file` the rest if
 	// it needs more. Caller is responsible for the directory's lifecycle.
 	SpillDir string
+
+	// OnToolResult, when non-nil, is invoked with each tool's content
+	// after shrink/spill but before the result is appended to history.
+	// The returned string replaces the history-side content; the event
+	// stream still emits the raw tool output so operator logs stay clean.
+	// Autopilot uses this to pin a scratchpad digest at the tail of every
+	// non-scratchpad tool result so plan state stays at the conversation
+	// tail across long stretches between update_plan / remember calls.
+	OnToolResult func(toolName string, content string, isErr bool) string
 }
 
 // DefaultMaxToolResultBytes is the cap applied to each tool result when
@@ -455,6 +464,9 @@ func (e *Engine) dispatchToolsParallel(ctx context.Context, calls []provider.Too
 	for i, tc := range calls {
 		res := results[i]
 		historyContent := e.shrinkToolResult(tc, res.Content)
+		if e.cfg.OnToolResult != nil {
+			historyContent = e.cfg.OnToolResult(tc.Name, historyContent, res.IsError)
+		}
 		e.mu.Lock()
 		e.history = append(e.history, provider.Message{
 			Role:       provider.RoleTool,
@@ -487,6 +499,9 @@ func (e *Engine) dispatchAndRecord(ctx context.Context, tc provider.ToolCall, ou
 	}
 	result := e.dispatchTool(ctx, tc, out)
 	historyContent := e.shrinkToolResult(tc, result.Content)
+	if e.cfg.OnToolResult != nil {
+		historyContent = e.cfg.OnToolResult(tc.Name, historyContent, result.IsError)
+	}
 	e.mu.Lock()
 	e.history = append(e.history, provider.Message{
 		Role:       provider.RoleTool,

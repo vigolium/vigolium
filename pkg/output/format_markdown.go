@@ -199,7 +199,7 @@ func writeMarkdownFindings(w *strings.Builder, severity string, findings []Repor
 
 // normalizeFindingBody prepares a finding's description for embedding under the
 // `### N. Title` heading: it drops a redundant leading `# ...` h1 line (common
-// in archon report.md bodies, where the title is restated as h1) and demotes
+// in audit report.md bodies, where the title is restated as h1) and demotes
 // all remaining headings by 2 levels so they sit cleanly below h3 (e.g.
 // `## Summary` → `#### Summary`).
 func normalizeFindingBody(body string) string {

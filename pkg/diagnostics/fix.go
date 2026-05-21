@@ -68,7 +68,7 @@ func resolveAlias(name string) string {
 //  1. nuclei-templates / chromium — Native scan dependencies, surfaced first.
 //  2. bun — installed only when no npm is present (npm-equipped hosts use
 //     npm for the global installs); `--only bun` force-installs regardless.
-//  3. claude — Audit Path A (claude+archon).
+//  3. claude — Audit Path A (claude+audit).
 //  4. agent-browser — Olium-based modes (autopilot + swarm).
 //  5. pi — the runtime piolium loads into; Audit Path B.
 //  6. piolium — Audit Path B. Installs the @vigolium/piolium Pi extension

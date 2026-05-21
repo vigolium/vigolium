@@ -194,7 +194,6 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 		operator.Post("/agent/run/query", handlers.HandleAgentQuery)
 		operator.Post("/agent/run/autopilot", handlers.HandleAgentAutopilot)
 		operator.Post("/agent/run/swarm", handlers.HandleAgentSwarm)
-		operator.Post("/agent/run/archon", handlers.HandleAgentArchon)
 		operator.Post("/agent/run/audit", handlers.HandleAgentAudit)
 		operator.Post("/agent/chat/completions", handlers.HandleChatCompletions)
 	}

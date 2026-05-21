@@ -56,8 +56,8 @@ Resolves --source (local directory, git URL, gs:// cloud-storage archive,
 or local archive — .zip/.tar.gz/.tar.bz2/.tar.xz) and runs the configured
 slash command against it. Audit artifacts are synced into the vigolium
 agent session directory and findings are imported into the vigolium
-database. The on-disk audit-state.json schema is shared with archon, so
-archon parsing and reporting tooling apply.
+database. The on-disk audit-state.json schema is shared with audit, so
+audit parsing and reporting tooling apply.
 
 Audit modes:
   lite       quick recon, secrets, fast SAST (4 phases)
@@ -75,7 +75,7 @@ directly with ` + "`pi -p /piolium-<cmd>`" + ` since they don't produce findings
 that need to flow through vigolium's audit pipeline.
 
 Intensity presets (--intensity) bundle the audit mode and clone depth into
-a single flag, matching the autopilot/swarm/archon intensity model:
+a single flag, matching the autopilot/swarm/audit intensity model:
   quick      lite mode, shallow clone (fast triage)
   balanced   balanced mode, shallow clone (default)
   deep       deep mode, full clone history (commit archaeology)
@@ -84,9 +84,9 @@ Explicit --mode / --commit-depth always override intensity. Pass --mode
 explicitly to invoke audit modes (revisit, confirm, merge, diff,
 longshot) that aren't part of the intensity ladder.
 
-To run piolium and archon back-to-back on the same source, use
+To run piolium and audit back-to-back on the same source, use
 ` + "`vigolium agent audit`" + ` instead — that command dispatches both drivers
-(or just one with --driver=piolium|archon) under a single AgenticScan.`,
+(or just one with --driver=piolium|audit) under a single AgenticScan.`,
 	RunE: runAgentPiolium,
 }
 
@@ -130,7 +130,7 @@ func runAgentPiolium(cmd *cobra.Command, args []string) error {
 			"mode":         cmd.Flags().Changed("mode"),
 			"commit-depth": cmd.Flags().Changed("commit-depth"),
 		}
-		preset := agent.ResolveArchonIntensity(intensity, agent.ArchonIntensityPreset{
+		preset := agent.ResolveAuditDriverIntensity(intensity, agent.AuditDriverIntensityPreset{
 			Mode:        pioliumMode,
 			CommitDepth: pioliumCommitDepth,
 		}, changed)
@@ -319,8 +319,8 @@ func finalizeAuditRun(runner *agent.AuditAgenticScanner, runErr error, sessionDi
 			terminal.HiTeal(status.Status),
 			status.CompletedPhases, status.TotalPhases)
 	}
-	printArchonFindingStats(stats, repo != nil)
-	printArchonCostSummary(runner.CostSummary())
+	printFindingStats(stats, repo != nil)
+	printAuditDriverCostSummary(runner.CostSummary())
 	fmt.Fprintf(os.Stderr, "%s Session: %s\n", terminal.InfoSymbol(), terminal.Cyan(sessionDir))
 
 	if uploadResults && runErr == nil {

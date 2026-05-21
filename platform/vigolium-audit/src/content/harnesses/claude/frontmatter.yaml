@@ -1,0 +1,170 @@
+format: md
+defaults:
+  tools: "Glob, Grep, Read, Bash"
+  model: "sonnet"
+  color: "blue"
+  permissionMode: "bypassPermissions"
+  effort: "low"
+
+overrides:
+  # --- Phase 1 ---
+  cve-scout:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "cyan"
+
+  history-miner:
+    color: "yellow"
+
+  # --- Phase 2 ---
+  patch-auditor:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "red"
+
+  # --- Phase 3 ---
+  threat-modeler:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch, Agent"
+    model: "opus"
+    color: "green"
+    skills: ["security-threat-model"]
+
+  # --- Phase 4 ---
+  code-scanner:
+    tools: "Glob, Grep, Read, Bash, Write, Edit, Agent"
+    color: "yellow"
+
+  # --- Phase 5 (Deep Probe) ---
+  probe-lead:
+    tools: "Glob, Grep, Read, Write, Edit, Bash, SendMessage"
+    color: "magenta"
+    permissionMode: ~
+    effort: "medium"
+
+  goal-backtracer:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "red"
+    permissionMode: ~
+    effort: "medium"
+
+  assumption-breaker:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    color: "orange"
+    permissionMode: ~
+    effort: "medium"
+
+  evidence-collector:
+    tools: "Glob, Grep, Read, Bash, Write"
+    permissionMode: ~
+
+  # --- Phase 6 ---
+  access-auditor:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "magenta"
+    effort: "medium"
+
+  # --- Phase 7 ---
+  concurrency-auditor:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "red"
+    effort: "medium"
+
+  # --- Phase 8 ---
+  taint-tracer:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+    color: "orange"
+    effort: "medium"
+
+  # --- Phase 9 ---
+  spec-auditor:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch, Agent"
+    color: "cyan"
+    skills: ["spec-to-code-compliance"]
+
+  # --- Phase 10 (Review Chamber) ---
+  review-adjudicator:
+    tools: "Glob, Grep, Read, Write, Edit, Bash, Agent, SendMessage"
+    model: "opus"
+    color: "magenta"
+    effort: "medium"
+    memory: "project"
+
+  attack-designer:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "red"
+
+  flow-tracer:
+    tools: "Glob, Grep, Read, Bash, Write, Edit"
+
+  red-challenger:
+    tools: "Glob, Grep, Read, Bash, WebSearch, WebFetch"
+    model: "opus"
+    color: "orange"
+
+  variant-spotter:
+    color: "cyan"
+    background: true
+
+  # --- Phase 11 ---
+  independent-verifier:
+    tools: "Glob, Grep, Read, Write, Bash, WebFetch"
+    model: "opus"
+    color: "white"
+    effort: "medium"
+
+  # --- Phase 11 (triage stage) ---
+  finding-grader:
+    tools: "Glob, Grep, Read, Edit, Write"
+    model: "sonnet"
+    color: "cyan"
+    effort: "low"
+
+  # --- Phase D9 / B6 (Intent Reconciliation) + confirm V1.5 ---
+  context-reviewer:
+    tools: "Glob, Grep, Read, Write, Edit, Bash"
+    model: "opus"
+    color: "cyan"
+    effort: "medium"
+
+  # --- /vigolium-audit:reinvest (cross-agent reverification) ---
+  cross-verifier:
+    tools: "Glob, Grep, Read, Edit, Write, Bash, WebFetch"
+    model: "opus"
+    color: "white"
+    effort: "medium"
+
+  # --- Phase 12 ---
+  variant-scanner:
+    tools: "Glob, Grep, Read, Bash, Agent"
+    color: "green"
+
+  # --- Phase 13 ---
+  poc-author:
+    tools: "Glob, Grep, Read, Bash, Write, WebFetch"
+    color: "yellow"
+
+  # --- Phase 14 ---
+  finding-writer:
+    tools: "Glob, Grep, Read, Write, Bash"
+    color: "yellow"
+    skills: ["vuln-report"]
+
+  # --- Phase 15 ---
+  report-composer:
+    tools: "Glob, Grep, Read, Write, Bash"
+    color: "white"
+
+  # --- /vigolium-audit:longshot ---
+  longshot-prober:
+    tools: "Glob, Grep, Read, Bash, Write"
+    color: "red"
+    effort: "high"
+
+  longshot-collector:
+    tools: "Glob, Grep, Read, Write"
+    color: "red"
+    effort: "medium"
+
+  # --- Excluded (not present in Claude plugin) ---
+  deep-reviewer:
+    exclude: true

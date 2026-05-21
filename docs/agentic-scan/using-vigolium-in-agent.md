@@ -694,7 +694,7 @@ vigolium agent autopilot -t https://example.com --provider anthropic-api-key --l
 - `bash` (catastrophic patterns hard-rejected: `rm -rf /`, fork bombs, `dd` to block devices, `mkfs` against real devices), `read_file`, `write_file`, `edit_file`, `ls`, `grep`, `glob`, `web_fetch`
 - Plus autopilot-only tools: `halt_scan`, `report_finding`, `load_skill` (when skills are loaded), and vigtool (`run_scan`, `list_findings`, etc.) when a DB repository is attached
 - Per-tool timeout: 5 minutes (configurable via `agent.olium.call_timeout_sec`)
-- Hard cap: 200 findings (soft warning at 50); turn cap: `--max-commands` (default 100)
+- Hard cap: 200 findings (soft warning at 50); turn cap from `--intensity`: quick 150, balanced 500 (default), deep 1500
 
 #### Agent Swarm (AI-Guided Multi-Phase Scan)
 
@@ -1392,7 +1392,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 | "Write me an extension that checks for exposed .env files" | Generates a JS extension file |
 | "Start the server with auto-scan" | `vigolium server -t <url> --scan-on-receive` |
 | "Source-aware AI scan" | `vigolium agent swarm -t <url> --source ./src` |
-| "Multi-phase code audit" | `vigolium agent archon --source ./src` |
+| "Multi-phase code audit" | `vigolium agent audit --source ./src` |
 | "Clean up old scan data" | `vigolium db clean --before <date> --force` |
 
 ---
@@ -1400,7 +1400,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 ## Tips & Best Practices
 
 1. **Start with `scan -t`** — It's the most common command. Add flags incrementally.
-2. **Use strategies** — `lite` for quick checks, `balanced` for most cases, `deep` for full coverage. When you have source code, reach for an agent mode (`swarm`, `autopilot`, `archon`, or `query`) instead.
+2. **Use strategies** — `lite` for quick checks, `balanced` for most cases, `deep` for full coverage. When you have source code, reach for an agent mode (`swarm`, `autopilot`, `audit`, or `query`) instead.
 3. **Phase isolation** — Use `--only` or `vigolium run <phase>` to iterate on a single phase without re-running the entire pipeline.
 4. **Module tags** — Filter modules by technology (`spring`, `nodejs`) or vulnerability class (`xss`, `injection`) to reduce noise.
 5. **Watch mode** — Add `--watch 5s` to `traffic`, `finding`, or `db stats` for real-time monitoring during long scans.

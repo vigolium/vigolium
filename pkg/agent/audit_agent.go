@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/archon"
-	"github.com/vigolium/vigolium/pkg/archon/archonbin"
-	"github.com/vigolium/vigolium/pkg/archon/archonstream"
+	"github.com/vigolium/vigolium/pkg/audit"
+	"github.com/vigolium/vigolium/pkg/audit/bin"
+	"github.com/vigolium/vigolium/pkg/audit/stream"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/piolium/picost"
@@ -35,42 +35,42 @@ const cancelGracePeriod = 10 * time.Second
 // PlatformPi is the Pi runtime platform — runs piolium via `pi --mode json`.
 const PlatformPi = "pi"
 
-// PlatformArchonBin identifies the embedded archon-ts binary as the
-// audit runner. archon-ts dispatches to claude or codex internally; the
-// per-run agent comes from AuditAgentConfig.ArchonInvocation.
-const PlatformArchonBin = "archon"
+// PlatformAuditBin identifies the embedded vigolium-audit binary as the
+// audit runner. vigolium-audit dispatches to claude or codex internally; the
+// per-run agent comes from AuditAgentConfig.AuditDriverInvocation.
+const PlatformAuditBin = "audit"
 
-// DefaultArchonHarness returns the canonical archon harness spec used by
-// `vigolium agent archon` and the autopilot/swarm background audit. The zero
+// DefaultAuditHarness returns the canonical audit harness spec used by
+// `vigolium agent audit` and the autopilot/swarm background audit. The zero
 // value of AuditAgentConfig.Harness is treated as this for backward compat.
-func DefaultArchonHarness() HarnessSpec {
+func DefaultAuditHarness() HarnessSpec {
 	return HarnessSpec{
-		Name:            archon.HarnessName,
-		SourceFolder:    archon.HarnessName,
-		SessionSubdir:   archon.HarnessName + "-audit",
-		EnvPrefix:       "ARCHON_",
-		DBMode:          archon.HarnessName,
-		DBAgentName:     archon.HarnessName + "-audit",
-		DBInputType:     archon.HarnessName,
-		FindingIDPrefix: archon.HarnessName,
-		FindingTag:      archon.HarnessName,
+		Name:            audit.HarnessName,
+		SourceFolder:    "vigolium-results",
+		SessionSubdir:   "vigolium-results",
+		EnvPrefix:       "VIGOLIUM_AUDIT_",
+		DBMode:          audit.HarnessName,
+		DBAgentName:     "vigolium-audit",
+		DBInputType:     audit.HarnessName,
+		FindingIDPrefix: audit.HarnessName,
+		FindingTag:      audit.HarnessName,
 	}
 }
 
-// effectiveHarness returns the configured harness or the archon default.
+// effectiveHarness returns the configured harness or the audit default.
 func effectiveHarness(cfg AuditAgentConfig) HarnessSpec {
 	if cfg.Harness.Name == "" {
-		return DefaultArchonHarness()
+		return DefaultAuditHarness()
 	}
 	return cfg.Harness
 }
 
 // harnessFindingSource projects the DB-tagging fields of a HarnessSpec onto
-// the archon parser's FindingSource shape. Used wherever findings parsed
+// the audit parser's FindingSource shape. Used wherever findings parsed
 // from `<harness.SessionSubdir>/findings/` need to land in the database
 // tagged with the right harness's mode/agent_name/tag set.
-func harnessFindingSource(h HarnessSpec) archon.FindingSource {
-	return archon.FindingSource{
+func harnessFindingSource(h HarnessSpec) audit.FindingSource {
+	return audit.FindingSource{
 		Mode:      h.DBMode,
 		AgentName: h.DBAgentName,
 		InputType: h.DBInputType,
@@ -90,24 +90,24 @@ func (r *AuditAgenticScanner) harness() HarnessSpec {
 	return r.resolvedSpec
 }
 
-// archonProtocolForPlatform maps the platform onto the AgenticScan
+// auditProtocolForPlatform maps the platform onto the AgenticScan
 // protocol vocabulary stored on the DB row.
-func archonProtocolForPlatform(platform string) string {
+func auditProtocolForPlatform(platform string) string {
 	switch platform {
 	case PlatformPi:
 		return "pi-sdk"
-	case PlatformArchonBin, "":
-		return "archon-bin"
+	case PlatformAuditBin, "":
+		return "audit-bin"
 	default:
 		return ""
 	}
 }
 
-// ownerRepoRE matches a single owner/repo segment, e.g. "vigolium/archon-audit".
+// ownerRepoRE matches a single owner/repo segment, e.g. "vigolium/vigolium-audit".
 // Used by normalizeOwnerRepo to validate the candidate before returning it.
 var ownerRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
 
-// AuditAgenticScanner manages an archon-audit running as a background agent process.
+// AuditAgenticScanner manages an vigolium-audit running as a background agent process.
 // It launches the agent (Claude or Codex), periodically syncs audit-state.json
 // and findings to the vigolium session dir, and imports findings into the database when complete.
 type AuditAgenticScanner struct {
@@ -127,19 +127,19 @@ type AuditAgenticScanner struct {
 	lastStateHash string           // cached hash for change detection in syncLoop
 	syncedFiles   map[string]int64 // filename → size, for incremental sync
 
-	// Populated by importArchonFindings after monitor() completes.
+	// Populated by importFindings after monitor() completes.
 	findingStats FindingStats
 
 	// Populated by finalizeAgenticScan from the harness's NDJSON output
-	// (archon `result` event for archon, picost transcripts for piolium).
+	// (audit `result` event for audit, picost transcripts for piolium).
 	// Zero-valued when the harness did not produce a usable summary.
 	costSummary ScanCost
 
-	// archonResult captures the final `result` event observed on the
-	// archon NDJSON stream. Populated by the streaming goroutine in
+	// auditResult captures the final `result` event observed on the
+	// audit NDJSON stream. Populated by the streaming goroutine in
 	// Start() and read by computeCostSummary after monitor() drains the
 	// pipe. Zero-valued for piolium runs.
-	archonResult archonstream.Result
+	auditResult stream.Result
 
 	// streamDone is closed by the streaming goroutine when it has
 	// finished consuming the subprocess's stdout. monitor() waits on
@@ -154,17 +154,33 @@ type AuditAgenticScanner struct {
 	byokCleanup func()
 }
 
-// FindingStats summarises the archon findings imported by a single audit run.
+// FindingStats summarises the audit findings imported by a single audit run.
 type FindingStats struct {
 	Parsed     int            // total findings parsed from the session dir
 	Saved      int            // findings successfully persisted to the database
 	BySeverity map[string]int // count by normalized severity (critical/high/medium/low/info)
+
+	// Reported is the count reported by the audit binary's own NDJSON
+	// `result` event. It is only consulted when the on-disk findings tree
+	// could not be parsed (Parsed == 0) and serves as a display-only
+	// fallback so the CLI summary mirrors the streamer's `[result]` line
+	// even when persistence didn't run. Severity keys are normalized to
+	// lowercase to match BySeverity.
+	Reported           int
+	ReportedBySeverity map[string]int
 }
 
 // SeverityBreakdownString renders a colored "critical:N  high:N  ..." string in
-// descending severity order. Buckets with zero count are skipped. Returns ""
-// when no findings were counted.
+// descending severity order. Buckets with zero count are skipped. Falls back to
+// the audit-reported breakdown when the on-disk parse yielded nothing. Returns
+// "" when no findings were counted at all.
 func (s FindingStats) SeverityBreakdownString() string {
+	src := s.BySeverity
+	if len(src) == 0 || s.Parsed == 0 {
+		if len(s.ReportedBySeverity) > 0 {
+			src = s.ReportedBySeverity
+		}
+	}
 	order := []struct {
 		name  string
 		color func(string) string
@@ -177,22 +193,22 @@ func (s FindingStats) SeverityBreakdownString() string {
 	}
 	var parts []string
 	for _, b := range order {
-		if n := s.BySeverity[b.name]; n > 0 {
+		if n := src[b.name]; n > 0 {
 			parts = append(parts, b.color(fmt.Sprintf("%s:%d", b.name, n)))
 		}
 	}
 	return strings.Join(parts, "  ")
 }
 
-// NewAuditAgenticScanner creates a new runner for the background archon-audit.
+// NewAuditAgenticScanner creates a new runner for the background vigolium-audit.
 //
 // The AgenticScan DB row's UUID is derived as follows:
 //
-//   - Standalone archon (ParentAgenticScanUUID empty, SessionDir set): UUID is
+//   - Standalone audit (ParentAgenticScanUUID empty, SessionDir set): UUID is
 //     filepath.Base(cfg.SessionDir). This gives the invariant that
 //     `vigolium log <uuid>` and `vigolium log ls` resolve the session's
 //     runtime.log via the conventional `{sessions_dir}/{uuid}/` path.
-//   - Nested archon (ParentAgenticScanUUID set, e.g. spawned by autopilot/swarm):
+//   - Nested audit (ParentAgenticScanUUID set, e.g. spawned by autopilot/swarm):
 //     a fresh UUID is generated. The parent already owns a row at
 //     filepath.Base(SessionDir), so the child must differ to avoid a
 //     primary-key collision on create. Resolution back to runtime.log
@@ -212,7 +228,7 @@ func NewAuditAgenticScanner(cfg AuditAgentConfig, repo *database.Repository) *Au
 	}
 }
 
-// Start launches the audit harness (archon binary or piolium via `pi`)
+// Start launches the audit harness (vigolium-audit binary or piolium via `pi`)
 // as a background process. The harness selection drives binary
 // resolution, argv construction, and stream decoding.
 //
@@ -239,24 +255,24 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	// Go reports `fork/exec <binary>: no such file or directory` — pointing at
 	// the binary instead of the cwd. Fail here with a clear message instead.
 	if r.cfg.SourcePath == "" {
-		return fmt.Errorf("archon source path is empty")
+		return fmt.Errorf("audit source path is empty")
 	}
 	if info, err := os.Stat(r.cfg.SourcePath); err != nil {
-		return fmt.Errorf("archon source path %q is not accessible: %w", r.cfg.SourcePath, err)
+		return fmt.Errorf("audit source path %q is not accessible: %w", r.cfg.SourcePath, err)
 	} else if !info.IsDir() {
-		return fmt.Errorf("archon source path %q is not a directory", r.cfg.SourcePath)
+		return fmt.Errorf("audit source path %q is not a directory", r.cfg.SourcePath)
 	}
 
 	harness := r.harness()
-	isArchon := harness.Name == archon.HarnessName
-	if isArchon {
-		platform = PlatformArchonBin
+	isAudit := harness.Name == audit.HarnessName
+	if isAudit {
+		platform = PlatformAuditBin
 	}
 
-	// Archon always runs with --json so the streaming goroutine can
+	// Audit always runs with --json so the streaming goroutine can
 	// extract the result event for cost reporting; piolium opts in via
 	// cfg.StreamDecoder + StreamWriter.
-	streamJSON := isArchon || (r.cfg.Stream && r.cfg.StreamWriter != nil && r.cfg.StreamDecoder != nil)
+	streamJSON := isAudit || (r.cfg.Stream && r.cfg.StreamWriter != nil && r.cfg.StreamDecoder != nil)
 
 	binary, args, stdinPrompt, err := buildAuditAgentCommand(platform, r.cfg, streamJSON)
 	if err != nil {
@@ -268,7 +284,7 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// harnessEnv carries the vigolium-injected vars (PIOLIUM_REPOSITORY,
 	// PIOLIUM_GIT_AVAILABLE, PIOLIUM_SESSION_UUID, optional commit-scan
-	// knobs, and the archon-equivalent under ARCHON_*). Captured rather
+	// knobs, and the audit-equivalent under ARCHON_*). Captured rather
 	// than appended inline so the debug line can render them.
 	harnessEnv := auditEnvFor(harness.EnvPrefix, r.cfg.SourcePath, r.agenticScanUUID, r.cfg.CommitScanLimit, r.cfg.CommitScanSince)
 	cmd.Env = append(os.Environ(), harnessEnv...)
@@ -327,7 +343,7 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	injectedEnv = append(injectedEnv, pioliumExtraEnv...)
 	injectedEnv = append(injectedEnv, pioliumAuthEnv...)
 	zap.L().Debug("starting background audit",
-		zap.String("cmd", redactArchonCmdLine(cmdLine.String())),
+		zap.String("cmd", redactAuditDriverCmdLine(cmdLine.String())),
 		zap.String("platform", platform),
 		zap.String("harness", harness.Name),
 		zap.String("mode", r.cfg.Mode),
@@ -343,7 +359,7 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 	var streamRawLog *os.File
 
 	if streamJSON {
-		// NDJSON harnesses (archon-bin always, piolium when its
+		// NDJSON harnesses (audit-bin always, piolium when its
 		// StreamDecoder is wired in): decode via the per-harness
 		// streamer, tee raw JSONL to the session dir, and still
 		// capture into outputBuf for the fallback-output path in
@@ -412,13 +428,16 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 			if renderTo == nil {
 				renderTo = io.Discard
 			}
-			if isArchon {
-				res, err := archonstream.Stream(streamPipe, renderTo, archonstream.Options{RawLog: rawWriter})
+			if isAudit {
+				res, err := stream.Stream(streamPipe, renderTo, stream.Options{
+					RawLog:       rawWriter,
+					ShowThinking: r.cfg.ShowThinking,
+				})
 				if err != nil {
-					zap.L().Debug("archon stream decoder exited with error", zap.Error(err))
+					zap.L().Debug("audit stream decoder exited with error", zap.Error(err))
 				}
 				r.mu.Lock()
-				r.archonResult = res
+				r.auditResult = res
 				r.mu.Unlock()
 				return
 			}
@@ -456,7 +475,7 @@ func newAuditAgenticScanRow(cfg AuditAgentConfig, harness HarnessSpec, scanUUID 
 		ScanUUID:              cfg.ScanUUID,
 		Mode:                  harness.DBMode,
 		AgentName:             harness.DBAgentName,
-		Protocol:              archonProtocolForPlatform(cfg.Platform),
+		Protocol:              auditProtocolForPlatform(cfg.Platform),
 		InputType:             harness.DBInputType,
 		Status:                "running",
 		CurrentPhase:          "initializing",
@@ -505,7 +524,7 @@ func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output
 	err := cmd.Wait()
 
 	// Drain the streaming goroutine (if any) before reading captured
-	// state — archonResult and the raw outputBuf both depend on the
+	// state — auditResult and the raw outputBuf both depend on the
 	// stdout pipe being fully consumed.
 	r.mu.Lock()
 	streamDone := r.streamDone
@@ -533,7 +552,7 @@ func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output
 
 	// Final sync and import
 	r.syncFolderFull()
-	r.importArchonFindings(ctx)
+	r.importFindings(ctx)
 
 	// Cleanup: remove the harness output dir from source since we have a
 	// copy in session. KeepSourceOutputDir opts out (see its field doc).
@@ -553,14 +572,14 @@ func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output
 		rawOutput := output.Bytes()
 
 		// If stdout buffer is empty (process killed before --print flushed),
-		// fall back to reading key archon output files from the synced session dir.
+		// fall back to reading key audit output files from the synced session dir.
 		if len(rawOutput) == 0 {
 			rawOutput = r.collectFallbackOutput()
 		}
 
 		if len(rawOutput) > 0 {
 			if writeErr := os.WriteFile(outputPath, rawOutput, 0o644); writeErr != nil {
-				zap.L().Debug("Failed to save archon audit output", zap.Error(writeErr))
+				zap.L().Debug("Failed to save audit output", zap.Error(writeErr))
 			}
 		}
 	}
@@ -569,11 +588,11 @@ func (r *AuditAgenticScanner) monitor(ctx context.Context, cmd *exec.Cmd, output
 	r.finalizeAgenticScan(ctx, err)
 }
 
-// collectFallbackOutput reads key archon output files from the synced session
+// collectFallbackOutput reads key audit output files from the synced session
 // directory and concatenates them. Used when the process was killed before
 // stdout was flushed (e.g. --print mode with early cancellation).
 func (r *AuditAgenticScanner) collectFallbackOutput() []byte {
-	archonDir := filepath.Join(r.cfg.SessionDir, r.harness().SessionSubdir)
+	auditDirLocal := filepath.Join(r.cfg.SessionDir, r.harness().SessionSubdir)
 
 	// Top-level reports across lite/scan/deep modes. Includes the Phase 5A/5B/5C
 	// matrices added in upstream commit 87b2281.
@@ -591,7 +610,7 @@ func (r *AuditAgenticScanner) collectFallbackOutput() []byte {
 
 	var parts [][]byte
 	for _, name := range candidates {
-		data, err := os.ReadFile(filepath.Join(archonDir, name))
+		data, err := os.ReadFile(filepath.Join(auditDirLocal, name))
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -601,10 +620,10 @@ func (r *AuditAgenticScanner) collectFallbackOutput() []byte {
 		parts = append(parts, []byte("\n\n---\n\n"))
 	}
 
-	// Enumerate confirmed findings (each in archon/findings/<ID>-<slug>/report.md).
+	// Enumerate confirmed findings (each in audit/findings/<ID>-<slug>/report.md).
 	// findings-draft/ is wiped at the end of every successful run so we no longer
 	// scan it; consolidated findings live under findings/ regardless of mode.
-	findingsDir := filepath.Join(archonDir, "findings")
+	findingsDir := filepath.Join(auditDirLocal, "findings")
 	if entries, err := os.ReadDir(findingsDir); err == nil {
 		var findingDirs []string
 		for _, e := range entries {
@@ -739,20 +758,20 @@ func (r *AuditAgenticScanner) syncFolderFull() {
 	copyDir(srcDir, destDir)
 }
 
-// importArchonFindings parses the harness output from session dir and imports findings.
+// importFindings parses the harness output from session dir and imports findings.
 // Populates r.findingStats so the CLI summary can report what was persisted.
-func (r *AuditAgenticScanner) importArchonFindings(ctx context.Context) {
+func (r *AuditAgenticScanner) importFindings(ctx context.Context) {
 	harness := r.harness()
 
 	// Parse from session dir (synced copy) or fall back to source dir
-	var archonDir string
+	var auditDirLocal string
 	if r.cfg.SessionDir != "" {
-		archonDir = filepath.Join(r.cfg.SessionDir, harness.SessionSubdir)
+		auditDirLocal = filepath.Join(r.cfg.SessionDir, harness.SessionSubdir)
 	} else {
-		archonDir = filepath.Join(r.cfg.SourcePath, harness.SourceFolder)
+		auditDirLocal = filepath.Join(r.cfg.SourcePath, harness.SourceFolder)
 	}
 
-	result, err := archon.ParseAuditFolder(archonDir)
+	result, err := audit.ParseFolder(auditDirLocal)
 	if err != nil {
 		zap.L().Debug("Failed to parse harness output for import", zap.Error(err))
 		return
@@ -763,7 +782,7 @@ func (r *AuditAgenticScanner) importArchonFindings(ctx context.Context) {
 		auditID = result.State.Audits[0].AuditID
 	}
 
-	findings := archon.BuildFindingsWithSource(result.RawFindings, auditID, r.agenticScanUUID, r.cfg.ProjectUUID, result.RepoName, harnessFindingSource(harness))
+	findings := audit.BuildFindingsWithSource(result.RawFindings, auditID, r.agenticScanUUID, r.cfg.ProjectUUID, result.RepoName, harnessFindingSource(harness))
 
 	stats := FindingStats{
 		Parsed:     len(findings),
@@ -787,12 +806,30 @@ func (r *AuditAgenticScanner) importArchonFindings(ctx context.Context) {
 		}
 	}
 
+	// Always capture what the audit binary itself reported on its NDJSON
+	// stream. The CLI summary falls back to these counts when on-disk
+	// parsing yielded nothing, so the operator sees the same totals the
+	// streamer just printed in the `[result]` line.
+	r.mu.Lock()
+	res := r.auditResult
+	r.mu.Unlock()
+	if res.Findings.Total > 0 {
+		stats.Reported = res.Findings.Total
+		stats.ReportedBySeverity = make(map[string]int, len(res.Findings.BySeverity))
+		for sev, n := range res.Findings.BySeverity {
+			if n <= 0 {
+				continue
+			}
+			stats.ReportedBySeverity[strings.ToLower(sev)] += n
+		}
+	}
+
 	r.mu.Lock()
 	r.findingStats = stats
 	r.mu.Unlock()
 
 	if stats.Parsed > 0 {
-		zap.L().Info("Imported archon audit findings",
+		zap.L().Info("Imported audit findings",
 			zap.Int("parsed", stats.Parsed),
 			zap.Int("saved", stats.Saved))
 	}
@@ -811,6 +848,13 @@ func (r *AuditAgenticScanner) FindingStats() FindingStats {
 		}
 		stats.BySeverity = cp
 	}
+	if stats.ReportedBySeverity != nil {
+		cp := make(map[string]int, len(stats.ReportedBySeverity))
+		for k, v := range stats.ReportedBySeverity {
+			cp[k] = v
+		}
+		stats.ReportedBySeverity = cp
+	}
 	return stats
 }
 
@@ -819,7 +863,7 @@ func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
 		return
 	}
 
-	var state archon.AuditState
+	var state audit.State
 	if err := json.Unmarshal(stateData, &state); err != nil || len(state.Audits) == 0 {
 		return
 	}
@@ -895,7 +939,7 @@ func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processEr
 // computeCostSummary derives a priced ScanCost for the run and stores
 // it on the runner. Sources by harness:
 //
-//   - archon: the captured `result` event from archonstream (totalUsd
+//   - audit: the captured `result` event from auditstream (totalUsd
 //     and totalTokens are emitted by the binary itself).
 //   - piolium: per-session rollout under <source>/.piolium/.
 func (r *AuditAgenticScanner) computeCostSummary() {
@@ -914,11 +958,11 @@ func (r *AuditAgenticScanner) computeCostSummary() {
 		}
 		cost = scanCostFromPi(s)
 	default:
-		// archon (and unset → archon by harness() default).
+		// audit (and unset → audit by harness() default).
 		r.mu.Lock()
-		res := r.archonResult
+		res := r.auditResult
 		r.mu.Unlock()
-		cost = scanCostFromArchon(res, r.cfg.ArchonInvocation.Agent)
+		cost = scanCostFromAudit(res, r.cfg.AuditDriverInvocation.Agent)
 	}
 
 	if cost.IsZero() {
@@ -947,7 +991,7 @@ func (r *AuditAgenticScanner) processStartedAt() time.Time {
 
 // Harness returns the harness spec the runner was configured with. Lets
 // callers label output and tag findings without re-reading config or
-// hard-coding harness names like "piolium" / "archon".
+// hard-coding harness names like "piolium" / "audit".
 func (r *AuditAgenticScanner) Harness() HarnessSpec {
 	return r.cfg.Harness
 }
@@ -963,7 +1007,7 @@ func (r *AuditAgenticScanner) CostSummary() ScanCost {
 	return r.costSummary
 }
 
-// Wait blocks until the archon audit finishes.
+// Wait blocks until the audit finishes.
 func (r *AuditAgenticScanner) Wait() error {
 	<-r.done
 	r.mu.Lock()
@@ -971,12 +1015,12 @@ func (r *AuditAgenticScanner) Wait() error {
 	return r.err
 }
 
-// Done returns a channel that closes when the archon audit finishes.
+// Done returns a channel that closes when the audit finishes.
 func (r *AuditAgenticScanner) Done() <-chan struct{} {
 	return r.done
 }
 
-// Cancel stops the archon audit process. Sends SIGTERM first, then SIGKILL after a grace period.
+// Cancel stops the audit process. Sends SIGTERM first, then SIGKILL after a grace period.
 func (r *AuditAgenticScanner) Cancel() {
 	r.mu.Lock()
 	r.cancelled = true
@@ -1037,7 +1081,7 @@ func (r *AuditAgenticScanner) isRunning() bool {
 	}
 }
 
-func (r *AuditAgenticScanner) readCurrentState() *archon.AuditState {
+func (r *AuditAgenticScanner) readCurrentState() *audit.State {
 	// Try the source dir first (authoritative while the audit is running),
 	// then fall back to the synced copy in the session dir. The fallback
 	// matters after monitor() removes the source-side output dir on cleanup:
@@ -1056,7 +1100,7 @@ func (r *AuditAgenticScanner) readCurrentState() *archon.AuditState {
 		if err != nil {
 			continue
 		}
-		var state archon.AuditState
+		var state audit.State
 		if err := json.Unmarshal(data, &state); err != nil {
 			continue
 		}
@@ -1134,7 +1178,7 @@ func (r *AuditAgenticScanner) applyPioliumBYOK(cmd *exec.Cmd, authEnv *[]string,
 		cmd.Env = append(cmd.Env, envEntries...)
 	}
 	if r.cfg.AuthOverride.OAuthCredFile == "" ||
-		normalizedAgent(r.cfg.AuthOverride.Agent) != string(ArchonAgentCodex) {
+		normalizedAgent(r.cfg.AuthOverride.Agent) != string(AuditDriverAgentCodex) {
 		return nil
 	}
 	if pioliumAgentDir != "" {
@@ -1184,7 +1228,7 @@ func auditEnvFor(prefix, sourcePath, sessionUUID string, commitLimit int, commit
 		prefix + "GIT_AVAILABLE=" + gitAvailable,
 		prefix + "SESSION_UUID=" + sessionUUID,
 	}
-	// Surface a hand-curated `<source>/archon/INFO.md` to the harness's
+	// Surface a hand-curated `<source>/vigolium-results/INFO.md` to the harness's
 	// knowledge-base-builder, which treats it as authoritative project context
 	// when ARCHON_INFO_AVAILABLE=true. Only emitted under the ARCHON_ prefix —
 	// piolium has no equivalent today.
@@ -1200,14 +1244,14 @@ func auditEnvFor(prefix, sourcePath, sessionUUID string, commitLimit int, commit
 	return envs
 }
 
-// infoFileAvailable reports "true" when <target>/archon/INFO.md exists as a
-// non-empty regular file. Mirrors the standalone archon-audit CLI's
-// hasArchonInfoFile helper so vigolium-launched runs see the same signal.
+// infoFileAvailable reports "true" when <target>/vigolium-results/INFO.md exists as a
+// non-empty regular file. Mirrors the standalone vigolium-audit CLI's
+// hasAuditDriverInfoFile helper so vigolium-launched runs see the same signal.
 func infoFileAvailable(target string) string {
 	if target == "" {
 		return "false"
 	}
-	info, err := os.Stat(filepath.Join(target, "archon", "INFO.md"))
+	info, err := os.Stat(filepath.Join(target, "vigolium-results", "INFO.md"))
 	if err != nil {
 		return "false"
 	}
@@ -1299,7 +1343,7 @@ func piPreArgs(cfg AuditAgentConfig) []string {
 }
 
 // buildAuditAgentCommand resolves the CLI binary and builds the argument list
-// for launching archon-audit (claude/codex) or piolium (pi) on the
+// for launching vigolium-audit (claude/codex) or piolium (pi) on the
 // given platform. When stream is true the command emits line-oriented JSON on
 // stdout (Claude's stream-json or Pi's --mode json) so the caller can render
 // a live activity feed via the appropriate decoder.
@@ -1315,7 +1359,7 @@ func piPreArgs(cfg AuditAgentConfig) []string {
 //
 // cfg.AdditionalArgs are appended verbatim after the harness-specific args
 // and are typically piolium's --plm-* passthrough flags. They are ignored
-// for the archon harness.
+// for the audit harness.
 //
 // piPreArgs are inserted ahead of `--mode json -p` on the pi platform so
 // pi sees them as its own flags (e.g. `--provider`, `--model`). Ignored
@@ -1342,21 +1386,21 @@ func buildAuditAgentCommand(platform string, cfg AuditAgentConfig, stream bool) 
 		}
 		return binary, args, stdinPrompt, nil
 
-	case PlatformArchonBin, "":
-		binary, err = archonbin.Path()
+	case PlatformAuditBin, "":
+		binary, err = bin.Path()
 		if err != nil {
-			return "", nil, "", fmt.Errorf("locate embedded archon binary: %w (run `make build-archon`)", err)
+			return "", nil, "", fmt.Errorf("locate embedded vigolium-audit binary: %w (run `make build-audit`)", err)
 		}
-		// archon-ts CLI: `archon run --target <abs> (--mode <mode> |
+		// vigolium-audit CLI: `audit run --target <abs> (--mode <mode> |
 		// --modes a,b,c) --agent <claude|codex> [--api-key|--oauth-*]
 		// [--json]`. vigolium handles git clone / archive extraction in Go
 		// before launch, so --target is always a local absolute path.
 		//
-		// A multi-mode chain is handed to archon's native `--modes` so
-		// archon owns the sequential execution, stop-on-non-complete, the
+		// A multi-mode chain is handed to audit's native `--modes` so
+		// audit owns the sequential execution, stop-on-non-complete, the
 		// --from-audit auto-detect between modes, and the aggregate
 		// --max-cost cap. A single mode keeps the original `--mode` form so
-		// existing behavior (and archon's per-mode resume semantics) is
+		// existing behavior (and audit's per-mode resume semantics) is
 		// untouched.
 		args = []string{
 			"run",
@@ -1367,14 +1411,17 @@ func buildAuditAgentCommand(platform string, cfg AuditAgentConfig, stream bool) 
 		} else {
 			args = append(args, "--mode", modes[0])
 		}
-		args = append(args, cfg.ArchonInvocation.Args()...)
-		// Pass our AgenticScan UUID to archon so its auth-overrides path can
-		// namespace backup files (.archon-backup-<uuid>) and the cred-dir
+		args = append(args, cfg.AuditDriverInvocation.Args()...)
+		// Pass our AgenticScan UUID to audit so its auth-overrides path can
+		// namespace backup files (.audit-backup-<uuid>) and the cred-dir
 		// lock breadcrumb. Two concurrent BYOK audits would otherwise
 		// collide on a fixed-name backup; the per-uuid suffix makes the
 		// collision a hard error from the lock instead of a silent stomp.
 		if cfg.ScanUUID != "" {
 			args = append(args, "--run-uuid", cfg.ScanUUID)
+		}
+		if cfg.KeepRaw {
+			args = append(args, "--keep-raw")
 		}
 		if stream {
 			args = append(args, "--json")
@@ -1389,7 +1436,7 @@ func buildAuditAgentCommand(platform string, cfg AuditAgentConfig, stream bool) 
 // --- Public API ---
 
 // StartAuditAgent creates and starts a background audit run for the given
-// harness (archon or piolium). Returns nil runner when the cfg is disabled
+// harness (audit or piolium). Returns nil runner when the cfg is disabled
 // or sourcePath is empty. When streamWriter is non-nil, audit output is
 // streamed in real-time. Harness-specific bits (Platform=pi + StreamDecoder
 // for piolium) are auto-installed when harness.Name == "piolium".
@@ -1398,13 +1445,13 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, harn
 		return nil, nil
 	}
 	if harness.Name == "" {
-		harness = DefaultArchonHarness()
+		harness = DefaultAuditHarness()
 	}
 
 	cfg := AuditAgentConfig{
 		Harness:               harness,
 		Mode:                  agentCfg.EffectiveMode(),
-		Platform:              PlatformArchonBin,
+		Platform:              PlatformAuditBin,
 		SourcePath:            sourcePath,
 		SessionDir:            sessionDir,
 		ProjectUUID:           projectUUID,
@@ -1431,7 +1478,7 @@ func StartAuditAgent(ctx context.Context, agentCfg config.AuditAgentConfig, harn
 	return runner, nil
 }
 
-// startAuditAgentBackground is a shared helper that starts an audit (archon
+// startAuditAgentBackground is a shared helper that starts an audit (audit
 // or piolium) and returns the runner and a wait func. Logs startup
 // success/failure via the provided logFn. Returns nil runner and nil wait
 // when the audit is disabled or fails to start. The harness drives the
@@ -1442,7 +1489,7 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 		return nil, nil, nil
 	}
 	if harness.Name == "" {
-		harness = DefaultArchonHarness()
+		harness = DefaultAuditHarness()
 	}
 
 	// Clean up stale harness output dir from a previous crashed run.
@@ -1489,16 +1536,16 @@ func startAuditAgentBackground(ctx context.Context, auditCfg *config.AuditAgentC
 	return runner, wait, nil
 }
 
-// ResolveAuditAgentConfig determines whether archon-audit should run.
-// Archon is enabled by default when source code is available. Pass noArchon=true
-// to force-disable it (--no-archon flag). The mode defaults to "lite" when empty.
+// ResolveAuditAgentConfig determines whether vigolium-audit should run.
+// Audit is enabled by default when source code is available. Pass noAudit=true
+// to force-disable it (--no-audit flag). The mode defaults to "lite" when empty.
 // Returns nil when the audit agent should not run.
-func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agentCfg config.AuditAgentConfig) *config.AuditAgentConfig {
+func ResolveAuditAgentConfig(noAudit bool, mode string, sourcePath string, agentCfg config.AuditAgentConfig) *config.AuditAgentConfig {
 	// Explicit disable
-	if noArchon {
+	if noAudit {
 		return nil
 	}
-	// No source code — archon has nothing to audit
+	// No source code — audit has nothing to audit
 	if sourcePath == "" {
 		return nil
 	}
@@ -1511,8 +1558,8 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 		effectiveMode = "lite"
 	}
 	// Validate mode
-	if !isValidArchonMode(effectiveMode) {
-		zap.L().Warn("Invalid archon mode, falling back to lite", zap.String("mode", effectiveMode))
+	if !isValidAuditDriverMode(effectiveMode) {
+		zap.L().Warn("Invalid audit mode, falling back to lite", zap.String("mode", effectiveMode))
 		effectiveMode = "lite"
 	}
 	enabled := true
@@ -1528,12 +1575,12 @@ func ResolveAuditAgentConfig(noArchon bool, mode string, sourcePath string, agen
 // (callers do their own auto-pick before invoking this — see the CLI's
 // post-intensity switch and the server's resolveAutopilotAuditCfgServer).
 // Returns (nil, zero-spec) when no audit should run.
-func PickAuditHarness(pioliumMode, archonMode string, archonNoArchon bool, sourcePath string, settingsArchon config.AuditAgentConfig) (*config.AuditAgentConfig, HarnessSpec) {
+func PickAuditHarness(pioliumMode, auditModeLocal string, auditNoAudit bool, sourcePath string, settingsAudit config.AuditAgentConfig) (*config.AuditAgentConfig, HarnessSpec) {
 	if cfg := ResolvePioliumAuditConfig(pioliumMode, sourcePath); cfg != nil {
 		return cfg, piolium.DefaultHarness()
 	}
-	if cfg := ResolveAuditAgentConfig(archonNoArchon, archonMode, sourcePath, settingsArchon); cfg != nil {
-		return cfg, DefaultArchonHarness()
+	if cfg := ResolveAuditAgentConfig(auditNoAudit, auditModeLocal, sourcePath, settingsAudit); cfg != nil {
+		return cfg, DefaultAuditHarness()
 	}
 	return nil, HarnessSpec{}
 }
@@ -1561,16 +1608,16 @@ func ResolvePioliumAuditConfig(mode, sourcePath string) *config.AuditAgentConfig
 	}
 }
 
-// sharedAuditModes is the intersection of modes supported by both archon
+// sharedAuditModes is the intersection of modes supported by both audit
 // and piolium. Used to gate `vigolium agent audit --driver=both` — when
 // both drivers run sequentially, the mode must be one they both understand.
-// Driver-specific modes (piolium's longshot, archon's mock) require
-// `--driver=piolium` or `--driver=archon` so the user opts into the
+// Driver-specific modes (piolium's longshot, audit's mock) require
+// `--driver=piolium` or `--driver=audit` so the user opts into the
 // single-driver path explicitly.
 var sharedAuditModes = map[string]bool{
 	"lite":     true,
 	"balanced": true,
-	"scan":     true, // legacy archon alias for balanced
+	"scan":     true, // legacy audit alias for balanced
 	"deep":     true,
 	"revisit":  true,
 	"confirm":  true,
@@ -1578,17 +1625,17 @@ var sharedAuditModes = map[string]bool{
 }
 
 // IsSharedAuditMode returns true when the given audit mode is supported by
-// both archon and piolium harnesses. Used by the unified audit dispatcher
+// both audit and piolium harnesses. Used by the unified audit dispatcher
 // to validate `--driver=both` runs, where the same mode is dispatched to
 // each driver in turn.
 func IsSharedAuditMode(mode string) bool {
 	return sharedAuditModes[mode]
 }
 
-// isValidArchonMode returns true for recognized archon audit modes.
+// isValidAuditDriverMode returns true for recognized audit modes.
 // "scan" is accepted as a legacy alias for "balanced"; EffectiveMode()
 // normalizes it when the slash command is dispatched.
-func isValidArchonMode(mode string) bool {
+func isValidAuditDriverMode(mode string) bool {
 	switch mode {
 	case "lite", "balanced", "scan", "deep", "mock", "confirm", "merge", "revisit", "reinvest":
 		return true

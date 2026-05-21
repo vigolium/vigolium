@@ -15,8 +15,8 @@ Returns paginated vulnerability findings.
 | `scan_uuid`     | string |            | Filter by scan UUID                               |
 | `module_name` | string |            | Filter by module name                             |
 | `module_type`    | string |            | Filter by module type: `active` or `passive`      |
-| `finding_source` | string |            | Filter by finding source: `dynamic-assessment`, `known-issue-scan`, `agent`, `oast`, `extension`, `archon`, `autopilot` |
-| `repo_name`   | string |            | Filter by repository name or URL (exact match). Populated for archon findings |
+| `finding_source` | string |            | Filter by finding source: `dynamic-assessment`, `known-issue-scan`, `agent`, `oast`, `extension`, `audit`, `autopilot` |
+| `repo_name`   | string |            | Filter by repository name or URL (exact match). Populated for audit findings |
 | `status`      | string |            | Filter by lifecycle status (comma-separated): `draft`, `triaged`, `false_positive`, `accepted_risk`, `fixed` |
 | `search`      | string |            | Search across description, module ID, matched_at  |
 | `sort`        | string | `found_at` | Sort field: `found_at`, `created_at`, `severity`, `module_name`, `module_id`, `confidence` |
@@ -41,8 +41,8 @@ curl -s 'http://localhost:9002/api/findings?finding_source=dynamic-assessment' |
 # Filter by lifecycle status
 curl -s 'http://localhost:9002/api/findings?status=triaged,fixed' | jq .
 
-# Filter by repo name (archon findings)
-curl -s 'http://localhost:9002/api/findings?finding_source=archon&repo_name=Kong/kong' | jq .
+# Filter by repo name (audit findings)
+curl -s 'http://localhost:9002/api/findings?finding_source=audit&repo_name=Kong/kong' | jq .
 
 # Search findings
 curl -s 'http://localhost:9002/api/findings?search=reflected' | jq .
@@ -188,7 +188,7 @@ Optional classification fields populated by modules and the agent triage pipelin
 
 **Type:** `string` (optional, omitted when empty)
 
-The repository name or URL associated with a finding. Primarily populated for archon audit findings. During archon import, the value is resolved with the following priority:
+The repository name or URL associated with a finding. Primarily populated for audit findings. During audit import, the value is resolved with the following priority:
 
 1. `repo_url` field in `audit-state.json` (if present)
 2. `repo` field in `audit-state.json` (if present)

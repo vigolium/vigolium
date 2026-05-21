@@ -308,3 +308,17 @@ func mergeIntentInstruction(base, instructionFile string, app agent.AppIntent) s
 	}
 	return instruction
 }
+
+// prependVerbatimPrompt puts the verbatim natural-language prompt in front of
+// the resolved instruction. The verbatim prompt comes first because it carries
+// the user's primary intent (and any exploitation hints they wrote); explicit
+// --instruction / --instruction-file content layers on top of that.
+func prependVerbatimPrompt(instruction, verbatim string) string {
+	if verbatim == "" {
+		return instruction
+	}
+	if instruction == "" {
+		return verbatim
+	}
+	return verbatim + "\n\n" + instruction
+}

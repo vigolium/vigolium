@@ -488,12 +488,12 @@ type AgentAutopilotRequest struct {
 	Stream      bool     `json:"stream,omitempty"`       // enable SSE streaming
 	ScanUUID    string   `json:"scan_uuid,omitempty"`    // optional scan UUID
 	ProjectUUID string   `json:"project_uuid,omitempty"` // project UUID for data scoping
-	// Deprecated: use NoArchon + ArchonMode instead. Kept for backward
-	// compatibility with older API clients; "off" maps to NoArchon=true and
-	// any other value (e.g. "deep") maps to ArchonMode. Slated for removal.
-	Archon          string                      `json:"archon,omitempty"`            // legacy values: "lite", "balanced", "deep", "off"
-	NoArchon        bool                        `json:"no_archon,omitempty"`         // disable automatic archon-audit (enabled by default when source is set)
-	ArchonMode      string                      `json:"archon_mode,omitempty"`       // archon audit mode: "lite" (default), "balanced", "deep"
+	// Deprecated: use NoAudit + AuditDriverMode instead. Kept for backward
+	// compatibility with older API clients; "off" maps to NoAudit=true and
+	// any other value (e.g. "deep") maps to AuditDriverMode. Slated for removal.
+	Audit          string                      `json:"audit,omitempty"`            // legacy values: "lite", "balanced", "deep", "off"
+	NoAudit        bool                        `json:"no_audit,omitempty"`         // disable automatic vigolium-audit (enabled by default when source is set)
+	AuditDriverMode      string                      `json:"audit_mode,omitempty"`       // audit mode: "lite" (default), "balanced", "deep"
 	Diff            string                      `json:"diff,omitempty"`              // focus on changed code: PR URL, git ref range, or HEAD~N
 	LastCommits     int                         `json:"last_commits,omitempty"`      // focus on last N commits (shorthand for diff HEAD~N)
 	Browser         bool                        `json:"browser,omitempty"`           // explicitly enable browser tooling
@@ -506,8 +506,8 @@ type AgentAutopilotRequest struct {
 
 	// Piolium audit mode (Pi runtime). Empty triggers server-side auto-pick:
 	// when pi+piolium are installed, the server runs piolium instead of
-	// archon. Set explicitly to force piolium; pair with archon:"off" to
-	// keep both off, or with an archon mode to keep archon (auto-pick is
+	// audit. Set explicitly to force piolium; pair with audit:"off" to
+	// keep both off, or with an audit mode to keep audit (auto-pick is
 	// suppressed once either flag is set).
 	Piolium string `json:"piolium,omitempty"`
 
@@ -523,36 +523,36 @@ type AgentAutopilotRequest struct {
 	// AgentBYOK fields (api_key, oauth_token, oauth_cred_file, oauth_cred_json)
 	// are accepted at the top level of the request body. The in-process
 	// olium engine for this run is built with these overlaid onto the
-	// server-wide agent.olium.* defaults; the background archon (when
-	// enabled via ArchonMode/Piolium) inherits the same overrides.
+	// server-wide agent.olium.* defaults; the background audit (when
+	// enabled via AuditDriverMode/Piolium) inherits the same overrides.
 	AgentBYOK
 }
 
-// ResolvedNoArchon returns true when archon should be disabled, handling backward
-// compatibility with the legacy Archon field.
-func (r AgentAutopilotRequest) ResolvedNoArchon() bool {
-	if r.Archon == "off" {
+// ResolvedNoAudit returns true when audit should be disabled, handling backward
+// compatibility with the legacy Audit field.
+func (r AgentAutopilotRequest) ResolvedNoAudit() bool {
+	if r.Audit == "off" {
 		return true
 	}
-	return r.NoArchon
+	return r.NoAudit
 }
 
-// ResolvedArchonMode returns the effective archon mode, handling backward
-// compatibility with the legacy Archon field.
-func (r AgentAutopilotRequest) ResolvedArchonMode() string {
-	if r.ArchonMode != "" {
-		return r.ArchonMode
+// ResolvedAuditDriverMode returns the effective audit mode, handling backward
+// compatibility with the legacy Audit field.
+func (r AgentAutopilotRequest) ResolvedAuditDriverMode() string {
+	if r.AuditDriverMode != "" {
+		return r.AuditDriverMode
 	}
-	// Legacy: "archon": "deep" means mode=deep
-	if r.Archon != "" && r.Archon != "off" {
-		return r.Archon
+	// Legacy: "audit": "deep" means mode=deep
+	if r.Audit != "" && r.Audit != "off" {
+		return r.Audit
 	}
 	return "lite"
 }
 
 // AgentBYOK is the shared shape of "bring your own key" credentials sent
 // on agent endpoints. Embedded in every request type that runs an agent
-// (archon/audit subprocess drivers, autopilot/swarm/query in-process
+// (audit/audit subprocess drivers, autopilot/swarm/query in-process
 // olium) so callers get a uniform field surface regardless of which
 // endpoint they target.
 //
@@ -587,15 +587,15 @@ func (b AgentBYOK) IsZero() bool {
 	return b.APIKey == "" && b.OAuthToken == "" && b.OAuthCredFile == "" && b.OAuthCredJSON == ""
 }
 
-// AgentArchonRequest is the request body for POST /api/agent/run/archon.
-// Mirrors the autopilot request shape for the fields archon actually consumes
+// AgentAuditDriverRequest is the request body for POST /api/agent/run/audit.
+// Mirrors the autopilot request shape for the fields audit actually consumes
 // (source, intensity/mode, platform, timeout, diff context, scoping, streaming).
-type AgentArchonRequest struct {
+type AgentAuditDriverRequest struct {
 	Source        string   `json:"source,omitempty"`         // local path, git URL, gs:// archive, or local archive (required)
 	Target        string   `json:"target,omitempty"`         // optional target URL — stored on the run row for cross-referencing scans
 	Intensity     string   `json:"intensity,omitempty"`      // quick | balanced (default) | deep — bundles mode + timeout + commit_depth
-	Mode          string   `json:"mode,omitempty"`           // explicit archon mode: lite, balanced, scan, deep, mock, revisit, reinvest, confirm, merge, diff, status (overrides intensity)
-	Modes         []string `json:"modes,omitempty"`          // mode chain run back-to-back via archon's native --modes (e.g. ["deep","refresh","confirm"]); overrides mode/intensity, stops on first non-complete
+	Mode          string   `json:"mode,omitempty"`           // explicit audit mode: lite, balanced, scan, deep, mock, revisit, reinvest, confirm, merge, diff, status (overrides intensity)
+	Modes         []string `json:"modes,omitempty"`          // mode chain run back-to-back via audit's native --modes (e.g. ["deep","refresh","confirm"]); overrides mode/intensity, stops on first non-complete
 	Platform      string   `json:"platform,omitempty"`       // claude | codex (default: from settings, then claude)
 	Agent         string   `json:"agent,omitempty"`          // alias for platform — accepted for parity with the CLI flag
 	Timeout       string   `json:"timeout,omitempty"`        // Go duration string; overrides intensity preset (quick=1h, balanced=6h, deep=12h)
@@ -616,7 +616,7 @@ type AgentArchonRequest struct {
 
 // EffectivePlatform resolves the platform field, accepting the legacy `agent`
 // alias used by the CLI flag (`--agent claude|codex`).
-func (r AgentArchonRequest) EffectivePlatform() string {
+func (r AgentAuditDriverRequest) EffectivePlatform() string {
 	if r.Platform != "" {
 		return r.Platform
 	}
@@ -625,12 +625,12 @@ func (r AgentArchonRequest) EffectivePlatform() string {
 
 // AgentAuditRequest is the request body for POST /api/agent/run/audit.
 //
-// Mirrors the `vigolium agent audit` CLI: dispatches archon and/or piolium
+// Mirrors the `vigolium agent audit` CLI: dispatches audit and/or piolium
 // against a source tree (local path, git URL, gs:// archive, or local
-// archive) under one AgenticScan. When driver=auto (default), archon
-// runs first and piolium only runs as a fallback if archon fails — a
-// clean archon run finishes the audit and piolium is never started.
-// When driver=both, both drivers run sequentially (archon first, then
+// archive) under one AgenticScan. When driver=auto (default), audit
+// runs first and piolium only runs as a fallback if audit fails — a
+// clean audit run finishes the audit and piolium is never started.
+// When driver=both, both drivers run sequentially (audit first, then
 // piolium) unconditionally. Multi-driver runs use per-driver child
 // AgenticScan rows. Same /agent/status, /agent/sessions/:id/logs, and
 // /agent/sessions/:id/artifacts shape as the single-driver endpoints.
@@ -641,8 +641,8 @@ type AgentAuditRequest struct {
 	Source        string   `json:"source,omitempty"`         // local path, git URL, gs:// archive, or local archive (required)
 	Target        string   `json:"target,omitempty"`         // optional target URL — stored on the run row for cross-referencing scans
 	Intensity     string   `json:"intensity,omitempty"`      // quick | balanced (default) | deep — bundles mode + timeout + commit_depth
-	Mode          string   `json:"mode,omitempty"`           // explicit audit mode (overrides intensity). With driver=auto or driver=both, restricted to: lite, balanced, deep, revisit, confirm, merge. With driver=piolium adds: diff, longshot, status, smoke. With driver=archon adds: reinvest, diff, status, mock.
-	Modes         []string `json:"modes,omitempty"`          // mode chain run back-to-back (e.g. ["deep","refresh","confirm"]); overrides mode/intensity. archon runs it natively; piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg.
+	Mode          string   `json:"mode,omitempty"`           // explicit audit mode (overrides intensity). With driver=auto or driver=both, restricted to: lite, balanced, deep, revisit, confirm, merge. With driver=piolium adds: diff, longshot, status, smoke. With driver=audit adds: reinvest, diff, status, mock.
+	Modes         []string `json:"modes,omitempty"`          // mode chain run back-to-back (e.g. ["deep","refresh","confirm"]); overrides mode/intensity. audit runs it natively; piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg.
 	Timeout       string   `json:"timeout,omitempty"`        // Go duration string; overrides intensity preset (quick=1h, balanced=6h, deep=12h)
 	Diff          string   `json:"diff,omitempty"`           // focus on changed code: PR URL, git ref range, or HEAD~N
 	LastCommits   int      `json:"last_commits,omitempty"`   // focus on last N commits (shorthand for diff HEAD~N)
@@ -654,12 +654,12 @@ type AgentAuditRequest struct {
 	ScanUUID      string   `json:"scan_uuid,omitempty"`      // optional scan UUID
 
 	// Driver picks which audit harnesses participate. One of:
-	//   "auto"    — archon first; piolium runs only as a fallback if
-	//               archon fails (a clean archon run finishes the audit
+	//   "auto"    — audit first; piolium runs only as a fallback if
+	//               audit fails (a clean audit run finishes the audit
 	//               and piolium is never started). Default when empty.
-	//   "both"    — sequential archon-then-piolium under one parent
+	//   "both"    — sequential audit-then-piolium under one parent
 	//               AgenticScan, run unconditionally
-	//   "archon"  — archon only (equivalent to /api/agent/run/archon)
+	//   "audit"  — audit only (equivalent to /api/agent/run/audit)
 	//   "piolium" — piolium only
 	// "auto" and "both" run under one parent AgenticScan with per-driver
 	// child rows, post-pass findings dedup, and multiplexed SSE.
@@ -671,18 +671,25 @@ type AgentAuditRequest struct {
 	// since single-driver runs already INSERT-time-dedup by finding_hash.
 	NoDedup bool `json:"no_dedup,omitempty"`
 
-	// Agent picks the archon platform when archon participates. Accepts
+	// KeepRaw maps to vigolium-audit's `--keep-raw`: opt out of the
+	// deep/confirm auto-prune so raw scanner output, draft findings, and
+	// intermediate workspaces stay under <source>/vigolium-results/ (and
+	// the synced session copy) for manual review. Audit-only — ignored on
+	// the piolium leg of driver=auto/both/piolium runs.
+	KeepRaw bool `json:"keep_raw,omitempty"`
+
+	// Agent picks the audit platform when audit participates. Accepts
 	// claude (default) or codex. Ignored when driver=piolium.
 	Agent string `json:"agent,omitempty"`
 
 	// Pi provider/model overrides, forwarded as `pi --provider X --model Y`.
 	// Empty values fall back to whatever the user has configured in
-	// ~/.pi/agent/settings.json. Ignored when driver=archon.
+	// ~/.pi/agent/settings.json. Ignored when driver=audit.
 	PiProvider string `json:"pi_provider,omitempty"`
 	PiModel    string `json:"pi_model,omitempty"`
 
 	// Piolium passthrough flags (`--plm-*`). Empty/zero values are dropped
-	// so piolium's own defaults still apply. Ignored when driver=archon.
+	// so piolium's own defaults still apply. Ignored when driver=audit.
 	PlmScanLimit       int    `json:"plm_scan_limit,omitempty"`       // cap commit-history scan to N commits
 	PlmScanSince       string `json:"plm_scan_since,omitempty"`       // git --since window (e.g. "60 days ago")
 	PlmPhaseRetries    int    `json:"plm_phase_retries,omitempty"`    // per-phase retry count
@@ -694,23 +701,23 @@ type AgentAuditRequest struct {
 	// AgentBYOK fields (api_key, oauth_token, oauth_cred_file, oauth_cred_json)
 	// are accepted at the top level of the request body via JSON field
 	// promotion. The audit dispatcher applies these to whichever driver(s)
-	// actually run: archon receives them as --api-key / --oauth-token /
+	// actually run: audit receives them as --api-key / --oauth-token /
 	// --oauth-cred-file flags; piolium receives them as env vars on the pi
 	// subprocess (and, for codex cred files, a temporarily-staged auth.json
 	// under the configured pi-agent-dir, restored on completion). See
 	// AgentBYOK doc for full semantics.
 	AgentBYOK
 
-	// ArchonAuth, when set, OVERRIDES the top-level AgentBYOK for the
-	// archon driver only. Used with driver=auto/both to give each driver
-	// its own identity (e.g. one tenant's claude OAuth for the archon side,
-	// another tenant's codex cred file for piolium). When unset, archon
+	// AuditDriverAuth, when set, OVERRIDES the top-level AgentBYOK for the
+	// audit driver only. Used with driver=auto/both to give each driver
+	// its own identity (e.g. one tenant's claude OAuth for the audit side,
+	// another tenant's codex cred file for piolium). When unset, audit
 	// inherits the top-level AgentBYOK. Ignored when driver=piolium.
-	ArchonAuth *AgentBYOK `json:"archon_auth,omitempty"`
+	AuditDriverAuth *AgentBYOK `json:"audit_auth,omitempty"`
 
 	// PioliumAuth, when set, OVERRIDES the top-level AgentBYOK for the
-	// piolium driver only. Symmetric to ArchonAuth. Ignored when
-	// driver=archon.
+	// piolium driver only. Symmetric to AuditDriverAuth. Ignored when
+	// driver=audit.
 	PioliumAuth *AgentBYOK `json:"piolium_auth,omitempty"`
 }
 
@@ -781,11 +788,11 @@ type AgentSwarmRequest struct {
 	ProjectUUID string `json:"project_uuid,omitempty"` // optional project UUID
 	ScanUUID    string `json:"scan_uuid,omitempty"`    // optional scan UUID
 
-	// Background archon-audit
-	Archon string `json:"archon,omitempty"` // run background archon-audit: "lite" (3-phase), "balanced" (6-phase), "deep" (10-phase), "off" to disable
+	// Background vigolium-audit
+	Audit string `json:"audit,omitempty"` // run background vigolium-audit: "lite" (3-phase), "balanced" (6-phase), "deep" (10-phase), "off" to disable
 
 	// Background piolium audit (Pi runtime). Empty triggers server-side
-	// auto-pick when archon is also empty: piolium runs when pi+piolium
+	// auto-pick when audit is also empty: piolium runs when pi+piolium
 	// are installed, otherwise nothing. Set explicitly to force piolium.
 	Piolium string `json:"piolium,omitempty"`
 
@@ -804,19 +811,19 @@ type AgentSwarmRequest struct {
 	AgentBYOK
 }
 
-// ResolvedNoArchon returns true when archon should be disabled.
-// Swarm uses opt-in archon: empty string means disabled.
-func (r AgentSwarmRequest) ResolvedNoArchon() bool {
-	return r.Archon == "" || r.Archon == "off"
+// ResolvedNoAudit returns true when audit should be disabled.
+// Swarm uses opt-in audit: empty string means disabled.
+func (r AgentSwarmRequest) ResolvedNoAudit() bool {
+	return r.Audit == "" || r.Audit == "off"
 }
 
-// ResolvedArchonMode returns the effective archon mode.
-// Returns empty string when archon is disabled.
-func (r AgentSwarmRequest) ResolvedArchonMode() string {
-	if r.Archon == "" || r.Archon == "off" {
+// ResolvedAuditDriverMode returns the effective audit mode.
+// Returns empty string when audit is disabled.
+func (r AgentSwarmRequest) ResolvedAuditDriverMode() string {
+	if r.Audit == "" || r.Audit == "off" {
 		return ""
 	}
-	return r.Archon
+	return r.Audit
 }
 
 // EffectiveInputs returns all inputs as a slice, merging Input and Inputs.

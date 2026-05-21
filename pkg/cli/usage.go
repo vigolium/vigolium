@@ -47,7 +47,6 @@ func init() {
 	agentCmd.Example = agentExamples
 	agentQueryCmd.Example = agenticScanExamples
 	agentSessionCmd.Example = agentSessionExamples
-	agentArchonCmd.Example = agentArchonExamples
 	agentAuditCmd.Example = agentAuditExamples
 	agentPioliumCmd.Example = agentPioliumExamples
 	agentAutopilotCmd.Example = agentAutopilotExamples
@@ -644,12 +643,12 @@ var agentExamples = FormatExamples(
 	"# Swarm — AI-guided scanning with module selection and triage",
 	`vigolium agent swarm --input "https://example.com/api/users?id=1"`,
 	"vigolium agent swarm -t https://example.com --source ./src --discover",
-	"# Audit — unified driver: archon then piolium under one AgenticScan",
+	"# Audit — unified driver: audit then piolium under one AgenticScan",
 	"vigolium agent audit --source .",
 	"vigolium agent audit --driver piolium --source ./backend --mode lite",
-	"# Archon — foreground source-code security audit (single driver)",
-	"vigolium agent archon --mode deep --source .",
-	"vigolium agent archon --mode lite --source https://github.com/org/repo",
+	"# Audit — foreground source-code security audit (single driver)",
+	"vigolium agent audit --mode deep --source .",
+	"vigolium agent audit --mode lite --source https://github.com/org/repo",
 	"# Piolium — Pi-native foreground security audit (single driver)",
 	"vigolium agent piolium --mode balanced --source .",
 	"# Query — single-shot prompt (code review, secret detection, etc.)",
@@ -919,14 +918,14 @@ var oliumExamples = FormatExamples(
 )
 
 var agentAuditExamples = FormatExamples(
-	"# Default: archon then piolium under one AgenticScan, balanced mode",
+	"# Default: audit then piolium under one AgenticScan, balanced mode",
 	"vigolium agent audit --source .",
 	"",
 	"# Just piolium (single driver — equivalent to `agent piolium`)",
 	"vigolium agent audit --driver piolium --source ./backend --mode lite",
 	"",
-	"# Just archon (single driver — equivalent to `agent archon`)",
-	"vigolium agent audit --driver archon --source ./backend --agent claude",
+	"# Just audit (single driver — equivalent to `agent audit`)",
+	"vigolium agent audit --driver audit --source ./backend --agent claude",
 	"",
 	"# Both drivers, deep mode, on a remote git URL with full commit history",
 	"vigolium agent audit --source git@github.com:org/repo.git --intensity deep",
@@ -935,7 +934,7 @@ var agentAuditExamples = FormatExamples(
 	"vigolium agent audit --source ./backend \\",
 	"  --pi-provider vertex-anthropic --pi-model claude-opus-4-6",
 	"",
-	"# Driver-specific mode requires --driver=piolium (or =archon for mock)",
+	"# Driver-specific mode requires --driver=piolium (or =audit for mock)",
 	"vigolium agent audit --driver piolium --source ./mono-repo --mode longshot \\",
 	"  --plm-longshot-langs python,go --plm-longshot-limit 200",
 	"",
@@ -945,11 +944,11 @@ var agentAuditExamples = FormatExamples(
 	"# Pull source from a cloud-storage archive",
 	"vigolium agent audit --source gs://my-bucket/snapshots/repo.tar.gz",
 	"",
-	"# Interactive — drop into the coding agent with the archon harness",
-	"# installed and drive the audit yourself (archon's -i)",
+	"# Interactive — drop into the coding agent with the audit harness",
+	"# installed and drive the audit yourself (audit's -i)",
 	"vigolium agent audit --source . --interactive",
-	"# Afterward, import the on-disk archon results and write an HTML report in one step",
-	"vigolium import ./archon --format html -o archon-report.html",
+	"# Afterward, import the on-disk audit results and write an HTML report in one step",
+	"vigolium import ./audit --format html -o audit-report.html",
 )
 
 var agentPioliumExamples = FormatExamples(
@@ -974,28 +973,13 @@ var agentPioliumExamples = FormatExamples(
 	"vigolium agent piolium --source ./backend --no-preflight",
 )
 
-var agentArchonExamples = FormatExamples(
-	"# Deep audit of the current directory",
-	"vigolium agent archon --mode deep --source .",
-	"# Lite audit by cloning a remote repo",
-	"vigolium agent archon --mode lite --source https://github.com/org/repo",
-	"# Balanced audit using the codex backend",
-	"vigolium agent archon --mode balanced --agent codex --source ~/code/myapp",
-	"# Deep audit using an intensity preset",
-	"vigolium agent archon --source . --intensity deep",
-	"# Re-visit an existing audit tree (Nth-pass)",
-	"vigolium agent archon --mode revisit --source ./prior-audit-tree",
-	"# Build PoCs for confirmed findings",
-	"vigolium agent archon --mode confirm --source ./audit-with-findings",
-)
-
 var agentAutopilotExamples = FormatExamples(
 	"# Natural language prompt — target, source, and focus auto-extracted",
 	`vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"`,
 	`vigolium agent autopilot "test auth bypass on https://app.example.com"`,
 	"# Scan a target URL",
 	"vigolium agent autopilot -t https://example.com/api",
-	"# Scan with application source code (triggers archon-audit automatically)",
+	"# Scan with application source code (triggers vigolium-audit automatically)",
 	"vigolium agent autopilot -t https://example.com --source ./src",
 	"# Pipe a curl command or raw HTTP request via stdin",
 	"curl -s https://example.com/api/users | vigolium agent autopilot",
@@ -1019,8 +1003,8 @@ var agentAutopilotExamples = FormatExamples(
 	`vigolium agent autopilot -t https://example.com --browser --credentials "admin/admin123"`,
 	"# Preview the rendered prompt without executing",
 	"vigolium agent autopilot -t https://example.com --source ./src --dry-run",
-	"# Disable archon-audit when using --source",
-	"vigolium agent autopilot -t https://example.com --source ./src --archon=off",
+	"# Disable vigolium-audit when using --source",
+	"vigolium agent autopilot -t https://example.com --source ./src --audit=off",
 )
 
 var agentSwarmExamples = FormatExamples(
@@ -1187,12 +1171,12 @@ var storageRmExamples = FormatExamples(
 )
 
 var importExamples = FormatExamples(
-	"# Import a folder produced by archon-audit",
-	"vigolium import /path/to/archon-output-harbor/",
+	"# Import a folder produced by vigolium-audit",
+	"vigolium import /path/to/audit-output-harbor/",
 	"# Import a folder and also archive it to cloud storage afterwards",
-	"vigolium import /path/to/archon-output-harbor/ --upload",
+	"vigolium import /path/to/audit-output-harbor/ --upload",
 	"# Import a folder and upload to a custom storage key",
-	"vigolium import /path/to/archon-output-harbor/ --upload-key imports/harbor.tar.gz",
+	"vigolium import /path/to/audit-output-harbor/ --upload-key imports/harbor.tar.gz",
 	"# Import a JSONL file produced by 'vigolium export'",
 	"vigolium import /tmp/demo/juice-shop.jsonl",
 	"# Import a generic JSONL scan-results file",

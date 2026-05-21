@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
-	"github.com/vigolium/vigolium/pkg/archon/archonstream"
+	"github.com/vigolium/vigolium/pkg/audit/stream"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/piolium/picost"
 )
@@ -16,12 +16,12 @@ import (
 //
 // Note is a short human-readable annotation the CLI renders after the
 // dollar figure (e.g. "(model gpt-5.5, 3 sessions)" for piolium, "(agent
-// codex, status complete)" for archon). It is populated by the adapter
+// codex, status complete)" for audit). It is populated by the adapter
 // that converts from the harness-specific summary, not by the CLI, so
 // each harness can render its own details without the CLI having to
 // branch on harness type.
 type ScanCost struct {
-	Backend      string                 // "archon" | "pi"
+	Backend      string                 // "audit" | "pi"
 	Model        string                 // model id reported by the harness
 	InputTokens  int64                  // total input tokens across the run
 	OutputTokens int64                  // total output tokens across the run
@@ -61,22 +61,22 @@ func scanCostFromPi(s picost.Summary) ScanCost {
 	}
 }
 
-// scanCostFromArchon converts the captured archon `result` event into
-// the neutral ScanCost shape. archon-ts pre-prices every run and emits
+// scanCostFromAudit converts the captured audit `result` event into
+// the neutral ScanCost shape. vigolium-audit pre-prices every run and emits
 // totalUsd / totalTokens in the final NDJSON event, so there is no
 // transcript mining and no per-provider pricing table to apply on the
-// vigolium side. agent labels the archon-internal adapter (claude or
+// vigolium side. agent labels the audit-internal adapter (claude or
 // codex) for the CLI banner / DB row.
-func scanCostFromArchon(res archonstream.Result, agent agenttypes.ArchonAgent) ScanCost {
+func scanCostFromAudit(res stream.Result, agent agenttypes.AuditDriverAgent) ScanCost {
 	if res.IsZero() {
 		return ScanCost{}
 	}
 	if agent == "" {
-		agent = agenttypes.ArchonAgentClaude
+		agent = agenttypes.AuditDriverAgentClaude
 	}
-	model := "archon-" + string(agent)
+	model := "audit-" + string(agent)
 	return ScanCost{
-		Backend:      "archon",
+		Backend:      "audit",
 		Model:        model,
 		InputTokens:  res.TotalTokens.Input,
 		OutputTokens: res.TotalTokens.Output,

@@ -16,7 +16,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
-	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/audit"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/olium"
@@ -70,12 +70,12 @@ type AutopilotPipelineConfig struct {
 	StreamWriter     io.Writer
 	ProgressCallback func(phase string, message string)
 
-	// Archon is the audit-cfg slot — backed by either archon or piolium per
+	// Audit is the audit-cfg slot — backed by either audit or piolium per
 	// AuditHarness. Field name is legacy; the runtime is harness-agnostic.
-	Archon *config.AuditAgentConfig
+	Audit *config.AuditAgentConfig
 
-	// AuditHarness selects which harness backs the Archon cfg. Zero-valued
-	// defaults to archon for backward compat.
+	// AuditHarness selects which harness backs the Audit cfg. Zero-valued
+	// defaults to audit for backward compat.
 	AuditHarness HarnessSpec
 
 	// BrowserEnabled indicates whether agent-browser is available for the agent.
@@ -121,13 +121,13 @@ func NewAutopilotPipelineRunner(engine *Engine, repo *database.Repository) *Auto
 	return &AutopilotPipelineRunner{engine: engine, repo: repo}
 }
 
-type archonContext struct {
-	Findings      []*archon.ArchonFinding
+type auditContextStruct struct {
+	Findings      []*audit.Finding
 	KnowledgeBase string
 }
 
 // RunAutonomous executes the autopilot pipeline:
-// 1. Run archon-audit first when source context is available
+// 1. Run vigolium-audit first when source context is available
 // 2. Freeze context into native plan + artifacts
 // 3. Launch the autonomous operator agent with full tool access
 func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg AutopilotPipelineConfig) (*AutopilotPipelineResult, error) {
@@ -174,48 +174,48 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 
 	// Mock mode: write sample audit-state.json and return immediately.
 	// No subprocess is launched, no main agent runs.
-	if cfg.Archon != nil && cfg.Archon.EffectiveMode() == "mock" {
+	if cfg.Audit != nil && cfg.Audit.EffectiveMode() == "mock" {
 		return r.runMockMode(cfg, result, start)
 	}
 
-	// Step 1: Run archon first and freeze its output before starting the operator agent.
-	archonStatus := "skipped"
-	if cfg.Archon != nil && cfg.Archon.IsEnabled() && cfg.SourcePath != "" {
-		printPhaseHeader(agenttypes.AutopilotPhaseArchon, "comprehensive security audits on repository and focusing on uncovering exploitable vulnerabilities with high accuracy")
+	// Step 1: Run audit first and freeze its output before starting the operator agent.
+	auditStatus := "skipped"
+	if cfg.Audit != nil && cfg.Audit.IsEnabled() && cfg.SourcePath != "" {
+		printPhaseHeader(agenttypes.AutopilotPhaseAudit, "comprehensive security audits on repository and focusing on uncovering exploitable vulnerabilities with high accuracy")
 	}
-	archonLogFn := func(msg string) { printPhaseLine(agenttypes.AutopilotPhaseArchon, msg) }
-	archonRunner, archonWait, archonErr := startAuditAgentBackground(ctx, cfg.Archon, cfg.AuditHarness, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentAgenticScanUUID, r.repo, cfg.StreamWriter, archonLogFn)
-	var archonCtx *archonContext
-	if archonErr != nil {
+	auditLogFn := func(msg string) { printPhaseLine(agenttypes.AutopilotPhaseAudit, msg) }
+	auditRunner, auditWait, auditErr := startAuditAgentBackground(ctx, cfg.Audit, cfg.AuditHarness, cfg.SourcePath, cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentAgenticScanUUID, r.repo, cfg.StreamWriter, auditLogFn)
+	var auditCtx *auditContextStruct
+	if auditErr != nil {
 		result.Degraded = true
-		result.Warnings = append(result.Warnings, fmt.Sprintf("archon failed to start, continuing without source audit context: %v", archonErr))
-		archonStatus = "failed_to_start"
+		result.Warnings = append(result.Warnings, fmt.Sprintf("audit failed to start, continuing without source audit context: %v", auditErr))
+		auditStatus = "failed_to_start"
 	}
-	if archonRunner != nil {
-		archonStatus = "completed"
-		archonLogFn("running archon before operator startup")
-		emitProgress(&cfg, "archon", "running archon before autonomous execution")
-		if archonWait != nil {
-			archonWait()
+	if auditRunner != nil {
+		auditStatus = "completed"
+		auditLogFn("running audit before operator startup")
+		emitProgress(&cfg, "audit", "running audit before autonomous execution")
+		if auditWait != nil {
+			auditWait()
 		}
-		archonCtx = loadArchonContext(cfg.SessionDir, cfg.AuditHarness)
-		if archonCtx != nil && len(archonCtx.Findings) > 0 {
-			result.ArchonFindingsCount = len(archonCtx.Findings)
-			archonLogFn(fmt.Sprintf("loaded %d frozen findings", len(archonCtx.Findings)))
+		auditCtx = loadAuditDriverContext(cfg.SessionDir, cfg.AuditHarness)
+		if auditCtx != nil && len(auditCtx.Findings) > 0 {
+			result.FindingsCount = len(auditCtx.Findings)
+			auditLogFn(fmt.Sprintf("loaded %d frozen findings", len(auditCtx.Findings)))
 		}
 	}
 
-	if archonRunner != nil && cfg.SessionDir != "" {
+	if auditRunner != nil && cfg.SessionDir != "" {
 		var stats FindingStats
-		stats = archonRunner.FindingStats()
+		stats = auditRunner.FindingStats()
 		if r.repo != nil {
-			fallback := r.importArchonFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.AuditHarness)
+			fallback := r.importFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.AuditHarness)
 			stats = mergeFindingStats(stats, fallback)
 		}
 		if stats.Parsed > 0 {
-			result.ArchonFindingsCount = stats.Parsed
-			result.ArchonFindingsSaved = stats.Saved
-			result.ArchonFindingsBySeverity = stats.BySeverity
+			result.FindingsCount = stats.Parsed
+			result.FindingsSaved = stats.Saved
+			result.FindingsBySeverity = stats.BySeverity
 		}
 	}
 
@@ -227,7 +227,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		result.Warnings = append(result.Warnings, authWarnings...)
 	}
 
-	bundle := buildAutopilotContextBundle(cfg, archonCtx, archonStatus, result.Warnings)
+	bundle := buildAutopilotContextBundle(cfg, auditCtx, auditStatus, result.Warnings)
 	cfg.ContextBundle = &bundle
 	if cfg.BrowserEnabled {
 		if cfg.BrowserRequested || cfg.RequiresBrowser {
@@ -242,7 +242,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	writePreparedAuthArtifacts(spec, bundle, plan, cfg.PreparedAuth, cfg.AuthHeaders, cfg.SessionConfig)
 
 	// Step 2: Build prompt from frozen context and plan.
-	prompt := buildAutonomousPrompt(cfg, archonCtx, false)
+	prompt := buildAutonomousPrompt(cfg, auditCtx, false)
 	if err := writeAutopilotArtifacts(spec, bundle, plan, prompt); err != nil {
 		zap.L().Warn("Failed to write autopilot context artifacts", zap.Error(err))
 		result.Warnings = append(result.Warnings, "failed to write some autopilot context artifacts")
@@ -271,7 +271,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 
 	// Resolve the olium provider from config so the autonomous operator
 	// runs the same in-process agent loop the CLI uses. The pipeline's
-	// pre-assembled prompt (archon findings + attack plan + auth notes)
+	// pre-assembled prompt (audit findings + attack plan + auth notes)
 	// becomes the agent's first user turn via InitialPrompt.
 	var oliumCfg config.OliumConfig
 	if r.engine != nil && r.engine.settings != nil {
@@ -324,9 +324,9 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		result.OperatorFindingsCount = int(autopilotResult.FindingCount)
 	}
 
-	if archonRunner != nil {
-		if status := archonRunner.Status(); status != nil {
-			archonLogFn(fmt.Sprintf("%d/%d phases completed (status: %s)",
+	if auditRunner != nil {
+		if status := auditRunner.Status(); status != nil {
+			auditLogFn(fmt.Sprintf("%d/%d phases completed (status: %s)",
 				status.CompletedPhases, status.TotalPhases, status.Status))
 		}
 	}
@@ -363,7 +363,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 }
 
 // runBlackboxFallback degrades a failed-preflight autopilot run to a
-// deterministic native scan. The audit step (archon/piolium) and the
+// deterministic native scan. The audit step (audit/piolium) and the
 // autonomous operator both need the olium provider; when its preflight
 // fails there is no AI loop to run, but the native scanner doesn't need
 // AI — so a target-bearing run can still produce findings. Source-only
@@ -418,17 +418,17 @@ func (r *AutopilotPipelineRunner) runBlackboxFallback(
 	return result, nil
 }
 
-// importArchonFindings parses audit output from the session directory's
+// importFindings parses audit output from the session directory's
 // harness subdir and saves findings to the database. Uses context.Background()
 // to avoid issues with parent context cancellation. The harness drives both
-// the source folder and the finding-source tagging (archon vs piolium).
-func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, scanUUID string, harness HarnessSpec) FindingStats {
+// the source folder and the finding-source tagging (audit vs piolium).
+func (r *AutopilotPipelineRunner) importFindings(sessionDir, projectUUID, scanUUID string, harness HarnessSpec) FindingStats {
 	if harness.Name == "" {
-		harness = DefaultArchonHarness()
+		harness = DefaultAuditHarness()
 	}
 	auditDir := filepath.Join(sessionDir, harness.SessionSubdir)
 
-	result, err := archon.ParseAuditFolder(auditDir)
+	result, err := audit.ParseFolder(auditDir)
 	if err != nil {
 		zap.L().Debug("Audit import: no findings to import", zap.String("harness", harness.Name), zap.Error(err))
 		return FindingStats{}
@@ -439,7 +439,7 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 		auditID = result.State.Audits[0].AuditID
 	}
 
-	findings := archon.BuildFindingsWithSource(result.RawFindings, auditID, "", projectUUID, result.RepoName, harnessFindingSource(harness))
+	findings := audit.BuildFindingsWithSource(result.RawFindings, auditID, "", projectUUID, result.RepoName, harnessFindingSource(harness))
 
 	stats := FindingStats{
 		Parsed:     len(findings),
@@ -449,7 +449,7 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 		stats.BySeverity[f.Severity]++
 	}
 
-	// Detached from the parent ctx so a user Ctrl+C between archon
+	// Detached from the parent ctx so a user Ctrl+C between audit
 	// completion and finding persistence doesn't drop already-extracted
 	// findings. Bounded by a soft deadline so a hung DB can't outlive the
 	// rest of the run; 30s is generous for a few dozen inserts on SQLite
@@ -459,7 +459,7 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 	for _, f := range findings {
 		f.ScanUUID = scanUUID
 		if err := r.repo.SaveFindingDirect(ctx, f); err != nil {
-			zap.L().Debug("Archon import: failed to save finding",
+			zap.L().Debug("Audit import: failed to save finding",
 				zap.String("module_id", f.ModuleID), zap.Error(err))
 			continue
 		}
@@ -469,7 +469,7 @@ func (r *AutopilotPipelineRunner) importArchonFindings(sessionDir, projectUUID, 
 	}
 
 	if stats.Saved > 0 {
-		zap.L().Info("Imported archon findings",
+		zap.L().Info("Imported audit findings",
 			zap.Int("parsed", stats.Parsed),
 			zap.Int("saved", stats.Saved))
 	}
@@ -509,9 +509,9 @@ func mergeFindingStats(a, b FindingStats) FindingStats {
 func (r *AutopilotPipelineRunner) runMockMode(cfg AutopilotPipelineConfig, result *AutopilotPipelineResult, start time.Time) (*AutopilotPipelineResult, error) {
 	printPhaseLine("mock", "writing sample audit-state.json (no agent launched)")
 
-	archonDir := filepath.Join(cfg.SessionDir, "archon-audit")
-	if err := os.MkdirAll(archonDir, 0o755); err != nil {
-		return nil, fmt.Errorf("mock: failed to create archon-audit dir: %w", err)
+	auditDirLocal := filepath.Join(cfg.SessionDir, "vigolium-results")
+	if err := os.MkdirAll(auditDirLocal, 0o755); err != nil {
+		return nil, fmt.Errorf("mock: failed to create vigolium-audit dir: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -548,7 +548,7 @@ func (r *AutopilotPipelineRunner) runMockMode(cfg AutopilotPipelineConfig, resul
 		return nil, fmt.Errorf("mock: failed to marshal audit-state: %w", err)
 	}
 
-	statePath := filepath.Join(archonDir, "audit-state.json")
+	statePath := filepath.Join(auditDirLocal, "audit-state.json")
 	if err := os.WriteFile(statePath, data, 0o644); err != nil {
 		return nil, fmt.Errorf("mock: failed to write audit-state.json: %w", err)
 	}
@@ -596,25 +596,25 @@ func resolveGitMeta(sourceDir string) (commit, branch, repository string) {
 	return
 }
 
-// loadArchonContext loads audit findings and knowledge base from the session
-// directory's harness subdir. The schema is shared across archon and piolium
+// loadAuditDriverContext loads audit findings and knowledge base from the session
+// directory's harness subdir. The schema is shared across audit and piolium
 // (knowledge-base-report.md filename is the same).
-func loadArchonContext(sessionDir string, harness HarnessSpec) *archonContext {
+func loadAuditDriverContext(sessionDir string, harness HarnessSpec) *auditContextStruct {
 	if sessionDir == "" {
 		return nil
 	}
 	if harness.Name == "" {
-		harness = DefaultArchonHarness()
+		harness = DefaultAuditHarness()
 	}
 	auditDir := filepath.Join(sessionDir, harness.SessionSubdir)
 
-	auditImport, err := archon.ParseAuditFolder(auditDir)
+	auditImport, err := audit.ParseFolder(auditDir)
 	if err != nil {
 		zap.L().Debug("No audit findings to load", zap.String("harness", harness.Name), zap.Error(err))
 		return nil
 	}
 
-	ac := &archonContext{
+	ac := &auditContextStruct{
 		Findings: auditImport.RawFindings,
 	}
 
@@ -628,16 +628,16 @@ func loadArchonContext(sessionDir string, harness HarnessSpec) *archonContext {
 
 // buildAutonomousPrompt constructs the mission brief for an autonomous autopilot session.
 // Handles source-only, target-only, source+target, and prepared source context.
-func buildAutonomousPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
+func buildAutonomousPrompt(cfg AutopilotPipelineConfig, ac *auditContextStruct, auditRunning bool) string {
 	sourceOnly := cfg.TargetURL == "" && cfg.SourcePath != ""
 	if sourceOnly {
-		return buildSourceOnlyPrompt(cfg, ac, archonRunning)
+		return buildSourceOnlyPrompt(cfg, ac, auditRunning)
 	}
-	return buildTargetPrompt(cfg, ac, archonRunning)
+	return buildTargetPrompt(cfg, ac, auditRunning)
 }
 
 // buildSourceOnlyPrompt constructs a code-review-focused mission brief when no target is available.
-func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
+func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *auditContextStruct, auditRunning bool) string {
 	var b strings.Builder
 	hasFindings := ac != nil && len(ac.Findings) > 0
 
@@ -645,7 +645,7 @@ func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archo
 	b.WriteString("## Mission\n\n")
 
 	if hasFindings {
-		fmt.Fprintf(&b, "An automated security audit (archon-audit) has been performed on the source code at **%s**.\n", cfg.SourcePath)
+		fmt.Fprintf(&b, "An automated security audit (vigolium-audit) has been performed on the source code at **%s**.\n", cfg.SourcePath)
 		b.WriteString("Your job is to review the audit findings, investigate the source code, and provide a comprehensive security analysis.\n\n")
 		b.WriteString("- **Validate findings** — Read the relevant source code to confirm or disprove each finding\n")
 		b.WriteString("- **Assess exploitability** — Determine real-world impact and attack scenarios\n")
@@ -664,11 +664,11 @@ func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archo
 	}
 	b.WriteString("\n")
 
-	writeCommonSections(&b, cfg, ac, archonRunning)
+	writeCommonSections(&b, cfg, ac, auditRunning)
 
 	// Source-only recommended approach
 	b.WriteString("## Recommended Approach\n\n")
-	if archonRunning && !hasFindings {
+	if auditRunning && !hasFindings {
 		b.WriteString("A source audit has completed and the prepared context is ready. Start your own analysis from that prepared context:\n\n")
 	}
 	if hasFindings {
@@ -697,7 +697,7 @@ func buildSourceOnlyPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archo
 }
 
 // buildTargetPrompt constructs a mission brief for target-based scanning (with or without source).
-func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) string {
+func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *auditContextStruct, auditRunning bool) string {
 	var b strings.Builder
 	hasFindings := ac != nil && len(ac.Findings) > 0
 
@@ -705,7 +705,7 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 
 	if hasFindings {
 		b.WriteString("## Mission\n\n")
-		fmt.Fprintf(&b, "An automated security audit (archon-audit) has been performed on the source code targeting **%s**.\n", cfg.TargetURL)
+		fmt.Fprintf(&b, "An automated security audit (vigolium-audit) has been performed on the source code targeting **%s**.\n", cfg.TargetURL)
 		b.WriteString("Your job is to review the audit findings and take action:\n\n")
 		b.WriteString("- **Write PoCs/exploits** for confirmed or high-confidence findings against the live target\n")
 		b.WriteString("- **Run native scans** (`vigolium scan-url`, `vigolium scan-request`) on discovered routes and endpoints\n")
@@ -736,12 +736,12 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 	}
 	b.WriteString("\n")
 
-	writeCommonSections(&b, cfg, ac, archonRunning)
+	writeCommonSections(&b, cfg, ac, auditRunning)
 
 	// Recommended approach
 	b.WriteString("## Recommended Approach\n\n")
 	if hasFindings {
-		b.WriteString("The frozen Archon audit has already mapped the codebase. Focus on validation and exploitation:\n\n")
+		b.WriteString("The frozen Audit audit has already mapped the codebase. Focus on validation and exploitation:\n\n")
 		b.WriteString("1. **Review audit findings** — Prioritize by severity and confidence\n")
 		if cfg.BrowserEnabled {
 			b.WriteString("2. **Authenticate if needed** — If findings require authenticated access, use `agent-browser` to log in and capture session credentials\n")
@@ -824,7 +824,7 @@ func buildTargetPrompt(cfg AutopilotPipelineConfig, ac *archonContext, archonRun
 
 // writeCommonSections writes focus, instruction, context, plan, findings, knowledge base,
 // and artifact instructions shared between source-only and target prompts.
-func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *archonContext, archonRunning bool) {
+func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *auditContextStruct, auditRunning bool) {
 	hasFindings := ac != nil && len(ac.Findings) > 0
 
 	if cfg.Focus != "" {
@@ -913,17 +913,17 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 		b.WriteString("Vulnerabilities in unchanged code are lower priority unless directly related to the changes.\n\n")
 	}
 
-	// Archon findings section
+	// Audit findings section
 	if hasFindings {
 		b.WriteString("## Security Audit Findings\n\n")
-		fmt.Fprintf(b, "The archon-audit produced **%d findings**. ", len(ac.Findings))
+		fmt.Fprintf(b, "The vigolium-audit produced **%d findings**. ", len(ac.Findings))
 		b.WriteString("Review them and decide what action to take for each.\n\n")
 
 		if cfg.SessionDir != "" {
-			fmt.Fprintf(b, "> Full finding details: `%s/archon/`\n\n", cfg.SessionDir)
+			fmt.Fprintf(b, "> Full finding details: `%s/audit/`\n\n", cfg.SessionDir)
 		}
 
-		b.WriteString(formatArchonFindings(ac.Findings))
+		b.WriteString(formatFindings(ac.Findings))
 		b.WriteString("\n")
 	}
 
@@ -953,18 +953,28 @@ func writeCommonSections(b *strings.Builder, cfg AutopilotPipelineConfig, ac *ar
 	}
 }
 
-// formatArchonFindings formats archon findings for inclusion in the agent prompt.
+// formatFindings formats audit findings for inclusion in the agent prompt.
 // Uses tiered formatting based on finding count to manage prompt size.
-func formatArchonFindings(findings []*archon.ArchonFinding) string {
+func formatFindings(findings []*audit.Finding) string {
 	if len(findings) == 0 {
 		return ""
 	}
 
-	// Sort by severity: critical > high > medium > low > info
-	sorted := make([]*archon.ArchonFinding, len(findings))
+	// Sort by severity first, then by exploitability as a tiebreaker so the
+	// agent sees the most actionable findings first when severity is equal —
+	// a confirmed-PoC high beats a theoretical high, a high-confidence medium
+	// beats a low-confidence medium, etc. Matters mainly for the truncated
+	// Tier 3 path (>40 findings) where only the top N get full detail in the
+	// prompt; without this tiebreaker the leftover slots were filled in audit
+	// order, which is effectively random for the agent's purposes.
+	sorted := make([]*audit.Finding, len(findings))
 	copy(sorted, findings)
-	sort.Slice(sorted, func(i, j int) bool {
-		return severityRank(sorted[i].Severity) < severityRank(sorted[j].Severity)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		si, sj := severityRank(sorted[i].Severity), severityRank(sorted[j].Severity)
+		if si != sj {
+			return si < sj
+		}
+		return exploitabilityScore(sorted[i]) < exploitabilityScore(sorted[j])
 	})
 
 	var b strings.Builder
@@ -999,12 +1009,12 @@ func formatArchonFindings(findings []*archon.ArchonFinding) string {
 	for i := 0; i < count; i++ {
 		writeFullFinding(&b, sorted[i])
 	}
-	fmt.Fprintf(&b, "\n> %d additional findings available. Read the persisted Archon finding files in the session artifacts.\n", len(sorted)-count)
+	fmt.Fprintf(&b, "\n> %d additional findings available. Read the persisted Audit finding files in the session artifacts.\n", len(sorted)-count)
 	return b.String()
 }
 
 // writeFullFinding writes a detailed finding entry to the builder.
-func writeFullFinding(b *strings.Builder, f *archon.ArchonFinding) {
+func writeFullFinding(b *strings.Builder, f *audit.Finding) {
 	title := f.Title
 	if title == "" {
 		title = f.Slug
@@ -1037,7 +1047,7 @@ func writeFullFinding(b *strings.Builder, f *archon.ArchonFinding) {
 }
 
 // writeFindingSummaryTable writes a markdown table summarizing all findings.
-func writeFindingSummaryTable(b *strings.Builder, findings []*archon.ArchonFinding) {
+func writeFindingSummaryTable(b *strings.Builder, findings []*audit.Finding) {
 	b.WriteString("| ID | Title | Severity | Verdict | PoC | Locations |\n")
 	b.WriteString("|----|-------|----------|---------|-----|-----------|\n")
 	for _, f := range findings {
@@ -1085,6 +1095,57 @@ func severityRank(sev string) int {
 
 func isCriticalOrHigh(sev string) bool {
 	return parseSeverity(sev) >= severity.High
+}
+
+// exploitabilityScore ranks how actionable a finding is *within its severity
+// bucket*. Lower = more actionable. Three signals from the audit harness:
+//
+//   - PoCStatus: a confirmed PoC means the harness already produced working
+//     exploit evidence; pending is in-progress; theoretical is the harness's
+//     best guess without proof. Confirmed > pending > theoretical.
+//   - Provenance: "" (promoted/confirmed) findings sit in findings/ because
+//     they survived the harness's own validation; "theoretical" and "draft"
+//     are weaker signals (theoretical is VALID-but-unproven, draft is
+//     pre-promotion intermediate).
+//   - Confidence: when the harness reports its own confidence, prefer high
+//     over medium over low — a high-confidence medium reads cleaner than a
+//     low-confidence medium even though both rank the same on severity.
+//
+// Severity remains the primary sort key (in formatFindings); this only
+// reorders findings that tie on severity.
+func exploitabilityScore(f *audit.Finding) int {
+	score := 0
+	switch strings.ToLower(strings.TrimSpace(f.PoCStatus)) {
+	case "confirmed":
+		// best signal — keep at 0
+	case "pending":
+		score += 10
+	case "theoretical", "":
+		score += 20
+	default:
+		score += 15
+	}
+	switch strings.ToLower(strings.TrimSpace(f.Provenance)) {
+	case "":
+		// promoted/confirmed — best signal
+	case "theoretical":
+		score += 5
+	case "draft":
+		score += 8
+	default:
+		score += 5
+	}
+	switch strings.ToLower(strings.TrimSpace(f.Confidence)) {
+	case "high":
+		// best signal
+	case "medium", "":
+		score += 3
+	case "low":
+		score += 6
+	default:
+		score += 3
+	}
+	return score
 }
 
 func emitProgress(cfg *AutopilotPipelineConfig, phase, message string) {

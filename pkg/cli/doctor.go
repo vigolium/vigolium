@@ -275,22 +275,22 @@ func printAuditSection(r *diagnostics.Report) {
 	}
 	printSubCheck("Audit", headerStatus, headerMsg)
 
-	// Path A: claude CLI + embedded archon binary.
+	// Path A: claude CLI + embedded vigolium-audit binary.
 	if pathA.OK {
 		claudePath := ""
 		if t := r.Tools["claude"]; t != nil {
 			claudePath = t.Path
 		}
-		printSubCheck("Path A (claude+archon)", diagnostics.StatusOK, claudePath)
+		printSubCheck("Path A (claude+audit)", diagnostics.StatusOK, claudePath)
 	} else {
-		printSubCheck("Path A (claude+archon)", diagnostics.StatusError, strings.Join(pathA.Reasons, "; "))
+		printSubCheck("Path A (claude+audit)", diagnostics.StatusError, strings.Join(pathA.Reasons, "; "))
 		if t := r.Tools["claude"]; t != nil && t.Status != diagnostics.StatusOK {
 			printSubDetails(true, t.Details)
 		}
-		if r.Archon != nil && r.Archon.Status != diagnostics.StatusOK {
-			printSubDetails(true, r.Archon.Details)
+		if r.Audit != nil && r.Audit.Status != diagnostics.StatusOK {
+			printSubDetails(true, r.Audit.Details)
 		}
-		printSubTip("install with `vigolium doctor --fix --only claude` (Claude Code), then rebuild vigolium with `make build-archon` to embed the archon-ts harness")
+		printSubTip("install with `vigolium doctor --fix --only claude` (Claude Code), then rebuild vigolium with `make build-audit` to embed the vigolium-audit harness")
 	}
 
 	// Path B: pi + piolium extension. `--fix --only piolium` self-resolves
@@ -299,7 +299,7 @@ func printAuditSection(r *diagnostics.Report) {
 	//
 	// When Path A is already healthy we treat Path B as optional: render
 	// a warning row instead of an error and skip the noisy per-component
-	// details, since audit mode is already usable through claude+archon.
+	// details, since audit mode is already usable through claude+audit.
 	if pathB.OK {
 		pioliumMsg := ""
 		if r.Piolium != nil {
@@ -307,7 +307,7 @@ func printAuditSection(r *diagnostics.Report) {
 		}
 		printSubCheck("Path B (pi+piolium)", diagnostics.StatusOK, pioliumMsg)
 	} else if pathA.OK {
-		printSubCheck("Path B (pi+piolium)", diagnostics.StatusWarning, "optional — Path A (claude+archon) already provides audit mode")
+		printSubCheck("Path B (pi+piolium)", diagnostics.StatusWarning, "optional — Path A (claude+audit) already provides audit mode")
 		printSubTip("install only if you also want the piolium driver: `vigolium doctor --fix --only piolium`")
 	} else {
 		printSubCheck("Path B (pi+piolium)", diagnostics.StatusError, strings.Join(pathB.Reasons, "; "))

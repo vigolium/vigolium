@@ -1,6 +1,6 @@
 # Audit BYOK (Bring Your Own Key)
 
-`vigolium agent audit` and `POST /api/agent/run/audit` accept per-run credentials so a single Vigolium install can drive audits with each operator's own Anthropic / OpenAI keys, without baking them into `agent.olium.*` config. The override applies to whichever driver(s) actually run on the request — both **archon** and **piolium** consume the same flags / fields and route them to the right place internally.
+`vigolium agent audit` and `POST /api/agent/run/audit` accept per-run credentials so a single Vigolium install can drive audits with each operator's own Anthropic / OpenAI keys, without baking them into `agent.olium.*` config. The override applies to whichever driver(s) actually run on the request — both **audit** and **piolium** consume the same flags / fields and route them to the right place internally.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@
   - [Examples](#rest-examples)
 - [Provider Selection](#provider-selection)
 - [Driver-Specific Behavior](#driver-specific-behavior)
-  - [Archon](#archon)
+  - [Audit](#audit)
   - [Piolium](#piolium)
 - [Validation Rules](#validation-rules)
 - [Logging & Redaction](#logging--redaction)
@@ -48,7 +48,7 @@ vigolium agent audit --source ./src --intensity balanced \
 
 # Codex with a one-shot cred file (~/.codex/auth.json shape)
 vigolium agent audit --source ./src --intensity balanced \
-  --archon-provider openai-codex-oauth \
+  --provider openai-codex-oauth \
   --oauth-cred-file ./codex-auth.json
 ```
 
@@ -72,9 +72,9 @@ A single `AuthOverride` bundle (`api_key` **or** `oauth_token` **or** `oauth_cre
 | Step | What happens |
 |---|---|
 | 1. Entry point | CLI flags or REST body fields populate the override. CLI resolves `$ENV` / `@path` indirection at this point — REST does not. |
-| 2. Agent resolution | `claude` vs `codex` is picked by the existing `--archon-provider` flag (CLI) or `agent` field (REST), or — when both are empty — by the configured `agent.olium.provider`. |
+| 2. Agent resolution | `claude` vs `codex` is picked by the existing `--provider` flag (CLI) or `agent` field (REST), or — when both are empty — by the configured `agent.olium.provider`. |
 | 3. Validation | Centralized rules: at most one of the three credential fields; `--oauth-token` requires the claude side. Failure stops the request before any subprocess work. |
-| 4a. Archon path | The resolved override **replaces** the olium-derived archon auth and is passed to `archon` as `--api-key` / `--oauth-token` / `--oauth-cred-file` flags. |
+| 4a. Audit path | The resolved override **replaces** the olium-derived audit auth and is passed to `audit` as `--api-key` / `--oauth-token` / `--oauth-cred-file` flags. |
 | 4b. Piolium path | The override becomes env vars on the `pi` subprocess (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`) — `pi` itself has no equivalent CLI flags. For codex + `--oauth-cred-file`, Vigolium stages the file at `<pi-agent-dir>/auth.json` for the duration of the run with backup-and-restore. |
 | 5. Cleanup | At process exit, the staged `auth.json` is removed and any pre-existing file is restored. Cleanup also fires if `cmd.Start()` fails. |
 
@@ -92,7 +92,7 @@ The live `cmd.Env` used to spawn the subprocess always carries the real values; 
 | `--oauth-token <value\|$ENV\|@path>` | Anthropic OAuth bearer token. Claude only — produced by `claude setup-token`. |
 | `--oauth-cred-file <path\|$ENV>` | OAuth credential file (codex `~/.codex/auth.json` shape, or any provider that reads from a JSON file). Staged under `<pi-agent-dir>/auth.json` for piolium runs. |
 
-All three flags are optional, mutually exclusive, and apply to **whichever driver(s) actually run on the invocation** — there is no separate `--driver=archon --api-key …` form.
+All three flags are optional, mutually exclusive, and apply to **whichever driver(s) actually run on the invocation** — there is no separate `--driver=audit --api-key …` form.
 
 ### Indirection: `$ENV` and `@path`
 
@@ -130,18 +130,18 @@ vigolium agent audit --source ./src --mode deep \
 # For piolium, vigolium stages the file at <pi-agent-dir>/auth.json,
 # backs up any existing file, and restores it after the run exits.
 vigolium agent audit --source ./src --driver piolium \
-  --archon-provider openai-codex-oauth \
+  --provider openai-codex-oauth \
   --oauth-cred-file ./codex-auth.json
 
-# Codex run — driver=both runs archon then piolium with the same cred
+# Codex run — driver=both runs audit then piolium with the same cred
 # file applied to both
 vigolium agent audit --source ./src --driver both \
-  --archon-provider openai-codex-oauth \
+  --provider openai-codex-oauth \
   --oauth-cred-file ./codex-auth.json
 
 # CI / pipeline: short-lived API key from an env var the runner sets,
 # limited to the diff of the last 50 commits.
-vigolium agent audit --source . --driver archon \
+vigolium agent audit --source . --driver audit \
   --diff HEAD~50 \
   --api-key '$CI_PROVIDED_ANTHROPIC_KEY'
 ```
@@ -160,7 +160,7 @@ vigolium agent audit --source . --driver archon \
 | `oauth_token` | string | Anthropic OAuth bearer token. Claude side only. |
 | `oauth_cred_file` | string | Path **on the server's filesystem** to a cred file (codex `auth.json` shape). The server reads the file when staging — relative paths are resolved against the server's working directory. |
 
-`agent` (already part of the request body) selects claude vs codex when archon participates and decides which env-var flavor piolium gets when `api_key` / `oauth_token` is set. With `agent` empty, the server falls back to `agent.olium.provider`.
+`agent` (already part of the request body) selects claude vs codex when audit participates and decides which env-var flavor piolium gets when `api_key` / `oauth_token` is set. With `agent` empty, the server falls back to `agent.olium.provider`.
 
 > **`oauth_cred_file` reads from the server's filesystem**, not the caller's. Pre-stage the file or upload it via your own mechanism before kicking off the audit. A future revision may accept inline JSON; for now this stays a path so the codex provider can mmap it like a local install would.
 
@@ -198,7 +198,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/audit \
     "oauth_cred_file": "/etc/vigolium/secrets/codex-auth.json"
   }' | jq .
 
-# driver=both — same override fans out to archon (--api-key flag) and
+# driver=both — same override fans out to audit (--api-key flag) and
 # piolium (ANTHROPIC_API_KEY env var on the pi subprocess)
 curl -s -X POST http://localhost:9002/api/agent/run/audit \
   -H "Content-Type: application/json" \
@@ -229,9 +229,9 @@ The credential **type** (`api_key` vs `oauth_token` vs `oauth_cred_file`) does n
 
 | Selector | CLI | REST |
 |---|---|---|
-| Per-run override | `--archon-provider` | `agent` |
+| Per-run override | `--provider` | `agent` |
 | Server fallback | `agent.olium.provider` in `vigolium-configs.yaml` | same |
-| Default | `claude` (matches archon's own default) | same |
+| Default | `claude` (matches audit's own default) | same |
 
 | Provider override → resolved agent | Examples |
 |---|---|
@@ -240,17 +240,17 @@ The credential **type** (`api_key` vs `oauth_token` vs `oauth_cred_file`) does n
 | `openai-*` | `codex` |
 | empty | inherit `agent.olium.provider`, then claude default |
 
-The same resolution drives both archon's `--agent` flag and which env var piolium gets (`ANTHROPIC_API_KEY` vs `OPENAI_API_KEY`).
+The same resolution drives both audit's `--agent` flag and which env var piolium gets (`ANTHROPIC_API_KEY` vs `OPENAI_API_KEY`).
 
 ---
 
 ## Driver-Specific Behavior
 
-### Archon
+### Audit
 
-- The override is folded into archon's invocation **wholesale**, replacing whatever auth the resolver derived from `agent.olium.*` (a stale config value from a different auth flow can't accidentally cross-wire onto an override-driven run).
-- archon-ts receives `--api-key` / `--oauth-token` / `--oauth-cred-file` directly. The flag value is visible in the live argv for the lifetime of the archon process — see [Operational Caveats](#operational-caveats).
-- No staging or env-var injection. The cred file path on `--oauth-cred-file` is read by archon itself as it would for any local invocation.
+- The override is folded into audit's invocation **wholesale**, replacing whatever auth the resolver derived from `agent.olium.*` (a stale config value from a different auth flow can't accidentally cross-wire onto an override-driven run).
+- audit-ts receives `--api-key` / `--oauth-token` / `--oauth-cred-file` directly. The flag value is visible in the live argv for the lifetime of the audit process — see [Operational Caveats](#operational-caveats).
+- No staging or env-var injection. The cred file path on `--oauth-cred-file` is read by audit itself as it would for any local invocation.
 
 ### Piolium
 
@@ -275,7 +275,7 @@ For codex `oauth_cred_file`, Vigolium:
 
 ### Driver = both
 
-`vigolium agent audit --driver both` runs archon then piolium under one parent AgenticScan. The same `AuthOverride` is applied to both — archon as flags, piolium as env / staged file — so a single `--api-key` covers the full run.
+`vigolium agent audit --driver both` runs audit then piolium under one parent AgenticScan. The same `AuthOverride` is applied to both — audit as flags, piolium as env / staged file — so a single `--api-key` covers the full run.
 
 ---
 
@@ -302,7 +302,7 @@ The values supplied via BYOK are sensitive. Vigolium redacts them in logs and th
 |---|---|
 | `injected_env` zap debug log | Values for `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `OPENAI_OAUTH_CRED_PATH`, `GOOGLE_APPLICATION_CREDENTIALS` are replaced with `<redacted>`. |
 | Printed cmdline (`starting background audit cmd=…`) | Values following `--api-key`, `--oauth-token`, `--oauth-cred-file` are replaced with `<redacted>`. |
-| Session bundle (`runtime.log`, `audit-stream.jsonl`) | Inherits the same redactions because they tee from the streams above. **archon-ts's own logs are not redacted by Vigolium** — if archon prints the key value to its stdout, it will land in `runtime.log` as-is. |
+| Session bundle (`runtime.log`, `audit-stream.jsonl`) | Inherits the same redactions because they tee from the streams above. **audit-ts's own logs are not redacted by Vigolium** — if audit prints the key value to its stdout, it will land in `runtime.log` as-is. |
 | AgenticScan DB row | Auth fields are not persisted. |
 
 If you grep your logs for a credential and don't find it, that's the redactor working. The literal string `<redacted>` is searchable so you can confirm redaction fired on a given run.
@@ -311,8 +311,8 @@ If you grep your logs for a credential and don't find it, that's the redactor wo
 
 ## Operational Caveats
 
-- **Process listing leak (CLI archon).** `--api-key sk-…` shows up in `ps` for the lifetime of the archon child. Mitigate with `--api-key '$ANTHROPIC_API_KEY'` or `@/secure/path` so the literal value isn't on the argv. archon doesn't accept pipe-based hand-off today.
+- **Process listing leak (CLI audit).** `--api-key sk-…` shows up in `ps` for the lifetime of the audit child. Mitigate with `--api-key '$ANTHROPIC_API_KEY'` or `@/secure/path` so the literal value isn't on the argv. audit doesn't accept pipe-based hand-off today.
 - **REST has no `$ENV` / `@path` indirection.** Resolving either against a network-supplied string would let a caller probe the server's process env or filesystem. Use a secrets manager or pre-stage the file (for `oauth_cred_file`) before issuing the request.
 - **Concurrent codex+piolium BYOK.** The lock at `<pi-agent-dir>/.vigolium-auth.lock` serializes runs that share the same pi-agent-dir. The second run errors out with a clear message instead of clobbering the first run's `auth.json`. If a vigolium process crashes mid-run the lock and backup file remain — remove the lock manually and check `auth.json.vigolium-bak-<run-uuid>` before re-running.
-- **archon's own log surface.** archon-ts is a separate binary and may surface auth values in its NDJSON `result` event or in error messages on stderr. Vigolium redacts only the streams it owns; if you're shipping `runtime.log` off-box, treat it as if it could contain a key until your environment proves otherwise.
+- **audit's own log surface.** audit-ts is a separate binary and may surface auth values in its NDJSON `result` event or in error messages on stderr. Vigolium redacts only the streams it owns; if you're shipping `runtime.log` off-box, treat it as if it could contain a key until your environment proves otherwise.
 - **No on-disk persistence of the override.** The override never lands in `vigolium-configs.yaml`, the AgenticScan DB row, or the session config snapshot. Re-running the same audit later requires re-supplying the BYOK flags / fields.

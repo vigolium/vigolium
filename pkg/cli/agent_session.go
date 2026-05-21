@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
-	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/audit"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -313,9 +313,9 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		}
 	}
 
-	// Archon audit stats (direct archon run)
-	if run.Mode == "archon" {
-		printArchonAuditStats(run)
+	// Audit audit stats (direct audit run)
+	if run.Mode == "audit" {
+		printAuditDriverStats(run)
 	}
 
 	// Attack plan (pipeline/swarm)
@@ -394,7 +394,7 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 	// Raw output
 	printSessionRawOutput(run, sessionDir, tailLines)
 
-	// Child runs (e.g. archon sub-runs spawned by autopilot)
+	// Child runs (e.g. audit sub-runs spawned by autopilot)
 	if children, childErr := repo.GetChildAgenticScans(ctx, run.UUID); childErr == nil && len(children) > 0 {
 		for _, child := range children {
 			printChildRunDetail(child, tailLines)
@@ -467,9 +467,9 @@ func printChildRunDetail(child *database.AgenticScan, tailLines int) {
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Phases run:"), strings.Join(coloredPhases, terminal.Gray(" → ")))
 	}
 
-	// Archon-specific stats
-	if child.Mode == "archon" {
-		printArchonAuditStats(child)
+	// Audit-specific stats
+	if child.Mode == "audit" {
+		printAuditDriverStats(child)
 	}
 
 	// Error
@@ -561,7 +561,7 @@ func printSessionRawOutput(run *database.AgenticScan, sessionDir string, tailLin
 
 	// 2. Session directory files (prefer these as they may be more complete)
 	if sessionDir != "" {
-		for _, name := range []string{"output.md", "output.txt", "archon-audit-output.md"} {
+		for _, name := range []string{"output.md", "output.txt", "audit-output.md"} {
 			if data, err := os.ReadFile(filepath.Join(sessionDir, name)); err == nil && len(data) > 0 {
 				content = string(data)
 				break
@@ -602,60 +602,60 @@ func printSessionRawOutput(run *database.AgenticScan, sessionDir string, tailLin
 	}
 }
 
-// printArchonAuditStats parses and displays archon audit state from ResultJSON.
-func printArchonAuditStats(run *database.AgenticScan) {
+// printAuditDriverStats parses and displays audit state from ResultJSON.
+func printAuditDriverStats(run *database.AgenticScan) {
 	if run.ResultJSON == "" {
 		return
 	}
 
-	var state archon.AuditState
+	var state audit.State
 	if err := json.Unmarshal([]byte(run.ResultJSON), &state); err != nil || len(state.Audits) == 0 {
 		return
 	}
 
-	audit := state.Audits[0]
+	entry := state.Audits[0]
 
 	fmt.Fprintf(os.Stderr, "\n  %s %s\n",
 		terminal.Aqua(terminal.SymbolInfo),
-		terminal.BoldAqua("Archon Audit"))
+		terminal.BoldAqua("Audit Audit"))
 
 	// Metadata
-	if audit.Commit != "" {
-		commitShort := audit.Commit
+	if entry.Commit != "" {
+		commitShort := entry.Commit
 		if len(commitShort) > 7 {
 			commitShort = commitShort[:7]
 		}
 		commitDisplay := terminal.Cyan(commitShort)
-		if audit.Branch != "" {
-			commitDisplay += terminal.Gray(" (") + terminal.Cyan(audit.Branch) + terminal.Gray(")")
+		if entry.Branch != "" {
+			commitDisplay += terminal.Gray(" (") + terminal.Cyan(entry.Branch) + terminal.Gray(")")
 		}
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Commit:"), commitDisplay)
 	}
-	if repo := audit.EffectiveRepo(); repo != "" {
+	if repo := entry.EffectiveRepo(); repo != "" {
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Repo:"), terminal.Cyan(repo))
 	}
-	if audit.Mode != "" {
-		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit mode:"), terminal.HiTeal(audit.Mode))
+	if entry.Mode != "" {
+		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit mode:"), terminal.HiTeal(entry.Mode))
 	}
-	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit status:"), colorRunStatus(audit.Status))
+	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit status:"), colorRunStatus(entry.Status))
 
-	if !audit.CompletedAt.IsZero() && !audit.StartedAt.IsZero() {
-		d := audit.CompletedAt.Sub(audit.StartedAt.Time).Round(time.Second)
+	if !entry.CompletedAt.IsZero() && !entry.StartedAt.IsZero() {
+		d := entry.CompletedAt.Sub(entry.StartedAt.Time).Round(time.Second)
 		fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Audit duration:"), d.String())
 	}
 
 	// Phase breakdown
-	if len(audit.Phases) > 0 {
+	if len(entry.Phases) > 0 {
 		fmt.Fprintf(os.Stderr, "\n    %s\n", terminal.Gray("Phases:"))
 
 		var phaseKeys []string
-		for k := range audit.Phases {
+		for k := range entry.Phases {
 			phaseKeys = append(phaseKeys, k)
 		}
 		sort.Strings(phaseKeys)
 
 		for _, k := range phaseKeys {
-			p := audit.Phases[k]
+			p := entry.Phases[k]
 			phaseStatus := p.Status
 			var statusColor func(string) string
 			switch phaseStatus {
@@ -670,7 +670,7 @@ func printArchonAuditStats(run *database.AgenticScan) {
 			}
 
 			dur := ""
-			if !p.CompletedAt.IsZero() && !audit.StartedAt.IsZero() {
+			if !p.CompletedAt.IsZero() && !entry.StartedAt.IsZero() {
 				dur = terminal.Gray(fmt.Sprintf(" %s", p.CompletedAt.Format("15:04:05")))
 			}
 
@@ -684,8 +684,8 @@ func printArchonAuditStats(run *database.AgenticScan) {
 	// Finding severity breakdown from session directory
 	sessionDir := resolveSessionDir(run)
 	if sessionDir != "" {
-		archonDir := filepath.Join(sessionDir, "archon-audit")
-		if imp, err := archon.ParseAuditFolder(archonDir); err == nil && len(imp.RawFindings) > 0 {
+		auditDirLocal := filepath.Join(sessionDir, "vigolium-results")
+		if imp, err := audit.ParseFolder(auditDirLocal); err == nil && len(imp.RawFindings) > 0 {
 			bySev := make(map[string]int)
 			for _, f := range imp.RawFindings {
 				sev := strings.ToLower(f.Severity)
@@ -701,7 +701,7 @@ func printArchonAuditStats(run *database.AgenticScan) {
 			}
 
 			fmt.Fprintf(os.Stderr, "\n    %s %s\n",
-				terminal.Purple(terminal.SymbolFlag),
+				terminal.Purple(terminal.SymbolBowtie),
 				fmt.Sprintf("Findings: %s parsed", terminal.HiTeal(fmt.Sprintf("%d", stats.Parsed))))
 
 			if breakdown := stats.SeverityBreakdownString(); breakdown != "" {
@@ -712,10 +712,10 @@ func printArchonAuditStats(run *database.AgenticScan) {
 
 	// Notable reports present
 	if sessionDir != "" {
-		archonDir := filepath.Join(sessionDir, "archon-audit")
+		auditDirLocal := filepath.Join(sessionDir, "vigolium-results")
 		var reports []string
 		for _, name := range []string{"knowledge-base-report.md", "final-audit-report.md", "commit-recon-report.md", "attack-pattern-registry.json"} {
-			if _, err := os.Stat(filepath.Join(archonDir, name)); err == nil {
+			if _, err := os.Stat(filepath.Join(auditDirLocal, name)); err == nil {
 				reports = append(reports, name)
 			}
 		}

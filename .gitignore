@@ -54,10 +54,10 @@ coverage.html
 
 # Checked-in test fixtures are real test data, not runtime output. The
 # generic artifact rules above (*.log, *.sqlite, ...) must never silently
-# drop fixture files — e.g. archon evidence logs (exploit.log, attempts.log,
-# confirm-test-output.log) under the harness fixture corpus. No parent dir of
-# these is ignored, so this file-level negation re-includes them.
-!test/testdata/archon-audit-data/**
+# drop fixture files — e.g. vigolium-audit evidence logs (exploit.log,
+# attempts.log, confirm-test-output.log) under the harness fixture corpus.
+# No parent dir of these is ignored, so this file-level negation re-includes them.
+!test/testdata/vigolium-audit-data/**
 
 # Test workspace artifacts (state exports from executor tests)
 internal/executor/*/run-*.json
@@ -66,16 +66,15 @@ test/integration/*-test/
 !test/integration/*_test.go
 
 # Audit output dirs written by the harnesses into <source>/<harness-name>/
-# whenever vigolium is self-audited (e.g. `vigolium agent archon --source .`).
-# Excludes the harness embedded resources under internal/resources/archon/.
-/archon/
+# whenever vigolium is self-audited (e.g. `vigolium agent audit --source .`).
+/vigolium-results/
 /piolium/
-**/archon/audit-state.json
-**/archon/audit-context.md
-**/archon/findings/
-**/archon/findings-draft/
-**/archon/longshot/
-**/archon/attack-surface/
+**/vigolium-results/audit-state.json
+**/vigolium-results/audit-context.md
+**/vigolium-results/findings/
+**/vigolium-results/findings-draft/
+**/vigolium-results/longshot/
+**/vigolium-results/attack-surface/
 **/piolium/audit-state.json
 **/piolium/file-records/
 **/piolium/attack-surface/

@@ -13,6 +13,7 @@ import (
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/audit/stream"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -98,7 +99,7 @@ func TestSyncBuffer(t *testing.T) {
 	}
 }
 
-func TestAuditState_Parse(t *testing.T) {
+func TestState_Parse(t *testing.T) {
 	dir := t.TempDir()
 
 	stateJSON := `{
@@ -122,12 +123,12 @@ func TestAuditState_Parse(t *testing.T) {
   ]
 }`
 
-	// Write state file to simulate archon/ dir in source
-	archonDir := filepath.Join(dir, "archon")
-	if err := os.MkdirAll(archonDir, 0755); err != nil {
+	// Write state file to simulate audit/ dir in source
+	auditDirLocal := filepath.Join(dir, "vigolium-results")
+	if err := os.MkdirAll(auditDirLocal, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateJSON), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(auditDirLocal, "audit-state.json"), []byte(stateJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,13 +158,13 @@ func TestSyncStateOnce(t *testing.T) {
 	sourceDir := t.TempDir()
 	sessionDir := t.TempDir()
 
-	// Write state file in source archon/ dir
-	archonDir := filepath.Join(sourceDir, "archon")
-	if err := os.MkdirAll(archonDir, 0755); err != nil {
+	// Write state file in source audit/ dir
+	auditDirLocal := filepath.Join(sourceDir, "vigolium-results")
+	if err := os.MkdirAll(auditDirLocal, 0755); err != nil {
 		t.Fatal(err)
 	}
 	stateContent := `{"audits": [{"status": "in_progress"}]}`
-	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(auditDirLocal, "audit-state.json"), []byte(stateContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,7 +176,7 @@ func TestSyncStateOnce(t *testing.T) {
 	runner.syncStateOnce()
 
 	// Verify the state was synced to session dir
-	synced, err := os.ReadFile(filepath.Join(sessionDir, "archon-audit", "audit-state.json"))
+	synced, err := os.ReadFile(filepath.Join(sessionDir, "vigolium-results", "audit-state.json"))
 	if err != nil {
 		t.Fatalf("expected synced state file, got error: %v", err)
 	}
@@ -241,23 +242,23 @@ func TestStartAuditAgent_NoSourceReturnsNil(t *testing.T) {
 	}
 }
 
-// archonTestCfg builds an AuditAgentConfig good enough to drive
-// buildAuditAgentCommand for the archon platform. SessionDir + ScanUUID
+// auditTestCfg builds an AuditAgentConfig good enough to drive
+// buildAuditAgentCommand for the audit platform. SessionDir + ScanUUID
 // stay empty because the launcher only reads them in the live runner
 // path, not in argv assembly.
-func archonTestCfg(mode, sourcePath string, inv ArchonInvocation) AuditAgentConfig {
+func auditTestCfg(mode, sourcePath string, inv AuditDriverInvocation) AuditAgentConfig {
 	return AuditAgentConfig{
 		Mode:             mode,
 		SourcePath:       sourcePath,
-		ArchonInvocation: inv,
+		AuditDriverInvocation: inv,
 	}
 }
 
-func TestBuildAuditAgentCommand_ArchonBin_Headless(t *testing.T) {
-	cfg := archonTestCfg("deep", "/tmp/source", ArchonInvocation{Agent: ArchonAgentClaude})
-	binary, args, stdinPrompt, err := buildAuditAgentCommand(PlatformArchonBin, cfg, false)
+func TestBuildAuditAgentCommand_AuditDriverBin_Headless(t *testing.T) {
+	cfg := auditTestCfg("deep", "/tmp/source", AuditDriverInvocation{Agent: AuditDriverAgentClaude})
+	binary, args, stdinPrompt, err := buildAuditAgentCommand(PlatformAuditBin, cfg, false)
 	if err != nil {
-		t.Skipf("archon binary not embedded (run `make build-archon`): %v", err)
+		t.Skipf("vigolium-audit binary not embedded (run `make build-audit`): %v", err)
 	}
 	if binary == "" {
 		t.Error("expected non-empty binary path")
@@ -288,15 +289,15 @@ func TestBuildAuditAgentCommand_ArchonBin_Headless(t *testing.T) {
 	}
 }
 
-func TestBuildAuditAgentCommand_ArchonBin_StreamAndAuth(t *testing.T) {
-	inv := ArchonInvocation{
-		Agent: ArchonAgentCodex,
-		Auth:  ArchonAuthFlags{OAuthCredFile: "/secret/codex.json"},
+func TestBuildAuditAgentCommand_AuditDriverBin_StreamAndAuth(t *testing.T) {
+	inv := AuditDriverInvocation{
+		Agent: AuditDriverAgentCodex,
+		Auth:  AuditDriverAuthFlags{OAuthCredFile: "/secret/codex.json"},
 	}
-	cfg := archonTestCfg("lite", "/tmp/source", inv)
-	_, args, _, err := buildAuditAgentCommand(PlatformArchonBin, cfg, true)
+	cfg := auditTestCfg("lite", "/tmp/source", inv)
+	_, args, _, err := buildAuditAgentCommand(PlatformAuditBin, cfg, true)
 	if err != nil {
-		t.Skipf("archon binary not embedded: %v", err)
+		t.Skipf("vigolium-audit binary not embedded: %v", err)
 	}
 	// --json gates the streaming goroutine — must be present in stream mode.
 	foundJSON := false
@@ -428,7 +429,7 @@ func TestPiPreArgs_DocumentedExamples(t *testing.T) {
 }
 
 // TestReadCurrentState_SessionDirFallback verifies that Status() can recover
-// the audit state after monitor() has removed SourcePath/archon/ — the CLI
+// the audit state after monitor() has removed SourcePath/audit/ — the CLI
 // summary is the primary consumer and runs after cleanup.
 func TestReadCurrentState_SessionDirFallback(t *testing.T) {
 	sourceDir := t.TempDir()
@@ -436,11 +437,11 @@ func TestReadCurrentState_SessionDirFallback(t *testing.T) {
 
 	// Only write the state file into the session dir, not the source dir.
 	state := `{"audits":[{"audit_id":"t1","status":"complete","phases":{"Q0":{"status":"complete"},"Q1":{"status":"complete"},"Q2":{"status":"complete"}}}]}`
-	archonSessionDir := filepath.Join(sessionDir, "archon-audit")
-	if err := os.MkdirAll(archonSessionDir, 0o755); err != nil {
+	auditSessionDir := filepath.Join(sessionDir, "vigolium-results")
+	if err := os.MkdirAll(auditSessionDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(archonSessionDir, "audit-state.json"), []byte(state), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(auditSessionDir, "audit-state.json"), []byte(state), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -467,20 +468,20 @@ func TestReadCurrentState_SessionDirFallback(t *testing.T) {
 	}
 }
 
-// TestImportArchonFindings_StatsWithoutRepo verifies that findings are still
+// TestImportFindings_StatsWithoutRepo verifies that findings are still
 // parsed and counted even when no DB repository is configured, so the CLI
 // summary can show what the agent produced.
-func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
+func TestImportFindings_StatsWithoutRepo(t *testing.T) {
 	sessionDir := t.TempDir()
-	archonDir := filepath.Join(sessionDir, "archon-audit")
-	findingsDir := filepath.Join(archonDir, "findings")
+	auditDirLocal := filepath.Join(sessionDir, "vigolium-results")
+	findingsDir := filepath.Join(auditDirLocal, "findings")
 	if err := os.MkdirAll(findingsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Minimal state file so ParseAuditFolder doesn't error.
+	// Minimal state file so ParseFolder doesn't error.
 	stateJSON := `{"audits":[{"audit_id":"t1","mode":"lite","status":"complete","phases":{}}]}`
-	if err := os.WriteFile(filepath.Join(archonDir, "audit-state.json"), []byte(stateJSON), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(auditDirLocal, "audit-state.json"), []byte(stateJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -499,7 +500,7 @@ func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
 		agenticScanUUID: "test-run",
 	}
 
-	runner.importArchonFindings(context.TODO())
+	runner.importFindings(context.TODO())
 
 	stats := runner.FindingStats()
 	if stats.Parsed != 2 {
@@ -516,16 +517,74 @@ func TestImportArchonFindings_StatsWithoutRepo(t *testing.T) {
 	}
 }
 
-// --- Regression: archon session UUID must be resolvable to runtime.log ---
+// TestImportFindings_AuditStreamFallback verifies that when on-disk parsing
+// yields no findings but the audit binary's NDJSON `result` event reported
+// some, the runner surfaces those counts via FindingStats.Reported /
+// ReportedBySeverity so the CLI summary mirrors the streamer's [result] line.
+// Severity keys from the stream (TitleCase) are normalized to lowercase.
+func TestImportFindings_AuditStreamFallback(t *testing.T) {
+	sessionDir := t.TempDir()
+	auditDirLocal := filepath.Join(sessionDir, "vigolium-results")
+	if err := os.MkdirAll(auditDirLocal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Minimal state file so ParseFolder doesn't error; no findings/ dir.
+	stateJSON := `{"audits":[{"audit_id":"t1","mode":"lite","status":"complete","phases":{}}]}`
+	if err := os.WriteFile(filepath.Join(auditDirLocal, "audit-state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &AuditAgenticScanner{
+		cfg:             AuditAgentConfig{SessionDir: sessionDir},
+		done:            make(chan struct{}),
+		agenticScanUUID: "test-run",
+		auditResult: stream.Result{
+			Status: "complete",
+			Findings: stream.Findings{
+				Total: 13,
+				BySeverity: map[string]int{
+					"High":   6,
+					"Medium": 5,
+					"Low":    2,
+				},
+			},
+		},
+	}
+
+	runner.importFindings(context.TODO())
+
+	stats := runner.FindingStats()
+	if stats.Parsed != 0 {
+		t.Errorf("expected Parsed=0 (no findings on disk), got %d", stats.Parsed)
+	}
+	if stats.Reported != 13 {
+		t.Errorf("expected Reported=13 from audit stream, got %d", stats.Reported)
+	}
+	if got := stats.ReportedBySeverity["high"]; got != 6 {
+		t.Errorf("expected 6 high (lowercased), got %d", got)
+	}
+	if got := stats.ReportedBySeverity["medium"]; got != 5 {
+		t.Errorf("expected 5 medium (lowercased), got %d", got)
+	}
+	if got := stats.ReportedBySeverity["low"]; got != 2 {
+		t.Errorf("expected 2 low (lowercased), got %d", got)
+	}
+	// Breakdown string falls back to ReportedBySeverity when Parsed == 0.
+	if got := stats.SeverityBreakdownString(); got == "" {
+		t.Errorf("expected non-empty breakdown from reported severities")
+	}
+}
+
+// --- Regression: audit session UUID must be resolvable to runtime.log ---
 //
 // Background: a previous bug had NewAuditAgenticScanner call uuid.New()
 // independently of the caller's chosen session directory, so the standalone
-// archon AgenticScan row's UUID and ~/.vigolium/agent-sessions/<dir> name
+// audit AgenticScan row's UUID and ~/.vigolium/agent-sessions/<dir> name
 // diverged. `vigolium log ls` then listed a UUID whose session directory
 // didn't exist and `vigolium log <uuid>` errored.
 //
-// The fix is nuanced: standalone archon MUST unify UUID with the session dir
-// name, but nested archon (spawned by autopilot/swarm) MUST NOT — otherwise
+// The fix is nuanced: standalone audit MUST unify UUID with the session dir
+// name, but nested audit (spawned by autopilot/swarm) MUST NOT — otherwise
 // the child row collides with the parent's UUID (both share one SessionDir).
 // The ParentAgenticScanUUID field is the signal.
 //
@@ -548,7 +607,7 @@ func TestNewAuditAgenticScanner_StandaloneUUIDMatchesSessionDir(t *testing.T) {
 
 	if got := scanner.agenticScanUUID; got != knownUUID {
 		t.Errorf("standalone agenticScanUUID = %q, want %q (filepath.Base of SessionDir) — "+
-			"standalone archon's DB row UUID must match the on-disk dir name or "+
+			"standalone audit's DB row UUID must match the on-disk dir name or "+
 			"`vigolium log <uuid>` breaks",
 			got, knownUUID)
 	}
@@ -556,7 +615,7 @@ func TestNewAuditAgenticScanner_StandaloneUUIDMatchesSessionDir(t *testing.T) {
 
 func TestNewAuditAgenticScanner_NestedDoesNotCollideWithParent(t *testing.T) {
 	// Simulate the autopilot/swarm case: the parent owns sessionDir and a row
-	// whose UUID equals filepath.Base(sessionDir). Archon is spawned as a
+	// whose UUID equals filepath.Base(sessionDir). Audit is spawned as a
 	// child with the SAME SessionDir (shared for artifacts) and must get its
 	// own UUID so CreateAgenticScan doesn't collide on primary key.
 	parentUUID := "445734a3-5a33-4bb9-b581-b837b5aede8a"
@@ -571,12 +630,12 @@ func TestNewAuditAgenticScanner_NestedDoesNotCollideWithParent(t *testing.T) {
 	}, nil)
 
 	if scanner.agenticScanUUID == parentUUID {
-		t.Errorf("nested archon's UUID == parent UUID (%q) — createAgenticScan would "+
+		t.Errorf("nested audit's UUID == parent UUID (%q) — createAgenticScan would "+
 			"collide with the parent's row on primary key",
 			parentUUID)
 	}
 	if scanner.agenticScanUUID == filepath.Base(sessionDir) {
-		t.Errorf("nested archon's UUID = %q matches filepath.Base(SessionDir) — "+
+		t.Errorf("nested audit's UUID = %q matches filepath.Base(SessionDir) — "+
 			"it must differ so the child row is distinct from the parent",
 			scanner.agenticScanUUID)
 	}
@@ -628,7 +687,7 @@ func TestCreateAgenticScan_PersistsSessionDirStandalone(t *testing.T) {
 
 func TestCreateAgenticScan_PersistsSessionDirNested(t *testing.T) {
 	// The nested case: parent owns a row at filepath.Base(sessionDir). Child
-	// archon must create a DISTINCT row that still carries SessionDir so
+	// audit must create a DISTINCT row that still carries SessionDir so
 	// `vigolium log <child-uuid>` can resolve runtime.log via the DB fallback
 	// (the child UUID won't match any on-disk directory).
 	repo := newAuditTestRepo(t)
@@ -664,7 +723,7 @@ func TestCreateAgenticScan_PersistsSessionDirNested(t *testing.T) {
 	// Child must be retrievable by its own (fresh) UUID.
 	childRow, err := repo.GetAgenticScan(ctx, scanner.agenticScanUUID)
 	if err != nil {
-		t.Fatalf("GetAgenticScan(child=%q): %v — nested archon row must exist with fresh UUID", scanner.agenticScanUUID, err)
+		t.Fatalf("GetAgenticScan(child=%q): %v — nested audit row must exist with fresh UUID", scanner.agenticScanUUID, err)
 	}
 	if childRow.UUID == parentUUID {
 		t.Error("child UUID equals parent UUID — createAgenticScan should have used a fresh UUID to avoid collision")
@@ -692,7 +751,7 @@ func TestIsSharedAuditMode(t *testing.T) {
 
 		{"longshot", false}, // piolium-only
 		{"smoke", false},    // piolium-only
-		{"mock", false},     // archon-only
+		{"mock", false},     // audit-only
 		{"diff", false},     // not in shared set
 		{"status", false},   // not in shared set
 		{"", false},

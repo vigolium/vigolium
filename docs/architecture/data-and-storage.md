@@ -60,7 +60,7 @@ The schema is intentionally **denormalized** — there are no separate hosts or 
 - *Evidence*: `MatchedAt` (JSONB), `ExtractedResults`, `Request`, `Response`, `AdditionalEvidence` (merged-duplicate request/response pairs, capped at 10)
 - *Relations*: `HTTPRecordUUIDs` (JSONB), `ScanUUID`; the `finding_records` junction table is the many-to-many link to HTTP records.
 
-Agent-produced findings (autopilot/swarm/archon/piolium) flow into the **same `findings` table**, tagged by source so native and AI results coexist and dedup together.
+Agent-produced findings (autopilot/swarm/audit/piolium) flow into the **same `findings` table**, tagged by source so native and AI results coexist and dedup together.
 
 ### Converters (`pkg/database/converters.go`)
 
@@ -122,7 +122,7 @@ The key architectural point: the **project UUID is the in-bucket prefix**, not t
 | `native-scans/<scan-uuid>/results.tar.gz` | `vigolium scan --upload-results` |
 | `agentic-scans/<run-uuid>/results.tar.gz` | `vigolium agent … --upload-results` |
 
-`gs://` URLs are first-class inputs/outputs: `vigolium import gs://…` downloads-then-imports (detecting archon folders or JSONL inside `.tar.gz`/`.zip`), and any `export -o gs://…` writes locally then uploads on success. The `{ts}` and `{project-uuid}` placeholders expand in any `-o` path. The `bundle` export format round-trips a full snapshot (JSONL + HTML report + manifest + agent session dirs) that another machine can re-import.
+`gs://` URLs are first-class inputs/outputs: `vigolium import gs://…` downloads-then-imports (detecting audit folders or JSONL inside `.tar.gz`/`.zip`), and any `export -o gs://…` writes locally then uploads on success. The `{ts}` and `{project-uuid}` placeholders expand in any `-o` path. The `bundle` export format round-trips a full snapshot (JSONL + HTML report + manifest + agent session dirs) that another machine can re-import.
 
 ---
 

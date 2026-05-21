@@ -534,7 +534,7 @@ Field notes:
 - `event` is always `"scan.completed"`. The `status` field distinguishes
   successful from failed runs.
 - `scan_type` is `"native"` for module-driven scans; for agentic scans it is
-  the run mode (`autopilot`, `swarm`, `archon`, `piolium`, `audit`,
+  the run mode (`autopilot`, `swarm`, `audit`, `piolium`, `audit`,
   `query`).
 - `result_url` is the [storage](storage.md) `gs://` URL for the result
   bundle. Empty when storage is disabled or the run did not request

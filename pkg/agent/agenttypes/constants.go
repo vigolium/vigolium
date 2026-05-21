@@ -27,9 +27,9 @@ const (
 
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
 type AutopilotPipelineResult struct {
-	ArchonFindingsCount      int
-	ArchonFindingsSaved      int
-	ArchonFindingsBySeverity map[string]int
+	FindingsCount      int
+	FindingsSaved      int
+	FindingsBySeverity map[string]int
 	OperatorFindingsCount    int // findings reported by the autonomous operator via report_finding
 	VerifiedFindingCount     int
 	Degraded                 bool
@@ -42,7 +42,7 @@ type AutopilotPipelineResult struct {
 
 // AutopilotPhase constants for the agent autopilot mode console output.
 const (
-	AutopilotPhaseArchon    = "archon"
+	AutopilotPhaseAudit    = "audit"
 	AutopilotPhaseAutopilot = "autopilot"
 )
 
@@ -165,7 +165,7 @@ type AppIntent struct {
 	Instruction     string                `json:"instruction,omitempty"`       // leftover context
 	Discover        bool                  `json:"discover,omitempty"`          // implied by target + source combo
 	CodeAudit       bool                  `json:"code_audit,omitempty"`        // implied by source-only
-	Archon          string                `json:"archon,omitempty"`            // "lite", "balanced", "deep", or "" (background archon-audit)
+	Audit          string                `json:"audit,omitempty"`            // "lite", "balanced", "deep", or "" (background vigolium-audit)
 	Piolium         string                `json:"piolium,omitempty"`           // piolium mode: "lite", "balanced", "deep", "longshot", etc., or "" (auto-pick / unset)
 	Diff            string                `json:"diff,omitempty"`              // PR URL, git ref range (main...branch), or HEAD~N
 	Files           []string              `json:"files,omitempty"`             // specific files to focus on (relative to source)
@@ -181,20 +181,20 @@ type AppIntent struct {
 	FocusRoutes     []string              `json:"focus_routes,omitempty"`      // explicit auth/browser focus routes
 }
 
-// ArchonAgent identifies the underlying CLI/SDK adapter the embedded
-// archon binary will drive on this run. Maps to archon-ts's `--agent`
-// (claude|codex). Empty falls back to claude (archon-ts default).
-type ArchonAgent string
+// AuditDriverAgent identifies the underlying CLI/SDK adapter the embedded
+// vigolium-audit binary will drive on this run. Maps to vigolium-audit's `--agent`
+// (claude|codex). Empty falls back to claude (vigolium-audit default).
+type AuditDriverAgent string
 
 const (
-	ArchonAgentClaude ArchonAgent = "claude"
-	ArchonAgentCodex  ArchonAgent = "codex"
+	AuditDriverAgentClaude AuditDriverAgent = "claude"
+	AuditDriverAgentCodex  AuditDriverAgent = "codex"
 )
 
-// ArchonAuthFlags are the one-shot auth overrides archon-ts accepts.
-// Empty fields mean "inherit ambient auth" — archon falls back to the
+// AuditDriverAuthFlags are the one-shot auth overrides vigolium-audit accepts.
+// Empty fields mean "inherit ambient auth" — audit falls back to the
 // agent CLI's standard credential store.
-type ArchonAuthFlags struct {
+type AuditDriverAuthFlags struct {
 	APIKey        string // --api-key
 	OAuthToken    string // --oauth-token
 	OAuthCredFile string // --oauth-cred-file
@@ -207,17 +207,17 @@ type ArchonAuthFlags struct {
 // inherit agent.olium.* config, which is the existing pre-BYOK behavior.
 //
 // Same struct flows to both audit drivers:
-//   - archon: the resolver folds it into ArchonAuthFlags so archon-ts
+//   - audit: the resolver folds it into AuditDriverAuthFlags so vigolium-audit
 //     gets --api-key / --oauth-token / --oauth-cred-file directly.
 //   - piolium: vigolium maps it to env vars on the pi subprocess (pi has
 //     no equivalent CLI flags), and stages oauth_cred_file at
 //     <pi-agent-dir>/auth.json with backup-and-restore for codex.
 //
-// Agent is the resolved archon-style identity ("claude" or "codex") this
+// Agent is the resolved audit-style identity ("claude" or "codex") this
 // auth applies to. The CLI/REST entry point fills it in from
-// --archon-provider / `agent` (or, when those are empty, from
+// --provider / `agent` (or, when those are empty, from
 // agent.olium.provider). It exists on AuthOverride rather than being
-// re-derived inside each driver so both archon and piolium see the same
+// re-derived inside each driver so both audit and piolium see the same
 // answer to "is this a claude key or a codex key?".
 type AuthOverride struct {
 	APIKey        string
@@ -234,22 +234,22 @@ func (o AuthOverride) IsZero() bool {
 	return o.APIKey == "" && o.OAuthToken == "" && o.OAuthCredFile == ""
 }
 
-// ArchonInvocation collects the agent + auth tuple the audit launcher
-// needs to compose archon-ts invocation args. Returned by
-// ResolveArchonInvocation so each entry point shares one resolution
+// AuditDriverInvocation collects the agent + auth tuple the audit launcher
+// needs to compose vigolium-audit invocation args. Returned by
+// ResolveAuditDriverInvocation so each entry point shares one resolution
 // path.
-type ArchonInvocation struct {
-	Agent ArchonAgent
-	Auth  ArchonAuthFlags
+type AuditDriverInvocation struct {
+	Agent AuditDriverAgent
+	Auth  AuditDriverAuthFlags
 }
 
 // Args renders the invocation as the slice of CLI flags appended to
-// `archon run`. The agent flag is always emitted (defaulting to
+// `audit run`. The agent flag is always emitted (defaulting to
 // claude); auth flags are emitted only when non-empty.
-func (i ArchonInvocation) Args() []string {
+func (i AuditDriverInvocation) Args() []string {
 	agent := i.Agent
 	if agent == "" {
-		agent = ArchonAgentClaude
+		agent = AuditDriverAgentClaude
 	}
 	args := []string{"--agent", string(agent)}
 	if i.Auth.APIKey != "" {
@@ -265,45 +265,45 @@ func (i ArchonInvocation) Args() []string {
 }
 
 // HarnessSpec describes the on-disk layout, slash-command shape, and DB
-// metadata for an archon-flavored audit harness. Archon (claude/codex)
+// metadata for an audit-flavored audit harness. Audit (claude/codex)
 // and piolium (pi) share the same parser and audit-state.json
 // schema but differ in folder names, slash command, env-var prefix, and DB
 // import metadata.
 type HarnessSpec struct {
-	// Name is the harness identifier. "archon" and "piolium" are recognized.
-	// An empty Name defaults to archon for backward compatibility.
+	// Name is the harness identifier. "audit" and "piolium" are recognized.
+	// An empty Name defaults to audit for backward compatibility.
 	Name string
 	// SourceFolder is the directory the harness writes under <source>/ during
-	// the run (e.g. "archon", "piolium").
+	// the run (e.g. "audit", "piolium").
 	SourceFolder string
 	// SessionSubdir is where vigolium syncs the harness output under the
-	// session dir (e.g. "archon-audit", "piolium-audit").
+	// session dir (e.g. "vigolium-results", "piolium").
 	SessionSubdir string
 	// EnvPrefix is the prefix for env vars exported to the agent process
 	// (e.g. "ARCHON_", "PIOLIUM_").
 	EnvPrefix string
-	// DBMode populates database.AgenticScan.Mode (e.g. "archon", "piolium").
+	// DBMode populates database.AgenticScan.Mode (e.g. "audit", "piolium").
 	DBMode string
-	// DBAgentName populates database.AgenticScan.AgentName (e.g. "archon-audit",
+	// DBAgentName populates database.AgenticScan.AgentName (e.g. "vigolium-audit",
 	// "piolium").
 	DBAgentName string
 	// DBInputType populates database.AgenticScan.InputType.
 	DBInputType string
 	// FindingIDPrefix is the module_id prefix on imported findings (e.g.
-	// "archon" → "archon:c1-...", "piolium" → "piolium:c1-...").
+	// "audit" → "audit:c1-...", "piolium" → "piolium:c1-...").
 	FindingIDPrefix string
 	// FindingTag is added to every imported finding's tag list.
 	FindingTag string
 }
 
-// AuditAgentConfig configures a background archon- or piolium-flavored audit run.
+// AuditAgentConfig configures a background audit- or piolium-flavored audit run.
 type AuditAgentConfig struct {
 	// Harness selects the audit harness flavor. Zero-valued (empty Name)
-	// is treated as the archon harness for backward compatibility.
+	// is treated as the audit harness for backward compatibility.
 	Harness HarnessSpec
 
 	Mode        string // "deep", "balanced", "lite", "merge", "revisit", etc.
-	Platform    string // "archon" (embedded archon-ts binary) or "pi" (piolium)
+	Platform    string // "audit" (embedded vigolium-audit binary) or "pi" (piolium)
 	SourcePath  string
 	SessionDir  string
 	ProjectUUID string
@@ -311,7 +311,7 @@ type AuditAgentConfig struct {
 
 	// Modes is the mode chain for this run. Empty (or single-element)
 	// behaves exactly like the legacy single-Mode path. With >1 element:
-	//   - archon: rendered as `--modes a,b,c` (archon owns the sequential
+	//   - audit: rendered as `--modes a,b,c` (audit owns the sequential
 	//     execution, stop-on-non-complete, and aggregate cost cap).
 	//   - piolium: the chain is driven by PioliumChainScanner, which runs
 	//     one `pi` subprocess per supported mode in the same source dir and
@@ -337,12 +337,19 @@ type AuditAgentConfig struct {
 	// mode can read the prior mode's on-disk audit-state.json.
 	KeepSourceOutputDir bool
 
-	// ArchonInvocation carries the `--agent` + auth-override args the
-	// archon binary needs. Resolved by callers from OliumConfig (or a
+	// KeepRaw maps to vigolium-audit's `--keep-raw` flag: opt out of the
+	// deep/confirm auto-prune of raw scanner output, draft findings, and
+	// intermediate workspaces so the operator can review them under
+	// <source>/vigolium-results/ (and the synced session copy). Audit-only;
+	// ignored for the piolium harness.
+	KeepRaw bool
+
+	// AuditDriverInvocation carries the `--agent` + auth-override args the
+	// vigolium-audit binary needs. Resolved by callers from OliumConfig (or a
 	// CLI override) and passed through to buildAuditAgentCommand.
-	// Empty Agent falls back to claude (archon-ts's own default).
+	// Empty Agent falls back to claude (vigolium-audit's own default).
 	// Ignored for the piolium harness.
-	ArchonInvocation ArchonInvocation
+	AuditDriverInvocation AuditDriverInvocation
 
 	// ParentAgenticScanUUID is the autopilot/swarm AgenticScan UUID that spawned this audit.
 	ParentAgenticScanUUID string
@@ -355,6 +362,13 @@ type AuditAgentConfig struct {
 	// when StreamWriter is non-nil. Other platforms ignore this flag.
 	Stream bool
 
+	// ShowThinking opts into rendering the agent's internal thinking blocks
+	// (audit NDJSON `thinking` events) to the live stream. Off by default
+	// because thinking is very noisy and chains often hundreds of blocks
+	// per phase. The CLI flag `--show-thinking` (and the equivalent REST
+	// field) sets this.
+	ShowThinking bool
+
 	// CommitScanLimit caps deep-mode commit archaeology to at most N commits.
 	// 0 keeps the upstream default (500).
 	CommitScanLimit int
@@ -364,13 +378,13 @@ type AuditAgentConfig struct {
 
 	// AdditionalArgs are appended verbatim to the agent process argv after
 	// the harness-specific args. Used by piolium for --plm-* passthroughs
-	// (e.g. --plm-phase-retries, --plm-longshot-limit). Ignored for archon.
+	// (e.g. --plm-phase-retries, --plm-longshot-limit). Ignored for audit.
 	AdditionalArgs []string
 
 	// PiProvider and PiModel, when set, are passed to `pi` as
 	// `--provider <name> --model <id>` so a single audit run can override
 	// the user's defaultProvider/defaultModel from ~/.pi/agent/settings.json.
-	// Only consumed by the pi platform; ignored for archon.
+	// Only consumed by the pi platform; ignored for audit.
 	PiProvider string
 	PiModel    string
 
@@ -382,8 +396,8 @@ type AuditAgentConfig struct {
 
 	// AuthOverride carries per-run BYOK creds (api key, oauth token, or
 	// codex cred file) supplied via the audit CLI flags or REST body. It
-	// has already been folded into ArchonInvocation by the resolver, so
-	// the archon launch path does NOT consult this field directly. The
+	// has already been folded into AuditDriverInvocation by the resolver, so
+	// the audit launch path does NOT consult this field directly. The
 	// piolium launcher reads it to (a) inject ANTHROPIC_API_KEY /
 	// CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY env on the pi subprocess
 	// and (b) stage a codex cred file at <pi-agent-dir>/auth.json for
@@ -462,7 +476,7 @@ func ValidateIntensity(s string) (Intensity, error) {
 type AutopilotIntensityPreset struct {
 	MaxCommands int
 	Timeout     time.Duration
-	ArchonMode  string
+	AuditDriverMode  string
 	Browser     bool
 	// NativeScanStrategy is the scanning_strategy passed to the pre-scan
 	// kicked off in target-only autopilot runs (no --source). Maps onto the
@@ -477,16 +491,16 @@ type AutopilotIntensityPreset struct {
 	NoPrescan bool
 }
 
-// ArchonIntensityPreset holds the preset values for the foreground archon
-// audit (vigolium agent archon / POST /api/agent/run/archon) at a given
-// intensity. Mode maps onto the archon harness mode string (lite/balanced/deep).
+// AuditDriverIntensityPreset holds the preset values for the foreground audit
+// audit (vigolium agent audit / POST /api/agent/run/audit) at a given
+// intensity. Mode maps onto the audit harness mode string (lite/balanced/deep).
 // Modes carries the full mode chain — a single-element slice for the simple
 // presets, multi-element for chained presets (deep = [deep, confirm]). Mode
 // stays populated with Modes[0] for the many single-mode consumers
 // (settings.yaml audit config, piolium ResolvePioliumAuditConfig) that do not
-// chain. Timeout is only consumed by the API path; the CLI archon command runs
+// chain. Timeout is only consumed by the API path; the CLI audit command runs
 // as a foreground process and takes no overall timeout flag.
-type ArchonIntensityPreset struct {
+type AuditDriverIntensityPreset struct {
 	Mode        string
 	Modes       []string
 	Timeout     time.Duration
@@ -499,7 +513,7 @@ type SwarmIntensityPreset struct {
 	CodeAudit        bool // applied only when source is provided
 	Triage           bool
 	MaxIterations    int
-	Archon           string // archon mode when source is provided; empty = disabled
+	Audit           string // audit mode when source is provided; empty = disabled
 	MaxPlanRecords   int
 	MasterBatchSize  int
 	BatchConcurrency int
@@ -512,23 +526,23 @@ type SwarmIntensityPreset struct {
 // AutopilotPresets maps intensity levels to autopilot preset values.
 var AutopilotPresets = map[Intensity]AutopilotIntensityPreset{
 	IntensityQuick: {
-		MaxCommands:        30,
+		MaxCommands:        150,
 		Timeout:            1 * time.Hour,
-		ArchonMode:         "lite",
+		AuditDriverMode:         "lite",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyLite,
 	},
 	IntensityBalanced: {
-		MaxCommands:        100,
+		MaxCommands:        500,
 		Timeout:            6 * time.Hour,
-		ArchonMode:         "balanced",
+		AuditDriverMode:         "balanced",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyBalanced,
 	},
 	IntensityDeep: {
-		MaxCommands:        300,
+		MaxCommands:        1500,
 		Timeout:            12 * time.Hour,
-		ArchonMode:         "deep",
+		AuditDriverMode:         "deep",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyDeep,
 	},
@@ -541,7 +555,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        false,
 		Triage:           false,
 		MaxIterations:    1,
-		Archon:           "lite",
+		Audit:           "lite",
 		MaxPlanRecords:   10,
 		MasterBatchSize:  5,
 		BatchConcurrency: 2,
@@ -555,7 +569,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        true,
 		Triage:           true,
 		MaxIterations:    3,
-		Archon:           "balanced",
+		Audit:           "balanced",
 		MaxPlanRecords:   25,
 		MasterBatchSize:  5,
 		BatchConcurrency: 3,
@@ -569,7 +583,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        true,
 		Triage:           true,
 		MaxIterations:    5,
-		Archon:           "deep",
+		Audit:           "deep",
 		MaxPlanRecords:   50,
 		MasterBatchSize:  10,
 		BatchConcurrency: 5,
@@ -580,13 +594,13 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 	},
 }
 
-// ArchonPresets maps intensity levels to archon preset values.
+// AuditDriverPresets maps intensity levels to audit preset values.
 //
 // deep intensity chains [deep, confirm]: a full audit followed by a
 // confirmation pass that boots the target and executes PoCs against the
 // findings deep surfaced. quick/balanced stay single-mode. Mode is the
 // first element of Modes so single-mode consumers keep working unchanged.
-var ArchonPresets = map[Intensity]ArchonIntensityPreset{
+var AuditDriverPresets = map[Intensity]AuditDriverIntensityPreset{
 	IntensityQuick: {
 		Mode:        "lite",
 		Modes:       []string{"lite"},

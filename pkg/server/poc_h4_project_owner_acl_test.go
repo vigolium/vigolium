@@ -18,7 +18,7 @@ package server
 //  3. PUT /api/projects/:uuid   — ownership-grab (mallory rewrites owner_uuid to herself)
 //  4. DELETE /api/projects/:uuid — non-owner deletion of alice's project
 //
-// Evidence is written to archon/findings/H4-project-mgmt-no-owner-acl/evidence/.
+// Evidence is written to audit/findings/H4-project-mgmt-no-owner-acl/evidence/.
 // The last stdout line is the structured JSON verdict consumed by poc-executor.
 
 import (
@@ -244,7 +244,7 @@ func TestH4_ProjectMgmtNoOwnerACL(t *testing.T) {
 	// -----------------------------------------------------------------------
 	// Write evidence artefacts
 	// -----------------------------------------------------------------------
-	evidenceDir := "archon/findings/H4-project-mgmt-no-owner-acl/evidence"
+	evidenceDir := "vigolium-results/findings/H4-project-mgmt-no-owner-acl/evidence"
 	_ = os.MkdirAll(evidenceDir, 0o755)
 
 	_ = os.WriteFile(evidenceDir+"/verdict.txt", []byte(fmt.Sprintf(

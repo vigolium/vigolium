@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/audit"
 )
 
 // pioliumFixture is one captured piolium output tree under test/testdata/piolium-output/.
@@ -55,9 +55,9 @@ func fixturePath(t *testing.T, name string) string {
 func TestPioliumFixture_ParsesViaSharedParser(t *testing.T) {
 	for _, fx := range pioliumFixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			result, err := archon.ParseAuditFolder(fixturePath(t, fx.name))
+			result, err := audit.ParseFolder(fixturePath(t, fx.name))
 			if err != nil {
-				t.Fatalf("ParseAuditFolder: %v", err)
+				t.Fatalf("ParseFolder: %v", err)
 			}
 			if len(result.State.Audits) == 0 {
 				t.Fatalf("expected at least one audit entry in state")
@@ -79,11 +79,11 @@ func TestPioliumFixture_FindingsTagAsPiolium(t *testing.T) {
 	src := piolium_src()
 	for _, fx := range pioliumFixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			result, err := archon.ParseAuditFolder(fixturePath(t, fx.name))
+			result, err := audit.ParseFolder(fixturePath(t, fx.name))
 			if err != nil {
-				t.Fatalf("ParseAuditFolder: %v", err)
+				t.Fatalf("ParseFolder: %v", err)
 			}
-			findings := archon.BuildFindingsWithSource(result.RawFindings, "audit-1", "scan-uuid", "proj-uuid", result.RepoName, src)
+			findings := audit.BuildFindingsWithSource(result.RawFindings, "audit-1", "scan-uuid", "proj-uuid", result.RepoName, src)
 			if len(findings) == 0 {
 				t.Fatalf("expected non-zero db findings")
 			}
@@ -114,9 +114,9 @@ func TestPioliumFixture_FindingsTagAsPiolium(t *testing.T) {
 func TestPioliumFixture_SeverityPopulatedFromFrontmatter(t *testing.T) {
 	for _, fx := range pioliumFixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			result, err := archon.ParseAuditFolder(fixturePath(t, fx.name))
+			result, err := audit.ParseFolder(fixturePath(t, fx.name))
 			if err != nil {
-				t.Fatalf("ParseAuditFolder: %v", err)
+				t.Fatalf("ParseFolder: %v", err)
 			}
 			missing := 0
 			for _, f := range result.RawFindings {
@@ -728,9 +728,9 @@ func TestDefaultHarness_Identity(t *testing.T) {
 
 // piolium_src wraps DefaultHarness's piolium FindingSource so the test reads
 // naturally. Kept private — production code uses the helper in pkg/agent.
-func piolium_src() archon.FindingSource {
+func piolium_src() audit.FindingSource {
 	h := DefaultHarness()
-	return archon.FindingSource{
+	return audit.FindingSource{
 		Mode:      h.DBMode,
 		AgentName: h.DBAgentName,
 		InputType: h.DBInputType,

@@ -375,7 +375,7 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 	}
 
 	// Neither convention path (~/.vigolium/agent-sessions/<uuid>/) has a
-	// runtime.log. This is expected for nested archon children whose UUID
+	// runtime.log. This is expected for nested audit children whose UUID
 	// doesn't match any on-disk directory: their SessionDir column points
 	// at the parent's session directory. Consult the DB row and retry.
 	if repo != nil {

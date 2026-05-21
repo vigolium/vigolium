@@ -1,6 +1,6 @@
 // Package piolium drives the Pi-native piolium audit harness from vigolium.
-// It mirrors pkg/archon's role for the archon harness — the parser is shared
-// (archon and piolium have an interchangeable on-disk schema), so this
+// It mirrors pkg/audit's role for the audit harness — the parser is shared
+// (audit and piolium have an interchangeable on-disk schema), so this
 // package contributes only the constants, harness spec, and Pi-install
 // detection. The actual subprocess and sync logic live in the generic
 // AuditAgenticScanner in pkg/agent.
@@ -97,7 +97,7 @@ const (
 // findings vigolium ingests, so routing them through the audit
 // pipeline (session sync, database tagging, dedup) just adds noise.
 //
-// Differs from archon's accepted set: adds `longshot`, omits `mock`.
+// Differs from audit's accepted set: adds `longshot`, omits `mock`.
 var ValidModes = map[string]bool{
 	"lite":     true,
 	"balanced": true,

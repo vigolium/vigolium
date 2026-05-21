@@ -120,7 +120,7 @@ func TestHandleAgentAudit_PiBinaryMissing_DriverPiolium(t *testing.T) {
 // unavailable. Validation surface accepts the request; the per-driver
 // dispatch is responsible for surfacing missing-binary errors on the
 // child runs while the other driver still runs. We blank PATH so
-// neither pi nor any archon platform binary resolves — the request must
+// neither pi nor any audit platform binary resolves — the request must
 // still leave validation cleanly.
 func TestHandleAgentAudit_DriverBothMissingRuntimes(t *testing.T) {
 	t.Setenv("PATH", "")
@@ -130,7 +130,7 @@ func TestHandleAgentAudit_DriverBothMissingRuntimes(t *testing.T) {
 
 	// Bogus source path makes the background goroutine fail fast at
 	// source resolution, so the t.TempDir cleanup doesn't race against an
-	// archon/pi subprocess writing to the session dir.
+	// audit/pi subprocess writing to the session dir.
 	bogusSource := filepath.Join(t.TempDir(), "definitely-not-a-source")
 
 	resp, body, err := postJSON(app, "/api/agent/run/audit", map[string]any{
@@ -186,7 +186,7 @@ func TestHandleAgentAudit_DriverBothRejectsModeUnknownToBoth(t *testing.T) {
 	h, _, _ := newAgentTestHandlers(t)
 	app := newAgentTestApp(h)
 
-	// "smoke" is not an audit-pipeline mode for either archon or piolium.
+	// "smoke" is not an audit-pipeline mode for either audit or piolium.
 	resp, body, err := postJSON(app, "/api/agent/run/audit", map[string]any{
 		"source": ".",
 		"mode":   "smoke",
@@ -205,8 +205,8 @@ func TestHandleAgentAudit_DriverBothRejectsModeUnknownToBoth(t *testing.T) {
 
 // Under the per-driver-skip contract, a mode only one driver supports is
 // NOT rejected on a multi-driver run — it is accepted and simply skipped
-// on the leg that can't run it. refresh is archon-only; driver=both must
-// accept it (archon runs it, piolium leg skips it).
+// on the leg that can't run it. refresh is audit-only; driver=both must
+// accept it (audit runs it, piolium leg skips it).
 func TestHandleAgentAudit_DriverBothAcceptsSingleDriverMode(t *testing.T) {
 	h, _, _ := newAgentTestHandlers(t)
 	app := newAgentTestApp(h)
@@ -221,7 +221,7 @@ func TestHandleAgentAudit_DriverBothAcceptsSingleDriverMode(t *testing.T) {
 		t.Fatalf("postJSON: %v", err)
 	}
 	if resp.StatusCode == http.StatusBadRequest {
-		t.Errorf("expected refresh accepted under driver=both (archon runs it, piolium skips), got 400 body=%s", body)
+		t.Errorf("expected refresh accepted under driver=both (audit runs it, piolium skips), got 400 body=%s", body)
 	}
 	if resp.StatusCode < 400 {
 		var ack AgenticScanResponse
@@ -231,18 +231,18 @@ func TestHandleAgentAudit_DriverBothAcceptsSingleDriverMode(t *testing.T) {
 	}
 }
 
-// TestHandleAgentAudit_DriverArchonAcceptsArchonOnlyMode verifies that
-// driver=archon accepts archon-only modes (longshot, reinvest, refresh)
+// TestHandleAgentAudit_DriverAuditDriverAcceptsAuditDriverOnlyMode verifies that
+// driver=audit accepts audit-only modes (longshot, reinvest, refresh)
 // that driver=both rejects. Status will be 503 (binary missing) or 202
-// (accepted then async-failed) depending on whether `make build-archon`
+// (accepted then async-failed) depending on whether `make build-audit`
 // has run — this test only checks the mode validator.
-func TestHandleAgentAudit_DriverArchonAcceptsArchonOnlyMode(t *testing.T) {
+func TestHandleAgentAudit_DriverAuditDriverAcceptsAuditDriverOnlyMode(t *testing.T) {
 	h, _, _ := newAgentTestHandlers(t)
 	app := newAgentTestApp(h)
 
 	// Bogus source path makes the background goroutine fail fast at
 	// source resolution, so the t.TempDir cleanup doesn't race against an
-	// archon subprocess writing to the session dir. This test only
+	// audit subprocess writing to the session dir. This test only
 	// exercises the validation surface — the actual harness run is
 	// covered separately.
 	bogusSource := filepath.Join(t.TempDir(), "definitely-not-a-source")
@@ -250,13 +250,13 @@ func TestHandleAgentAudit_DriverArchonAcceptsArchonOnlyMode(t *testing.T) {
 	resp, body, err := postJSON(app, "/api/agent/run/audit", map[string]any{
 		"source": bogusSource,
 		"mode":   "longshot",
-		"driver": "archon",
+		"driver": "audit",
 	})
 	if err != nil {
 		t.Fatalf("postJSON: %v", err)
 	}
 	if resp.StatusCode == http.StatusBadRequest {
-		t.Errorf("expected mode 'longshot' to be accepted under driver=archon, got 400 body=%s", body)
+		t.Errorf("expected mode 'longshot' to be accepted under driver=audit, got 400 body=%s", body)
 	}
 
 	if resp.StatusCode < 400 {
@@ -271,7 +271,7 @@ func TestHandleAgentAudit_DriverArchonAcceptsArchonOnlyMode(t *testing.T) {
 // `driver` resolves to "auto" (not "both") and is accepted by the
 // validation surface. Like the driver=both missing-runtimes test, the
 // request must leave validation cleanly (no 4xx); a missing piolium
-// runtime is benign under auto since piolium only runs if archon fails.
+// runtime is benign under auto since piolium only runs if audit fails.
 func TestHandleAgentAudit_DefaultDriverIsAuto(t *testing.T) {
 	t.Setenv("PATH", "")
 

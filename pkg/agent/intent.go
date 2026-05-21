@@ -34,7 +34,7 @@ Return ONLY valid JSON (no markdown, no explanation). Use this exact schema:
       "instruction": "any other guidance",
       "discover": true,
       "code_audit": false,
-      "archon": "lite",
+      "audit": "lite",
       "piolium": "",
       "diff": "",
       "files": [],
@@ -58,8 +58,8 @@ Rules:
 - If both target and source_path are present for an app, set "discover" to true.
 - If only source_path is present (no target URL), set "code_audit" to true.
 - "focus" captures vulnerability type hints (e.g. "auth bypass", "injection", "XSS").
-- "archon" is "lite", "balanced", or "deep" when the user mentions archon, audit agent, security audit, or background audit. "deep" for deep/thorough/comprehensive audit. "balanced" for standard audit. Default to "lite" if mentioned without level. Leave empty if not mentioned.
-- "piolium" is the piolium audit mode when the user explicitly mentions piolium, pi runtime, pi audit, or a piolium-only mode like "longshot". Valid values: "lite", "balanced", "deep", "longshot", "revisit", "confirm", "merge", "diff". Default to "lite" if piolium is mentioned without a level. Leave empty otherwise — empty triggers auto-pick downstream (piolium when pi is installed, archon otherwise). Do NOT set both "archon" and "piolium" in the same app: when the user explicitly asks for piolium, set "piolium" and leave "archon" empty.
+- "audit" is "lite", "balanced", or "deep" when the user mentions audit, audit agent, security audit, or background audit. "deep" for deep/thorough/comprehensive audit. "balanced" for standard audit. Default to "lite" if mentioned without level. Leave empty if not mentioned.
+- "piolium" is the piolium audit mode when the user explicitly mentions piolium, pi runtime, pi audit, or a piolium-only mode like "longshot". Valid values: "lite", "balanced", "deep", "longshot", "revisit", "confirm", "merge", "diff". Default to "lite" if piolium is mentioned without a level. Leave empty otherwise — empty triggers auto-pick downstream (piolium when pi is installed, audit otherwise). Do NOT set both "audit" and "piolium" in the same app: when the user explicitly asks for piolium, set "piolium" and leave "audit" empty.
 - "diff" captures a diff reference: a PR/MR URL (e.g. "github.com/org/repo/pull/123", "gitlab.com/org/repo/-/merge_requests/45"), a git ref range (e.g. "main...feature-branch"), or HEAD~N. If user says "last N commits", produce "HEAD~N". Leave empty if not mentioned.
 - "files" is an array of specific file paths when the user mentions focusing on particular files (e.g. "focus on auth.go and middleware.go"). Paths are relative to the source root. Leave empty if not mentioned.
 - "browser" is true when the user mentions browser, browser-based testing, headless browser, or UI testing. Default false.
@@ -278,7 +278,7 @@ INTENT_JSON:
 - "cleanup.containers": individual container IDs if you started containers without compose.
 - "focus": extract vulnerability focus hints from the user request (e.g. "auth bypass", "injection").
 - "instruction": any remaining user guidance that doesn't fit other fields.
-- "audit_agent": "lite", "balanced", or "deep" if user mentions archon or audit agent; empty otherwise.
+- "audit_agent": "lite", "balanced", or "deep" if user mentions audit or audit agent; empty otherwise.
 - "diff": PR/MR URL, git ref range, or HEAD~N if user mentions reviewing a diff or PR. Empty otherwise.
 - "files": array of specific file paths to focus on. Empty if not mentioned.
 - "browser": true if user mentions browser-based testing. Default false.

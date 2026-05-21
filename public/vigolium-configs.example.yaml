@@ -1261,30 +1261,31 @@ agent:
       #   HTTP-Referer: https://your-site.example  # OpenRouter ranking signal
 
   # --------------------------------------------------------------------------
-  # Archon Audit Integration
+  # Vigolium Audit Integration
   # --------------------------------------------------------------------------
   # Source security audit agent. When enabled and --source is provided,
-  # swarm launches archon-audit in the background, while autopilot runs
-  # archon-audit first and then starts the autonomous operator using the
+  # swarm launches vigolium-audit in the background, while autopilot runs
+  # vigolium-audit first and then starts the autonomous operator using the
   # prepared whitebox context.
-  archon:
-    # Enable archon-audit integration.
+  audit:
+    # Enable vigolium-audit integration.
     # Default: false
     enable: true
 
-    # Path to archon-audit harness directory.
-    # Default: ~/.vigolium/archon-audit/
-    # plugin_dir: ~/.vigolium/archon-audit/
+    # Path to vigolium-audit harness directory.
+    # Default: ~/.vigolium/vigolium-audit/
+    # plugin_dir: ~/.vigolium/vigolium-audit/
 
     # Audit mode: "deep" (10-phase), "balanced" (6-phase), or "lite" (3-phase).
     # Default: lite
     mode: lite
 
-    # Archon drives the `claude` or `codex` CLI. There is no platform knob
-    # in this block — the agent is resolved from `agent.olium.provider`
-    # (anthropic-* -> claude, openai-* -> codex), and can be overridden
-    # per-run with `--archon-provider` (agent + that provider's BYOK auth)
-    # or `--agent {claude|codex}` (pure agent selector, keeps the auth).
+    # The audit driver runs the `claude` or `codex` CLI. There is no
+    # platform knob in this block — the agent is resolved from
+    # `agent.olium.provider` (anthropic-* -> claude, openai-* -> codex),
+    # and can be overridden per-run with `--provider` (agent + that
+    # provider's BYOK auth) or `--agent {claude|codex}` (pure agent
+    # selector, keeps the auth).
 
     # Seconds between state synchronization with the parent agent.
     # Default: 30

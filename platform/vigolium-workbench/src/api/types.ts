@@ -496,8 +496,8 @@ export interface AgentAutopilotRequest {
   stream?: boolean;
   scan_uuid?: string;
   project_uuid?: string;
-  no_archon?: boolean;
-  archon_mode?: string;
+  no_audit?: boolean;
+  audit_mode?: string;
 }
 
 // POST /api/agent/chat/completions
@@ -552,7 +552,7 @@ export interface AgentSwarmRequest {
   skip_phases?: string[];
   start_from?: string;
   show_prompt?: boolean;
-  archon?: string;
+  audit?: string;
   project_uuid?: string;
   scan_uuid?: string;
   stream?: boolean;

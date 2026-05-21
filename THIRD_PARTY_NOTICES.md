@@ -42,8 +42,8 @@ Vigolium's own source code, not to these independently obtained tools.
 | [ProjectDiscovery retryablehttp-go](https://github.com/projectdiscovery/retryablehttp-go) | Retrying HTTP client behavior used by scanner/network tooling. |
 | [ProjectDiscovery rawhttp](https://github.com/projectdiscovery/rawhttp) | Raw HTTP request handling for lower-level scanner requests. |
 | [MongoDB Kingfisher](https://github.com/mongodb/kingfisher) | Secret and credential detection engine for passive response scanning and Deparos batch secret detection. |
-| [Semgrep](https://github.com/semgrep/semgrep) | Optional SAST engine invoked by archon-audit agents. |
-| [GitHub CodeQL](https://github.com/github/codeql) | Optional static-analysis engine invoked by archon-audit agents. |
+| [Semgrep](https://github.com/semgrep/semgrep) | Optional SAST engine invoked by vigolium-audit agents. |
+| [GitHub CodeQL](https://github.com/github/codeql) | Optional static-analysis engine invoked by vigolium-audit agents. |
 
 ## Wordlists, Payload Lists, And Detection Patterns
 
@@ -67,7 +67,7 @@ Vigolium's own source code, not to these independently obtained tools.
 | --- | --- |
 | [vigolium/piolium](https://github.com/vigolium/piolium) | Pi-native source-code security audit agent driving `vigolium agent piolium`. An extension of [Pi](https://github.com/earendil-works/pi). |
 | [earendil-works/pi](https://github.com/earendil-works/pi) | Upstream Pi agent runtime that piolium extends. |
-| [vigolium/archon-audit](https://github.com/vigolium/archon-audit) | Archon-audit harness driving `vigolium agent archon` for source-code security audits. |
+| [vigolium/vigolium-audit](https://github.com/vigolium/vigolium-audit) | Audit harness driving `vigolium agent audit` for source-code security audits. |
 | [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) | Planning/reference material for browser-agent integration docs. |
 
 ## Benchmarks, Test Targets, And External Services

@@ -11,13 +11,13 @@ import (
 // resolveAuditAuthOverride builds an agent.AuthOverride from the audit
 // CLI's BYOK flags. It applies $ENV / @path indirection (CLI-only),
 // resolves which agent (claude/codex) the keys apply to using the same
-// precedence as ResolveArchonInvocation (--archon-provider > olium
+// precedence as ResolveAuditDriverInvocation (--provider > olium
 // provider > claude default), and runs the shared validator before
 // returning.
 //
 // Returns a zero AuthOverride (and no error) when all three flags are
 // empty — that's the documented "inherit agent.olium.* config" path.
-func resolveAuditAuthOverride(rawAPIKey, rawOAuthToken, rawCredFile, archonProviderOverride, oliumProvider string) (agent.AuthOverride, error) {
+func resolveAuditAuthOverride(rawAPIKey, rawOAuthToken, rawCredFile, auditProviderOverride, oliumProvider string) (agent.AuthOverride, error) {
 	apiKey, err := resolveSecretValue(rawAPIKey, "api-key")
 	if err != nil {
 		return agent.AuthOverride{}, err
@@ -38,7 +38,7 @@ func resolveAuditAuthOverride(rawAPIKey, rawOAuthToken, rawCredFile, archonProvi
 		APIKey:        apiKey,
 		OAuthToken:    oauthToken,
 		OAuthCredFile: credFile,
-		Agent:         agent.ResolveAuthAgent(archonProviderOverride, oliumProvider),
+		Agent:         agent.ResolveAuthAgent(auditProviderOverride, oliumProvider),
 	}
 	if err := agent.ValidateAuthOverride(override); err != nil {
 		return agent.AuthOverride{}, err

@@ -141,22 +141,22 @@ func TestHandleAgentAutopilot_MissingTarget(t *testing.T) {
 	}
 }
 
-func TestHandleAgentAutopilot_InvalidArchonMode(t *testing.T) {
+func TestHandleAgentAutopilot_InvalidAuditDriverMode(t *testing.T) {
 	h, _, _ := newAgentTestHandlers(t)
 	app := newAgentTestApp(h)
 
 	resp, body, err := postJSON(app, "/api/agent/run/autopilot", map[string]any{
 		"target":      "https://example.com",
-		"archon_mode": "ridiculous",
+		"audit_mode": "ridiculous",
 	})
 	if err != nil {
 		t.Fatalf("postJSON: %v", err)
 	}
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400 for invalid archon_mode, got %d body=%s", resp.StatusCode, body)
+		t.Errorf("expected 400 for invalid audit_mode, got %d body=%s", resp.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "archon_mode") {
-		t.Errorf("expected error to mention archon_mode, got: %s", body)
+	if !strings.Contains(string(body), "audit_mode") {
+		t.Errorf("expected error to mention audit_mode, got: %s", body)
 	}
 }
 
@@ -176,13 +176,13 @@ func TestHandleAgentAutopilot_InvalidIntensity(t *testing.T) {
 	}
 }
 
-// TestHandleAgentAutopilot_LegacyArchonMaps verifies the deprecated `archon`
-// field still maps "off" → NoArchon=true and "deep" → ArchonMode="deep" on the
+// TestHandleAgentAutopilot_LegacyAuditDriverMaps verifies the deprecated `audit`
+// field still maps "off" → NoAudit=true and "deep" → AuditDriverMode="deep" on the
 // request side. This guards the back-compat path called out in types.go.
-func TestHandleAgentAutopilot_LegacyArchonMaps(t *testing.T) {
+func TestHandleAgentAutopilot_LegacyAuditDriverMaps(t *testing.T) {
 	cases := []struct {
-		archon       string
-		wantNoArchon bool
+		audit       string
+		wantNoAudit bool
 		wantMode     string
 	}{
 		{"off", true, "lite"},   // off → disabled, mode falls back to default "lite"
@@ -190,12 +190,12 @@ func TestHandleAgentAutopilot_LegacyArchonMaps(t *testing.T) {
 		{"", false, "lite"},     // empty → default lite
 	}
 	for _, tc := range cases {
-		req := AgentAutopilotRequest{Archon: tc.archon}
-		if got := req.ResolvedNoArchon(); got != tc.wantNoArchon {
-			t.Errorf("archon=%q ResolvedNoArchon=%v want %v", tc.archon, got, tc.wantNoArchon)
+		req := AgentAutopilotRequest{Audit: tc.audit}
+		if got := req.ResolvedNoAudit(); got != tc.wantNoAudit {
+			t.Errorf("audit=%q ResolvedNoAudit=%v want %v", tc.audit, got, tc.wantNoAudit)
 		}
-		if got := req.ResolvedArchonMode(); got != tc.wantMode {
-			t.Errorf("archon=%q ResolvedArchonMode=%q want %q", tc.archon, got, tc.wantMode)
+		if got := req.ResolvedAuditDriverMode(); got != tc.wantMode {
+			t.Errorf("audit=%q ResolvedAuditDriverMode=%q want %q", tc.audit, got, tc.wantMode)
 		}
 	}
 }
@@ -309,7 +309,7 @@ func TestHandleAgentAutopilot_AsyncRunFailsAtPreflight(t *testing.T) {
 
 	resp, body, err := postJSON(app, "/api/agent/run/autopilot", map[string]any{
 		"source":    t.TempDir(), // source-only: no target → preflight failure is fatal
-		"no_archon": true,        // skip archon so the failure surfaces on the operator preflight
+		"no_audit": true,        // skip audit so the failure surfaces on the operator preflight
 	})
 	if err != nil {
 		t.Fatalf("postJSON: %v", err)
@@ -433,7 +433,7 @@ func TestHandleAgentAutopilot_SSERunFailureIsPersisted(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"source":    t.TempDir(), // source-only: no target → preflight failure is fatal
-		"no_archon": true,
+		"no_audit": true,
 		"stream":    true,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/run/autopilot", bytes.NewReader(body))
@@ -534,7 +534,7 @@ func TestHandleAgentSessionArtifacts_ListsFiles(t *testing.T) {
 		"plan.json":               `{"phase":"plan"}`,
 		"audit-stream.jsonl":      `{"event":"chunk"}`,
 		"extensions/check.js":     "module.exports = {};",
-		"archon-audit/state.json": `{"audit":1}`,
+		"vigolium-results/state.json": `{"audit":1}`,
 	}
 	for rel, body := range files {
 		full := filepath.Join(sessionDir, rel)
@@ -578,7 +578,7 @@ func TestHandleAgentSessionArtifacts_ListsFiles(t *testing.T) {
 		"plan.json":               "json",
 		"output.md":               "markdown",
 		"audit-stream.jsonl":      "jsonl",
-		"archon-audit/state.json": "json",
+		"vigolium-results/state.json": "json",
 		"extensions/check.js":     "text",
 	}
 	gotKind := map[string]string{}
@@ -613,10 +613,10 @@ func TestHandleAgentSessionArtifact_ReadsFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "plan.json"), []byte(`{"ok":true}`), 0o644); err != nil {
 		t.Fatalf("write plan.json: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(sessionDir, "archon-audit"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(sessionDir, "vigolium-results"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(sessionDir, "archon-audit", "state.json"), []byte(`{"audit":2}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sessionDir, "vigolium-results", "state.json"), []byte(`{"audit":2}`), 0o644); err != nil {
 		t.Fatalf("write state.json: %v", err)
 	}
 
@@ -639,7 +639,7 @@ func TestHandleAgentSessionArtifact_ReadsFile(t *testing.T) {
 	})
 
 	t.Run("nested path via wildcard", func(t *testing.T) {
-		resp, body, err := getRequest(app, "/api/agent/sessions/"+agenticScanUUID+"/artifacts/archon-audit/state.json", nil)
+		resp, body, err := getRequest(app, "/api/agent/sessions/"+agenticScanUUID+"/artifacts/vigolium-results/state.json", nil)
 		if err != nil {
 			t.Fatalf("getRequest: %v", err)
 		}

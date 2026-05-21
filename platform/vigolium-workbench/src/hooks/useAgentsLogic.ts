@@ -360,7 +360,7 @@ export function useAgentsLogic() {
       if (swarmSkipPhases) body.skip_phases = swarmSkipPhases.split(',').map((s) => s.trim()).filter(Boolean);
       if (swarmStartFrom) body.start_from = swarmStartFrom;
       if (swarmShowPrompt) body.show_prompt = true;
-      if (swarmArchon) body.archon = swarmArchon;
+      if (swarmArchon) body.audit = swarmArchon;
       if (swarmIntensity) body.intensity = swarmIntensity;
       fetchSSE('/api/agent/run/swarm', body, callbacks, abort.signal);
     } else if (advancedMode === 'autopilot') {
@@ -376,8 +376,8 @@ export function useAgentsLogic() {
       if (autopilotFiles) body.files = autopilotFiles.split(',').map((f) => f.trim()).filter(Boolean);
       if (autopilotScanUuid) body.scan_uuid = autopilotScanUuid;
       if (autopilotDiff) body.diff = autopilotDiff;
-      if (autopilotArchonMode) body.archon_mode = autopilotArchonMode;
-      if (autopilotNoArchon) body.no_archon = true;
+      if (autopilotArchonMode) body.audit_mode = autopilotArchonMode;
+      if (autopilotNoArchon) body.no_audit = true;
       if (autopilotIntensity) body.intensity = autopilotIntensity;
       fetchSSE('/api/agent/run/autopilot', body, callbacks, abort.signal);
     } else {

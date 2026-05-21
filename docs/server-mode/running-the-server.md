@@ -89,7 +89,7 @@ All queries (findings, HTTP records, stats, scans) return data scoped to the pro
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
 | POST | `/api/agent/run/swarm` | AI-guided multi-phase vulnerability swarm |
-| POST | `/api/agent/run/archon` | Foreground archon-audit code review (Claude / Codex) |
+| POST | `/api/agent/run/audit` | Foreground vigolium-audit code review (Claude / Codex) |
 | POST | `/api/agent/run/audit` | Foreground piolium audit code review (Pi runtime) |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Get agent run status (includes full result when completed) |

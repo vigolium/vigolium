@@ -60,7 +60,7 @@ const (
 	FindingSourceAgent             = "agent"
 	FindingSourceOAST              = "oast"
 	FindingSourceExtension         = "extension"
-	FindingSourceArchon            = "archon"
+	FindingSourceAudit            = "audit"
 	FindingSourceImport            = "import"
 )
 
@@ -124,7 +124,7 @@ type Scan struct {
 
 	// Scan context
 	Profile         string   `bun:"profile,nullzero" json:"profile"`                     // scanning profile used (light, full, api, etc.)
-	SourcePath      string   `bun:"source_path,nullzero" json:"source_path"`             // source code path for archon/agent scans
+	SourcePath      string   `bun:"source_path,nullzero" json:"source_path"`             // source code path for audit/agent scans
 	SourceType      string   `bun:"source_type,nullzero" json:"source_type"`             // local, git-url, gcs
 	Tags            []string `bun:"tags,type:jsonb,nullzero" json:"tags"`                // arbitrary tags for filtering/grouping
 	TriggeredBy     string   `bun:"triggered_by,nullzero" json:"triggered_by"`           // user, schedule, webhook, agent
@@ -273,9 +273,9 @@ type Finding struct {
 	CWEID     string  `bun:"cwe_id,nullzero" json:"cwe_id,omitempty"`
 	CVSSScore float64 `bun:"cvss_score,default:0" json:"cvss_score"`
 
-	// Source info (for archon findings)
+	// Source info (for audit findings)
 	SourceFile string `bun:"source_file,nullzero" json:"source_file,omitempty"`
-	RepoName   string `bun:"repo_name,nullzero" json:"repo_name,omitempty"` // repository name or URL for archon findings
+	RepoName   string `bun:"repo_name,nullzero" json:"repo_name,omitempty"` // repository name or URL for audit findings
 
 	MatchedAt          []string `bun:"matched_at,type:jsonb,nullzero" json:"matched_at,omitempty"`
 	ExtractedResults   []string `bun:"extracted_results,type:jsonb,nullzero" json:"extracted_results,omitempty"`

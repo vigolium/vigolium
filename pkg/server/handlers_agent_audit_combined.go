@@ -31,9 +31,9 @@ const auditMuxBufferSize = 4096
 // subdir + child AgenticScan row pointing at the parent). After the
 // drivers exit, runs a project-wide findings dedup pass.
 //
-// driver=both runs archon then piolium unconditionally. driver=auto runs
-// archon and only falls back to piolium when archon fails — a clean
-// archon run finishes the audit and piolium is never started.
+// driver=both runs audit then piolium unconditionally. driver=auto runs
+// audit and only falls back to piolium when audit fails — a clean
+// audit run finishes the audit and piolium is never started.
 //
 // SSE: when req.Stream is true, driver output is multiplexed into one
 // stream with each event tagged via the "driver" field, bracketed by
@@ -42,7 +42,7 @@ const auditMuxBufferSize = 4096
 // Under driver=both a failed driver does NOT abort the other — both run
 // independently. The parent row is marked "completed_with_errors" if any
 // driver failed.
-func (h *Handlers) startCombinedAuditRun(c fiber.Ctx, driver string, req AgentAuditRequest, archonModes, pioliumModes []string, preset agent.ArchonIntensityPreset, additionalArgs []string, archonOverride, pioliumOverride agent.AuthOverride, authCleanup func()) error {
+func (h *Handlers) startCombinedAuditRun(c fiber.Ctx, driver string, req AgentAuditRequest, auditChain, pioliumModes []string, preset agent.AuditDriverIntensityPreset, additionalArgs []string, auditOverride, pioliumOverride agent.AuthOverride, authCleanup func()) error {
 	// Resolve project UUID before slot acquisition so per-project caps apply.
 	projectUUID := req.ProjectUUID
 	if projectUUID == "" {
@@ -75,13 +75,13 @@ func (h *Handlers) startCombinedAuditRun(c fiber.Ctx, driver string, req AgentAu
 	plan := combinedAuditPlan{
 		driver:          driver,
 		req:             req,
-		archonModes:     archonModes,
+		auditChain:     auditChain,
 		pioliumModes:    pioliumModes,
 		preset:          preset,
 		additionalArgs:  additionalArgs,
 		parentUUID:      parentUUID,
 		projectUUID:     projectUUID,
-		archonOverride:  archonOverride,
+		auditOverride:  auditOverride,
 		pioliumOverride: pioliumOverride,
 		authCleanup:     authCleanup,
 	}
@@ -100,21 +100,21 @@ func (h *Handlers) startCombinedAuditRun(c fiber.Ctx, driver string, req AgentAu
 }
 
 type combinedAuditPlan struct {
-	// driver is "both" or "auto". "auto" runs piolium only when archon
+	// driver is "both" or "auto". "auto" runs piolium only when audit
 	// fails; "both" runs both unconditionally.
 	driver string
 	req    AgentAuditRequest
 	// Per-driver filtered mode chains. For driver=auto/both these may
 	// differ (per-driver skip-unsupported); an empty leg is skipped.
-	archonModes    []string
+	auditChain    []string
 	pioliumModes   []string
-	preset         agent.ArchonIntensityPreset
+	preset         agent.AuditDriverIntensityPreset
 	additionalArgs []string
-	// archonOverride / pioliumOverride are the resolved BYOK bundles per
+	// auditOverride / pioliumOverride are the resolved BYOK bundles per
 	// driver. Each is the top-level request override, or a per-driver
-	// override from req.ArchonAuth / req.PioliumAuth when supplied. Already
+	// override from req.AuditDriverAuth / req.PioliumAuth when supplied. Already
 	// validated and (if inline JSON) staged by HandleAgentAudit.
-	archonOverride  agent.AuthOverride
+	auditOverride  agent.AuthOverride
 	pioliumOverride agent.AuthOverride
 	// authCleanup tears down any per-request staged cred files once both
 	// drivers complete. Nil when no staging happened (CLI-style server
@@ -249,35 +249,51 @@ func (h *Handlers) prepareCombinedAuditRun(plan combinedAuditPlan) (combinedAudi
 	return setup, nil
 }
 
-// runDriversSequentially runs archon then piolium.
+// runDriversSequentially runs audit then piolium.
 //
 // driver=both: both run unconditionally; one failing does NOT abort the
-// other. driver=auto: archon runs first and, if it succeeds, the audit
-// is complete — piolium is never started. piolium only runs as a
-// fallback when archon fails.
+// other. driver=auto: a preflight checks whether the coding-agent CLI
+// (claude or codex per resolved agent) is on PATH; if missing, audit
+// is skipped and piolium runs as a fallback. Otherwise audit runs and
+// any failure surfaces — piolium is NOT silently retried.
 func (h *Handlers) runDriversSequentially(ctx context.Context, plan combinedAuditPlan, setup combinedAuditSetup, sseWriter *bufio.Writer) []driverResult {
 	results := make([]driverResult, 0, 2)
 
 	// For driver=auto/both a chain may contain modes only one driver
 	// understands; the other driver's filtered chain is empty and that
 	// leg is skipped rather than running a bogus mode.
-	archonHasModes := len(plan.archonModes) > 0
+	auditHasModes := len(plan.auditChain) > 0
 	pioliumHasModes := len(plan.pioliumModes) > 0
 
-	archonRan := false
-	var archonErr error
-	if archonHasModes {
-		archonRes := h.runOneCombinedDriver(ctx, agent.AuditDriverArchon, plan, setup, sseWriter)
-		results = append(results, archonRes)
-		archonRan = true
-		archonErr = archonRes.runErr
+	// Preflight for auto: skip audit entirely if the resolved agent's
+	// CLI isn't installed, so piolium runs as fallback without ever
+	// launching the embedded binary.
+	auditEligible := auditHasModes
+	if plan.driver == agent.AuditDriverAuto && auditEligible {
+		inv := agent.ResolveAuditDriverInvocation(h.settings.Agent.Olium, h.auditPlatformForReq(&plan.req), plan.auditOverride)
+		if cliName, ok := agent.AuditDriverCLIAvailable(inv.Agent); !ok {
+			zap.L().Info("Combined audit: auto preflight — coding-agent CLI not on PATH, skipping audit and falling back to piolium",
+				zap.String("agent", string(inv.Agent)),
+				zap.String("cli", cliName),
+				zap.String("agentic_scan_uuid", plan.parentUUID))
+			auditEligible = false
+		}
+	}
+
+	auditRan := false
+	if auditEligible {
+		auditRes := h.runOneCombinedDriver(ctx, agent.AuditDriverAudit, plan, setup, sseWriter)
+		results = append(results, auditRes)
+		auditRan = true
 	} else {
-		zap.L().Info("Combined audit: archon leg skipped — no archon-supported modes in chain",
+		zap.L().Info("Combined audit: audit leg skipped",
+			zap.Bool("has_modes", auditHasModes),
 			zap.String("agentic_scan_uuid", plan.parentUUID))
 	}
 
-	// auto stops here on a clean archon run — piolium is fallback-only.
-	if plan.driver == agent.AuditDriverAuto && archonRan && archonErr == nil {
+	// auto: piolium only runs as a CLI-missing fallback (auditRan==false).
+	// A completed audit leg (success or failure) finishes the auto run.
+	if plan.driver == agent.AuditDriverAuto && auditRan {
 		return results
 	}
 
@@ -291,7 +307,7 @@ func (h *Handlers) runDriversSequentially(ctx context.Context, plan combinedAudi
 }
 
 // runOneCombinedDriver executes a single child driver under the parent
-// run with its own per-driver timeout (so an archon hang doesn't burn
+// run with its own per-driver timeout (so an audit hang doesn't burn
 // piolium's budget). Stream multiplexing for SSE is handled here so the
 // driver-end marker fires on subprocess exit.
 func (h *Handlers) runOneCombinedDriver(ctx context.Context, name string, plan combinedAuditPlan, setup combinedAuditSetup, sseWriter *bufio.Writer) driverResult {
@@ -440,7 +456,7 @@ func emitDriverFailure(sseWriter *bufio.Writer, driver string, err error) {
 
 // auditDriverAgentInfo derives the (agent, provider, model) tuple for a
 // driver's resolved config, for the "Audit driver dispatching" log. For
-// archon the agent (claude|codex) is read back from the resolved
+// audit the agent (claude|codex) is read back from the resolved
 // invocation so it reflects req.Agent / BYOK-driven selection; the
 // provider/model come from the server's olium config. For piolium the
 // agent is pi and provider/model are the request overrides (empty =
@@ -457,11 +473,11 @@ func (h *Handlers) auditDriverAgentInfo(name string, cfg agent.AuditAgentConfig)
 		return "pi",
 			orDefault(cfg.PiProvider, "(pi config)"),
 			orDefault(cfg.PiModel, "(pi config)")
-	default: // archon
-		// archon dispatches the claude/codex CLI directly (no --model
+	default: // audit
+		// audit dispatches the claude/codex CLI directly (no --model
 		// flag); the model is governed by that CLI's own config, not the
 		// in-process olium model. Don't report olium's provider/model.
-		a := orDefault(string(cfg.ArchonInvocation.Agent), string(agent.ArchonAgentClaude))
+		a := orDefault(string(cfg.AuditDriverInvocation.Agent), string(agent.AuditDriverAgentClaude))
 		return a, a + " CLI", "(" + a + " CLI config)"
 	}
 }
@@ -472,11 +488,11 @@ func (h *Handlers) auditDriverAgentInfo(name string, cfg agent.AuditAgentConfig)
 // makes the runner register a child row instead of a standalone one.
 func (h *Handlers) buildCombinedDriverCfg(name string, plan combinedAuditPlan, sessionDir, sourcePath string) (agent.AuditAgentConfig, error) {
 	switch name {
-	case agent.AuditDriverArchon:
-		invocation := agent.ResolveArchonInvocation(h.settings.Agent.Olium, h.archonPlatformForReq(&plan.req), plan.archonOverride)
-		return agent.BuildArchonAuditCfg(agent.ArchonCfgInput{
-			Mode:                  agent.FirstMode(plan.archonModes),
-			Modes:                 plan.archonModes,
+	case agent.AuditDriverAudit:
+		invocation := agent.ResolveAuditDriverInvocation(h.settings.Agent.Olium, h.auditPlatformForReq(&plan.req), plan.auditOverride)
+		return agent.BuildAuditDriverCfg(agent.AuditDriverCfgInput{
+			Mode:                  agent.FirstMode(plan.auditChain),
+			Modes:                 plan.auditChain,
 			SourcePath:            sourcePath,
 			SessionDir:            sessionDir,
 			ProjectUUID:           plan.projectUUID,
@@ -484,7 +500,8 @@ func (h *Handlers) buildCombinedDriverCfg(name string, plan combinedAuditPlan, s
 			ParentAgenticScanUUID: plan.parentUUID,
 			Invocation:            invocation,
 			Stream:                true,
-			AuthOverride:          plan.archonOverride,
+			KeepRaw:               plan.req.KeepRaw,
+			AuthOverride:          plan.auditOverride,
 		}), nil
 
 	case agent.AuditDriverPiolium:

@@ -176,7 +176,7 @@ type Options struct {
 
 	// InitialPrompt, when non-empty, replaces the auto-generated initial
 	// user message entirely. Callers that have pre-assembled a richer
-	// brief (e.g. the agent pipeline runner with archon findings + attack
+	// brief (e.g. the agent pipeline runner with audit findings + attack
 	// plan + auth context) supply it here instead of relying on the
 	// terse default framing.
 	InitialPrompt string
@@ -342,6 +342,24 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		// Spill big tool outputs into the session dir so context stays
 		// bounded but the full payload is recoverable on demand.
 		SpillDir: opts.SessionDir,
+		// Pin the scratchpad digest to every non-scratchpad tool result.
+		// update_plan and remember already return the full render, so
+		// skip them to avoid duplicate plan blocks landing back to back.
+		// This keeps plan state at the conversation tail across long
+		// stretches between scratchpad touches — without it, a 30-turn
+		// query/inspect/replay sequence buries the plan under raw tool
+		// output and the agent loses orientation.
+		OnToolResult: func(toolName string, content string, isErr bool) string {
+			switch toolName {
+			case "update_plan", "remember":
+				return content
+			}
+			digest := scratch.Digest()
+			if digest == "" {
+				return content
+			}
+			return content + digest
+		},
 	})
 
 	initial := buildInitialPrompt(opts)

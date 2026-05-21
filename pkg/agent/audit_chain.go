@@ -35,7 +35,7 @@ var (
 	_ AuditRunner = (*PioliumChainScanner)(nil)
 )
 
-// NewAuditRunner returns the right runner for cfg. archon owns its own
+// NewAuditRunner returns the right runner for cfg. audit owns its own
 // chaining natively (`--modes` is rendered in buildAuditAgentCommand, one
 // subprocess, one row), so only a multi-mode piolium run needs the Go
 // loop. Everything else stays a plain single-subprocess scanner.
@@ -49,7 +49,7 @@ func NewAuditRunner(cfg AuditAgentConfig, repo *database.Repository) AuditRunner
 // PioliumChainScanner runs a piolium mode chain (e.g. deep,confirm) as a
 // sequence of `pi` subprocesses against the same source dir, collapsing
 // them into a single aggregated AgenticScan row. The chain stops at the
-// first mode that does not complete cleanly — matching archon's native
+// first mode that does not complete cleanly — matching audit's native
 // `--modes` semantics.
 //
 // Why the per-mode aggregation rules differ: piolium's picost windows
@@ -302,6 +302,13 @@ func (p *PioliumChainScanner) FindingStats() FindingStats {
 			cp[k] = v
 		}
 		stats.BySeverity = cp
+	}
+	if stats.ReportedBySeverity != nil {
+		cp := make(map[string]int, len(stats.ReportedBySeverity))
+		for k, v := range stats.ReportedBySeverity {
+			cp[k] = v
+		}
+		stats.ReportedBySeverity = cp
 	}
 	return stats
 }

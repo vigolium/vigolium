@@ -56,7 +56,7 @@ func TestParseIntentJSON(t *testing.T) {
 					{
 						"target": "http://localhost:3005",
 						"source_path": "~/Desktop/demo/VAmPI",
-						"archon": "deep",
+						"audit": "deep",
 						"browser": true,
 						"credentials": "admin/admin123",
 						"credential_sets": [
@@ -151,14 +151,14 @@ func TestParseIntentJSON(t *testing.T) {
 				if app.Piolium != "longshot" {
 					t.Fatalf("expected piolium=longshot, got %q", app.Piolium)
 				}
-				if app.Archon != "" {
-					t.Fatalf("expected archon empty, got %q", app.Archon)
+				if app.Audit != "" {
+					t.Fatalf("expected audit empty, got %q", app.Audit)
 				}
 			}
 			if tt.name == "rich auth and browser fields" {
 				app := intent.Apps[0]
-				if app.Archon != "deep" {
-					t.Fatalf("expected archon=deep, got %q", app.Archon)
+				if app.Audit != "deep" {
+					t.Fatalf("expected audit=deep, got %q", app.Audit)
 				}
 				if !app.AuthRequired || !app.RequiresBrowser || !app.Browser {
 					t.Fatalf("expected auth/browser flags to be true, got auth=%v requires_browser=%v browser=%v",

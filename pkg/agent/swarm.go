@@ -26,7 +26,7 @@ import (
 	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
-	"github.com/vigolium/vigolium/pkg/archon/claudecost"
+	"github.com/vigolium/vigolium/pkg/audit/claudecost"
 	"github.com/vigolium/vigolium/pkg/authentication"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -146,13 +146,13 @@ type SwarmConfig struct {
 	// PhaseCallback is called when a swarm phase starts.
 	PhaseCallback func(phase string)
 
-	// Archon is the background-audit cfg slot — backed by either archon or
+	// Audit is the background-audit cfg slot — backed by either audit or
 	// piolium per AuditHarness. Requires SourcePath to be non-empty. Field
 	// name is legacy; the runtime is harness-agnostic.
-	Archon *config.AuditAgentConfig
+	Audit *config.AuditAgentConfig
 
-	// AuditHarness selects which harness backs the Archon cfg. Zero-valued
-	// defaults to archon for backward compat.
+	// AuditHarness selects which harness backs the Audit cfg. Zero-valued
+	// defaults to audit for backward compat.
 	AuditHarness HarnessSpec
 }
 

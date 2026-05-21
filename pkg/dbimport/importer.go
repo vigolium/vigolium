@@ -13,13 +13,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/vigolium/vigolium/pkg/archon"
+	"github.com/vigolium/vigolium/pkg/audit"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
 // Result captures what was imported during a single ImportXxx call.
 //
-// AgenticScan is populated for archon imports (whether a new scan was created
+// AgenticScan is populated for audit imports (whether a new scan was created
 // or an existing one was attached to); for JSONL imports it is populated only
 // when Options.AgenticScanUUID was supplied so the caller can correlate
 // imported findings with an existing scan row. CreatedNew distinguishes a
@@ -50,39 +50,39 @@ func (r *Result) AgenticScanUUID() string {
 	return r.AgenticScan.UUID
 }
 
-// Options carries optional knobs that apply to both archon and JSONL imports.
+// Options carries optional knobs that apply to both audit and JSONL imports.
 type Options struct {
 	// AgenticScanUUID, if non-empty, attaches imported findings (and HTTP
 	// records for JSONL) to an existing agentic_scan row instead of creating a
-	// new one. For archon imports the existing row's metadata is preserved and
+	// new one. For audit imports the existing row's metadata is preserved and
 	// only finding counts/storage_url are touched.
 	AgenticScanUUID string
 
 	// OriginalSource carries the user-supplied input string (e.g. gs:// URL or
-	// archive path). Recorded as StorageURL on archon scan rows when it has a
+	// archive path). Recorded as StorageURL on audit scan rows when it has a
 	// gs:// prefix.
 	OriginalSource string
 
 	// SessionDirArchiver, if non-nil, is invoked after the agentic scan UUID is
-	// determined. It receives that UUID and the on-disk archon source dir,
+	// determined. It receives that UUID and the on-disk audit source dir,
 	// and returns the absolute session directory where the source was copied.
-	// Used by archon imports only.
+	// Used by audit imports only.
 	SessionDirArchiver func(scanUUID, srcDir string) (sessionDir string, err error)
 
-	// Source identifies the archon harness flavor (archon vs piolium). When
-	// zero-valued, archon.DefaultArchonSource() is used.
-	Source *archon.FindingSource
+	// Source identifies the audit harness flavor (audit vs piolium). When
+	// zero-valued, audit.DefaultSource() is used.
+	Source *audit.FindingSource
 }
 
 // ImportPath dispatches based on filesystem inspection of path: directory →
-// archon folder, .tar.gz/.tgz/.zip → archive, anything else → JSONL.
+// audit folder, .tar.gz/.tgz/.zip → archive, anything else → JSONL.
 func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUID string, opts Options) (*Result, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access path: %w", err)
 	}
 	if info.IsDir() {
-		return ImportArchon(ctx, repo, path, projectUUID, opts)
+		return ImportAudit(ctx, repo, path, projectUUID, opts)
 	}
 	switch ArchiveExt(path) {
 	case ".tar.gz", ".tgz", ".zip":
@@ -98,7 +98,7 @@ func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUI
 }
 
 // ImportArchive extracts a .tar.gz / .tgz / .zip and dispatches its contents
-// to the archon or JSONL importers. Results across nested imports are merged.
+// to the audit or JSONL importers. Results across nested imports are merged.
 func ImportArchive(ctx context.Context, repo *database.Repository, archivePath, projectUUID string, opts Options) (*Result, error) {
 	dir, cleanup, err := ExtractArchiveToDir(archivePath)
 	if err != nil {
@@ -106,14 +106,14 @@ func ImportArchive(ctx context.Context, repo *database.Repository, archivePath, 
 	}
 	defer cleanup()
 
-	// Top-level archon folder?
+	// Top-level audit folder?
 	if _, err := os.Stat(filepath.Join(dir, "audit-state.json")); err == nil {
-		return ImportArchon(ctx, repo, dir, projectUUID, opts)
+		return ImportAudit(ctx, repo, dir, projectUUID, opts)
 	}
 
-	// Walk for JSONL files; also detect nested archon folders.
+	// Walk for JSONL files; also detect nested audit folders.
 	var jsonls []string
-	var archonDirs []string
+	var auditDirs []string
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -123,7 +123,7 @@ func ImportArchive(ctx context.Context, repo *database.Repository, archivePath, 
 				return nil
 			}
 			if _, statErr := os.Stat(filepath.Join(path, "audit-state.json")); statErr == nil {
-				archonDirs = append(archonDirs, path)
+				auditDirs = append(auditDirs, path)
 				return filepath.SkipDir
 			}
 			return nil
@@ -138,15 +138,15 @@ func ImportArchive(ctx context.Context, repo *database.Repository, archivePath, 
 		return nil, err
 	}
 
-	if len(archonDirs) == 0 && len(jsonls) == 0 {
+	if len(auditDirs) == 0 && len(jsonls) == 0 {
 		return nil, fmt.Errorf("no importable data found in %s (need audit-state.json or *.jsonl)", archivePath)
 	}
 
 	merged := newResult()
-	for _, ad := range archonDirs {
-		r, err := ImportArchon(ctx, repo, ad, projectUUID, opts)
+	for _, ad := range auditDirs {
+		r, err := ImportAudit(ctx, repo, ad, projectUUID, opts)
 		if err != nil {
-			return nil, fmt.Errorf("archon import (%s): %w", ad, err)
+			return nil, fmt.Errorf("audit import (%s): %w", ad, err)
 		}
 		mergeResult(merged, r)
 	}
@@ -165,16 +165,16 @@ func ImportArchive(ctx context.Context, repo *database.Repository, archivePath, 
 	return merged, nil
 }
 
-// ImportArchon imports an archon output folder. When opts.AgenticScanUUID is
+// ImportAudit imports an audit output folder. When opts.AgenticScanUUID is
 // set, the existing scan row is loaded (and project-validated by the caller)
 // and findings are attached to it instead of a new row being created.
-func ImportArchon(ctx context.Context, repo *database.Repository, folderPath, projectUUID string, opts Options) (*Result, error) {
-	parsed, err := archon.ParseAuditFolder(folderPath)
+func ImportAudit(ctx context.Context, repo *database.Repository, folderPath, projectUUID string, opts Options) (*Result, error) {
+	parsed, err := audit.ParseFolder(folderPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse archon output: %w", err)
+		return nil, fmt.Errorf("failed to parse audit output: %w", err)
 	}
 
-	src := archon.DefaultArchonSource()
+	src := audit.DefaultSource()
 	if opts.Source != nil {
 		src = *opts.Source
 	}
@@ -193,7 +193,7 @@ func ImportArchon(ctx context.Context, repo *database.Repository, folderPath, pr
 		agenticScan = existing
 		res.CreatedNew = false
 	} else {
-		agenticScan = archon.BuildAgenticScanWithSource(parsed.State, folderPath, projectUUID, src)
+		agenticScan = audit.BuildAgenticScanWithSource(parsed.State, folderPath, projectUUID, src)
 		if err := repo.CreateAgenticScan(ctx, agenticScan); err != nil {
 			return nil, fmt.Errorf("failed to create agent run: %w", err)
 		}
@@ -204,7 +204,7 @@ func ImportArchon(ctx context.Context, repo *database.Repository, folderPath, pr
 	if len(parsed.State.Audits) > 0 {
 		auditID = parsed.State.Audits[0].AuditID
 	}
-	findings := archon.BuildFindingsWithSource(parsed.RawFindings, auditID, agenticScan.UUID, projectUUID, parsed.RepoName, src)
+	findings := audit.BuildFindingsWithSource(parsed.RawFindings, auditID, agenticScan.UUID, projectUUID, parsed.RepoName, src)
 
 	saved, skipped := 0, 0
 	sevCounts := map[string]int{}
@@ -414,7 +414,7 @@ func mergeResult(dst, src *Result) {
 	if src == nil {
 		return
 	}
-	// Last archon import wins for the "primary" scan reference, since callers
+	// Last audit import wins for the "primary" scan reference, since callers
 	// typically want a single representative scan for the response. CreatedNew
 	// is OR'd so a multi-archive bundle that creates any new scan reports true.
 	if src.AgenticScan != nil {

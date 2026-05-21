@@ -122,7 +122,7 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		_ = zapLogger // logger is set globally via zap.ReplaceGlobals
 
 		// Default IS_SANDBOX=1 in vigolium's own env so every child process
-		// — the direct anthropic-cli provider, archon's internal claude call,
+		// — the direct anthropic-cli provider, audit's internal claude call,
 		// and `vigolium doctor --fix --only claude` — inherits it. Claude
 		// Code refuses to run as root unless this is set; vigolium is often
 		// invoked from CI/containers where root is the only available user,

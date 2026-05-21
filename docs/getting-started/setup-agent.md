@@ -1,6 +1,6 @@
 # Setting Up the Agent
 
-Vigolium's AI features (autopilot, swarm, source-code audit, query) all run through one in-process runtime called **olium**. olium talks to a provider (Claude / OpenAI / a local model), and two specialised drivers — **archon** and **piolium** — run on top of it for source-code audits.
+Vigolium's AI features (autopilot, swarm, source-code audit, query) all run through one in-process runtime called **olium**. olium talks to a provider (Claude / OpenAI / a local model), and two specialised drivers — **audit** and **piolium** — run on top of it for source-code audits.
 
 This page walks you through wiring each piece up. Pick the section that matches your setup; you don't need all of them.
 
@@ -10,7 +10,7 @@ This page walks you through wiring each piece up. Pick the section that matches 
 | Codex (OpenAI OAuth) | [Codex](#2-codex-cheapest-with-a-chatgpt-subscription) | You have a ChatGPT Plus/Pro/Team subscription. |
 | Local model (Ollama, etc.) | [Local / OpenAI-compatible](#3-local-models-ollama-openrouter-lm-studio-) | You want to run agents offline or against OpenRouter / vLLM / LM Studio. |
 | Claude | [Claude](#4-claude-anthropic) | You have an Anthropic API key, a Claude subscription, or the `claude` CLI installed (not recommended — see section). |
-| Archon audit | [Archon audit](#5-archon-audit-source-code-driver) | You want a whitebox source-code audit with no extra install. |
+| Audit audit | [Audit audit](#5-vigolium-audit-source-code-driver) | You want a whitebox source-code audit with no extra install. |
 | Piolium audit | [Piolium audit](#6-piolium-audit-pi-native-driver) | You want piolium's 17-phase Pi-native audit (separate install). |
 
 All settings live in `~/.vigolium/vigolium-configs.yaml`. You can edit it directly, or use `vigolium config set <key> <value>`.
@@ -175,9 +175,9 @@ This mode is slower than the API-key/OAuth paths (subprocess overhead) but usefu
 
 ---
 
-## 5. Archon audit — source-code driver
+## 5. Audit audit — source-code driver
 
-`vigolium agent archon` runs a whitebox source-code audit. The harness (agents, commands, skills) ships **embedded in the vigolium binary** — no extra install. It drives the `claude` CLI under the hood, so you need a working Claude setup from [section 4](#4-claude-anthropic).
+`vigolium agent audit` runs a whitebox source-code audit. The harness (agents, commands, skills) ships **embedded in the vigolium binary** — no extra install. It drives the `claude` CLI under the hood, so you need a working Claude setup from [section 4](#4-claude-anthropic).
 
 ```bash
 # 1. Make sure `claude` is installed and authenticated.
@@ -185,23 +185,23 @@ claude --version
 claude -p 'hello'   # sanity check
 
 # 2. Run an audit.
-vigolium agent archon --source ~/src/your-app
+vigolium agent audit --source ~/src/your-app
 
 # 3. Or wire it into autopilot/swarm so it runs automatically when --source is set.
-vigolium config set agent.archon.enable true
-vigolium config set agent.archon.mode lite          # lite | balanced | deep
+vigolium config set agent.audit.enable true
+vigolium config set agent.audit.mode lite          # lite | balanced | deep
 vigolium agent autopilot -t https://example.com --source ~/src/your-app
 ```
 
-Audit modes: `lite` (3 phases, CI-friendly), `balanced` (6 phases, default for `--archon=balanced`), `deep` (11 phases, full audit). All produce findings under the same parser/schema as native scanner output and are ingested into the vigolium DB.
+Audit modes: `lite` (3 phases, CI-friendly), `balanced` (6 phases, default for `--audit=balanced`), `deep` (11 phases, full audit). All produce findings under the same parser/schema as native scanner output and are ingested into the vigolium DB.
 
-Findings land under `~/.vigolium/agent-sessions/<scan-uuid>/archon-audit/`. See [`docs/agentic-scan/archon-audit.md`](../agentic-scan/archon-audit.md) for the full reference.
+Findings land under `~/.vigolium/agent-sessions/<scan-uuid>/vigolium-results/`. See [`docs/agentic-scan/vigolium-audit.md`](../agentic-scan/vigolium-audit.md) for the full reference.
 
 ---
 
 ## 6. Piolium audit — Pi-native driver
 
-`vigolium agent piolium` runs a separate, more thorough audit (17 phases at `deep`) via the **Pi coding-agent runtime**. Unlike archon, piolium is **not** embedded — you install it once and vigolium drives the `pi` binary.
+`vigolium agent piolium` runs a separate, more thorough audit (17 phases at `deep`) via the **Pi coding-agent runtime**. Unlike audit, piolium is **not** embedded — you install it once and vigolium drives the `pi` binary.
 
 ```bash
 # 1. Install Pi runtime.
@@ -230,9 +230,9 @@ Vigolium runs a one-turn preflight against pi before the audit to catch auth/quo
 
 By default vigolium uses pi's per-user install at `~/.pi/agent`. To use a system-wide install instead, export `PIOLIUM_HOME=/opt/piolium` (or any other path). See [`docs/agentic-scan/piolium-audit.md`](../agentic-scan/piolium-audit.md) for modes, intensity presets, and the full flag reference.
 
-### archon vs piolium
+### audit vs piolium
 
-| | Archon | Piolium |
+| | Audit | Piolium |
 |---|---|---|
 | Install | Embedded — zero setup | Requires `pi` + `pi install …` |
 | Driver | `claude` CLI | `pi --mode json -p /piolium-<mode>` |
@@ -240,7 +240,7 @@ By default vigolium uses pi's per-user install at `~/.pi/agent`. To use a system
 | Provider | Whatever `claude` is configured with | Whatever `pi` is configured with (separate from olium) |
 | Best for | "I want a source audit, no extra setup" | "I want the most thorough audit available" |
 
-You can also run both side-by-side with `vigolium agent audit --driver both --source …` — that dispatches archon then piolium under a single parent scan with project-wide deduplication.
+You can also run both side-by-side with `vigolium agent audit --driver both --source …` — that dispatches audit then piolium under a single parent scan with project-wide deduplication.
 
 ---
 
@@ -258,8 +258,8 @@ vigolium agent query -p 'list every route in this repo' --source .
 # Autopilot smoke test (target-only, no source):
 vigolium agent autopilot -t https://example.com --intensity quick --max-duration 5m
 
-# Archon audit (requires claude installed):
-vigolium agent archon --source . --mode lite
+# Audit audit (requires claude installed):
+vigolium agent audit --source . --mode lite
 
 # Piolium audit (requires pi + piolium installed):
 vigolium agent piolium --source . --mode lite
@@ -274,6 +274,6 @@ If any of these errors out, the message points at the missing piece — usually 
 - [`docs/agentic-scan/olium-agent.md`](../agentic-scan/olium-agent.md) — what olium is and what its tools do.
 - [`docs/agentic-scan/autopilot.md`](../agentic-scan/autopilot.md) — autonomous scanning.
 - [`docs/agentic-scan/swarm.md`](../agentic-scan/swarm.md) — guided multi-phase scanning.
-- [`docs/agentic-scan/archon-audit.md`](../agentic-scan/archon-audit.md) — archon reference.
+- [`docs/agentic-scan/vigolium-audit.md`](../agentic-scan/vigolium-audit.md) — audit reference.
 - [`docs/agentic-scan/piolium-audit.md`](../agentic-scan/piolium-audit.md) — piolium reference.
 - [`public/vigolium-configs.example.yaml`](../../public/vigolium-configs.example.yaml) — every config knob with inline docs.

@@ -147,7 +147,7 @@ Cloud-storage endpoints for source bundles and result archives. Require `storage
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
 | POST | `/api/agent/run/swarm` | AI-guided targeted vulnerability swarm |
-| POST | `/api/agent/run/archon` | Foreground archon-audit code review (Claude / Codex) |
+| POST | `/api/agent/run/audit` | Foreground vigolium-audit code review (Claude / Codex) |
 | POST | `/api/agent/run/audit` | Foreground piolium audit code review (Pi runtime) |
 | POST | `/api/agent/chat/completions` | OpenAI-compatible chat completions |
 | GET | `/api/agent/status/list` | List agent runs |

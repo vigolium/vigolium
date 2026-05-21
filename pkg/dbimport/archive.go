@@ -1,4 +1,4 @@
-// Package dbimport provides reusable importers for archon audit folders,
+// Package dbimport provides reusable importers for audit folders,
 // archive bundles (.tar.gz, .tgz, .zip), and JSONL exports. Both the CLI
 // (`vigolium import`) and the REST API (`POST /api/import`) call into this
 // package so the parsing, validation, and DB-write logic stays in one place.

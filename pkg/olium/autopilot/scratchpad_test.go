@@ -43,6 +43,47 @@ func TestScratchpadSeedsFromPipelinePlan(t *testing.T) {
 	}
 }
 
+func TestScratchpadDigest(t *testing.T) {
+	dir := t.TempDir()
+	sp := NewScratchpadContext(dir)
+
+	// Empty scratchpad: digest stays empty so the engine hook doesn't
+	// append noise during a warm-up turn.
+	if got := sp.Digest(); got != "" {
+		t.Errorf("empty digest should be empty, got %q", got)
+	}
+
+	sp.plan = []PlanItem{
+		{ID: "a", Task: "probe auth flows", Status: planDone},
+		{ID: "b", Task: "test SQLi in /search", Status: planInProgress},
+		{ID: "c", Task: "review IDOR candidates", Status: planPending},
+	}
+	got := sp.Digest()
+	// Status boxes present.
+	for _, want := range []string{"[x] a", "[~] b", "[ ] c"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("digest missing %q in:\n%s", want, got)
+		}
+	}
+	// In-progress item gets its task text inlined (that's what the agent
+	// is currently working on); done/pending stay short.
+	if !strings.Contains(got, "test SQLi in /search") {
+		t.Errorf("in-progress task text should be inlined, got:\n%s", got)
+	}
+	if strings.Contains(got, "probe auth flows") {
+		t.Errorf("done task text should NOT be inlined (keeps digest small), got:\n%s", got)
+	}
+	// Bounded size — this is the whole point of digest vs render.
+	if len(got) > 600 {
+		t.Errorf("digest grew too large (%d bytes), defeats the purpose", len(got))
+	}
+
+	sp.notes = []Note{{Text: "auth scheme = JWT bearer"}}
+	if !strings.Contains(sp.Digest(), "notes=1") {
+		t.Errorf("digest should report note count")
+	}
+}
+
 func TestUpdatePlanReplaceRecallAndPersist(t *testing.T) {
 	dir := t.TempDir()
 	sp := NewScratchpadContext(dir)

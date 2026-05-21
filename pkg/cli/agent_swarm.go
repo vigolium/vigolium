@@ -74,7 +74,7 @@ var (
 	swarmRequiresBrowser     bool
 	swarmBrowserStartURL     string
 	swarmFocusRoutes         []string
-	swarmArchon              string
+	swarmAudit              string
 	swarmPiolium             string
 	swarmDiff                string
 	swarmLastCommits         int
@@ -82,6 +82,11 @@ var (
 	swarmUploadResults       bool
 	swarmDisableGuardrail    bool
 	swarmVerbose             bool
+
+	// swarmInstructionPrefix holds the verbatim natural-language prompt when
+	// swarm was invoked with a positional `<prompt>` argument. See the
+	// matching autopilotInstructionPrefix comment for the rationale.
+	swarmInstructionPrefix string
 )
 
 var agentSwarmCmd = &cobra.Command{
@@ -96,9 +101,14 @@ and triages the results.
 Supports natural language prompts as a positional argument:
   vigolium agent swarm "scan VAmPI source at ~/src/VAmPI on localhost:3005"
   vigolium agent swarm "scan all source code from ~/src/crAPI, ~/src/DVWA"
+  vigolium agent swarm "Hunt SSRF on https://target/api — only credentialed paths under /v2/billing count"
 
-The prompt is parsed by an AI to extract target URLs, source paths, and focus areas.
-Use --dry-run to preview what the parser extracts without executing.
+The prompt is parsed by an AI to extract target URLs, source paths, and focus
+areas, AND is also forwarded verbatim to the master/sub-agents as their
+primary instruction so nuanced hints (scope caveats, exploitation goals,
+false-positive rules) survive unedited. --instruction / --instruction-file,
+if supplied, is appended after the verbatim prompt. Use --dry-run to
+preview what the parser extracts without executing.
 
 Supported input types for --input (auto-detected):
   - URL:         https://example.com/api/login
@@ -183,10 +193,10 @@ func init() {
 	f.StringVar(&swarmLoginCurl, "login-curl", "", "Curl command for login flow; replayed by the auth runtime to capture a fresh session. Cookies/headers from a successful response are reused for the scan.")
 	f.StringVar(&swarmAuthConfigPath, "auth-config", "", "Path to an existing auth-config.yaml. Skips both browser auth and --cookie/--header/--login-curl synthesis.")
 
-	// Background archon-audit
-	f.StringVar(&swarmArchon, "archon", "", "Run background archon-audit for parallel security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
-	agentSwarmCmd.Flag("archon").NoOptDefVal = "lite" // bare --archon defaults to lite
-	f.StringVar(&swarmPiolium, "piolium", "", "Run background piolium audit (Pi runtime): lite, balanced, deep, longshot, etc. Requires --source. Empty triggers auto-pick when --archon is also empty (piolium when pi is installed, else nothing)")
+	// Background vigolium-audit
+	f.StringVar(&swarmAudit, "audit", "", "Run background vigolium-audit for parallel security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
+	agentSwarmCmd.Flag("audit").NoOptDefVal = "lite" // bare --audit defaults to lite
+	f.StringVar(&swarmPiolium, "piolium", "", "Run background piolium audit (Pi runtime): lite, balanced, deep, longshot, etc. Requires --source. Empty triggers auto-pick when --audit is also empty (piolium when pi is installed, else nothing)")
 	agentSwarmCmd.Flag("piolium").NoOptDefVal = "lite"
 
 	// Diff context
@@ -260,7 +270,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			"code-audit":        cmd.Flags().Changed("code-audit"),
 			"triage":            cmd.Flags().Changed("triage"),
 			"max-iterations":    cmd.Flags().Changed("max-iterations"),
-			"archon":            cmd.Flags().Changed("archon"),
+			"audit":            cmd.Flags().Changed("audit"),
 			"max-plan-records":  cmd.Flags().Changed("max-plan-records"),
 			"master-batch-size": cmd.Flags().Changed("master-batch-size"),
 			"batch-concurrency": cmd.Flags().Changed("batch-concurrency"),
@@ -274,7 +284,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			CodeAudit:        swarmCodeAudit,
 			Triage:           swarmTriage,
 			MaxIterations:    swarmMaxIterations,
-			Archon:           swarmArchon,
+			Audit:           swarmAudit,
 			MaxPlanRecords:   swarmMaxPlanRecords,
 			MasterBatchSize:  swarmMasterBatchSize,
 			BatchConcurrency: swarmBatchConcurrency,
@@ -287,7 +297,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		swarmCodeAudit = intensityResult.CodeAudit
 		swarmTriage = intensityResult.Triage
 		swarmMaxIterations = intensityResult.MaxIterations
-		swarmArchon = intensityResult.Archon
+		swarmAudit = intensityResult.Audit
 		swarmMaxPlanRecords = intensityResult.MaxPlanRecords
 		swarmMasterBatchSize = intensityResult.MasterBatchSize
 		swarmBatchConcurrency = intensityResult.BatchConcurrency
@@ -297,20 +307,20 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		swarmMaxDuration = intensityResult.SwarmDuration
 
 		// Same auto-pick rule as autopilot.
-		archonChanged := cmd.Flags().Changed("archon")
+		auditChanged := cmd.Flags().Changed("audit")
 		pioliumChanged := cmd.Flags().Changed("piolium")
 		switch {
-		case !archonChanged && !pioliumChanged && piolium.IsAvailable():
-			// Move whatever archon mode the intensity preset picked over to
-			// piolium; default to lite if archon was empty.
-			if swarmArchon != "" {
-				swarmPiolium = swarmArchon
+		case !auditChanged && !pioliumChanged && piolium.IsAvailable():
+			// Move whatever audit mode the intensity preset picked over to
+			// piolium; default to lite if audit was empty.
+			if swarmAudit != "" {
+				swarmPiolium = swarmAudit
 			} else {
 				swarmPiolium = "lite"
 			}
-			swarmArchon = ""
-		case pioliumChanged && !archonChanged:
-			swarmArchon = ""
+			swarmAudit = ""
+		case pioliumChanged && !auditChanged:
+			swarmAudit = ""
 		}
 	}
 
@@ -383,6 +393,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	if instrErr != nil {
 		return instrErr
 	}
+	instruction = prependVerbatimPrompt(instruction, swarmInstructionPrefix)
 
 	// Build inputs list (resolves --all-records / --records-from against the DB)
 	inputs, err := buildSwarmInputs(ctx, repo, projectUUID)
@@ -527,15 +538,15 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 		ReconExtraHeaders:  reconExtraHeaders,
 	}
 
-	// Wire audit harness. Swarm is opt-in: empty/"off" archon means no
+	// Wire audit harness. Swarm is opt-in: empty/"off" audit means no
 	// audit unless --piolium opted in (or auto-pick moved a mode over).
-	swarmNoArchon := swarmArchon == "" || swarmArchon == "off"
-	swarmArchonMode := swarmArchon
-	if swarmNoArchon {
-		swarmArchonMode = ""
+	swarmNoAudit := swarmAudit == "" || swarmAudit == "off"
+	swarmAuditDriverMode := swarmAudit
+	if swarmNoAudit {
+		swarmAuditDriverMode = ""
 	}
-	if auditCfg, harness := agent.PickAuditHarness(swarmPiolium, swarmArchonMode, swarmNoArchon, swarmSource, settings.Agent.Archon); auditCfg != nil {
-		cfg.Archon = auditCfg
+	if auditCfg, harness := agent.PickAuditHarness(swarmPiolium, swarmAuditDriverMode, swarmNoAudit, swarmSource, settings.Agent.Audit); auditCfg != nil {
+		cfg.Audit = auditCfg
 		cfg.AuditHarness = harness
 	}
 
@@ -1142,6 +1153,14 @@ func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
 		defer intent.Cleanup.Cleanup()
 	}
 
+	// Forward the verbatim prompt to the operator agent as its primary
+	// instruction. See the matching block in runAutopilotFromPrompt for why
+	// we drop the LLM-paraphrased app.Instruction.
+	swarmInstructionPrefix = intent.Raw
+	for i := range intent.Apps {
+		intent.Apps[i].Instruction = ""
+	}
+
 	if swarmDryRun {
 		return printIntentDryRun(intent)
 	}
@@ -1174,12 +1193,12 @@ func applyIntentToSwarmFlags(cmd *cobra.Command, app agent.AppIntent) {
 	}
 	if app.Piolium != "" && swarmPiolium == "" {
 		swarmPiolium = app.Piolium
-		if app.Archon == "" && swarmArchon == "" {
-			swarmArchon = "off"
+		if app.Audit == "" && swarmAudit == "" {
+			swarmAudit = "off"
 		}
 	}
-	if app.Archon != "" && swarmArchon == "" {
-		swarmArchon = app.Archon
+	if app.Audit != "" && swarmAudit == "" {
+		swarmAudit = app.Audit
 	}
 	if app.Diff != "" && swarmDiff == "" {
 		swarmDiff = app.Diff
@@ -1232,6 +1251,7 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 		sessionDir, _ := agent.EnsureSessionDir(settings.Agent.EffectiveSessionsDir(), agenticScanUUID)
 
 		instruction := mergeIntentInstruction(swarmInstruction, swarmInstructionFile, app)
+		instruction = prependVerbatimPrompt(instruction, swarmInstructionPrefix)
 		focus := swarmFocus
 		if app.Focus != "" {
 			focus = app.Focus

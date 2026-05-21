@@ -21,19 +21,6 @@ Vigolium provides two complementary scanning modes:
 - **Agentic Scan** (`vigolium agent`) — **Thoroughly audits your codebase.** AI-driven scanning that autonomously plans attacks, selects modules, generates custom extensions, and triages results — combining deep source-code audit with autonomous and targeted vulnerability scanning.
 
 
-| UI Dashboard | Traffic Dashboard |
-|:---:|:---:|
-| ![Dashboard 1](https://github.com/vigolium/docs/blob/main/images/vigolium-main-workbench.png?raw=true) | ![Dashboard 2](https://github.com/vigolium/docs/blob/main/images/vigolium-ui-dashboard-2.png?raw=true) |
-
-| Static Reports | Static Reports |
-|:---:|:---:|
-| ![Static Report 1](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-1.png?raw=true) | ![Static Report 2](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-2.png?raw=true) |
-
-| Native scan | Agentic Scan |
-|:---:|:---:|
-| ![Native scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-native-scan.png?raw=true) | ![Agentic Scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-agent-audit-1.png?raw=true) |
-
-
 ## Installation
 
 ### Quick Install (Recommended)
@@ -48,6 +35,13 @@ curl -fsSL https://vigolium.com/install.sh | bash
 npm install -g @vigolium/vigolium
 ```
 
+### Docker
+
+```bash
+docker pull j3ssie/vigolium:latest
+docker run --rm j3ssie/vigolium:latest scan -h
+```
+
 ### Build from Source
 
 ```bash
@@ -58,12 +52,26 @@ make build         # build and install to $GOPATH/bin
 
 Requires **Go 1.26+** and **bun 1.3.11+**. See [HACKING.md](HACKING.md#build-and-run) for prerequisites and build details.
 
-### Docker
 
-```bash
-docker pull j3ssie/vigolium:latest
-docker run --rm j3ssie/vigolium:latest scan -h
-```
+| UI Dashboard | Traffic Dashboard |
+|:---:|:---:|
+| ![Dashboard 1](https://github.com/vigolium/docs/blob/main/images/vigolium-main-workbench.png?raw=true) | ![Dashboard 2](https://github.com/vigolium/docs/blob/main/images/vigolium-ui-dashboard-2.png?raw=true) |
+
+| Static Reports | Static Reports |
+|:---:|:---:|
+| ![Static Report 1](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-1.png?raw=true) | ![Static Report 2](https://github.com/vigolium/docs/blob/main/images/vigolium-static-report-2.png?raw=true) |
+
+| Native scan | Agentic Scan |
+|:---:|:---:|
+| ![Native scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-native-scan.png?raw=true) | ![Agentic Scan](https://github.com/vigolium/docs/blob/main/images/vigolium-cli-agent-audit-1.png?raw=true) |
+
+## Vigolium Cloud Console
+
+A cloud-based solution for teams that want the power of Vigolium without managing infrastructure. Console is the **upgraded, fully-featured version of Vigolium** — managed scanning, centralized reporting, team collaboration, and extra features layered on top of the open-source core, so you can focus on fixing vulnerabilities instead of maintaining tooling.
+
+<Callout icon="rocket" color="#FFC107" iconType="regular">
+  Check out the Cloud Console at [console.vigolium.com](https://console.vigolium.com/).
+</Callout>
 
 ## Key Features
 
@@ -83,7 +91,7 @@ docker run --rm j3ssie/vigolium:latest scan -h
 - **In-process olium runtime** — every agent mode runs on the native Go `pkg/olium` engine: turn-based loop, built-in tool registry, skills support, and pluggable provider drivers (no subprocess SDK pools)
 - **Autopilot** — agent autonomously discovers endpoints, runs scans, and triages findings, with optional multi-specialist pipeline and session resume
 - **Swarm** — master agent selects modules, generates custom JS attack extensions, runs code audit + SAST, executes scans, and triages results; targeted or full-scope (`--discover`), with `--diff`/`--last-commits` for change-focused runs
-- **Source-audit drivers** — `archon`, `piolium`, and the unified `audit` dispatcher run foreground source-code audits sharing one finding schema and DB tagging
+- **Source-audit drivers** — `audit`, `piolium`, and the unified `audit` dispatcher run foreground source-code audits sharing one finding schema and DB tagging
 - **Query mode** — single-shot prompts for code review, endpoint discovery, and secret detection
 - **Pluggable providers** — `openai-codex-oauth` (default), `anthropic-api-key`, `anthropic-oauth`, `openai-api-key`, `anthropic-cli`, `google-vertex`. Same modes exposed over the REST API with SSE streaming and an OpenAI-compatible chat endpoint
 
@@ -177,10 +185,10 @@ vigolium agent swarm -t https://example.com --source ./src --discover        # s
 vigolium agent swarm --input "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'"
 
 # Source-audit drivers (separate harness — do not route through olium)
-vigolium agent archon --source ./src --mode deep                            # claude harness only (anthropic-*)
+vigolium agent audit --source ./src --mode deep                            # claude harness only (anthropic-*)
 vigolium agent piolium --source ./src --mode balanced                       # Pi-native (pi extension)
-vigolium agent audit --source ./src --mode balanced                         # both archon + piolium back-to-back
-vigolium agent audit --source ./src --driver piolium --fallback             # piolium with archon fallback
+vigolium agent audit --source ./src --mode balanced                         # both audit + piolium back-to-back
+vigolium agent audit --source ./src --driver piolium --fallback             # piolium with audit fallback
 
 # Direct olium access (TUI or headless)
 vigolium ol                             # launch the olium TUI
@@ -188,9 +196,9 @@ vigolium ol --prompt "..."              # one-shot prompt (-p implies headless)
 ```
 
 Agentic scan modes:
-- **Autopilot** — autonomous scanning. CLI calls `pkg/olium/autopilot.Run` directly; the server adds archon-audit prep, auth setup, and a frozen context bundle around the same loop
+- **Autopilot** — autonomous scanning. CLI calls `pkg/olium/autopilot.Run` directly; the server adds vigolium-audit prep, auth setup, and a frozen context bundle around the same loop
 - **Swarm** — AI-guided vulnerability scanning supporting targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results
-- **Archon / Piolium / Audit** — three source-audit driver subcommands (`vigolium agent {archon,piolium,audit}`). Separate harnesses — **do not** route through olium. `audit` is a unified dispatcher that runs both back-to-back with per-driver child rows under one parent AgenticScan and post-pass findings dedup
+- **Audit / Piolium / Audit** — three source-audit driver subcommands (`vigolium agent {audit,piolium,audit}`). Separate harnesses — **do not** route through olium. `audit` is a unified dispatcher that runs both back-to-back with per-driver child rows under one parent AgenticScan and post-pass findings dedup
 
 See [docs/agentic-scan/agent-mode.md](docs/agentic-scan/agent-mode.md) for the full guide.
 
@@ -317,9 +325,9 @@ Agentic scan (in-process olium engine):
   vigolium agent swarm         AI-guided targeted or full-scope vulnerability scanning
   vigolium agent query         Single-shot prompt (code review, endpoint discovery)
   vigolium agent olium         Direct olium TUI (or one-shot non-interactive via -p)
-  vigolium agent archon        Foreground archon-audit (separate harness, claude only)
+  vigolium agent audit        Foreground vigolium-audit (separate harness, claude only)
   vigolium agent piolium       Foreground piolium audit (Pi-native, drives the user's pi extension)
-  vigolium agent audit         Unified driver dispatcher (archon and/or piolium, --driver=both|archon|piolium)
+  vigolium agent audit         Unified driver dispatcher (audit and/or piolium, --driver=both|audit|piolium)
   vigolium agent session       Browse/replay agent session artifacts
   vigolium olium | vigolium ol Top-level alias for `vigolium agent olium`
 
@@ -397,10 +405,10 @@ Agentic Scan (vigolium agent autopilot / swarm / query):
       --last-commits       Shorthand for --diff HEAD~N
       --code-audit         Enable AI code audit (default: on with --source)
       --discover           Run discovery+spidering before planning (swarm)
-      --archon             Archon-audit mode: lite, balanced, deep, off (autopilot/swarm)
-      --driver             Audit driver: both, archon, piolium (agent audit)
-      --fallback           Fall back to archon when piolium fails (agent audit)
-      --no-preflight       Skip 'claude -p' preflight (agent archon)
+      --audit             Audit mode: lite, balanced, deep, off (autopilot/swarm)
+      --driver             Audit driver: both, audit, piolium (agent audit)
+      --fallback           Fall back to audit when piolium fails (agent audit)
+      --no-preflight       Skip 'claude -p' preflight (agent audit)
       --max-iterations     Max triage-rescan iterations
       --max-commands       Cap on agent tool calls
       --token-budget       Cap on aggregate tokens

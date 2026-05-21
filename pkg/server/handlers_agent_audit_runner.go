@@ -19,18 +19,18 @@ import (
 )
 
 // auditRunPlan captures everything an audit-style endpoint needs to launch a
-// run regardless of which harness (archon or piolium) backs it. The plumbing
+// run regardless of which harness (audit or piolium) backs it. The plumbing
 // below — slot acquisition, session-dir creation, source resolution, SSE
 // pump, runner wait, finalize — is identical across harnesses; harness-
 // specific runtime fields (Mode, Platform, PluginDir, StreamDecoder,
 // AdditionalArgs, PiProvider/PiModel, CommitScan*) are filled in by the
 // buildCfg closure each endpoint supplies.
 //
-// Drives the single-driver paths: /agent/run/archon, /agent/run/audit
-// with driver=archon, and /agent/run/audit with driver=piolium. The
+// Drives the single-driver paths: /agent/run/audit, /agent/run/audit
+// with driver=audit, and /agent/run/audit with driver=piolium. The
 // multi-driver driver=auto/both path lives in startCombinedAuditRun,
 // which orchestrates these drivers sequentially under a parent
-// AgenticScan UUID (auto stops after a clean archon run; both always
+// AgenticScan UUID (auto stops after a clean audit run; both always
 // runs piolium too).
 type auditRunPlan struct {
 	agenticScanUUID string

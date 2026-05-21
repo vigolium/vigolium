@@ -42,7 +42,7 @@ func TestRedactEnvSlice_LeavesInputAlone(t *testing.T) {
 	}
 }
 
-func TestRedactArchonCmdLine(t *testing.T) {
+func TestRedactAuditDriverCmdLine(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -50,33 +50,33 @@ func TestRedactArchonCmdLine(t *testing.T) {
 	}{
 		{
 			name: "api key value redacted",
-			in:   "/usr/bin/archon run --target /tmp --mode deep --agent claude --api-key sk-ant-real --json",
-			want: "/usr/bin/archon run --target /tmp --mode deep --agent claude --api-key <redacted> --json",
+			in:   "/usr/bin/audit run --target /tmp --mode deep --agent claude --api-key sk-ant-real --json",
+			want: "/usr/bin/audit run --target /tmp --mode deep --agent claude --api-key <redacted> --json",
 		},
 		{
 			name: "oauth token value redacted",
-			in:   "/usr/bin/archon run --agent claude --oauth-token oat-abc",
-			want: "/usr/bin/archon run --agent claude --oauth-token <redacted>",
+			in:   "/usr/bin/audit run --agent claude --oauth-token oat-abc",
+			want: "/usr/bin/audit run --agent claude --oauth-token <redacted>",
 		},
 		{
 			name: "cred file path redacted (filesystem layout is also sensitive)",
-			in:   "/usr/bin/archon run --agent codex --oauth-cred-file /home/op/codex.json",
-			want: "/usr/bin/archon run --agent codex --oauth-cred-file <redacted>",
+			in:   "/usr/bin/audit run --agent codex --oauth-cred-file /home/op/codex.json",
+			want: "/usr/bin/audit run --agent codex --oauth-cred-file <redacted>",
 		},
 		{
 			name: "no auth flag → unchanged",
-			in:   "/usr/bin/archon run --target /tmp --mode deep --agent claude --json",
-			want: "/usr/bin/archon run --target /tmp --mode deep --agent claude --json",
+			in:   "/usr/bin/audit run --target /tmp --mode deep --agent claude --json",
+			want: "/usr/bin/audit run --target /tmp --mode deep --agent claude --json",
 		},
 		{
 			name: "trailing flag with no value is left alone",
-			in:   "/usr/bin/archon run --api-key",
-			want: "/usr/bin/archon run --api-key",
+			in:   "/usr/bin/audit run --api-key",
+			want: "/usr/bin/audit run --api-key",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := redactArchonCmdLine(tc.in)
+			got := redactAuditDriverCmdLine(tc.in)
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}

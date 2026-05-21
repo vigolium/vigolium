@@ -227,12 +227,12 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 			if req.Instruction == "" {
 				req.Instruction = app.Instruction
 			}
-			// Map intent archon to new fields (not legacy Archon)
-			if app.Archon != "" && req.ArchonMode == "" {
-				if app.Archon == "off" {
-					req.NoArchon = true
+			// Map intent audit to new fields (not legacy Audit)
+			if app.Audit != "" && req.AuditDriverMode == "" {
+				if app.Audit == "off" {
+					req.NoAudit = true
 				} else {
-					req.ArchonMode = app.Archon
+					req.AuditDriverMode = app.Audit
 				}
 			}
 			if app.Diff != "" && req.Diff == "" {
@@ -291,10 +291,10 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		})
 	}
 
-	// Validate archon_mode if provided
-	if mode := req.ResolvedArchonMode(); mode != "lite" && mode != "balanced" && mode != "scan" && mode != "deep" && mode != "mock" {
+	// Validate audit_mode if provided
+	if mode := req.ResolvedAuditDriverMode(); mode != "lite" && mode != "balanced" && mode != "scan" && mode != "deep" && mode != "mock" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error: fmt.Sprintf("invalid archon_mode %q: must be lite, balanced, deep, or mock", mode),
+			Error: fmt.Sprintf("invalid audit_mode %q: must be lite, balanced, deep, or mock", mode),
 		})
 	}
 
@@ -307,14 +307,14 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		changed := map[string]bool{
 			"max-commands": req.MaxCommands != 0,
 			"timeout":      req.Timeout != "",
-			"archon-mode":  req.ArchonMode != "",
-			"no-archon":    req.NoArchon || req.Archon == "off",
+			"audit-mode":  req.AuditDriverMode != "",
+			"no-audit":    req.NoAudit || req.Audit == "off",
 			"browser":      req.Browser || req.RequiresBrowser,
 		}
 		result := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
 			MaxCommands: req.MaxCommands,
 			Timeout:     parseDurationOrDefault(req.Timeout, 6*time.Hour),
-			ArchonMode:  req.ResolvedArchonMode(),
+			AuditDriverMode:  req.ResolvedAuditDriverMode(),
 			Browser:     req.Browser || req.RequiresBrowser,
 		}, changed)
 		if req.MaxCommands == 0 {
@@ -323,8 +323,8 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		if req.Timeout == "" {
 			req.Timeout = result.Timeout.String()
 		}
-		if req.ArchonMode == "" && req.Archon == "" {
-			req.ArchonMode = result.ArchonMode
+		if req.AuditDriverMode == "" && req.Audit == "" {
+			req.AuditDriverMode = result.AuditDriverMode
 		}
 		if !req.Browser {
 			req.Browser = result.Browser
@@ -393,35 +393,35 @@ func (h *Handlers) startAutopilotRun(c fiber.Ctx, req AgentAutopilotRequest, tim
 }
 
 // resolveAutopilotAuditCfgServer mirrors the CLI's audit-harness auto-pick
-// for the server's autopilot endpoint. When the request leaves both `archon`
+// for the server's autopilot endpoint. When the request leaves both `audit`
 // and `piolium` empty, piolium wins if the server has pi+piolium installed,
-// otherwise archon's existing auto-on-source default applies. An explicit
-// `piolium` value disables archon (one harness per scan).
+// otherwise audit's existing auto-on-source default applies. An explicit
+// `piolium` value disables audit (one harness per scan).
 func (h *Handlers) resolveAutopilotAuditCfgServer(req AgentAutopilotRequest, sourcePath string) (*config.AuditAgentConfig, agent.HarnessSpec) {
 	pioliumMode := req.Piolium
 	if sourcePath != "" && pioliumMode == "" {
-		archonExplicit := req.Archon != "" || req.ArchonMode != "" || req.NoArchon
-		if !archonExplicit && h.pioliumAvailableCached() {
-			pioliumMode = req.ResolvedArchonMode()
+		auditExplicit := req.Audit != "" || req.AuditDriverMode != "" || req.NoAudit
+		if !auditExplicit && h.pioliumAvailableCached() {
+			pioliumMode = req.ResolvedAuditDriverMode()
 		}
 	}
-	return agent.PickAuditHarness(pioliumMode, req.ResolvedArchonMode(), req.ResolvedNoArchon(), sourcePath, h.settings.Agent.Archon)
+	return agent.PickAuditHarness(pioliumMode, req.ResolvedAuditDriverMode(), req.ResolvedNoAudit(), sourcePath, h.settings.Agent.Audit)
 }
 
-// resolveSwarmAuditCfgServer is the swarm counterpart. Swarm archon is opt-in
-// (empty = nothing), so auto-pick fires only when both `archon` and `piolium`
+// resolveSwarmAuditCfgServer is the swarm counterpart. Swarm audit is opt-in
+// (empty = nothing), so auto-pick fires only when both `audit` and `piolium`
 // are empty AND a source path is set.
 func (h *Handlers) resolveSwarmAuditCfgServer(req AgentSwarmRequest, sourcePath string) (*config.AuditAgentConfig, agent.HarnessSpec) {
 	pioliumMode := req.Piolium
-	if pioliumMode == "" && req.Archon == "" && sourcePath != "" && h.pioliumAvailableCached() {
+	if pioliumMode == "" && req.Audit == "" && sourcePath != "" && h.pioliumAvailableCached() {
 		pioliumMode = "lite"
 	}
-	return agent.PickAuditHarness(pioliumMode, req.ResolvedArchonMode(), req.ResolvedNoArchon(), sourcePath, h.settings.Agent.Archon)
+	return agent.PickAuditHarness(pioliumMode, req.ResolvedAuditDriverMode(), req.ResolvedNoAudit(), sourcePath, h.settings.Agent.Audit)
 }
 
 // buildAutopilotPipelineConfig creates an AutopilotPipelineConfig from an autopilot request.
 // projectUUID should be pre-resolved by the caller (from request body or X-Project-UUID header).
-// parentAgenticScanUUID is the UUID of the parent AgenticScan row so child runs (archon) can reference it.
+// parentAgenticScanUUID is the UUID of the parent AgenticScan row so child runs (audit) can reference it.
 func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, projectUUID, parentAgenticScanUUID string) agent.AutopilotPipelineConfig {
 	maxCmds := req.MaxCommands
 	if maxCmds <= 0 {
@@ -471,7 +471,7 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 
 	auditCfg, harness := h.resolveAutopilotAuditCfgServer(req, sourcePath)
 	if auditCfg != nil {
-		cfg.Archon = auditCfg
+		cfg.Audit = auditCfg
 		cfg.AuditHarness = harness
 	}
 
@@ -599,7 +599,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 		if status != nil && res.result != nil {
 			status.Status = "completed"
 			status.CompletedAt = &now
-			status.FindingCount = res.result.ArchonFindingsCount
+			status.FindingCount = res.result.FindingsCount
 			if res.result.VerifiedFindingCount > 0 {
 				status.FindingCount = res.result.VerifiedFindingCount
 			}
@@ -618,7 +618,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 			run.CompletedAt = now
 			run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
 			if res.result != nil {
-				run.FindingCount = res.result.ArchonFindingsCount
+				run.FindingCount = res.result.FindingsCount
 				if res.result.VerifiedFindingCount > 0 {
 					run.FindingCount = res.result.VerifiedFindingCount
 				}
@@ -634,7 +634,7 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 		_ = writeSSE(w, sseEvent{Type: "done", AutopilotResult: res.result})
 		zap.L().Info("Autopilot run completed (streaming)",
 			zap.String("agentic_scan_uuid", agenticScanUUID),
-			zap.Int("archon_findings", res.result.ArchonFindingsCount),
+			zap.Int("audit_findings", res.result.FindingsCount),
 			zap.Int("verified_findings", res.result.VerifiedFindingCount))
 	})
 }
@@ -663,10 +663,10 @@ func (h *Handlers) runBackgroundAutopilot(agenticScanUUID string, req AgentAutop
 	}
 
 	// Open a stream log file in the session dir so users can tail live
-	// autopilot + archon output via `tail -f {session_dir}/runtime.log`. The CLI
+	// autopilot + audit output via `tail -f {session_dir}/runtime.log`. The CLI
 	// writes the same stream to os.Stdout; the server has no terminal, so we
 	// persist it to disk instead. A non-nil StreamWriter also forces
-	// archon-audit down the Claude stream-json branch (the non-stream branch
+	// vigolium-audit down the Claude stream-json branch (the non-stream branch
 	// collides with the variadic --allowedTools flag).
 	var streamFile *os.File
 	if sessionDir != "" {
@@ -718,7 +718,7 @@ func (h *Handlers) runBackgroundAutopilot(agenticScanUUID string, req AgentAutop
 		status.Status = "completed"
 		status.CompletedAt = &now
 		if result != nil {
-			status.FindingCount = result.ArchonFindingsCount
+			status.FindingCount = result.FindingsCount
 			if result.VerifiedFindingCount > 0 {
 				status.FindingCount = result.VerifiedFindingCount
 			}
@@ -760,7 +760,7 @@ func (h *Handlers) runBackgroundAutopilot(agenticScanUUID string, req AgentAutop
 		run.CompletedAt = now
 		run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
 		if result != nil {
-			run.FindingCount = result.ArchonFindingsCount
+			run.FindingCount = result.FindingsCount
 			if result.VerifiedFindingCount > 0 {
 				run.FindingCount = result.VerifiedFindingCount
 			}
@@ -839,8 +839,8 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			if app.CodeAudit {
 				req.CodeAudit = true
 			}
-			if req.Archon == "" {
-				req.Archon = app.Archon
+			if req.Audit == "" {
+				req.Audit = app.Audit
 			}
 			if app.Diff != "" && req.Diff == "" {
 				req.Diff = app.Diff
@@ -905,7 +905,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			"code-audit":        req.CodeAudit,
 			"triage":            req.Triage,
 			"max-iterations":    req.MaxIterations != 0,
-			"archon":            req.Archon != "",
+			"audit":            req.Audit != "",
 			"max-plan-records":  req.MaxPlanRecords != 0,
 			"master-batch-size": req.MasterBatchSize != 0,
 			"batch-concurrency": req.BatchConcurrency != 0,
@@ -919,7 +919,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			CodeAudit:        req.CodeAudit,
 			Triage:           req.Triage,
 			MaxIterations:    req.MaxIterations,
-			Archon:           req.Archon,
+			Audit:           req.Audit,
 			MaxPlanRecords:   req.MaxPlanRecords,
 			MasterBatchSize:  req.MasterBatchSize,
 			BatchConcurrency: req.BatchConcurrency,
@@ -934,8 +934,8 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 		if req.MaxIterations == 0 {
 			req.MaxIterations = result.MaxIterations
 		}
-		if req.Archon == "" {
-			req.Archon = result.Archon
+		if req.Audit == "" {
+			req.Audit = result.Audit
 		}
 		if req.MaxPlanRecords == 0 {
 			req.MaxPlanRecords = result.MaxPlanRecords
@@ -1201,10 +1201,10 @@ func (h *Handlers) buildSwarmConfig(req AgentSwarmRequest, projectUUID string) a
 		}
 	}
 
-	// Wire audit harness (archon or piolium, with auto-pick on availability).
+	// Wire audit harness (audit or piolium, with auto-pick on availability).
 	auditCfg, harness := h.resolveSwarmAuditCfgServer(req, sourcePath)
 	if auditCfg != nil {
-		cfg.Archon = auditCfg
+		cfg.Audit = auditCfg
 		cfg.AuditHarness = harness
 	}
 
@@ -1549,7 +1549,7 @@ func (h *Handlers) runBackgroundAgentSwarm(agenticScanUUID string, req AgentSwar
 
 	// Stream live agent output to a log file in the session dir so users can
 	// `tail -f {session_dir}/runtime.log`. Non-nil writer is also required to
-	// keep archon-audit on the working Claude stream-json branch.
+	// keep vigolium-audit on the working Claude stream-json branch.
 	var streamCloser io.Closer
 	if sessionDir != "" {
 		logPath := filepath.Join(sessionDir, config.RuntimeLogFilename)
@@ -1666,7 +1666,7 @@ type sseEvent struct {
 	Phase           string                         `json:"phase,omitempty"`            // for "phase" events
 	Progress        *agent.ProgressEvent           `json:"progress,omitempty"`         // for "progress" events
 	Error           string                         `json:"error,omitempty"`            // for "error" events
-	Driver          string                         `json:"driver,omitempty"`           // for /agent/run/audit driver=auto/both: tags chunk/driver_start/driver_end events with "archon" or "piolium"
+	Driver          string                         `json:"driver,omitempty"`           // for /agent/run/audit driver=auto/both: tags chunk/driver_start/driver_end events with "audit" or "piolium"
 }
 
 // writeSSE marshals an event to JSON and writes it as an SSE data line, then flushes.
@@ -1867,7 +1867,7 @@ func (h *Handlers) HandleAgentSessionDetail(c fiber.Ctx) error {
 
 	detail := agenticScanToSessionDetail(run)
 
-	// Attach child runs (e.g. archon sub-runs spawned by autopilot)
+	// Attach child runs (e.g. audit sub-runs spawned by autopilot)
 	if children, childErr := h.repo.GetChildAgenticScans(c.Context(), agenticScanUUID); childErr == nil && len(children) > 0 {
 		for _, child := range children {
 			detail.ChildRuns = append(detail.ChildRuns, agenticScanToSessionDetail(child))

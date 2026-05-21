@@ -17,7 +17,7 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
-	"github.com/vigolium/vigolium/pkg/archon/claudecost"
+	"github.com/vigolium/vigolium/pkg/audit/claudecost"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/olium"
@@ -151,7 +151,7 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		Intensity:       autopilotIntensity,
 		MaxCommands:     autopilotMaxCommands,
 		MaxDuration:     autopilotMaxDuration,
-		ArchonMode:      autopilotArchon,
+		AuditDriverMode:      autopilotAudit,
 		PioliumMode:     autopilotPiolium,
 		BrowserEnabled:  autopilotBrowser || settings.Agent.Browser.IsEnabled(),
 		NoPrescan:       autopilotNoPrescan,
@@ -159,8 +159,8 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		AgenticScanUUID: parentAgenticScanUUID,
 	})
 
-	// Audit (archon or piolium) runs automatically when --source is set
-	// unless --archon=off (and --piolium empty/off).
+	// Audit (audit or piolium) runs automatically when --source is set
+	// unless --audit=off (and --piolium empty/off).
 	if auditCfg, harness := resolveAutopilotAuditCfg(settings); auditCfg != nil {
 		return runAutopilotOliumPipeline(ctx, settings, repo, instruction, auditCfg, harness,
 			sessionDir, projectUUID, parentAgenticScanUUID, model, startedAt, streamWriter)
@@ -369,17 +369,17 @@ func formatPrescanContext(res *runner.LaunchResult) string {
 // CLI globals already resolved by runAgentAutopilot's auto-pick. Returns
 // (nil, zero-spec) when no audit should run (no source, or both flags off).
 func resolveAutopilotAuditCfg(settings *config.Settings) (*config.AuditAgentConfig, agent.HarnessSpec) {
-	noArchon := autopilotArchon == "off"
-	archonMode := autopilotArchon
-	if noArchon {
-		archonMode = ""
+	noAudit := autopilotAudit == "off"
+	auditModeLocal := autopilotAudit
+	if noAudit {
+		auditModeLocal = ""
 	}
-	return agent.PickAuditHarness(autopilotPiolium, archonMode, noArchon, autopilotSource, settings.Agent.Archon)
+	return agent.PickAuditHarness(autopilotPiolium, auditModeLocal, noAudit, autopilotSource, settings.Agent.Audit)
 }
 
 // runAutopilotOliumPipeline drives the autopilot pipeline runner — the same path
 // the server uses for `POST /api/agent/run/autopilot`. Used when an audit
-// (archon or piolium) should run before the operator agent. Token tracking
+// (audit or piolium) should run before the operator agent. Token tracking
 // and TokenBudget enforcement are not yet plumbed through the pipeline
 // runner; the parent context timeout still applies.
 func runAutopilotOliumPipeline(
@@ -415,7 +415,7 @@ func runAutopilotOliumPipeline(
 		ScanUUID:              globalScanUUID,
 		ParentAgenticScanUUID: parentAgenticScanUUID,
 		StreamWriter:          streamWriter,
-		Archon:                auditCfg,
+		Audit:                auditCfg,
 		AuditHarness:          harness,
 		BrowserEnabled:        autopilotBrowser || settings.Agent.Browser.IsEnabled(),
 		BrowserRequested:      autopilotBrowser || autopilotRequiresBrowser,
@@ -453,7 +453,7 @@ func runAutopilotOliumPipeline(
 
 // finalizeOliumAutopilotPipelineRun closes out the parent AgenticScan row when
 // the run went through the pipeline runner. The pipeline result exposes
-// archon/operator/verified finding counts but not per-call token usage, so the
+// audit/operator/verified finding counts but not per-call token usage, so the
 // finding_count column reflects the highest-fidelity available number.
 func finalizeOliumAutopilotPipelineRun(repo *database.Repository, agenticScanUUID string, startedAt time.Time, result *agent.AutopilotPipelineResult, runErr error) {
 	if repo == nil || agenticScanUUID == "" {
@@ -472,7 +472,7 @@ func finalizeOliumAutopilotPipelineRun(repo *database.Repository, agenticScanUUI
 		Where("uuid = ?", agenticScanUUID)
 
 	if result != nil {
-		findingCount := result.ArchonFindingsCount
+		findingCount := result.FindingsCount
 		if result.VerifiedFindingCount > 0 {
 			findingCount = result.VerifiedFindingCount
 		} else if result.OperatorFindingsCount > findingCount {
@@ -492,7 +492,7 @@ func finalizeOliumAutopilotPipelineRun(repo *database.Repository, agenticScanUUI
 
 // printOliumAutopilotPipelineSummary mirrors printOliumAutopilotSummary's shape
 // but pulls fields from the pipeline result (which has separate counts for
-// archon, operator, and verified findings).
+// audit, operator, and verified findings).
 func printOliumAutopilotPipelineSummary(result *agent.AutopilotPipelineResult, sessionDir string, repo *database.Repository, agenticScanUUID string) {
 	if result == nil {
 		return
@@ -501,13 +501,13 @@ func printOliumAutopilotPipelineSummary(result *agent.AutopilotPipelineResult, s
 	fmt.Printf("%s autopilot complete\n", terminal.InfoSymbol())
 	// Compute the severity breakdown once — the run wrote into one
 	// agentic_scan_uuid bucket, so the same suffix annotates whichever
-	// of archon/operator/verified is the canonical headline number.
+	// of audit/operator/verified is the canonical headline number.
 	breakdown := severityBreakdownSuffix(repo, agenticScanUUID)
 	headlineShown := false
-	if result.ArchonFindingsCount > 0 {
-		fmt.Printf("  archon:    %s findings (saved: %d)%s\n",
-			terminal.BoldGreen(fmt.Sprintf("%d", result.ArchonFindingsCount)),
-			result.ArchonFindingsSaved,
+	if result.FindingsCount > 0 {
+		fmt.Printf("  audit:    %s findings (saved: %d)%s\n",
+			terminal.BoldGreen(fmt.Sprintf("%d", result.FindingsCount)),
+			result.FindingsSaved,
 			breakdown)
 		headlineShown = true
 	}
@@ -606,7 +606,7 @@ type autopilotBannerInputs struct {
 	Intensity       string
 	MaxCommands     int
 	MaxDuration     time.Duration
-	ArchonMode      string
+	AuditDriverMode      string
 	PioliumMode     string
 	BrowserEnabled  bool
 	NoPrescan       bool
@@ -664,23 +664,23 @@ func printAutopilotBanner(in autopilotBannerInputs) {
 	_, _ = fmt.Fprintf(w, "  %s Intensity: %s\n",
 		terminal.Purple(terminal.SymbolInfo), intensityLine)
 
-	// Audit: archon / piolium modes side by side. Only surfaced when
+	// Audit: audit / piolium modes side by side. Only surfaced when
 	// --source is set, since the audit harness is a whitebox-only step
 	// (target-only runs use the native pre-scan path instead). "off"
 	// shows explicitly when source is set so it's obvious neither
 	// harness will run before the operator.
 	if in.SourcePath != "" {
-		archonShown := in.ArchonMode
-		if archonShown == "" {
-			archonShown = "off"
+		auditShown := in.AuditDriverMode
+		if auditShown == "" {
+			auditShown = "off"
 		}
 		pioliumShown := in.PioliumMode
 		if pioliumShown == "" {
 			pioliumShown = "off"
 		}
-		_, _ = fmt.Fprintf(w, "  %s Audit: archon=%s | piolium=%s\n",
+		_, _ = fmt.Fprintf(w, "  %s Audit: audit=%s | piolium=%s\n",
 			terminal.Purple(terminal.SymbolInfo),
-			terminal.Orange(archonShown),
+			terminal.Orange(auditShown),
 			terminal.Orange(pioliumShown))
 	}
 
