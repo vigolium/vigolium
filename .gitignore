@@ -87,8 +87,10 @@ internal/resources/deparos/jsscan/*
 
 internal/resources/spitolas/chromium/*
 
-# sometimes the skill just build a binary in the root of the repo, so let's ignore that too
-./vigolium
+# sometimes the skill just builds a binary in the root of the repo, so ignore that too.
+# Anchored with a leading slash so it only matches the top-level binary — a bare
+# `vigolium` pattern would also match cmd/vigolium/ and silently drop the main package.
+/vigolium
 
 .claude
 OPTIMIZE.md
@@ -97,7 +99,6 @@ PLANNING.md
 PLANNING-*.md
 INTERNAL.md
 INTERNAL-*.md
-vigolium
 build/dist-license/
 build/dist-public/
 build/dist-npm/

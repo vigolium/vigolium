@@ -51,6 +51,15 @@ const (
 	planDropped    = "dropped"
 )
 
+// Tool-name constants. Both tools render the full scratchpad in their result,
+// so the engine's OnToolResult hook in autopilot.go skips re-appending the
+// digest when these are invoked. Centralized so a future rename can't make
+// the hook silently double-emit the plan block.
+const (
+	updatePlanToolName = "update_plan"
+	rememberToolName   = "remember"
+)
+
 func validPlanStatus(s string) bool {
 	switch s {
 	case planPending, planInProgress, planDone, planDropped:
@@ -305,7 +314,7 @@ func NewUpdatePlanTool(sp *ScratchpadContext) tool.Tool { return &updatePlanTool
 
 type updatePlanTool struct{ sp *ScratchpadContext }
 
-func (*updatePlanTool) Name() string     { return "update_plan" }
+func (*updatePlanTool) Name() string     { return updatePlanToolName }
 func (*updatePlanTool) Label() string    { return "Update plan" }
 func (*updatePlanTool) Category() string { return tool.CategoryVigolium }
 func (*updatePlanTool) IsReadOnly() bool { return false }
@@ -401,7 +410,7 @@ func NewRememberTool(sp *ScratchpadContext) tool.Tool { return &rememberTool{sp:
 
 type rememberTool struct{ sp *ScratchpadContext }
 
-func (*rememberTool) Name() string     { return "remember" }
+func (*rememberTool) Name() string     { return rememberToolName }
 func (*rememberTool) Label() string    { return "Remember fact" }
 func (*rememberTool) Category() string { return tool.CategoryVigolium }
 func (*rememberTool) IsReadOnly() bool { return false }

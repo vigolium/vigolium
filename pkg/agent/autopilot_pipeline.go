@@ -960,22 +960,30 @@ func formatFindings(findings []*audit.Finding) string {
 		return ""
 	}
 
-	// Sort by severity first, then by exploitability as a tiebreaker so the
-	// agent sees the most actionable findings first when severity is equal —
-	// a confirmed-PoC high beats a theoretical high, a high-confidence medium
-	// beats a low-confidence medium, etc. Matters mainly for the truncated
-	// Tier 3 path (>40 findings) where only the top N get full detail in the
-	// prompt; without this tiebreaker the leftover slots were filled in audit
-	// order, which is effectively random for the agent's purposes.
-	sorted := make([]*audit.Finding, len(findings))
-	copy(sorted, findings)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		si, sj := severityRank(sorted[i].Severity), severityRank(sorted[j].Severity)
-		if si != sj {
-			return si < sj
+	// Sort by severity first, then exploitability as a tiebreaker so a
+	// confirmed-PoC high beats a theoretical high. Pre-compute both keys
+	// once per finding — sort.SliceStable calls the comparator O(N log N)
+	// times, and exploitabilityScore re-normalizes three strings per call,
+	// so doing it inline turned each finding's keys into 5-7× redundant work.
+	type ranked struct {
+		f         *audit.Finding
+		sevRank   int
+		exploitBy int
+	}
+	ranks := make([]ranked, len(findings))
+	for i, f := range findings {
+		ranks[i] = ranked{f: f, sevRank: severityRank(f.Severity), exploitBy: exploitabilityScore(f)}
+	}
+	sort.SliceStable(ranks, func(i, j int) bool {
+		if ranks[i].sevRank != ranks[j].sevRank {
+			return ranks[i].sevRank < ranks[j].sevRank
 		}
-		return exploitabilityScore(sorted[i]) < exploitabilityScore(sorted[j])
+		return ranks[i].exploitBy < ranks[j].exploitBy
 	})
+	sorted := make([]*audit.Finding, len(ranks))
+	for i, r := range ranks {
+		sorted[i] = r.f
+	}
 
 	var b strings.Builder
 

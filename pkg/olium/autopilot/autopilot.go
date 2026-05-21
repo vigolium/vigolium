@@ -342,16 +342,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		// Spill big tool outputs into the session dir so context stays
 		// bounded but the full payload is recoverable on demand.
 		SpillDir: opts.SessionDir,
-		// Pin the scratchpad digest to every non-scratchpad tool result.
-		// update_plan and remember already return the full render, so
-		// skip them to avoid duplicate plan blocks landing back to back.
-		// This keeps plan state at the conversation tail across long
-		// stretches between scratchpad touches — without it, a 30-turn
-		// query/inspect/replay sequence buries the plan under raw tool
-		// output and the agent loses orientation.
+		// Pin a scratchpad digest at the tail of every other tool result so
+		// plan state survives long stretches of query/inspect/replay between
+		// update_plan/remember calls (which already echo the full render).
 		OnToolResult: func(toolName string, content string, isErr bool) string {
-			switch toolName {
-			case "update_plan", "remember":
+			if toolName == updatePlanToolName || toolName == rememberToolName {
 				return content
 			}
 			digest := scratch.Digest()

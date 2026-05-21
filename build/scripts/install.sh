@@ -21,6 +21,12 @@ TARBALL_SHA1=""   # dist.shasum (sha1) from the registry
 MAX_RETRIES=6
 INITIAL_RETRY_DELAY=2  # seconds
 
+# Fallback CDN installer — used if the primary npm-based install fails for any
+# reason (registry unreachable, platform package missing, download failure, …).
+# Set VIGOLIUM_FROM_CDN_FALLBACK=1 to disable, and to prevent recursion when
+# this very script is the one served from the CDN.
+CDN_INSTALL_URL="${VIGOLIUM_CDN_INSTALL_URL:-https://cdn.vigolium.com/vigolium-release/install.sh}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -469,6 +475,42 @@ update_shell_profile() {
 	fi
 }
 
+# Fall back to the CDN-hosted installer when the npm-based path fails. Skipped
+# if we are already running as the CDN fallback (env-guard prevents recursion).
+fallback_to_cdn() {
+	if [[ "${VIGOLIUM_FROM_CDN_FALLBACK:-0}" == "1" ]]; then
+		error "CDN fallback installer also failed. Please install manually from https://github.com/vigolium/vigolium#install"
+	fi
+
+	warn "Primary install failed; falling back to CDN installer at ${CDN_INSTALL_URL}"
+
+	local installer_tmp
+	installer_tmp=$(mktemp) || error "Failed to create temp file for CDN installer"
+
+	local fetched=0
+	if command_exists curl; then
+		if curl -fsSL "$CDN_INSTALL_URL" -o "$installer_tmp"; then
+			fetched=1
+		fi
+	fi
+	if [[ $fetched -eq 0 ]] && command_exists wget; then
+		if wget -qO "$installer_tmp" "$CDN_INSTALL_URL"; then
+			fetched=1
+		fi
+	fi
+
+	if [[ $fetched -eq 0 ]]; then
+		rm -f "$installer_tmp"
+		error "Failed to download CDN installer from $CDN_INSTALL_URL"
+	fi
+
+	log "Running CDN installer..."
+	VIGOLIUM_FROM_CDN_FALLBACK=1 bash "$installer_tmp"
+	local rc=$?
+	rm -f "$installer_tmp"
+	exit $rc
+}
+
 # Main installation
 main() {
 	log "Starting Vigolium CLI installation..."
@@ -517,4 +559,8 @@ main() {
 	log "Or check out the cloud version at ${LIGHT_GREEN}https://console.vigolium.com${NC}"
 }
 
-main "$@"
+# Run the install in a subshell so a fatal `error` exit doesn't kill us —
+# we want to catch any failure and fall back to the CDN installer.
+if ! ( main "$@" ); then
+	fallback_to_cdn
+fi

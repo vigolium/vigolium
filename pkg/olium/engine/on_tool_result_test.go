@@ -166,10 +166,3 @@ func TestOnToolResultRunsAfterShrink(t *testing.T) {
 			hist[0].Content[max(0, len(hist[0].Content)-32):])
 	}
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

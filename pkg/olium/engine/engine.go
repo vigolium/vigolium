@@ -463,10 +463,7 @@ func (e *Engine) dispatchToolsParallel(ctx context.Context, calls []provider.Too
 	// Append history + emit ExecEnd in original order.
 	for i, tc := range calls {
 		res := results[i]
-		historyContent := e.shrinkToolResult(tc, res.Content)
-		if e.cfg.OnToolResult != nil {
-			historyContent = e.cfg.OnToolResult(tc.Name, historyContent, res.IsError)
-		}
+		historyContent := e.prepareHistoryContent(tc, res)
 		e.mu.Lock()
 		e.history = append(e.history, provider.Message{
 			Role:       provider.RoleTool,
@@ -498,10 +495,7 @@ func (e *Engine) dispatchAndRecord(ctx context.Context, tc provider.ToolCall, ou
 		ToolArgs:     tc.Args,
 	}
 	result := e.dispatchTool(ctx, tc, out)
-	historyContent := e.shrinkToolResult(tc, result.Content)
-	if e.cfg.OnToolResult != nil {
-		historyContent = e.cfg.OnToolResult(tc.Name, historyContent, result.IsError)
-	}
+	historyContent := e.prepareHistoryContent(tc, result)
 	e.mu.Lock()
 	e.history = append(e.history, provider.Message{
 		Role:       provider.RoleTool,
@@ -518,6 +512,18 @@ func (e *Engine) dispatchAndRecord(ctx context.Context, tc provider.ToolCall, ou
 		ToolResult:   result.Content,
 		ToolIsErr:    result.IsError,
 	}
+}
+
+// prepareHistoryContent shrinks/spills the tool output and then runs the
+// OnToolResult hook so callers (autopilot's scratchpad pin) can append
+// state that must outlive the per-tool budget. Both dispatch paths use it
+// to keep the shrink→hook ordering identical.
+func (e *Engine) prepareHistoryContent(tc provider.ToolCall, res tool.Result) string {
+	content := e.shrinkToolResult(tc, res.Content)
+	if e.cfg.OnToolResult != nil {
+		content = e.cfg.OnToolResult(tc.Name, content, res.IsError)
+	}
+	return content
 }
 
 // shrinkToolResult is the engine-aware wrapper around result clamping.
