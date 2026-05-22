@@ -1,4 +1,4 @@
-package agent
+package source
 
 import "testing"
 
@@ -16,8 +16,8 @@ func TestShouldSkipDir(t *testing.T) {
 		"docs", "doc",
 	}
 	for _, d := range skip {
-		if !shouldSkipDir(d) {
-			t.Errorf("expected shouldSkipDir(%q) = true", d)
+		if !ShouldSkipDir(d) {
+			t.Errorf("expected ShouldSkipDir(%q) = true", d)
 		}
 	}
 
@@ -28,8 +28,8 @@ func TestShouldSkipDir(t *testing.T) {
 		"services", "utils", "config", "test", "tests", "spec",
 	}
 	for _, d := range keep {
-		if shouldSkipDir(d) {
-			t.Errorf("expected shouldSkipDir(%q) = false", d)
+		if ShouldSkipDir(d) {
+			t.Errorf("expected ShouldSkipDir(%q) = false", d)
 		}
 	}
 }
@@ -63,8 +63,8 @@ func TestShouldSkipFile(t *testing.T) {
 		"types.d.ts",
 	}
 	for _, f := range skip {
-		if !shouldSkipFile(f) {
-			t.Errorf("expected shouldSkipFile(%q) = true", f)
+		if !ShouldSkipFile(f) {
+			t.Errorf("expected ShouldSkipFile(%q) = true", f)
 		}
 	}
 
@@ -77,8 +77,8 @@ func TestShouldSkipFile(t *testing.T) {
 		".env", ".env.example", "config.yaml",
 	}
 	for _, f := range keep {
-		if shouldSkipFile(f) {
-			t.Errorf("expected shouldSkipFile(%q) = false", f)
+		if ShouldSkipFile(f) {
+			t.Errorf("expected ShouldSkipFile(%q) = false", f)
 		}
 	}
 }
@@ -87,8 +87,8 @@ func TestShouldSkipFile_CaseInsensitive(t *testing.T) {
 	// Extensions should be matched case-insensitively
 	cases := []string{"IMAGE.PNG", "Photo.JPG", "Icon.SVG", "App.Min.JS", "Style.MIN.CSS"}
 	for _, f := range cases {
-		if !shouldSkipFile(f) {
-			t.Errorf("expected shouldSkipFile(%q) = true (case-insensitive)", f)
+		if !ShouldSkipFile(f) {
+			t.Errorf("expected ShouldSkipFile(%q) = true (case-insensitive)", f)
 		}
 	}
 }

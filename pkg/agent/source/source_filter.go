@@ -1,4 +1,4 @@
-package agent
+package source
 
 import (
 	"path/filepath"
@@ -81,14 +81,14 @@ var skipFileSuffixes = []string{
 	".d.ts", // TypeScript declaration files (useful for API surface but noisy)
 }
 
-// shouldSkipDir returns true if the directory name should be skipped during source walks.
-func shouldSkipDir(name string) bool {
+// ShouldSkipDir returns true if the directory name should be skipped during source walks.
+func ShouldSkipDir(name string) bool {
 	return skipDirs[name]
 }
 
-// shouldSkipFile returns true if the file should be excluded from tree listings
+// ShouldSkipFile returns true if the file should be excluded from tree listings
 // and source file collection. Checks extension and multi-part suffixes.
-func shouldSkipFile(name string) bool {
+func ShouldSkipFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	if skipFileExts[ext] {
 		return true
