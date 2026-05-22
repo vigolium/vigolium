@@ -223,7 +223,10 @@ func (m *Module) probeNeighbor(
 		probeContentType = resp.Response().Header.Get("Content-Type")
 		location = resp.Response().Header.Get("Location")
 	}
-	probeBody := resp.Body().Bytes()
+	// Copy the body before Close: resp.Body().Bytes() aliases a buffer that
+	// Close() returns to a process-global pool, so reading probeBody afterwards
+	// is a use-after-free that races with concurrent module execution.
+	probeBody := append([]byte(nil), resp.Body().Bytes()...)
 	probeRequest := string(fuzzedRaw)
 	probeResponse := resp.FullResponse().String()
 	resp.Close()

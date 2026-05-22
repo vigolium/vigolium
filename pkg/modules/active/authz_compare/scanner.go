@@ -242,9 +242,11 @@ func (m *Module) probeWithSession(
 		compareContentType = resp.Response().Header.Get("Content-Type")
 		location = resp.Response().Header.Get("Location")
 	}
-	compareBody := resp.Body().Bytes()
-	// Defer full response serialization until we know a finding will be emitted
-	fullResp := resp.FullResponse()
+	// Copy body + full response before Close: resp.Body()/FullResponse() alias a
+	// buffer that Close() returns to a process-global pool, so reading them
+	// afterwards is a use-after-free that races with concurrent module execution.
+	compareBody := append([]byte(nil), resp.Body().Bytes()...)
+	fullResp := resp.FullResponse().String()
 	resp.Close()
 
 	// Authorization enforced: 401, 403
@@ -308,7 +310,7 @@ func (m *Module) probeWithSession(
 		URL:      urlStr,
 		Matched:  urlStr,
 		Request:  string(ctx.Request().Raw()),
-		Response: fullResp.String(),
+		Response: fullResp,
 		Info: output.Info{
 			Name:        "Cross-Session IDOR / Broken Object Level Authorization",
 			Description: desc,
