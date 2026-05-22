@@ -457,6 +457,16 @@ func (e *Engine) streamOnceWithRetry(
 // the whole run. Deadline exceeded surfaces as an IsError result — the
 // engine loop continues so the model can recover or halt.
 func (e *Engine) dispatchTool(ctx context.Context, tc provider.ToolCall, out chan<- Event) tool.Result {
+	// A tools-less engine (e.g. a single-turn classifier built with no Tools
+	// registry) advertises no tools, but a model can still hallucinate a tool
+	// call. Return a recoverable error result instead of dereferencing a nil
+	// registry — mirrors the nil guards in categoryFor / allParallelizable.
+	if e.cfg.Tools == nil {
+		return tool.Result{
+			Content: fmt.Sprintf("error: tool %q is not available (no tools registered)", tc.Name),
+			IsError: true,
+		}
+	}
 	t, err := e.cfg.Tools.Get(tc.Name)
 	if err != nil {
 		return tool.Result{
