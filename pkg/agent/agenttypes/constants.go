@@ -27,22 +27,24 @@ const (
 
 // AutopilotPipelineResult holds the outcome of an autopilot pipeline run.
 type AutopilotPipelineResult struct {
-	FindingsCount      int
-	FindingsSaved      int
-	FindingsBySeverity map[string]int
-	OperatorFindingsCount    int // findings reported by the autonomous operator via report_finding
-	VerifiedFindingCount     int
-	Degraded                 bool
-	Warnings                 []string
-	BrowserDecision          string
-	ArtifactsDir             string
-	Duration                 time.Duration
-	SessionDir               string
+	FindingsCount         int
+	FindingsSaved         int
+	FindingsBySeverity    map[string]int
+	OperatorFindingsCount int // findings reported by the autonomous operator via report_finding
+	VerifiedFindingCount  int
+	Degraded              bool
+	Warnings              []string
+	BrowserDecision       string
+	ArtifactsDir          string
+	Duration              time.Duration
+	SessionDir            string
+	// Reentries counts how many post-halt coverage-verify re-prompts fired.
+	Reentries int
 }
 
 // AutopilotPhase constants for the agent autopilot mode console output.
 const (
-	AutopilotPhaseAudit    = "audit"
+	AutopilotPhaseAudit     = "audit"
 	AutopilotPhaseAutopilot = "autopilot"
 )
 
@@ -165,7 +167,7 @@ type AppIntent struct {
 	Instruction     string                `json:"instruction,omitempty"`       // leftover context
 	Discover        bool                  `json:"discover,omitempty"`          // implied by target + source combo
 	CodeAudit       bool                  `json:"code_audit,omitempty"`        // implied by source-only
-	Audit          string                `json:"audit,omitempty"`            // "lite", "balanced", "deep", or "" (background vigolium-audit)
+	Audit           string                `json:"audit,omitempty"`             // "lite", "balanced", "deep", or "" (background vigolium-audit)
 	Piolium         string                `json:"piolium,omitempty"`           // piolium mode: "lite", "balanced", "deep", "longshot", etc., or "" (auto-pick / unset)
 	Diff            string                `json:"diff,omitempty"`              // PR URL, git ref range (main...branch), or HEAD~N
 	Files           []string              `json:"files,omitempty"`             // specific files to focus on (relative to source)
@@ -474,10 +476,10 @@ func ValidateIntensity(s string) (Intensity, error) {
 
 // AutopilotIntensityPreset holds the preset values for autopilot at a given intensity.
 type AutopilotIntensityPreset struct {
-	MaxCommands int
-	Timeout     time.Duration
-	AuditDriverMode  string
-	Browser     bool
+	MaxCommands     int
+	Timeout         time.Duration
+	AuditDriverMode string
+	Browser         bool
 	// NativeScanStrategy is the scanning_strategy passed to the pre-scan
 	// kicked off in target-only autopilot runs (no --source). Maps onto the
 	// runner.LaunchParams.ScanningStrategy enum: "lite"|"balanced"|"deep".
@@ -513,7 +515,7 @@ type SwarmIntensityPreset struct {
 	CodeAudit        bool // applied only when source is provided
 	Triage           bool
 	MaxIterations    int
-	Audit           string // audit mode when source is provided; empty = disabled
+	Audit            string // audit mode when source is provided; empty = disabled
 	MaxPlanRecords   int
 	MasterBatchSize  int
 	BatchConcurrency int
@@ -528,21 +530,21 @@ var AutopilotPresets = map[Intensity]AutopilotIntensityPreset{
 	IntensityQuick: {
 		MaxCommands:        150,
 		Timeout:            1 * time.Hour,
-		AuditDriverMode:         "lite",
+		AuditDriverMode:    "lite",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyLite,
 	},
 	IntensityBalanced: {
 		MaxCommands:        500,
 		Timeout:            6 * time.Hour,
-		AuditDriverMode:         "balanced",
+		AuditDriverMode:    "balanced",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyBalanced,
 	},
 	IntensityDeep: {
 		MaxCommands:        1500,
 		Timeout:            12 * time.Hour,
-		AuditDriverMode:         "deep",
+		AuditDriverMode:    "deep",
 		Browser:            true,
 		NativeScanStrategy: ScanStrategyDeep,
 	},
@@ -555,7 +557,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        false,
 		Triage:           false,
 		MaxIterations:    1,
-		Audit:           "lite",
+		Audit:            "lite",
 		MaxPlanRecords:   10,
 		MasterBatchSize:  5,
 		BatchConcurrency: 2,
@@ -569,7 +571,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        true,
 		Triage:           true,
 		MaxIterations:    3,
-		Audit:           "balanced",
+		Audit:            "balanced",
 		MaxPlanRecords:   25,
 		MasterBatchSize:  5,
 		BatchConcurrency: 3,
@@ -583,7 +585,7 @@ var SwarmPresets = map[Intensity]SwarmIntensityPreset{
 		CodeAudit:        true,
 		Triage:           true,
 		MaxIterations:    5,
-		Audit:           "deep",
+		Audit:            "deep",
 		MaxPlanRecords:   50,
 		MasterBatchSize:  10,
 		BatchConcurrency: 5,

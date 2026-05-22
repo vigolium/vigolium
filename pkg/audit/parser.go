@@ -51,12 +51,12 @@ type Import struct {
 	RawFindings  []*Finding
 	State        *State
 	RevisitState *RevisitState // nil when no revisit-audit-state.json exists
-	RepoName     string             // resolved repo name (URL preferred, then slug, then folder basename)
+	RepoName     string        // resolved repo name (URL preferred, then slug, then folder basename)
 }
 
 // State represents the top-level audit-state.json structure.
 type State struct {
-	Audits        []Entry   `json:"audits"`
+	Audits        []Entry        `json:"audits"`
 	MergeMetadata *MergeMetadata `json:"merge_metadata,omitempty"`
 }
 

@@ -119,19 +119,19 @@ type TechStackReport struct {
 // JSFrameworkSignal is a single client-side framework / bundler signal
 // extracted from the base URL response (HTML body or fetched JS).
 type JSFrameworkSignal struct {
-	Name     string `json:"name"`              // "next", "react", "vue", "angular", "vite", "webpack", "svelte", "nuxt"
-	Tag      string `json:"tag,omitempty"`     // module tag the planner can emit
+	Name     string `json:"name"`          // "next", "react", "vue", "angular", "vite", "webpack", "svelte", "nuxt"
+	Tag      string `json:"tag,omitempty"` // module tag the planner can emit
 	Evidence string `json:"evidence,omitempty"`
 }
 
 // VHostFinding records a Host-header variant whose response differs
 // from the baseline in a way worth telling the planner about.
 type VHostFinding struct {
-	Host         string `json:"host"`               // Host header value sent
-	StatusCode   int    `json:"status_code"`        // observed status
-	BodyDelta    int    `json:"body_delta"`         // |observed - baseline| body length
-	BaselineCode int    `json:"baseline_code"`      // baseline status (default GET / with normal Host)
-	Reason       string `json:"reason,omitempty"`   // human-readable why-it-matters
+	Host         string `json:"host"`             // Host header value sent
+	StatusCode   int    `json:"status_code"`      // observed status
+	BodyDelta    int    `json:"body_delta"`       // |observed - baseline| body length
+	BaselineCode int    `json:"baseline_code"`    // baseline status (default GET / with normal Host)
+	Reason       string `json:"reason,omitempty"` // human-readable why-it-matters
 }
 
 // LoginCandidate is a probed page that exposes a login form.

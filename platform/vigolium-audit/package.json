@@ -1,6 +1,6 @@
 {
   "name": "@vigolium/vigolium-audit",
-  "version": "0.1.5-alpha",
+  "version": "0.1.7-alpha",
   "description": "vigolium-audit — autonomous agent that performs thorough security audits on your codebase, part of Vigolium",
   "keywords": [
     "vigolium",
@@ -15,10 +15,10 @@
   "homepage": "https://www.vigolium.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vigolium/archon.git"
+    "url": "git+https://github.com/vigolium/vigolium-audit.git"
   },
   "bugs": {
-    "url": "https://github.com/vigolium/archon/issues"
+    "url": "https://github.com/vigolium/vigolium-audit/issues"
   },
   "author": "Vigolium",
   "license": "MIT",

@@ -2,7 +2,11 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
+
+	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 // AgentConfig holds AI agent integration settings. Dispatch goes through the
@@ -16,7 +20,7 @@ type AgentConfig struct {
 	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
 	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
 	Browser       BrowserConfig       `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
-	Audit        AuditAgentConfig    `yaml:"audit,omitempty"`         // optional vigolium-audit integration for background security audits
+	Audit         AuditAgentConfig    `yaml:"audit,omitempty"`          // optional vigolium-audit integration for background security audits
 	Olium         OliumConfig         `yaml:"olium"`                    // native in-process olium agent engine settings
 }
 
@@ -71,12 +75,86 @@ type OliumConfig struct {
 //
 // ExtraHeaders are applied to every request after the standard headers, so
 // they can override Authorization (handy for backends with non-Bearer auth
-// schemes like `Api-Key: <value>`).
+// schemes like `Api-Key: <value>`). Each entry is a curl-style "Key: Value"
+// string. Use the CLI `.add` / `.clear` operations to mutate the list, e.g.
+// `vigolium config set agent.olium.custom_provider.extra_headers.add "X-Foo: bar"`.
 type CustomProviderConfig struct {
-	BaseURL      string            `yaml:"base_url"`      // full chat-completions URL, e.g. http://localhost:11434/v1/chat/completions (the /v1 root also works — /chat/completions is appended)
-	ModelID      string            `yaml:"model_id"`      // default model when olium.model and --model are empty
-	APIKey       string            `yaml:"api_key"`       // optional; supports ${ENV_VAR} expansion. Empty = no Authorization header sent
-	ExtraHeaders map[string]string `yaml:"extra_headers"` // applied to every request; can override standard headers
+	BaseURL      string          `yaml:"base_url"`      // full chat-completions URL, e.g. http://localhost:11434/v1/chat/completions (the /v1 root also works — /chat/completions is appended)
+	ModelID      string          `yaml:"model_id"`      // default model when olium.model and --model are empty
+	APIKey       string          `yaml:"api_key"`       // optional; supports ${ENV_VAR} expansion. Empty = no Authorization header sent
+	ExtraHeaders ExtraHeaderList `yaml:"extra_headers"` // curl-style "Key: Value" entries applied to every request; can override standard headers
+}
+
+// ExtraHeaderList is a list of curl-style "Key: Value" header strings. It
+// implements UnmarshalYAML to tolerate a small set of legacy/empty shapes
+// (`null`, `{}`) so existing configs that shipped with the empty-map default
+// keep loading. A non-empty YAML map is rejected with a clear error to push
+// users toward the list form.
+type ExtraHeaderList []string
+
+// UnmarshalYAML accepts a list of strings, null, or an empty mapping. A
+// non-empty mapping is rejected.
+func (l *ExtraHeaderList) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case 0, yaml.ScalarNode:
+		// null / empty scalar → leave as nil
+		if node.Tag == "!!null" || node.Value == "" {
+			*l = nil
+			return nil
+		}
+		return fmt.Errorf("extra_headers: expected list of \"Key: Value\" strings, got scalar %q", node.Value)
+	case yaml.SequenceNode:
+		out := make([]string, 0, len(node.Content))
+		for _, item := range node.Content {
+			var s string
+			if err := item.Decode(&s); err != nil {
+				return fmt.Errorf("extra_headers: list entries must be strings: %w", err)
+			}
+			out = append(out, s)
+		}
+		*l = out
+		return nil
+	case yaml.MappingNode:
+		if len(node.Content) == 0 {
+			*l = nil
+			return nil
+		}
+		return fmt.Errorf("extra_headers: map form is no longer supported — use a list of \"Key: Value\" strings (see vigolium config set ... extra_headers.add)")
+	default:
+		return fmt.Errorf("extra_headers: unsupported YAML node kind %d", node.Kind)
+	}
+}
+
+// ExtraHeadersMap parses the curl-style entries into a header map suitable
+// for http.Header.Set. Malformed entries (missing ":") are logged at warn
+// level and skipped. On duplicate keys, the last entry wins — mirroring
+// http.Header.Set semantics.
+func (c *CustomProviderConfig) ExtraHeadersMap() map[string]string {
+	if len(c.ExtraHeaders) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(c.ExtraHeaders))
+	for _, raw := range c.ExtraHeaders {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		name, value, ok := strings.Cut(entry, ":")
+		if !ok {
+			zap.L().Warn("olium/custom_provider: skipping malformed extra_headers entry (expected \"Key: Value\")", zap.String("entry", raw))
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			zap.L().Warn("olium/custom_provider: skipping extra_headers entry with empty header name", zap.String("entry", raw))
+			continue
+		}
+		out[name] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // EffectiveCallTimeout returns the per-call timeout. 0 → 10m default,

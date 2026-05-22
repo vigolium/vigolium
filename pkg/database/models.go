@@ -60,7 +60,7 @@ const (
 	FindingSourceAgent             = "agent"
 	FindingSourceOAST              = "oast"
 	FindingSourceExtension         = "extension"
-	FindingSourceAudit            = "audit"
+	FindingSourceAudit             = "audit"
 	FindingSourceImport            = "import"
 )
 
@@ -81,6 +81,18 @@ const (
 	StatusFalsePositive = "false_positive"
 	StatusAcceptedRisk  = "accepted_risk"
 	StatusFixed         = "fixed"
+)
+
+// Severity constants represent the canonical severity strings stored on a
+// Finding. They match the lowercase keys used by `vigolium finding --severity`
+// and the severity counters on Scan.
+const (
+	SeverityCritical = "critical"
+	SeverityHigh     = "high"
+	SeverityMedium   = "medium"
+	SeverityLow      = "low"
+	SeverityInfo     = "info"
+	SeveritySuspect  = "suspect"
 )
 
 // SourceType constants classify how source code was provided.

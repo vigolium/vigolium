@@ -17,12 +17,12 @@ type fakeTool struct {
 	called bool
 }
 
-func (f *fakeTool) Name() string             { return f.name }
-func (f *fakeTool) Label() string            { return f.name }
-func (f *fakeTool) Description() string      { return "fake" }
-func (f *fakeTool) Schema() map[string]any   { return map[string]any{"type": "object"} }
-func (f *fakeTool) Category() string         { return tool.CategoryBuiltin }
-func (f *fakeTool) IsReadOnly() bool         { return true }
+func (f *fakeTool) Name() string           { return f.name }
+func (f *fakeTool) Label() string          { return f.name }
+func (f *fakeTool) Description() string    { return "fake" }
+func (f *fakeTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (f *fakeTool) Category() string       { return tool.CategoryBuiltin }
+func (f *fakeTool) IsReadOnly() bool       { return true }
 func (f *fakeTool) Execute(_ context.Context, _ map[string]any, _ tool.UpdateFn) (tool.Result, error) {
 	f.called = true
 	return tool.Result{Content: f.out, IsError: f.isErr}, nil

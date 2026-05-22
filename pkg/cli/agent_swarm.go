@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/piolium"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/storage"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -74,7 +75,7 @@ var (
 	swarmRequiresBrowser     bool
 	swarmBrowserStartURL     string
 	swarmFocusRoutes         []string
-	swarmAudit              string
+	swarmAudit               string
 	swarmPiolium             string
 	swarmDiff                string
 	swarmLastCommits         int
@@ -82,6 +83,7 @@ var (
 	swarmUploadResults       bool
 	swarmDisableGuardrail    bool
 	swarmVerbose             bool
+	swarmHeaded              bool
 
 	// swarmInstructionPrefix holds the verbatim natural-language prompt when
 	// swarm was invoked with a positional `<prompt>` argument. See the
@@ -92,48 +94,30 @@ var (
 var agentSwarmCmd = &cobra.Command{
 	Use:   "swarm [prompt]",
 	Short: "Agentic scan: AI-guided targeted vulnerability swarm",
-	Long: `Run an agentic scan swarm against a specific input.
+	Long: `AI-guided vulnerability swarm: a master agent analyzes the target,
+picks scanner modules, generates JS-extension payloads, scans, and triages.
 
-The master agent analyzes the target, selects appropriate scanner modules,
-generates custom attack payloads as JavaScript extensions, executes the scan,
-and triages the results.
-
-Supports natural language prompts as a positional argument:
+Examples (natural-language prompt as positional arg):
   vigolium agent swarm "scan VAmPI source at ~/src/VAmPI on localhost:3005"
-  vigolium agent swarm "scan all source code from ~/src/crAPI, ~/src/DVWA"
-  vigolium agent swarm "Hunt SSRF on https://target/api — only credentialed paths under /v2/billing count"
-
-The prompt is parsed by an AI to extract target URLs, source paths, and focus
-areas, AND is also forwarded verbatim to the master/sub-agents as their
-primary instruction so nuanced hints (scope caveats, exploitation goals,
-false-positive rules) survive unedited. --instruction / --instruction-file,
-if supplied, is appended after the verbatim prompt. Use --dry-run to
-preview what the parser extracts without executing.
-
-Supported input types for --input (auto-detected):
-  - URL:         https://example.com/api/login
-  - Curl:        curl -X POST https://example.com/api -d '{"user":"admin"}'
-  - Raw HTTP:    POST /api HTTP/1.1\r\nHost: example.com\r\n...
-  - Burp XML:    <?xml...><items><item>...</item></items>
-  - Base64:      Base64-encoded raw HTTP request (Burp base64 export)
-  - Record UUID: abc123-... (from http_records table)
-
-When input is piped via stdin, it is automatically read (no --input needed).
-
-Plan file (--plan-file): a single file mixing free-text guidance and raw
-HTTP request(s). Prose before the first request becomes the instruction; the
-request region (split on lines that are exactly "---", or fenced ` + "```http```" + `
-blocks) supplies the seed requests. The swarm feeds every request block as an
-independent seed input. --plan-file cannot be combined with --input/
---instruction/--instruction-file:
+  vigolium agent swarm "Hunt SSRF on https://target/api — only credentialed /v2/billing paths"
   vigolium agent swarm --plan-file ginandjuice-plan.md
 
-Intensity presets (--intensity) bundle multiple settings into a single flag:
-  quick     — Fast scan: discovery + browser, no triage, 2h limit, 1 iteration
-  balanced  — Standard scan (default): discovery + browser + triage, code audit if source, 12h limit
-  deep      — Thorough scan: discovery + browser + auth + triage, 24h limit, 5 iterations
+The prompt is forwarded verbatim to master + sub-agents (scope caveats,
+exploitation goals, false-positive rules survive unedited) and parsed for
+target/source/focus. --instruction appends extra guidance. --dry-run previews
+what the parser extracted.
 
-Explicit flags always override intensity presets.`,
+Inputs (--input, auto-detected; also reads stdin when piped):
+  URL · curl command · raw HTTP · Burp XML · base64 raw HTTP · record UUID
+
+--plan-file: one file mixing prose + raw HTTP request(s) split on "---" or
+fenced ` + "```http```" + ` blocks. Every request block becomes its own seed input.
+Mutually exclusive with --input/--instruction/--instruction-file.
+
+Intensity presets (--intensity), explicit flags override:
+  quick     — discovery + browser, no triage, 2h,  1 iteration
+  balanced  — discovery + browser + triage (+code audit if --source), 12h  (default)
+  deep      — discovery + browser + auth + triage, 24h, 5 iterations`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runAgentSwarm,
 }
@@ -184,6 +168,7 @@ func init() {
 
 	// Browser automation
 	f.BoolVar(&swarmBrowser, "browser", false, "Enable agent-browser for browser-based auth capture and interaction")
+	f.BoolVar(&swarmHeaded, "headed", false, "Show the browser window during in-process probes (browser_probe, web_fetch mode=browser) and inherit to agent-browser subprocesses. Requires --browser to have any effect. Sets VIGOLIUM_BROWSER_HEADED=1 for the duration of the run.")
 	f.BoolVar(&swarmBrowserAuth, "browser-auth", false, "Run browser-based auth phase before discovery (requires --browser)")
 	f.StringVar(&swarmCredentials, "credentials", "", "Credentials for browser auth phase (e.g. 'username=admin,password=secret')")
 
@@ -270,7 +255,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			"code-audit":        cmd.Flags().Changed("code-audit"),
 			"triage":            cmd.Flags().Changed("triage"),
 			"max-iterations":    cmd.Flags().Changed("max-iterations"),
-			"audit":            cmd.Flags().Changed("audit"),
+			"audit":             cmd.Flags().Changed("audit"),
 			"max-plan-records":  cmd.Flags().Changed("max-plan-records"),
 			"master-batch-size": cmd.Flags().Changed("master-batch-size"),
 			"batch-concurrency": cmd.Flags().Changed("batch-concurrency"),
@@ -284,7 +269,7 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			CodeAudit:        swarmCodeAudit,
 			Triage:           swarmTriage,
 			MaxIterations:    swarmMaxIterations,
-			Audit:           swarmAudit,
+			Audit:            swarmAudit,
 			MaxPlanRecords:   swarmMaxPlanRecords,
 			MasterBatchSize:  swarmMasterBatchSize,
 			BatchConcurrency: swarmBatchConcurrency,
@@ -347,6 +332,10 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("browser") {
 		enabled := swarmBrowser
 		settings.Agent.Browser.Enable = &enabled
+	}
+
+	if swarmHeaded {
+		_ = os.Setenv(spitolas.EnvBrowserHeaded, "1")
 	}
 
 	// Override SQLite path if --db flag is set

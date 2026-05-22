@@ -11,22 +11,22 @@ import (
 )
 
 type AutopilotContextBundle struct {
-	Version         string                    `json:"version"`
-	Mode            string                    `json:"mode"`
-	TargetURL       string                    `json:"target,omitempty"`
-	SourcePath      string                    `json:"source_path,omitempty"`
-	DiffRef         string                    `json:"diff_ref,omitempty"`
-	ChangedFiles    []string                  `json:"changed_files,omitempty"`
-	Routes          []AutopilotRouteSummary   `json:"routes,omitempty"`
-	AuthFlows       []AutopilotAuthFlow       `json:"auth_flows,omitempty"`
-	Findings        []AutopilotFindingSummary `json:"findings,omitempty"`
-	Priorities      []string                  `json:"priorities,omitempty"`
+	Version              string                    `json:"version"`
+	Mode                 string                    `json:"mode"`
+	TargetURL            string                    `json:"target,omitempty"`
+	SourcePath           string                    `json:"source_path,omitempty"`
+	DiffRef              string                    `json:"diff_ref,omitempty"`
+	ChangedFiles         []string                  `json:"changed_files,omitempty"`
+	Routes               []AutopilotRouteSummary   `json:"routes,omitempty"`
+	AuthFlows            []AutopilotAuthFlow       `json:"auth_flows,omitempty"`
+	Findings             []AutopilotFindingSummary `json:"findings,omitempty"`
+	Priorities           []string                  `json:"priorities,omitempty"`
 	AuditDriverAvailable bool                      `json:"audit_available"`
 	AuditDriverStatus    string                    `json:"audit_status,omitempty"`
-	PreparedAuth    *AutopilotPreparedAuth    `json:"prepared_auth,omitempty"`
-	BrowserDecision string                    `json:"browser_decision,omitempty"`
-	BrowserReason   string                    `json:"browser_reason,omitempty"`
-	Warnings        []string                  `json:"warnings,omitempty"`
+	PreparedAuth         *AutopilotPreparedAuth    `json:"prepared_auth,omitempty"`
+	BrowserDecision      string                    `json:"browser_decision,omitempty"`
+	BrowserReason        string                    `json:"browser_reason,omitempty"`
+	Warnings             []string                  `json:"warnings,omitempty"`
 }
 
 type AutopilotRouteSummary struct {
@@ -118,13 +118,13 @@ func buildAutopilotContextBundle(cfg AutopilotPipelineConfig, ac *auditContextSt
 	}
 
 	bundle := AutopilotContextBundle{
-		Version:         "autopilot",
-		Mode:            mode,
-		TargetURL:       cfg.TargetURL,
-		SourcePath:      cfg.SourcePath,
+		Version:              "autopilot",
+		Mode:                 mode,
+		TargetURL:            cfg.TargetURL,
+		SourcePath:           cfg.SourcePath,
 		AuditDriverAvailable: ac != nil,
 		AuditDriverStatus:    auditStatus,
-		Warnings:        append([]string(nil), warnings...),
+		Warnings:             append([]string(nil), warnings...),
 	}
 
 	if cfg.DiffContext != nil {

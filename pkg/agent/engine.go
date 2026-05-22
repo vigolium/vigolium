@@ -244,6 +244,9 @@ func (e *Engine) runOnSession(ctx context.Context, opts Options, eng *oengine.En
 
 	case "exploitation_evidence":
 		// Parsed by autopilot pipeline runner.
+
+	case agenttypes.TriageConfirmOutputSchema:
+		// Parsed by the agent triage CLI subcommand; engine just carries raw output.
 	}
 
 	return result, nil

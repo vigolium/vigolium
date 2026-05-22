@@ -39,7 +39,6 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/vigolium/vigolium/pkg/database"
-	
 )
 
 // ---------------------------------------------------------------------------
@@ -96,7 +95,6 @@ func pocBuildApp(t *testing.T, repo *database.Repository) *fiber.App {
 		NoSwagger: true,
 	}
 
-	
 	rw := database.NewRecordWriter(repo, database.RecordWriterConfig{})
 	handlers := NewHandlers(nil, db, repo, rw, cfg, nil, nil, nil)
 

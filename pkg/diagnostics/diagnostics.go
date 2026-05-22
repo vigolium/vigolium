@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -75,11 +76,12 @@ type Report struct {
 	Status          Status                `json:"status"` // "ready", "degraded", "not_ready"
 	Timestamp       string                `json:"timestamp"`
 	Database        *CheckResult          `json:"database"`
+	Initialized     *CheckResult          `json:"initialized"`
 	Queue           *CheckResult          `json:"queue,omitempty"`
 	Agent           *AgentCheck           `json:"agent"`
 	Browser         *CheckResult          `json:"browser"`
 	SessionsDir     *CheckResult          `json:"sessions_dir"`
-	Audit          *CheckResult          `json:"audit,omitempty"`  // omitted when audit integration is disabled
+	Audit           *CheckResult          `json:"audit,omitempty"`   // omitted when audit integration is disabled
 	Piolium         *CheckResult          `json:"piolium,omitempty"` // soft check — feature-gates audit --driver=piolium
 	Tools           map[string]*ToolCheck `json:"tools"`
 	TemplatesDir    *CheckResult          `json:"templates_dir"`
@@ -153,6 +155,7 @@ func Run(deps Deps) *Report {
 	}
 
 	r.Database = checkDatabase(deps.DB, deps.DBErr)
+	r.Initialized = checkInitMarker()
 	r.Queue = checkQueue(deps.Queue)
 	r.Agent = checkAgent(settings)
 	r.Browser = checkBrowser(settings)
@@ -301,6 +304,85 @@ func checkDatabase(db *database.DB, dbErr error) *CheckResult {
 		Status:  StatusOK,
 		Message: fmt.Sprintf("driver=%s, schema=ok", driver),
 		Details: details,
+	}
+}
+
+// checkInitMarker inspects ~/.vigolium/initialized, the sentinel written by
+// ensureCoreDeps after the first-run dependency setup (chromium + nuclei
+// templates) completes. The marker is a status/debugging surface — its
+// absence here just means the user has not yet run a scan-touching command,
+// not that anything is broken — so the result is StatusWarning at worst and
+// never affects overall readiness.
+func checkInitMarker() *CheckResult {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return &CheckResult{
+			Status:  StatusWarning,
+			Message: fmt.Sprintf("cannot resolve home directory: %v", err),
+		}
+	}
+	markerPath := filepath.Join(home, ".vigolium", "initialized")
+	details := []string{fmt.Sprintf("checking marker: %s", markerPath)}
+
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return &CheckResult{
+				Status:  StatusWarning,
+				Message: "first-run dep setup not yet completed",
+				Details: details,
+				Tip:     "Run any scan command (e.g. `vigolium scan-url <target>`) or `vigolium init` to trigger the chromium + nuclei-templates install and stamp the marker.",
+			}
+		}
+		return &CheckResult{
+			Status:  StatusWarning,
+			Message: fmt.Sprintf("read failed: %v", err),
+			Details: details,
+		}
+	}
+
+	var meta struct {
+		Version       string `json:"version"`
+		InitializedAt string `json:"initialized_at"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return &CheckResult{
+			Status:  StatusWarning,
+			Message: fmt.Sprintf("marker malformed: %v", err),
+			Details: append(details, fmt.Sprintf("raw contents: %s", strings.TrimSpace(string(data)))),
+			Tip:     "Re-run `vigolium init --force` to regenerate the marker (also rotates auth_api_key and re-extracts presets).",
+		}
+	}
+
+	msg := fmt.Sprintf("path=%s, version=%s", config.ContractPath(markerPath), meta.Version)
+	details = append(details, fmt.Sprintf("version: %s", meta.Version))
+	if meta.InitializedAt != "" {
+		details = append(details, fmt.Sprintf("initialized_at: %s", meta.InitializedAt))
+		if ts, err := time.Parse(time.RFC3339, meta.InitializedAt); err == nil {
+			msg += ", initialized " + roundedAge(time.Since(ts))
+		}
+	}
+	return &CheckResult{
+		Status:  StatusOK,
+		Message: msg,
+		Details: details,
+	}
+}
+
+// roundedAge formats a duration as a coarse "Nm ago" / "Nh ago" / "Nd ago"
+// suffix for the doctor "initialized X" line, collapsing sub-minute deltas to
+// "just now". The default time.Duration string would carry seconds and
+// nanoseconds — too noisy for an at-a-glance status row.
+func roundedAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 

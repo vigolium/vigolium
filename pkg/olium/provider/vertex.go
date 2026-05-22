@@ -47,8 +47,15 @@ func newVertexTransport(a *auth.VertexAuth, project, location string) *vertexTra
 		auth:     a,
 		project:  project,
 		location: location,
-		client:   &http.Client{},
+		client:   newHTTPClient(),
 	}
+}
+
+// CloseIdleConnections drops idle HTTP/2 conns on the underlying transport.
+// Both AnthropicVertex and GoogleVertex share this transport so resetting
+// it covers either wrapper.
+func (v *vertexTransport) CloseIdleConnections() {
+	v.client.CloseIdleConnections()
 }
 
 // requireProjectAndLocation returns an error if either is missing. Callers

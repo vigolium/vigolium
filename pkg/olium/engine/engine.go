@@ -64,7 +64,35 @@ type Config struct {
 	// non-scratchpad tool result so plan state stays at the conversation
 	// tail across long stretches between update_plan / remember calls.
 	OnToolResult func(toolName string, content string, isErr bool) string
+
+	// RetryInitialBackoff sets the first sleep between transient-stream-error
+	// retries inside streamOnceWithRetry; each subsequent retry doubles up
+	// to maxBackoff (10s). 0 = DefaultRetryInitialBackoff (1s). Tests set
+	// this to ms-scale so they don't spend seconds on backoff sleeps.
+	RetryInitialBackoff time.Duration
+
+	// NudgeOnEmptyToolCalls caps how many consecutive text-only turns
+	// (no tool_calls) the engine tolerates before exiting. After each empty
+	// turn within the cap, NudgeOnEmptyMessage is appended as a user-role
+	// message and the loop continues so the model gets one more chance to
+	// either resume work or call the agent's halt tool. 0 = disabled
+	// (legacy behavior: first empty turn ends the run). Use for agentic
+	// loops where a capable model is expected to keep calling tools and a
+	// silent text-only turn means the model has lost the loop — typical
+	// with small open-weight models that don't reliably emit tool_calls.
+	NudgeOnEmptyToolCalls int
+
+	// NudgeOnEmptyMessage is the user-role text injected after an empty
+	// turn when NudgeOnEmptyToolCalls > 0. Empty = a generic default that
+	// asks for either a tool call or a halt. Callers that wire a specific
+	// halt tool (autopilot's halt_scan) should override with a message
+	// that names it explicitly.
+	NudgeOnEmptyMessage string
 }
+
+// DefaultRetryInitialBackoff is the first sleep between transient stream
+// retries when Config.RetryInitialBackoff is unset.
+const DefaultRetryInitialBackoff = time.Second
 
 // DefaultMaxToolResultBytes is the cap applied to each tool result when
 // the engine appends it to conversation history. Tools that legitimately
@@ -73,13 +101,20 @@ type Config struct {
 // sees the start and the most recent context.
 const DefaultMaxToolResultBytes = 16 * 1024
 
+// defaultNudgeOnEmptyMessage is used when NudgeOnEmptyToolCalls > 0 but
+// NudgeOnEmptyMessage is empty. Generic enough not to assume any specific
+// halt-tool name; callers with a custom halt tool should override.
+const defaultNudgeOnEmptyMessage = "No tool was called and no halt was requested. Either pick the next concrete step and invoke a tool now, or call a halt tool with a one-line reason. Do not respond with text alone."
+
 // Engine is the multi-turn agent runtime. One Engine handles one
 // conversation; call Run per user prompt.
 type Engine struct {
 	cfg              Config
 	maxT             int
 	toolTimeout      time.Duration
-	maxToolResultLen int // 0 disables truncation
+	maxToolResultLen int    // 0 disables truncation
+	nudgeOnEmpty     int    // 0 = disabled
+	nudgeMessage     string // resolved at construction; empty only when nudgeOnEmpty == 0
 	mu               sync.Mutex
 	history          []provider.Message
 }
@@ -106,11 +141,20 @@ func New(cfg Config) *Engine {
 	if cfg.Skills != nil && cfg.Skills.Len() > 0 {
 		cfg.System = skill.InjectIntoSystemPrompt(cfg.System, cfg.Skills)
 	}
+	nudgeMsg := ""
+	if cfg.NudgeOnEmptyToolCalls > 0 {
+		nudgeMsg = strings.TrimSpace(cfg.NudgeOnEmptyMessage)
+		if nudgeMsg == "" {
+			nudgeMsg = defaultNudgeOnEmptyMessage
+		}
+	}
 	return &Engine{
 		cfg:              cfg,
 		maxT:             max,
 		toolTimeout:      toolTO,
 		maxToolResultLen: maxResLen,
+		nudgeOnEmpty:     cfg.NudgeOnEmptyToolCalls,
+		nudgeMessage:     nudgeMsg,
 	}
 }
 
@@ -136,6 +180,8 @@ func (e *Engine) Fork() *Engine {
 		maxT:             e.maxT,
 		toolTimeout:      e.toolTimeout,
 		maxToolResultLen: e.maxToolResultLen,
+		nudgeOnEmpty:     e.nudgeOnEmpty,
+		nudgeMessage:     e.nudgeMessage,
 		history:          snapshot,
 	}
 }
@@ -177,6 +223,7 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 
 	tools := e.toolDefs()
 
+	emptyStreak := 0
 	for turn := 0; turn < e.maxT; turn++ {
 		select {
 		case <-ctx.Done():
@@ -192,7 +239,7 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 			Tools:        tools,
 			CacheControl: e.cfg.EnablePromptCache,
 		}
-		stopReason, usage, toolCalls, assistantText, err := e.streamOnce(ctx, req, out)
+		stopReason, usage, toolCalls, assistantText, err := e.streamOnceWithRetry(ctx, req, out)
 		if err != nil {
 			out <- Event{Type: EventError, Err: err.Error()}
 			return
@@ -212,9 +259,35 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 		out <- Event{Type: EventTurnDone, StopReason: stopReason, Usage: usage}
 
 		if len(toolCalls) == 0 {
+			// Text-only turn. Small open-weight models routinely lose the
+			// tool-calling loop here and silently wrap up after 0-record
+			// queries; legacy behavior was to treat the first empty turn as
+			// natural completion and exit. With NudgeOnEmptyToolCalls > 0,
+			// we instead append a user-role reminder and re-stream — up to
+			// the cap — so the model gets a concrete chance to either resume
+			// work or call the agent's halt tool explicitly. A capable model
+			// that's truly done responds to the nudge by halting (one extra
+			// round); a weak one usually gets prodded back into the loop.
+			if emptyStreak < e.nudgeOnEmpty {
+				emptyStreak++
+				e.mu.Lock()
+				e.history = append(e.history, provider.Message{
+					Role: provider.RoleUser,
+					Text: e.nudgeMessage,
+				})
+				e.mu.Unlock()
+				out <- Event{
+					Type:  EventInfo,
+					Delta: fmt.Sprintf("empty tool-call turn; nudging model to act or halt (%d/%d)", emptyStreak, e.nudgeOnEmpty),
+				}
+				continue
+			}
 			out <- Event{Type: EventRunDone, Usage: usage}
 			return
 		}
+		// Productive turn — clear the empty streak so the next stall is
+		// counted from zero, not the cumulative run total.
+		emptyStreak = 0
 
 		// Execute tool calls. When every call in the batch is read-only
 		// (read_file, ls, grep, glob, web_fetch), run them concurrently
@@ -245,26 +318,23 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 	out <- Event{Type: EventError, Err: fmt.Sprintf("exceeded max turns (%d)", e.maxT)}
 }
 
-// streamOnce runs a single provider stream and forwards text/thinking
-// events; it returns the collected assistant text and tool calls for the
-// engine to persist.
+// streamOnce runs a single provider stream and forwards its events.
+// toolStarted=true means a tool-call-start was emitted without a matching
+// end — the retry guard uses this to avoid producing a phantom
+// announcement on a fresh attempt.
 func (e *Engine) streamOnce(
 	ctx context.Context,
 	req provider.Request,
 	out chan<- Event,
-) (stream.StopReason, *stream.Usage, []provider.ToolCall, string, error) {
+) (stopReason stream.StopReason, usage *stream.Usage, toolCalls []provider.ToolCall, text string, toolStarted bool, err error) {
 	ch, err := e.cfg.Provider.Stream(ctx, req)
 	if err != nil {
-		return "", nil, nil, "", err
+		return "", nil, nil, "", false, err
 	}
 
 	var (
-		text         string
-		toolCalls    []provider.ToolCall
 		currentTC    *provider.ToolCall
 		currentTCBuf string
-		stopReason   stream.StopReason
-		usage        *stream.Usage
 	)
 
 	for ev := range ch {
@@ -295,6 +365,7 @@ func (e *Engine) streamOnce(
 					ToolCallID: ev.ToolCall.ID,
 					ToolName:   ev.ToolCall.Name,
 				}
+				toolStarted = true
 			}
 
 		case stream.EventToolCallDelta:
@@ -308,6 +379,10 @@ func (e *Engine) streamOnce(
 				toolCalls = append(toolCalls, *currentTC)
 				currentTC = nil
 				currentTCBuf = ""
+				// Matching end clears the in-flight start so a later
+				// failure on the same stream (after one fully resolved
+				// tool call) doesn't gate retry on a stale start.
+				toolStarted = false
 			}
 
 		case stream.EventDone:
@@ -315,11 +390,65 @@ func (e *Engine) streamOnce(
 			usage = ev.Usage
 
 		case stream.EventError:
-			return stopReason, usage, toolCalls, text, fmt.Errorf("%s", ev.Err)
+			return stopReason, usage, toolCalls, text, toolStarted, fmt.Errorf("%s", ev.Err)
 		}
 	}
 
-	return stopReason, usage, toolCalls, text, nil
+	return stopReason, usage, toolCalls, text, toolStarted, nil
+}
+
+// streamOnceWithRetry wraps streamOnce so a transient upstream stream
+// failure (HTTP/2 INTERNAL_ERROR, REFUSED_STREAM, GOAWAY, idle reset)
+// retries instead of tearing down the whole multi-turn loop. Text and
+// thinking deltas are safe to dup on retry (cosmetic only — the operator
+// sees a notice line followed by the fresh attempt's output). The one
+// terminal case is an in-flight tool-call-start without a matching end:
+// retrying then would leave a phantom announcement with no exec.
+func (e *Engine) streamOnceWithRetry(
+	ctx context.Context,
+	req provider.Request,
+	out chan<- Event,
+) (stream.StopReason, *stream.Usage, []provider.ToolCall, string, error) {
+	const (
+		maxAttempts = 3
+		maxBackoff  = 10 * time.Second
+	)
+	backoff := e.cfg.RetryInitialBackoff
+	if backoff <= 0 {
+		backoff = DefaultRetryInitialBackoff
+	}
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		stopReason, usage, toolCalls, text, toolStarted, err := e.streamOnce(ctx, req, out)
+		if err == nil {
+			return stopReason, usage, toolCalls, text, nil
+		}
+		lastErr = err
+		if !stream.IsTransientErr(err) || toolStarted || ctx.Err() != nil {
+			return stopReason, usage, toolCalls, text, err
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		out <- Event{
+			Type:  EventInfo,
+			Delta: fmt.Sprintf("transient upstream stream error (attempt %d/%d): %s; retrying in %s — assistant text above may be partial, retry will reproduce it in full", attempt+1, maxAttempts, err.Error(), backoff),
+		}
+		// Force a fresh TCP+TLS conn for the retry — riding the same conn
+		// that just got RST'd often hits the same upstream poisoning.
+		if r, ok := e.cfg.Provider.(provider.ConnectionResetter); ok {
+			r.CloseIdleConnections()
+		}
+		select {
+		case <-ctx.Done():
+			return stopReason, usage, toolCalls, text, ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	return "", nil, nil, "", lastErr
 }
 
 // dispatchTool runs one tool call and returns its result. Emits progress

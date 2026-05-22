@@ -133,35 +133,19 @@ func FireAgenticScan(settings *config.Settings, repo *database.Repository, agent
 	sender.PostAsync(payload)
 }
 
-// agenticSeverityCounts groups findings rows by severity for the given
-// agentic scan. Returns a map with the canonical severity keys initialized
-// to 0 even when there are no rows.
+// agenticSeverityCounts returns finding counts grouped by severity for one
+// agentic scan, with canonical severity keys (critical/high/medium/low/info)
+// always present (zero if absent) so downstream JSON payload shape stays
+// stable. Unknown severities are preserved verbatim.
 func agenticSeverityCounts(ctx context.Context, repo *database.Repository, agenticScanUUID string) map[string]int {
 	counts := map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-
-	type row struct {
-		Severity string `bun:"severity"`
-		N        int    `bun:"n"`
-	}
-	var rows []row
-	err := repo.DB().NewSelect().
-		Model((*database.Finding)(nil)).
-		ColumnExpr("severity").
-		ColumnExpr("count(*) AS n").
-		Where("agentic_scan_uuid = ?", agenticScanUUID).
-		Group("severity").
-		Scan(ctx, &rows)
+	rows, err := database.CountFindingsByAgenticScan(ctx, repo.DB(), agenticScanUUID)
 	if err != nil {
 		zap.L().Debug("[Notify] webhook: severity aggregation failed", zap.String("agentic_scan_uuid", agenticScanUUID), zap.Error(err))
 		return counts
 	}
-	for _, r := range rows {
-		key := strings.ToLower(strings.TrimSpace(r.Severity))
-		if _, ok := counts[key]; !ok {
-			// preserve unknown severities (e.g. "suspect") rather than dropping them
-			counts[key] = 0
-		}
-		counts[key] += r.N
+	for key, n := range rows {
+		counts[key] = int(n)
 	}
 	return counts
 }

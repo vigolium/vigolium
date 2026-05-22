@@ -80,7 +80,7 @@ func ClassifyPromptSafety(ctx context.Context, settings *config.Settings, userPr
 		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
 	})
 	if err != nil {
 		zap.L().Warn("guardrail: provider resolve failed, allowing prompt", zap.Error(err))

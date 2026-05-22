@@ -148,6 +148,11 @@ func printDoctorReport(r *diagnostics.Report) {
 		printDetails(true, r.Database.Details)
 		printTip(r.Database.Tip)
 	}
+	if r.Initialized != nil {
+		printCheck("Initialized", r.Initialized.Status, r.Initialized.Message)
+		printDetails(true, r.Initialized.Details)
+		printTip(r.Initialized.Tip)
+	}
 
 	// ── Native scan ──
 	printDoctorSection("Native scan", "vigolium scan / vigolium run")

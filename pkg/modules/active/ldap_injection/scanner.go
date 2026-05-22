@@ -1,8 +1,8 @@
 package ldap_injection
 
 import (
+	"crypto/sha256"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -13,6 +13,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 )
+
+// Boolean-based differential thresholds. A wildcard response is only flagged
+// when it diverges from the comparison signature by BOTH an absolute and a
+// relative margin — status-only flips and small content drift don't count.
+const (
+	booleanMinAbsoluteDelta = 100
+	booleanMinRelativeDelta = 0.30
+)
+
+// controlPayload is the "no-match" probe paired with the wildcard. It looks
+// like ordinary parameter data (no LDAP metacharacters, no WAF triggers) and
+// is overwhelmingly unlikely to match any real LDAP attribute, giving a stable
+// reference for what the endpoint returns when the value just doesn't match.
+const controlPayload = "vigolium_ldap_nomatch_zZ9qX7cB"
 
 // ldapErrorPatterns are strings that indicate LDAP-related errors in responses.
 var ldapErrorPatterns = []string{
@@ -106,11 +120,9 @@ func (m *Module) ScanPerInsertionPoint(
 	// Get baseline response body
 	var baselineBody string
 	var baselineStatus int
-	var baselineLen int
 	if ctx.Response() != nil {
 		baselineBody = ctx.Response().BodyToString()
 		baselineStatus = ctx.Response().StatusCode()
-		baselineLen = len(baselineBody)
 	}
 
 	// Skip if baseline already contains LDAP error strings
@@ -158,55 +170,142 @@ func (m *Module) ScanPerInsertionPoint(
 		resp.Close()
 	}
 
-	// Boolean-based detection: inject wildcard and compare response
+	// Boolean-based detection: send a TRUE-like wildcard probe and a
+	// "no-match" control probe alongside the baseline. The wildcard is only
+	// flagged if its response is *uniquely* different — substantially diverging
+	// from BOTH the baseline AND the control. Comparing against a control
+	// filters out endpoints that simply reflect any user input (search forms
+	// echoing the query, dynamic listings, etc.), where wildcard and control
+	// would both differ from baseline by similar amounts but look like each
+	// other. Genuine LDAP filter expansion produces a wildcard response that
+	// no normal value (control) can reproduce.
+	baselineSig := newResponseSignature(baselineStatus, baselineBody)
+
 	wildcardRaw := ip.BuildRequest([]byte("*"))
-	wildcardReq, err := httpmsg.ParseRawRequest(string(wildcardRaw))
-	if err != nil {
+	wildcardSig, wildcardFull, ok := m.probeSignature(ctx, httpClient, wildcardRaw)
+	if !ok {
 		return results, nil
 	}
-	wildcardReq = wildcardReq.WithService(ctx.Service())
 
-	resp, _, err := httpClient.Execute(wildcardReq, http.Options{})
-	if err != nil {
-		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+	controlRaw := ip.BuildRequest([]byte(controlPayload))
+	controlSig, _, ok := m.probeSignature(ctx, httpClient, controlRaw)
+	if !ok {
+		return results, nil
+	}
+
+	// Suppress when either probe is blocked by a WAF/auth/rate-limit layer but
+	// the baseline wasn't — the gateway is reacting to the probe value, not the
+	// app interpreting it as an LDAP filter. The block page also explains any
+	// body-length delta.
+	if !isAccessDenied(baselineStatus) {
+		if isAccessDenied(wildcardSig.statusCode) || isAccessDenied(controlSig.statusCode) {
 			return results, nil
 		}
+	}
+
+	// Require the wildcard response to diverge substantially from BOTH the
+	// baseline AND the control. Both deltas must clear the absolute+relative
+	// gate, so a single anomalous probe (e.g., transient 5xx) can't carry the
+	// finding on its own.
+	if !hasSubstantialBodyDifference(wildcardSig, baselineSig) {
+		return results, nil
+	}
+	if !hasSubstantialBodyDifference(wildcardSig, controlSig) {
 		return results, nil
 	}
 
-	wildcardBody := resp.Body().String()
-	wildcardStatus := resp.Response().StatusCode
-	wildcardLen := len(wildcardBody)
-
-	// Suppress when the wildcard probe is blocked by a WAF/auth/rate-limit layer
-	// but the baseline wasn't — that's the WAF reacting to the `*` value, not LDAP
-	// filter manipulation. The block page also explains any body-length delta.
-	if isAccessDenied(wildcardStatus) && !isAccessDenied(baselineStatus) {
-		resp.Close()
-		return results, nil
-	}
-
-	// Check for significant differences suggesting LDAP filter manipulation
-	statusDiff := wildcardStatus != baselineStatus
-	lenDiff := baselineLen > 0 && math.Abs(float64(wildcardLen-baselineLen))/float64(baselineLen) > 0.3
-
-	if statusDiff || lenDiff {
-		results = append(results, &output.ResultEvent{
-			URL:              urlx.String(),
-			Matched:          urlx.String(),
-			Request:          string(wildcardRaw),
-			Response:         resp.FullResponse().String(),
-			FuzzingParameter: ip.Name(),
-			ExtractedResults: []string{fmt.Sprintf("baseline_status=%d wildcard_status=%d baseline_len=%d wildcard_len=%d", baselineStatus, wildcardStatus, baselineLen, wildcardLen)},
-			Info: output.Info{
-				Name:        "LDAP Injection: boolean-based",
-				Description: fmt.Sprintf("Wildcard injection in parameter %q produced a significantly different response, suggesting LDAP filter manipulation", ip.Name()),
-			},
-		})
-	}
-	resp.Close()
+	results = append(results, &output.ResultEvent{
+		URL:              urlx.String(),
+		Matched:          urlx.String(),
+		Request:          string(wildcardRaw),
+		Response:         wildcardFull,
+		FuzzingParameter: ip.Name(),
+		ExtractedResults: []string{fmt.Sprintf(
+			"baseline_status=%d baseline_len=%d wildcard_status=%d wildcard_len=%d control_status=%d control_len=%d",
+			baselineSig.statusCode, baselineSig.bodyLength,
+			wildcardSig.statusCode, wildcardSig.bodyLength,
+			controlSig.statusCode, controlSig.bodyLength,
+		)},
+		Info: output.Info{
+			Name:        "LDAP Injection: boolean-based",
+			Description: fmt.Sprintf("Wildcard injection in parameter %q produced a response that differs substantially from both the baseline and a no-match control, suggesting LDAP filter manipulation", ip.Name()),
+		},
+	})
 
 	return results, nil
+}
+
+// responseSignature captures key response attributes for differential comparison.
+type responseSignature struct {
+	statusCode int
+	bodyLength int
+	bodyHash   [32]byte
+}
+
+func newResponseSignature(statusCode int, body string) responseSignature {
+	return responseSignature{
+		statusCode: statusCode,
+		bodyLength: len(body),
+		bodyHash:   sha256.Sum256([]byte(body)),
+	}
+}
+
+// hasSubstantialBodyDifference reports whether two responses diverge by both an
+// absolute (>booleanMinAbsoluteDelta bytes) and a relative
+// (>=booleanMinRelativeDelta) margin. Status-code flips alone are not enough —
+// the body content has to actually change in a meaningful way, which is what
+// LDAP filter manipulation produces (filter expanded → more matched records →
+// larger or structurally different page).
+func hasSubstantialBodyDifference(a, b responseSignature) bool {
+	if a.bodyHash == b.bodyHash {
+		return false
+	}
+	diff := a.bodyLength - b.bodyLength
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff <= booleanMinAbsoluteDelta {
+		return false
+	}
+	maxLen := a.bodyLength
+	if b.bodyLength > maxLen {
+		maxLen = b.bodyLength
+	}
+	if maxLen == 0 {
+		return false
+	}
+	return float64(diff)/float64(maxLen) >= booleanMinRelativeDelta
+}
+
+// probeSignature sends a single fuzzed request and returns its response
+// signature along with the full response string. The boolean ok is false when
+// the request couldn't be sent or the host became unresponsive — callers
+// should abort the boolean-based pass in that case rather than treat the
+// missing probe as evidence.
+func (m *Module) probeSignature(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	rawReq []byte,
+) (responseSignature, string, bool) {
+	req, err := httpmsg.ParseRawRequest(string(rawReq))
+	if err != nil {
+		return responseSignature{}, "", false
+	}
+	req = req.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(req, http.Options{})
+	if err != nil {
+		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+			return responseSignature{}, "", false
+		}
+		return responseSignature{}, "", false
+	}
+	defer resp.Close()
+
+	body := resp.Body().String()
+	sig := newResponseSignature(resp.Response().StatusCode, body)
+	full := resp.FullResponse().String()
+	return sig, full, true
 }
 
 // isAccessDenied returns true for status codes that indicate the request was

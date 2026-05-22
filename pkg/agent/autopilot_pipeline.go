@@ -108,6 +108,26 @@ type AutopilotPipelineConfig struct {
 	ContextBundle *AutopilotContextBundle
 	Plan          *AutopilotExecutionPlan
 	Artifacts     AutopilotArtifactSpec
+
+	// PreflightDiscovery enables a discovery + Swagger/OpenAPI ingestion
+	// pass before the operator agent starts. The records land in the
+	// project DB so the agent's first turn can `list_findings` and
+	// `query_records` against real attack surface instead of starting
+	// blank. Skipped silently when TargetURL is empty. Default true via
+	// the CLI/API wirers; explicitly settable to false to disable.
+	PreflightDiscovery bool
+
+	// PostHaltVerify enables the autopilot's post-halt coverage
+	// verification loop. After the model calls halt_scan, the runner
+	// runs another discovery + spec ingest pass, diffs new routes
+	// against the pre-halt snapshot, and re-enters the agent once if
+	// the gap meets PostHaltGapThreshold. Default true via the wirers.
+	PostHaltVerify bool
+
+	// PostHaltGapThreshold is the minimum number of new (method, URL)
+	// signatures the post-halt probe must turn up before the agent is
+	// re-entered. 0 = autopilot default (5).
+	PostHaltGapThreshold int
 }
 
 // AutopilotPipelineRunner orchestrates the autopilot pipeline.
@@ -209,7 +229,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		var stats FindingStats
 		stats = auditRunner.FindingStats()
 		if r.repo != nil {
-			fallback := r.importFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.AuditHarness)
+			fallback := r.importFindings(cfg.SessionDir, cfg.ProjectUUID, cfg.ScanUUID, cfg.ParentAgenticScanUUID, cfg.AuditHarness)
 			stats = mergeFindingStats(stats, fallback)
 		}
 		if stats.Parsed > 0 {
@@ -240,6 +260,31 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	cfg.Plan = &plan
 	result.BrowserDecision = bundle.BrowserDecision
 	writePreparedAuthArtifacts(spec, bundle, plan, cfg.PreparedAuth, cfg.AuthHeaders, cfg.SessionConfig)
+
+	// Pre-flight discovery + Swagger/OpenAPI ingestion. Populates the project
+	// DB so the agent's first turn inherits real attack surface. Skipped
+	// silently when no target is set (whitebox-only audit) or when the
+	// operator opted out. Errors here are non-fatal: a probe failure just
+	// means the agent starts blank, which is the legacy behavior.
+	if cfg.PreflightDiscovery && cfg.TargetURL != "" && r.repo != nil {
+		probe := &CoverageProbe{
+			Target:          cfg.TargetURL,
+			ProjectUUID:     cfg.ProjectUUID,
+			AgenticScanUUID: cfg.ParentAgenticScanUUID,
+			Repo:            r.repo,
+		}
+		printPhaseLine(agenttypes.AutopilotPhaseAutopilot, "running pre-flight discovery + Swagger probe")
+		emitProgress(&cfg, "preflight", "running pre-flight discovery + Swagger probe")
+		if probeRes, perr := probe.Run(ctx); perr != nil {
+			zap.L().Warn("pre-flight coverage probe failed (continuing without seeded surface)",
+				zap.Error(perr))
+			result.Warnings = append(result.Warnings, "pre-flight discovery failed: "+perr.Error())
+		} else if probeRes != nil {
+			printPhaseLine(agenttypes.AutopilotPhaseAutopilot,
+				fmt.Sprintf("pre-flight: %d route(s) discovered, %d new since baseline",
+					len(probeRes.SignaturesAfter), len(probeRes.NewSignatures)))
+		}
+	}
 
 	// Step 2: Build prompt from frozen context and plan.
 	prompt := buildAutonomousPrompt(cfg, auditCtx, false)
@@ -289,7 +334,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
 	})
 	if provErr != nil {
 		return nil, fmt.Errorf("autonomous agent: resolve olium provider: %w", provErr)
@@ -298,30 +343,52 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	// we wrap the provider explicitly here.
 	prov = WrapProviderWithSemaphore(&oliumCfg, prov)
 
-	autopilotResult, err := oautopilot.Run(ctx, oautopilot.Options{
-		Provider:         prov,
-		Model:            model,
-		Target:           cfg.TargetURL,
-		SourcePath:       cfg.SourcePath,
-		Focus:            cfg.Focus,
-		Instruction:      cfg.Instruction,
-		ProjectUUID:      cfg.ProjectUUID,
-		ScanUUID:         cfg.ScanUUID,
-		AgenticScanUUID:  cfg.ParentAgenticScanUUID,
-		Repo:             r.repo,
-		SessionDir:       cfg.SessionDir,
-		MaxTurns:         cfg.MaxCommands,
-		Out:              streamWriter,
-		ToolLog:          streamWriter,
-		SystemPrompt:     firstNonEmpty(cfg.SystemPrompt, oliumCfg.SystemPrompt),
-		InitialPrompt:    prompt,
-		BrowserAvailable: cfg.BrowserEnabled,
-	})
+	// Post-halt coverage probe adapter. Only wired when the operator opted
+	// in AND a target is available — pure whitebox audits (no target) have
+	// no surface to probe, so verification is a no-op there.
+	var postHaltProbe *coverageProbeAdapter
+	if cfg.PostHaltVerify && cfg.TargetURL != "" && r.repo != nil {
+		postHaltProbe = &coverageProbeAdapter{
+			inner: &CoverageProbe{
+				Target:          cfg.TargetURL,
+				ProjectUUID:     cfg.ProjectUUID,
+				AgenticScanUUID: cfg.ParentAgenticScanUUID,
+				Repo:            r.repo,
+			},
+		}
+	}
+
+	autopilotOpts := oautopilot.Options{
+		Provider:             prov,
+		Model:                model,
+		Target:               cfg.TargetURL,
+		SourcePath:           cfg.SourcePath,
+		Focus:                cfg.Focus,
+		Instruction:          cfg.Instruction,
+		ProjectUUID:          cfg.ProjectUUID,
+		ScanUUID:             cfg.ScanUUID,
+		AgenticScanUUID:      cfg.ParentAgenticScanUUID,
+		Repo:                 r.repo,
+		SessionDir:           cfg.SessionDir,
+		MaxTurns:             cfg.MaxCommands,
+		Out:                  streamWriter,
+		ToolLog:              streamWriter,
+		SystemPrompt:         firstNonEmpty(cfg.SystemPrompt, oliumCfg.SystemPrompt),
+		InitialPrompt:        prompt,
+		BrowserAvailable:     cfg.BrowserEnabled,
+		PostHaltVerify:       cfg.PostHaltVerify && postHaltProbe != nil,
+		PostHaltGapThreshold: cfg.PostHaltGapThreshold,
+	}
+	if postHaltProbe != nil {
+		autopilotOpts.CoverageProbe = postHaltProbe
+	}
+	autopilotResult, err := oautopilot.Run(ctx, autopilotOpts)
 	if err != nil {
 		return nil, fmt.Errorf("autonomous agent failed: %w", err)
 	}
 	if autopilotResult != nil {
 		result.OperatorFindingsCount = int(autopilotResult.FindingCount)
+		result.Reentries = autopilotResult.Reentries
 	}
 
 	if auditRunner != nil {
@@ -422,7 +489,7 @@ func (r *AutopilotPipelineRunner) runBlackboxFallback(
 // harness subdir and saves findings to the database. Uses context.Background()
 // to avoid issues with parent context cancellation. The harness drives both
 // the source folder and the finding-source tagging (audit vs piolium).
-func (r *AutopilotPipelineRunner) importFindings(sessionDir, projectUUID, scanUUID string, harness HarnessSpec) FindingStats {
+func (r *AutopilotPipelineRunner) importFindings(sessionDir, projectUUID, scanUUID, agenticScanUUID string, harness HarnessSpec) FindingStats {
 	if harness.Name == "" {
 		harness = DefaultAuditHarness()
 	}
@@ -439,7 +506,10 @@ func (r *AutopilotPipelineRunner) importFindings(sessionDir, projectUUID, scanUU
 		auditID = result.State.Audits[0].AuditID
 	}
 
-	findings := audit.BuildFindingsWithSource(result.RawFindings, auditID, "", projectUUID, result.RepoName, harnessFindingSource(harness))
+	// Tag with the run's AgenticScan UUID so the end-of-run summary's
+	// agentic_scan_uuid-scoped count picks these up alongside operator-
+	// reported findings — previously passed "" and silently undercounted.
+	findings := audit.BuildFindingsWithSource(result.RawFindings, auditID, agenticScanUUID, projectUUID, result.RepoName, harnessFindingSource(harness))
 
 	stats := FindingStats{
 		Parsed:     len(findings),

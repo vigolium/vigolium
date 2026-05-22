@@ -11,8 +11,14 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/network"
+	"github.com/vigolium/vigolium/pkg/utils"
 	"go.uber.org/zap"
 )
+
+// EnvBrowserHeaded is the env var name the autopilot/swarm CLI sets when
+// invoked with --headed. ProbeURL honors it as a fallback when
+// ProbeConfig.Headed is unset, and agent-browser subprocesses inherit it.
+const EnvBrowserHeaded = "VIGOLIUM_BROWSER_HEADED"
 
 // CaptureSourceBrowserProbe is the default `source` label written to records
 // captured by ProbeURL. Exposed so callers writing their own ProbeConfig can
@@ -110,7 +116,11 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (*ProbeResult, error) {
 	crawlerCfg.MaxDepth = 0
 	crawlerCfg.MaxStates = 1
 	crawlerCfg.Silent = true
-	crawlerCfg.Headless = !cfg.Headed
+	// Env override: when VIGOLIUM_BROWSER_HEADED is set and the caller
+	// didn't explicitly set Headed, fall back to headed so the operator
+	// can see the window.
+	headed := cfg.Headed || utils.EnvTruthy(EnvBrowserHeaded)
+	crawlerCfg.Headless = !headed
 	if cfg.BrowserPath != "" {
 		crawlerCfg.BrowserPath = cfg.BrowserPath
 	}

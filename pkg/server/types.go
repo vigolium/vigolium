@@ -491,9 +491,9 @@ type AgentAutopilotRequest struct {
 	// Deprecated: use NoAudit + AuditDriverMode instead. Kept for backward
 	// compatibility with older API clients; "off" maps to NoAudit=true and
 	// any other value (e.g. "deep") maps to AuditDriverMode. Slated for removal.
-	Audit          string                      `json:"audit,omitempty"`            // legacy values: "lite", "balanced", "deep", "off"
-	NoAudit        bool                        `json:"no_audit,omitempty"`         // disable automatic vigolium-audit (enabled by default when source is set)
-	AuditDriverMode      string                      `json:"audit_mode,omitempty"`       // audit mode: "lite" (default), "balanced", "deep"
+	Audit           string                      `json:"audit,omitempty"`             // legacy values: "lite", "balanced", "deep", "off"
+	NoAudit         bool                        `json:"no_audit,omitempty"`          // disable automatic vigolium-audit (enabled by default when source is set)
+	AuditDriverMode string                      `json:"audit_mode,omitempty"`        // audit mode: "lite" (default), "balanced", "deep"
 	Diff            string                      `json:"diff,omitempty"`              // focus on changed code: PR URL, git ref range, or HEAD~N
 	LastCommits     int                         `json:"last_commits,omitempty"`      // focus on last N commits (shorthand for diff HEAD~N)
 	Browser         bool                        `json:"browser,omitempty"`           // explicitly enable browser tooling
@@ -516,6 +516,24 @@ type AgentAutopilotRequest struct {
 	// writing the verdict back to finding status. Pure classification (no
 	// native rescan).
 	Triage bool `json:"triage,omitempty"`
+
+	// NoPreflightDiscovery disables the pre-flight discovery + OpenAPI/Swagger
+	// ingestion pass that seeds http_records before the operator agent
+	// starts. Default false (pre-flight on). Set true to skip — useful when
+	// the caller has already seeded the project via --input or a prior scan.
+	NoPreflightDiscovery bool `json:"no_preflight_discovery,omitempty"`
+
+	// NoPostHaltVerify disables the post-halt coverage verification loop —
+	// the agent's halt_scan is accepted as final regardless of whether a
+	// follow-up discovery probe would surface new routes. Default false
+	// (verification on). Cap the cost via PostHaltGapThreshold rather than
+	// disabling entirely when possible.
+	NoPostHaltVerify bool `json:"no_post_halt_verify,omitempty"`
+
+	// PostHaltGapThreshold sets the minimum number of new routes the
+	// post-halt probe must turn up before the agent is re-entered. 0 falls
+	// back to the autopilot's built-in default (5).
+	PostHaltGapThreshold int `json:"post_halt_gap_threshold,omitempty"`
 
 	// Upload results to cloud storage after scan completion
 	UploadResults bool `json:"upload_results,omitempty"`

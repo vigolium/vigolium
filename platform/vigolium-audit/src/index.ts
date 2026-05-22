@@ -49,7 +49,8 @@ blank();
 section("# Cost & resilience");
 cmd("hard $20 cap", "vigolium-audit run --mode deep --max-cost 20");
 cmd("abort on first phase failure", "vigolium-audit run --mode deep --strict");
-cmd("remote target (clones an audit branch)", "vigolium-audit run --mode deep --target git@github.com:owner/repo.git");
+cmd("remote target as a git URL (cloned into ./<owner-repo>/ under cwd)", "vigolium-audit run --mode deep --target https://github.com/Yoast/wordpress-seo");
+cmd("remote target via SSH (same: clones into ./owner-repo/)", "vigolium-audit run --mode deep --target git@github.com:owner/repo.git");
 blank();
 
 section("# Audit context (per-run, persisted + auto-inherited by chained modes)");
@@ -118,8 +119,8 @@ const runCmd = cli
   .option("--modes <list>", "Run multiple modes in sequence (comma-separated, e.g. deep,refresh,confirm). Mutually exclusive with --mode. Stops on first non-complete mode; --max-cost is an aggregate cap.")
   .option("--agent <agent>", "Agent platform (claude|codex)", { default: "claude" })
   .option("--model <model>", "Model name forwarded to the agent runtime. Defaults: claude → claude-opus-4-7[1m], codex → gpt-5.5 (with xhigh reasoning effort).")
-  .option("--target <path>", "Target directory or git URL", { default: "." })
-  .option("--source <path>", "Alias of --target (parity with `vigolium agent audit --source`)")
+  .option("--target <path-or-url>", "Target directory, or a remote git URL (https://github.com/..., https://gitlab.com/..., git@host:owner/repo, git://, ssh://). A URL is cloned with --depth=1 into ./<owner-repo>/ under the current working directory and used as the audit target; an existing same-remote checkout there is reused in place.", { default: "." })
+  .option("--source <path-or-url>", "Alias of --target (parity with `vigolium agent audit --source`); accepts the same path or remote git URL forms.")
   .option("-i, --interactive", "Enable Ink TUI (auto-disabled when stdout is not a TTY)")
   .option("--from-audit <id>", "Source audit id for confirm/merge/diff modes")
   .option("--baseline <ref>", "Baseline git ref for diff mode")
@@ -166,8 +167,10 @@ runSection("# Quickstart");
 runCmdEx("fast 3-phase headless surface scan", "vigolium-audit run --mode lite --target ./repo");
 runCmdEx("full multi-phase audit (recon, candidates, attack paths, debate)", "vigolium-audit run --mode deep --target ./repo");
 runCmdEx("interactive — drops you into the CLI with the vigolium-audit harness installed", "vigolium-audit run --mode deep -i");
-runCmdEx("remote target (clones into a temp dir)", "vigolium-audit run --mode deep --target git@github.com:owner/repo.git");
-runCmdEx("--source is an alias of --target (parity with `vigolium agent audit`)", "vigolium-audit run --mode deep --source ./repo");
+runCmdEx("remote target as a git URL (clones into ./<owner-repo>/ under cwd)", "vigolium-audit run --mode deep --target https://github.com/Yoast/wordpress-seo");
+runCmdEx("GitLab URL works the same way", "vigolium-audit run --mode deep --target https://gitlab.com/owner/repo");
+runCmdEx("SSH form also accepted", "vigolium-audit run --mode deep --target git@github.com:owner/repo.git");
+runCmdEx("--source is an alias of --target (accepts paths or git URLs)", "vigolium-audit run --mode deep --source ./repo");
 runBlank();
 
 runSection("# Audit modes (each mode runs a different phase graph)");

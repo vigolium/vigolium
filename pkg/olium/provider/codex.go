@@ -39,11 +39,17 @@ func NewCodex(a *auth.CodexAuth) *Codex {
 	return &Codex{
 		auth:    a,
 		baseURL: codexDefaultBaseURL,
-		http:    &http.Client{},
+		http:    newHTTPClient(),
 	}
 }
 
 func (c *Codex) Name() string { return "codex" }
+
+// CloseIdleConnections drops idle HTTP/2 conns on this provider's transport.
+// See provider.ConnectionResetter.
+func (c *Codex) CloseIdleConnections() {
+	c.http.CloseIdleConnections()
+}
 
 // --- Request body types ---
 //

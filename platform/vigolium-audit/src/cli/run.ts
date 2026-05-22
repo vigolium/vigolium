@@ -34,6 +34,7 @@ import {
   findInProgressRefreshAudit,
 } from "./refresh-detect.js";
 import { resolveResultsDirSeed, type ResultsDirSeedHandle } from "./seed.js";
+import { cloneRemoteTarget, isRemoteTargetUrl } from "./clone-target.js";
 import type { ResumeOptions } from "./resume.js";
 import { compact, round2 } from "../engine/util.js";
 import { severityColor, statusArrow } from "./util.js";
@@ -71,6 +72,38 @@ interface RefreshRouting {
 }
 
 export async function runCommand(opts: RunOptions): Promise<void> {
+  const json = !!opts.json;
+  const fail = (msg: string, exit = 2): never => {
+    if (json) emitJsonEvent({ kind: "fatal", error: msg });
+    else console.error(chalk.red(`error: ${msg}`));
+    process.exit(exit);
+  };
+
+  // --target / --source: when it's a remote git URL (https://github.com/...,
+  // https://gitlab.com/..., git@host:..., etc.), clone it into
+  // ./<repo-slug>/ under the current working directory and continue against
+  // that path. Reuses an existing same-remote checkout in-place; refuses to
+  // clobber a foreign directory. Rejects flag combinations that don't make
+  // sense against a fresh clone.
+  if (opts.target !== undefined && isRemoteTargetUrl(opts.target)) {
+    if (opts.git === false) {
+      fail(`--no-git is incompatible with a remote --target (cloning requires git).`);
+    }
+    if (opts.fromResultsDir !== undefined) {
+      fail(`--from-results-dir is incompatible with a remote --target (it does its own clone).`);
+    }
+    if (opts.resume === true) {
+      fail(`--resume is incompatible with a remote --target (a fresh clone has no resume state).`);
+    }
+    try {
+      const cloned = cloneRemoteTarget(opts.target);
+      opts.target = cloned.clonedTargetDir;
+      if (!json) console.log(chalk.blue("[clone]") + ` ${cloned.summary}`);
+    } catch (err) {
+      fail((err as Error).message);
+    }
+  }
+
   // `--mode resume` / `--modes resume` is an alias for the standalone
   // `vigolium-audit resume`: it ignores the named mode, auto-detects the latest
   // non-complete audit from <target>/vigolium-results/audit-state.json, and continues
@@ -84,12 +117,6 @@ export async function runCommand(opts: RunOptions): Promise<void> {
     const { dryRunCommand } = await import("./dry-run.js");
     return dryRunCommand(opts);
   }
-  const json = !!opts.json;
-  const fail = (msg: string, exit = 2): never => {
-    if (json) emitJsonEvent({ kind: "fatal", error: msg });
-    else console.error(chalk.red(`error: ${msg}`));
-    process.exit(exit);
-  };
 
   let requestedModes: AuditMode[];
   try {

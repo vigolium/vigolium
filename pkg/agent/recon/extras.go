@@ -290,10 +290,10 @@ func runLoginFormScrape(baseResp *probeResponse, baseURL string) []LoginCandidat
 }
 
 var (
-	formBlockRE     = regexp.MustCompile(`(?is)<form\b[^>]*>(.*?)</form>`)
-	formAttrsRE     = regexp.MustCompile(`(?is)<form\b([^>]*)>`)
-	inputRE         = regexp.MustCompile(`(?is)<input\b[^>]*>`)
-	attrRE          = regexp.MustCompile(`(?i)\b([a-z\-]+)\s*=\s*("([^"]*)"|'([^']*)')`)
+	formBlockRE = regexp.MustCompile(`(?is)<form\b[^>]*>(.*?)</form>`)
+	formAttrsRE = regexp.MustCompile(`(?is)<form\b([^>]*)>`)
+	inputRE     = regexp.MustCompile(`(?is)<input\b[^>]*>`)
+	attrRE      = regexp.MustCompile(`(?i)\b([a-z\-]+)\s*=\s*("([^"]*)"|'([^']*)')`)
 )
 
 type formCapture struct {

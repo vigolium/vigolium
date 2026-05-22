@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/olium/tool"
+	"github.com/vigolium/vigolium/pkg/replay"
 )
 
 const (
@@ -162,10 +163,10 @@ func (s *sendRawHTTPTool) Execute(ctx context.Context, args map[string]any, _ to
 
 	body, _ := json.Marshal(out)
 	details := map[string]any{
-		"target":             fmt.Sprintf("%s:%d", host, port),
-		"response_bytes":     out.ResponseBytesTotal,
-		"conn_closed_early":  out.ConnClosedEarly,
-		"two_request":        second != "",
+		"target":            fmt.Sprintf("%s:%d", host, port),
+		"response_bytes":    out.ResponseBytesTotal,
+		"conn_closed_early": out.ConnClosedEarly,
+		"two_request":       second != "",
 	}
 	if out.Error != "" {
 		details["error"] = out.Error
@@ -197,7 +198,7 @@ func (s *sendRawHTTPTool) exchange(ctx context.Context, host string, port int, u
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	res := &rawExchangeResult{Target: addr, TLS: useTLS, SentBytes: len(req) + len(second)}
-	sentEcho, sentTrunc := clipBytes(req, replayResponseBytesCap)
+	sentEcho, sentTrunc := clipBytes(req, replay.DefaultExcerptCap)
 	res.SentEcho, res.SentTruncated = sentEcho, sentTrunc
 
 	start := time.Now()

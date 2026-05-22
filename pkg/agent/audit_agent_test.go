@@ -248,8 +248,8 @@ func TestStartAuditAgent_NoSourceReturnsNil(t *testing.T) {
 // path, not in argv assembly.
 func auditTestCfg(mode, sourcePath string, inv AuditDriverInvocation) AuditAgentConfig {
 	return AuditAgentConfig{
-		Mode:             mode,
-		SourcePath:       sourcePath,
+		Mode:                  mode,
+		SourcePath:            sourcePath,
 		AuditDriverInvocation: inv,
 	}
 }

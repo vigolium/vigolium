@@ -21,6 +21,10 @@ const (
 	EventTurnDone         EventType = "turn_done"          // assistant turn complete (model finished this request)
 	EventRunDone          EventType = "run_done"           // full run complete (no more tool calls pending)
 	EventError            EventType = "error"
+	// EventInfo carries a non-fatal engine-level notice (e.g. "transient
+	// upstream stream error; retrying"). Message lives in Delta. Consumers
+	// that don't recognize this type silently drop it — backward compatible.
+	EventInfo EventType = "info"
 )
 
 // Event is the single value type emitted on the engine event channel.

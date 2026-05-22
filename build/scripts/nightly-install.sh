@@ -2,32 +2,41 @@
 set -euo pipefail
 
 # Vigolium CLI Nightly Installation Script
-# Resolves the latest nightly @vigolium/vigolium release from the npm registry
-# and downloads the matching per-platform tarball (no npm/node required).
-# Falls back to the `latest` dist-tag when a `nightly` tag is not published.
+#
+# Always pulls artifacts from the Vigolium R2 CDN — no npm, node, or registry
+# fallback. The Makefile's `prepare-release-scripts` target stamps BASE_URL
+# at upload time so the copy at $BASE_URL/install.sh is self-consistent with
+# the artifacts in the same prefix.
+#
+# Environment overrides:
+#   VIGOLIUM_INSTALL_BASE_URL  — override the CDN prefix (default: nightly R2)
+#   VIGOLIUM_VERSION           — pin a specific version (e.g. v0.1.8-alpha);
+#                                when empty, $BASE_URL/metadata.json is read
+#                                to resolve the latest nightly.
+#   VIGOLIUM_HOME              — local staging dir (default: ~/.vigolium)
 
-# Configuration
+# --- configuration -----------------------------------------------------------
+
 VIGOLIUM_HOME="${VIGOLIUM_HOME:-$HOME/.vigolium}"
 BIN_DIR="$HOME/.local/bin"
-NPM_REGISTRY="${VIGOLIUM_NPM_REGISTRY:-https://registry.npmjs.org}"
-NPM_PKG="@vigolium/vigolium"
-NPM_PKG_ENC="@vigolium%2Fvigolium"   # URL-encoded scoped name
-NPM_DIST_TAG="${VIGOLIUM_NPM_TAG:-nightly}"  # which dist-tag to install
-NPM_FALLBACK_TAG="latest"            # used if NPM_DIST_TAG does not resolve
-VERSION=""        # base version, resolved from the npm dist-tag
-PLATFORM_TAG=""   # npm platform tag, e.g. darwin-arm64
-TARBALL_URL=""    # resolved per-platform tarball URL
-TARBALL_SHA1=""   # dist.shasum (sha1) from the registry
+
+# Base URL for the nightly artifact prefix on R2. The Makefile target
+# `prepare-release-scripts` rewrites this line in place via:
+#   perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(INSTALL_BASE_URL)"|m'
+# so the first line below is the stamp-on-upload anchor. The second line
+# layers the runtime env override.
+BASE_URL="https://cdn.vigolium.com/vigolium-nightly-release"
+BASE_URL="${VIGOLIUM_INSTALL_BASE_URL:-$BASE_URL}"
+
+VERSION="${VIGOLIUM_VERSION:-}"
+PLATFORM_TAG=""     # goreleaser-style os_arch (e.g. linux_arm64)
+TARBALL_URL=""
+TARBALL_FILENAME=""
+TARBALL_SHA256=""
 
 # Retry configuration
 MAX_RETRIES=6
 INITIAL_RETRY_DELAY=2  # seconds
-
-# Fallback CDN installer — used if the primary npm-based install fails for any
-# reason (registry unreachable, platform package missing, download failure, …).
-# Set VIGOLIUM_FROM_CDN_FALLBACK=1 to disable, and to prevent recursion when
-# this very script is the one served from the CDN.
-CDN_INSTALL_URL="${VIGOLIUM_CDN_INSTALL_URL:-https://cdn.vigolium.com/vigolium-nightly-release/install.sh}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -37,7 +46,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Cleanup on interrupt
+# --- output helpers ----------------------------------------------------------
+
 cleanup() {
 	echo -e "\n${YELLOW}Installation interrupted...${NC}"
 	rm -f "$VIGOLIUM_HOME/vigolium-install-"* 2>/dev/null || true
@@ -46,63 +56,49 @@ cleanup() {
 
 trap cleanup INT TERM
 
-log() {
-	echo -e "${BLUE}[INFO]${NC} $1" >&2
-}
+log()     { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1" >&2; }
 
-warn() {
-	echo -e "${YELLOW}[WARN]${NC} $1" >&2
-}
+command_exists() { command -v "$1" >/dev/null 2>&1; }
 
-error() {
-	echo -e "${RED}[ERROR]${NC} $1" >&2
-	exit 1
-}
-
-success() {
-	echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
-}
-
-# Check if command exists
-command_exists() {
-	command -v "$1" >/dev/null 2>&1
-}
-
-# Require command to exist or exit with error
 need_cmd() {
 	if ! command_exists "$1"; then
 		error "need '$1' (command not found)"
 	fi
 }
 
-JQ=""
+# --- prerequisites -----------------------------------------------------------
 
-# Check all prerequisite commands upfront
+JQ=""
+SHA256_CMD=""
+
 check_prereqs() {
-	for cmd in uname mktemp chmod mkdir rm mv tar grep awk cut head sed basename touch find gzip; do
+	for cmd in uname mktemp chmod mkdir rm mv tar grep awk cut head sed basename touch find; do
 		need_cmd "$cmd"
 	done
 
-	# Check for sha1 checksum command (shasum on macOS/BSD, sha1sum on Linux)
-	# — npm publishes dist.shasum as a SHA-1 hex digest.
+	# goreleaser publishes SHA-256 digests into checksums.txt.
 	if command_exists shasum; then
-		SHA1_CMD="shasum -a 1"
-	elif command_exists sha1sum; then
-		SHA1_CMD="sha1sum"
+		SHA256_CMD="shasum -a 256"
+	elif command_exists sha256sum; then
+		SHA256_CMD="sha256sum"
 	else
-		error "need 'shasum' or 'sha1sum' (command not found)"
+		error "need 'shasum' or 'sha256sum' (command not found)"
 	fi
 
-	# jq is optional: used when present for robust JSON parsing, otherwise a
-	# grep/sed fallback handles the small flat registry documents we fetch.
+	# jq is optional — metadata.json is small/flat enough for the grep+sed
+	# fallback in json_field, but jq gives a more robust parse when present.
 	if command_exists jq; then
 		JQ="$(command -v jq)"
 	fi
 }
 
-# Detect target platform for CLI binary
+# --- platform detection ------------------------------------------------------
+
 detect_platform() {
-	local platform
+	local platform target
 	platform="$(uname -s) $(uname -m)"
 
 	case $platform in
@@ -126,7 +122,8 @@ detect_platform() {
 			;;
 	esac
 
-	# Check for Rosetta 2 on macOS
+	# Rosetta 2 on macOS — a process forced through translation reports arch
+	# x86_64 but is actually running on Apple silicon. Prefer the native build.
 	if [[ "$target" == "darwin_amd64" ]]; then
 		if [[ $(sysctl -n sysctl.proc_translated 2>/dev/null) = 1 ]]; then
 			target=darwin_arm64
@@ -137,32 +134,22 @@ detect_platform() {
 	echo "$target"
 }
 
-# Map the detected goreleaser-style target to the npm platform tag used by
-# @vigolium/vigolium per-platform packages.
-npm_platform_tag() {
-	case "$1" in
-		darwin_amd64) echo "darwin-x64" ;;
-		darwin_arm64) echo "darwin-arm64" ;;
-		linux_amd64)  echo "linux-x64" ;;
-		linux_arm64)  echo "linux-arm64" ;;
-		*) error "Unsupported platform for npm install: $1" ;;
-	esac
-}
+# --- downloader --------------------------------------------------------------
 
 # Robust downloader that handles snap curl issues with retry logic.
-#   $1 = url, $2 = output file, $3 = mode: "hard" (default) | "soft"
+#   $1 = url, $2 = output file, $3 = mode: "hard" (default) | "soft",
+#   $4 = progress: 0 (default, silent) | 1 (show progress bar on stderr)
 # In "soft" mode exhausted retries return non-zero (fewer, quicker attempts,
 # no abort) so callers can fall back; "hard" mode aborts via error().
 downloader() {
 	local url="$1"
 	local output_file="$2"
 	local mode="${3:-hard}"
+	local progress="${4:-0}"
 	local attempt=1
 	local delay=$INITIAL_RETRY_DELAY
 	local max_retries=$MAX_RETRIES
 	if [[ "$mode" == "soft" ]]; then
-		# A missing dist-tag is a deterministic 404 — fail fast and let the
-		# caller fall back instead of a ~60s exponential-backoff storm.
 		max_retries=2
 		delay=1
 	fi
@@ -178,22 +165,32 @@ downloader() {
 	fi
 
 	while [[ $attempt -le $max_retries ]]; do
-		# Remove any partial download from previous attempt
 		rm -f "$output_file" 2>/dev/null || true
 
 		local download_success=0
 
-		# Check if we have a working (non-snap) curl
 		if command_exists curl && [[ $snap_curl -eq 0 ]]; then
-			if curl -fsSL "$url" -o "$output_file" 2>/dev/null; then
-				download_success=1
+			if [[ $progress -eq 1 ]]; then
+				# -#: progress bar to stderr; -fL: fail on HTTP errors, follow redirects
+				if curl -#fL "$url" -o "$output_file"; then
+					download_success=1
+				fi
+			else
+				if curl -fsSL "$url" -o "$output_file" 2>/dev/null; then
+					download_success=1
+				fi
 			fi
-		# Try wget for both no curl and the broken snap curl
 		elif command_exists wget; then
-			if wget -q --show-progress "$url" -O "$output_file" 2>/dev/null; then
-				download_success=1
+			if [[ $progress -eq 1 ]]; then
+				# --show-progress: progress bar to stderr (leave stderr open)
+				if wget -q --show-progress "$url" -O "$output_file"; then
+					download_success=1
+				fi
+			else
+				if wget -q --show-progress "$url" -O "$output_file" 2>/dev/null; then
+					download_success=1
+				fi
 			fi
-		# If we can't fall back from broken snap curl to wget, report the broken snap curl
 		elif [[ $snap_curl -eq 1 ]]; then
 			error "curl installed with snap cannot download files due to missing permissions. Please uninstall it and reinstall curl with a different package manager (e.g., apt)."
 		else
@@ -204,7 +201,6 @@ downloader() {
 			return 0
 		fi
 
-		# Download failed
 		if [[ $attempt -lt $max_retries ]]; then
 			if [[ $attempt -ge 3 ]]; then
 				warn "Download failed (attempt $attempt/$max_retries). Retrying in ${delay}s..."
@@ -222,7 +218,9 @@ downloader() {
 	return 1
 }
 
-# Extract a single string field from a small registry JSON document.
+# --- metadata + version resolution ------------------------------------------
+
+# Extract a single string field from a small flat JSON document.
 #   $1 = json file, $2 = jq filter, $3 = fallback flat key name
 json_field() {
 	local file="$1" filter="$2" key="$3"
@@ -235,14 +233,16 @@ json_field() {
 	fi
 }
 
-# Resolve the base version that a given dist-tag points to (best-effort).
-resolve_tag_version() {
-	local tag="$1"
-	local manifest_url="${NPM_REGISTRY}/${NPM_PKG_ENC}/${tag}?t=$(date +%s)"
+# Resolve the latest published nightly version from the CDN's metadata.json
+# (written by the Makefile's `generate-metadata` target at release time).
+# Sets VERSION to the value as published (typically with a leading `v`).
+resolve_latest_version() {
+	local manifest_url="${BASE_URL}/metadata.json?t=$(date +%s)"
 	local tmp_manifest resolved
 	tmp_manifest=$(mktemp)
 
-	if ! downloader "$manifest_url" "$tmp_manifest" soft; then
+	log "Resolving latest nightly version from ${BASE_URL}/metadata.json..."
+	if ! downloader "$manifest_url" "$tmp_manifest"; then
 		rm -f "$tmp_manifest"
 		return 1
 	fi
@@ -258,45 +258,48 @@ resolve_tag_version() {
 	return 0
 }
 
-# Resolve the base version, preferring NPM_DIST_TAG and falling back.
-fetch_latest_version() {
-	log "Resolving ${NPM_PKG}@${NPM_DIST_TAG} from npm registry..."
-	if resolve_tag_version "$NPM_DIST_TAG"; then
-		log "Nightly version: ${LIGHT_GREEN}${VERSION}${NC} (tag: ${NPM_DIST_TAG})"
+# --- tarball URL + checksum lookup ------------------------------------------
+
+# Compose the tarball URL + filename for the resolved VERSION + PLATFORM_TAG.
+# goreleaser strips the leading `v` from the version, so the filename pattern
+# is vigolium_<ver-no-v>_<os>_<arch>.tar.gz (see .goreleaser.yaml).
+build_tarball_url() {
+	local ver_no_v="${VERSION#v}"
+	TARBALL_FILENAME="vigolium_${ver_no_v}_${PLATFORM_TAG}.tar.gz"
+	TARBALL_URL="${BASE_URL}/${TARBALL_FILENAME}"
+}
+
+# Fetch checksums.txt from the CDN and extract the SHA-256 line for
+# TARBALL_FILENAME. A missing checksums.txt or an unlisted file degrades to
+# an unverified download (warning printed); a stale CDN with no checksums
+# at all should not block install.
+fetch_checksum() {
+	local checksum_url="${BASE_URL}/checksums.txt?t=$(date +%s)"
+	local tmp_checksums
+	tmp_checksums=$(mktemp)
+
+	log "Fetching checksums.txt..."
+	if ! downloader "$checksum_url" "$tmp_checksums" soft; then
+		rm -f "$tmp_checksums"
+		warn "Could not fetch checksums.txt; binary download will not be verified"
 		return 0
 	fi
 
-	if [[ "$NPM_DIST_TAG" != "$NPM_FALLBACK_TAG" ]]; then
-		warn "dist-tag '${NPM_DIST_TAG}' not found; falling back to '${NPM_FALLBACK_TAG}'"
-		if resolve_tag_version "$NPM_FALLBACK_TAG"; then
-			log "Resolved version: ${LIGHT_GREEN}${VERSION}${NC} (tag: ${NPM_FALLBACK_TAG})"
-			return 0
-		fi
-	fi
+	# checksums.txt format (goreleaser default): one line per file as
+	#   <sha256>  <filename>
+	# (two spaces between when produced by sha256sum / shasum -a 256).
+	TARBALL_SHA256=$(grep -E "[[:space:]]${TARBALL_FILENAME}\$" "$tmp_checksums" \
+		| awk '{print $1}' \
+		| head -1)
+	rm -f "$tmp_checksums"
 
-	return 1
-}
-
-# Resolve the per-platform tarball URL + sha1 for VERSION/PLATFORM_TAG.
-fetch_platform_manifest() {
-	local pkg_version="${VERSION}-${PLATFORM_TAG}"
-	local manifest_url="${NPM_REGISTRY}/${NPM_PKG_ENC}/${pkg_version}?t=$(date +%s)"
-	local tmp_manifest
-	tmp_manifest=$(mktemp)
-
-	log "Resolving platform package ${NPM_PKG}@${pkg_version}..."
-	downloader "$manifest_url" "$tmp_manifest"
-
-	TARBALL_URL=$(json_field "$tmp_manifest" '.dist.tarball' 'tarball')
-	TARBALL_SHA1=$(json_field "$tmp_manifest" '.dist.shasum' 'shasum')
-	rm -f "$tmp_manifest"
-
-	if [[ -z "$TARBALL_URL" ]]; then
-		error "Could not resolve a tarball for ${NPM_PKG}@${pkg_version}. This platform may not be published for this release."
+	if [[ -z "$TARBALL_SHA256" ]]; then
+		warn "Checksum for ${TARBALL_FILENAME} not found in checksums.txt; skipping verification"
 	fi
 }
 
-# Download file with progress
+# --- download + verify -------------------------------------------------------
+
 download_file() {
 	local url="$1"
 	local output_file="$2"
@@ -308,29 +311,28 @@ download_file() {
 		log "Downloading $(basename "$output_file")..."
 	fi
 
-	# Use secure temporary file
 	local temp_file
 	temp_file=$(mktemp "$(dirname "$output_file")/tmp.XXXXXX")
-
-	# Download to temp file first, then atomic move
-	downloader "$url" "$temp_file"
+	# Tarball is the large download — show a progress bar so slow links
+	# don't look hung. Other callers (metadata.json, checksums.txt) stay
+	# silent via the default mode.
+	downloader "$url" "$temp_file" hard 1
 	mv "$temp_file" "$output_file"
 }
 
-# Verify SHA1 checksum against the registry's dist.shasum
 verify_checksum() {
 	local file="$1"
 	local expected_checksum="$2"
 
 	if [[ -z "$expected_checksum" ]]; then
-		warn "Registry did not provide a checksum; skipping verification"
+		warn "No checksum available; skipping verification"
 		return
 	fi
 
-	log "Verifying checksum..."
+	log "Verifying checksum (SHA-256)..."
 
 	local actual_checksum
-	actual_checksum=$($SHA1_CMD "$file" | cut -d' ' -f1)
+	actual_checksum=$($SHA256_CMD "$file" | cut -d' ' -f1)
 
 	if [[ "$actual_checksum" != "$expected_checksum" ]]; then
 		error "Checksum verification failed!\nExpected: $expected_checksum\nActual: $actual_checksum"
@@ -339,15 +341,14 @@ verify_checksum() {
 	success "Checksum verified"
 }
 
-# Check for existing vigolium installation
+# --- existing install detection ---------------------------------------------
+
 check_existing_installation() {
 	local binary_path="$BIN_DIR/vigolium"
 	local existing_binary=""
 
-	# Check in BIN_DIR first
 	if [[ -x "$binary_path" ]]; then
 		existing_binary="$binary_path"
-	# Also check if vigolium is in PATH (might be installed elsewhere)
 	elif command_exists vigolium; then
 		existing_binary=$(command -v vigolium)
 	fi
@@ -355,7 +356,6 @@ check_existing_installation() {
 	if [[ -n "$existing_binary" ]]; then
 		warn "Detected existing vigolium installation at $existing_binary"
 
-		# Try to get current version info
 		local version_output
 		version_output=$("$existing_binary" version 2>/dev/null || true)
 		if [[ -n "$version_output" ]]; then
@@ -375,59 +375,58 @@ check_existing_installation() {
 	fi
 }
 
-# Install Vigolium CLI binary from the resolved npm tarball
+# --- install -----------------------------------------------------------------
+
 install_vigolium_binary() {
 	local binary_name="vigolium"
 
-	# Check for existing installation before proceeding
 	check_existing_installation
 
-	# Resolve the per-platform tarball + checksum from the registry
-	fetch_platform_manifest
+	build_tarball_url
+	fetch_checksum
 
 	log "Installing version: ${LIGHT_GREEN}${VERSION}${NC} (${PLATFORM_TAG})"
 
 	local tarball_path="$VIGOLIUM_HOME/vigolium-install-tarball.tgz"
 	local extract_dir="$VIGOLIUM_HOME/vigolium-install-extract"
 
-	# Ensure directories exist
 	mkdir -p "$VIGOLIUM_HOME"
 	mkdir -p "$BIN_DIR"
 	rm -rf "$extract_dir"
 	mkdir -p "$extract_dir"
 
-	# Download tarball
 	download_file "$TARBALL_URL" "$tarball_path" "$VERSION"
+	verify_checksum "$tarball_path" "$TARBALL_SHA256"
 
-	# Verify checksum against the registry's dist.shasum
-	verify_checksum "$tarball_path" "$TARBALL_SHA1"
-
-	# Extract tarball (npm tarballs nest everything under package/)
 	log "Extracting tarball..."
 	tar -xzf "$tarball_path" -C "$extract_dir"
 
-	# The npm platform package ships the binary gzipped at
-	# package/vendor/<tag>/vigolium.gz — decompress it into BIN_DIR.
+	# goreleaser tarballs hold the binary at the top level (no nesting,
+	# unlike npm's package/vendor/<tag>/vigolium.gz layout). find handles
+	# both forms in case a future archive template adds a wrapper dir.
 	local binary_path="$BIN_DIR/$binary_name"
-	local gz_path
-	gz_path=$(find "$extract_dir" -type f -name "${binary_name}.gz" -print 2>/dev/null | head -1)
-	if [[ -z "$gz_path" ]]; then
-		error "Could not find '${binary_name}.gz' in the npm tarball"
+	local extracted_binary
+	extracted_binary=$(find "$extract_dir" -type f -name "${binary_name}" -print 2>/dev/null | head -1)
+	if [[ -z "$extracted_binary" ]]; then
+		error "Could not find '${binary_name}' binary in the tarball"
 	fi
 
-	log "Decompressing binary..."
-	gzip -dc "$gz_path" > "$binary_path"
+	# Stage on the same filesystem as the target, then atomic rename.
+	# Writing directly to $binary_path would fail with ETXTBSY when
+	# `vigolium update` runs this installer — the parent vigolium process
+	# still has the executable mapped. rename(2) swaps the directory entry
+	# without touching the inode, so the running process is unaffected.
+	local staged="${binary_path}.new"
+	rm -f "$staged"
+	mv "$extracted_binary" "$staged"
+	chmod +x "$staged"
+	mv "$staged" "$binary_path"
 
-	# Make executable
-	chmod +x "$binary_path"
-
-	# Clean up
 	rm -f "$tarball_path"
 	rm -rf "$extract_dir"
 
 	success "Vigolium CLI binary installed to ${LIGHT_GREEN}${binary_path}${NC}"
 
-	# Show build info from the installed binary
 	local version_output
 	version_output=$("$binary_path" version 2>/dev/null || true)
 	if [[ -n "$version_output" ]]; then
@@ -442,9 +441,9 @@ install_vigolium_binary() {
 	fi
 }
 
-# Update PATH in shell profile
+# --- shell profile -----------------------------------------------------------
+
 update_shell_profile() {
-	# Detect shell from $SHELL or default
 	local default_shell="bash"
 	if [[ "$(uname -s)" == "Darwin" ]]; then
 		default_shell="zsh"
@@ -462,10 +461,8 @@ update_shell_profile() {
 			refresh_command="exec \$SHELL"
 			;;
 		bash)
-			# Add to both .bashrc (interactive) and .bash_profile (login shells)
 			[[ -f "$HOME/.bashrc" ]] && shell_profiles+=("$HOME/.bashrc")
 			[[ -f "$HOME/.bash_profile" ]] && shell_profiles+=("$HOME/.bash_profile")
-			# If neither exists, create .bashrc
 			[[ ${#shell_profiles[@]} -eq 0 ]] && shell_profiles=("$HOME/.bashrc")
 			refresh_command="source ~/.bashrc"
 			;;
@@ -483,19 +480,16 @@ update_shell_profile() {
 
 	local updated=0
 	for shell_profile in "${shell_profiles[@]}"; do
-		# Check if PATH is already updated
 		if [[ -f "$shell_profile" ]] && grep -q "$BIN_DIR" "$shell_profile" 2>/dev/null; then
 			log "PATH already configured in $shell_profile"
 			continue
 		fi
 
-		# Create config file if it doesn't exist
 		if [[ ! -f "$shell_profile" ]]; then
 			mkdir -p "$(dirname "$shell_profile")"
 			touch "$shell_profile"
 		fi
 
-		# Add to PATH
 		{
 			echo ""
 			echo "# Vigolium CLI"
@@ -513,73 +507,35 @@ update_shell_profile() {
 	fi
 }
 
-# Fall back to the CDN-hosted installer when the npm-based path fails. Skipped
-# if we are already running as the CDN fallback (env-guard prevents recursion).
-fallback_to_cdn() {
-	if [[ "${VIGOLIUM_FROM_CDN_FALLBACK:-0}" == "1" ]]; then
-		error "CDN fallback installer also failed. Please install manually from https://github.com/vigolium/vigolium#install"
-	fi
+# --- main --------------------------------------------------------------------
 
-	warn "Primary install failed; falling back to CDN installer at ${CDN_INSTALL_URL}"
-
-	local installer_tmp
-	installer_tmp=$(mktemp) || error "Failed to create temp file for CDN installer"
-
-	local fetched=0
-	if command_exists curl; then
-		if curl -fsSL "$CDN_INSTALL_URL" -o "$installer_tmp"; then
-			fetched=1
-		fi
-	fi
-	if [[ $fetched -eq 0 ]] && command_exists wget; then
-		if wget -qO "$installer_tmp" "$CDN_INSTALL_URL"; then
-			fetched=1
-		fi
-	fi
-
-	if [[ $fetched -eq 0 ]]; then
-		rm -f "$installer_tmp"
-		error "Failed to download CDN installer from $CDN_INSTALL_URL"
-	fi
-
-	log "Running CDN installer..."
-	VIGOLIUM_FROM_CDN_FALLBACK=1 bash "$installer_tmp"
-	local rc=$?
-	rm -f "$installer_tmp"
-	exit $rc
-}
-
-# Main installation
 main() {
 	log "Starting Vigolium CLI nightly installation..."
+	log "Source: ${LIGHT_GREEN}${BASE_URL}${NC}"
 
-	# Check prerequisites
 	check_prereqs
 
-	# Resolve the base version from the requested npm dist-tag (with fallback)
-	if ! fetch_latest_version; then
-		error "Failed to resolve ${NPM_PKG} from the npm registry"
+	if [[ -n "$VERSION" ]]; then
+		log "Using pinned version: ${LIGHT_GREEN}${VERSION}${NC} (VIGOLIUM_VERSION override)"
+	else
+		if ! resolve_latest_version; then
+			error "Failed to resolve latest nightly version from ${BASE_URL}/metadata.json"
+		fi
+		log "Latest nightly: ${LIGHT_GREEN}${VERSION}${NC}"
 	fi
 
-	# Detect platform and map to the npm platform tag
 	local platform
 	platform=$(detect_platform)
-	PLATFORM_TAG=$(npm_platform_tag "$platform")
-	log "Detected platform: $platform (npm: $PLATFORM_TAG)"
+	PLATFORM_TAG="$platform"
+	log "Detected platform: ${PLATFORM_TAG}"
 
-	# Check if BIN_DIR was already in PATH before installation
 	local bin_dir_was_in_path=0
 	if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
 		bin_dir_was_in_path=1
 	fi
 
-	# Install binary
 	install_vigolium_binary
-
-	# Update shell profile
 	update_shell_profile
-
-	# Make binary available immediately in this shell session
 	export PATH="$BIN_DIR:$PATH"
 
 	echo ""
@@ -597,8 +553,4 @@ main() {
 	log "Or check out the cloud version at ${LIGHT_GREEN}https://console.vigolium.com${NC}"
 }
 
-# Run the install in a subshell so a fatal `error` exit doesn't kill us —
-# we want to catch any failure and fall back to the CDN installer.
-if ! ( main "$@" ); then
-	fallback_to_cdn
-fi
+main "$@"

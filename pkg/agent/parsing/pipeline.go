@@ -695,6 +695,34 @@ func ParseTriageResult(raw string) (*agenttypes.TriageResult, error) {
 	return nil, fmt.Errorf("failed to parse triage result from JSON: invalid structure (expected verdict)")
 }
 
+// ParseTriageConfirmResult extracts a TriageConfirmResult from raw agent output.
+// Accepted verdicts are "confirmed" and "false_positive". Verdict values are
+// trimmed and lowercased before validation; aliases like "fp" or
+// "false-positive" are normalized to "false_positive".
+func ParseTriageConfirmResult(raw string) (*agenttypes.TriageConfirmResult, error) {
+	jsonStr, err := ExtractJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract JSON from agent output: %w", err)
+	}
+
+	var result agenttypes.TriageConfirmResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse triage confirm result: %w", err)
+	}
+
+	v := strings.ToLower(strings.TrimSpace(result.Verdict))
+	switch v {
+	case "confirmed", "confirm", "true_positive", "true-positive", "tp":
+		result.Verdict = agenttypes.TriageVerdictConfirmed
+	case "false_positive", "false-positive", "fp", "false":
+		result.Verdict = agenttypes.TriageVerdictFalsePositive
+	default:
+		return nil, fmt.Errorf("triage confirm result has invalid verdict %q (want %q or %q)",
+			result.Verdict, agenttypes.TriageVerdictConfirmed, agenttypes.TriageVerdictFalsePositive)
+	}
+	return &result, nil
+}
+
 // ParseSourceAnalysisResult extracts a SourceAnalysisResult from raw agent output.
 // It uses a layered strategy to maximize recovery from malformed LLM output:
 //  1. JSONL: Parse records from a ```jsonl fenced block (one JSON object per line — blast-radius reduction)

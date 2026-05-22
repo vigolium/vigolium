@@ -37,14 +37,14 @@ var (
 	// by runAuditDriver. audit gets the modes it understands; piolium
 	// gets the modes it understands. For driver=auto/both these may
 	// differ (per-driver skip-unsupported).
-	auditModeChain      []string
-	auditDriverModes    []string
-	auditPioliumModes   []string
-	auditCommitDepth    int
-	auditNoDedup        bool
-	auditKeepRaw        bool
-	auditProvider string
-	auditAgent          string
+	auditModeChain    []string
+	auditDriverModes  []string
+	auditPioliumModes []string
+	auditCommitDepth  int
+	auditNoDedup      bool
+	auditKeepRaw      bool
+	auditProvider     string
+	auditAgent        string
 
 	auditPiProvider string
 	auditPiModel    string
@@ -666,8 +666,8 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, age
 
 	_, _ = fmt.Fprintf(w, "  %s Driver: %s | Mode: %s\n",
 		terminal.Purple(terminal.SymbolInfo),
-		terminal.HiTeal(valueOrNone(driver)),
-		terminal.HiTeal(valueOrNone(mode)))
+		terminal.Orange(valueOrNone(driver)),
+		terminal.Orange(valueOrNone(mode)))
 
 	// Agent: render one driver per line. The first row carries the
 	// "Agent:" label and bullet; subsequent rows indent to the same
@@ -704,7 +704,6 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, age
 			terminal.Gray("tail logs with"),
 			terminal.HiCyan(fmt.Sprintf("vigolium log %s", agenticScanUUID)))
 	}
-	_, _ = fmt.Fprintln(w)
 }
 
 // printAuditDriverBanner marks the start of one driver's phase. Uses the
@@ -715,9 +714,13 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, age
 // transition, with the session path muted.
 func printAuditDriverBanner(driver, sessionDir string) {
 	w := os.Stderr
-	_, _ = fmt.Fprintf(w, "\n%s %s %s\n",
+	label := driver
+	if driver == agent.AuditDriverAudit {
+		label = "vigolium-audit"
+	}
+	_, _ = fmt.Fprintf(w, "%s %s %s\n",
 		terminal.Orange(terminal.SymbolStart),
-		terminal.BoldHiBlue(driver),
+		terminal.BoldHiBlue(label),
 		terminal.Muted("· "+terminal.ShortenHome(sessionDir)))
 }
 

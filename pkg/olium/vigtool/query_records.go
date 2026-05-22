@@ -92,19 +92,19 @@ func (*queryRecordsTool) Schema() map[string]any {
 }
 
 type recordSummary struct {
-	UUID         string `json:"uuid"`
-	ScanUUID     string `json:"scan_uuid,omitempty"`
-	Method       string `json:"method"`
-	URL          string `json:"url"`
-	Hostname     string `json:"hostname,omitempty"`
-	Path         string `json:"path,omitempty"`
-	Status       int    `json:"status"`
-	ContentType  string `json:"content_type,omitempty"`
-	ResponseLen  int64  `json:"response_length"`
-	ParamCount   int    `json:"param_count"`
-	Source       string `json:"source,omitempty"`
-	IsAuthed     bool   `json:"is_authenticated,omitempty"`
-	SentAt       string `json:"sent_at,omitempty"`
+	UUID        string `json:"uuid"`
+	ScanUUID    string `json:"scan_uuid,omitempty"`
+	Method      string `json:"method"`
+	URL         string `json:"url"`
+	Hostname    string `json:"hostname,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type,omitempty"`
+	ResponseLen int64  `json:"response_length"`
+	ParamCount  int    `json:"param_count"`
+	Source      string `json:"source,omitempty"`
+	IsAuthed    bool   `json:"is_authenticated,omitempty"`
+	SentAt      string `json:"sent_at,omitempty"`
 }
 
 func (q *queryRecordsTool) Execute(ctx context.Context, args map[string]any, _ tool.UpdateFn) (tool.Result, error) {

@@ -235,6 +235,8 @@ func guardOrRefuseFromPrompt(ctx context.Context, prompt string, disabled bool) 
 		return settings, nil
 	}
 	fmt.Fprintf(os.Stderr, "%s Checking prompt with safety guardrail...\n", terminal.InfoSymbol())
+	fmt.Fprintf(os.Stderr, "%s Tip: pass %s to skip this check — recommended for trusted pentest prompts and local/quantized models that false-positive.\n",
+		terminal.InfoSymbol(), terminal.Cyan("--disable-guardrail"))
 	verdict := agent.ClassifyPromptSafety(ctx, settings, prompt)
 	if verdict.Allowed {
 		return settings, nil

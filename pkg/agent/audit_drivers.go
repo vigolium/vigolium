@@ -14,7 +14,7 @@ import (
 // single source of truth shared by CLI and server packages.
 const (
 	AuditDriverPiolium = "piolium"
-	AuditDriverAudit  = "audit"
+	AuditDriverAudit   = "audit"
 	AuditDriverBoth    = "both"
 	// AuditDriverAuto is the default. It runs audit first; piolium is
 	// only invoked as a fallback when audit fails (or isn't available).
@@ -147,7 +147,7 @@ func BuildAuditDriverCfg(in AuditDriverCfgInput) AuditAgentConfig {
 		ProjectUUID:           in.ProjectUUID,
 		ScanUUID:              in.ScanUUID,
 		ParentAgenticScanUUID: in.ParentAgenticScanUUID,
-		AuditDriverInvocation:      in.Invocation,
+		AuditDriverInvocation: in.Invocation,
 		SyncInterval:          DefaultAuditSyncInterval,
 		Stream:                in.Stream,
 		StreamWriter:          in.StreamWriter,

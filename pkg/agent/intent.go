@@ -320,7 +320,7 @@ func ParseScanIntentWithSetup(ctx context.Context, engine *Engine, prompt string
 		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("olium provider: %w", err)

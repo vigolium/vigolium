@@ -210,17 +210,17 @@ func updateNucleiTemplates(dir string) (string, error) {
 		if gi, gerr := os.Stat(filepath.Join(dir, ".git")); gerr != nil || !gi.IsDir() {
 			return "", fmt.Errorf("%s exists but is not a git repository; remove it (or point known_issue_scan.templates_dir elsewhere) and re-run", config.ContractPath(dir))
 		}
-		if e := runGit(ctx, dir, "fetch", "--depth", "1", "origin"); e != nil {
+		if e := runGit(ctx, dir, "fetch", "--quiet", "--depth", "1", "origin"); e != nil {
 			return "", fmt.Errorf("git fetch failed: %w", e)
 		}
-		if e := runGit(ctx, dir, "reset", "--hard", "FETCH_HEAD"); e != nil {
+		if e := runGit(ctx, dir, "reset", "--quiet", "--hard", "FETCH_HEAD"); e != nil {
 			return "", fmt.Errorf("git reset failed: %w", e)
 		}
 		return fmt.Sprintf("nuclei templates updated at %s", config.ContractPath(dir)), nil
 	case err == nil && !info.IsDir():
 		return "", fmt.Errorf("%s exists but is not a directory", config.ContractPath(dir))
 	case os.IsNotExist(err):
-		if e := runGit(ctx, "", "clone", "--depth", "1", nucleiTemplatesRepo, dir); e != nil {
+		if e := runGit(ctx, "", "clone", "--quiet", "--depth", "1", nucleiTemplatesRepo, dir); e != nil {
 			return "", fmt.Errorf("git clone failed: %w", e)
 		}
 		return fmt.Sprintf("nuclei templates cloned to %s", config.ContractPath(dir)), nil

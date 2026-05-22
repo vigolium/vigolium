@@ -778,6 +778,35 @@ func CountFindingsBySeverity(ctx context.Context, db *DB, projectUUID string) (m
 	return result, nil
 }
 
+// CountFindingsByAgenticScan returns finding counts grouped by severity for
+// one agentic-scan run. Severity strings are lowercased/trimmed so callers
+// get a canonical key set regardless of how the finding was inserted.
+// Empty agenticScanUUID returns an empty map without querying.
+func CountFindingsByAgenticScan(ctx context.Context, db *DB, agenticScanUUID string) (map[string]int64, error) {
+	if agenticScanUUID == "" {
+		return map[string]int64{}, nil
+	}
+	var rows []SeverityCount
+	err := db.NewSelect().
+		Model((*Finding)(nil)).
+		ColumnExpr("severity, COUNT(*) AS count").
+		Where("agentic_scan_uuid = ?", agenticScanUUID).
+		GroupExpr("severity").
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		key := strings.ToLower(strings.TrimSpace(row.Severity))
+		if key == "" {
+			continue
+		}
+		result[key] += row.Count
+	}
+	return result, nil
+}
+
 // CountFindingsByModule returns finding counts grouped by module_id.
 func CountFindingsByModule(ctx context.Context, db *DB, projectUUID string) (map[string]int64, error) {
 	var rows []struct {

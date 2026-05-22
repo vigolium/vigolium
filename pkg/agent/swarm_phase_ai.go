@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/vigolium/vigolium/pkg/spitolas"
+	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 // runAuthPhase executes the browser-based authentication phase using agent-browser.
@@ -31,6 +34,9 @@ func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetU
 		if data, err := json.Marshal(cfg.CredentialSets); err == nil {
 			extra["CredentialSets"] = string(data)
 		}
+	}
+	if utils.EnvTruthy(spitolas.EnvBrowserHeaded) {
+		extra["BrowserHeaded"] = "1"
 	}
 
 	opts := Options{

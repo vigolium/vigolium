@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/piolium"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/storage"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -41,13 +42,16 @@ var (
 	autopilotRequiresBrowser  bool
 	autopilotBrowserStartURL  string
 	autopilotFocusRoutes      []string
-	autopilotAudit           string // canonical audit control: "" | "lite" | "balanced" | "deep" | "off"
+	autopilotAudit            string // canonical audit control: "" | "lite" | "balanced" | "deep" | "off"
 	autopilotPiolium          string // piolium audit control: "" (auto/off) | "lite"|"balanced"|"deep"|... | "off"
 	autopilotDiff             string
 	autopilotLastCommits      int
 	autopilotIntensity        string
 	autopilotNoPrescan        bool
 	autopilotTriage           bool
+	autopilotNoPreflight      bool
+	autopilotNoPostHaltVerify bool
+	autopilotPostHaltGap      int
 	autopilotUploadResults    bool
 	autopilotVerbose          bool
 	autopilotOliumProvider    string
@@ -58,6 +62,7 @@ var (
 	autopilotOliumOAuthToken  string
 	autopilotOliumLLMAPIKey   string
 	autopilotDisableGuardrail bool
+	autopilotHeaded           bool
 
 	// autopilotInstructionPrefix holds the verbatim natural-language prompt
 	// when autopilot was invoked with a positional `<prompt>` argument. It is
@@ -72,62 +77,36 @@ var (
 var agentAutopilotCmd = &cobra.Command{
 	Use:   "autopilot [prompt]",
 	Short: "Agentic scan: autonomous AI-driven vulnerability scanning",
-	Long: `Launch an agentic scan that autonomously discovers, scans, and triages
-vulnerabilities using vigolium CLI commands.
+	Long: `Autonomous AI scan: the operator runs vigolium CLI commands
+(scan-url, finding, traffic, …) to discover, scan, and triage on its own.
 
-The agent runs commands like scan-url, finding, traffic via its terminal
-capabilities to discover endpoints, scan for vulnerabilities, review
-results, and iterate until done.
-
-When --source is provided, vigolium-audit runs before the autonomous agent.
-Autopilot prepares the source audit into a stable context bundle and native
-plan, then launches the operator against that prepared context.
-Use --audit=off to disable this behavior.
-
-Supports natural language prompts as a positional argument:
-  vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
-  vigolium agent autopilot "scan all source code from ~/src/crAPI, ~/src/DVWA"
-  vigolium agent autopilot "There is an XSS on https://target/page — popup origin must be target, not localhost"
-
-The prompt is parsed by an AI to extract target URLs, source paths, and focus
-areas, AND is also forwarded verbatim to the operator agent as its primary
-instruction. Nuanced hints in the prompt (exploitation goals, origin
-constraints, false-positive caveats) reach the agent word-for-word. When
---instruction / --instruction-file is also supplied, it is appended after
-the verbatim prompt. Use --dry-run to preview what the parser extracts
-without executing.
-
-Supported input types for --input (auto-detected):
-  - URL:         https://example.com/api/login
-  - Curl:        curl -X POST https://example.com/api -d '{"user":"admin"}'
-  - Raw HTTP:    POST /api HTTP/1.1\r\nHost: example.com\r\n...
-  - Burp XML:    <?xml...><items><item>...</item></items>
-  - Base64:      Base64-encoded raw HTTP request (Burp base64 export)
-
-When input is piped via stdin, it is automatically read (no --input needed).
-The target URL is extracted from the input when --target is not provided.
-
-Plan file (--plan-file): a single file mixing free-text guidance and raw
-HTTP request(s) — exactly what you'd paste. Prose before the first request
-becomes the instruction; the request region (split on lines that are exactly
-"---", or fenced ` + "```http```" + ` blocks) supplies the seed request(s). The
-first request is the live seed; any extras are folded into the instruction as
-context. --plan-file cannot be combined with --input/--instruction/
---instruction-file (it owns both):
+Examples (natural-language prompt as positional arg):
+  vigolium agent autopilot "scan VAmPI at localhost:3005 with source ~/src/VAmPI"
+  vigolium agent autopilot "XSS on https://target/page — popup origin must be target"
   vigolium agent autopilot --plan-file ginandjuice-plan.md
+  vigolium agent autopilot -t https://target --no-prescan   # skip native pre-scan, hand the operator a cold target
 
-Intensity presets (--intensity) bundle multiple settings into a single flag:
-  quick     — Fast CI/PR scans: 30 commands, 1h timeout, lite audit, lite pre-scan
-  balanced  — Standard assessment (default): 100 commands, 6h timeout, balanced audit, balanced pre-scan
-  deep      — Thorough pentest: 300 commands, 12h timeout, deep audit, deep pre-scan
+The prompt is forwarded verbatim to the operator (hints, caveats, scope rules
+all reach it word-for-word) and parsed for target/source/focus. --instruction
+appends extra guidance. --dry-run previews what the parser extracted.
 
-Browser-assisted probing is enabled at every intensity. Pre-scan runs a native
-discovery + dynamic-assessment pass against --target before the operator agent
-starts so it has real http_records to reason about; pass --no-prescan to skip.
-The pre-scan only fires in target-only runs — when --source is set, audit (or
-piolium) provides the structured pre-context instead.
+Inputs (--input, auto-detected; also reads stdin when piped):
+  URL · curl command · raw HTTP · Burp XML · base64 raw HTTP
 
-Explicit flags always override intensity presets.`,
+--plan-file: one file mixing prose + raw HTTP request(s) split on "---" or
+fenced ` + "```http```" + ` blocks. First request is the live seed; rest fold into
+context. Mutually exclusive with --input/--instruction/--instruction-file.
+
+--source enables whitebox: vigolium-audit prepares a context bundle + plan
+before the operator launches. Disable with --audit=off.
+
+Intensity presets (--intensity), explicit flags override:
+  quick     — 30 cmds, 1h,  lite  audit + pre-scan
+  balanced  — 100 cmds, 6h,  balanced audit + pre-scan  (default)
+  deep      — 300 cmds, 12h, deep  audit + pre-scan
+
+Pre-scan runs native discovery + dynamic-assessment to seed http_records
+before the operator starts (target-only runs; skip with --no-prescan).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runAgentAutopilot,
 }
@@ -156,6 +135,7 @@ func init() {
 	f.StringVar(&autopilotInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	f.StringVar(&autopilotPlanFile, "plan-file", "", "Path to a plan file mixing free-text guidance and raw HTTP request(s). Owns the instruction + seed input; cannot be combined with --input/--instruction/--instruction-file")
 	f.BoolVar(&autopilotBrowser, "browser", false, "Enable agent-browser for browser-based interactions")
+	f.BoolVar(&autopilotHeaded, "headed", false, "Show the browser window during in-process probes (browser_probe, web_fetch mode=browser) and inherit to agent-browser subprocesses. Requires --browser to have any effect. Sets VIGOLIUM_BROWSER_HEADED=1 for the duration of the run.")
 	f.StringVar(&autopilotCredentials, "credentials", "", "Credentials for auth preflight (e.g. 'admin/admin123, compare user/user123')")
 	f.BoolVar(&autopilotAuthRequired, "auth-required", false, "Require auth/session preparation before the autonomous operator starts")
 	f.BoolVar(&autopilotRequiresBrowser, "requires-browser", false, "Require browser-assisted auth/setup instead of HTTP-only preflight")
@@ -168,6 +148,9 @@ func init() {
 	f.StringVar(&autopilotIntensity, "intensity", "balanced", "Scan intensity preset: quick, balanced, or deep")
 	f.BoolVar(&autopilotNoPrescan, "no-prescan", false, "Skip the native pre-scan that seeds http_records before the operator agent (target-only runs; no-op when --source is set)")
 	f.BoolVar(&autopilotTriage, "triage", false, "After the scan completes, run an AI triage pass over the findings (confirm real issues vs false positives, written back to finding status)")
+	f.BoolVar(&autopilotNoPreflight, "no-preflight-discovery", false, "Skip the pre-flight discovery + OpenAPI/Swagger ingestion pass that seeds http_records before the operator agent starts")
+	f.BoolVar(&autopilotNoPostHaltVerify, "no-post-halt-verify", false, "Skip the post-halt coverage verification re-entry (operator halts → coverage probe → re-prompt agent when new routes turn up)")
+	f.IntVar(&autopilotPostHaltGap, "post-halt-gap-threshold", 0, "Minimum new (method, URL) routes the post-halt probe must turn up before the agent is re-entered. 0 = built-in default (5)")
 
 	f.BoolVar(&autopilotUploadResults, "upload-results", false, "Upload scan results to cloud storage after completion (requires storage config)")
 	f.BoolVar(&autopilotDisableGuardrail, "disable-guardrail", false, "Skip the prompt-safety classifier on the natural-language prompt (use only when refusing a known-good prompt)")
@@ -198,18 +181,18 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 			auditModeLocal = ""
 		}
 		changed := map[string]bool{
-			"timeout":     cmd.Flags().Changed("max-duration"),
+			"timeout":    cmd.Flags().Changed("max-duration"),
 			"audit-mode": auditChanged,
 			"no-audit":   auditChanged && noAudit,
-			"browser":     cmd.Flags().Changed("browser"),
-			"no-prescan":  cmd.Flags().Changed("no-prescan"),
+			"browser":    cmd.Flags().Changed("browser"),
+			"no-prescan": cmd.Flags().Changed("no-prescan"),
 		}
 		intensityResult := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
-			MaxCommands: autopilotMaxCommands,
-			Timeout:     autopilotMaxDuration,
-			AuditDriverMode:  auditModeLocal,
-			Browser:     autopilotBrowser,
-			NoPrescan:   autopilotNoPrescan,
+			MaxCommands:     autopilotMaxCommands,
+			Timeout:         autopilotMaxDuration,
+			AuditDriverMode: auditModeLocal,
+			Browser:         autopilotBrowser,
+			NoPrescan:       autopilotNoPrescan,
 		}, changed)
 		autopilotMaxCommands = intensityResult.MaxCommands
 		autopilotMaxDuration = intensityResult.Timeout
@@ -246,6 +229,10 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	if autopilotBrowser {
 		enabled := true
 		settings.Agent.Browser.Enable = &enabled
+	}
+
+	if autopilotHeaded {
+		_ = os.Setenv(spitolas.EnvBrowserHeaded, "1")
 	}
 
 	// Apply olium provider override flags onto settings so the pipeline

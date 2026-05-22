@@ -111,6 +111,10 @@ Use this to find the right command quickly:
 | Olium via google-vertex (Gemini-native) | `vigolium olium --provider google-vertex --model gemini-3.1-pro` |
 | Browse stored HTTP traffic | `vigolium traffic` or `vigolium traffic <search>` |
 | Browse findings/vulnerabilities | `vigolium finding` or `vigolium db ls --table findings` |
+| Replay one request with mutations + baseline diff (external-agent confirm step) | `vigolium replay --record-uuid <uuid> -m 'name=id,payload=1 OR 1=1'` |
+| Replay a finding's HTTP evidence with a payload | `vigolium replay --finding-id 42 -m 'name=q,payload=<svg/onload=alert(1)>'` |
+| Replay an arbitrary curl/raw/burp/base64/URL input | `vigolium replay -i "curl -X POST <url> -d '...'"` |
+| Persist cookies across replays (multi-step auth) | `vigolium replay --session-id login --record-uuid <uuid>` |
 | Filter findings by module type or source | `vigolium finding --module-type active --finding-source audit` |
 | View database statistics | `vigolium db stats` |
 | Export results to JSONL/HTML | `vigolium export --format jsonl -o results.jsonl` |
@@ -677,6 +681,12 @@ vigolium traffic --tree         # hierarchical view
 vigolium traffic --burp         # Burp-style colored output
 vigolium traffic --host api.example.com --method POST
 
+# JSONL output for agent / CI consumption (one JSON object per line)
+vigolium traffic -j --host api.example.com
+vigolium finding -j --severity high,critical
+vigolium db ls -j --table findings
+vigolium db stats -j
+
 # Browse findings
 vigolium finding
 vigolium finding --severity high,critical
@@ -695,6 +705,65 @@ vigolium db stats --detailed    # includes top hosts breakdown
 vigolium traffic --watch 5s
 vigolium db stats --watch 10
 ```
+
+### 14b. External-Agent Confirm Chain (Claude Code / Cursor / Pi)
+
+External agents driving vigolium externally (Claude Code, Cursor, Pi, CI
+scripts) follow this discover → confirm → review chain:
+
+1. **Discover** — pull what vigolium already knows in JSONL:
+   ```bash
+   vigolium traffic -j --host api.example.com --method POST --status 200,500
+   vigolium finding -j --severity high,critical --finding-source audit
+   ```
+   Each line is one record/finding; pipe through `jq` to filter.
+
+2. **Confirm** — mutate one request and diff the result:
+   ```bash
+   vigolium replay --record-uuid <uuid> -m 'name=id,payload=1 OR 1=1' \
+                   --session-id login           # persist cookies between calls
+   ```
+   `vigolium replay` is the CLI surface for the in-process `replay_request`
+   tool. Accepts every input shape the agents accept — `--record-uuid`,
+   `--finding-id`, or `--input` for curl / raw HTTP / Burp XML / base64 /
+   URL / stdin (`-`). Output is stable JSON: `result.baseline`,
+   `result.replay`, `result.diff` (status delta, length delta,
+   content-hash, payload reflection, interpretation). Use `--pretty` for a
+   human summary.
+
+3. **Persist auth state** — multi-step flows (login → CSRF → action) need
+   cookies between calls:
+   ```bash
+   vigolium replay --session-id login -i curl-login.sh         # sets cookies
+   vigolium replay --session-id login --record-uuid <action>   # uses cookies
+   ```
+   Jar lives at `~/.vigolium/replay-jars/<session-id>.json`; pass
+   `--no-cookies` to opt out.
+
+4. **Replay a finding's evidence** — when a finding came from an
+   imported source (audit, JSONL) with no linked record, `--finding-id`
+   falls back to the finding's stored Request/Response bytes:
+   ```bash
+   vigolium replay --finding-id 42 -m 'name=q,payload=<svg/onload=alert(1)>'
+   ```
+
+5. **Confirm against a different env** — `--target` rewrites the
+   destination while keeping the baseline request bytes intact:
+   ```bash
+   vigolium replay --record-uuid <prod-uuid> --target https://staging.example.com
+   ```
+
+6. **Update the stored baseline** — `--in-replace` writes the replay's
+   response back to the source record (only when the source is a stored
+   HTTPRecord):
+   ```bash
+   vigolium replay --record-uuid <uuid> -m '...' --in-replace
+   ```
+
+Routes through `HTTP_PROXY` / `HTTPS_PROXY` (or `--proxy`) for Burp
+inspection. Honors `--project-uuid` / `--project-name` for project
+scoping. Mutations support both forms: `--mutate 'name=id,payload=1 OR 1=1'`
+or shorthand `--mutate 'id:URL_PARAM:1 OR 1=1'`.
 
 ### 16. Export and Reports
 ```bash

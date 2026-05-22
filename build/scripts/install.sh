@@ -147,10 +147,13 @@ npm_platform_tag() {
 	esac
 }
 
-# Robust downloader that handles snap curl issues with retry logic
+# Robust downloader that handles snap curl issues with retry logic.
+#   $1 = url, $2 = output file, $3 = progress: 0 (default, silent) | 1 (show
+#   progress bar on stderr — useful for large downloads on slow links)
 downloader() {
 	local url="$1"
 	local output_file="$2"
+	local progress="${3:-0}"
 	local attempt=1
 	local delay=$INITIAL_RETRY_DELAY
 
@@ -172,13 +175,27 @@ downloader() {
 
 		# Check if we have a working (non-snap) curl
 		if command_exists curl && [[ $snap_curl -eq 0 ]]; then
-			if curl -fsSL "$url" -o "$output_file" 2>/dev/null; then
-				download_success=1
+			if [[ $progress -eq 1 ]]; then
+				# -#: progress bar to stderr; -fL: fail on HTTP errors, follow redirects
+				if curl -#fL "$url" -o "$output_file"; then
+					download_success=1
+				fi
+			else
+				if curl -fsSL "$url" -o "$output_file" 2>/dev/null; then
+					download_success=1
+				fi
 			fi
 		# Try wget for both no curl and the broken snap curl
 		elif command_exists wget; then
-			if wget -q --show-progress "$url" -O "$output_file" 2>/dev/null; then
-				download_success=1
+			if [[ $progress -eq 1 ]]; then
+				# --show-progress: progress bar to stderr (leave stderr open)
+				if wget -q --show-progress "$url" -O "$output_file"; then
+					download_success=1
+				fi
+			else
+				if wget -q --show-progress "$url" -O "$output_file" 2>/dev/null; then
+					download_success=1
+				fi
 			fi
 		# If we can't fall back from broken snap curl to wget, report the broken snap curl
 		elif [[ $snap_curl -eq 1 ]]; then
@@ -274,8 +291,10 @@ download_file() {
 	local temp_file
 	temp_file=$(mktemp "$(dirname "$output_file")/tmp.XXXXXX")
 
-	# Download to temp file first, then atomic move
-	downloader "$url" "$temp_file"
+	# Download to temp file first, then atomic move. The tarball is the large
+	# download, so show a progress bar — other callers (the small registry
+	# JSON manifests) keep using the default silent mode of downloader.
+	downloader "$url" "$temp_file" 1
 	mv "$temp_file" "$output_file"
 }
 
@@ -377,11 +396,18 @@ install_vigolium_binary() {
 		error "Could not find '${binary_name}.gz' in the npm tarball"
 	fi
 
+	# Stage the new binary on the same filesystem as the target, then atomic
+	# rename. Writing directly to $binary_path would fail with ETXTBSY when
+	# `vigolium update` runs the installer — the parent vigolium process
+	# still has the executable mapped, and the kernel forbids overwriting
+	# the in-use binary. rename(2) only swaps the directory entry, so the
+	# running process keeps using the old (now unlinked) inode.
+	local staged="${binary_path}.new"
+	rm -f "$staged"
 	log "Decompressing binary..."
-	gzip -dc "$gz_path" > "$binary_path"
-
-	# Make executable
-	chmod +x "$binary_path"
+	gzip -dc "$gz_path" > "$staged"
+	chmod +x "$staged"
+	mv "$staged" "$binary_path"
 
 	# Clean up
 	rm -f "$tarball_path"

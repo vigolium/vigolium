@@ -1255,10 +1255,14 @@ agent:
 
       # Extra headers applied to every request, after the standard ones, so
       # they can override Authorization (handy for backends that use a
-      # non-Bearer scheme).
-      extra_headers: {}
-      #   X-Custom-Header: value
-      #   HTTP-Referer: https://your-site.example  # OpenRouter ranking signal
+      # non-Bearer scheme). Each entry is a curl-style "Key: Value" string.
+      # Mutate from the CLI with:
+      #   vigolium config set agent.olium.custom_provider.extra_headers.clear ""
+      #   vigolium config set agent.olium.custom_provider.extra_headers.add "X-Custom-Header: value"
+      extra_headers: []
+      #   - "X-Custom-Header: value"
+      #   - "HTTP-Referer: https://your-site.example"   # OpenRouter ranking signal
+      #   - "Authorization: Bearer ${MY_CUSTOM_TOKEN}"  # overrides default Bearer auth
 
   # --------------------------------------------------------------------------
   # Vigolium Audit Integration

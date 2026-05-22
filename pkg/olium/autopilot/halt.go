@@ -12,6 +12,21 @@ import (
 	"github.com/vigolium/vigolium/pkg/olium/tool"
 )
 
+// HaltSource identifies who tripped the halt signal. The post-halt coverage
+// loop only re-enters when the source is HaltSourceModel — a budget-driven
+// halt means the operator's cost cap is already exhausted, and any extra
+// turns would violate that cap.
+type HaltSource int
+
+const (
+	// HaltSourceUnset is the zero value before any Set call.
+	HaltSourceUnset HaltSource = iota
+	// HaltSourceModel was set by the halt_scan tool fired by the model.
+	HaltSourceModel
+	// HaltSourceBudget was set by the outer loop's wall-time or token cap.
+	HaltSourceBudget
+)
+
 // HaltSignal is a thread-safe halt flag shared between the halt_scan tool
 // and the autopilot's outer loop. The loop checks the flag after each
 // assistant turn and exits cleanly when the model has called halt_scan.
@@ -19,6 +34,7 @@ type HaltSignal struct {
 	mu     sync.Mutex
 	halted bool
 	reason string
+	source HaltSource
 }
 
 // Halted returns whether halt was requested and (optionally) the reason.
@@ -28,14 +44,48 @@ func (h *HaltSignal) Halted() (bool, string) {
 	return h.halted, h.reason
 }
 
-// Set marks the signal as halted. Subsequent calls are ignored.
-func (h *HaltSignal) Set(reason string) {
+// Source returns the most recent halt source. HaltSourceUnset when no halt
+// has fired yet — useful for distinguishing budget-driven exits from
+// model-driven ones in the post-halt coverage loop.
+func (h *HaltSignal) Source() HaltSource {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.source
+}
+
+// SetByModel marks the signal as halted on behalf of the halt_scan tool.
+// Subsequent calls of any kind are ignored until Reset is called.
+func (h *HaltSignal) SetByModel(reason string) {
+	h.set(reason, HaltSourceModel)
+}
+
+// SetByBudget marks the signal as halted on behalf of the autopilot's wall-
+// time or token budget enforcement. Same idempotency contract as
+// SetByModel.
+func (h *HaltSignal) SetByBudget(reason string) {
+	h.set(reason, HaltSourceBudget)
+}
+
+func (h *HaltSignal) set(reason string, src HaltSource) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.halted {
 		h.halted = true
 		h.reason = reason
+		h.source = src
 	}
+}
+
+// Reset clears the halt flag so a re-entry can observe a fresh signal.
+// Preserves the previous source so the caller can decide whether a re-entry
+// is appropriate before calling Reset. After Reset, Halted returns false
+// and Source returns HaltSourceUnset.
+func (h *HaltSignal) Reset() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.halted = false
+	h.reason = ""
+	h.source = HaltSourceUnset
 }
 
 // haltTool is the tool form of HaltSignal — the model invokes it to end
@@ -71,7 +121,7 @@ func (h *haltTool) Execute(ctx context.Context, args map[string]any, onUpdate to
 	if reason == "" {
 		reason = "(no reason provided)"
 	}
-	h.signal.Set(reason)
+	h.signal.SetByModel(reason)
 	return tool.Result{
 		Content: "Halt requested. The autopilot will exit after this turn completes.",
 	}, nil

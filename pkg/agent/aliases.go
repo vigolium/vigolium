@@ -55,6 +55,7 @@ type (
 	PlannedEndpoint       = agenttypes.PlannedEndpoint
 	TriageResult          = agenttypes.TriageResult
 	TriagedFinding        = agenttypes.TriagedFinding
+	TriageConfirmResult   = agenttypes.TriageConfirmResult
 	FollowUpScan          = agenttypes.FollowUpScan
 	SourceAnalysisResult  = agenttypes.SourceAnalysisResult
 	AgentSessionConfig    = agenttypes.AgentSessionConfig
@@ -91,10 +92,10 @@ type AutopilotPipelineResult = agenttypes.AutopilotPipelineResult
 
 // Intensity types
 type (
-	Intensity                = agenttypes.Intensity
-	AutopilotIntensityPreset = agenttypes.AutopilotIntensityPreset
-	SwarmIntensityPreset     = agenttypes.SwarmIntensityPreset
-	AuditDriverIntensityPreset    = agenttypes.AuditDriverIntensityPreset
+	Intensity                  = agenttypes.Intensity
+	AutopilotIntensityPreset   = agenttypes.AutopilotIntensityPreset
+	SwarmIntensityPreset       = agenttypes.SwarmIntensityPreset
+	AuditDriverIntensityPreset = agenttypes.AuditDriverIntensityPreset
 )
 
 // Intent types
@@ -139,14 +140,20 @@ const (
 	IntensityBalanced = agenttypes.IntensityBalanced
 	IntensityDeep     = agenttypes.IntensityDeep
 
+	// Triage confirm verdict + template identifiers
+	TriageVerdictConfirmed     = agenttypes.TriageVerdictConfirmed
+	TriageVerdictFalsePositive = agenttypes.TriageVerdictFalsePositive
+	TriageConfirmTemplateID    = agenttypes.TriageConfirmTemplateID
+	TriageConfirmOutputSchema  = agenttypes.TriageConfirmOutputSchema
+
 	// SwarmPhase
-	SwarmPhaseNormalize      = agenttypes.SwarmPhaseNormalize
-	SwarmPhaseAuth           = agenttypes.SwarmPhaseAuth
-	SwarmPhaseSourceAnalysis = agenttypes.SwarmPhaseSourceAnalysis
-	SwarmPhaseCodeAudit      = agenttypes.SwarmPhaseCodeAudit
-	SwarmPhaseDiscover       = agenttypes.SwarmPhaseDiscover
-	SwarmPhaseRecon          = agenttypes.SwarmPhaseRecon
-	SwarmPhasePlan           = agenttypes.SwarmPhasePlan
+	SwarmPhaseNormalize       = agenttypes.SwarmPhaseNormalize
+	SwarmPhaseAuth            = agenttypes.SwarmPhaseAuth
+	SwarmPhaseSourceAnalysis  = agenttypes.SwarmPhaseSourceAnalysis
+	SwarmPhaseCodeAudit       = agenttypes.SwarmPhaseCodeAudit
+	SwarmPhaseDiscover        = agenttypes.SwarmPhaseDiscover
+	SwarmPhaseRecon           = agenttypes.SwarmPhaseRecon
+	SwarmPhasePlan            = agenttypes.SwarmPhasePlan
 	SwarmPhaseExtension       = agenttypes.SwarmPhaseExtension
 	SwarmPhaseScan            = agenttypes.SwarmPhaseScan
 	SwarmPhaseDiscoverReentry = agenttypes.SwarmPhaseDiscoverReentry
@@ -175,9 +182,10 @@ var (
 
 // Re-export parsing functions with external consumers.
 var (
-	ParseFindings    = parsing.ParseFindings
-	ParseHTTPRecords = parsing.ParseHTTPRecords
-	ToDBFinding      = parsing.ToDBFinding
+	ParseFindings            = parsing.ParseFindings
+	ParseHTTPRecords         = parsing.ParseHTTPRecords
+	ParseTriageConfirmResult = parsing.ParseTriageConfirmResult
+	ToDBFinding              = parsing.ToDBFinding
 )
 
 // Re-export input functions with external consumers.

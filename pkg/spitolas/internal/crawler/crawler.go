@@ -33,8 +33,8 @@ type Crawler struct {
 	// is used to construct it (and remains owned by the pool), but Pool.Get()
 	// uses round-robin, which would silently switch browsers between calls —
 	// so we cache one reference here and use it for the entire crawl session.
-	browser   *browser.Browser
-	extractor *action.CandidateElementExtractor
+	browser     *browser.Browser
+	extractor   *action.CandidateElementExtractor
 	comparator  *state.Comparator
 	formHandler *form.Handler
 	fragManager *fragment.Manager

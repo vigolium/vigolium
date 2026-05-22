@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strconv"
@@ -25,6 +26,23 @@ import (
 
 	"github.com/samber/lo"
 )
+
+// Truthy reports whether s reads as a positive boolean flag — case-insensitive
+// "1", "true", "yes", "on". Used for env-var and CLI-token parsing where the
+// no/false form is conventionally absence.
+func Truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// EnvTruthy reads os.Getenv(name) through Truthy. Empty / unset / unrecognized
+// returns false.
+func EnvTruthy(name string) bool {
+	return Truthy(os.Getenv(name))
+}
 
 //go:embed assets/*
 var assetsFS embed.FS

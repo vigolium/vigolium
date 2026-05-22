@@ -85,12 +85,12 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 		ReasoningEffort:     oliumCfg.ReasoningEffort,
 		Version:             getVersion(),
 		// openai-compatible — --base-url / --llm-api-key / --model fall back
-		// to custom_provider.* in YAML. ExtraHeaders has no CLI flag (map is
-		// awkward to flag-plumb; set it in YAML).
+		// to custom_provider.* in YAML. ExtraHeaders has no CLI flag; set
+		// entries via `vigolium config set ... extra_headers.add "K: V"`.
 		CustomBaseURL:      firstNonEmptyString(oliumBaseURL, oliumCfg.CustomProvider.BaseURL),
 		CustomModelID:      oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:       firstNonEmptyString(oliumLLMAPIKey, oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders: oliumCfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders: oliumCfg.CustomProvider.ExtraHeadersMap(),
 	}
 
 	fmt.Fprint(os.Stderr, GetOliumBanner())

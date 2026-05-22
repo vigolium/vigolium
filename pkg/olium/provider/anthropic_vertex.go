@@ -24,6 +24,8 @@ func NewAnthropicVertex(a *auth.VertexAuth, project, location string) *Anthropic
 
 func (*AnthropicVertex) Name() string { return "anthropic-vertex" }
 
+func (a *AnthropicVertex) CloseIdleConnections() { a.t.CloseIdleConnections() }
+
 // Stream forwards a Claude-shaped request to publishers/anthropic on
 // Vertex. Non-claude-* model ids fail fast since this provider key
 // promises Anthropic routing only — pick google-vertex for Gemini.

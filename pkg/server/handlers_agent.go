@@ -307,15 +307,15 @@ func (h *Handlers) HandleAgentAutopilot(c fiber.Ctx) error {
 		changed := map[string]bool{
 			"max-commands": req.MaxCommands != 0,
 			"timeout":      req.Timeout != "",
-			"audit-mode":  req.AuditDriverMode != "",
-			"no-audit":    req.NoAudit || req.Audit == "off",
+			"audit-mode":   req.AuditDriverMode != "",
+			"no-audit":     req.NoAudit || req.Audit == "off",
 			"browser":      req.Browser || req.RequiresBrowser,
 		}
 		result := agent.ResolveAutopilotIntensity(intensity, agent.AutopilotIntensityPreset{
-			MaxCommands: req.MaxCommands,
-			Timeout:     parseDurationOrDefault(req.Timeout, 6*time.Hour),
-			AuditDriverMode:  req.ResolvedAuditDriverMode(),
-			Browser:     req.Browser || req.RequiresBrowser,
+			MaxCommands:     req.MaxCommands,
+			Timeout:         parseDurationOrDefault(req.Timeout, 6*time.Hour),
+			AuditDriverMode: req.ResolvedAuditDriverMode(),
+			Browser:         req.Browser || req.RequiresBrowser,
 		}, changed)
 		if req.MaxCommands == 0 {
 			req.MaxCommands = result.MaxCommands
@@ -467,6 +467,9 @@ func (h *Handlers) buildAutopilotPipelineConfig(req AgentAutopilotRequest, proje
 		RequiresBrowser:       req.RequiresBrowser,
 		BrowserStartURL:       req.BrowserStartURL,
 		FocusRoutes:           append([]string(nil), req.FocusRoutes...),
+		PreflightDiscovery:    !req.NoPreflightDiscovery,
+		PostHaltVerify:        !req.NoPostHaltVerify,
+		PostHaltGapThreshold:  req.PostHaltGapThreshold,
 	}
 
 	auditCfg, harness := h.resolveAutopilotAuditCfgServer(req, sourcePath)
@@ -905,7 +908,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			"code-audit":        req.CodeAudit,
 			"triage":            req.Triage,
 			"max-iterations":    req.MaxIterations != 0,
-			"audit":            req.Audit != "",
+			"audit":             req.Audit != "",
 			"max-plan-records":  req.MaxPlanRecords != 0,
 			"master-batch-size": req.MasterBatchSize != 0,
 			"batch-concurrency": req.BatchConcurrency != 0,
@@ -919,7 +922,7 @@ func (h *Handlers) HandleAgentSwarm(c fiber.Ctx) error {
 			CodeAudit:        req.CodeAudit,
 			Triage:           req.Triage,
 			MaxIterations:    req.MaxIterations,
-			Audit:           req.Audit,
+			Audit:            req.Audit,
 			MaxPlanRecords:   req.MaxPlanRecords,
 			MasterBatchSize:  req.MasterBatchSize,
 			BatchConcurrency: req.BatchConcurrency,

@@ -146,7 +146,7 @@ func TestHandleAgentAutopilot_InvalidAuditDriverMode(t *testing.T) {
 	app := newAgentTestApp(h)
 
 	resp, body, err := postJSON(app, "/api/agent/run/autopilot", map[string]any{
-		"target":      "https://example.com",
+		"target":     "https://example.com",
 		"audit_mode": "ridiculous",
 	})
 	if err != nil {
@@ -183,7 +183,7 @@ func TestHandleAgentAutopilot_LegacyAuditDriverMaps(t *testing.T) {
 	cases := []struct {
 		audit       string
 		wantNoAudit bool
-		wantMode     string
+		wantMode    string
 	}{
 		{"off", true, "lite"},   // off → disabled, mode falls back to default "lite"
 		{"deep", false, "deep"}, // legacy alias → mode=deep
@@ -308,7 +308,7 @@ func TestHandleAgentAutopilot_AsyncRunFailsAtPreflight(t *testing.T) {
 	app := newAgentTestApp(h)
 
 	resp, body, err := postJSON(app, "/api/agent/run/autopilot", map[string]any{
-		"source":    t.TempDir(), // source-only: no target → preflight failure is fatal
+		"source":   t.TempDir(), // source-only: no target → preflight failure is fatal
 		"no_audit": true,        // skip audit so the failure surfaces on the operator preflight
 	})
 	if err != nil {
@@ -432,9 +432,9 @@ func TestHandleAgentAutopilot_SSERunFailureIsPersisted(t *testing.T) {
 	app := newAgentTestApp(h)
 
 	body, _ := json.Marshal(map[string]any{
-		"source":    t.TempDir(), // source-only: no target → preflight failure is fatal
+		"source":   t.TempDir(), // source-only: no target → preflight failure is fatal
 		"no_audit": true,
-		"stream":    true,
+		"stream":   true,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/run/autopilot", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -529,11 +529,11 @@ func TestHandleAgentSessionArtifacts_ListsFiles(t *testing.T) {
 
 	sessionDir := t.TempDir()
 	files := map[string]string{
-		"runtime.log":             "phase one\nphase two\n",
-		"output.md":               "# results",
-		"plan.json":               `{"phase":"plan"}`,
-		"audit-stream.jsonl":      `{"event":"chunk"}`,
-		"extensions/check.js":     "module.exports = {};",
+		"runtime.log":                 "phase one\nphase two\n",
+		"output.md":                   "# results",
+		"plan.json":                   `{"phase":"plan"}`,
+		"audit-stream.jsonl":          `{"event":"chunk"}`,
+		"extensions/check.js":         "module.exports = {};",
 		"vigolium-results/state.json": `{"audit":1}`,
 	}
 	for rel, body := range files {
@@ -574,12 +574,12 @@ func TestHandleAgentSessionArtifacts_ListsFiles(t *testing.T) {
 	// Spot-check that nested files are reported with forward-slash paths and
 	// that the kind classifier picked up the obvious extensions.
 	wantKind := map[string]string{
-		"runtime.log":             "log",
-		"plan.json":               "json",
-		"output.md":               "markdown",
-		"audit-stream.jsonl":      "jsonl",
+		"runtime.log":                 "log",
+		"plan.json":                   "json",
+		"output.md":                   "markdown",
+		"audit-stream.jsonl":          "jsonl",
 		"vigolium-results/state.json": "json",
-		"extensions/check.js":     "text",
+		"extensions/check.js":         "text",
 	}
 	gotKind := map[string]string{}
 	for _, a := range listing.Artifacts {

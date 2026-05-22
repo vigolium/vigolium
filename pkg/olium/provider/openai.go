@@ -39,7 +39,7 @@ func NewOpenAI(apiKey string) *OpenAI {
 		apiKey:  secret(apiKey),
 		baseURL: openAIChatCompletionsURL,
 		name:    "openai",
-		client:  &http.Client{},
+		client:  newHTTPClient(),
 	}
 }
 
@@ -59,7 +59,7 @@ func NewOpenAICompatible(baseURL, apiKey string, extraHeaders map[string]string)
 		baseURL:      normalizeOpenAIBaseURL(baseURL),
 		extraHeaders: extraHeaders,
 		name:         "openai-compatible",
-		client:       &http.Client{},
+		client:       newHTTPClient(),
 	}
 }
 
@@ -82,6 +82,12 @@ func (o *OpenAI) Name() string {
 		return o.name
 	}
 	return "openai"
+}
+
+// CloseIdleConnections drops idle HTTP/2 conns on this provider's transport.
+// See provider.ConnectionResetter.
+func (o *OpenAI) CloseIdleConnections() {
+	o.client.CloseIdleConnections()
 }
 
 // --- Request body types ---

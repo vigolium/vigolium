@@ -93,7 +93,7 @@ func buildOliumEngine(cfg *config.OliumConfig, sourcePath string) (*oengine.Engi
 		CustomBaseURL:       cfg.CustomProvider.BaseURL,
 		CustomModelID:       cfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(cfg.CustomProvider.APIKey, cfg.LLMAPIKey),
-		CustomExtraHeaders:  cfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders:  cfg.CustomProvider.ExtraHeadersMap(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("olium provider: %w", err)
@@ -204,6 +204,15 @@ type semaphoreProvider struct {
 }
 
 func (s *semaphoreProvider) Name() string { return s.inner.Name() }
+
+// CloseIdleConnections forwards to the wrapped provider when it implements
+// provider.ConnectionResetter so the engine's retry path can drain idle
+// conns through the wrapper without unwrapping first.
+func (s *semaphoreProvider) CloseIdleConnections() {
+	if r, ok := s.inner.(provider.ConnectionResetter); ok {
+		r.CloseIdleConnections()
+	}
+}
 
 func (s *semaphoreProvider) Stream(ctx context.Context, req provider.Request) (<-chan stream.Event, error) {
 	release, err := acquireProviderSlot(ctx, s.cfg)

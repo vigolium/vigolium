@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/agent/prompt"
+	"github.com/vigolium/vigolium/pkg/spitolas"
+	"github.com/vigolium/vigolium/pkg/utils"
 	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
 )
@@ -101,6 +103,9 @@ func buildSystemPrompt(opts Options) string {
 		if section := strings.TrimSpace(prompt.LoadBrowserPromptSection()); section != "" {
 			b.WriteString("\n\n")
 			b.WriteString(section)
+		}
+		if utils.EnvTruthy(spitolas.EnvBrowserHeaded) {
+			b.WriteString("\n\n**Headed mode is enabled (operator passed --headed).** Append `--headed` to every `agent-browser open` invocation so the browser window is visible. In-process probes (`browser_probe`, `web_fetch mode=browser`) pick up headed mode automatically — no extra flag needed for those.")
 		}
 	}
 	return b.String()

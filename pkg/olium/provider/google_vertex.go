@@ -25,6 +25,8 @@ func NewGoogleVertex(a *auth.VertexAuth, project, location string) *GoogleVertex
 
 func (*GoogleVertex) Name() string { return "google-vertex" }
 
+func (g *GoogleVertex) CloseIdleConnections() { g.t.CloseIdleConnections() }
+
 // Stream forwards a Gemini-shaped request to publishers/google on Vertex.
 // Non-gemini-* model ids fail fast since this provider key promises
 // Gemini routing only — pick anthropic-vertex for Claude.

@@ -156,6 +156,15 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			if err := ensureInitialized(); err != nil {
 				return err
 			}
+			// For commands that drive a native scan, also guarantee the core
+			// scan dependencies (chromium + nuclei templates) are installed
+			// before handing control to the command. Cheap/informational
+			// commands skip this so they don't trigger a chrome download.
+			if needsCoreDeps(cmd) {
+				if err := ensureCoreDeps(); err != nil {
+					return err
+				}
+			}
 		}
 
 		// Handle -M/--list-modules shortcut

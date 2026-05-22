@@ -13,17 +13,17 @@ import "strings"
 // existing module tagged with that name picks the new gate up automatically.
 var knownTechTags = map[string]struct{}{
 	// Frameworks
-	"spring":     {},
-	"django":     {},
-	"flask":      {},
-	"fastapi":    {},
-	"rails":      {},
-	"laravel":    {},
-	"express":    {},
-	"nestjs":     {},
-	"nextjs":     {},
-	"nuxt":       {}, // emitted by recon/fingerprint.go and metaframework_fingerprint
-	"nuxtjs":     {}, // emitted by jsframework.NuxtJS
+	"spring":  {},
+	"django":  {},
+	"flask":   {},
+	"fastapi": {},
+	"rails":   {},
+	"laravel": {},
+	"express": {},
+	"nestjs":  {},
+	"nextjs":  {},
+	"nuxt":    {}, // emitted by recon/fingerprint.go and metaframework_fingerprint
+	"nuxtjs":  {}, // emitted by jsframework.NuxtJS
 
 	"remix":      {},
 	"sveltekit":  {},

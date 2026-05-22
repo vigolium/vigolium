@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/cli/tui"
@@ -14,31 +15,40 @@ var (
 	findingNoTUIFlag bool
 )
 
-// pickFindingTUI shows an interactive picker and, on selection, prints the
-// chosen finding's raw detail (same format as `--raw`). Returns nil if the
-// user quits without selecting.
-func pickFindingTUI(ctx context.Context, db *database.DB, findings []*database.Finding, total int64) error {
+// selectFindingFromList runs the interactive list picker over findings and
+// returns the chosen one. Returns (nil, nil) when the user quits without
+// selecting. The Title shown above the picker is caller-supplied so the same
+// helper backs both `vigolium finding` browsing and the agent triage picker.
+func selectFindingFromList(title string, findings []*database.Finding) (*database.Finding, error) {
 	byID := make(map[string]*database.Finding, len(findings))
 	items := make([]tui.Item, 0, len(findings))
 	for _, f := range findings {
-		id := fmt.Sprintf("%d", f.ID)
+		id := strconv.FormatInt(f.ID, 10)
 		byID[id] = f
 		items = append(items, findingItem(f))
 	}
 
-	res, err := tui.RunList(tui.ListConfig{
-		Title: fmt.Sprintf("vigolium findings (%d of %d)", len(findings), total),
-		Items: items,
-	})
+	res, err := tui.RunList(tui.ListConfig{Title: title, Items: items})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if res.SelectedID == "" {
-		return nil
+		return nil, nil
 	}
 	f, ok := byID[res.SelectedID]
 	if !ok {
-		return fmt.Errorf("selected finding %s not in current result set", res.SelectedID)
+		return nil, fmt.Errorf("selected finding %s not in current result set", res.SelectedID)
+	}
+	return f, nil
+}
+
+// pickFindingTUI shows an interactive picker and, on selection, prints the
+// chosen finding's raw detail (same format as `--raw`). Returns nil if the
+// user quits without selecting.
+func pickFindingTUI(ctx context.Context, db *database.DB, findings []*database.Finding, total int64) error {
+	f, err := selectFindingFromList(fmt.Sprintf("vigolium findings (%d of %d)", len(findings), total), findings)
+	if err != nil || f == nil {
+		return err
 	}
 	return displayFindingsRaw(db, ctx, []*database.Finding{f})
 }

@@ -75,13 +75,13 @@ func (h *Handlers) startCombinedAuditRun(c fiber.Ctx, driver string, req AgentAu
 	plan := combinedAuditPlan{
 		driver:          driver,
 		req:             req,
-		auditChain:     auditChain,
+		auditChain:      auditChain,
 		pioliumModes:    pioliumModes,
 		preset:          preset,
 		additionalArgs:  additionalArgs,
 		parentUUID:      parentUUID,
 		projectUUID:     projectUUID,
-		auditOverride:  auditOverride,
+		auditOverride:   auditOverride,
 		pioliumOverride: pioliumOverride,
 		authCleanup:     authCleanup,
 	}
@@ -106,7 +106,7 @@ type combinedAuditPlan struct {
 	req    AgentAuditRequest
 	// Per-driver filtered mode chains. For driver=auto/both these may
 	// differ (per-driver skip-unsupported); an empty leg is skipped.
-	auditChain    []string
+	auditChain     []string
 	pioliumModes   []string
 	preset         agent.AuditDriverIntensityPreset
 	additionalArgs []string
@@ -114,7 +114,7 @@ type combinedAuditPlan struct {
 	// driver. Each is the top-level request override, or a per-driver
 	// override from req.AuditDriverAuth / req.PioliumAuth when supplied. Already
 	// validated and (if inline JSON) staged by HandleAgentAudit.
-	auditOverride  agent.AuthOverride
+	auditOverride   agent.AuthOverride
 	pioliumOverride agent.AuthOverride
 	// authCleanup tears down any per-request staged cred files once both
 	// drivers complete. Nil when no staging happened (CLI-style server

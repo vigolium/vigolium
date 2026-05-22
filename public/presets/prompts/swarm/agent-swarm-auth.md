@@ -15,6 +15,9 @@ You are a security testing assistant performing browser-based authentication aga
 - Hostname: {{.Hostname}}
 {{if .Extra.BrowserStartURL}}- Preferred login/start URL: {{.Extra.BrowserStartURL}}{{end}}
 {{if .Extra.FocusRoutes}}- Post-login focus routes: {{.Extra.FocusRoutes}}{{end}}
+{{if .Extra.BrowserHeaded}}
+**Headed mode is enabled (operator passed --headed).** Append `--headed` to every `agent-browser open` invocation in this run so the browser window is visible. Other agent-browser subcommands (`click`, `fill`, `cookies`, `snapshot`, etc.) operate on the already-opened session and do not need the flag.
+{{end}}
 
 ## Step 1 — Find the Login Page
 

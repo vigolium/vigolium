@@ -18,7 +18,10 @@ detection (comparing responses with wildcard vs. baseline).
 ## Notes
 - Only tests parameters whose name suggests LDAP usage (username, uid, cn, filter, etc.)
 - Checks for LDAP error messages that were not present in the baseline response
-- Performs boolean-based differential analysis with wildcard injection
+- Boolean-based detection uses a 3-way differential: the wildcard probe must
+  diverge from BOTH the baseline AND a no-match control probe by a substantial
+  body delta (absolute and relative), filtering out endpoints that simply
+  reflect any user input
 - Deduplication via RHM to avoid redundant requests
 
 ## References
@@ -26,7 +29,7 @@ detection (comparing responses with wildcard vs. baseline).
 - https://cheatsheetseries.owasp.org/cheatsheets/LDAP_Injection_Prevention_Cheat_Sheet.html`
 
 	ModuleConfirmation = "Confirmed when injected LDAP filter syntax triggers error messages or produces differential responses indicating filter manipulation"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"injection", "heavy"}
 )

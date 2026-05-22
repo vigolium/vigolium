@@ -49,6 +49,30 @@ type TriagedFinding struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
+// TriageConfirmResult is the structured output from the single-finding
+// confirmation triage agent (the `vigolium agent triage` CLI subcommand).
+// The agent reasons about one finding's evidence, optionally re-probes the
+// target, and returns a verdict plus reasoning.
+type TriageConfirmResult struct {
+	Verdict   string `json:"verdict"`   // one of TriageVerdictConfirmed, TriageVerdictFalsePositive
+	Reasoning string `json:"reasoning"` // free-form explanation of how the verdict was reached
+	Notes     string `json:"notes,omitempty"`
+}
+
+// Triage confirm verdict constants. The parser normalises common aliases
+// ("fp", "true-positive", etc.) to these canonical values.
+const (
+	TriageVerdictConfirmed     = "confirmed"
+	TriageVerdictFalsePositive = "false_positive"
+)
+
+// TriageConfirmTemplateID is the prompt template the triage CLI loads.
+// TriageConfirmOutputSchema is the schema string in that template's frontmatter.
+const (
+	TriageConfirmTemplateID   = "agent-triage-confirm"
+	TriageConfirmOutputSchema = "triage_confirm"
+)
+
 // FollowUpScan describes a targeted rescan recommended by the triage agent.
 type FollowUpScan struct {
 	URL        string   `json:"url"`

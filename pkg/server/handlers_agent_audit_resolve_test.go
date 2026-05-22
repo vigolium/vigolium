@@ -68,7 +68,7 @@ func TestResolveAutopilotAudit_ExplicitAuditDriverOffPicksNothingWhenSourceMissi
 func TestResolveAutopilotAudit_ExplicitAuditDriverModePicksAudit(t *testing.T) {
 	h := stubHandlers()
 	req := AgentAutopilotRequest{
-		SourcePath: "/some/source",
+		SourcePath:      "/some/source",
 		AuditDriverMode: "deep",
 		// Piolium omitted — explicit audit should win even if pi is
 		// available, because audit-explicit suppresses auto-pick.
@@ -103,7 +103,7 @@ func TestResolveSwarmAudit_ExplicitPioliumOverridesAudit(t *testing.T) {
 	req := AgentSwarmRequest{
 		SourcePath: "/some/source",
 		Piolium:    "longshot",
-		Audit:     "deep", // ignored when piolium is explicit
+		Audit:      "deep", // ignored when piolium is explicit
 	}
 	cfg, harness := h.resolveSwarmAuditCfgServer(req, "/some/source")
 	if cfg == nil {

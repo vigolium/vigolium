@@ -28,8 +28,15 @@ export interface RunOptions {
    * Forwarded to the underlying CLI / SDK as `--model` (or equivalent).
    */
   model?: string;
+  /**
+   * Audit target. Usually a local directory path; may also be a remote git
+   * URL (https://github.com/owner/repo, https://gitlab.com/owner/repo,
+   * git@host:owner/repo, git:// or ssh:// schemes). At the CLI boundary, a
+   * URL is shallow-cloned into `./<owner-repo>/` under the current working
+   * directory and this field is rewritten to that path before any phase runs.
+   */
   target: string;
-  /** Alias of `target` (mirrors `vigolium agent audit --source`); folded into `target` at the CLI boundary. */
+  /** Alias of `target` (mirrors `vigolium agent audit --source`); folded into `target` at the CLI boundary. Accepts the same path or remote git URL forms. */
   source?: string;
   interactive?: boolean;
   fromAudit?: string;

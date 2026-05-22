@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/olium/stream"
 	"go.uber.org/zap"
 )
 
@@ -58,12 +59,10 @@ func classifyOliumError(msg string) error {
 		return fmt.Errorf("%s: %w", msg, errProviderServerError)
 	}
 
-	// Network-level transient failures from the Go HTTP stack.
-	if containsAny(lower,
-		"connection refused", "connection reset", "broken pipe",
-		"i/o timeout", "tls handshake", "no such host",
-		"unexpected eof", "eof", "use of closed network connection",
-	) {
+	// Network-level transient failures from the Go HTTP stack — shared
+	// substring list lives in pkg/olium/stream so the engine's in-flight
+	// retry classifier and this cross-call one can't drift apart.
+	if containsAny(lower, stream.TransientErrSubstrings...) {
 		return fmt.Errorf("%s: %w", msg, errProviderNetwork)
 	}
 

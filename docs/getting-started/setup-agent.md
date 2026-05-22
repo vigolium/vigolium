@@ -49,8 +49,7 @@ If that returns a model name, the provider is wired correctly. From there, `vigo
 If you already use OpenAI's **Codex CLI**, vigolium reuses the same OAuth credential file. No API key needed, refresh handled automatically.
 
 ```bash
-# 1. Install Codex CLI (one-time) and log in.
-codex login
+# 1. Install Codex CLI (one-time) and log in via `codex login`
 codex exec 'hello'             # sanity check — should print a model name
 
 # 2. Pin vigolium to it (defaults already match; this just makes it explicit).
@@ -94,6 +93,10 @@ vigolium config set agent.olium.provider openai-compatible
 vigolium config set agent.olium.custom_provider.base_url https://openrouter.ai/api/v1
 vigolium config set agent.olium.custom_provider.model_id anthropic/claude-3.5-sonnet
 vigolium config set agent.olium.custom_provider.api_key '${OPENROUTER_API_KEY}'
+
+# Optional: OpenRouter ranking signal (shows your app on the leaderboard).
+vigolium config set agent.olium.custom_provider.extra_headers.add 'HTTP-Referer: https://your-site.example'
+vigolium config set agent.olium.custom_provider.extra_headers.add 'X-Title: vigolium'
 ```
 
 ### LM Studio
@@ -104,6 +107,35 @@ vigolium config set agent.olium.custom_provider.base_url http://localhost:1234/v
 vigolium config set agent.olium.custom_provider.model_id <model-id-from-lm-studio>
 ```
 
+### Custom headers (auth, routing, observability)
+
+Some OpenAI-compatible backends need extra headers — non-`Bearer` auth schemes, tenant/routing signals, request tagging for cost analytics, etc. `extra_headers` takes a list of curl-style `"Key: Value"` entries that are applied **after** the standard headers, so they can override `Authorization` when needed.
+
+```bash
+# Clear, then add. Each .add appends one header to the list.
+vigolium config set agent.olium.custom_provider.extra_headers.clear ""
+vigolium config set agent.olium.custom_provider.extra_headers.add 'X-Custom-ID: your-cli'
+vigolium config set agent.olium.custom_provider.extra_headers.add 'Authorization: Bearer custom-api-token'
+```
+
+Or edit `~/.vigolium/vigolium-configs.yaml` directly:
+
+```yaml
+agent:
+  olium:
+    custom_provider:
+      extra_headers:
+        - "X-Custom-ID: your-cli"
+        - "Authorization: Bearer custom-api-token"   # overrides the default Bearer api_key
+```
+
+Notes:
+
+- `${VAR}` references are expanded from the environment when the config is loaded, so credentials don't need to be checked into the file.
+- On duplicate keys the **last** entry wins (matches `http.Header.Set` semantics).
+- Malformed entries (no `:`) are logged at warn level and skipped — the agent keeps running.
+- To replace the whole list, run `.clear ""` first, then `.add` each entry.
+
 You can also pass these as one-shot overrides without touching the config:
 
 ```bash
@@ -113,6 +145,8 @@ vigolium ol \
   --model gemma4:latest \
   -p 'hello'
 ```
+
+> `extra_headers` has no CLI flag — set it once in YAML (or via `config set ... .add`) and it sticks across runs.
 
 > **Tool-calling caveat.** OpenAI-style function tools are part of the wire format but only some models actually emit them. `gemma4`, `qwen2.5-coder`, `llama3.1-instruct`, and `mistral-nemo` work well. Smaller models often ignore tool definitions and reply in prose — if the agent never calls tools, switch model.
 

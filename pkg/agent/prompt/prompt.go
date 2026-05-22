@@ -18,6 +18,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// embeddedTemplateSubdirs lists the prompt subdirectories searched when a
+// template is loaded by ID (LoadTemplate / ReadEmbeddedTemplate) or when a
+// human-readable source path is rendered (ResolveTemplatePath). New mode
+// directories under public/presets/prompts/ must be added here to be visible.
+var embeddedTemplateSubdirs = []string{"sast", "analysis", "autopilot", "pipeline", "swarm", "triage"}
+
 // templateCacheEntry holds a cached parsed template with its file modification time.
 type templateCacheEntry struct {
 	tmpl    *agenttypes.PromptTemplate
@@ -144,7 +150,7 @@ func ResolveTemplatePath(templateID string, templatesDir string) string {
 			return "~/.vigolium/prompts/" + filename
 		}
 		// Check known subdirectories
-		for _, sub := range []string{"sast", "analysis", "autopilot", "pipeline", "swarm"} {
+		for _, sub := range embeddedTemplateSubdirs {
 			path := filepath.Join(baseDir, sub, filename)
 			if _, err := os.Stat(path); err == nil {
 				return "~/.vigolium/prompts/" + sub + "/" + filename
@@ -153,11 +159,10 @@ func ResolveTemplatePath(templateID string, templatesDir string) string {
 	}
 
 	// 3. Embedded — determine which subdir
-	subdirs := []string{"sast", "analysis", "autopilot", "pipeline", "swarm"}
 	if _, readErr := public.StaticFS.ReadFile("presets/prompts/" + filename); readErr == nil {
 		return "(embedded)"
 	}
-	for _, sub := range subdirs {
+	for _, sub := range embeddedTemplateSubdirs {
 		if _, readErr := public.StaticFS.ReadFile("presets/prompts/" + sub + "/" + filename); readErr == nil {
 			return "(embedded: " + sub + "/" + filename + ")"
 		}
@@ -287,8 +292,7 @@ func ReadEmbeddedTemplate(filename string) ([]byte, error) {
 		return data, nil
 	}
 	// Search subdirectories
-	subdirs := []string{"sast", "analysis", "autopilot", "pipeline", "swarm"}
-	for _, sub := range subdirs {
+	for _, sub := range embeddedTemplateSubdirs {
 		if data, err := public.StaticFS.ReadFile("presets/prompts/" + sub + "/" + filename); err == nil {
 			return data, nil
 		}

@@ -1534,6 +1534,58 @@ func (r *Repository) UpdateFindingStatusByHash(ctx context.Context, agenticScanU
 	return rows, nil
 }
 
+// IsValidFindingSeverity reports whether s is a recognised Finding severity level.
+func IsValidFindingSeverity(s string) bool {
+	switch s {
+	case SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow, SeverityInfo, SeveritySuspect:
+		return true
+	}
+	return false
+}
+
+// UpdateFindingSeverity sets the severity of a single finding by ID.
+// Returns sql.ErrNoRows if no finding matches.
+func (r *Repository) UpdateFindingSeverity(ctx context.Context, id int64, severity string) error {
+	if !IsValidFindingSeverity(severity) {
+		return fmt.Errorf("UpdateFindingSeverity: invalid severity %q", severity)
+	}
+	res, err := r.db.NewUpdate().
+		Model((*Finding)(nil)).
+		Set("severity = ?", severity).
+		Where("id = ?", id).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("UpdateFindingSeverity: %w", err)
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateFindingTriage sets severity and description on a single finding in one
+// statement. Used by the agent triage flow so a false-positive verdict can't
+// land a half-updated row (severity downgraded but reasoning lost) if the
+// process is killed between two separate UPDATEs.
+func (r *Repository) UpdateFindingTriage(ctx context.Context, id int64, severity, description string) error {
+	if !IsValidFindingSeverity(severity) {
+		return fmt.Errorf("UpdateFindingTriage: invalid severity %q", severity)
+	}
+	res, err := r.db.NewUpdate().
+		Model((*Finding)(nil)).
+		Set("severity = ?", severity).
+		Set("description = ?", description).
+		Where("id = ?", id).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("UpdateFindingTriage: %w", err)
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // DeleteFinding deletes a finding by its numeric ID, including any finding_records junction rows.
 func (r *Repository) DeleteFinding(ctx context.Context, id int64) error {
 	return r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {

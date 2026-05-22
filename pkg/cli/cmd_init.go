@@ -92,6 +92,18 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 	bootstrapExtensions(vigoliumDir)
 	bootstrapPrompts(vigoliumDir)
 
+	// Trigger the core dep install (chromium + nuclei templates) inline so
+	// explicit `vigolium init` is a complete first-run setup. Without --force
+	// the marker may already exist and ensureCoreDeps short-circuits; under
+	// --force we wipe the marker first so the dep check re-runs on the same
+	// invocation (handy when --force is used to recover a broken setup).
+	if globalForce {
+		_ = os.Remove(filepath.Join(vigoliumDir, initMarkerFileName))
+	}
+	if err := ensureCoreDeps(); err != nil {
+		return fmt.Errorf("core dependency install failed: %w", err)
+	}
+
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
 	fmt.Fprintf(os.Stderr, "  %s Config:   %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(settingsPath)))
 	fmt.Fprintf(os.Stderr, "  %s Database: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(config.ExpandPath(settings.Database.SQLite.Path))))

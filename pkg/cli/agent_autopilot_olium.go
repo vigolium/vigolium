@@ -23,6 +23,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/olium"
 	"github.com/vigolium/vigolium/pkg/olium/autopilot"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
 )
 
@@ -96,7 +97,7 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmptyString(autopilotOliumLLMAPIKey, oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeaders,
+		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
 	})
 	if err != nil {
 		return fmt.Errorf("autopilot: resolve provider: %w", err)
@@ -151,7 +152,7 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		Intensity:       autopilotIntensity,
 		MaxCommands:     autopilotMaxCommands,
 		MaxDuration:     autopilotMaxDuration,
-		AuditDriverMode:      autopilotAudit,
+		AuditDriverMode: autopilotAudit,
 		PioliumMode:     autopilotPiolium,
 		BrowserEnabled:  autopilotBrowser || settings.Agent.Browser.IsEnabled(),
 		NoPrescan:       autopilotNoPrescan,
@@ -183,22 +184,22 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 	}
 
 	result, runErr := autopilot.Run(ctx, autopilot.Options{
-		Provider:          prov,
-		Model:             model,
-		Target:            autopilotTarget,
-		SourcePath:        autopilotSource,
-		Focus:             autopilotFocus,
-		Instruction:       mergedInstruction,
-		ProjectUUID:       projectUUID,
-		ScanUUID:          globalScanUUID,
-		AgenticScanUUID:   parentAgenticScanUUID,
-		Repo:              repo,
-		ConfigPath:        globalConfig,
-		SessionDir:        sessionDir,
-		MaxTurns:          autopilotMaxCommands,
-		MaxWallTime:       autopilotMaxDuration,
-		Out:               streamWriter,
-		Verbose:           autopilotVerbose,
+		Provider:         prov,
+		Model:            model,
+		Target:           autopilotTarget,
+		SourcePath:       autopilotSource,
+		Focus:            autopilotFocus,
+		Instruction:      mergedInstruction,
+		ProjectUUID:      projectUUID,
+		ScanUUID:         globalScanUUID,
+		AgenticScanUUID:  parentAgenticScanUUID,
+		Repo:             repo,
+		ConfigPath:       globalConfig,
+		SessionDir:       sessionDir,
+		MaxTurns:         autopilotMaxCommands,
+		MaxWallTime:      autopilotMaxDuration,
+		Out:              streamWriter,
+		Verbose:          autopilotVerbose,
 		SystemPrompt:     effectiveSystemPrompt,
 		BrowserAvailable: autopilotBrowser || settings.Agent.Browser.IsEnabled(),
 	})
@@ -415,7 +416,7 @@ func runAutopilotOliumPipeline(
 		ScanUUID:              globalScanUUID,
 		ParentAgenticScanUUID: parentAgenticScanUUID,
 		StreamWriter:          streamWriter,
-		Audit:                auditCfg,
+		Audit:                 auditCfg,
 		AuditHarness:          harness,
 		BrowserEnabled:        autopilotBrowser || settings.Agent.Browser.IsEnabled(),
 		BrowserRequested:      autopilotBrowser || autopilotRequiresBrowser,
@@ -424,6 +425,9 @@ func runAutopilotOliumPipeline(
 		AuthRequired:          autopilotAuthRequired,
 		BrowserStartURL:       autopilotBrowserStartURL,
 		FocusRoutes:           append([]string(nil), autopilotFocusRoutes...),
+		PreflightDiscovery:    !autopilotNoPreflight,
+		PostHaltVerify:        !autopilotNoPostHaltVerify,
+		PostHaltGapThreshold:  autopilotPostHaltGap,
 	}
 
 	engine := agent.NewEngine(settings, repo)
@@ -502,7 +506,7 @@ func printOliumAutopilotPipelineSummary(result *agent.AutopilotPipelineResult, s
 	// Compute the severity breakdown once — the run wrote into one
 	// agentic_scan_uuid bucket, so the same suffix annotates whichever
 	// of audit/operator/verified is the canonical headline number.
-	breakdown := severityBreakdownSuffix(repo, agenticScanUUID)
+	_, breakdown, _ := findingCountForRun(repo, agenticScanUUID)
 	headlineShown := false
 	if result.FindingsCount > 0 {
 		fmt.Printf("  audit:    %s findings (saved: %d)%s\n",
@@ -533,6 +537,10 @@ func printOliumAutopilotPipelineSummary(result *agent.AutopilotPipelineResult, s
 			suffix)
 	}
 	fmt.Printf("  duration:  %s\n", result.Duration.Round(time.Second))
+	if result.Reentries > 0 {
+		fmt.Printf("  re-entry:  %s\n",
+			terminal.Muted(fmt.Sprintf("%d coverage-verify re-prompt(s)", result.Reentries)))
+	}
 	if result.Degraded {
 		fmt.Printf("  status:    %s\n", terminal.Muted("degraded — see warnings"))
 	}
@@ -606,7 +614,7 @@ type autopilotBannerInputs struct {
 	Intensity       string
 	MaxCommands     int
 	MaxDuration     time.Duration
-	AuditDriverMode      string
+	AuditDriverMode string
 	PioliumMode     string
 	BrowserEnabled  bool
 	NoPrescan       bool
@@ -727,68 +735,82 @@ func printOliumAutopilotSummary(result *autopilot.Result, sessionDir string, rep
 	if result == nil {
 		return
 	}
+	// Headline count from the DB reflects every finding persisted for this
+	// run (operator report_finding + audit-prep imports), not just the
+	// operator's runtime counter. ok=false on dry-run / no-repo paths.
+	total, breakdown, ok := findingCountForRun(repo, agenticScanUUID)
+	if !ok {
+		total = result.FindingCount
+	}
 	fmt.Println()
 	fmt.Printf("%s autopilot complete\n", terminal.InfoSymbol())
 	fmt.Printf("  findings:  %s%s\n",
-		terminal.BoldGreen(fmt.Sprintf("%d", result.FindingCount)),
-		severityBreakdownSuffix(repo, agenticScanUUID))
+		terminal.BoldGreen(fmt.Sprintf("%d", total)),
+		breakdown)
 	fmt.Printf("  duration:  %s\n", result.Elapsed.Round(time.Second))
 	if result.Halted {
 		fmt.Printf("  halt:      %s\n", result.HaltReason)
 	} else {
 		fmt.Printf("  halt:      %s\n", terminal.Muted("(natural stop — engine max turns or no more tool calls)"))
 	}
+	if result.Reentries > 0 {
+		fmt.Printf("  re-entry:  %s\n",
+			terminal.Muted(fmt.Sprintf("%d coverage-verify re-prompt(s)", result.Reentries)))
+	}
 	if sessionDir != "" {
 		fmt.Printf("  session:   %s\n", terminal.Muted(terminal.ShortenHome(sessionDir)))
 	}
 }
 
-// severityBreakdownSuffix returns a `  critical=1 high=2 low=3` suffix
-// (with each severity colored by its conventional palette) when the run
-// produced any non-zero severity counts, otherwise the empty string so
-// the findings line stays compact for clean / zero-finding runs. Each
-// severity with a zero count is omitted rather than padded out so the
-// suffix doesn't visually scream "info=0 low=0 medium=0" on small wins.
-func severityBreakdownSuffix(repo *database.Repository, agenticScanUUID string) string {
+// severityColors maps canonical severity names to their display palette.
+// Names are sourced from severity.AllNames() so adding a new severity in
+// pkg/types/severity automatically extends the breakdown render once a
+// matching color is registered here; missing entries fall back to muted.
+var severityColors = map[string]func(string) string{
+	"critical": terminal.BoldMagenta,
+	"high":     terminal.BoldRed,
+	"medium":   terminal.BoldYellow,
+	"low":      terminal.BoldGreen,
+	"info":     terminal.BoldBlue,
+	"suspect":  terminal.BoldCyan,
+}
+
+// findingCountForRun returns the total findings persisted under the run's
+// agentic_scan_uuid, a colored `(critical=N high=M …)` suffix, and ok=true
+// when the count came from the DB. ok=false signals the caller to fall back
+// to its own runtime counter (dry-run / no-repo / query error paths).
+// Zero-count severities are omitted from the suffix.
+func findingCountForRun(repo *database.Repository, agenticScanUUID string) (int64, string, bool) {
 	if repo == nil || agenticScanUUID == "" {
-		return ""
+		return 0, "", false
 	}
-	var rows []database.SeverityCount
-	err := repo.DB().NewSelect().
-		Table("findings").
-		ColumnExpr("severity").
-		ColumnExpr("COUNT(*) AS count").
-		Where("agentic_scan_uuid = ?", agenticScanUUID).
-		GroupExpr("severity").
-		Scan(context.Background(), &rows)
-	if err != nil || len(rows) == 0 {
-		return ""
+	counts, err := database.CountFindingsByAgenticScan(context.Background(), repo.DB(), agenticScanUUID)
+	if err != nil {
+		return 0, "", false
 	}
-	counts := make(map[string]int64, len(rows))
-	for _, r := range rows {
-		counts[strings.ToLower(strings.TrimSpace(r.Severity))] = r.Count
+	var total int64
+	for _, n := range counts {
+		total += n
 	}
-	order := []struct {
-		key   string
-		color func(string) string
-	}{
-		{"critical", terminal.BoldMagenta},
-		{"high", terminal.BoldRed},
-		{"medium", terminal.BoldYellow},
-		{"low", terminal.BoldGreen},
-		{"info", terminal.BoldBlue},
-		{"suspect", terminal.BoldCyan},
-	}
-	parts := make([]string, 0, len(order))
-	for _, s := range order {
-		if n := counts[s.key]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s=%s",
-				terminal.Muted(s.key),
-				s.color(fmt.Sprintf("%d", n))))
+	// Render most-severe-first; AllNames() is least-to-most-severe.
+	names := severity.AllNames()
+	parts := make([]string, 0, len(names))
+	for i := len(names) - 1; i >= 0; i-- {
+		key := names[i]
+		n := counts[key]
+		if n == 0 {
+			continue
 		}
+		color := severityColors[key]
+		if color == nil {
+			color = terminal.Muted
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s",
+			terminal.Muted(key),
+			color(fmt.Sprintf("%d", n))))
 	}
 	if len(parts) == 0 {
-		return ""
+		return total, "", true
 	}
-	return "  " + terminal.Muted("(") + strings.Join(parts, " ") + terminal.Muted(")")
+	return total, "  " + terminal.Muted("(") + strings.Join(parts, " ") + terminal.Muted(")"), true
 }

@@ -525,6 +525,9 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_scan ON findings(project_uuid, scan_uuid)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_status ON findings(project_uuid, status)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_hostname ON findings(project_uuid, hostname)",
+		// Sparse (nullzero column) — used by agent end-of-run summaries and
+		// webhook notifications to count findings per agentic-scan run.
+		"CREATE INDEX IF NOT EXISTS idx_findings_agentic_scan ON findings(agentic_scan_uuid)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_hash_unique ON findings(finding_hash)",
 
 		// -- finding_records --

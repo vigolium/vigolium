@@ -346,7 +346,11 @@ func fixChromium(ctx context.Context, _ *config.Settings) error {
 
 func fixNucleiTemplates(ctx context.Context, settings *config.Settings) error {
 	dir := nucleiTemplatesDir(settings)
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
+	// --quiet suppresses the "Cloning into…", "remote: …", and
+	// "Receiving/Resolving" progress chatter so `vigolium doctor --fix` and
+	// the first-run setup show a single success line. Real errors still go
+	// to stderr.
+	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth", "1",
 		"https://github.com/projectdiscovery/nuclei-templates.git", dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

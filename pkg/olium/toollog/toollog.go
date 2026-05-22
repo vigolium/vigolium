@@ -49,11 +49,11 @@ const (
 //
 // Two writers are kept on purpose:
 //   - w     receives tool lifecycle lines (▶ start / ✓ end / ✗ failed) and
-//           is typically stderr.
+//     is typically stderr.
 //   - turnW receives the per-turn `[turn done in=… out=…]` usage line.
-//           Routed to the same stream as the assistant text so the line
-//           prints AFTER the model's message without stdout/stderr
-//           buffering interleaving the two. Falls back to w when nil.
+//     Routed to the same stream as the assistant text so the line
+//     prints AFTER the model's message without stdout/stderr
+//     buffering interleaving the two. Falls back to w when nil.
 type Logger struct {
 	w       io.Writer
 	turnW   io.Writer

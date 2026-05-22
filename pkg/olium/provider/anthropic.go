@@ -43,7 +43,7 @@ type Anthropic struct {
 
 // NewAnthropic constructs an Anthropic provider authenticated with an API key.
 func NewAnthropic(apiKey string) *Anthropic {
-	return &Anthropic{apiKey: secret(apiKey), client: &http.Client{}}
+	return &Anthropic{apiKey: secret(apiKey), client: newHTTPClient()}
 }
 
 // NewAnthropicOAuth constructs an Anthropic provider authenticated with a
@@ -51,10 +51,17 @@ func NewAnthropic(apiKey string) *Anthropic {
 // through this provider include the `oauth-2025-04-20` beta header and the
 // Claude Code system-prompt preamble required by the OAuth grant.
 func NewAnthropicOAuth(token string) *Anthropic {
-	return &Anthropic{oauthToken: secret(token), client: &http.Client{}}
+	return &Anthropic{oauthToken: secret(token), client: newHTTPClient()}
 }
 
 func (*Anthropic) Name() string { return "anthropic" }
+
+// CloseIdleConnections drops idle HTTP/2 conns on this provider's transport
+// so the next request opens a fresh one. Engine calls this between retry
+// attempts after a transient stream error.
+func (a *Anthropic) CloseIdleConnections() {
+	a.client.CloseIdleConnections()
+}
 
 // --- Request body types ---
 

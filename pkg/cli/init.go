@@ -6,15 +6,34 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/diagnostics"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
 )
 
-const settingsFileName = "vigolium-configs.yaml"
+const (
+	settingsFileName   = "vigolium-configs.yaml"
+	initMarkerFileName = "initialized"
+)
+
+// writeInitMarker stamps ~/.vigolium/initialized with the binary version and
+// current timestamp. The marker means "first-run dependency setup is
+// complete" — written by ensureCoreDeps after the core native-scan tooling
+// (chromium + nuclei templates) is confirmed present. Once stamped, scan
+// commands fast-path past the dep check on every invocation.
+func writeInitMarker(vigoliumDir string) error {
+	path := filepath.Join(vigoliumDir, initMarkerFileName)
+	payload := fmt.Sprintf(`{"version":%q,"initialized_at":%q}`+"\n",
+		Version,
+		time.Now().UTC().Format(time.RFC3339))
+	return os.WriteFile(path, []byte(payload), 0644)
+}
 
 // initializeVigolium initializes Vigolium on first run
 // Creates default settings file and initializes database
@@ -94,6 +113,11 @@ func initializeVigolium() error {
 
 	// Bootstrap prompt templates
 	bootstrapPrompts(vigoliumDir)
+
+	// Note: the ~/.vigolium/initialized marker is intentionally NOT written
+	// here. The marker tracks core dep installation (chromium + nuclei
+	// templates), which is handled by ensureCoreDeps. Config bootstrap by
+	// itself does not satisfy "first-run setup".
 
 	// Print success message
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
@@ -192,6 +216,106 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 		dest := filepath.Join(targetDir, entry.Name())
 		_ = os.WriteFile(dest, data, 0644)
 	}
+}
+
+// coreDepCommands lists the leaf cobra command names (cmd.Name()) that drive
+// a native scan and therefore need chromium + nuclei templates available
+// before they run. The set deliberately excludes:
+//   - informational commands (version, doctor, config, help, examples, license, log)
+//   - data-management commands (project, scope, source, traffic, finding, db, …)
+//   - the olium TUI and the agent query/olium/audit subcommands (LLM-only, no native scan)
+//
+// Adding a new scan command? List its leaf name here.
+var coreDepCommands = map[string]bool{
+	"scan":         true,
+	"scan-url":     true,
+	"scan-request": true,
+	"run":          true,
+	"autopilot":    true, // `vigolium agent autopilot` — uses chromium for spidering
+	"swarm":        true, // `vigolium agent swarm`     — drives the native scan pipeline
+	"server":       true, // long-running API server that hosts scan endpoints
+	"ingest":       true, // populates the queue feeding scan workers
+}
+
+// needsCoreDeps reports whether the given command should trigger the
+// first-run chromium + nuclei-templates install.
+func needsCoreDeps(cmd *cobra.Command) bool {
+	return coreDepCommands[cmd.Name()]
+}
+
+// coreDepInstallTimeout caps the per-invocation budget for the chromium +
+// nuclei-templates installation step. Both are network-bound (template git
+// clone, Chrome for Testing download) so we allow generous headroom; the
+// marker write happens regardless of fix success so a flaky first run does
+// not block every subsequent scan.
+const coreDepInstallTimeout = 10 * time.Minute
+
+// ensureCoreDeps guarantees the two native-scan dependencies — chromium and
+// nuclei templates — are present before a scan-touching command runs. On the
+// first invocation it shells out to the doctor's `--fix --only nuclei,chrome`
+// path and stamps ~/.vigolium/initialized; on subsequent invocations the
+// marker short-circuits the diagnostic to a single os.Stat.
+//
+// The marker is written even when one of the two installs fails — re-running
+// the dep check on every command would punish users behind flaky networks or
+// on hosts without internet access. The doctor's "Initialized" row + a
+// printed warning here make the partial state visible, and the user can
+// re-run `vigolium doctor --fix --only nuclei,chrome` to retry explicitly.
+func ensureCoreDeps() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil // Silently fail; downstream command will surface the real issue.
+	}
+	vigoliumDir := filepath.Join(homeDir, ".vigolium")
+	markerPath := filepath.Join(vigoliumDir, initMarkerFileName)
+	if _, err := os.Stat(markerPath); err == nil {
+		return nil
+	}
+
+	settings, err := config.LoadSettings(globalConfig)
+	if err != nil {
+		zap.L().Debug("Core dep check: failed to load settings, using defaults", zap.Error(err))
+		settings = config.DefaultSettings()
+	}
+
+	// DB intentionally omitted — neither the chromium nor nuclei-templates
+	// check touches the database, and opening it here would either trigger
+	// a redundant connection or surface a misleading "db unavailable" tip
+	// inside the dep flow.
+	report := diagnostics.Run(diagnostics.Deps{Settings: settings})
+
+	chromiumMissing := report.Tools["chromium"] == nil || report.Tools["chromium"].Status != diagnostics.StatusOK
+	nucleiMissing := report.NucleiTemplates == nil || report.NucleiTemplates.Status != diagnostics.StatusOK
+
+	if !chromiumMissing && !nucleiMissing {
+		// Both already present — backfill the marker so subsequent runs
+		// skip the diagnostic entirely. No need to invoke RunFixes.
+		if err := writeInitMarker(vigoliumDir); err != nil {
+			zap.L().Debug("Failed to write init marker", zap.Error(err))
+		}
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "%s %s\n",
+		terminal.InfoSymbol(),
+		terminal.BoldCyan("First-run setup: installing core scan dependencies (chromium, nuclei-templates)..."))
+
+	ctx, cancel := context.WithTimeout(context.Background(), coreDepInstallTimeout)
+	defer cancel()
+	results := diagnostics.RunFixes(ctx, report, settings, []string{"nuclei", "chrome"})
+
+	for _, r := range results {
+		if r.Success {
+			fmt.Fprintf(os.Stderr, "  %s %-30s %s\n", terminal.SuccessSymbol(), terminal.Green(r.Label), terminal.White(r.Message))
+		} else {
+			fmt.Fprintf(os.Stderr, "  %s %-30s %s\n", terminal.Red(terminal.SymbolError), terminal.Red(r.Label), terminal.White(r.Message))
+		}
+	}
+
+	if err := writeInitMarker(vigoliumDir); err != nil {
+		zap.L().Debug("Failed to write init marker after dep install", zap.Error(err))
+	}
+	return nil
 }
 
 // ensureInitialized checks if Vigolium is initialized and initializes if needed

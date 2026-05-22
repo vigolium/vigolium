@@ -39,12 +39,12 @@ func TestBuildModuleCatalog_GroupsAndIncludesAllTags(t *testing.T) {
 
 	// Categorization sanity check.
 	wantBuckets := map[string]string{
-		"Stacks & frameworks":   "spring",
-		"CMS & platforms":       "wordpress",
+		"Stacks & frameworks":     "spring",
+		"CMS & platforms":         "wordpress",
 		"Protocols & API surface": "graphql",
-		"Injection vulns":       "sqli",
-		"Auth & access control": "idor",
-		"Misconfig & exposure":  "misconfiguration",
+		"Injection vulns":         "sqli",
+		"Auth & access control":   "idor",
+		"Misconfig & exposure":    "misconfiguration",
 	}
 	for label, tag := range wantBuckets {
 		line := findLineContaining(out, label)
