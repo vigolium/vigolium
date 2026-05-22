@@ -15,10 +15,11 @@ type (
 
 // Namespace constants, re-exported from pkg/jsext/api.
 const (
-	NsRoot       = api.NsRoot
-	NsLog        = api.NsLog
-	NsUtils      = api.NsUtils
-	NsParse      = api.NsParse
+	NsRoot  = api.NsRoot
+	NsLog   = api.NsLog
+	NsUtils = api.NsUtils
+	// NsParse intentionally omitted: the parse domain moved to pkg/jsext/api/parse,
+	// which references api.NsParse directly, so jsext no longer needs the alias.
 	NsHTTP       = api.NsHTTP
 	NsScan       = api.NsScan
 	NsIngest     = api.NsIngest
