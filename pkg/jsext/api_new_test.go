@@ -7,6 +7,7 @@ import (
 	"github.com/grafana/sobek"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 )
 
 // newTestVM creates a Sobek VM with vigolium.utils, vigolium.parse, vigolium.payloads, and vigolium.http.buildRequest set up.
@@ -19,7 +20,7 @@ func newTestVM(t *testing.T) *sobek.Runtime {
 	// Register utils, parse, and payloads via the declarative registry
 	var defs []JSFuncDef
 	defs = append(defs, utilsFuncDefs()...)
-	defs = append(defs, parseFuncDefs()...)
+	defs = append(defs, parse.FuncDefs()...)
 	defs = append(defs, payloadsFuncDefs()...)
 	registerFuncs(vm, APIOptions{}, defs)
 

@@ -4,52 +4,12 @@ import (
 	"strings"
 
 	"github.com/grafana/sobek"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 )
 
-// ─── Namespace constants ────────────────────────────────────────────────────
-
-const (
-	NsRoot       = "vigolium"
-	NsLog        = "vigolium.log"
-	NsUtils      = "vigolium.utils"
-	NsParse      = "vigolium.parse"
-	NsHTTP       = "vigolium.http"
-	NsScan       = "vigolium.scan"
-	NsIngest     = "vigolium.ingest"
-	NsAgent      = "vigolium.agent"
-	NsDB         = "vigolium.db"
-	NsDBRecords  = "vigolium.db.records"
-	NsDBFindings = "vigolium.db.findings"
-	NsOAST       = "vigolium.oast"
-	NsRecord     = "vigolium.record"
-	NsConfig     = "vigolium.config"
-	NsMCP        = "vigolium.mcp"
-)
-
-// ─── JSFuncDef ──────────────────────────────────────────────────────────────
-
-// HandlerFactory creates a JS function handler given runtime dependencies.
-// It is called once per VM setup, not per invocation.
-type HandlerFactory func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value
-
-// JSFuncDef declares a JS API function with metadata and an optional handler factory.
-// When MakeHandler is nil, the entry is metadata-only (e.g., dynamic config keys,
-// per-request properties like vigolium.record.uuid).
-type JSFuncDef struct {
-	Namespace   string
-	Name        string
-	Category    string
-	Signature   string
-	Returns     string
-	Description string
-	Example     string
-	MakeHandler HandlerFactory // nil for metadata-only entries
-}
-
-// FullName returns the fully-qualified function name (e.g. "vigolium.utils.sha256").
-func (d JSFuncDef) FullName() string {
-	return d.Namespace + "." + d.Name
-}
+// The namespace constants, JSFuncDef, HandlerFactory, APIOptions, and
+// APIFunction types live in the leaf package pkg/jsext/api and are re-exported
+// from this package via aliases in api_aliases.go.
 
 // ─── Collection ─────────────────────────────────────────────────────────────
 
@@ -60,7 +20,7 @@ func allFuncDefs() []JSFuncDef {
 	var all []JSFuncDef
 	all = append(all, logFuncDefs()...)
 	all = append(all, utilsFuncDefs()...)
-	all = append(all, parseFuncDefs()...)
+	all = append(all, parse.FuncDefs()...)
 	all = append(all, httpCoreFuncDefs()...)
 	all = append(all, httpSessionFuncDefs()...)
 	all = append(all, httpAuthTestFuncDefs()...)

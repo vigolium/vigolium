@@ -2,6 +2,8 @@ package jsext
 
 import (
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 )
 
 func TestSubstituteVars(t *testing.T) {
@@ -144,8 +146,8 @@ func TestRemoveHeadersFromRaw(t *testing.T) {
 
 	// We need a VM for the sobek.Object, but we can test the core logic
 	// by verifying the helper splits correctly
-	headerSection, body := splitHTTPMessage(raw)
-	lines := splitHeaderLines(headerSection)
+	headerSection, body := parse.SplitHTTPMessage(raw)
+	lines := parse.SplitHeaderLines(headerSection)
 
 	if len(lines) != 5 {
 		t.Fatalf("expected 5 header lines, got %d", len(lines))

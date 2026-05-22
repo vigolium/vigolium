@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/grafana/sobek"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
@@ -126,11 +127,11 @@ func httpHelperFuncDefs() []JSFuncDef {
 								return
 							}
 							if n.Type == html.ElementNode && n.Data == "input" {
-								name := strings.ToLower(getAttr(n, "name"))
+								name := strings.ToLower(parse.GetAttr(n, "name"))
 								if fieldNameSet[name] {
-									value := getAttr(n, "value")
+									value := parse.GetAttr(n, "value")
 									if value != "" {
-										result = &csrfResult{token: value, fieldName: getAttr(n, "name"), source: "form"}
+										result = &csrfResult{token: value, fieldName: parse.GetAttr(n, "name"), source: "form"}
 									}
 								}
 							}
@@ -154,11 +155,11 @@ func httpHelperFuncDefs() []JSFuncDef {
 								return
 							}
 							if n.Type == html.ElementNode && n.Data == "meta" {
-								name := strings.ToLower(getAttr(n, "name"))
+								name := strings.ToLower(parse.GetAttr(n, "name"))
 								if fieldNameSet[name] {
-									content := getAttr(n, "content")
+									content := parse.GetAttr(n, "content")
 									if content != "" {
-										result = &csrfResult{token: content, fieldName: getAttr(n, "name"), source: "meta"}
+										result = &csrfResult{token: content, fieldName: parse.GetAttr(n, "name"), source: "meta"}
 									}
 								}
 							}
@@ -181,8 +182,8 @@ func httpHelperFuncDefs() []JSFuncDef {
 
 					tryCookie := func() *csrfResult {
 						// Parse Set-Cookie headers from raw response
-						headerSection, _ := splitHTTPMessage(respRaw)
-						lines := splitHeaderLines(headerSection)
+						headerSection, _ := parse.SplitHTTPMessage(respRaw)
+						lines := parse.SplitHeaderLines(headerSection)
 						for _, line := range lines {
 							if idx := strings.IndexByte(line, ':'); idx > 0 {
 								hName := strings.TrimSpace(line[:idx])

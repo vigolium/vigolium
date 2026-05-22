@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/sobek"
 	gohttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
 )
@@ -268,8 +269,8 @@ func (s *jsSession) updateJarFromResponse(urlStr string, resp sobek.Value) {
 	}
 
 	// Parse Set-Cookie headers from raw response
-	headerSection, _ := splitHTTPMessage(raw)
-	lines := splitHeaderLines(headerSection)
+	headerSection, _ := parse.SplitHTTPMessage(raw)
+	lines := parse.SplitHeaderLines(headerSection)
 	var setCookies []string
 	for _, line := range lines[1:] { // skip status line
 		if idx := strings.IndexByte(line, ':'); idx > 0 {
@@ -305,8 +306,8 @@ func (s *jsSession) updateJarFromResponse(urlStr string, resp sobek.Value) {
 
 // extractURLFromRaw tries to reconstruct a URL from a raw HTTP request's request line and Host header.
 func extractURLFromRaw(rawReq string) string {
-	headerSection, _ := splitHTTPMessage(rawReq)
-	lines := splitHeaderLines(headerSection)
+	headerSection, _ := parse.SplitHTTPMessage(rawReq)
+	lines := parse.SplitHeaderLines(headerSection)
 	if len(lines) == 0 {
 		return ""
 	}
@@ -917,8 +918,8 @@ func extractTokenValue(rule jsExtractRule, body, raw string, headers map[string]
 
 func extractCookieValue(name, raw string, headers map[string]string) string {
 	// Parse Set-Cookie from raw response
-	headerSection, _ := splitHTTPMessage(raw)
-	lines := splitHeaderLines(headerSection)
+	headerSection, _ := parse.SplitHTTPMessage(raw)
+	lines := parse.SplitHeaderLines(headerSection)
 
 	for _, line := range lines {
 		if idx := strings.IndexByte(line, ':'); idx > 0 {
@@ -1056,8 +1057,8 @@ func removeHeadersFromRaw(rawReq string, vm *sobek.Runtime, removeArr *sobek.Obj
 		toRemove[strings.ToLower(name)] = true
 	}
 
-	headerSection, body := splitHTTPMessage(rawReq)
-	lines := splitHeaderLines(headerSection)
+	headerSection, body := parse.SplitHTTPMessage(rawReq)
+	lines := parse.SplitHeaderLines(headerSection)
 	if len(lines) == 0 {
 		return rawReq
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/grafana/sobek"
 	gohttp "github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 	"go.uber.org/zap"
 )
 
@@ -315,8 +316,8 @@ func injectHeadersIntoRaw(rawReq string, headers map[string]string) string {
 		return rawReq
 	}
 
-	headerSection, body := splitHTTPMessage(rawReq)
-	lines := splitHeaderLines(headerSection)
+	headerSection, body := parse.SplitHTTPMessage(rawReq)
+	lines := parse.SplitHeaderLines(headerSection)
 	if len(lines) == 0 {
 		return rawReq
 	}

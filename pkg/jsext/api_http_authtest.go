@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/grafana/sobek"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 )
 
 // httpAuthTestFuncDefs returns JSFuncDefs for vigolium.http.authTest.
@@ -281,8 +282,8 @@ func injectSessionHeaders(vm *sobek.Runtime, rawReq string, sessObj *sobek.Objec
 	}
 
 	// Parse existing request
-	headerSection, body := splitHTTPMessage(rawReq)
-	lines := splitHeaderLines(headerSection)
+	headerSection, body := parse.SplitHTTPMessage(rawReq)
+	lines := parse.SplitHeaderLines(headerSection)
 	if len(lines) == 0 {
 		return rawReq
 	}

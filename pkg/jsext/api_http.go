@@ -9,6 +9,7 @@ import (
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/jsext/api/parse"
 	"go.uber.org/zap"
 )
 
@@ -215,8 +216,8 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 // applyRequestOverrides modifies a raw HTTP request string with the given overrides.
 // Supported overrides: method, path, headers (merge), body (replace), query (merge).
 func applyRequestOverrides(vm *sobek.Runtime, rawReq string, overrides *sobek.Object) string {
-	headerSection, body := splitHTTPMessage(rawReq)
-	lines := splitHeaderLines(headerSection)
+	headerSection, body := parse.SplitHTTPMessage(rawReq)
+	lines := parse.SplitHeaderLines(headerSection)
 	if len(lines) == 0 {
 		return rawReq
 	}
@@ -232,7 +233,7 @@ func applyRequestOverrides(vm *sobek.Runtime, rawReq string, overrides *sobek.Ob
 		method, fullPath = parts[0], parts[1]
 	}
 
-	pathOnly, queryStr := splitPathQuery(fullPath)
+	pathOnly, queryStr := parse.SplitPathQuery(fullPath)
 
 	// Apply overrides
 	if v := overrides.Get("method"); v != nil && !sobek.IsUndefined(v) {

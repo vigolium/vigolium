@@ -1,4 +1,4 @@
-package jsext
+package parse
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/jsext/api"
 	"golang.org/x/net/html"
 )
 
@@ -15,14 +16,14 @@ import (
 // These functions provide structured parsing of URLs, raw HTTP messages,
 // headers, cookies, query strings, JSON, and form bodies — making it
 // easier to write concise extension scripts.
-func parseFuncDefs() []JSFuncDef {
-	return []JSFuncDef{
+func FuncDefs() []api.JSFuncDef {
+	return []api.JSFuncDef{
 		{
-			Namespace: NsParse, Name: "url",
+			Namespace: api.NsParse, Name: "url",
 			Category: "Parsing", Signature: ".url(urlStr: string)", Returns: "object|null",
 			Description: "Parse a URL into its components. Returns an object even for relative paths. Returns null only on hard parse error.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					rawURL := call.Argument(0).String()
 					u, err := url.Parse(rawURL)
@@ -62,19 +63,19 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "request",
+			Namespace: api.NsParse, Name: "request",
 			Category: "Parsing", Signature: ".request(raw: string)", Returns: "object|null",
 			Description: "Parse a raw HTTP request into its components. Handles both CRLF and LF-only line endings. Returns null on empty input.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					raw := call.Argument(0).String()
 					if raw == "" {
 						return sobek.Null()
 					}
 
-					headerSection, body := splitHTTPMessage(raw)
-					lines := splitHeaderLines(headerSection)
+					headerSection, body := SplitHTTPMessage(raw)
+					lines := SplitHeaderLines(headerSection)
 					if len(lines) == 0 {
 						return sobek.Null()
 					}
@@ -92,7 +93,7 @@ func parseFuncDefs() []JSFuncDef {
 					}
 
 					// Split path and query string
-					pathOnly, queryStr := splitPathQuery(fullPath)
+					pathOnly, queryStr := SplitPathQuery(fullPath)
 
 					// Parse headers into a flat map; extract Host and Cookie along the way
 					headers := vm.NewObject()
@@ -155,19 +156,19 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "response",
+			Namespace: api.NsParse, Name: "response",
 			Category: "Parsing", Signature: ".response(raw: string)", Returns: "object|null",
 			Description: "Parse a raw HTTP response into its components. Handles both CRLF and LF-only line endings. Returns null on empty input.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					raw := call.Argument(0).String()
 					if raw == "" {
 						return sobek.Null()
 					}
 
-					headerSection, body := splitHTTPMessage(raw)
-					lines := splitHeaderLines(headerSection)
+					headerSection, body := SplitHTTPMessage(raw)
+					lines := SplitHeaderLines(headerSection)
 					if len(lines) == 0 {
 						return sobek.Null()
 					}
@@ -228,18 +229,18 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "headers",
+			Namespace: api.NsParse, Name: "headers",
 			Category: "Parsing", Signature: ".headers(str: string)", Returns: "object",
 			Description: "Parse a newline-separated header block into a flat map. Lines without a colon are skipped. Last value wins for duplicate names.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					result := vm.NewObject()
 					arg := call.Argument(0)
 					if sobek.IsNull(arg) || sobek.IsUndefined(arg) {
 						return result
 					}
-					for _, line := range splitHeaderLines(arg.String()) {
+					for _, line := range SplitHeaderLines(arg.String()) {
 						if idx := strings.Index(line, ":"); idx > 0 {
 							name := strings.TrimSpace(line[:idx])
 							value := strings.TrimSpace(line[idx+1:])
@@ -253,11 +254,11 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "cookies",
+			Namespace: api.NsParse, Name: "cookies",
 			Category: "Parsing", Signature: ".cookies(str: string)", Returns: "object",
 			Description: "Parse a Cookie header value (or any semicolon-delimited name=value string) into a map. Last value wins for duplicate names.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					result := vm.NewObject()
 					for _, part := range strings.Split(call.Argument(0).String(), ";") {
@@ -275,11 +276,11 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "query",
+			Namespace: api.NsParse, Name: "query",
 			Category: "Parsing", Signature: ".query(str: string)", Returns: "object",
 			Description: "Parse a URL query string (with or without leading '?') into a flat map. First value wins for repeated keys.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					result := vm.NewObject()
 					str := strings.TrimPrefix(call.Argument(0).String(), "?")
@@ -298,11 +299,11 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "json",
+			Namespace: api.NsParse, Name: "json",
 			Category: "Parsing", Signature: ".json(str: string)", Returns: "any|null",
 			Description: "Parse a JSON string into a native JS value. Returns null on parse error.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					var v interface{}
 					if err := json.Unmarshal([]byte(call.Argument(0).String()), &v); err != nil {
@@ -313,11 +314,11 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "form",
+			Namespace: api.NsParse, Name: "form",
 			Category: "Parsing", Signature: ".form(body: string)", Returns: "object",
 			Description: "Parse a URL-encoded form body into a flat map. First value wins for repeated field names.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					result := vm.NewObject()
 					body := call.Argument(0).String()
@@ -336,11 +337,11 @@ func parseFuncDefs() []JSFuncDef {
 			},
 		},
 		{
-			Namespace: NsParse, Name: "html",
+			Namespace: api.NsParse, Name: "html",
 			Category: "Parsing", Signature: ".html(htmlStr: string)", Returns: "object|null",
 			Description: "Parse HTML and extract forms, links, scripts, and meta tags. Returns {forms, links, scripts, meta}.",
 			Example:     "",
-			MakeHandler: func(vm *sobek.Runtime, opts APIOptions) func(sobek.FunctionCall) sobek.Value {
+			MakeHandler: func(vm *sobek.Runtime, opts api.APIOptions) func(sobek.FunctionCall) sobek.Value {
 				return func(call sobek.FunctionCall) sobek.Value {
 					htmlStr := call.Argument(0).String()
 
@@ -364,7 +365,7 @@ func parseFuncDefs() []JSFuncDef {
 							case "form":
 								forms = append(forms, extractForm(vm, n))
 							case "a":
-								href := getAttr(n, "href")
+								href := GetAttr(n, "href")
 								text := extractText(n)
 								obj := vm.NewObject()
 								_ = obj.Set("href", href)
@@ -372,18 +373,18 @@ func parseFuncDefs() []JSFuncDef {
 								links = append(links, obj)
 							case "script":
 								obj := vm.NewObject()
-								_ = obj.Set("src", getAttr(n, "src"))
+								_ = obj.Set("src", GetAttr(n, "src"))
 								_ = obj.Set("content", extractText(n))
 								scripts = append(scripts, obj)
 							case "meta":
-								name := getAttr(n, "name")
+								name := GetAttr(n, "name")
 								if name == "" {
-									name = getAttr(n, "property")
+									name = GetAttr(n, "property")
 								}
 								if name == "" {
-									name = getAttr(n, "http-equiv")
+									name = GetAttr(n, "http-equiv")
 								}
-								content := getAttr(n, "content")
+								content := GetAttr(n, "content")
 								if name != "" || content != "" {
 									obj := vm.NewObject()
 									_ = obj.Set("name", name)
@@ -426,8 +427,8 @@ func parseFuncDefs() []JSFuncDef {
 // extractForm extracts form attributes and input fields from a <form> node.
 func extractForm(vm *sobek.Runtime, n *html.Node) interface{} {
 	obj := vm.NewObject()
-	_ = obj.Set("action", getAttr(n, "action"))
-	_ = obj.Set("method", strings.ToUpper(getAttr(n, "method")))
+	_ = obj.Set("action", GetAttr(n, "action"))
+	_ = obj.Set("method", strings.ToUpper(GetAttr(n, "method")))
 
 	var inputs []interface{}
 	var walkInputs func(*html.Node)
@@ -436,9 +437,9 @@ func extractForm(vm *sobek.Runtime, n *html.Node) interface{} {
 			switch node.Data {
 			case "input", "textarea", "select":
 				inp := vm.NewObject()
-				_ = inp.Set("name", getAttr(node, "name"))
-				_ = inp.Set("type", getAttr(node, "type"))
-				_ = inp.Set("value", getAttr(node, "value"))
+				_ = inp.Set("name", GetAttr(node, "name"))
+				_ = inp.Set("type", GetAttr(node, "type"))
+				_ = inp.Set("value", GetAttr(node, "value"))
 				inputs = append(inputs, inp)
 			}
 		}
@@ -455,8 +456,8 @@ func extractForm(vm *sobek.Runtime, n *html.Node) interface{} {
 	return obj
 }
 
-// getAttr returns the value of an attribute on an HTML node, or empty string.
-func getAttr(n *html.Node, key string) string {
+// GetAttr returns the value of an attribute on an HTML node, or empty string.
+func GetAttr(n *html.Node, key string) string {
 	for _, a := range n.Attr {
 		if a.Key == key {
 			return a.Val
@@ -481,9 +482,9 @@ func extractText(n *html.Node) string {
 	return sb.String()
 }
 
-// splitHTTPMessage splits a raw HTTP message into its header section and body.
+// SplitHTTPMessage splits a raw HTTP message into its header section and body.
 // Recognizes both CRLF (\r\n\r\n) and LF-only (\n\n) blank-line separators.
-func splitHTTPMessage(raw string) (headerSection, body string) {
+func SplitHTTPMessage(raw string) (headerSection, body string) {
 	if idx := strings.Index(raw, "\r\n\r\n"); idx >= 0 {
 		return raw[:idx], raw[idx+4:]
 	}
@@ -493,10 +494,10 @@ func splitHTTPMessage(raw string) (headerSection, body string) {
 	return raw, ""
 }
 
-// splitHeaderLines splits a header section into individual lines.
+// SplitHeaderLines splits a header section into individual lines.
 // Handles both CRLF (\r\n) and LF-only (\n) line endings; strips trailing CR.
 // Empty lines are dropped.
-func splitHeaderLines(headerSection string) []string {
+func SplitHeaderLines(headerSection string) []string {
 	var lines []string
 	for _, line := range strings.Split(headerSection, "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -507,9 +508,9 @@ func splitHeaderLines(headerSection string) []string {
 	return lines
 }
 
-// splitPathQuery splits a full request path into the path and query string parts.
+// SplitPathQuery splits a full request path into the path and query string parts.
 // The returned query string does NOT include the leading "?".
-func splitPathQuery(fullPath string) (path, query string) {
+func SplitPathQuery(fullPath string) (path, query string) {
 	if idx := strings.IndexByte(fullPath, '?'); idx >= 0 {
 		return fullPath[:idx], fullPath[idx+1:]
 	}
