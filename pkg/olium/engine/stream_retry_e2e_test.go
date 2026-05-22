@@ -54,12 +54,12 @@ func hijackCloseMidStream(t *testing.T, w http.ResponseWriter, prefix string) {
 func completeSSEResponse(w http.ResponseWriter, content string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "data: %s\n\n",
+	_, _ = fmt.Fprintf(w, "data: %s\n\n",
 		fmt.Sprintf(`{"choices":[{"delta":{"content":%q}}]}`, content))
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 type runOutcome struct {

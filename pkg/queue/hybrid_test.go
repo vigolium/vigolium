@@ -417,6 +417,10 @@ func TestHybridQueue_Concurrent(t *testing.T) {
 
 					_ = q.Ack(task.ID)
 					if done {
+						// Wake the other consumers blocked on the now-empty
+						// queue instead of leaving them to hit the context
+						// deadline (which made this test take ~10s).
+						cancel()
 						return
 					}
 				}

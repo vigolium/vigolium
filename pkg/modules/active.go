@@ -1,6 +1,8 @@
 package modules
 
 import (
+	"context"
+
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -36,6 +38,36 @@ type ActiveModule interface {
 	// ScanPerHost performs scanning once per unique host.
 	ScanPerHost(
 		ctx *httpmsg.HttpRequestResponse,
+		httpClient *http.Requester,
+		scanCtx *ScanContext,
+	) ([]*output.ResultEvent, error)
+}
+
+// ContextualActiveModule is an optional interface for active modules that support
+// cancellation and timeout propagation through context. The executor prefers these
+// methods when a module implements them, passing the per-call timeout/cancellation
+// context so the module can thread it into cancellable HTTP requests
+// (http.Requester.ExecuteContext). Modules can adopt this incrementally without
+// breaking the legacy ActiveModule interface.
+type ContextualActiveModule interface {
+	ScanPerInsertionPointContext(
+		ctx context.Context,
+		item *httpmsg.HttpRequestResponse,
+		ip httpmsg.InsertionPoint,
+		httpClient *http.Requester,
+		scanCtx *ScanContext,
+	) ([]*output.ResultEvent, error)
+
+	ScanPerRequestContext(
+		ctx context.Context,
+		item *httpmsg.HttpRequestResponse,
+		httpClient *http.Requester,
+		scanCtx *ScanContext,
+	) ([]*output.ResultEvent, error)
+
+	ScanPerHostContext(
+		ctx context.Context,
+		item *httpmsg.HttpRequestResponse,
 		httpClient *http.Requester,
 		scanCtx *ScanContext,
 	) ([]*output.ResultEvent, error)

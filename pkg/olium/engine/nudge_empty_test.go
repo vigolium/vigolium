@@ -181,11 +181,11 @@ func TestEngine_NudgeDisabledByDefault(t *testing.T) {
 func toolCallSSEResponse(w http.ResponseWriter, toolName string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "data: %s\n\n",
+	_, _ = fmt.Fprintf(w, "data: %s\n\n",
 		fmt.Sprintf(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_%s","type":"function","function":{"name":%q,"arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
 			toolName, toolName))
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 }

@@ -99,7 +99,7 @@ Launches an AI agent that autonomously discovers, scans, and triages vulnerabili
 | `scan_uuid`        | string   | No       | Link results to a specific scan UUID                           |
 | `project_uuid`     | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header) |
 | `no_audit`        | bool     | No       | Disable automatic vigolium-audit (enabled by default when `source` is set) |
-| `audit_mode`      | string   | No       | Audit audit mode: `"lite"` (default, 3-phase), `"balanced"` (6-phase), or `"deep"` (10-phase) |
+| `audit_mode`      | string   | No       | Vigolium Audit mode: `"lite"` (default, 3-phase), `"balanced"` (9-phase), or `"deep"` (12-phase) |
 | `audit`           | string   | No       | **DEPRECATED** — use `no_audit` + `audit_mode` instead. Legacy values: `"lite"`, `"balanced"`, `"deep"`, `"off"` |
 
 \* At least one of `target`, `input`, `source`, `diff`, or `prompt` is required.
@@ -296,7 +296,7 @@ AI agents are called at phases 3, 4, 6, and 9. When inputs exceed `master_batch_
 |------------------------|----------|----------|-----------------------------------------------------------------------|
 | `project_uuid`         | string   | No       | Scope results to a project (falls back to `X-Project-UUID` header)    |
 | `scan_uuid`            | string   | No       | Link results to a specific scan UUID                                  |
-| `audit`               | string   | No       | Run background vigolium-audit: `"lite"` (3-phase), `"balanced"` (6-phase), `"deep"` (10-phase), `"off"` to disable. Requires `source` |
+| `audit`               | string   | No       | Run background vigolium-audit: `"lite"` (3-phase), `"balanced"` (9-phase), `"deep"` (12-phase), `"off"` to disable. Requires `source` |
 
 **Source resolution:** The `source` field accepts local paths, git URLs (with optional OAuth token), and archive files (`.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`). The legacy `source_path` JSON key is still accepted for backward compatibility.
 
@@ -465,7 +465,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "audit": "lite"
   }' | jq .
 
-# Full 10-phase vigolium-audit with comprehensive scan
+# Full 12-phase vigolium-audit with comprehensive scan
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{

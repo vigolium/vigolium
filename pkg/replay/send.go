@@ -60,6 +60,12 @@ func proxyFromEnv(req *gohttp.Request) (*url.URL, error) {
 	return nil, nil
 }
 
+// isDefaultPort reports whether port is the well-known default for scheme and
+// can therefore be omitted from the Host header.
+func isDefaultPort(scheme string, port int) bool {
+	return (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+}
+
 // sendRawHTTP parses raw request bytes, rewrites the URL with the
 // supplied scheme/hostname/port, and sends via client. A *Summary is
 // returned even on transport error so callers always get a structured
@@ -85,7 +91,7 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 		scheme = "http"
 	}
 	host := hostname
-	if port > 0 && !((scheme == "http" && port == 80) || (scheme == "https" && port == 443)) {
+	if port > 0 && !isDefaultPort(scheme, port) {
 		host = fmt.Sprintf("%s:%d", hostname, port)
 	}
 	req.URL = &url.URL{

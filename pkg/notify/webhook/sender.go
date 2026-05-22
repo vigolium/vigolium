@@ -19,10 +19,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	maxRetries     = 5
-	initialBackoff = time.Second
-)
+const maxRetries = 5
+
+// initialBackoff is the first inter-attempt delay; it doubles each retry.
+// A var (not const) so tests can shrink it to keep retry coverage fast.
+var initialBackoff = time.Second
 
 // FindingCounts is the severity breakdown of findings produced by a scan.
 type FindingCounts struct {

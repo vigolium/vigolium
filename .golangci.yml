@@ -1,0 +1,26 @@
+# golangci-lint v2 configuration.
+# Conservative, high-signal linter set — kept green so `make lint` can gate CI.
+version: "2"
+
+run:
+  # Lint test files too; several correctness bugs hide in fixtures/helpers.
+  tests: true
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - misspell
+  exclusions:
+    # Keep golangci-lint's built-in sensible exclusions (e.g. generated files).
+    generated: lax
+    rules:
+      # The rod package is vendored/generated browser-automation glue and is
+      # already excluded from `go vet` in the Makefile/CI; don't lint it here.
+      - path: pkg/spitolas/rod/
+        linters:
+          - errcheck
+          - staticcheck
+          - govet
+          - ineffassign
+          - unused

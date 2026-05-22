@@ -528,7 +528,10 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		// Sparse (nullzero column) — used by agent end-of-run summaries and
 		// webhook notifications to count findings per agentic-scan run.
 		"CREATE INDEX IF NOT EXISTS idx_findings_agentic_scan ON findings(agentic_scan_uuid)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_hash_unique ON findings(finding_hash)",
+		// Dedup is scoped per project: the same finding_hash may legitimately
+		// recur across projects without one project's finding suppressing
+		// another's. Backs ON CONFLICT (project_uuid, finding_hash).
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_project_hash_unique ON findings(project_uuid, finding_hash)",
 
 		// -- finding_records --
 		"CREATE INDEX IF NOT EXISTS idx_finding_records_record_uuid ON finding_records(record_uuid)",
@@ -564,8 +567,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_uuid)",
 	}
 
-	// Drop old indexes before creating the correct ones (migration for existing databases)
-	// Must run before CREATE UNIQUE INDEX so the unconditional unique index survives
+	// Drop old indexes before creating the correct ones (migration for existing databases).
+	// Must run before CREATE UNIQUE INDEX so the unconditional unique index survives.
+	// idx_findings_hash_unique was a global UNIQUE(finding_hash) — superseded by the
+	// project-scoped idx_findings_project_hash_unique below. Dropping it lets the same
+	// finding_hash coexist across projects.
 	_, _ = db.ExecContext(ctx, "DROP INDEX IF EXISTS idx_findings_hash")
 	_, _ = db.ExecContext(ctx, "DROP INDEX IF EXISTS idx_findings_hash_unique")
 

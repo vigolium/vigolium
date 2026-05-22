@@ -114,7 +114,7 @@ func init() {
 	pf.StringVar(&findingSort, "sort", "found_at", "Sort by: found_at, created_at, severity, module, confidence")
 	pf.BoolVar(&findingAsc, "asc", false, "Sort in ascending order (default: descending)")
 	pf.IntVarP(&findingLimit, "limit", "n", 100, "Maximum findings to display")
-	pf.IntVarP(&findingOffset, "offset", "o", 0, "Number of findings to skip (for pagination)")
+	pf.IntVar(&findingOffset, "offset", 0, "Number of findings to skip (for pagination)")
 
 	// Finding-specific filter flags
 	pf.StringVar(&findingSeverity, "severity", "", "Filter by severity: critical,high,medium,low,info (comma-separated)")

@@ -3,6 +3,7 @@ package httpmsg
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -165,6 +166,18 @@ func (h *HttpRequestResponse) BuildRetryableRequest() (*retryablehttp.Request, e
 		req.Header.Add(header.Name, header.Value)
 	}
 	return req, nil
+}
+
+// BuildRetryableRequestWithContext is BuildRetryableRequest with ctx attached to
+// the underlying *http.Request, so cancelling ctx aborts the in-flight request
+// (and its retry loop). Like the stdlib, ctx must be non-nil; pass
+// context.Background() when there is nothing to cancel against.
+func (h *HttpRequestResponse) BuildRetryableRequestWithContext(ctx context.Context) (*retryablehttp.Request, error) {
+	req, err := h.BuildRetryableRequest()
+	if err != nil {
+		return nil, err
+	}
+	return req.WithContext(ctx), nil
 }
 
 // CreateInsertionPoints creates insertion points from the request.

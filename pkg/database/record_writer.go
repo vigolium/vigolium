@@ -151,7 +151,11 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 		return "", fmt.Errorf("failed to convert request: %w", err)
 	}
 	record.Source = source
-	record.ProjectUUID = projectUUID
+	// Default the project UUID before the dedup lookup so it matches what
+	// SaveRecordsBatch persists. Otherwise an empty projectUUID makes the
+	// lookup filter on project_uuid="" while inserts land under
+	// DefaultProjectUUID, and duplicates slip through.
+	record.ProjectUUID = defaultProjectUUID(projectUUID)
 
 	if existingUUID, err := w.repo.findDuplicateRecord(ctx, record); err == nil && existingUUID != "" {
 		return existingUUID, nil

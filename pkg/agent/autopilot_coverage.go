@@ -285,4 +285,3 @@ func extractHostname(target string) (string, error) {
 	}
 	return host, nil
 }
-

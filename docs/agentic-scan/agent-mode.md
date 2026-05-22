@@ -68,7 +68,7 @@ Run with: `vigolium agent autopilot --plan-file ginandjuice-plan.md` (or `swarm`
 ### `audit` — AI security source audit (Claude/Codex)
 - **File:** `pkg/cli/agent_audit.go`
 - **Use for:** deep code audit standalone, or as the source-aware companion to `autopilot`/`swarm`.
-- **Modes:** `lite` (3 phases), `balanced`/`scan` (6), `deep` (10), `revisit`, `confirm`, `merge`, `diff`, `longshot`, `refresh`, `reinvest`, `status`, `mock`. `--modes a,b,c` chains modes back-to-back via audit's native `--modes` (one subprocess; stops on the first non-complete mode; `--max-cost` is an aggregate cap; later modes auto-inherit the prior `--from-audit`). `--intensity deep` resolves to the chain `deep,confirm`; `quick`→`lite` and `balanced`→`balanced` stay single-mode.
+- **Modes:** `lite` (3 phases), `balanced`/`scan` (9), `deep` (12), `revisit`, `confirm`, `merge`, `diff`, `longshot`, `refresh`, `reinvest`, `status`, `mock`. `--modes a,b,c` chains modes back-to-back via audit's native `--modes` (one subprocess; stops on the first non-complete mode; `--max-cost` is an aggregate cap; later modes auto-inherit the prior `--from-audit`). `--intensity deep` resolves to the chain `deep,confirm`; `quick`→`lite` and `balanced`→`balanced` stay single-mode.
 - **Key flags:** `--mode`, `--modes a,b,c`, `--list-modes` (print audit's mode graph and exit), `--source <path|git-url>`, `--provider <olium-provider>` (drives the agent **and** forwards that provider's BYOK auth: `anthropic-*` → claude, `openai-*` → codex), `--agent {claude|codex}` (pure agent selector — overrides the agent implied by `--provider` while keeping its resolved auth; reject-on-invalid), `--no-stream`.
 - **Detail:** [`docs/agentic-scan/vigolium-audit.md`](vigolium-audit.md).
 

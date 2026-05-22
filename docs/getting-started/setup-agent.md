@@ -10,7 +10,7 @@ This page walks you through wiring each piece up. Pick the section that matches 
 | Codex (OpenAI OAuth) | [Codex](#2-codex-cheapest-with-a-chatgpt-subscription) | You have a ChatGPT Plus/Pro/Team subscription. |
 | Local model (Ollama, etc.) | [Local / OpenAI-compatible](#3-local-models-ollama-openrouter-lm-studio-) | You want to run agents offline or against OpenRouter / vLLM / LM Studio. |
 | Claude | [Claude](#4-claude-anthropic) | You have an Anthropic API key, a Claude subscription, or the `claude` CLI installed (not recommended — see section). |
-| Audit audit | [Audit audit](#5-vigolium-audit-source-code-driver) | You want a whitebox source-code audit with no extra install. |
+| Vigolium audit | [Vigolium audit](#5-vigolium-audit-source-code-driver) | You want a whitebox source-code audit with no extra install. |
 | Piolium audit | [Piolium audit](#6-piolium-audit-pi-native-driver) | You want piolium's 17-phase Pi-native audit (separate install). |
 
 All settings live in `~/.vigolium/vigolium-configs.yaml`. You can edit it directly, or use `vigolium config set <key> <value>`.
@@ -209,7 +209,7 @@ This mode is slower than the API-key/OAuth paths (subprocess overhead) but usefu
 
 ---
 
-## 5. Audit audit — source-code driver
+## 5. Vigolium Audit — source-code driver
 
 `vigolium agent audit` runs a whitebox source-code audit. The harness (agents, commands, skills) ships **embedded in the vigolium binary** — no extra install. It drives the `claude` CLI under the hood, so you need a working Claude setup from [section 4](#4-claude-anthropic).
 
@@ -227,7 +227,7 @@ vigolium config set agent.audit.mode lite          # lite | balanced | deep
 vigolium agent autopilot -t https://example.com --source ~/src/your-app
 ```
 
-Audit modes: `lite` (3 phases, CI-friendly), `balanced` (6 phases, default for `--audit=balanced`), `deep` (11 phases, full audit). All produce findings under the same parser/schema as native scanner output and are ingested into the vigolium DB.
+Audit modes: `lite` (3 phases, CI-friendly), `balanced` (9 phases, default for `--audit=balanced`), `deep` (12 phases, full audit). All produce findings under the same parser/schema as native scanner output and are ingested into the vigolium DB.
 
 Findings land under `~/.vigolium/agent-sessions/<scan-uuid>/vigolium-results/`. See [`docs/agentic-scan/vigolium-audit.md`](../agentic-scan/vigolium-audit.md) for the full reference.
 
@@ -292,7 +292,7 @@ vigolium agent query -p 'list every route in this repo' --source .
 # Autopilot smoke test (target-only, no source):
 vigolium agent autopilot -t https://example.com --intensity quick --max-duration 5m
 
-# Audit audit (requires claude installed):
+# Vigolium audit (requires claude installed):
 vigolium agent audit --source . --mode lite
 
 # Piolium audit (requires pi + piolium installed):

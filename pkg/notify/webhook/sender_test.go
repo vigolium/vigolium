@@ -83,7 +83,18 @@ func TestSender_Post_AuthorizationHeader(t *testing.T) {
 	}
 }
 
+// shrinkBackoff lowers the exponential retry backoff so retry tests exercise the
+// full attempt loop without spending real seconds sleeping. The original value is
+// restored when the test finishes.
+func shrinkBackoff(t *testing.T) {
+	t.Helper()
+	orig := initialBackoff
+	initialBackoff = time.Millisecond
+	t.Cleanup(func() { initialBackoff = orig })
+}
+
 func TestSender_Post_RetryOn5xx(t *testing.T) {
+	shrinkBackoff(t)
 	var attempts atomic.Int32
 	srv, cfg := newServer(func(w http.ResponseWriter, r *http.Request) {
 		n := attempts.Add(1)
@@ -96,7 +107,6 @@ func TestSender_Post_RetryOn5xx(t *testing.T) {
 	defer srv.Close()
 
 	s := NewSender(cfg)
-	// Speed up backoff for the test by using a short context.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.Post(ctx, ScanCompletedPayload{}); err != nil {
@@ -108,6 +118,7 @@ func TestSender_Post_RetryOn5xx(t *testing.T) {
 }
 
 func TestSender_Post_GivesUpAfterMaxRetries(t *testing.T) {
+	shrinkBackoff(t)
 	var attempts atomic.Int32
 	srv, cfg := newServer(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)

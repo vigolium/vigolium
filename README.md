@@ -4,11 +4,12 @@
   <strong>Vigolium - High-fidelity vulnerability scanner fusing agentic AI with native speed, modularity, and precision</strong>
 
   <p align="center">
-  <a href="https://www.vigolium.com/"><img src="https://img.shields.io/badge/Website-0078D4?style=flat&logo=Google-Chrome&logoColor=39ff14&labelColor=black&color=black"></a>
-  <a href="https://docs.vigolium.com/"><img src="https://img.shields.io/badge/Documentation-0078D4?style=flat&logo=GitBook&logoColor=39ff14&labelColor=black&color=black"></a>
-  <a href="https://twitter.com/Vigolium"><img src="https://img.shields.io/badge/Vigolium-0078D4?style=flat&logo=X&logoColor=39ff14&labelColor=black&color=black"></a>
-  <a href="https://discord.gg/aHFypbAu6Y"><img src="https://img.shields.io/badge/Discord%20Server-0078D4?style=flat&logo=Discord&logoColor=39ff14&labelColor=black&color=black"></a>
+  <a href="https://console.vigolium.com/"><img src="https://img.shields.io/badge/Vigolium-Cloud-0078D4?style=flat&logo=google-cloud&logoColor=ffb86c&labelColor=black&color=black"></a>
+  <a href="https://docs.vigolium.com/"><img src="https://img.shields.io/badge/Documentation-0078D4?style=flat&logo=GitBook&logoColor=8be9fd&labelColor=black&color=black"></a>
+  <a href="https://twitter.com/Vigolium"><img src="https://img.shields.io/badge/Vigolium-0078D4?style=flat&logo=X&logoColor=f8f8f2&labelColor=black&color=black"></a>
+  <a href="https://discord.gg/aHFypbAu6Y"><img src="https://img.shields.io/badge/Discord%20Server-0078D4?style=flat&logo=Discord&logoColor=bd93f9&labelColor=black&color=black"></a>
   <a href="https://www.linkedin.com/company/vigolium"><img src="https://custom-icon-badges.demolab.com/badge/LinkedIn-black?logo=linkedin-white&logoColor=39ff14"></a>
+  <a href="https://www.linkedin.com/company/vigolium"><img src="https://img.shields.io/npm/v/@vigolium/vigolium.svg?style=flat&logo=npm&logoColor=50fa7b&labelColor=black&color=black"></a>
   </p>
 </p>
 
@@ -197,6 +198,8 @@ Agentic scan modes:
 - **Autopilot** — autonomous scanning. CLI calls `pkg/olium/autopilot.Run` directly; the server adds vigolium-audit prep, auth setup, and a frozen context bundle around the same loop
 - **Swarm** — AI-guided vulnerability scanning supporting targeted single-request and full-scope (`--discover`). Master agent analyzes inputs, selects modules, generates custom JS extensions, runs code audit and SAST, executes scans, and triages results
 - **Audit / Piolium / Audit** — three source-audit driver subcommands (`vigolium agent {audit,piolium,audit}`). Separate harnesses — **do not** route through olium. `audit` is a unified dispatcher that runs both back-to-back with per-driver child rows under one parent AgenticScan and post-pass findings dedup
+
+> **Standalone audit CLIs** — the agentic security audit also ships as standalone CLIs you can run independently of Vigolium: [vigolium-audit](https://github.com/vigolium/vigolium-audit) (the harness behind `vigolium agent audit`) and [piolium](https://github.com/vigolium/piolium) (the Pi-native driver behind `vigolium agent piolium`).
 
 See [docs.vigolium.com/agentic-scan/agent-mode](https://docs.vigolium.com/agentic-scan/agent-mode) for the full guide.
 
@@ -430,6 +433,10 @@ make fmt            # format code
 ```
 
 See [HACKING.md](HACKING.md) for the full build guide, codebase map, and module development guide.
+
+## Security
+
+Vigolium is an offensive security tool, and two parts of it are intentionally permissive: **agent mode runs with no sandbox** (the LLM has full shell, file, and network access on the host) and **extensions can run arbitrary commands**. Run agent mode in a disposable container/VM scoped to the engagement, and treat untrusted extensions like untrusted code. See [SECURITY.md](SECURITY.md) (or [docs.vigolium.com/others/security-warning](https://docs.vigolium.com/others/security-warning)) before you start, and report vulnerabilities in Vigolium itself privately to [contact@vigolium.com](mailto:contact@vigolium.com).
 
 ## License
 

@@ -62,7 +62,7 @@ Use a subcommand to select the agentic scan mode:
   autopilot  Agentic scan: autonomous AI-driven vulnerability scanning
   swarm      Agentic scan: AI-guided targeted vulnerability swarm
   olium      Interactive olium agent (TUI or headless prompt)
-  audit     Run vigolium-audit as a foreground security audit
+  audit      Unified security audit (vigolium-audit and/or piolium)
 
 Docs: https://docs.vigolium.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {

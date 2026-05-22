@@ -27,7 +27,7 @@ Vigolium Audit replaces the legacy vig-audit-agent with richer finding formats (
 # Swarm with background vigolium-audit (lite mode, default)
 vigolium agent swarm -t https://example.com --source ./src --audit
 
-# Swarm with deep 10-phase audit
+# Swarm with deep 12-phase audit
 vigolium agent swarm -t https://example.com --source ./src --audit deep
 
 # Autopilot with vigolium-audit first
@@ -107,9 +107,9 @@ Fast pipeline optimized for CI/CD and routine scans. Runs quick recon, secrets s
 | Q1 | Secrets Scan | Credential and secret detection |
 | Q2 | Fast SAST | Quick CodeQL + Semgrep structural scan |
 
-### Scan (6 phases)
+### Balanced (9 phases)
 
-Intermediate audit with SAST, probing, and validation.
+Intermediate audit with SAST, probing, and validation. Runs 9 phases — the legacy `scan` value maps to `balanced`. The core stages are:
 
 | Phase | Name | Description |
 |-------|------|-------------|
@@ -120,9 +120,9 @@ Intermediate audit with SAST, probing, and validation.
 | 5 | Review + FP | Inline verification + false positive elimination |
 | 6 | PoC + Report | Proof-of-concept generation and advisory-style report |
 
-### Deep (11 phases)
+### Deep (12 phases)
 
-Comprehensive audit with adversarial review chambers. Best for pre-release audits, compliance, or high-value targets. The legacy `full` mode maps to `deep`.
+Comprehensive audit with adversarial review chambers. Best for pre-release audits, compliance, or high-value targets. Runs 12 phases (deep adds a dedicated authorization pass plus commit archaeology and patch-bypass on top of `balanced`); the legacy `full` mode maps to `deep`. The core stages are:
 
 | Phase | Name | Description |
 |-------|------|-------------|
@@ -151,8 +151,8 @@ Available on both `vigolium agent swarm` and `vigolium agent autopilot`.
 | *(not set)* | Disabled (unless enabled in config) |
 | `--audit` | Lite mode (3-phase fast audit) |
 | `--audit lite` | Lite mode (explicit) |
-| `--audit balanced` | Balanced mode (6-phase intermediate audit) |
-| `--audit deep` | Deep mode (10-phase comprehensive audit) |
+| `--audit balanced` | Balanced mode (9-phase intermediate audit) |
+| `--audit deep` | Deep mode (12-phase comprehensive audit) |
 | `--audit off` | Disabled (overrides config) |
 
 ### Examples
@@ -209,7 +209,7 @@ curl -s -X POST http://localhost:9002/api/agent/run/swarm \
     "audit": "lite"
   }' | jq .
 
-# Swarm with deep 10-phase vigolium-audit
+# Swarm with deep 12-phase vigolium-audit
 curl -s -X POST http://localhost:9002/api/agent/run/swarm \
   -H "Content-Type: application/json" \
   -d '{

@@ -343,7 +343,7 @@ CLI flags (`--provider`, `--model`, `--oauth-token`, `--llm-api-key`, `--base-ur
 | Subcommand wiring             | `pkg/cli/agent*.go`                             |
 | Swarm orchestrator            | `pkg/agent/swarm.go`, `swarm_pipeline.go`       |
 | Autopilot orchestrator        | `pkg/agent/autopilot_pipeline.go`               |
-| Audit audit runner           | `pkg/agent/audit_agent.go`                      |
+| Vigolium Audit runner         | `pkg/agent/audit_agent.go`                      |
 | Engine (prompt → dispatch)    | `pkg/agent/engine.go`                           |
 | Prompt templates / rendering  | `pkg/agent/prompt/`, `public/presets/prompts/`  |
 | Output parsers (JSON-tolerant)| `pkg/agent/parsing/`                            |

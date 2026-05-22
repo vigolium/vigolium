@@ -28,7 +28,7 @@ func TestValidateKey(t *testing.T) {
 		{"foo/../bar", false, "bar"}, // filepath.Clean normalizes this to "bar" — safe
 
 		// backslash attempts
-		{"ugc\\..\\..\\other", true, ""},
+		{"ugc\\..\\..\\other", true, ""}, //nolint:misspell // "\\other" mis-tokenized as "ther"
 
 		// empty
 		{"", true, ""},

@@ -124,7 +124,7 @@ func init() {
 	pf.StringVar(&trafficSort, "sort", "created_at", "Sort by: uuid, created_at, sent_at, method, status, time")
 	pf.BoolVar(&trafficAsc, "asc", false, "Sort in ascending order (default: descending)")
 	pf.IntVarP(&trafficLimit, "limit", "n", 100, "Maximum records to display")
-	pf.IntVarP(&trafficOffset, "offset", "o", 0, "Number of records to skip (for pagination)")
+	pf.IntVar(&trafficOffset, "offset", 0, "Number of records to skip (for pagination)")
 
 	// Display-only flags
 	f := trafficCmd.Flags()

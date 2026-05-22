@@ -40,7 +40,7 @@ func init() {
 
 	agentSessionCmd.Flags().StringVar(&sessionMode, "mode", "", "Filter by mode (query, autopilot, pipeline, swarm)")
 	agentSessionCmd.Flags().IntVarP(&sessionLimit, "limit", "n", 50, "Maximum number of records to display")
-	agentSessionCmd.Flags().IntVarP(&sessionOffset, "offset", "o", 0, "Number of records to skip")
+	agentSessionCmd.Flags().IntVar(&sessionOffset, "offset", 0, "Number of records to skip")
 	agentSessionCmd.Flags().IntVar(&sessionTail, "tail", 50, "Number of raw output lines to show (0=none, -1=all)")
 	agentSessionCmd.Flags().BoolVar(&sessionFull, "full", false, "Show full raw output (shortcut for --tail -1)")
 	tui.AddFlags(agentSessionCmd, &sessionTUI, &sessionNoTUI)

@@ -103,4 +103,3 @@ func TestExtractHostname(t *testing.T) {
 		})
 	}
 }
-

@@ -78,7 +78,7 @@ func registerListFlags(cmd *cobra.Command) {
 
 	// Pagination flags
 	cmd.Flags().IntVarP(&listLimit, "limit", "n", 100, "Maximum number of records to display")
-	cmd.Flags().IntVarP(&listOffset, "offset", "o", 0, "Number of records to skip before displaying")
+	cmd.Flags().IntVar(&listOffset, "offset", 0, "Number of records to skip before displaying")
 
 	// Column selection flags
 	cmd.Flags().StringSliceVar(&listColumns, "columns", nil, "Columns to include in output, comma-separated")
@@ -90,7 +90,7 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntSliceVar(&listStatus, "status", nil, "Filter records by HTTP status code (can be specified multiple times)")
 	cmd.Flags().StringVar(&listPath, "path", "", "Filter records by URL path pattern")
 	cmd.Flags().StringVar(&listScanUUID, "scan-uuid", "", "Filter records by scan UUID")
-	cmd.Flags().StringVar(&listSeverity, "severity", "", "Filter findings by severity: critical, high, medium, low")
+	cmd.Flags().StringVar(&listSeverity, "severity", "", "Filter findings by severity: critical, high, medium, low, info")
 	cmd.Flags().IntVar(&listMinRisk, "min-risk", 0, "Show only records with risk score at or above this value")
 	cmd.Flags().StringVar(&listRemark, "remark", "", "Filter records containing this text in remarks")
 	cmd.Flags().StringVar(&listModuleType, "module-type", "", "Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")

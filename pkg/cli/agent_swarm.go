@@ -179,7 +179,7 @@ func init() {
 	f.StringVar(&swarmAuthConfigPath, "auth-config", "", "Path to an existing auth-config.yaml. Skips both browser auth and --cookie/--header/--login-curl synthesis.")
 
 	// Background vigolium-audit
-	f.StringVar(&swarmAudit, "audit", "", "Run background vigolium-audit for parallel security auditing: 'lite' (3-phase, default), 'scan' (6-phase), or 'deep' (11-phase). Requires --source")
+	f.StringVar(&swarmAudit, "audit", "", "Run background vigolium-audit for parallel security auditing: 'lite' (3-phase, default), 'balanced' (9-phase), or 'deep' (12-phase). Requires --source")
 	agentSwarmCmd.Flag("audit").NoOptDefVal = "lite" // bare --audit defaults to lite
 	f.StringVar(&swarmPiolium, "piolium", "", "Run background piolium audit (Pi runtime): lite, balanced, deep, longshot, etc. Requires --source. Empty triggers auto-pick when --audit is also empty (piolium when pi is installed, else nothing)")
 	agentSwarmCmd.Flag("piolium").NoOptDefVal = "lite"

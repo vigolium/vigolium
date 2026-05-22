@@ -45,6 +45,9 @@ func requireReachableDebugHost(t *testing.T, targetURL string) *url.URL {
 //
 // Run with: go test -v -timeout 120s -run TestFingerprintLearningAndComparison ./god/internal/infrastructure/fingerprint/
 func TestFingerprintLearningAndComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test against an external host; skipped in -short")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -227,6 +230,9 @@ func TestFingerprintLearningAndComparison(t *testing.T) {
 
 // TestSignatureMatchDebug shows why signatures don't match 404s
 func TestSignatureMatchDebug(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test against an external host; skipped in -short")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

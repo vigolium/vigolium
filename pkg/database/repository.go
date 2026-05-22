@@ -163,7 +163,7 @@ func (r *Repository) SaveFinding(ctx context.Context, event *output.ResultEvent,
 	var err error
 	if finding.FindingHash != "" {
 		res, err = r.db.NewInsert().Model(finding).
-			On("CONFLICT (finding_hash) DO NOTHING").
+			On("CONFLICT (project_uuid, finding_hash) DO NOTHING").
 			Exec(ctx)
 	} else {
 		res, err = r.db.NewInsert().Model(finding).Exec(ctx)
@@ -175,7 +175,7 @@ func (r *Repository) SaveFinding(ctx context.Context, event *output.ResultEvent,
 	// If ON CONFLICT fired, no row was inserted — append records and evidence to existing finding
 	if finding.FindingHash != "" {
 		if n, _ := res.RowsAffected(); n == 0 {
-			return r.appendRecordsToFinding(ctx, finding.FindingHash, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response))
+			return r.appendRecordsToFinding(ctx, finding.ProjectUUID, finding.FindingHash, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response))
 		}
 	}
 
@@ -198,7 +198,7 @@ func (r *Repository) SaveFindingDirect(ctx context.Context, finding *Finding) er
 	var err error
 	if finding.FindingHash != "" {
 		res, err = r.db.NewInsert().Model(finding).
-			On("CONFLICT (finding_hash) DO NOTHING").
+			On("CONFLICT (project_uuid, finding_hash) DO NOTHING").
 			Exec(ctx)
 	} else {
 		res, err = r.db.NewInsert().Model(finding).Exec(ctx)
@@ -210,7 +210,7 @@ func (r *Repository) SaveFindingDirect(ctx context.Context, finding *Finding) er
 	// If ON CONFLICT fired, no row was inserted — append records and evidence to existing finding
 	if finding.FindingHash != "" {
 		if n, _ := res.RowsAffected(); n == 0 {
-			return r.appendRecordsToFinding(ctx, finding.FindingHash, finding.HTTPRecordUUIDs, buildEvidence(finding.Request, finding.Response))
+			return r.appendRecordsToFinding(ctx, finding.ProjectUUID, finding.FindingHash, finding.HTTPRecordUUIDs, buildEvidence(finding.Request, finding.Response))
 		}
 	}
 
@@ -261,12 +261,15 @@ func (r *Repository) insertFindingRecords(ctx context.Context, findingID int64, 
 // EvidenceSeparator is the delimiter between request and response inside an AdditionalEvidence entry.
 const EvidenceSeparator = "\n---------\n"
 
-// appendRecordsToFinding looks up an existing finding by hash and appends new record UUIDs
-// and additional evidence (request/response pair) to it.
-func (r *Repository) appendRecordsToFinding(ctx context.Context, findingHash string, newUUIDs []string, evidence string) error {
+// appendRecordsToFinding looks up an existing finding by (project, hash) and appends new
+// record UUIDs and additional evidence (request/response pair) to it. The lookup is
+// project-scoped so evidence from one project is never merged into another project's
+// finding, even when both share a finding_hash.
+func (r *Repository) appendRecordsToFinding(ctx context.Context, projectUUID, findingHash string, newUUIDs []string, evidence string) error {
 	existing := &Finding{}
 	err := r.db.NewSelect().Model(existing).
 		Column("id", "http_record_uuids", "additional_evidence").
+		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
 		Where("finding_hash = ?", findingHash).
 		Scan(ctx)
 	if err != nil {

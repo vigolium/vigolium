@@ -271,10 +271,13 @@ func (h *Handlers) HandleAgentAudit(c fiber.Ctx) error {
 		dispatched = true
 		return h.startCombinedAuditRun(c, driver, req, auditChain, pioliumModes, preset, additionalArgs, auditOverride, pioliumOverride, chainedCleanup)
 	}
-	// Unreachable: validation above rejects unknown drivers and the switch
-	// is exhaustive over the constants. A panic here would catch a future
-	// driver added to the constants but missed in the switch.
-	panic("audit dispatcher: unreachable driver " + driver)
+	// Unreachable: validation above rejects unknown drivers and the switch is
+	// exhaustive over the constants. Return a 500 rather than panicking so a
+	// future driver added to the constants but missed here degrades into an
+	// error response instead of crashing the request goroutine.
+	return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+		Error: "audit dispatcher: unhandled driver " + driver,
+	})
 }
 
 func (h *Handlers) buildPioliumAuditPlan(req AgentAuditRequest, modes []string, preset agent.AuditDriverIntensityPreset, additionalArgs []string, authOverride agent.AuthOverride) auditRunPlan {

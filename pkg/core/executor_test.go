@@ -395,7 +395,7 @@ func TestRunActiveWithTimeout_FastCompletes(t *testing.T) {
 	want := []*output.ResultEvent{{}}
 
 	got, completed := e.runActiveWithTimeout(context.Background(),
-		func() ([]*output.ResultEvent, error) { return want, nil },
+		func(context.Context) ([]*output.ResultEvent, error) { return want, nil },
 		&fakeActiveModule{id: "fast"}, item)
 
 	if !completed {
@@ -412,7 +412,7 @@ func TestRunActiveWithTimeout_SlowTimesOut(t *testing.T) {
 
 	start := time.Now()
 	got, completed := e.runActiveWithTimeout(context.Background(),
-		func() ([]*output.ResultEvent, error) {
+		func(context.Context) ([]*output.ResultEvent, error) {
 			time.Sleep(2 * time.Second)
 			return []*output.ResultEvent{{}}, nil
 		},
@@ -437,7 +437,7 @@ func TestRunActiveWithTimeout_TimeoutHinterRaisesBound(t *testing.T) {
 	want := []*output.ResultEvent{{}}
 
 	got, completed := e.runActiveWithTimeout(context.Background(),
-		func() ([]*output.ResultEvent, error) {
+		func(context.Context) ([]*output.ResultEvent, error) {
 			time.Sleep(80 * time.Millisecond)
 			return want, nil
 		},
@@ -456,7 +456,7 @@ func TestRunActiveWithTimeout_ModuleErrorMarksCompleted(t *testing.T) {
 	_, item := makeTestItem("example.com", "/", "ok")
 
 	got, completed := e.runActiveWithTimeout(context.Background(),
-		func() ([]*output.ResultEvent, error) { return nil, fmt.Errorf("boom") },
+		func(context.Context) ([]*output.ResultEvent, error) { return nil, fmt.Errorf("boom") },
 		&fakeActiveModule{id: "errs"}, item)
 
 	// A module that returns an error still "completed" (it ran to conclusion);
@@ -480,7 +480,7 @@ func TestRunActiveWithTimeout_CanceledCtxReturnsPromptly(t *testing.T) {
 
 	start := time.Now()
 	got, completed := e.runActiveWithTimeout(ctx,
-		func() ([]*output.ResultEvent, error) {
+		func(context.Context) ([]*output.ResultEvent, error) {
 			time.Sleep(2 * time.Second) // leaked goroutine drains into the buffered chan
 			return []*output.ResultEvent{{}}, nil
 		},

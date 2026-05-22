@@ -218,10 +218,21 @@ func makeRedirectFunc(sameHostOnly bool, maxRedirects int) func(*http.Request, [
 // Execute sends HTTP request with rate limiting, host error tracking,
 // and optional request clustering to deduplicate concurrent identical requests.
 func (r *Requester) Execute(input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
+	return r.ExecuteContext(context.Background(), input, opts)
+}
+
+// ExecuteContext is the cancellable variant of Execute: ctx is attached to the
+// outgoing HTTP request, so cancelling it (scan shutdown or a per-module/active
+// timeout) aborts the in-flight request and its retry loop instead of leaving
+// the goroutine to drain on its own. A context.Background() ctx is equivalent to
+// the legacy non-cancellable Execute.
+func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
 	if r.clusterer != nil && !opts.NoClustering {
-		return r.clusterer.Execute(input, opts, r.executeDirectly)
+		return r.clusterer.Execute(input, opts, func(in *httpmsg.HttpRequestResponse, o Options) (*httpUtils.ResponseChain, int, error) {
+			return r.executeDirectly(ctx, in, o)
+		})
 	}
-	return r.executeDirectly(input, opts)
+	return r.executeDirectly(ctx, input, opts)
 }
 
 // Clusterer returns the request clusterer (nil if clustering is disabled).
@@ -230,7 +241,8 @@ func (r *Requester) Clusterer() *RequestClusterer {
 }
 
 // executeDirectly sends HTTP request with rate limiting and host error tracking.
-func (r *Requester) executeDirectly(input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
+// ctx is propagated to the outgoing request for cancellation.
+func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
 	// Per-host rate limiting (concurrency control)
 	if r.services.HostLimiter != nil {
 		host := ""
@@ -250,7 +262,7 @@ func (r *Requester) executeDirectly(input *httpmsg.HttpRequestResponse, opts Opt
 	}
 
 	start := time.Now()
-	resp, err := r.doRequest(input, opts)
+	resp, err := r.doRequest(ctx, input, opts)
 	if err != nil {
 		if r.services.HostErrors != nil {
 			r.services.HostErrors.MarkFailed(input.ID(), err, opts.IgnoreTimeoutTracking)
@@ -264,10 +276,10 @@ func (r *Requester) executeDirectly(input *httpmsg.HttpRequestResponse, opts Opt
 	return resp, int(time.Since(start).Seconds()), nil
 }
 
-func (r *Requester) doRequest(input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, error) {
+func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, error) {
 	start := time.Now()
 
-	req, err := input.BuildRetryableRequest()
+	req, err := input.BuildRetryableRequestWithContext(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to build request")
 	}

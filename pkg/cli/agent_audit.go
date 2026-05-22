@@ -122,7 +122,7 @@ func init() {
 	f := agentAuditCmd.Flags()
 	f.StringVar(&auditDriver, "driver", agent.AuditDriverAuto, "Audit driver: auto (audit; fall back to piolium when claude/codex CLI missing), both (audit then piolium), audit, or piolium (default auto)")
 	f.StringVar(&auditIntensity, "intensity", "balanced", "Audit intensity preset: quick, balanced, or deep")
-	f.StringVar(&auditMode, "mode", "", "Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/mock/diff/status")
+	f.StringVar(&auditMode, "mode", "", "Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status")
 	f.StringVar(&auditModes, "modes", "", "Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg.")
 	f.BoolVar(&auditListModes, "list-modes", false, "List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit")
 	f.StringVar(&auditSource, "source", ".", "Source: local directory, git URL, gs://<project>/<key> archive, or local .zip/.tar.gz")

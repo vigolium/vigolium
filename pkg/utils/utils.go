@@ -456,11 +456,13 @@ func Sha1(input string) string {
 	return fmt.Sprintf("%x", sha1.Sum([]byte(input)))
 }
 
-// StructToJsonString 将结构体输出位 json 字符
+// StructToJsonString renders item as indented JSON. Values that cannot be
+// marshaled (channels, functions, cyclic refs) yield "" rather than panicking,
+// since this is a best-effort display helper.
 func StructToJsonString(item interface{}) string {
 	jsonBytes, err := json.MarshalIndent(item, "", "  ")
 	if err != nil {
-		panic(err)
+		return ""
 	}
 
 	return string(jsonBytes)

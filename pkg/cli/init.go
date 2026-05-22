@@ -53,8 +53,9 @@ func initializeVigolium() error {
 	}
 
 	// First run - initialize Vigolium
-	fmt.Fprintf(os.Stderr, "%s No existing configuration detected. Initializing with default preset data\n",
-		terminal.Red(terminal.SymbolFailed))
+	fmt.Fprintf(os.Stderr, "%s %s\n",
+		terminal.Cyan(terminal.SymbolRunning),
+		terminal.BoldCyan("First-time run detected — checking for mandatory configuration and dependencies..."))
 	zap.L().Info("First run detected - initializing Vigolium...")
 
 	// Create .vigolium directory
@@ -83,6 +84,7 @@ func initializeVigolium() error {
 
 	// Initialize database
 	if settings.Database.Enabled {
+		fmt.Fprintf(os.Stderr, "  %s Creating database schema...\n", terminal.InfoSymbol())
 		zap.L().Info("Initializing database...")
 
 		db, err := database.NewDB(&settings.Database)
@@ -96,6 +98,7 @@ func initializeVigolium() error {
 			return fmt.Errorf("failed to create database schema: %w", err)
 		}
 
+		fmt.Fprintf(os.Stderr, "  %s Seeding default project and search indexes...\n", terminal.InfoSymbol())
 		if err := db.SeedDefaults(ctx); err != nil {
 			return fmt.Errorf("failed to seed default data: %w", err)
 		}
@@ -104,6 +107,8 @@ func initializeVigolium() error {
 			zap.String("driver", settings.Database.Driver),
 			zap.String("path", settings.Database.SQLite.Path))
 	}
+
+	fmt.Fprintf(os.Stderr, "  %s Installing default profiles, extensions, and prompts...\n", terminal.InfoSymbol())
 
 	// Bootstrap default profiles
 	bootstrapDefaultProfiles(vigoliumDir)
@@ -120,10 +125,12 @@ func initializeVigolium() error {
 	// itself does not satisfy "first-run setup".
 
 	// Print success message
-	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Mandatory configuration initialized."))
 	fmt.Fprintf(os.Stderr, "  %s Config: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(settingsPath)))
 	fmt.Fprintf(os.Stderr, "  %s Database: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(config.ExpandPath(settings.Database.SQLite.Path))))
 	fmt.Fprintf(os.Stderr, "  %s Docs & guides: %s\n", terminal.InfoSymbol(), terminal.Cyan("https://docs.vigolium.com"))
+	fmt.Fprintf(os.Stderr, "  %s Run %s for a full setup (browser, templates, and agentic-scan runtimes).\n",
+		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix"))
 
 	return nil
 }
@@ -282,6 +289,13 @@ func ensureCoreDeps() error {
 	// check touches the database, and opening it here would either trigger
 	// a redundant connection or surface a misleading "db unavailable" tip
 	// inside the dep flow.
+	//
+	// diagnostics.Run sweeps the PATH for chromium/nuclei and friends, which
+	// can take a couple of seconds on a cold first run — announce it so the
+	// terminal doesn't look frozen while the sweep runs.
+	fmt.Fprintf(os.Stderr, "%s %s\n",
+		terminal.InfoSymbol(),
+		terminal.BoldCyan("Checking core scan dependencies (chromium, nuclei-templates)..."))
 	report := diagnostics.Run(diagnostics.Deps{Settings: settings})
 
 	chromiumMissing := report.Tools["chromium"] == nil || report.Tools["chromium"].Status != diagnostics.StatusOK
@@ -290,6 +304,7 @@ func ensureCoreDeps() error {
 	if !chromiumMissing && !nucleiMissing {
 		// Both already present — backfill the marker so subsequent runs
 		// skip the diagnostic entirely. No need to invoke RunFixes.
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.SuccessSymbol(), terminal.Green("Core scan dependencies present"))
 		if err := writeInitMarker(vigoliumDir); err != nil {
 			zap.L().Debug("Failed to write init marker", zap.Error(err))
 		}
