@@ -4,6 +4,12 @@ package e2e
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"regexp"
 	"testing"
 	"time"
 
@@ -11,11 +17,119 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
-	"github.com/vigolium/vigolium/pkg/modules/active/xss_light_scanner"
 	"github.com/vigolium/vigolium/pkg/modules/active/lfi_generic"
 	"github.com/vigolium/vigolium/pkg/modules/active/sqli_error_based"
+	"github.com/vigolium/vigolium/pkg/modules/active/xss_light_scanner"
 )
+
+// dvwaTokenRe extracts DVWA's anti-CSRF user_token hidden field, e.g.
+// `<input type='hidden' name='user_token' value='a3a0...'>`. DVWA rejects
+// setup/login POSTs that omit it.
+var dvwaTokenRe = regexp.MustCompile(`user_token'\s+value='([0-9a-f]+)'`)
+
+// setupDVWA runs DVWA's first-boot flow so its vulnerable pages are reachable
+// and returns the Cookie header value the scanners must send.
+//
+// A freshly started DVWA container 302-redirects every /vulnerabilities/*
+// request to /login.php, so an unauthenticated scan only ever sees the login
+// page and reports nothing. This helper mirrors the manual browser flow:
+//
+//  1. GET /setup.php          — prime the session, grab the setup CSRF token
+//  2. POST /setup.php         — create/reset the backing DB (so modules have data)
+//  3. GET /login.php          — grab the login CSRF token
+//  4. POST /login.php         — authenticate as admin/password
+//  5. pin security=low        — select the deliberately-vulnerable code path
+//
+// Returns "PHPSESSID=<id>; security=low".
+func setupDVWA(t *testing.T, baseURL string) string {
+	t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "create DVWA cookie jar")
+	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
+
+	// 1 + 2: create / reset the database.
+	resp, err := client.PostForm(baseURL+"/setup.php", url.Values{
+		"create_db":  {"Create / Reset Database"},
+		"user_token": {dvwaUserToken(t, client, baseURL+"/setup.php")},
+	})
+	require.NoError(t, err, "DVWA /setup.php POST")
+	_ = resp.Body.Close()
+
+	// 3 + 4: authenticate as admin.
+	resp, err = client.PostForm(baseURL+"/login.php", url.Values{
+		"username":   {"admin"},
+		"password":   {"password"},
+		"Login":      {"Login"},
+		"user_token": {dvwaUserToken(t, client, baseURL+"/login.php")},
+	})
+	require.NoError(t, err, "DVWA /login.php POST")
+	_ = resp.Body.Close()
+
+	// 5: resolve the authenticated PHPSESSID from the jar.
+	u, err := url.Parse(baseURL)
+	require.NoError(t, err, "parse DVWA base URL")
+	var phpSessID string
+	for _, c := range jar.Cookies(u) {
+		if c.Name == "PHPSESSID" {
+			phpSessID = c.Value
+		}
+	}
+	require.NotEmpty(t, phpSessID, "DVWA login did not yield a PHPSESSID cookie")
+
+	// DVWA only persists the security level once you toggle it on /security.php;
+	// pin it here so the modules exercise the low-security (vulnerable) path.
+	return fmt.Sprintf("PHPSESSID=%s; security=low", phpSessID)
+}
+
+// dvwaUserToken fetches a DVWA form page and extracts its user_token CSRF field.
+func dvwaUserToken(t *testing.T, client *http.Client, pageURL string) string {
+	t.Helper()
+	resp, err := client.Get(pageURL)
+	require.NoError(t, err, "GET %s", pageURL)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "read %s body", pageURL)
+	m := dvwaTokenRe.FindSubmatch(body)
+	require.Len(t, m, 2, "no user_token found on %s", pageURL)
+	return string(m[1])
+}
+
+// dvwaRequest builds a GET request for the given DVWA path with the
+// authenticated session cookie attached, fetches it once to capture the
+// baseline response, and returns the populated request/response pair ready
+// for runActiveScan.
+//
+// Two headers matter:
+//
+//   - Cookie: the PHPSESSID + security=low pair from setupDVWA, without which
+//     DVWA redirects every /vulnerabilities/* request to /login.php.
+//   - Accept-Encoding: identity. DVWA emits a malformed compressed response
+//     (Content-Encoding: gzip *and* Content-Length: 0), and decoding it yields
+//     only the page tail — losing the reflected payload / SQL error the
+//     scanners key off, so they'd report nothing. Requesting identity makes
+//     DVWA return the full uncompressed page (the same thing curl gets, since
+//     curl doesn't negotiate gzip by default).
+//
+// Capturing the baseline response also mirrors how real captured traffic feeds
+// the executor: reflection-based modules (e.g. xss_light_scanner) read
+// ctx.Response() for their passive pre-check.
+func dvwaRequest(t *testing.T, infra *TestInfra, baseURL, path, cookie string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	base, err := httpmsg.GetRawRequestFromURL(baseURL + path)
+	require.NoError(t, err, "build request for %s", path)
+	req := base.Request().
+		WithAddedHeader("Cookie", cookie).
+		WithAddedHeader("Accept-Encoding", "identity")
+	rr := httpmsg.NewHttpRequestResponse(req, nil)
+
+	respChain, _, err := infra.HTTPClient.Execute(rr, vighttp.Options{})
+	require.NoError(t, err, "fetch baseline for %s", path)
+	defer respChain.Close()
+	return rr.WithResponse(httpmsg.NewHttpResponse(respChain.FullResponseBytes()))
+}
 
 // DVWA (Damn Vulnerable Web Application) - https://github.com/digininja/DVWA
 // A classic vulnerable web app for security testing
@@ -55,7 +169,17 @@ func TestDVWA_XSS(t *testing.T) {
 	require.NoError(t, err, "Failed to setup test infrastructure")
 	defer infra.Cleanup()
 
-	// XSS test cases
+	// DVWA gates its vulnerable pages behind a login + DB-setup flow; without
+	// it every request 302s to /login.php and the scanner sees no reflection.
+	cookie := setupDVWA(t, app.BaseURL)
+
+	// XSS test cases.
+	//
+	// Only the reflected case (xss_r) is exercised here. DVWA's DOM XSS (xss_d)
+	// is purely client-side — the `default` value is read from
+	// document.location by JavaScript and never appears in the server
+	// response — so a server-response reflection scanner like xss_light_scanner
+	// cannot (and is not meant to) detect it.
 	testCases := []struct {
 		name        string
 		url         string
@@ -68,25 +192,16 @@ func TestDVWA_XSS(t *testing.T) {
 			expectVuln:  true,
 			description: "Reflected XSS in name parameter",
 		},
-		{
-			name:        "xss_dom",
-			url:         "/vulnerabilities/xss_d/?default=English",
-			expectVuln:  true,
-			description: "DOM-based XSS in default parameter",
-		},
 	}
 
 	scanner := xss_light_scanner.New()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			fullURL := app.BaseURL + tc.url
-
-			rr, err := httpmsg.GetRawRequestFromURL(fullURL)
-			require.NoError(t, err, "Failed to create request from URL: %s", fullURL)
+			rr := dvwaRequest(t, infra, app.BaseURL, tc.url, cookie)
 
 			results, err := runActiveScan(t, scanner, rr, infra)
-			require.NoError(t, err, "Scanner returned error for %s", fullURL)
+			require.NoError(t, err, "Scanner returned error for %s", tc.url)
 
 			if tc.expectVuln {
 				assert.GreaterOrEqual(t, len(results), 1,
@@ -127,11 +242,10 @@ func TestDVWA_SQLi(t *testing.T) {
 	require.NoError(t, err, "Failed to setup test infrastructure")
 	defer infra.Cleanup()
 
-	// SQLi test endpoint
-	fullURL := app.BaseURL + "/vulnerabilities/sqli/?id=1&Submit=Submit"
+	cookie := setupDVWA(t, app.BaseURL)
 
-	rr, err := httpmsg.GetRawRequestFromURL(fullURL)
-	require.NoError(t, err, "Failed to create request")
+	// SQLi test endpoint
+	rr := dvwaRequest(t, infra, app.BaseURL, "/vulnerabilities/sqli/?id=1&Submit=Submit", cookie)
 
 	scanner := sqli_error_based.New()
 	results, err := runActiveScan(t, scanner, rr, infra)
@@ -171,11 +285,10 @@ func TestDVWA_LFI(t *testing.T) {
 	require.NoError(t, err, "Failed to setup test infrastructure")
 	defer infra.Cleanup()
 
-	// LFI test endpoint
-	fullURL := app.BaseURL + "/vulnerabilities/fi/?page=include.php"
+	cookie := setupDVWA(t, app.BaseURL)
 
-	rr, err := httpmsg.GetRawRequestFromURL(fullURL)
-	require.NoError(t, err, "Failed to create request")
+	// LFI test endpoint
+	rr := dvwaRequest(t, infra, app.BaseURL, "/vulnerabilities/fi/?page=include.php", cookie)
 
 	scanner := lfi_generic.New()
 	results, err := runActiveScan(t, scanner, rr, infra)
@@ -215,6 +328,8 @@ func TestDVWA_FullScan(t *testing.T) {
 	require.NoError(t, err, "Failed to setup test infrastructure")
 	defer infra.Cleanup()
 
+	cookie := setupDVWA(t, app.BaseURL)
+
 	// Endpoints to test
 	endpoints := []string{
 		"/vulnerabilities/xss_r/?name=test",
@@ -231,14 +346,9 @@ func TestDVWA_FullScan(t *testing.T) {
 	findings := make(map[string]int)
 
 	for _, endpoint := range endpoints {
-		fullURL := app.BaseURL + endpoint
 		t.Logf("Scanning: %s", endpoint)
 
-		rr, err := httpmsg.GetRawRequestFromURL(fullURL)
-		if err != nil {
-			t.Logf("Skipping %s: %v", endpoint, err)
-			continue
-		}
+		rr := dvwaRequest(t, infra, app.BaseURL, endpoint, cookie)
 
 		// Run XSS scanner
 		if results, err := runActiveScan(t, xssScanner, rr, infra); err == nil {
