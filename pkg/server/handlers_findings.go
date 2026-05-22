@@ -19,6 +19,18 @@ type findingsHandlers struct {
 	repo *database.Repository
 }
 
+// findingsHandler returns the findings sub-handler, lazily constructing it from
+// the shared db + repo. NewHandlers wires it eagerly, but a Handlers built via a
+// struct literal (e.g. in tests) leaves the field nil; routing through this
+// accessor keeps the /api/findings routes safe to register on any Handlers value
+// rather than nil-derefing on the first request.
+func (h *Handlers) findingsHandler() *findingsHandlers {
+	if h.findings == nil {
+		h.findings = &findingsHandlers{db: h.db, repo: h.repo}
+	}
+	return h.findings
+}
+
 // HandleListFindings handles GET /api/findings
 func (h *findingsHandlers) HandleListFindings(c fiber.Ctx) error {
 	if h.db == nil {
