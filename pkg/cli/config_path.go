@@ -1,10 +1,8 @@
 package cli
 
-import "github.com/vigolium/vigolium/internal/config"
+import "github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 
+// effectiveConfigPath resolves the config file path from the --config global flag.
 func effectiveConfigPath() string {
-	if globalConfig != "" {
-		return config.ExpandPath(globalConfig)
-	}
-	return config.ConfigFilePath()
+	return clicommon.EffectiveConfigPath(globalConfig)
 }

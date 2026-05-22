@@ -28,10 +28,7 @@ func init() {
 	moduleLsCmd.Example = moduleLsExamples
 	moduleEnableCmd.Example = moduleEnableExamples
 	moduleDisableCmd.Example = moduleDisableExamples
-	configCmd.Example = configExamples
-	configLsCmd.Example = configLsExamples
-	configSetCmd.Example = configSetExamples
-	configCleanCmd.Example = configCleanExamples
+	// config command group examples are injected via configcmd.NewCommand in wire.go
 	dbCmd.Example = dbExamples
 	dbListCmd.Example = dbListExamples
 	dbStatsCmd.Example = dbStatsExamples

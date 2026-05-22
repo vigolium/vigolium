@@ -1,4 +1,4 @@
-package cli
+package configcmd
 
 import (
 	"bufio"
@@ -12,18 +12,19 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-var configCleanCmd = &cobra.Command{
-	Use:   "clean",
-	Short: "Reset Vigolium to a clean state",
-	Long:  "Remove the ~/.vigolium/ directory (config, database, extensions) and regenerate fresh defaults.",
-	RunE:  runConfigClean,
+func newCleanCmd(deps Deps, example string) *cobra.Command {
+	return &cobra.Command{
+		Use:     "clean",
+		Short:   "Reset Vigolium to a clean state",
+		Long:    "Remove the ~/.vigolium/ directory (config, database, extensions) and regenerate fresh defaults.",
+		Example: example,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigClean(deps)
+		},
+	}
 }
 
-func init() {
-	configCmd.AddCommand(configCleanCmd)
-}
-
-func runConfigClean(cmd *cobra.Command, args []string) error {
+func runConfigClean(deps Deps) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
@@ -41,7 +42,7 @@ func runConfigClean(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s This will remove %s (config, database, and all local data)\n", terminal.BoldRed(terminal.SymbolFailed+" Warn:"), terminal.Cyan(displayDir))
 
-	if !globalForce {
+	if !deps.Force() {
 		fmt.Print("\nProceed? (type 'yes' to confirm): ")
 		reader := bufio.NewReader(os.Stdin)
 		response, err := reader.ReadString('\n')
@@ -63,7 +64,7 @@ func runConfigClean(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s Removed %s\n", terminal.SuccessSymbol(), displayDir)
 
 	// Regenerate fresh defaults
-	if err := initializeVigolium(); err != nil {
+	if err := deps.Reinitialize(); err != nil {
 		return fmt.Errorf("failed to reinitialize: %w", err)
 	}
 

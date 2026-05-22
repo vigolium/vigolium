@@ -1,4 +1,4 @@
-package cli
+package configcmd
 
 import (
 	"fmt"
@@ -8,23 +8,25 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-var configLsCmd = &cobra.Command{
-	Use:     "ls [filter]",
-	Aliases: []string{"list", "view"},
-	Short:   "Display current configuration",
-	Long:    "Display current configuration settings. Optionally filter by key (substring or fuzzy subsequence match, e.g. \"store\" matches \"storage.*\").",
-	RunE:    runConfigLs,
+func newLsCmd(deps Deps, example string) *cobra.Command {
+	return &cobra.Command{
+		Use:     "ls [filter]",
+		Aliases: []string{"list", "view"},
+		Short:   "Display current configuration",
+		Long:    "Display current configuration settings. Optionally filter by key (substring or fuzzy subsequence match, e.g. \"store\" matches \"storage.*\").",
+		Example: example,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigLs(deps, args)
+		},
+	}
 }
 
-func init() {
-	configCmd.AddCommand(configLsCmd)
-}
-
-func runConfigLs(cmd *cobra.Command, args []string) error {
-	settings, err := config.LoadSettings(globalConfig)
+func runConfigLs(deps Deps, args []string) error {
+	settings, err := config.LoadSettings(deps.ConfigFlag())
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -42,6 +44,7 @@ func runConfigLs(cmd *cobra.Command, args []string) error {
 		filter = strings.ToLower(args[0])
 	}
 
+	force := deps.Force()
 	count := 0
 	for _, entry := range entries {
 		if filter != "" && !fuzzyMatchKey(strings.ToLower(entry.Key), filter) {
@@ -49,7 +52,7 @@ func runConfigLs(cmd *cobra.Command, args []string) error {
 		}
 
 		displayValue := entry.Value
-		if entry.Sensitive && !globalForce {
+		if entry.Sensitive && !force {
 			if entry.Value != "" && entry.Value != "<nil>" {
 				displayValue = "[redacted]"
 			} else {
@@ -75,7 +78,7 @@ func runConfigLs(cmd *cobra.Command, args []string) error {
 
 	if filter == "" {
 		fmt.Println()
-		fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(effectiveConfigPath())))
+		fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(clicommon.EffectiveConfigPath(deps.ConfigFlag()))))
 	}
 
 	return nil

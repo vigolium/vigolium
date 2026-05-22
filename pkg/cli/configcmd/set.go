@@ -1,4 +1,4 @@
-package cli
+package configcmd
 
 import (
 	"fmt"
@@ -6,22 +6,24 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-var configSetCmd = &cobra.Command{
-	Use:   "set <key> <value>",
-	Short: "Set a configuration value",
-	Long:  "Set a configuration value using dot-notation key (e.g. notify.enabled true).\nAlso accepts 'key = value' and 'key=value' formats.",
-	Args:  cobra.RangeArgs(1, 3),
-	RunE:  runConfigSet,
+func newSetCmd(deps Deps, example string) *cobra.Command {
+	return &cobra.Command{
+		Use:     "set <key> <value>",
+		Short:   "Set a configuration value",
+		Long:    "Set a configuration value using dot-notation key (e.g. notify.enabled true).\nAlso accepts 'key = value' and 'key=value' formats.",
+		Args:    cobra.RangeArgs(1, 3),
+		Example: example,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigSet(deps, args)
+		},
+	}
 }
 
-func init() {
-	configCmd.AddCommand(configSetCmd)
-}
-
-func runConfigSet(cmd *cobra.Command, args []string) error {
+func runConfigSet(deps Deps, args []string) error {
 	var key, value string
 	switch {
 	case len(args) == 1 && strings.Contains(args[0], "="):
@@ -44,8 +46,8 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load current settings
-	configPath := effectiveConfigPath()
-	settings, err := config.LoadSettings(globalConfig)
+	configPath := clicommon.EffectiveConfigPath(deps.ConfigFlag())
+	settings, err := config.LoadSettings(deps.ConfigFlag())
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
