@@ -1,10 +1,7 @@
 package dedup
 
 import (
-	"bytes"
 	"hash/fnv"
-	"io"
-	"net/http"
 	"strconv"
 
 	urlutil "github.com/projectdiscovery/utils/url"
@@ -130,47 +127,21 @@ func (m *RequestHashManager) ShouldCheckInsertionPoint(
 // hasOrAdd returns true if the request exists in the data.
 func (m *RequestHashManager) hasOrAdd(
 	urlx *urlutil.URL,
-	request interface{},
+	request *httpmsg.HttpRequest,
 	param *httpmsg.Param,
 	overwriteMethod string,
 ) bool {
-	var rHash string
-	switch request := request.(type) {
-	case *httpmsg.HttpRequest:
-		var method string
-		if overwriteMethod != "" {
-			method = overwriteMethod
-		} else {
-			method = request.Method()
-		}
-		var paramName, paramValue, paramPosition string
-		if param != nil {
-			paramName = param.Name()
-			paramValue = param.Value()
-			paramPosition = param.Type().String()
-		}
-		rHash = m.hash(urlx, method, string(request.Body()), paramName, paramValue, paramPosition)
-	case *http.Request:
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			return false
-		}
-		// reset the body to the original value
-		request.Body = io.NopCloser(bytes.NewBuffer(body))
-		var method string
-		if overwriteMethod != "" {
-			method = overwriteMethod
-		} else {
-			method = request.Method
-		}
-		var paramName, paramValue, paramPosition string
-		if param != nil {
-			paramName = param.Name()
-			paramValue = param.Value()
-			paramPosition = param.Type().String()
-		}
-		rHash = m.hash(urlx, method, string(body), paramName, paramValue, paramPosition)
+	method := request.Method()
+	if overwriteMethod != "" {
+		method = overwriteMethod
 	}
+	var paramName, paramValue, paramPosition string
+	if param != nil {
+		paramName = param.Name()
+		paramValue = param.Value()
+		paramPosition = param.Type().String()
+	}
+	rHash := m.hash(urlx, method, string(request.Body()), paramName, paramValue, paramPosition)
 	return m.diskSet.IsSeen(rHash)
 }
 

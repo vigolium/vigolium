@@ -30,8 +30,9 @@ type ResultEvent struct {
 	// Module identification (JSON tag kept as "template-id" for Nuclei output compatibility)
 	ModuleID string `json:"template-id"`
 
-	// Info contains module metadata (inlined in JSON output)
-	Info Info `json:"info,inline"`
+	// Info contains module metadata, serialized as a nested "info" object
+	// (matching Nuclei's JSONL output).
+	Info Info `json:"info"`
 
 	// Type is the type of the result event (always "http" for this scanner)
 	Type string `json:"type"`
