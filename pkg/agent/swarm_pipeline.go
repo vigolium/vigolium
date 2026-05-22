@@ -284,7 +284,7 @@ func (sourceAnalysisSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) 
 	writePromptToSessionDir(ps.sessionDir, "source-analysis-prompt.md", saRenderedPrompt)
 	if ps.sessionDir != "" && saRawOutput != "" {
 		outputPath := filepath.Join(ps.sessionDir, "source-analysis-output.md")
-		_ = os.WriteFile(outputPath, []byte(saRawOutput), 0o644)
+		writeSessionArtifact(outputPath, []byte(saRawOutput))
 		printPhaseLine("source-analysis", fmt.Sprintf("%s output: %s", terminal.SymbolStart, terminal.ShortenHome(outputPath)))
 	}
 
@@ -556,7 +556,7 @@ func (reconSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 		if ps.sessionDir != "" {
 			out, mErr := json.MarshalIndent(report, "", "  ")
 			if mErr == nil {
-				_ = os.WriteFile(filepath.Join(ps.sessionDir, "recon-report.json"), out, 0o644)
+				writeSessionArtifact(filepath.Join(ps.sessionDir, "recon-report.json"), out)
 			}
 		}
 	}
@@ -609,7 +609,7 @@ func (planSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 		}
 		writePromptToSessionDir(ps.sessionDir, "master-prompt.md", masterRenderedPrompt)
 		if ps.sessionDir != "" && masterRawOutput != "" {
-			_ = os.WriteFile(filepath.Join(ps.sessionDir, "master-output.md"), []byte(masterRawOutput), 0o644)
+			writeSessionArtifact(filepath.Join(ps.sessionDir, "master-output.md"), []byte(masterRawOutput))
 		}
 		if err != nil {
 			return fmt.Errorf("master agent failed: %w", err)
@@ -646,7 +646,7 @@ func (planSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 					mergedPlan, _ := mergeSwarmPlans([]*SwarmPlan{ps.plan, supplementalPlan})
 					ps.plan = mergedPlan
 					if ps.sessionDir != "" && suppRaw != "" {
-						_ = os.WriteFile(filepath.Join(ps.sessionDir, "master-supplemental-output.md"), []byte(suppRaw), 0o644)
+						writeSessionArtifact(filepath.Join(ps.sessionDir, "master-supplemental-output.md"), []byte(suppRaw))
 					}
 					zap.L().Info("Coverage-feedback supplemental plan merged",
 						zap.Int("new_focus_areas", len(supplementalPlan.FocusAreas)),
@@ -678,7 +678,7 @@ func (planSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 		planJSON, _ := json.Marshal(ps.plan)
 		ps.agenticScan.AttackPlan = string(planJSON)
 		if ps.sessionDir != "" {
-			_ = os.WriteFile(filepath.Join(ps.sessionDir, "swarm-plan.json"), planJSON, 0o644)
+			writeSessionArtifact(filepath.Join(ps.sessionDir, "swarm-plan.json"), planJSON)
 		}
 		ps.completedPhases = append(ps.completedPhases, SwarmPhasePlan)
 		ps.writeCheckpoint(ps.plan, 0)
@@ -842,7 +842,7 @@ func (replanOnEmptySwarmStep) Run(ctx context.Context, ps *swarmPipelineState) e
 	mergedPlan, _ := mergeSwarmPlans([]*SwarmPlan{ps.plan, supplementalPlan})
 	ps.plan = mergedPlan
 	if ps.sessionDir != "" && suppRaw != "" {
-		_ = os.WriteFile(filepath.Join(ps.sessionDir, "master-replan-output.md"), []byte(suppRaw), 0o644)
+		writeSessionArtifact(filepath.Join(ps.sessionDir, "master-replan-output.md"), []byte(suppRaw))
 	}
 
 	scanReq := ScanRequest{ExtensionDir: ps.extensionDir, ModuleTags: ps.plan.ModuleTags, ModuleIDs: ps.plan.ModuleIDs}

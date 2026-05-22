@@ -181,6 +181,17 @@ func EnsureSessionDir(baseDir, agenticScanUUID string) (string, error) {
 	return dir, nil
 }
 
+// writeSessionArtifact best-effort writes a session artifact (per-phase agent
+// output, plans, recon reports) for post-hoc inspection. A write failure is
+// logged but never aborts the run — these files are diagnostic, not control
+// flow. Centralizes the justification for the dropped write errors at the call
+// sites across the agent pipeline.
+func writeSessionArtifact(path string, data []byte) {
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		zap.L().Debug("failed to write session artifact", zap.String("path", path), zap.Error(err))
+	}
+}
+
 // WriteExtensionsToSessionDir writes generated JavaScript extensions to <sessionDir>/extensions/
 // and returns the extensions subdirectory path.
 func WriteExtensionsToSessionDir(extensions []GeneratedExtension, sessionDir string) (string, error) {

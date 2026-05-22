@@ -183,11 +183,19 @@ func selectProviderForE2E(oliumCfg *config.OliumConfig) string {
 	if _, err := os.Stat(codexPath); err == nil {
 		oliumCfg.Provider = "openai-codex-oauth"
 		oliumCfg.OAuthCredPath = codexPath
+		// Clear the openai-compatible default model ("gemma4:latest") that
+		// config.DefaultSettings() leaves behind; Codex rejects it with a 400
+		// ("model not supported"), which would fail preflight before the audit
+		// phase runs. Empty model lets resolveProvider pick the codex default.
+		oliumCfg.Model = ""
 		return ""
 	}
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		oliumCfg.Provider = "anthropic-api-key"
 		oliumCfg.LLMAPIKey = key
+		// Same reason as above: drop the gemma default so resolveProvider picks
+		// the anthropic-api-key default model instead of passing an Ollama tag.
+		oliumCfg.Model = ""
 		return ""
 	}
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {

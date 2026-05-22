@@ -2,6 +2,7 @@ package responsechain
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,7 @@ func DumpResponseIntoBuffer(resp *http.Response, body bool, buff *bytes.Buffer) 
 		}
 	}
 	err = resp.Write(buff)
-	if err == errNoBody {
+	if errors.Is(err, errNoBody) {
 		err = nil
 	}
 	resp.Body = save

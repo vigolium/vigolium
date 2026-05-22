@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -566,7 +567,7 @@ func (h *Handlers) HandleAgentSessionArtifacts(c fiber.Ctx) error {
 		})
 		return nil
 	})
-	if walkErr != nil && walkErr != errArtifactCapHit {
+	if walkErr != nil && !errors.Is(walkErr, errArtifactCapHit) {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to walk session dir: " + walkErr.Error(),
 		})

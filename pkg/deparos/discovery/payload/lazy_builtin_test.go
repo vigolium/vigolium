@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -191,7 +192,7 @@ func TestLazyBuiltInProvider_Integration(t *testing.T) {
 	var items []string
 	for {
 		val, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)

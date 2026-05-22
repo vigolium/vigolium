@@ -1,7 +1,7 @@
 # Stage 06 — State Machine & Concurrency Audit
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/skills`
+Target: `/Users/j3ssie/Desktop/oss-to-run/skills`
 
 ## Context
 

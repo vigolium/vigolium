@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestLazyMergedPathProvider_Basic(t *testing.T) {
 	count := 1
 	for {
 		_, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)
@@ -146,7 +147,7 @@ func TestLazyMergedPathProvider_FilteredMerge(t *testing.T) {
 	var results []string
 	for {
 		val, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)
@@ -174,7 +175,7 @@ func TestLazyMergedPathProvider_FullURLDirPath(t *testing.T) {
 	var results []string
 	for {
 		val, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)

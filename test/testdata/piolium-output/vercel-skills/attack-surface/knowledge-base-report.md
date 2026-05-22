@@ -1,7 +1,7 @@
 # Stage 03 Knowledge Base — Architecture & Threat Model
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/skills` (`vercel-labs/skills`)  
+Target: `/Users/j3ssie/Desktop/oss-to-run/skills` (`vercel-labs/skills`)  
 Scope: source, build/release workflows, and first-party skill content. Tests and previous Phase 1/2 artifacts were used as evidence but are not runtime entry points.
 
 ## Project Classification

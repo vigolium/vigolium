@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,7 +47,7 @@ func GetTotal(src InputSource) int64 {
 
 // IsEOF checks if an error indicates end of source.
 func IsEOF(err error) bool {
-	return err == io.EOF
+	return errors.Is(err, io.EOF)
 }
 
 // SourceConfig holds configuration for creating an InputSource.

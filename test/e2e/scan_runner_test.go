@@ -5,7 +5,6 @@ package e2e
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,6 +83,10 @@ func startVAmPI(t *testing.T) *VulnerableApp {
 	t.Cleanup(func() { _ = app.Stop() })
 
 	t.Logf("VAmPI running at %s", app.BaseURL)
+
+	// Seed the DB so queries return real rows instead of "no such table"
+	// errors (see seedVAmPIDatabase).
+	seedVAmPIDatabase(t, app.BaseURL)
 	return app
 }
 

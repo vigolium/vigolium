@@ -66,7 +66,7 @@ PoC-Status: `executed`.
 The PoC at `piolium/findings/p12-mkcert-download-exec-no-integrity/poc.sh` creates a temporary Vitest spec that mocks `@shopify/cli-kit/node/http` so the expected mkcert release URL returns a benign shell payload. It then constrains `PATH` so no system `mkcert` is found, calls `generateCertificate({appDirectory, platform: 'linux', arch: 'x64'})`, and verifies that the downloaded `.shopify/mkcert` payload is executable and invoked.
 
 ```bash
-cd /Users/bytedance/Desktop/oss-to-run/shopify-cli
+cd /Users/j3ssie/Desktop/oss-to-run/shopify-cli
 piolium/findings/p12-mkcert-download-exec-no-integrity/poc.sh
 ```
 

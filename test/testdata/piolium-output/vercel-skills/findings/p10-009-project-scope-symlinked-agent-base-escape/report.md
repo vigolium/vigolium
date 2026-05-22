@@ -71,7 +71,7 @@ git_index_entries:
 The exploit log shows the command was a project-scoped install, and the impact log confirms the lexical project path resolved outside the project and that the payload landed in the victim home agent base:
 
 ```text
-project_scope_command_no_global=node /Users/bytedance/Desktop/oss-to-run/skills/src/cli.ts add ./malicious-skill --agent codex --yes
+project_scope_command_no_global=node /Users/j3ssie/Desktop/oss-to-run/skills/src/cli.ts add ./malicious-skill --agent codex --yes
 lexical_project_skill=/.../victim-home/work/victim-project/.agents/skills/symlink-escape-payload/SKILL.md
 realpath_lexical_project_skill=/.../victim-home/.agents/skills/symlink-escape-payload/SKILL.md
 escaped_project_root=yes

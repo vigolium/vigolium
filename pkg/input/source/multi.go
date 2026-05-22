@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 
@@ -35,7 +36,7 @@ func (m *MultiSource) Next(ctx context.Context) (*work.WorkItem, error) {
 
 	for m.current < len(m.sources) {
 		item, err := m.sources[m.current].Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Current source exhausted, move to next
 			m.current++
 			continue

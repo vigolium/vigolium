@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -149,7 +148,7 @@ func (s *SwarmRunner) runCodeAudit(ctx context.Context, cfg SwarmConfig, targetU
 	// Save prompt and output to session dir
 	writePromptToSessionDir(sessionDir, "code-audit-prompt.md", agentResult.RenderedPrompt)
 	if sessionDir != "" && agentResult.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "code-audit-output.md"), []byte(agentResult.RawOutput), 0644)
+		writeSessionArtifact(filepath.Join(sessionDir, "code-audit-output.md"), []byte(agentResult.RawOutput))
 	}
 
 	if cfg.DryRun {

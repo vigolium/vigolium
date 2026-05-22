@@ -1,7 +1,7 @@
 # Architecture Entry Points Inventory — Shopify CLI
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/shopify-cli`  
+Target: `/Users/j3ssie/Desktop/oss-to-run/shopify-cli`  
 Purpose: reusable Stage 03 inventory for later SAST/manual phases.
 
 ## 1. Executable / package entry points

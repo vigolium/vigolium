@@ -28,6 +28,12 @@ func TestCheckBodyContainsErrorMsg_SequelizeSQLite(t *testing.T) {
 			wantHit: true,
 		},
 		{
+			name:    "SQLAlchemy-wrapped sqlite3 OperationalError (parenthesized, no colon)",
+			body:    `sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) unrecognized token: "'admin''" [SQL: SELECT * FROM users WHERE username = 'admin'']`,
+			wantDB:  "SQLite",
+			wantHit: true,
+		},
+		{
 			name:    "no match",
 			body:    `{"status":"ok"}`,
 			wantDB:  "",

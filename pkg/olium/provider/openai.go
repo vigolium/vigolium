@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -267,7 +268,7 @@ func (a *OpenAI) consumeSSE(ctx context.Context, body io.ReadCloser, out chan<- 
 		default:
 		}
 		evt, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			state.flushFinal(out)
 			return
 		}
@@ -424,7 +425,7 @@ func (s *openaiState) flushFinal(out chan<- stream.Event) {
 		}
 		args := map[string]any{}
 		if buf.arguments.Len() > 0 {
-			_ = json.Unmarshal([]byte(buf.arguments.String()), &args)
+			debugToolArgErr("openai", json.Unmarshal([]byte(buf.arguments.String()), &args))
 		}
 		out <- stream.Event{
 			Type: stream.EventToolCallEnd,

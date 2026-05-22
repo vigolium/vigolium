@@ -15,7 +15,7 @@ import (
 func extractFromZIP(zipData []byte, binaryName, destPath string, maxSize int64) error {
 	r, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
-		return fmt.Errorf("%w: zip open: %v", ErrExtractionFailed, err)
+		return fmt.Errorf("%w: zip open: %w", ErrExtractionFailed, err)
 	}
 
 	for _, f := range r.File {
@@ -23,13 +23,13 @@ func extractFromZIP(zipData []byte, binaryName, destPath string, maxSize int64) 
 		if name == binaryName || name == binaryName+".exe" {
 			rc, err := f.Open()
 			if err != nil {
-				return fmt.Errorf("%w: open entry: %v", ErrExtractionFailed, err)
+				return fmt.Errorf("%w: open entry: %w", ErrExtractionFailed, err)
 			}
 
 			outFile, err := os.Create(destPath)
 			if err != nil {
 				_ = rc.Close()
-				return fmt.Errorf("%w: create dest: %v", ErrExtractionFailed, err)
+				return fmt.Errorf("%w: create dest: %w", ErrExtractionFailed, err)
 			}
 
 			_, err = io.Copy(outFile, io.LimitReader(rc, maxSize))
@@ -37,7 +37,7 @@ func extractFromZIP(zipData []byte, binaryName, destPath string, maxSize int64) 
 			_ = rc.Close()
 			if err != nil {
 				_ = os.Remove(destPath)
-				return fmt.Errorf("%w: extract: %v", ErrExtractionFailed, err)
+				return fmt.Errorf("%w: extract: %w", ErrExtractionFailed, err)
 			}
 
 			return nil
@@ -51,7 +51,7 @@ func extractFromZIP(zipData []byte, binaryName, destPath string, maxSize int64) 
 func extractFromTGZ(r io.Reader, binaryName, destPath string, maxSize int64) error {
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
-		return fmt.Errorf("%w: gzip open: %v", ErrExtractionFailed, err)
+		return fmt.Errorf("%w: gzip open: %w", ErrExtractionFailed, err)
 	}
 	defer func() { _ = gzr.Close() }()
 
@@ -63,7 +63,7 @@ func extractFromTGZ(r io.Reader, binaryName, destPath string, maxSize int64) err
 			return fmt.Errorf("%w: binary not found in archive", ErrExtractionFailed)
 		}
 		if err != nil {
-			return fmt.Errorf("%w: tar read: %v", ErrExtractionFailed, err)
+			return fmt.Errorf("%w: tar read: %w", ErrExtractionFailed, err)
 		}
 
 		if header.Typeflag == tar.TypeReg &&
@@ -71,14 +71,14 @@ func extractFromTGZ(r io.Reader, binaryName, destPath string, maxSize int64) err
 
 			outFile, err := os.Create(destPath)
 			if err != nil {
-				return fmt.Errorf("%w: create dest: %v", ErrExtractionFailed, err)
+				return fmt.Errorf("%w: create dest: %w", ErrExtractionFailed, err)
 			}
 
 			_, err = io.Copy(outFile, io.LimitReader(tr, maxSize))
 			_ = outFile.Close()
 			if err != nil {
 				_ = os.Remove(destPath)
-				return fmt.Errorf("%w: extract: %v", ErrExtractionFailed, err)
+				return fmt.Errorf("%w: extract: %w", ErrExtractionFailed, err)
 			}
 
 			return nil

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"io"
 
@@ -218,7 +219,7 @@ func (t *WordlistTask) Expand(ctx context.Context, callback func(url string, dep
 		}
 
 		word, err := t.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

@@ -256,6 +256,24 @@ func runActiveScan(t *testing.T, mod modules.ActiveModule, rr *httpmsg.HttpReque
 	}
 }
 
+// seedVAmPIDatabase populates VAmPI's SQLite tables via its /createdb endpoint.
+// A freshly started VAmPI container has no tables, so every query — including
+// the scanner's baseline request — returns a "no such table: users" SQL error.
+// That masks the error-based SQLi signal (the baseline already looks broken, so
+// the scanner skips the endpoint). Seeding yields a clean 200 baseline, so an
+// injected quote produces a detectable error-vs-baseline difference.
+func seedVAmPIDatabase(t *testing.T, baseURL string) {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/createdb")
+	if err != nil {
+		t.Fatalf("VAmPI /createdb request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("VAmPI /createdb returned HTTP %d, want 200", resp.StatusCode)
+	}
+}
+
 // waitForEndpoint waits for an HTTP endpoint to become available
 func waitForEndpoint(url string, timeout time.Duration) error {
 	client := &http.Client{Timeout: 5 * time.Second}

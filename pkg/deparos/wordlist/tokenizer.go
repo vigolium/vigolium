@@ -3,6 +3,7 @@ package wordlist
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net/url"
 	"strings"
@@ -57,7 +58,7 @@ func (t *Tokenizer) Tokenize(ctx context.Context, reader io.Reader, contentType 
 		}
 
 		r, size, err := br.ReadRune()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// Flush final segment and combinations
 			if len(currentSegment) > 0 {
 				segments = append(segments, segmentInfo{

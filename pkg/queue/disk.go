@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -436,7 +437,7 @@ func (q *DiskQueue) Ack(taskID string) error {
 			q.totalCompleted.Add(1)
 			return nil
 		}
-		if err != ErrTaskNotFound {
+		if !errors.Is(err, ErrTaskNotFound) {
 			return err
 		}
 	}

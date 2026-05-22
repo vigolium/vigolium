@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -34,7 +35,7 @@ func (q *QueueInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 
 	task, err := q.queue.Dequeue(ctx)
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil, io.EOF
 		}
 		if ctx.Err() != nil {

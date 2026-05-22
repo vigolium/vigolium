@@ -68,7 +68,7 @@ python3 piolium/findings/p12-cleartext-http-git-sources/poc.py
 The captured exploit used this command shape:
 
 ```bash
-node /Users/bytedance/Desktop/oss-to-run/skills/bin/cli.mjs add \
+node /Users/j3ssie/Desktop/oss-to-run/skills/bin/cli.mjs add \
   http://127.0.0.1:65213/group/repo/-/tree/main/skills/mitm-supplied-skill \
   --yes --agent codex --copy
 ```

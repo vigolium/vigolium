@@ -91,7 +91,7 @@ func (p *HTMLParser) parse(var1 func() bool) (err error) {
 			}
 
 			err = fmt.Errorf(
-				"UNEXPECTED_PARSER_ERROR: %v - Context: %s",
+				"UNEXPECTED_PARSER_ERROR: %w - Context: %s",
 				var2,
 				p.getContextForError(),
 			)

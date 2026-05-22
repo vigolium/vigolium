@@ -2,6 +2,7 @@ package xml_saml_security
 
 import (
 	"encoding/xml"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -36,7 +37,7 @@ func ParseXML(content string) (*XMLDocument, error) {
 	decoder := xml.NewDecoder(strings.NewReader(content))
 	for {
 		_, err := decoder.Token()
-		if err == io.EOF {
+		if stderrors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

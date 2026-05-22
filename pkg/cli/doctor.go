@@ -81,11 +81,20 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// --fix mode: print initial report, fix, then recheck.
+	// --fix mode: print initial report, fix, then recheck. When --only narrows
+	// the run to specific components, render a focused view of just those
+	// components (no full report, shown once) instead of the whole doctor log.
+	focused := len(doctorOnly) > 0
 	if !globalJSON {
-		printDoctorReport(report)
-		fmt.Printf("  %s\n", terminal.BoldCyan("Fixing issues..."))
-		fmt.Println()
+		if focused {
+			fmt.Println()
+			fmt.Printf("  %s %s\n", terminal.BoldCyan("Vigolium Doctor"),
+				terminal.White("— fixing "+strings.Join(focusedLabels(report, doctorOnly), ", ")))
+		} else {
+			printDoctorReport(report)
+			fmt.Printf("  %s\n", terminal.BoldCyan("Fixing issues..."))
+			fmt.Println()
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -93,7 +102,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 
 	fixes := diagnostics.RunFixes(ctx, report, settings, doctorOnly)
 
-	if !globalJSON {
+	if !globalJSON && len(fixes) > 0 {
 		fmt.Println()
 		printFixResults(fixes)
 	}
@@ -113,7 +122,12 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Printf("  %s\n", terminal.BoldCyan("Updated status:"))
-	printDoctorReport(updated)
+	if focused {
+		printDoctorFocused(updated, doctorOnly)
+		fmt.Println()
+	} else {
+		printDoctorReport(updated)
+	}
 	return nil
 }
 
@@ -124,6 +138,83 @@ func printFixResults(results []diagnostics.FixResult) {
 		} else {
 			fmt.Printf("  %s %-20s %s\n", terminal.Red(terminal.SymbolError), terminal.Red(r.Label), terminal.White(r.Message))
 		}
+	}
+}
+
+// focusedCheck resolves a single --only token to its display label and the
+// matching check in the report (status/message/tip/details). ok is false for
+// tokens that don't map to a renderable check or whose check is absent.
+func focusedCheck(r *diagnostics.Report, name string) (label string, c *diagnostics.CheckResult, ok bool) {
+	// CheckResult and ToolCheck share the fields the focused view needs; flatten
+	// ToolCheck rows into a CheckResult so a single renderer covers both.
+	tool := func(key string) (*diagnostics.CheckResult, bool) {
+		t := r.Tools[key]
+		if t == nil {
+			return nil, false
+		}
+		return &diagnostics.CheckResult{Status: t.Status, Message: toolMessage(t), Details: t.Details, Tip: t.Tip}, true
+	}
+	switch diagnostics.ResolveFixKey(name) {
+	case "nuclei-templates":
+		if r.NucleiTemplates != nil {
+			return "Nuclei Templates", r.NucleiTemplates, true
+		}
+	case "chromium":
+		if c, ok := tool("chromium"); ok {
+			return "Chromium", c, true
+		}
+	case "bun":
+		if c, ok := tool("bun"); ok {
+			return "Bun", c, true
+		}
+	case "claude":
+		if c, ok := tool("claude"); ok {
+			return "Claude Code", c, true
+		}
+	case "agent-browser":
+		if c, ok := tool("agent-browser"); ok {
+			return "agent-browser", c, true
+		}
+	case "pi":
+		if c, ok := tool("pi"); ok {
+			return "Pi", c, true
+		}
+	case "piolium":
+		if r.Piolium != nil {
+			return "Piolium", r.Piolium, true
+		}
+	}
+	return "", nil, false
+}
+
+// focusedLabels returns the display labels for the components named in `only`,
+// for the "fixing X, Y" header. Unknown tokens fall back to the raw token.
+func focusedLabels(r *diagnostics.Report, only []string) []string {
+	labels := make([]string, 0, len(only))
+	for _, name := range only {
+		if label, _, ok := focusedCheck(r, name); ok {
+			labels = append(labels, label)
+		} else {
+			labels = append(labels, name)
+		}
+	}
+	return labels
+}
+
+// printDoctorFocused renders only the checks named in `only` (e.g.
+// --only nuclei,chrome) rather than the full grouped report. Used by the --fix
+// path so a targeted fix shows just the components it touched, once. Verbose
+// per-check details are omitted here (the focused view is meant to be concise);
+// the remediation tip is kept so a still-failing component says what to do.
+func printDoctorFocused(r *diagnostics.Report, only []string) {
+	for _, name := range only {
+		label, c, ok := focusedCheck(r, name)
+		if !ok {
+			printCheck(name, diagnostics.StatusWarning, "unknown component")
+			continue
+		}
+		printCheck(label, c.Status, c.Message)
+		printTip(c.Tip)
 	}
 }
 

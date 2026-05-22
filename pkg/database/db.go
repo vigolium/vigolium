@@ -572,8 +572,8 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	// idx_findings_hash_unique was a global UNIQUE(finding_hash) — superseded by the
 	// project-scoped idx_findings_project_hash_unique below. Dropping it lets the same
 	// finding_hash coexist across projects.
-	_, _ = db.ExecContext(ctx, "DROP INDEX IF EXISTS idx_findings_hash")
-	_, _ = db.ExecContext(ctx, "DROP INDEX IF EXISTS idx_findings_hash_unique")
+	db.execBestEffort(ctx, "drop legacy index idx_findings_hash", "DROP INDEX IF EXISTS idx_findings_hash")
+	db.execBestEffort(ctx, "drop legacy index idx_findings_hash_unique", "DROP INDEX IF EXISTS idx_findings_hash_unique")
 
 	// Drop old single-column indexes superseded by project-aware composites
 	oldIndexes := []string{
@@ -587,7 +587,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"idx_scan_logs_scan_uuid",
 	}
 	for _, idx := range oldIndexes {
-		_, _ = db.ExecContext(ctx, "DROP INDEX IF EXISTS "+idx)
+		db.execBestEffort(ctx, "drop legacy index "+idx, "DROP INDEX IF EXISTS "+idx)
 	}
 
 	for _, ddl := range indexes {
@@ -696,19 +696,20 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	// which bypass the column DEFAULT, so rows created before ProjectUUID was
 	// propagated through all code paths end up with project_uuid = ''.
 	for _, table := range projectTables {
-		_, _ = db.ExecContext(ctx,
+		db.execBestEffort(ctx, "backfill project_uuid on "+table,
 			fmt.Sprintf("UPDATE %s SET project_uuid = ? WHERE project_uuid = ''", table),
 			DefaultProjectUUID)
 	}
 
 	// Migrate legacy finding statuses: 'open' and 'confirmed' both collapse to
 	// 'triaged' in the current state model (see models.Status* constants).
-	_, _ = db.ExecContext(ctx, "UPDATE findings SET status = ? WHERE status IN (?, ?)",
+	db.execBestEffort(ctx, "migrate legacy finding statuses",
+		"UPDATE findings SET status = ? WHERE status IN (?, ?)",
 		StatusTriaged, "open", "confirmed")
 
 	// Backfill finding_records from existing JSONB data (idempotent)
 	if db.driver == "postgres" {
-		_, _ = db.ExecContext(ctx, `
+		db.execBestEffort(ctx, "backfill finding_records", `
 			INSERT INTO finding_records (finding_id, record_uuid)
 			SELECT f.id, je
 			FROM findings f, jsonb_array_elements_text(f.http_record_uuids::jsonb) AS je
@@ -716,7 +717,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			ON CONFLICT DO NOTHING
 		`)
 	} else {
-		_, _ = db.ExecContext(ctx, `
+		db.execBestEffort(ctx, "backfill finding_records", `
 			INSERT OR IGNORE INTO finding_records (finding_id, record_uuid)
 			SELECT f.id, je.value
 			FROM findings f, json_each(f.http_record_uuids) AS je
@@ -730,17 +731,17 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 // This is called during initialization to ensure CLI has a working project context.
 func (db *DB) SeedDefaults(ctx context.Context) error {
 	if db.driver == "postgres" {
-		_, _ = db.ExecContext(ctx,
+		db.execBestEffort(ctx, "seed default user",
 			"INSERT INTO users (uuid, name, email, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (uuid) DO NOTHING",
 			DefaultUserUUID, "vigolium-admin")
-		_, _ = db.ExecContext(ctx,
+		db.execBestEffort(ctx, "seed default project",
 			"INSERT INTO projects (uuid, name, description, owner_uuid, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (uuid) DO NOTHING",
 			DefaultProjectUUID, "Default Project", "Auto-created default project", DefaultUserUUID)
 	} else {
-		_, _ = db.ExecContext(ctx,
+		db.execBestEffort(ctx, "seed default user",
 			"INSERT OR IGNORE INTO users (uuid, name, email, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
 			DefaultUserUUID, "vigolium-admin")
-		_, _ = db.ExecContext(ctx,
+		db.execBestEffort(ctx, "seed default project",
 			"INSERT OR IGNORE INTO projects (uuid, name, description, owner_uuid, created_at, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
 			DefaultProjectUUID, "Default Project", "Auto-created default project", DefaultUserUUID)
 	}
@@ -802,13 +803,23 @@ func (db *DB) SeedDefaults(ctx context.Context) error {
 		if pgErr != nil {
 			zap.L().Debug("PostgreSQL tsvector not available", zap.Error(pgErr))
 		} else {
-			_, _ = db.ExecContext(ctx,
+			db.execBestEffort(ctx, "create http_records search index",
 				"CREATE INDEX IF NOT EXISTS idx_http_records_search ON http_records USING GIN (search_vector)")
 			db.hasFTS = true
 		}
 	}
 
 	return nil
+}
+
+// execBestEffort runs a best-effort migration or maintenance statement,
+// logging (rather than propagating) any error. Used for idempotent backfills,
+// legacy-index cleanup, and default seeding where a failure must not abort
+// startup but should still be diagnosable.
+func (db *DB) execBestEffort(ctx context.Context, op, query string, args ...any) {
+	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+		zap.L().Debug("best-effort statement failed", zap.String("op", op), zap.Error(err))
+	}
 }
 
 // addColumnIfNotExists attempts to add a column, ignoring errors if it already exists.

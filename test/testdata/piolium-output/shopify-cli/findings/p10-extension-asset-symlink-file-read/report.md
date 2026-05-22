@@ -50,7 +50,7 @@ The implementation treats `resolvePath(joinPath(outputDir, requestedPath))` plus
 The executable PoC is stored at `piolium/findings/p10-extension-asset-symlink-file-read/poc.sh`. It creates a temporary extension output directory, writes a `developer-secret.txt` file outside that output directory, creates `dist/leak.txt` as a symlink to the outside file, starts the real `setupHTTPServer()` extension dev HTTP stack, and fetches:
 
 ```bash
-cd /Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-extension-asset-symlink-file-read
+cd /Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-extension-asset-symlink-file-read
 ./poc.sh
 # internally requests: /extensions/poc-extension/assets/leak.txt
 ```

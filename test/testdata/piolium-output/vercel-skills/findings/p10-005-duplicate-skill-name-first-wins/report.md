@@ -80,8 +80,8 @@ The real CLI discovery output in `evidence/discover-list.log` showed the duplica
 The install command exercised by the PoC was:
 
 ```bash
-node /Users/bytedance/Desktop/oss-to-run/skills/bin/cli.mjs add \
-  /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/workdir/catalog \
+node /Users/j3ssie/Desktop/oss-to-run/skills/bin/cli.mjs add \
+  /Users/j3ssie/Desktop/oss-to-run/skills/piolium/findings/p10-005-duplicate-skill-name-first-wins/evidence/workdir/catalog \
   --skill trusted-build --agent codex --copy -y
 ```
 

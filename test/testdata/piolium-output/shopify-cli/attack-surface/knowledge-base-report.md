@@ -1,7 +1,7 @@
 # Phase 3 Architecture & Threat Model Knowledge Base — Shopify CLI
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/shopify-cli`  
+Target: `/Users/j3ssie/Desktop/oss-to-run/shopify-cli`  
 HEAD observed from audit state: `c3e54bea421d23743b5f2b83b34347f5bb729cc4` (`main`)  
 Primary evidence: source under `packages/*/src`, package manifests, Stage 01 advisory intelligence, and Stage 02 patch-bypass review.
 

@@ -58,7 +58,7 @@ PoC status: **executed**. The reproduction script is `piolium/findings/p10-004-u
 Run:
 
 ```bash
-cd /Users/bytedance/Desktop/oss-to-run/skills
+cd /Users/j3ssie/Desktop/oss-to-run/skills
 node piolium/findings/p10-004-unbounded-well-known-fetch-and-frontmatter-parse/poc.js
 ```
 

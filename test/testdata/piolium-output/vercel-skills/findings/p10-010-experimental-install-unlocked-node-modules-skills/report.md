@@ -97,7 +97,7 @@ The executed PoC is `piolium/findings/p10-010-experimental-install-unlocked-node
 Run:
 
 ```bash
-cd /Users/bytedance/Desktop/oss-to-run/skills
+cd /Users/j3ssie/Desktop/oss-to-run/skills
 node piolium/findings/p10-010-experimental-install-unlocked-node-modules-skills/poc.js
 ```
 

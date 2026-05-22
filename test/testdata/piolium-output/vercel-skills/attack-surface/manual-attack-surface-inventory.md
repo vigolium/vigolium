@@ -1,7 +1,7 @@
 # Stage 08 Manual Attack Surface Inventory
 
 Generated: 2026-05-01
-Target: `/Users/bytedance/Desktop/oss-to-run/skills`
+Target: `/Users/j3ssie/Desktop/oss-to-run/skills`
 Mode: single-team manual probe
 
 ## P3-P7 inputs reviewed

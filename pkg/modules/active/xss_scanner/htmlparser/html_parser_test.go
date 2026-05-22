@@ -105,7 +105,29 @@ func TestParseSimpleTag(t *testing.T) {
 								"Tag name mismatch for element %d",
 								i,
 							)
-							// TODO: Add detailed attribute checking here if needed for TestParseSimpleTag
+							// Detailed attribute checking: enforced only when the
+							// expected element declares attributes, so simple-tag
+							// cases stay a no-op while attribute-bearing cases are
+							// fully validated (mirrors TestParseTagWithAttributes).
+							if len(expectedEl.TagInfo.Attributes) > 0 {
+								assert.Equal(
+									t,
+									len(expectedEl.TagInfo.Attributes),
+									len(actualEl.TagInfo.Attributes),
+									"Attribute count mismatch for element %d (%s)",
+									i,
+									actualEl.TagInfo.Name,
+								)
+								for j, expectedAttr := range expectedEl.TagInfo.Attributes {
+									if j < len(actualEl.TagInfo.Attributes) {
+										actualAttr := actualEl.TagInfo.Attributes[j]
+										assert.Equal(t, expectedAttr.Name, actualAttr.Name,
+											"Attr name mismatch for attr %d, element %d (%s)", j, i, actualEl.TagInfo.Name)
+										assert.Equal(t, expectedAttr.Value, actualAttr.Value,
+											"Attr value mismatch for attr %d, element %d (%s)", j, i, actualEl.TagInfo.Name)
+									}
+								}
+							}
 						}
 					} else {
 						assert.Nil(t, actualEl.TagInfo, "Expected TagInfo to be nil for element %d", i)

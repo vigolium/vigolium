@@ -92,7 +92,11 @@ func (analyzer *HTMLScriptReflectionAnalyzer) AnalyzeHTMLContext(
 		contentToAnalyze,
 		0,
 		len(contentToAnalyze),
-		0, //TODO: HTML and XML?
+		// contentType byte: 0 selects the HTML grammar, which the parser also
+		// uses for XHTML/XML content (there is no separate XML parse mode), so a
+		// single value covers both. Matches the other caller in
+		// http_response_analyzer.go.
+		0,
 		htmlparser.ParseModeFull,
 		nil,
 	)

@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"io"
 	"net/url"
@@ -99,7 +100,7 @@ func (t *FuzzTask) Expand(ctx context.Context, callback func(url string, depth u
 		}
 
 		word, err := t.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

@@ -1,6 +1,6 @@
 # Stage 06 — State Machine & Concurrency Summary
 
-Target: Shopify CLI monorepo (`/Users/bytedance/Desktop/oss-to-run/shopify-cli`)  
+Target: Shopify CLI monorepo (`/Users/j3ssie/Desktop/oss-to-run/shopify-cli`)  
 Mode: deep / Piolium Stage 06  
 
 ## Scope loaded

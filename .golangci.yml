@@ -11,6 +11,21 @@ linters:
   default: standard
   enable:
     - misspell
+    # errorlint: backlog cleared 2026-05 (the last 12 findings — errors.Is/As
+    # conversions and %w fixes across deparos/input/notify — are fixed), so it
+    # now gates CI green and prevents regressions (unchecked err ==/!=
+    # comparisons, %v on wrapped errors, type-asserted errors).
+    - errorlint
+    # Additional linters evaluated 2026-05 and deferred because each needs a
+    # bulk cleanup before it can gate CI green (kept off so `make lint` stays
+    # green today):
+    #   - gosec      : ~50 findings, mostly intentional for a security tool
+    #                  (weak RNG for payloads, MD5/SHA1 for fingerprinting, the
+    #                  documented InsecureSkipVerify sites). Needs per-site
+    #                  //nolint rationale.
+    #   - bodyclose  : 3 findings, all false positives — the ResponseChain
+    #                  abstraction owns response-body lifecycle, invisible to
+    #                  the linter. Do not enable without scoped exclusions.
   exclusions:
     # Keep golangci-lint's built-in sensible exclusions (e.g. generated files).
     generated: lax

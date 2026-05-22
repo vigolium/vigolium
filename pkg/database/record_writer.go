@@ -32,6 +32,13 @@ type RecordWriterConfig struct {
 	// host name, so writes for the same host are serialized within a shard.
 	// Default: 1 (backward-compatible single-goroutine behavior).
 	Shards int
+
+	// FlushTimeout bounds the shutdown drain, not steady-state flushes. Normal
+	// flushes run on an uncancellable context.Background() so a slow insert never
+	// drops records; only the drain triggered by Close() is capped by this single
+	// budget, so a wedged database can't block Close() forever while a healthy one
+	// still drains in full. Default: 2m (far longer than any healthy drain).
+	FlushTimeout time.Duration
 }
 
 func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
@@ -47,6 +54,9 @@ func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
 	}
 	if out.Shards <= 0 {
 		out.Shards = 4
+	}
+	if out.FlushTimeout <= 0 {
+		out.FlushTimeout = 2 * time.Minute
 	}
 	return out
 }
@@ -257,11 +267,14 @@ func (w *RecordWriter) Close() {
 }
 
 // flushLoop is the goroutine that drains a shard's channel and batch-inserts.
-// All w.flush calls intentionally use context.Background() instead of the
-// cancellable ctx: when Close() cancels w.ctx mid-flush, propagating that
-// cancellation aborts the in-flight SQL transaction and loses the records that
-// were already pulled from the channel. The ctx parameter is used only to
-// detect shutdown via ctx.Done() and trigger drain mode.
+// Steady-state flushes (batch-full and ticker) use an uncancellable
+// context.Background(): when Close() cancels w.ctx mid-flush, propagating that
+// cancellation would abort the in-flight SQL transaction and lose records that
+// were already pulled from the channel, so a slow insert must never be
+// cancelled during normal operation. The shutdown drain (the ctx.Done() branch)
+// is the only path that bounds its flushes — with a single FlushTimeout budget
+// for the whole drain — so a wedged database can't hang Close() forever while
+// healthy databases still drain in full.
 func (w *RecordWriter) flushLoop(ctx context.Context, s *writerShard) {
 	defer w.wg.Done()
 
@@ -286,19 +299,23 @@ func (w *RecordWriter) flushLoop(ctx context.Context, s *writerShard) {
 			}
 
 		case <-ctx.Done():
-			// Drain remaining items from channel
+			// Shutdown drain. Bound the total flush time with a single budget so
+			// Close() returns even against a wedged database; against a healthy
+			// one every buffered batch still flushes well within it.
+			drainCtx, cancel := context.WithTimeout(context.Background(), w.cfg.FlushTimeout)
 			for {
 				select {
 				case req := <-s.ch:
 					batch = append(batch, req)
 					if len(batch) >= w.cfg.BatchSize {
-						w.flush(context.Background(), batch)
+						w.flush(drainCtx, batch)
 						batch = batch[:0]
 					}
 				default:
 					if len(batch) > 0 {
-						w.flush(context.Background(), batch)
+						w.flush(drainCtx, batch)
 					}
+					cancel()
 					return
 				}
 			}
@@ -307,6 +324,9 @@ func (w *RecordWriter) flushLoop(ctx context.Context, s *writerShard) {
 }
 
 // flush inserts a batch of records in a single transaction and notifies callers.
+// The caller chooses the context: flushLoop uses an uncancellable
+// context.Background() for steady-state flushes and a bounded context only for
+// the shutdown drain (see flushLoop).
 func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 	records := make([]*HTTPRecord, len(batch))
 	for i, req := range batch {

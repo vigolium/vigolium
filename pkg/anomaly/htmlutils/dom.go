@@ -144,27 +144,6 @@ func GetElementsByTagName(doc *html.Node, tagName string) []*html.Node {
 	return results
 }
 
-// TODO: implement this later
-// func GetElementByTagName(doc *html.Node, tagName string) *html.Node {
-//     var finder func(*html.Node)
-//     var foundNode *html.Node
-//     finder = func(node *html.Node) {
-//         if node.Type == html.ElementNode && (tagName == "*" || node.Data == tagName) {
-//             return node
-//         }
-//
-//         for child := node.FirstChild; child != nil; child = child.NextSibling {
-//             finder(child)
-//         }
-//     }
-//
-//     for child := doc.FirstChild; child != nil; child = child.NextSibling {
-//         finder(child)
-//     }
-//
-//     return nil
-// }
-
 func GetElementsByElementNode(doc *html.Node, nodeType html.NodeType) []*html.Node {
 	var results []*html.Node
 	var finder func(*html.Node)
@@ -498,19 +477,21 @@ func PrependChild(node *html.Node, child *html.Node) {
 	}
 }
 
-// ReplaceChild replaces a child node within the given (parent) node.
-// If the new child is already exist in document, ReplaceChild() will move it
-// from its current position to replace old child. Returns both the new and old child.
-//
-// TODO: I'm note sure but I *think* there are some issues here. Check later I guess.
+// ReplaceChild replaces oldChild with newChild under parent, first detaching
+// newChild from its current position. It returns (newChild, oldChild) unchanged
+// when the replacement cannot be performed: a nil/void parent, a nil oldChild,
+// or an oldChild that is not actually a child of parent.
 func ReplaceChild(parent *html.Node, newChild *html.Node, oldChild *html.Node) (*html.Node, *html.Node) {
-	// Make sure parent is specified and not void
-	if parent == nil && !IsVoidElement(parent) {
+	// Parent must be specified and able to hold children (not a void element).
+	// The order matters: IsVoidElement dereferences its argument, so we must
+	// short-circuit on nil with ||. The previous `parent == nil && !IsVoidElement`
+	// form both inverted the void check and panicked on a nil parent.
+	if parent == nil || IsVoidElement(parent) {
 		return newChild, oldChild
 	}
 
-	// Make sure the specified parent IS the parent of the old child
-	if oldChild.Parent != parent {
+	// oldChild must exist and actually be a child of parent.
+	if oldChild == nil || oldChild.Parent != parent {
 		return newChild, oldChild
 	}
 

@@ -85,7 +85,7 @@ node ./poc.js
 ```text
 [+] Generated extension file: /var/folders/2k/z4j3lfxj5fv7r20hswc8sj8r0000gn/T/shopify-cli-poc-eJl95e/victim-app/extensions/leaky-ext/leak.txt
 [+] Leaked marker observed: PIOLIUM_SECRET_1777623664531
-{"status":"confirmed","evidence":"generated extension leak.txt contains PIOLIUM_SECRET marker from victim .env","notes":"impact saved to /Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p12-extension-generate-liquid-root-file-disclosure/evidence/impact.log"}
+{"status":"confirmed","evidence":"generated extension leak.txt contains PIOLIUM_SECRET marker from victim .env","notes":"impact saved to /Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p12-extension-generate-liquid-root-file-disclosure/evidence/impact.log"}
 ```
 
 `evidence/impact.log` contains the generated file contents proving local file disclosure into the scaffold:

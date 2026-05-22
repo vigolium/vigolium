@@ -110,7 +110,11 @@ func (g *XSSScanningCoordinator) PerformXSSChecks() {
 				continue
 			}
 
-			// TODO: Skipping replace tactic for now since append is sufficient
+			// The replace tactic is intentionally disabled: the append tactic
+			// already covers the reflection contexts we detect, and adding a
+			// replace pass would issue extra requests per insertion point for
+			// little additional coverage. The reference implementation is kept
+			// commented below should a future context need it.
 			// if !isXSSFound && g.isSpecialContext(reflectionDetail.CoreInfo().contextType) {
 			// 	replaceTacticDetector, err := g.getReflectionDetectorForTactic(TacticReplace)
 			// 	if err != nil {

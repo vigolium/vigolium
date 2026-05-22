@@ -77,7 +77,9 @@ func (h *Handlers) persistAgenticScanCompleted(agenticScanUUID string, status *A
 	if status.CompletedAt != nil {
 		run.CompletedAt = *status.CompletedAt
 	}
-	_ = h.repo.UpdateAgenticScan(context.Background(), run)
+	if err := h.repo.UpdateAgenticScan(context.Background(), run); err != nil {
+		zap.L().Warn("failed to persist agentic scan status update", zap.Error(err))
+	}
 }
 
 // effectiveAgentName returns the agent identifier recorded on AgenticScan
@@ -170,7 +172,9 @@ func (h *Handlers) uploadAgenticResults(projectUUID, agenticScanUUID, sessionDir
 	}
 
 	if h.repo != nil {
-		_ = h.repo.UpdateAgenticScanStorageURL(context.Background(), agenticScanUUID, storageURL)
+		if err := h.repo.UpdateAgenticScanStorageURL(context.Background(), agenticScanUUID, storageURL); err != nil {
+			zap.L().Warn("failed to persist agentic scan storage URL", zap.String("uuid", agenticScanUUID), zap.Error(err))
+		}
 	}
 
 	// Surface the storage URL on the in-memory status entry so callers polling
@@ -223,7 +227,9 @@ func (h *Handlers) uploadNativeScanResults(projectUUID, scanID string) {
 	}
 
 	if h.repo != nil {
-		_ = h.repo.UpdateScanStorageURL(context.Background(), scanID, storageURL)
+		if err := h.repo.UpdateScanStorageURL(context.Background(), scanID, storageURL); err != nil {
+			zap.L().Warn("failed to persist native scan storage URL", zap.String("scan", scanID), zap.Error(err))
+		}
 	}
 
 	zap.L().Info("Uploaded native scan results", zap.String("scan_uuid", scanID), zap.String("storage_url", storageURL))

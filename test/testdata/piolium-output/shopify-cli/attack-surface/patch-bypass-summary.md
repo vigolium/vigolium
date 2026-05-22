@@ -1,7 +1,7 @@
 # Stage 02 — Patch History & Bypass Review
 
 Generated: 2026-05-01  
-Repository: `/Users/bytedance/Desktop/oss-to-run/shopify-cli`  
+Repository: `/Users/j3ssie/Desktop/oss-to-run/shopify-cli`  
 HEAD: `c3e54bea421d23743b5f2b83b34347f5bb729cc4` (`main`)
 
 ## Sweep parameters

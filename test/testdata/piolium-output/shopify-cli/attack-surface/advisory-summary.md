@@ -1,7 +1,7 @@
 # Stage 01 Advisory, Dependency, and Architecture Intelligence — Shopify CLI
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/shopify-cli`  
+Target: `/Users/j3ssie/Desktop/oss-to-run/shopify-cli`  
 Repository identity: `shopify/cli` (resolved via git remote).  
 Current checked-out HEAD observed during audit: `c3e54bea421d23743b5f2b83b34347f5bb729cc4`.
 

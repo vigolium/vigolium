@@ -1,6 +1,7 @@
 package jsscan
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -59,7 +60,7 @@ func TestNewExtractor_UnsupportedPlatform(t *testing.T) {
 
 	_, err := NewExtractor(nil)
 
-	if err != ErrUnsupportedPlatform {
+	if !errors.Is(err, ErrUnsupportedPlatform) {
 		t.Errorf("expected ErrUnsupportedPlatform, got %v", err)
 	}
 }

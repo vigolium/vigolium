@@ -563,6 +563,12 @@ var doctorExamples = FormatExamples(
 	"vigolium doctor",
 	"# Verbose mode with full diagnostics",
 	"vigolium doctor -v",
+	"# Auto-install/fix every failing check",
+	"vigolium doctor --fix",
+	"# Fix only specific components (focused output — just those checks)",
+	"vigolium doctor --fix --only nuclei,chrome",
+	"# Other fixable components: bun, claude, agent-browser, pi, piolium",
+	"vigolium doctor --fix --only claude",
 )
 
 var extensionsParentExamples = FormatExamples(
@@ -981,20 +987,24 @@ var storageRmExamples = FormatExamples(
 
 var importExamples = FormatExamples(
 	"# Import a folder produced by vigolium-audit",
-	"vigolium import /path/to/audit-output-harbor/",
+	"vigolium import ./audit-output/",
 	"# Import a folder and also archive it to cloud storage afterwards",
-	"vigolium import /path/to/audit-output-harbor/ --upload",
+	"vigolium import ./audit-output/ --upload",
 	"# Import a folder and upload to a custom storage key",
-	"vigolium import /path/to/audit-output-harbor/ --upload-key imports/harbor.tar.gz",
+	"vigolium import ./audit-output/ --upload-key imports/audit-output.tar.gz",
+	"# Import an audit folder and write a report in the same step (replaces import-then-export)",
+	"vigolium import ./audit-output/ --format html -o audit-report.html",
+	"# Same one-step import + export, as Markdown (also: report, pdf)",
+	"vigolium import ./audit-output/ --format md -o audit-report.md",
 	"# Import a JSONL file produced by 'vigolium export'",
-	"vigolium import /tmp/demo/juice-shop.jsonl",
+	"vigolium import ./export.jsonl",
 	"# Import a generic JSONL scan-results file",
 	"vigolium import scan-results.jsonl",
 	"# Import a compressed archive (.tar.gz, .tgz, or .zip)",
 	"vigolium import scan-bundle.tar.gz",
 	"vigolium import findings.zip",
 	"# Import directly from cloud storage",
-	"vigolium import gs://<project-uuid>/imports/harbor.tar.gz",
+	"vigolium import gs://<project-uuid>/imports/audit-output.tar.gz",
 )
 
 var initExamples = FormatExamples(

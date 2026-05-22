@@ -3,6 +3,7 @@ package wordlist
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 
@@ -26,7 +27,7 @@ func (p *HTMLPreprocessor) Process(_ context.Context, reader io.Reader) (io.Read
 		tt := tokenizer.Next()
 		if tt == html.ErrorToken {
 			err := tokenizer.Err()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Continue processing on parse errors

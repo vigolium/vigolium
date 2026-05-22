@@ -474,7 +474,7 @@ func (r *AutopilotPipelineRunner) runBlackboxFallback(
 	result.Duration = time.Since(start)
 	if scanErr != nil {
 		result.Warnings = append(result.Warnings, "native fallback scan failed: "+scanErr.Error())
-		return result, fmt.Errorf("autopilot preflight failed and the native fallback scan also failed (%v): %w", preflightErr, scanErr)
+		return result, fmt.Errorf("autopilot preflight failed and the native fallback scan also failed (%w): %w", preflightErr, scanErr)
 	}
 	if res != nil {
 		result.OperatorFindingsCount = int(res.FindingCount)

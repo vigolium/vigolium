@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,7 +73,8 @@ func runRipgrep(ctx context.Context, pattern, path, glob string, maxMatches int,
 	cmd := exec.CommandContext(ctx, "rg", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return Result{Content: "(no matches)"}, nil
 		}
 		return Result{Content: fmt.Sprintf("rg error: %v\n%s", err, string(out)), IsError: true}, nil
@@ -138,7 +140,7 @@ func runNativeGrep(ctx context.Context, pattern, root, glob string, maxMatches i
 		}
 		return nil
 	})
-	if walkErr != nil && walkErr != context.Canceled {
+	if walkErr != nil && !errors.Is(walkErr, context.Canceled) {
 		return Result{Content: fmt.Sprintf("walk error: %v", walkErr), IsError: true}, nil
 	}
 	if matches == 0 {
@@ -226,7 +228,7 @@ func (globTool) Execute(ctx context.Context, args map[string]any, onUpdate Updat
 		}
 		return nil
 	})
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		return Result{Content: fmt.Sprintf("walk error: %v", err), IsError: true}, nil
 	}
 	if len(matches) == 0 {

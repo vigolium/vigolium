@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -301,7 +302,7 @@ func consumeAnthropicSSE(ctx context.Context, body io.ReadCloser, out chan<- str
 		default:
 		}
 		evt, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return
 		}
 		if err != nil {
@@ -393,7 +394,7 @@ func (s *anthropicState) handle(evtName string, ev map[string]any, out chan<- st
 		case "tool_use":
 			args := map[string]any{}
 			if s.toolJSON != "" {
-				_ = json.Unmarshal([]byte(s.toolJSON), &args)
+				debugToolArgErr("anthropic", json.Unmarshal([]byte(s.toolJSON), &args))
 			}
 			out <- stream.Event{Type: stream.EventToolCallEnd, ToolCall: &stream.ToolCall{
 				ID:        s.toolID,

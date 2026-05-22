@@ -437,7 +437,7 @@ func sourceFromRawRequest(rawReq, rawResp []byte, urlStr string) (*replaySource,
 func applyTargetOverride(src *replaySource, target string) error {
 	u, err := url.Parse(target)
 	if err != nil || u == nil || u.Hostname() == "" {
-		return fmt.Errorf("invalid --target %q: %v", target, err)
+		return fmt.Errorf("invalid --target %q: %w", target, err)
 	}
 	src.Scheme = u.Scheme
 	src.Hostname = u.Hostname()

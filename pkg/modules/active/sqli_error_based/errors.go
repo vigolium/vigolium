@@ -115,6 +115,12 @@ var (
 			regexp.MustCompile("SequelizeDatabaseError"),
 			regexp.MustCompile(`SQLite error \d+:`),
 			regexp.MustCompile("sqlite3.OperationalError:"),
+			// SQLAlchemy / Python DB-API wrap the driver error as
+			// "(sqlite3.OperationalError) unrecognized token: ..." — no trailing
+			// colon — which the pattern above (which requires one) misses. Match
+			// the sqlite3 exception class directly; the literal "sqlite3.<Class>"
+			// only appears in genuine Python sqlite3 error leaks (low FP risk).
+			regexp.MustCompile(`sqlite3\.(OperationalError|IntegrityError|ProgrammingError|DatabaseError|InterfaceError|DataError|NotSupportedError|Warning)`),
 			regexp.MustCompile("SQLite3::SQLException"),
 			regexp.MustCompile(`org\.sqlite\.JDBC`),
 			regexp.MustCompile(`Pdo[./_\\]Sqlite`),

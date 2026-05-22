@@ -165,7 +165,9 @@ func bootstrapDefaultProfiles(vigoliumDir string) {
 			continue
 		}
 		dest := filepath.Join(profilesDir, entry.Name())
-		_ = os.WriteFile(dest, data, 0644)
+		if err := os.WriteFile(dest, data, 0644); err != nil {
+			zap.L().Debug("Failed to write default profile", zap.String("dest", dest), zap.Error(err))
+		}
 	}
 
 	zap.L().Info("Bootstrapped default scanning profiles",
@@ -212,7 +214,10 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 	for _, entry := range entries {
 		if entry.IsDir() {
 			subTarget := filepath.Join(targetDir, entry.Name())
-			_ = os.MkdirAll(subTarget, 0755)
+			if err := os.MkdirAll(subTarget, 0755); err != nil {
+				zap.L().Debug("Failed to create bootstrap subdir", zap.String("dir", subTarget), zap.Error(err))
+				continue
+			}
 			copyEmbeddedDir(subTarget, embedPath+"/"+entry.Name())
 			continue
 		}
@@ -221,7 +226,9 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 			continue
 		}
 		dest := filepath.Join(targetDir, entry.Name())
-		_ = os.WriteFile(dest, data, 0644)
+		if err := os.WriteFile(dest, data, 0644); err != nil {
+			zap.L().Debug("Failed to write bootstrapped file", zap.String("dest", dest), zap.Error(err))
+		}
 	}
 }
 
@@ -295,7 +302,7 @@ func ensureCoreDeps() error {
 	// terminal doesn't look frozen while the sweep runs.
 	fmt.Fprintf(os.Stderr, "%s %s\n",
 		terminal.InfoSymbol(),
-		terminal.BoldCyan("Checking core scan dependencies (chromium, nuclei-templates)..."))
+		terminal.BoldCyan("First-time scan detected — checking mandatory dependencies first..."))
 	report := diagnostics.Run(diagnostics.Deps{Settings: settings})
 
 	chromiumMissing := report.Tools["chromium"] == nil || report.Tools["chromium"].Status != diagnostics.StatusOK
@@ -304,7 +311,7 @@ func ensureCoreDeps() error {
 	if !chromiumMissing && !nucleiMissing {
 		// Both already present — backfill the marker so subsequent runs
 		// skip the diagnostic entirely. No need to invoke RunFixes.
-		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.SuccessSymbol(), terminal.Green("Core scan dependencies present"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.SuccessSymbol(), terminal.Green("All mandatory dependencies present"))
 		if err := writeInitMarker(vigoliumDir); err != nil {
 			zap.L().Debug("Failed to write init marker", zap.Error(err))
 		}
@@ -331,6 +338,32 @@ func ensureCoreDeps() error {
 		zap.L().Debug("Failed to write init marker after dep install", zap.Error(err))
 	}
 	return nil
+}
+
+// skipCoreDepCheck honors the --skip-dependency-check flag: it stamps
+// ~/.vigolium/initialized immediately without probing for chromium or nuclei
+// templates, so this run and every future scan fast-path past the first-run
+// dependency check. Best-effort — a failed mkdir/write just means the check may
+// run on a later invocation. Returns true when it actually wrote the marker.
+func skipCoreDepCheck() bool {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	vigoliumDir := filepath.Join(homeDir, ".vigolium")
+	markerPath := filepath.Join(vigoliumDir, initMarkerFileName)
+	if _, err := os.Stat(markerPath); err == nil {
+		return false // already stamped; nothing to do
+	}
+	if err := os.MkdirAll(vigoliumDir, 0755); err != nil {
+		zap.L().Debug("skip-dependency-check: failed to create .vigolium dir", zap.Error(err))
+		return false
+	}
+	if err := writeInitMarker(vigoliumDir); err != nil {
+		zap.L().Debug("skip-dependency-check: failed to write init marker", zap.Error(err))
+		return false
+	}
+	return true
 }
 
 // ensureInitialized checks if Vigolium is initialized and initializes if needed

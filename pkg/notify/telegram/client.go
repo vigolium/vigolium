@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	stderrors "errors"
 	"io"
 	"math"
 	"net/http"
@@ -272,7 +273,7 @@ func (c *Client) sendReaderAsFileWithCaption(reader io.Reader, filename string, 
 
 	// Try sending as plain content first
 	err = sendFile(bytes.NewReader(content), filename)
-	if err != nil && (strings.Contains(err.Error(), "Request Entity Too Large") || err == tele.ErrTooLarge) {
+	if err != nil && (strings.Contains(err.Error(), "Request Entity Too Large") || stderrors.Is(err, tele.ErrTooLarge)) {
 		// Compress with gzip and retry
 		var buf bytes.Buffer
 		gz := gzip.NewWriter(&buf)

@@ -156,10 +156,14 @@ func convertModelToJSScanRequest(m storage.ExtractionModel) jsscan.ExtractedRequ
 	var cookies []string
 
 	if m.Headers.Valid && m.Headers.String != "" {
-		_ = json.Unmarshal([]byte(m.Headers.String), &headers)
+		if err := json.Unmarshal([]byte(m.Headers.String), &headers); err != nil {
+			zap.L().Debug("failed to decode stored jsscan headers", zap.Error(err))
+		}
 	}
 	if m.Cookies.Valid && m.Cookies.String != "" {
-		_ = json.Unmarshal([]byte(m.Cookies.String), &cookies)
+		if err := json.Unmarshal([]byte(m.Cookies.String), &cookies); err != nil {
+			zap.L().Debug("failed to decode stored jsscan cookies", zap.Error(err))
+		}
 	}
 
 	return jsscan.ExtractedRequest{

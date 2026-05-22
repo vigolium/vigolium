@@ -153,10 +153,10 @@ func getBuffer() *bytes.Buffer {
 // Buffers larger than or equal to largeBufferThreshold are subject to
 // maxLargeBuffers limiting.
 //
-// TODO(dwisiswant0): Current threshold is global. Consider making it
-// configurable per instance (via [ResponseChain.maxBodySize]) if needed.
-// The current implementation is to prevents memory bloat in typical use-cases.
-// And the pool is shared, so per-instance thresholds might cause confusion.
+// NOTE(dwisiswant0): The threshold is intentionally global rather than
+// per-instance (via [ResponseChain.maxBodySize]): the buffer pool is shared, so
+// per-instance thresholds would cause confusion, and a single global cap is what
+// prevents memory bloat in typical use-cases.
 func putBuffer(buf *bytes.Buffer) {
 	capacity := buf.Cap()
 	if capacity > DefaultMaxBodySize {
@@ -340,7 +340,7 @@ func (r *ResponseChain) Fill() error {
 	// load headers
 	err := DumpResponseIntoBuffer(r.resp, false, r.headers)
 	if err != nil {
-		return fmt.Errorf("error dumping response headers: %s", err)
+		return fmt.Errorf("error dumping response headers: %w", err)
 	}
 
 	if r.resp.StatusCode != http.StatusSwitchingProtocols && !r.reloaded {
@@ -356,7 +356,7 @@ func (r *ResponseChain) Fill() error {
 		// load body
 		err = readNNormalizeRespBody(r, r.body)
 		if err != nil {
-			return fmt.Errorf("error reading response body: %s", err)
+			return fmt.Errorf("error reading response body: %w", err)
 		}
 
 		// response body should not be used anymore

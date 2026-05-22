@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -60,7 +61,7 @@ func TestOneShotDBInputSource_ReturnsAllRecords(t *testing.T) {
 	var got []string
 	for {
 		item, err := source.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -105,7 +106,7 @@ func TestOneShotDBInputSource_TimestampCollision(t *testing.T) {
 	count := 0
 	for {
 		item, err := source.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -137,7 +138,7 @@ func TestAuditPhasePattern_SeedThenAudit(t *testing.T) {
 	seed := NewOneShotDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
 	for {
 		item, err := seed.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -163,7 +164,7 @@ func TestAuditPhasePattern_SeedThenAudit(t *testing.T) {
 	var auditUUIDs []string
 	for {
 		item, err := audit.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -237,7 +238,7 @@ func TestConcurrentWritesDuringCursorRead(t *testing.T) {
 	count := 0
 	for {
 		item, err := source.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -300,7 +301,7 @@ func TestRiskPrioritizedDBInputSource_DoesNotSkipNonRiskRecords(t *testing.T) {
 	var got []string
 	for {
 		item, err := source.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

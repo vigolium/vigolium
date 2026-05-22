@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -126,7 +127,7 @@ func TestLazyCustomProviderFromInline_Basic(t *testing.T) {
 	var items []string
 	for {
 		val, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)
@@ -198,7 +199,7 @@ func TestLazyCustomProvider_Integration(t *testing.T) {
 	var items []string
 	for {
 		val, err := provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)

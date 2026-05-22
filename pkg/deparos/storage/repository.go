@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -17,6 +18,18 @@ import (
 // Repository provides bun-based database operations
 type Repository struct {
 	db bun.IDB
+}
+
+// decodeStoredJSON best-effort decodes a JSON column previously written by the
+// spider (headers, cookies, session stats) into dst. A decode miss leaves dst at
+// its zero value: a garbled or empty column is treated as absent rather than
+// failing the row read. Centralizes the justification for the dropped unmarshal
+// errors at the call sites below.
+func decodeStoredJSON(raw string, dst any) {
+	if raw == "" {
+		return
+	}
+	_ = json.Unmarshal([]byte(raw), dst)
 }
 
 // NewRepository creates a new Repository with the given bun database connection
@@ -344,7 +357,7 @@ func (r *Repository) GetNodeByHash(ctx context.Context, hash string) (*NodeModel
 		Where("hash = ?", hash).
 		Limit(1).
 		Scan(ctx)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -519,7 +532,7 @@ func NodeModelToDiscoveredNode(m *NodeModel) *DiscoveredNode {
 	if m.ReqMethod.Valid {
 		headers := make(map[string]string)
 		if m.ReqHeaders.Valid {
-			_ = json.Unmarshal([]byte(m.ReqHeaders.String), &headers)
+			decodeStoredJSON(m.ReqHeaders.String, &headers)
 		}
 		req := &RequestData{
 			Method:  m.ReqMethod.String,
@@ -529,7 +542,7 @@ func NodeModelToDiscoveredNode(m *NodeModel) *DiscoveredNode {
 
 		respHeadersMap := make(map[string]string)
 		if m.RespHeaders.Valid {
-			_ = json.Unmarshal([]byte(m.RespHeaders.String), &respHeadersMap)
+			decodeStoredJSON(m.RespHeaders.String, &respHeadersMap)
 		}
 		resp := &ResponseData{
 			StatusCode: int(m.RespStatus.Int64),
@@ -601,7 +614,7 @@ func NodeModelToDiscoveredNodeLight(m *NodeModel) *DiscoveredNode {
 	if m.ReqMethod.Valid {
 		headers := make(map[string]string)
 		if m.ReqHeaders.Valid {
-			_ = json.Unmarshal([]byte(m.ReqHeaders.String), &headers)
+			decodeStoredJSON(m.ReqHeaders.String, &headers)
 		}
 		req := &RequestData{
 			Method:  m.ReqMethod.String,
@@ -611,7 +624,7 @@ func NodeModelToDiscoveredNodeLight(m *NodeModel) *DiscoveredNode {
 
 		respHeadersMap := make(map[string]string)
 		if m.RespHeaders.Valid {
-			_ = json.Unmarshal([]byte(m.RespHeaders.String), &respHeadersMap)
+			decodeStoredJSON(m.RespHeaders.String, &respHeadersMap)
 		}
 		resp := &ResponseData{
 			StatusCode: int(m.RespStatus.Int64),
@@ -794,9 +807,7 @@ func SessionModelToSession(m *SessionModel) *Session {
 		sess.EndedAt = time.Unix(m.EndedAt.Int64, 0)
 	}
 
-	if m.Stats != "" {
-		_ = json.Unmarshal([]byte(m.Stats), &sess.Stats)
-	}
+	decodeStoredJSON(m.Stats, &sess.Stats)
 
 	return sess
 }

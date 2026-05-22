@@ -173,7 +173,7 @@ func (d *Downloader) downloadAndCache(ctx context.Context, version string) (*Cac
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDownloadFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDownloadFailed, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -188,7 +188,7 @@ func (d *Downloader) downloadAndCache(ctx context.Context, version string) (*Cac
 	// checksum before trusting any bytes. maxSize+1 lets us detect overflow.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read response: %v", ErrDownloadFailed, err)
+		return nil, fmt.Errorf("%w: read response: %w", ErrDownloadFailed, err)
 	}
 	if int64(len(body)) > maxSize {
 		return nil, fmt.Errorf("%w: archive exceeds max size %d bytes", ErrDownloadFailed, maxSize)
@@ -238,7 +238,7 @@ func (d *Downloader) verifyChecksum(ctx context.Context, version string, archive
 	}
 	expected, err := d.spec.ResolveChecksum(ctx, d, version)
 	if err != nil {
-		return fmt.Errorf("%w: resolve expected checksum: %v", ErrChecksumMismatch, err)
+		return fmt.Errorf("%w: resolve expected checksum: %w", ErrChecksumMismatch, err)
 	}
 	expected = strings.ToLower(strings.TrimSpace(expected))
 	if expected == "" {

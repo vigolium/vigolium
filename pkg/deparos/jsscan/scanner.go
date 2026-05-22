@@ -214,7 +214,7 @@ func (s *Scanner) executeJsscan(ctx context.Context, binaryPath, inputPath strin
 
 	if err != nil {
 		if stdout.Len() == 0 {
-			return nil, nil, fmt.Errorf("%w: %v, stderr: %s", ErrScanFailed, err, stderr.String())
+			return nil, nil, fmt.Errorf("%w: %w, stderr: %s", ErrScanFailed, err, stderr.String())
 		}
 	}
 

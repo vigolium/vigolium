@@ -154,6 +154,7 @@ func buildReportData(items []any, title string, meta HTMLReportMeta) ReportData 
 				Target        string `json:"target"`
 				TotalRequests int    `json:"total_requests"`
 			}
+			// best-effort: a malformed scan envelope simply leaves summary counters at zero.
 			_ = json.Unmarshal(envelope.Data, &scan)
 			if scan.Target != "" {
 				rd.Target = scan.Target
@@ -215,6 +216,7 @@ func parseFinding(data json.RawMessage, md goldmark.Markdown) ReportFinding {
 		SourceFile         string   `json:"source_file"`
 		RepoName           string   `json:"repo_name"`
 	}
+	// best-effort: render whatever fields decode; a malformed finding yields a sparse row.
 	_ = json.Unmarshal(data, &f)
 
 	name := f.ModuleShort

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -143,7 +144,7 @@ func (t *ModuleTask) Expand(ctx context.Context, callback func(url string, depth
 		}
 
 		word, err := t.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

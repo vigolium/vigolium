@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync/atomic"
 
@@ -154,7 +155,7 @@ func (q *HybridQueue) Ack(taskID string) error {
 		return nil
 	}
 	// For in-memory tasks that were never persisted, Ack is a no-op.
-	if err == ErrTaskNotFound {
+	if errors.Is(err, ErrTaskNotFound) {
 		q.totalCompleted.Add(1)
 		return nil
 	}
@@ -218,7 +219,7 @@ func (q *HybridQueue) drainBackendToMem(ctx context.Context) {
 	for {
 		task, err := q.backend.Dequeue(ctx)
 		if err != nil {
-			if ctx.Err() != nil || err == io.EOF {
+			if ctx.Err() != nil || errors.Is(err, io.EOF) {
 				return
 			}
 			// Transient error — the backend Dequeue will retry internally,

@@ -3,6 +3,7 @@ package tool
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -226,7 +227,8 @@ func (*bashTool) Execute(ctx context.Context, args map[string]any, onUpdate Upda
 	}
 	if waitErr != nil {
 		exitCode := -1
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(waitErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
 		return Result{

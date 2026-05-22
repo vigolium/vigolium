@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -87,7 +88,7 @@ func (h *Handlers) HandleListDBRecords(c fiber.Ctx) error {
 	records, columns, total, err := database.QueryGenericTableFiltered(c.Context(), h.db, tableName, opts)
 	if err != nil {
 		status := fiber.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, database.ErrTableNotFound) {
 			status = fiber.StatusNotFound
 		}
 		return c.Status(status).JSON(ErrorResponse{
@@ -114,14 +115,14 @@ func (h *Handlers) HandleGetDBRecord(c fiber.Ctx) error {
 
 	record, err := database.GetGenericRecord(c.Context(), h.db, tableName, pkValue)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 				Error: "record not found",
 				Code:  fiber.StatusNotFound,
 			})
 		}
 		status := fiber.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not supported") {
+		if errors.Is(err, database.ErrTableNotFound) || errors.Is(err, database.ErrCompositePKUnsupported) {
 			status = fiber.StatusBadRequest
 		}
 		return c.Status(status).JSON(ErrorResponse{
@@ -158,7 +159,7 @@ func (h *Handlers) HandleCreateDBRecord(c fiber.Ctx) error {
 
 	if err := database.InsertGenericRecord(c.Context(), h.db, tableName, fields); err != nil {
 		status := fiber.StatusInternalServerError
-		if strings.Contains(err.Error(), "invalid column") || strings.Contains(err.Error(), "no valid fields") {
+		if errors.Is(err, database.ErrInvalidColumn) || errors.Is(err, database.ErrNoValidFields) {
 			status = fiber.StatusBadRequest
 		}
 		return c.Status(status).JSON(ErrorResponse{
@@ -188,14 +189,14 @@ func (h *Handlers) HandleUpdateDBRecord(c fiber.Ctx) error {
 	}
 
 	if err := database.UpdateGenericRecord(c.Context(), h.db, tableName, pkValue, fields); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 				Error: "record not found",
 				Code:  fiber.StatusNotFound,
 			})
 		}
 		status := fiber.StatusInternalServerError
-		if strings.Contains(err.Error(), "invalid column") || strings.Contains(err.Error(), "cannot update primary key") || strings.Contains(err.Error(), "no valid fields") {
+		if errors.Is(err, database.ErrInvalidColumn) || errors.Is(err, database.ErrImmutablePrimaryKey) || errors.Is(err, database.ErrNoValidFields) {
 			status = fiber.StatusBadRequest
 		}
 		return c.Status(status).JSON(ErrorResponse{
@@ -218,15 +219,19 @@ func (h *Handlers) HandleDeleteDBRecord(c fiber.Ctx) error {
 	pkValue := c.Params("id")
 
 	if err := database.DeleteGenericRecord(c.Context(), h.db, tableName, pkValue); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 				Error: "record not found",
 				Code:  fiber.StatusNotFound,
 			})
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+		status := fiber.StatusInternalServerError
+		if errors.Is(err, database.ErrTableNotFound) || errors.Is(err, database.ErrCompositePKUnsupported) {
+			status = fiber.StatusBadRequest
+		}
+		return c.Status(status).JSON(ErrorResponse{
 			Error: err.Error(),
-			Code:  fiber.StatusInternalServerError,
+			Code:  status,
 		})
 	}
 

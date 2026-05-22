@@ -3,21 +3,21 @@
 package xss_scanner_integration
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/projectdiscovery/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
+	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	httpRequester "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_light_scanner"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
@@ -86,8 +86,10 @@ func checkBrutelogicAvailable(t *testing.T) {
 
 // TestInfra holds the test infrastructure components
 type TestInfra struct {
-	HTTPClient *httpRequester.Requester
-	HostErrors *hosterrors.Cache
+	HTTPClient  *httpRequester.Requester
+	HostErrors  *hosterrors.Cache
+	HostLimiter *hostlimit.HostRateLimiter
+	ScanCtx     *modkit.ScanContext
 }
 
 // setupTestInfra initializes HTTP client and services
@@ -97,17 +99,20 @@ func setupTestInfra(t *testing.T) *TestInfra {
 	opts := types.DefaultOptions()
 	opts.Timeout = 30
 	opts.Retries = 1
-	opts.RateLimit = 50
+	opts.MaxPerHost = 5
 	opts.MaxHostError = 5
 
 	err := network.Init(opts)
 	require.NoError(t, err, "Failed to initialize network dialer")
 
 	hostErrors := hosterrors.New(opts.MaxHostError, hosterrors.DefaultMaxHostsCount, nil)
+	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
+		MaxPerHost: opts.MaxPerHost,
+	})
 
 	svc := &services.Services{
 		Options:     opts,
-		RateLimiter: ratelimit.New(context.Background(), uint(opts.RateLimit), time.Second),
+		HostLimiter: hostLimiter,
 		HostErrors:  hostErrors,
 	}
 
@@ -115,8 +120,10 @@ func setupTestInfra(t *testing.T) *TestInfra {
 	require.NoError(t, err, "Failed to create HTTP requester")
 
 	return &TestInfra{
-		HTTPClient: httpClient,
-		HostErrors: hostErrors,
+		HTTPClient:  httpClient,
+		HostErrors:  hostErrors,
+		HostLimiter: hostLimiter,
+		ScanCtx:     &modkit.ScanContext{},
 	}
 }
 
@@ -124,6 +131,9 @@ func setupTestInfra(t *testing.T) *TestInfra {
 func (infra *TestInfra) cleanup() {
 	if infra.HostErrors != nil {
 		infra.HostErrors.Close()
+	}
+	if infra.HostLimiter != nil {
+		_ = infra.HostLimiter.Close()
 	}
 	network.Close()
 }
@@ -162,7 +172,7 @@ func TestBrutelogicGym(t *testing.T) {
 			rr, err := httpmsg.GetRawRequestFromURL(url)
 			require.NoError(t, err, "Failed to create request from URL: %s", url)
 
-			results, err := scanner.ScanPerRequest(rr, infra.HTTPClient)
+			results, err := scanner.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
 			require.NoError(t, err, "Scanner returned error for %s", url)
 
 			// MUST have at least 1 result - fail if not detected
@@ -173,7 +183,7 @@ func TestBrutelogicGym(t *testing.T) {
 			for _, r := range results {
 				assert.NotEmpty(t, r.URL, "Result URL should not be empty")
 				assert.NotEmpty(t, r.FuzzingParameter, "FuzzingParameter should not be empty")
-				t.Logf("Found XSS: param=%s desc=%s", r.FuzzingParameter, r.Description)
+				t.Logf("Found XSS: param=%s desc=%s", r.FuzzingParameter, r.Info.Description)
 			}
 		})
 	}

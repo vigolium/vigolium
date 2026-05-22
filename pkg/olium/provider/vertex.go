@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -415,7 +416,7 @@ func consumeGeminiSSE(ctx context.Context, body io.ReadCloser, out chan<- stream
 		default:
 		}
 		evt, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			state.flushFinal(out)
 			return
 		}

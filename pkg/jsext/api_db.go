@@ -465,12 +465,10 @@ func jsToQueryFilters(vm *sobek.Runtime, v sobek.Value) database.QueryFilters {
 		f.PathPattern = val.String()
 	}
 	if val := obj.Get("methods"); val != nil && !sobek.IsUndefined(val) && !sobek.IsNull(val) {
-		raw, _ := json.Marshal(val.Export())
-		_ = json.Unmarshal(raw, &f.Methods)
+		jsArrayInto(val, &f.Methods)
 	}
 	if val := obj.Get("status_codes"); val != nil && !sobek.IsUndefined(val) && !sobek.IsNull(val) {
-		raw, _ := json.Marshal(val.Export())
-		_ = json.Unmarshal(raw, &f.StatusCodes)
+		jsArrayInto(val, &f.StatusCodes)
 	}
 	if val := obj.Get("source"); val != nil && !sobek.IsUndefined(val) {
 		f.Source = val.String()
@@ -488,8 +486,7 @@ func jsToQueryFilters(vm *sobek.Runtime, v sobek.Value) database.QueryFilters {
 		f.Remark = val.String()
 	}
 	if val := obj.Get("remarks"); val != nil && !sobek.IsUndefined(val) && !sobek.IsNull(val) {
-		raw, _ := json.Marshal(val.Export())
-		_ = json.Unmarshal(raw, &f.Remarks)
+		jsArrayInto(val, &f.Remarks)
 	}
 	if val := obj.Get("limit"); val != nil && !sobek.IsUndefined(val) {
 		f.Limit = int(val.ToInteger())
@@ -504,8 +501,7 @@ func jsToQueryFilters(vm *sobek.Runtime, v sobek.Value) database.QueryFilters {
 		f.SortAsc = val.ToBoolean()
 	}
 	if val := obj.Get("severity"); val != nil && !sobek.IsUndefined(val) && !sobek.IsNull(val) {
-		raw, _ := json.Marshal(val.Export())
-		_ = json.Unmarshal(raw, &f.Severity)
+		jsArrayInto(val, &f.Severity)
 	}
 	if val := obj.Get("module_name"); val != nil && !sobek.IsUndefined(val) {
 		f.ModuleName = val.String()
@@ -520,6 +516,20 @@ func jsToQueryFilters(vm *sobek.Runtime, v sobek.Value) database.QueryFilters {
 		f.ScanUUID = val.String()
 	}
 	return f
+}
+
+// jsArrayInto best-effort decodes an exported JS value into dst (a pointer to a
+// Go slice). The value is re-marshaled then unmarshaled into dst; a malformed or
+// non-array value is intentionally ignored — these fields are optional and
+// caller-supplied, so a decode miss simply leaves the field empty rather than
+// failing the surrounding call. Centralizes the justification for the dropped
+// unmarshal errors at all call sites below.
+func jsArrayInto(val sobek.Value, dst any) {
+	raw, err := json.Marshal(val.Export())
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(raw, dst)
 }
 
 // jsToFinding parses a JS object into a database.Finding.
@@ -550,24 +560,19 @@ func jsToFinding(vm *sobek.Runtime, obj *sobek.Object) *database.Finding {
 	}
 
 	if v := obj.Get("matched_at"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-		raw, _ := json.Marshal(v.Export())
-		_ = json.Unmarshal(raw, &f.MatchedAt)
+		jsArrayInto(v, &f.MatchedAt)
 	}
 	if v := obj.Get("extracted_results"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-		raw, _ := json.Marshal(v.Export())
-		_ = json.Unmarshal(raw, &f.ExtractedResults)
+		jsArrayInto(v, &f.ExtractedResults)
 	}
 	if v := obj.Get("tags"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-		raw, _ := json.Marshal(v.Export())
-		_ = json.Unmarshal(raw, &f.Tags)
+		jsArrayInto(v, &f.Tags)
 	}
 	if v := obj.Get("additional_evidence"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-		raw, _ := json.Marshal(v.Export())
-		_ = json.Unmarshal(raw, &f.AdditionalEvidence)
+		jsArrayInto(v, &f.AdditionalEvidence)
 	}
 	if v := obj.Get("http_record_uuids"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
-		raw, _ := json.Marshal(v.Export())
-		_ = json.Unmarshal(raw, &f.HTTPRecordUUIDs)
+		jsArrayInto(v, &f.HTTPRecordUUIDs)
 	}
 	if f.HTTPRecordUUIDs == nil {
 		f.HTTPRecordUUIDs = []string{}

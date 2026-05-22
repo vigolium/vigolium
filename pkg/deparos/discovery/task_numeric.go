@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -144,7 +145,7 @@ func (n *NumericFuzzTask) Expand(ctx context.Context, callback func(url string, 
 		}
 
 		value, err := n.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

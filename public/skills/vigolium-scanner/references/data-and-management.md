@@ -68,13 +68,16 @@ Output (on success):
 
 Import scan data into the current project's database. Two input formats are supported (auto-detected by path type):
 
-- **Archon audit folder** (directory): contains `audit-state.json` and `findings-draft/`. Creates a new `agentic_scan` row plus all findings; severity breakdown is printed on completion.
+- **Audit output folder** (directory): produced by `vigolium agent audit` (vigolium-audit or piolium leg) — contains `audit-state.json` and `findings-draft/`. Creates a new `agentic_scan` row plus all findings; severity breakdown is printed on completion.
 - **JSONL file** (regular file): each line is a JSON object wrapped in an envelope like `{"type": "http_record", "data": {...}}` or `{"type": "finding", "data": {...}}`. This matches the output of `vigolium export --format jsonl`. Records are saved via `SaveRecordsBatch` (batch size 500); findings are deduplicated on save.
 
 ```bash
-vigolium import /path/to/archon-output-harbor/    # archon audit folder
+vigolium import /path/to/vigolium-results/         # audit output folder
 vigolium import scan-results.jsonl                 # JSONL export
 vigolium import /tmp/demo/juice-shop.jsonl
+
+# After an interactive audit (`agent audit -i`), turn the on-disk results into a report:
+vigolium import ./src/vigolium-results --format html -o audit-report.html
 ```
 
 Notes:
@@ -96,7 +99,7 @@ View raw `runtime.log` for a native scan or agentic scan session. When called wi
 2. Native session file: `~/.vigolium/native-sessions/<uuid>/runtime.log`
 3. DB fallback: `scan_logs` table (used when `scanning_strategy.scan_logs.persist_logs` is disabled)
 
-The legacy `run.log` filename is also resolved for older sessions. Agent archon child runs whose UUID does not match a session directory fall back to their parent's `SessionDir` column.
+The legacy `run.log` filename is also resolved for older sessions. Agent audit child runs whose UUID does not match a session directory fall back to their parent's `SessionDir` column.
 
 ### log flags
 
@@ -443,7 +446,7 @@ Top-level export command. Exports database tables and module registry as JSONL o
 | `--format` | — | string | `jsonl` | Export format: html, jsonl |
 | `--output` | `-o` | string | — | Output file (required for html) |
 | `--only` | — | []string | all | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
-| `--lite` | — | bool | `false` | Export summary fields only, omit raw HTTP data and headers |
+| `--omit-response` | — | bool | `false` | Omit raw HTTP request/response bytes from output (keeps metadata, smaller files) |
 | `--search` | — | string | — | Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources |
 | `--limit` | — | int | `0` (unlimited) | Max records per table |
 
@@ -455,7 +458,7 @@ vigolium export --format jsonl --only findings
 vigolium export --format jsonl --only findings,http
 vigolium export --format html -o report.html
 vigolium export --only modules
-vigolium export --lite --only http -o urls.jsonl
+vigolium export --omit-response --only http -o urls.jsonl
 vigolium export --search "example.com" -o filtered.jsonl
 ```
 
@@ -707,7 +710,7 @@ Warning shown:
 Proceed? (type 'yes' to confirm):
 ```
 
-Use this at the start of a new engagement or when an installation has drifted out of sync with the binary. After cleaning, the default API key is regenerated and all preset data (profiles, prompts, extensions, SAST rules, archon-audit harness) is re-extracted.
+Use this at the start of a new engagement or when an installation has drifted out of sync with the binary. After cleaning, the default API key is regenerated and all preset data (profiles, prompts, extensions, SAST rules, vigolium-audit harness) is re-extracted.
 
 ---
 
@@ -855,11 +858,11 @@ Manage cloud-storage objects scoped to the **active project** (selected via `--p
 
 ### Source-archive integration
 
-`agent archon`, `agent piolium`, and `agent audit` accept `--source gs://<project>/<key>` for source archives. The archive is downloaded, extracted (`.zip / .tar.gz / .tar.bz2 / .tar.xz`), and cleaned up automatically.
+`agent audit` and `agent piolium` accept `--source gs://<project>/<key>` for source archives. The archive is downloaded, extracted (`.zip / .tar.gz / .tar.bz2 / .tar.xz`), and cleaned up automatically.
 
 ### Result-bundle integration
 
-Pass `--upload-results` to `scan`, `agent autopilot`, `agent swarm`, `agent archon`, `agent piolium`, `agent audit`, or `agent query` to bundle the session/output and push it to storage at the end of the run. Native scan bundles land at `native-scans/<scan-uuid>/results.tar.gz`; agentic bundles land at `agentic-scans/<uuid>/results.tar.gz`. `vigolium storage results <uuid>` checks both prefixes.
+Pass `--upload-results` to `scan`, `agent autopilot`, `agent swarm`, `agent audit`, `agent piolium`, or `agent query` to bundle the session/output and push it to storage at the end of the run. Native scan bundles land at `native-scans/<scan-uuid>/results.tar.gz`; agentic bundles land at `agentic-scans/<uuid>/results.tar.gz`. `vigolium storage results <uuid>` checks both prefixes.
 
 ---
 

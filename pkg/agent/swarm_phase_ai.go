@@ -60,7 +60,7 @@ func (s *SwarmRunner) runAuthPhase(ctx context.Context, cfg SwarmConfig, targetU
 
 	writePromptToSessionDir(sessionDir, "auth-prompt.md", agentResult.RenderedPrompt)
 	if sessionDir != "" && agentResult.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "auth-output.md"), []byte(agentResult.RawOutput), 0o644)
+		writeSessionArtifact(filepath.Join(sessionDir, "auth-output.md"), []byte(agentResult.RawOutput))
 	}
 
 	authConfigPath := filepath.Join(sessionDir, "auth-config.yaml")

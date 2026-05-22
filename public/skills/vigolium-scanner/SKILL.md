@@ -5,17 +5,17 @@ description: >-
   traffic ingestion, server management, AI agent-driven scanning and code review,
   cloud-storage management, or writing custom JavaScript extensions. Invoke for
   scan commands, scan-url, scan-request, run, ingest, server, agent
-  (query/autopilot/swarm/olium/archon/piolium/audit/session), traffic browsing,
+  (query/autopilot/swarm/olium/piolium/audit/session), traffic browsing,
   database queries, storage uploads/downloads, module management, extension
   scripting, export, project management, and configuration tuning.
 license: MIT
 metadata:
-  version: "3.2.0"
+  version: "3.3.0"
   domain: security-tooling
   triggers: >-
     vigolium, scan, scan-url, scan-request, run, ingest, server, agent, agent query,
-    agent autopilot, agent swarm, agent olium, agent archon, agent piolium,
-    agent audit, agent session, vigolium olium, vigolium ol, archon-audit,
+    agent autopilot, agent swarm, agent olium, agent piolium,
+    agent audit, agent session, vigolium olium, vigolium ol, vigolium-audit,
     piolium, pi-coding-agent, traffic, db, module, extensions, js, export, strategy,
     scope, source, config, project, storage, vigolium init, vigolium import,
     vigolium log, vigolium doctor, config clean, vulnerability scanner, security
@@ -23,7 +23,8 @@ metadata:
     SAST, javascript extension, custom scanner, module-tag, run extension,
     vigolium js, intensity, diff scan, last commits, stateless scan,
     upload results, runtime log, session log, google-vertex, gcp-project,
-    gcp-location, vertex provider, claude-on-vertex, gemini, audit driver
+    gcp-location, vertex provider, anthropic-vertex, claude-on-vertex, gemini,
+    openai-compatible, ollama, audit driver
   role: operator
   scope: usage
   output-format: commands
@@ -43,24 +44,25 @@ Vigolium is a CLI-first vulnerability scanner that operates in multiple modes:
   - `agent autopilot` — autonomous AI-driven scanning that drives the vigolium CLI
   - `agent swarm` — AI-guided targeted or full-scope scanning (add `--discover` for full-scope)
   - `agent olium` (alias `vigolium olium` / `ol`) — interactive TUI / one-shot olium agent
-  - `agent archon` — foreground multi-phase AI security audit of source code (claude/codex)
   - `agent piolium` — foreground audit using the Pi-native piolium runtime
-  - `agent audit` — unified driver dispatcher that runs archon + piolium back-to-back (or just one)
+  - `agent audit` — unified driver dispatcher driving the embedded vigolium-audit harness and/or piolium (`--driver=auto|both|audit|piolium`; replaces the former `agent archon`)
   - `agent session` — list / inspect agent run sessions
 - **Extension runner**: `run extension --ext custom-check.js` for custom JS scanning logic
 - **JavaScript executor**: `js` for ad-hoc scripting with full `vigolium.*` API access
 - **Session log viewer**: `log <uuid>` streams `runtime.log` for native + agentic sessions (tail / follow / DB fallback)
-- **Data import**: `import <path>` ingests archon audit folders and JSONL exports
+- **Data import**: `import <path>` ingests audit output folders (`vigolium-results/`) and JSONL exports
 - **Cloud storage**: `storage ls/upload/download/rm/presign/results` manages per-project objects in the configured bucket
 - **Lifecycle**: `init` sets up `~/.vigolium/`, `config clean` wipes it back to a fresh state
 
 Olium provider drivers (set via `agent.olium.provider` or `--provider`):
-- **`openai-codex-oauth`** (default): OpenAI Codex via `~/.codex/auth.json` (ChatGPT subscription)
+- **`openai-compatible`** (default): any OpenAI Chat-Completions-compatible endpoint via `agent.olium.custom_provider.base_url` / `model_id` (default points at a local Ollama at `http://localhost:11434/v1`, model `gemma4:latest`)
+- **`openai-codex-oauth`**: OpenAI Codex via `~/.codex/auth.json` (ChatGPT subscription)
 - **`anthropic-api-key`**: Anthropic Messages API via `$ANTHROPIC_API_KEY` / `--llm-api-key`
 - **`anthropic-oauth`**: Anthropic Claude via Claude Code OAuth bearer token (`claude setup-token`)
 - **`openai-api-key`**: OpenAI Chat Completions via `$OPENAI_API_KEY` / `--llm-api-key`
 - **`anthropic-cli`**: Shells out to the local `claude` CLI binary (Claude Max subscribers)
-- **`google-vertex`**: GCP Vertex AI via service-account JSON (`--oauth-cred` / `$GOOGLE_APPLICATION_CREDENTIALS`); default model `claude-opus-4-6` (Anthropic-on-Vertex), or `gemini-3.1-pro` for Gemini-native
+- **`anthropic-vertex`**: Anthropic Claude on GCP Vertex AI via service-account JSON (`--oauth-cred` / `$GOOGLE_APPLICATION_CREDENTIALS`); requires a `claude-*` model (e.g. `claude-opus-4-6`)
+- **`google-vertex`**: Gemini-native on GCP Vertex AI via service-account JSON; requires a `gemini-*` model (e.g. `gemini-3.1-pro`)
 
 This skill helps you pick the right command, flags, and workflow for any security testing task.
 
@@ -93,21 +95,23 @@ Use this to find the right command quickly:
 | Swarm with curl command input | `vigolium agent swarm --input "curl -X POST <url> -d '...'"` |
 | Swarm with source code (route discovery + SAST + code audit) | `vigolium agent swarm -t <url> --source ./src` |
 | Swarm with intensity preset | `vigolium agent swarm -t <url> --intensity quick` |
-| Swarm with background archon-audit | `vigolium agent swarm -t <url> --source ./src --archon lite` |
+| Swarm with background vigolium-audit | `vigolium agent swarm -t <url> --source ./src --audit lite` |
 | Swarm with custom instructions | `vigolium agent swarm -t <url> --instruction "Focus on GraphQL"` |
 | Source analysis only (no scan) | `vigolium agent swarm -t <url> --source ./src --source-analysis-only` |
-| Foreground archon audit (lite/balanced/deep) | `vigolium agent archon --mode deep --source .` |
-| Archon audit of a remote repo | `vigolium agent archon --mode lite --source https://github.com/org/repo` |
-| Archon confirm PoCs for existing findings | `vigolium agent archon --mode confirm --source ./audit-tree` |
+| Foreground vigolium-audit (lite/balanced/deep) | `vigolium agent audit --driver=audit --mode deep --source .` |
+| Audit a remote repo | `vigolium agent audit --driver=audit --mode lite --source https://github.com/org/repo` |
+| Confirm PoCs for existing findings | `vigolium agent audit --driver=audit --mode confirm --source ./audit-tree` |
+| Drive the audit yourself interactively | `vigolium agent audit -i --source ./src` |
 | Foreground piolium (Pi-native) audit | `vigolium agent piolium --mode balanced --source .` |
 | Piolium hail-mary file-by-file hunt | `vigolium agent piolium --mode longshot --source ./src --plm-longshot-langs python,go` |
 | Piolium with custom Pi provider/model | `vigolium agent piolium --pi-provider vertex-anthropic --pi-model claude-opus-4-6 --source .` |
-| Run archon + piolium back-to-back as one audit | `vigolium agent audit --source .` |
-| Run only one driver under unified audit | `vigolium agent audit --driver=archon --source .` |
+| Run vigolium-audit, fall back to piolium only if no claude/codex CLI | `vigolium agent audit --source .` |
+| Run vigolium-audit + piolium back-to-back unconditionally | `vigolium agent audit --driver=both --source .` |
+| Run only one driver under unified audit | `vigolium agent audit --driver=audit --source .` |
 | Audit from a gs:// archive | `vigolium agent audit --source gs://my-project/snapshots/app.tar.gz` |
 | Interactive olium TUI | `vigolium olium` (alias `vigolium ol`) |
 | One-shot olium prompt to stdout | `vigolium olium -p "explain this codebase"` |
-| Olium via google-vertex (Anthropic-on-Vertex) | `vigolium olium --provider google-vertex --gcp-project my-gcp --gcp-location us-east5` |
+| Olium via anthropic-vertex (Claude on Vertex) | `vigolium olium --provider anthropic-vertex --gcp-project my-gcp --gcp-location us-east5 --model claude-opus-4-6` |
 | Olium via google-vertex (Gemini-native) | `vigolium olium --provider google-vertex --model gemini-3.1-pro` |
 | Browse stored HTTP traffic | `vigolium traffic` or `vigolium traffic <search>` |
 | Browse findings/vulnerabilities | `vigolium finding` or `vigolium db ls --table findings` |
@@ -140,7 +144,7 @@ Use this to find the right command quickly:
 | List agent sessions | `vigolium agent session` or `vigolium agent session <uuid>` |
 | Seed database with sample data | `vigolium db seed` |
 | Import findings from file | `vigolium finding load -i findings.jsonl` |
-| Import archon audit folder or JSONL export | `vigolium import <path>` |
+| Import audit output folder or JSONL export | `vigolium import <path>` |
 | View runtime logs for a scan/agent session | `vigolium log <uuid>` (add `-f` to follow, `--tail N`) |
 | List all native + agentic sessions with log status | `vigolium log ls` |
 | Initialize `~/.vigolium/` with defaults | `vigolium init` (add `--force` to regenerate) |
@@ -158,7 +162,7 @@ Load detailed reference based on what you need:
 |-------|-----------|-----------|
 | Scanning commands | `references/scanning-commands.md` | scan, scan-url, scan-request, run flags and options |
 | Server & ingestion | `references/server-and-ingestion.md` | server, ingest, traffic command flags |
-| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent swarm, agent olium, agent archon, agent piolium, agent audit, agent session — flags, intensities, providers, templates |
+| Agent commands | `references/agent-commands.md` | agent, agent query, agent autopilot, agent swarm, agent olium, agent piolium, agent audit, agent session — flags, intensities, providers, templates |
 | Session / auth config | `references/session-auth-config.md` | --auth-file/--auth flags, YAML format, extract rules, authenticated scanning setup |
 | Data & management | `references/data-and-management.md` | db, module, extensions, js, config, scope, source, strategy, export, project, storage |
 | Complete flag index | `references/flags-reference.md` | Looking up any specific flag by name |
@@ -376,15 +380,15 @@ vigolium agent query --prompt-template security-code-review --source ./src \
 
 Autopilot runs a single autonomous operator session that drives the vigolium CLI (Read/Grep/Glob/Bash/Edit/Write tools via the in-process olium engine). When `--source` is set, an audit harness runs first and the prepared whitebox context is fed to the operator.
 
-**Audit-harness auto-pick:** when neither `--archon` nor `--piolium` is set, autopilot picks **piolium** if `pi` + the piolium extension are installed, otherwise falls back to **archon** at its lite default. Pass `--piolium <mode>` to force piolium (auto-disables archon for the run); pass `--archon=off` to disable both.
+**Audit-harness auto-pick:** when neither `--audit` nor `--piolium` is set, autopilot picks **piolium** if `pi` + the piolium extension are installed, otherwise falls back to the embedded **vigolium-audit** at its lite default. Pass `--piolium <mode>` to force piolium (auto-disables vigolium-audit for the run); pass `--audit <mode>` to force vigolium-audit; pass `--audit=off` to disable both.
 
-Intensity presets (`--intensity`) bundle limits, archon mode, and browser into a single flag. Explicit flags always override.
+Intensity presets (`--intensity`) bundle the operator command budget, audit mode, browser, and pre-scan strategy into a single flag. Explicit flags always override. The `Command Budget` is internal — there is no `--max-commands` flag.
 
-| Preset | Max Commands | Timeout | Archon Mode | Browser |
-|--------|-------------:|--------:|-------------|:-------:|
-| `quick` | 30 | 1h | `lite` | off |
-| `balanced` (default) | 100 | 6h | `balanced` (6-phase) | off |
-| `deep` | 300 | 12h | `deep` (10-phase) | on |
+| Preset | Command Budget | Timeout | Audit Mode | Browser |
+|--------|---------------:|--------:|------------|:-------:|
+| `quick` | 150 | 1h | `lite` | on |
+| `balanced` (default) | 500 | 6h | `balanced` | on |
+| `deep` | 1500 | 12h | `deep` | on |
 
 ```bash
 # Basic autonomous scan (balanced by default)
@@ -394,7 +398,7 @@ vigolium agent autopilot -t https://example.com
 vigolium agent autopilot "scan VAmPI source at ~/src/VAmPI on localhost:3005"
 vigolium agent autopilot "test auth bypass on https://app.example.com"
 
-# With source code context (triggers archon-audit automatically)
+# With source code context (triggers the audit harness automatically)
 vigolium agent autopilot -t https://example.com --source ./src
 
 # Specific files + custom instruction
@@ -407,14 +411,14 @@ vigolium agent autopilot -t https://example.com --source ./src --intensity quick
 vigolium agent autopilot -t https://example.com --intensity deep                   # full pentest
 
 # Override a specific setting within a preset
-vigolium agent autopilot -t https://example.com --intensity deep --timeout 4h
+vigolium agent autopilot -t https://example.com --intensity deep --max-duration 4h
 
 # Scan only a PR diff or recent commits
 vigolium agent autopilot -t https://example.com --source ./src --diff main...feature-branch
 vigolium agent autopilot -t https://example.com --source ./src --last-commits 3
 
-# Custom limits (explicit override)
-vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
+# Cap the wall-clock budget (explicit override)
+vigolium agent autopilot -t https://example.com --max-duration 15m
 
 # Pipe a curl command (target auto-derived)
 echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vigolium agent autopilot
@@ -424,17 +428,17 @@ vigolium agent autopilot -t https://example.com --browser --credentials "admin/a
 vigolium agent autopilot -t https://example.com --browser --auth-required \
   --browser-start-url https://example.com/login
 
-# Disable archon when source is provided
-vigolium agent autopilot -t https://example.com --source ./src --archon=off
+# Disable the audit harness when source is provided
+vigolium agent autopilot -t https://example.com --source ./src --audit=off
 
-# Choose a specific archon mode
-vigolium agent autopilot -t https://example.com --source ./src --archon deep
+# Choose a specific vigolium-audit mode
+vigolium agent autopilot -t https://example.com --source ./src --audit deep
 
-# Force piolium as the audit harness (auto-disables archon for this run)
+# Force piolium as the audit harness (auto-disables vigolium-audit for this run)
 vigolium agent autopilot -t https://example.com --source ./src --piolium balanced
 
-# Cap cumulative tokens (graceful halt when exceeded)
-vigolium agent autopilot -t https://example.com --token-budget 5000000
+# Run an AI triage pass over findings after the scan
+vigolium agent autopilot -t https://example.com --triage
 
 # Skip the prompt-safety classifier on the natural-language prompt (only when refusing a known-good prompt)
 vigolium agent autopilot "scan this internal app at https://app.test" --disable-guardrail
@@ -448,22 +452,22 @@ vigolium agent autopilot -t https://example.com --dry-run
 # Override the olium provider for a single run
 vigolium agent autopilot -t https://example.com --provider anthropic-api-key
 
-# Drive autopilot through google-vertex (Anthropic-on-Vertex; default model claude-opus-4-6)
+# Drive autopilot through anthropic-vertex (Claude on Vertex; requires a claude-* model)
 vigolium agent autopilot -t https://example.com \
-  --provider google-vertex --gcp-project my-gcp --gcp-location us-east5
+  --provider anthropic-vertex --gcp-project my-gcp --gcp-location us-east5 --model claude-opus-4-6
 ```
 
 ### 13. AI Agent Swarm (Targeted or Full-Scope)
 
 Swarm orchestrates: normalize → source analysis (AI, `--source`) → code audit (AI) → SAST (native) → SAST review (AI) → discover (native, `--discover`) → plan (AI) → extension (Go) → native scan → triage (AI, `--triage`) → rescan (loop).
 
-Intensity presets (`--intensity`) bundle multiple defaults — explicit flags always override.
+Intensity presets (`--intensity`) bundle multiple defaults — explicit flags always override. The preset applies even without `--intensity` (`balanced` is the implicit default). Code Audit only takes effect with `--source`; Auth only with the browser enabled.
 
-| Preset | Discover | Triage | Code Audit | Browser | Swarm Duration | Max Iterations |
-|--------|:--------:|:------:|:----------:|:-------:|---------------:|---------------:|
-| `quick` | off | off | off | off | 2h | 1 |
-| `balanced` (default) | off | off | if `--source` | off | 12h | 3 |
-| `deep` | on | on | on | on | 24h | 5 |
+| Preset | Discover | Triage | Code Audit | Browser | Auth | Swarm Duration | Max Iterations |
+|--------|:--------:|:------:|:----------:|:-------:|:----:|---------------:|---------------:|
+| `quick` | on | off | off | on | off | 2h | 1 |
+| `balanced` (default) | on | on | on | on | off | 12h | 3 |
+| `deep` | on | on | on | on | on | 24h | 5 |
 
 ```bash
 # Target a URL for deep analysis
@@ -508,9 +512,9 @@ vigolium agent swarm -t https://example.com --source ./src --intensity deep
 # Override a specific setting within a preset
 vigolium agent swarm -t https://example.com --intensity deep --triage=false
 
-# Run a background archon-audit in parallel (requires --source). Bare --archon = lite.
-vigolium agent swarm -t http://localhost:3000 --source ./src --archon
-vigolium agent swarm -t http://localhost:3000 --source ./src --archon deep
+# Run a background vigolium-audit in parallel (requires --source). Bare --audit = lite.
+vigolium agent swarm -t http://localhost:3000 --source ./src --audit
+vigolium agent swarm -t http://localhost:3000 --source ./src --audit deep
 
 # Or run piolium as the background audit harness (Pi runtime; requires --source)
 vigolium agent swarm -t http://localhost:3000 --source ./src --piolium balanced
@@ -573,35 +577,48 @@ vigolium agent swarm -t https://example.com/api/users --dry-run
 vigolium agent swarm -t https://example.com/api/users --show-prompt
 ```
 
-### 13b. AI Agent Archon (Foreground Whitebox Audit)
+### 13b. AI Agent Audit — vigolium-audit harness (Foreground Whitebox Audit)
+
+The former `agent archon` command is gone. Drive the embedded **vigolium-audit** harness directly with `vigolium agent audit --driver=audit` (`--driver=audit` pins the single harness; the dispatcher in §13d covers `auto`/`both`).
+
 ```bash
-# Deep multi-phase audit of a local repo
-vigolium agent archon --mode deep --source .
+# Deep audit of a local repo
+vigolium agent audit --driver=audit --mode deep --source .
 
-# Fast 3-phase audit of a remote repo (clones automatically)
-vigolium agent archon --mode lite --source https://github.com/org/repo
+# Fast lite audit of a remote repo (clones automatically)
+vigolium agent audit --driver=audit --mode lite --source https://github.com/org/repo
 
-# Balanced 6-phase audit (archon always uses claude; for OpenAI workloads use --driver=piolium on `vigolium agent audit`)
-vigolium agent archon --mode balanced --source ~/code/myapp
+# Balanced audit
+vigolium agent audit --driver=audit --mode balanced --source ~/code/myapp
 
 # Second pass on a prior audit tree (revisit with new context)
-vigolium agent archon --mode revisit --source ./prior-audit-tree
+vigolium agent audit --driver=audit --mode revisit --source ./prior-audit-tree
 
 # PoC construction for previously confirmed findings
-vigolium agent archon --mode confirm --source ./audit-with-findings
+vigolium agent audit --driver=audit --mode confirm --source ./audit-with-findings
+
+# Chain modes back-to-back (audit runs them natively as one row)
+vigolium agent audit --driver=audit --modes deep,refresh,confirm --source .
 
 # Read-only progress check (no agent launched)
-vigolium agent archon --mode status --source ./in-progress-audit
+vigolium agent audit --driver=audit --mode status --source ./in-progress-audit
 
-# Don't echo agent output to console (still saved to session runtime.log)
-vigolium agent archon --mode deep --source . --no-stream
+# Pick the coding agent (claude or codex) — provider implies one, --agent overrides
+vigolium agent audit --driver=audit --agent codex --source .
+
+# Drive the audit yourself interactively, then import the on-disk results
+vigolium agent audit -i --source ./src
+vigolium import ./src/vigolium-results --format html -o audit-report.html
+
+# List the audit mode graph (phases, time estimates) and exit
+vigolium agent audit --list-modes
 ```
 
-Valid `--mode` values: `lite` (3 phases), `balanced` (6 phases, alias `scan`), `deep` (10 phases), `revisit`, `confirm`, `merge`, `diff`, `status`, `mock`. Valid `--agent` values: `claude` (default), `codex`. Archon supports `--no-preflight` and `--preflight-timeout` to skip / tune the pre-launch CLI roundtrip (auth + model availability).
+Valid `--mode` values (audit leg): `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge` (shared) plus `reinvest`, `refresh`, `mock`, `diff`, `status` (audit-specific). The audit leg drives the `claude` or `codex` CLI directly (selected by `--provider`/`--agent`). `--no-preflight` and `--preflight-timeout` skip / tune the pre-launch CLI roundtrip; `--show-thinking` surfaces the agent's thinking blocks; `--keep-raw` preserves raw scanner output under `<source>/vigolium-results/`.
 
 ### 13c. AI Agent Piolium (Pi-Native Foreground Audit)
 
-Drives the user's installed piolium Pi extension via `pi --mode json -p /piolium-<mode>`. Requires `pi` in PATH and `piolium` registered (install via `pi install git:git@github.com:vigolium/piolium.git`). Same on-disk schema as archon (audit-state.json + findings-draft/), tagged separately in the DB.
+Drives the user's installed piolium Pi extension via `pi --mode json -p /piolium-<mode>`. Requires `pi` in PATH and `piolium` registered (install via `pi install git:git@github.com:vigolium/piolium.git`). Same on-disk schema as vigolium-audit (audit-state.json + findings-draft/), tagged separately in the DB.
 
 ```bash
 # Balanced 9-phase audit of a local repo
@@ -637,19 +654,22 @@ Valid `--mode` values: `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`
 
 ### 13d. AI Agent Audit (Unified Driver Dispatcher)
 
-Runs archon and/or piolium against the same source tree under a **single parent AgenticScan UUID**. Default `--driver=both` runs archon first, then piolium, then a project-wide post-pass findings dedup. Per-driver child rows + session subdirs (`{session}/archon/`, `{session}/piolium/`) keep them separated on disk and in the DB while still scoring as one logical audit.
+Drives the embedded **vigolium-audit** harness (driver name `audit`) and/or **piolium** against the same source tree under a **single parent AgenticScan UUID**. Default `--driver=auto` runs vigolium-audit and **only falls back to piolium when the resolved claude/codex CLI is missing** from PATH — a clean audit run never consults piolium, and a mid-run audit failure surfaces directly rather than silently retrying. `--driver=both` runs audit then piolium unconditionally. A project-wide post-pass findings dedup runs after the drivers finish. Per-driver child rows + session subdirs (`{session}/audit/`, `{session}/piolium/`) keep them separated on disk and in the DB while still scoring as one logical audit.
 
 ```bash
-# Run both drivers back-to-back (default)
+# Default: run vigolium-audit, fall back to piolium only if claude/codex CLI is missing
 vigolium agent audit --source .
 
-# Force a single driver (equivalent to `agent archon` / `agent piolium`)
-vigolium agent audit --driver=archon --source .
+# Run both drivers back-to-back, unconditionally
+vigolium agent audit --driver=both --source .
+
+# Force a single driver
+vigolium agent audit --driver=audit --source .
 vigolium agent audit --driver=piolium --source ./src
 
 # Driver-specific modes are only allowed when --driver is forced to that driver
 vigolium agent audit --driver=piolium --source . --mode longshot
-vigolium agent audit --driver=archon  --source . --mode mock
+vigolium agent audit --driver=audit   --source . --mode mock
 
 # Audit from a gs:// archive (downloaded + extracted once, shared by both drivers)
 vigolium agent audit --source gs://my-project/snapshots/app.tar.gz
@@ -657,20 +677,21 @@ vigolium agent audit --source gs://my-project/snapshots/app.tar.gz
 # Skip the post-pass project-wide findings dedup
 vigolium agent audit --source . --no-dedup
 
-# Skip preflight checks for both drivers
-vigolium agent audit --source . --no-preflight
+# Pin the audit leg's agent + provider (anthropic-* → claude, openai-* → codex)
+vigolium agent audit --source . --provider anthropic-oauth
+vigolium agent audit --source . --agent codex
 
-# Pin archon's provider (must be anthropic-*; for OpenAI workloads use --driver=piolium)
-vigolium agent audit --source . --archon-provider anthropic-oauth
+# BYOK auth for the run (literal, $ENV_NAME, or @path)
+vigolium agent audit --source . --oauth-token "$(cat ~/.config/claude-token)"
 
 # Override piolium's Pi defaults
-vigolium agent audit --source . --pi-provider google-vertex --pi-model gemini-3.1-pro
+vigolium agent audit --driver=piolium --source . --pi-provider google-vertex --pi-model gemini-3.1-pro
 
-# Pass piolium-only knobs through (ignored when --driver=archon)
-vigolium agent audit --source . --plm-scan-since "30 days ago" --plm-longshot-langs python
+# Pass piolium-only knobs through (ignored on the audit leg)
+vigolium agent audit --driver=piolium --source . --plm-scan-since "30 days ago" --plm-longshot-langs python
 ```
 
-When `--driver=both`, `--mode` is restricted to the **shared** set: `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`. Driver-specific modes (piolium's `longshot`/`smoke`/`diff`/`status`, archon's `mock`/`diff`/`status`) require forcing `--driver=piolium` or `--driver=archon`. If one driver fails, the other still runs — the parent run reports per-driver status.
+Under `--driver=auto`/`both`, `--mode` is restricted to the **shared** set: `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`. Driver-specific modes (piolium's `longshot`/`smoke`/`diff`/`status`, audit's `reinvest`/`refresh`/`mock`/`diff`/`status`) require forcing `--driver=piolium` or `--driver=audit`. `--intensity deep` resolves to the chain `deep,confirm`; `--modes a,b,c` chains modes back-to-back. Under `--driver=both`, if one driver fails the other still runs — the parent run reports per-driver status.
 
 ### 14. Results Inspection
 ```bash
@@ -861,7 +882,7 @@ vigolium storage rm ugc/foo.tar.gz
 vigolium storage rm ugc/a.pdf ugc/b.pdf -F
 ```
 
-Many agent and scan commands accept a `--source gs://<project>/<key>` URL for source archives — they're downloaded, extracted (`.zip / .tar.gz / .tar.bz2 / .tar.xz`), and cleaned up automatically. Use `--upload-results` on `scan`, `agent autopilot`, `agent swarm`, `agent archon`, `agent piolium`, `agent audit`, and `agent query` to bundle the session/output and push it to storage at the end of the run.
+Many agent and scan commands accept a `--source gs://<project>/<key>` URL for source archives — they're downloaded, extracted (`.zip / .tar.gz / .tar.bz2 / .tar.xz`), and cleaned up automatically. Use `--upload-results` on `scan`, `agent autopilot`, `agent swarm`, `agent audit`, `agent piolium`, and `agent query` to bundle the session/output and push it to storage at the end of the run.
 
 ### 19. Project Management
 ```bash
@@ -966,15 +987,15 @@ Log lookup order: agentic session `~/.vigolium/agent-sessions/<uuid>/runtime.log
 
 ### 23. Data Import (vigolium import)
 ```bash
-# Import an archon audit output folder (contains audit-state.json + findings-draft/)
-vigolium import /path/to/archon-output-harbor/
+# Import an audit output folder (contains audit-state.json + findings-draft/)
+vigolium import /path/to/vigolium-results/
 
 # Import a JSONL export (supports http_record and finding envelopes)
 vigolium import scan-results.jsonl
 vigolium import /tmp/demo/juice-shop.jsonl
 ```
 
-Archon folders create a new agentic_scan row plus findings. JSONL imports accept `{"type": "http_record", "data": {...}}` and `{"type": "finding", "data": {...}}` envelopes — the format produced by `vigolium export --format jsonl`.
+Audit output folders (produced by `vigolium agent audit` — vigolium-audit or piolium leg) create a new agentic_scan row plus findings. JSONL imports accept `{"type": "http_record", "data": {...}}` and `{"type": "finding", "data": {...}}` envelopes — the format produced by `vigolium export --format jsonl`.
 
 ### 24. Initialization & Reset
 ```bash
@@ -1057,6 +1078,7 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 | `--output` | `-o` | — | Write findings / reports to this file path |
 | `--stats` | — | `false` | Show live progress stats during scanning |
 | `--include-response` | — | `false` | Include full HTTP response body in output |
+| `--omit-response` | — | `false` | Omit raw HTTP request/response bytes from the output file (keeps metadata, smaller files) |
 | `--retries` | — | `1` | Number of retry attempts for failed requests |
 | `--stream` | — | `false` | Process targets as a stream without buffering or deduplication |
 | `--header` | `-H` | — | Add custom HTTP header (repeatable, e.g. `-H 'Auth: Bearer tok'`) |
@@ -1098,7 +1120,7 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 - `--ci-output-format` sets JSONL output, suppresses banners and color (implies `--json --silent`)
 - `--skip-heuristics` is equivalent to `--heuristics-check=none`
 - Server mode requires API key auth by default (use `-A`/`--no-auth` to disable, or set `VIGOLIUM_API_KEY`)
-- Agent commands route every dispatch through the in-process **olium** engine; configure under `agent.olium.*` in `vigolium-configs.yaml`. Default provider `openai-codex-oauth` reads `~/.codex/auth.json`. The `anthropic-cli` provider needs `claude` in PATH; `google-vertex` needs a GCP service-account JSON via `--oauth-cred` or `$GOOGLE_APPLICATION_CREDENTIALS`
+- Agent commands route every dispatch through the in-process **olium** engine; configure under `agent.olium.*` in `vigolium-configs.yaml`. Default provider `openai-compatible` points at a local Ollama (`http://localhost:11434/v1`, model `gemma4:latest`) via `custom_provider`. `openai-codex-oauth` reads `~/.codex/auth.json`; `anthropic-cli` needs `claude` in PATH; `anthropic-vertex` (Claude, `claude-*` model) and `google-vertex` (Gemini, `gemini-*` model) need a GCP service-account JSON via `--oauth-cred` or `$GOOGLE_APPLICATION_CREDENTIALS`
 - The `--provider`, `--model`, `--oauth-cred`, `--oauth-token`, `--llm-api-key`, `--gcp-project`, `--gcp-location` flags override `agent.olium.*` for one run on `agent query`, `agent autopilot`, `agent swarm`, and `agent olium` (and the top-level `vigolium olium` / `ol` alias)
 - `--scan-on-receive/-S` is ignored in remote ingest mode (server handles scanning)
 - `db clean --all` requires `--force` for safety
@@ -1108,14 +1130,13 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 - `--module-tag` uses OR logic: modules matching any specified tag are included
 - `-m` and `--module-tag` merge results (union)
 - Use `agent swarm --discover` for full-scope AI-guided scanning
-- Agent swarm: `--source-analysis-only` requires `--source`; `--browser-auth` requires `--browser`; `--archon` requires `--source`; `--target` is required when `--source` is used with a remote target
-- Agent autopilot: when `--source` is set, an audit harness runs automatically — auto-picks **piolium** if `pi`+piolium are installed, otherwise **archon** at lite. Force with `--piolium <mode>` (auto-disables archon) or `--archon <mode>`; disable with `--archon=off`. `--max-duration` default is `6h`. `--token-budget` caps cumulative tokens; `--disable-guardrail` skips the prompt-safety classifier on the natural-language prompt
-- Agent archon: `--mode` must be one of `lite`, `balanced` (alias `scan`), `deep`, `revisit`, `confirm`, `merge`, `diff`, `status`, `mock`; `--agent` must be `claude` or `codex`. `--no-preflight` skips the pre-launch CLI roundtrip (claude only today)
+- Agent swarm: `--source-analysis-only` requires `--source`; `--browser-auth` requires `--browser`; `--audit` requires `--source`; `--target` is required when `--source` is used with a remote target
+- Agent autopilot: when `--source` is set, an audit harness runs automatically — auto-picks **piolium** if `pi`+piolium are installed, otherwise the embedded **vigolium-audit** at lite. Force with `--piolium <mode>` (auto-disables vigolium-audit) or `--audit <mode>`; disable with `--audit=off`. `--max-duration` default is `6h` (there is no `--max-commands`/`--token-budget` flag — the command budget is set by `--intensity`). `--triage` runs an AI triage pass after the scan; `--disable-guardrail` skips the prompt-safety classifier on the natural-language prompt
+- Agent audit: `--driver` must be `auto` (default), `both`, `audit`, or `piolium`. `auto` runs vigolium-audit and only falls back to piolium when the resolved claude/codex CLI is missing; `both` runs audit then piolium unconditionally. Under `auto`/`both`, `--mode` is restricted to the shared set (`lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`); driver-specific modes (audit's `reinvest`/`refresh`/`mock`/`diff`/`status`, piolium's `longshot`/`smoke`/`diff`/`status`) require forcing `--driver=audit|piolium`. `--intensity deep` resolves to the chain `deep,confirm`; `--modes a,b,c` chains modes. Audit-leg agent is selected by `--provider` (anthropic-*→claude, openai-*→codex) and `--agent {claude|codex}`, with BYOK via `--api-key`/`--oauth-token`/`--oauth-cred-file`. `-i/--interactive` hands you the audit harness (audit-only). `--driver=audit\|piolium` hard-errors on a missing runtime; under `both` a missing runtime is dropped with a warning. Post-pass project-wide findings dedup runs when a project UUID is set; suppress with `--no-dedup`
 - Agent piolium: `--mode` must be one of `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`, `diff`, `longshot`, `status`, `smoke`. Requires `pi` in PATH and the piolium Pi extension installed. `--no-preflight` skips the pre-audit `pi` roundtrip
-- Agent audit: `--driver` must be `piolium`, `archon`, or `both` (default `both`). When `--driver=both`, `--mode` is restricted to the shared set (`lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`); driver-specific modes require forcing `--driver=archon|piolium`. With `--driver=both`, missing runtimes are dropped from the plan with a warning; with `--driver=archon|piolium`, a missing runtime is a hard error. The post-pass project-wide findings dedup runs when `repo!=nil` and a project UUID is set; suppress with `--no-dedup`
-- Intensity presets (`--intensity quick|balanced|deep`) are shared across `scan`, `agent autopilot`, `agent swarm`, `agent archon`, `agent piolium`, and `agent audit`; explicit flags always override the preset
+- Intensity presets (`--intensity quick|balanced|deep`) are shared across `scan`, `agent autopilot`, `agent swarm`, `agent audit`, and `agent piolium`; explicit flags always override the preset
 - `vigolium storage *` commands require `storage.enabled: true` (or `VIGOLIUM_STORAGE_ENABLED=true`) plus driver/bucket/access-key/secret-key configured. They scope to the active project (`--project-id` / `--project-name` / `VIGOLIUM_PROJECT`)
-- `--source` accepts a local path, a git URL (auto-cloned with `--commit-depth`), a local archive (`.zip / .tar.gz / .tar.bz2 / .tar.xz` — auto-extracted), or a `gs://<project>/<key>` URI (downloaded + extracted). Applies to `agent archon`, `agent piolium`, `agent audit`
+- `--source` accepts a local path, a git URL (auto-cloned with `--commit-depth`), a local archive (`.zip / .tar.gz / .tar.bz2 / .tar.xz` — auto-extracted), or a `gs://<project>/<key>` URI (downloaded + extracted). Applies to `agent audit` and `agent piolium`
 - `vigolium init` is a no-op on an existing installation unless `--force` is passed (regenerates API key + re-extracts preset data)
 - `vigolium config clean` prompts for confirmation unless `-F/--force` is passed; it wipes the entire `~/.vigolium/` directory
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
+	"go.uber.org/zap"
 )
 
 // QueryFilters holds filter criteria for database queries
@@ -318,14 +319,21 @@ func (db *DeleteBuilder) DeleteRecords(ctx context.Context, dryRun bool) (int64,
 		return int64(len(uuids)), nil
 	}
 
-	// Delete associated findings first (no FK cascade)
-	_, _ = db.db.NewDelete().
+	// Delete associated findings first (no FK cascade). Best-effort: a failure
+	// here leaves orphan findings but must not block deleting the records
+	// themselves, so we log rather than abort (matching the junction cleanup
+	// below). A silent drop here previously hid orphaned-finding bugs.
+	if _, err := db.db.NewDelete().
 		Model((*Finding)(nil)).
 		Where("id IN (SELECT finding_id FROM finding_records WHERE record_uuid IN (?))", bun.In(uuids)).
-		Exec(ctx)
+		Exec(ctx); err != nil {
+		zap.L().Warn("failed to delete findings for deleted records (orphans may remain)", zap.Error(err))
+	}
 
 	// Clean up junction rows for deleted records
-	_, _ = db.db.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.In(uuids)).Exec(ctx)
+	if _, err := db.db.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.In(uuids)).Exec(ctx); err != nil {
+		zap.L().Debug("failed to clean up finding_records for deleted records", zap.Error(err))
+	}
 
 	// Delete records
 	result, err := db.db.NewDelete().
@@ -363,7 +371,9 @@ func (db *DeleteBuilder) DeleteOrphans(ctx context.Context, dryRun bool) (int64,
 	rows, _ := result.RowsAffected()
 
 	// Clean up orphaned junction rows
-	_, _ = db.db.NewRaw("DELETE FROM finding_records WHERE finding_id NOT IN (SELECT id FROM findings)").Exec(ctx)
+	if _, err := db.db.NewRaw("DELETE FROM finding_records WHERE finding_id NOT IN (SELECT id FROM findings)").Exec(ctx); err != nil {
+		zap.L().Debug("failed to clean up orphaned finding_records", zap.Error(err))
+	}
 
 	return rows, nil
 }
@@ -391,7 +401,9 @@ func (db *DeleteBuilder) DeleteFindings(ctx context.Context, dryRun bool) (int64
 	}
 
 	// Delete junction rows first
-	_, _ = db.db.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.In(ids)).Exec(ctx)
+	if _, err := db.db.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.In(ids)).Exec(ctx); err != nil {
+		zap.L().Debug("failed to delete finding_records junction rows", zap.Error(err))
+	}
 
 	// Delete findings
 	result, err := db.db.NewDelete().

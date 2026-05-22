@@ -289,6 +289,13 @@ func NewExecutor(
 				ipCacheSize = 4096
 			}
 		}
+		// Guard the size so lru.New cannot fail: it only errors on a
+		// non-positive size, which would otherwise leave ipCache nil and
+		// nil-panic on the first Get/Add. With size >= 1 the ignored error is
+		// provably nil.
+		if ipCacheSize < 1 {
+			ipCacheSize = 4096
+		}
 		ipCache, _ = lru.New[string, []httpmsg.InsertionPoint](ipCacheSize)
 	}
 

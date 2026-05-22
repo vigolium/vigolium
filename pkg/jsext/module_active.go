@@ -249,6 +249,9 @@ func buildRecordObject(vm *sobek.Runtime, ctx *httpmsg.HttpRequestResponse, scan
 			}
 		}
 		annotations := map[string][]string{uuid: deduped}
+		// Single-record annotation: a non-nil error means this record's UPDATE
+		// failed, so false is the correct signal (the repository layer logs the
+		// cause). A missing record is skipped without error and still reports true.
 		if err := repo.AppendRemarks(context.Background(), annotations); err != nil {
 			return vm.ToValue(false)
 		}

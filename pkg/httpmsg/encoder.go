@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -631,7 +632,7 @@ func (e *GzipEncoder) Decode(input []byte) []byte {
 			output.Write(buffer[:n])
 		}
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if output.Len() > 0 {

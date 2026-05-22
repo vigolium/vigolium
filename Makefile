@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -19,6 +19,12 @@ BINARY_DIR=bin
 # defence in depth. Used inline as `$$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')`
 # so `go list` stays lazy (it needs generated embeds present).
 GOLIST_EXCLUDE=/pkg/spitolas/rod|/platform/|/node_modules/
+
+# Minimum total statement coverage enforced by `coverage-gate` (used by
+# test-ci and test-coverage-check). A regression tripwire held at/just below the
+# current baseline; ratchet it upward as coverage improves.
+# Override on the CLI: `make test-coverage-check COVERAGE_MIN=35`.
+COVERAGE_MIN ?= 30
 
 # Console output prefix (cyan color)
 PREFIX=\033[36m[*]\033[0m
@@ -364,10 +370,29 @@ test-coverage: install-gotestsum ensure-jsscan
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 	@echo "$(PREFIX) Coverage report saved to coverage.html"
 
-# Test with JUnit XML output (for CI)
+# Test with JUnit XML output (for CI). Emits a coverage profile and enforces
+# the COVERAGE_MIN floor after the run so a coverage regression fails the build.
 test-ci: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Running tests for CI..."
-	@$(GOPATH_BIN)/gotestsum --junitfile test-results.xml --format testdox --format-hide-empty-pkg --hide-summary=skipped,output -- -v -race ./...
+	@$(GOPATH_BIN)/gotestsum --junitfile test-results.xml --format testdox --format-hide-empty-pkg --hide-summary=skipped,output -- -v -race -coverprofile=coverage.out ./...
+	@$(MAKE) --no-print-directory coverage-gate
+
+# coverage-gate fails when total statement coverage in coverage.out is below
+# COVERAGE_MIN. Factored out so test-ci, test-coverage-check, and the GitHub
+# workflow can all enforce the same floor against an existing profile.
+coverage-gate:
+	@test -f coverage.out || { echo "$(PREFIX) coverage.out not found — run a coverage-producing target first"; exit 1; }
+	@total=$$($(GOCMD) tool cover -func=coverage.out | awk 'END{gsub(/%/,"",$$NF); print $$NF}'); \
+	awk -v t="$$total" -v min="$(COVERAGE_MIN)" 'BEGIN{ \
+		if (t+0 < min+0) { printf "\033[31m[!]\033[0m total coverage %.1f%% is below floor %s%%\n", t, min; exit 1 } \
+		printf "$(PREFIX) total coverage %.1f%% (floor %s%%)\n", t, min }'
+
+# Standalone coverage floor check over the unit-test scope. Runs the -short
+# suite once with coverage and enforces COVERAGE_MIN via coverage-gate.
+test-coverage-check: install-gotestsum ensure-jsscan
+	@echo "$(PREFIX) Checking coverage floor ($(COVERAGE_MIN)%)..."
+	@$(GOCMD) test -short -coverprofile=coverage.out $$($(GOCMD) list ./... | grep -Ev '$(GOLIST_EXCLUDE)') > /dev/null
+	@$(MAKE) --no-print-directory coverage-gate
 
 # --- SSH Testbed ---
 SSH_TESTBED_DIR=test/ssh-testbed
@@ -1076,6 +1101,7 @@ help:
 	@echo "    make test-agent-benchmark-e2e  Run agent E2E benchmarks (Docker required)"
 	@echo "    make benchmark-agent-generate  Generate agent fixtures (real LLM, expensive)"
 	@echo "    make test-coverage    Run tests with coverage report"
+	@echo "    make test-coverage-check  Enforce the COVERAGE_MIN coverage floor (default $(COVERAGE_MIN)%)"
 	@echo "    make test-ci          Run tests with JUnit XML output"
 	@echo ""
 	@echo "\033[33m  DEVELOPMENT\033[0m"

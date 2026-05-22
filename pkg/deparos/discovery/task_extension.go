@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -128,7 +129,7 @@ func (e *ExtensionVariantTask) Expand(ctx context.Context, callback func(url str
 		}
 
 		variant, err := e.extProvider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

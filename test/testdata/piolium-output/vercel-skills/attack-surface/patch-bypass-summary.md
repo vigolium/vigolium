@@ -1,7 +1,7 @@
 # Stage 02 — Patch History & Bypass Review
 
 Generated: 2026-05-01  
-Repository: `/Users/bytedance/Desktop/oss-to-run/skills` (`vercel-labs/skills`)  
+Repository: `/Users/j3ssie/Desktop/oss-to-run/skills` (`vercel-labs/skills`)  
 Scan bounds: `MAX_COMMITS=500`, `MAX_AGE=60 days ago` (defaults from `${PIGOLIUM_COMMIT_SCAN_LIMIT:-500}` / `${PIGOLIUM_COMMIT_SCAN_SINCE:-60 days ago}`). All Stage 02 `git log` sweeps used `-n "$MAX_COMMITS" --since="$MAX_AGE"`. Raw logs are in `piolium/attack-surface/raw/git-history/`.
 
 ## Executive conclusions

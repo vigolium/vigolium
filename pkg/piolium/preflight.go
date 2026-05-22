@@ -113,9 +113,9 @@ func Preflight(ctx context.Context, opts PreflightOptions) (*PreflightResult, er
 	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
 		return nil, fmt.Errorf("pi preflight timed out after %s", timeout)
 	case waitErr != nil && stderr != "":
-		return nil, fmt.Errorf("pi exited %v: %s", waitErr, oneLine(stderr, 200))
+		return nil, fmt.Errorf("pi exited %w: %s", waitErr, oneLine(stderr, 200))
 	case waitErr != nil:
-		return nil, fmt.Errorf("pi exited %v", waitErr)
+		return nil, fmt.Errorf("pi exited %w", waitErr)
 	case !res.endSeen && stderr != "":
 		return nil, fmt.Errorf("pi exited cleanly but emitted no agent_end event: %s", oneLine(stderr, 200))
 	case !res.endSeen:

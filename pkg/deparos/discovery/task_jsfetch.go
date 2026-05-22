@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"io"
 
@@ -127,7 +128,7 @@ func (t *JSFetchTask) Expand(ctx context.Context, callback func(url string, dept
 		}
 
 		urlBytes, err := t.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

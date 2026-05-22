@@ -663,7 +663,7 @@ func (r *AuditAgenticScanner) syncLoop(ctx context.Context) {
 		case <-r.done:
 			return
 		case <-ticker.C:
-			r.syncStateOnce()
+			r.syncStateOnce(ctx)
 			r.syncFindingsIncremental()
 		}
 	}
@@ -674,7 +674,7 @@ func (r *AuditAgenticScanner) syncLoop(ctx context.Context) {
 // both the disk write and the DB update when the state hash is
 // unchanged from the previous tick — long-running audits don't churn
 // hundreds of KB of identical bytes through fsync once a minute.
-func (r *AuditAgenticScanner) syncStateOnce() {
+func (r *AuditAgenticScanner) syncStateOnce(ctx context.Context) {
 	if r.cfg.SessionDir == "" || r.cfg.SourcePath == "" {
 		return
 	}
@@ -698,7 +698,7 @@ func (r *AuditAgenticScanner) syncStateOnce() {
 	if writeErr := os.WriteFile(dest, data, 0o644); writeErr != nil {
 		zap.L().Debug("Failed to sync audit state", zap.Error(writeErr))
 	}
-	r.updateAgenticScanProgress(data)
+	r.updateAgenticScanProgress(ctx, data)
 }
 
 // syncFindingsIncremental copies new/changed files from findings-draft/ to session dir.
@@ -858,7 +858,7 @@ func (r *AuditAgenticScanner) FindingStats() FindingStats {
 	return stats
 }
 
-func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
+func (r *AuditAgenticScanner) updateAgenticScanProgress(ctx context.Context, stateData []byte) {
 	if r.repo == nil || r.cfg.SuppressAgenticScanRow {
 		return
 	}
@@ -881,7 +881,6 @@ func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
 		}
 	}
 
-	ctx := context.Background()
 	run, err := r.repo.GetAgenticScan(ctx, r.agenticScanUUID)
 	if err != nil {
 		return
@@ -897,7 +896,9 @@ func (r *AuditAgenticScanner) updateAgenticScanProgress(stateData []byte) {
 		}
 	}
 
-	_ = r.repo.UpdateAgenticScan(ctx, run)
+	if err := r.repo.UpdateAgenticScan(ctx, run); err != nil {
+		zap.L().Warn("failed to persist agentic scan progress", zap.String("run", run.UUID), zap.Error(err))
+	}
 }
 
 func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processErr error) {
@@ -933,7 +934,9 @@ func (r *AuditAgenticScanner) finalizeAgenticScan(ctx context.Context, processEr
 
 	applyScanCost(run, r.costSummary)
 
-	_ = r.repo.UpdateAgenticScan(ctx, run)
+	if err := r.repo.UpdateAgenticScan(ctx, run); err != nil {
+		zap.L().Warn("failed to persist finalized agentic scan", zap.String("run", run.UUID), zap.Error(err))
+	}
 }
 
 // computeCostSummary derives a priced ScanCost for the run and stores
@@ -1153,7 +1156,7 @@ func copyDir(src, dest string) {
 			return nil
 		}
 		_ = os.MkdirAll(filepath.Dir(destPath), 0o755)
-		_ = os.WriteFile(destPath, data, 0o644)
+		writeSessionArtifact(destPath, data)
 		return nil
 	})
 }

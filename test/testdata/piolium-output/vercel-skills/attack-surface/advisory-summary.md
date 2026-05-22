@@ -3,7 +3,7 @@
 ## Advisory Intelligence
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/skills` (`vercel-labs/skills`)
+Target: `/Users/j3ssie/Desktop/oss-to-run/skills` (`vercel-labs/skills`)
 
 ### Advisory Inventory
 

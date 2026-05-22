@@ -33,15 +33,22 @@ func (adapter *AttackControllerAdapterExecutor) RunAttackStep(
 
 	payloadAsBytes := utils.StringToBytes(payload)
 
+	// Argument mapping onto ScanExecutionManager.Scan (see stubs.go):
+	//   - contextCode is the raw reflection-context byte; widen it to the
+	//     ReflectionContext type the manager expects.
+	//   - detector is nil: this adapter runs an isolated attack step and holds
+	//     no pre-built reflection detector, so the manager issues its own
+	//     request and analyzes the response itself.
+	//   - useSecondaryCanary maps to needsFollowUpRequest: observing a secondary
+	//     canary requires a follow-up request.
 	return adapter.scanManager.Scan(
 		injectionPoint,
 		scanFlags,
 		payloadAsBytes,
 		tactic,
-		ReflectionContext(contextCode), //TODO
-		nil,                            // TODO: check this
-		useSecondaryCanary,             // TODO: check this
-
+		ReflectionContext(contextCode),
+		nil,
+		useSecondaryCanary,
 		profile,
 	)
 }

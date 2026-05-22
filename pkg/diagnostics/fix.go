@@ -52,6 +52,14 @@ func resolveAlias(name string) string {
 	return name
 }
 
+// ResolveFixKey is the exported form of resolveAlias: it maps a user-supplied
+// --only token (e.g. "chrome", "nuclei") to its canonical fix key (e.g.
+// "chromium", "nuclei-templates"). The doctor CLI uses it to render a focused
+// view of just the components named in --only.
+func ResolveFixKey(name string) string {
+	return resolveAlias(name)
+}
+
 // fixRegistry returns the ordered set of fixable doctor items. Order is
 // significant: RunFixes walks this slice in sequence, so listing native-scan
 // dependencies first ensures `vigolium doctor --fix` brings the deterministic

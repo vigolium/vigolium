@@ -97,7 +97,7 @@ func getProxyURL(cliProxy string) string {
 
 // NewRequester creates a new Requester with all HTTP clients initialized
 func NewRequester(options *types.Options, services *services.Services) (*Requester, error) {
-	dialer := network.Dialer
+	dialer := network.CurrentDialer()
 	if dialer == nil {
 		return nil, errors.New("network.Dialer not initialized")
 	}

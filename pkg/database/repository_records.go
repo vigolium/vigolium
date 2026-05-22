@@ -356,6 +356,10 @@ func (r *Repository) AppendRemarks(ctx context.Context, annotations map[string][
 		return nil
 	}
 
+	// Track the first update failure so a systemic problem surfaces to the
+	// caller (every caller logs the returned error) while a single bad record
+	// doesn't abort annotation of the rest.
+	var firstErr error
 	for uuid, newRemarks := range annotations {
 		if len(newRemarks) == 0 {
 			continue
@@ -389,14 +393,19 @@ func (r *Repository) AppendRemarks(ctx context.Context, annotations map[string][
 			continue
 		}
 
-		_, _ = r.db.NewUpdate().
+		if _, err := r.db.NewUpdate().
 			Model((*HTTPRecord)(nil)).
 			Set("remarks = ?", string(remarksJSON)).
 			Where("uuid = ?", uuid).
-			Exec(ctx)
+			Exec(ctx); err != nil {
+			zap.L().Warn("failed to append remarks to record", zap.String("uuid", uuid), zap.Error(err))
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
 	}
 
-	return nil
+	return firstErr
 }
 
 // UpdateRiskScores batch-updates risk_score on HTTPRecords identified by UUID.

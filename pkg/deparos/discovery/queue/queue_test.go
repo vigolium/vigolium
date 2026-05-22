@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -132,7 +133,7 @@ func TestTaskQueue_DequeueContextCancellation(t *testing.T) {
 	// Verify dequeue returns context error
 	select {
 	case err := <-errChan:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
 	case <-time.After(1 * time.Second):
@@ -160,7 +161,7 @@ func TestTaskQueue_Stop(t *testing.T) {
 	// Verify dequeue returns ErrQueueStopped
 	select {
 	case err := <-errChan:
-		if err != ErrQueueStopped {
+		if !errors.Is(err, ErrQueueStopped) {
 			t.Errorf("expected ErrQueueStopped, got %v", err)
 		}
 	case <-time.After(1 * time.Second):

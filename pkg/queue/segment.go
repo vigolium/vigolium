@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -393,7 +394,7 @@ func (s *Segment) AckTask(taskID string) error {
 	taskKey := []byte(prefixTask + taskID)
 	taskData, err := s.db.Get(taskKey, nil)
 	if err != nil {
-		if err == leveldb.ErrNotFound {
+		if errors.Is(err, leveldb.ErrNotFound) {
 			return ErrTaskNotFound
 		}
 		return err

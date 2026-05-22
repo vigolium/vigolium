@@ -69,7 +69,7 @@ python3 piolium/findings/p10-003-http-well-known-skill-discovery/poc.py
 The recorded exploit used the noninteractive install path and observed all well-known files being fetched over cleartext:
 
 ```text
-$ node /Users/bytedance/Desktop/oss-to-run/skills/src/cli.ts add http://127.0.0.1:63785 --agent codex --copy --yes
+$ node /Users/j3ssie/Desktop/oss-to-run/skills/src/cli.ts add http://127.0.0.1:63785 --agent codex --copy --yes
 returncode=0
 --- cleartext HTTP requests observed ---
 /.well-known/agent-skills/index.json

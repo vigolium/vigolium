@@ -87,7 +87,14 @@ func setSeverity(severities *Severities, value string) error {
 		return fmt.Errorf("'%s' is not a valid severity", value)
 	}
 
-	// TODO change the Severities type to map[Severity]interface{}, where the values are struct{}{}, to "simulates" a "set" data structure
+	// Keep Severities set-like: skip values already present so repeated flags
+	// (e.g. --severity high --severity high) don't accumulate duplicates. A slice
+	// is retained over a map to preserve insertion order for stable output.
+	for _, existing := range *severities {
+		if existing == computedSeverity {
+			return nil
+		}
+	}
 	*severities = append(*severities, computedSeverity)
 	return nil
 }

@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -10,12 +11,30 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// Dialer is a shared fastdialer instance for host DNS resolution.
+// Dialer is a shared fastdialer instance for host DNS resolution. Prefer
+// CurrentDialer() for reads; the variable is exported for backward
+// compatibility but is mutated under mu.
 var Dialer *fastdialer.Dialer
 
-// Init creates the global Dialer instance based on user configuration.
+// mu guards Dialer and refCount. Init/Close are reference-counted so that
+// overlapping users of the shared dialer — concurrent scans, a server that
+// outlives individual scan runners, or sequential tests whose background work
+// overlaps — cannot tear the dialer out from under one another. The dialer is
+// created on the first Init and destroyed only when the last holder Closes.
+var (
+	mu       sync.Mutex
+	refCount int
+)
+
+// Init creates the global Dialer instance based on user configuration, or
+// reuses the existing one, and registers one reference. Every successful Init
+// must be paired with exactly one Close.
 func Init(options *types.Options) error {
+	mu.Lock()
+	defer mu.Unlock()
+
 	if Dialer != nil {
+		refCount++
 		return nil
 	}
 
@@ -24,10 +43,19 @@ func Init(options *types.Options) error {
 		return err
 	}
 	Dialer = dialer
+	refCount++
 
 	StartActiveMemGuardian(context.Background())
 
 	return nil
+}
+
+// CurrentDialer returns the shared dialer (nil if not initialized), read under
+// the lock so it doesn't race with Init/Close.
+func CurrentDialer() *fastdialer.Dialer {
+	mu.Lock()
+	defer mu.Unlock()
+	return Dialer
 }
 
 // NewDialer creates a new fastdialer instance based on user configuration.
@@ -67,9 +95,20 @@ func NewDialer(options *types.Options) (*fastdialer.Dialer, error) {
 	return dialer, nil
 }
 
-// Close closes the global shared fastdialer and resets it to nil,
-// allowing Init() to re-create it if called again.
+// Close releases one reference to the global shared fastdialer. The dialer is
+// closed and reset to nil only when the final reference is released, allowing a
+// later Init() to re-create it. Extra Close() calls (more than Init()) are
+// ignored rather than tearing down a dialer still in use.
 func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if refCount > 0 {
+		refCount--
+	}
+	if refCount > 0 {
+		return
+	}
 	if Dialer != nil {
 		Dialer.Close()
 		Dialer = nil

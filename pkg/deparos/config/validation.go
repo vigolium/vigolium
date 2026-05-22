@@ -55,7 +55,7 @@ func (t *TargetConfig) Validate() error {
 	// 2. Parse URL
 	u, err := url.Parse(t.StartURL)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidURL, err)
+		return fmt.Errorf("%w: %w", ErrInvalidURL, err)
 	}
 
 	// 3. Must be HTTP or HTTPS

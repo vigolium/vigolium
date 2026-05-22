@@ -483,7 +483,9 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 				})
 			}
 			scan.Status = "queued"
-			_ = h.repo.UpdateScan(ctx, scan)
+			if err := h.repo.UpdateScan(ctx, scan); err != nil {
+				zap.L().Warn("failed to mark scan queued", zap.String("scan", scan.UUID), zap.Error(err))
+			}
 			qCh <- &queuedScan{
 				scanID:        scanID,
 				runner:        scanRunner,
@@ -508,7 +510,9 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 	}
 
 	scan.Status = "running"
-	_ = h.repo.UpdateScan(ctx, scan)
+	if err := h.repo.UpdateScan(ctx, scan); err != nil {
+		zap.L().Warn("failed to mark scan running", zap.String("scan", scan.UUID), zap.Error(err))
+	}
 
 	st.runner = scanRunner
 	st.running = true

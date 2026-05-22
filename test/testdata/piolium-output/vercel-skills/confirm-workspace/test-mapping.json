@@ -3,7 +3,7 @@
   "timestamp": "2026-04-30T20:21:16Z",
   "mode": "confirm-v5-test-mapper",
   "framework": "vitest",
-  "target_repository": "/Users/bytedance/Desktop/oss-to-run/skills",
+  "target_repository": "/Users/j3ssie/Desktop/oss-to-run/skills",
   "summary": {
     "total_findings": 14,
     "targeted_for_v5": 9,

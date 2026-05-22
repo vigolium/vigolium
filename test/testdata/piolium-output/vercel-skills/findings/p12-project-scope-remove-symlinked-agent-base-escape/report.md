@@ -107,7 +107,7 @@ The decisive lines from `evidence/impact.log` show the operation was project-sco
 
 ```text
 project_.agents_symlink=../outside
-outside_skill=/Users/bytedance/Desktop/oss-to-run/skills/piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/workdir/outside/skills/victim-skill
+outside_skill=/Users/j3ssie/Desktop/oss-to-run/skills/piolium/findings/p12-project-scope-remove-symlinked-agent-base-escape/evidence/workdir/outside/skills/victim-skill
 before_marker=P12_SYMLINK_ESCAPE_SENTINEL
 cli_command=(cd project && node src/cli.ts remove victim-skill -y)
 cli_exit=0

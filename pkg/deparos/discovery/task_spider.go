@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"io"
 	"strings"
@@ -165,7 +166,7 @@ func (t *SpiderTask) Expand(ctx context.Context, callback func(url string, depth
 		}
 
 		path, err := t.provider.Next(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

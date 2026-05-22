@@ -38,6 +38,7 @@ var (
 	globalForce                   bool
 	globalDisableFetchResponse    bool
 	globalWidth                   int
+	globalSkipDependencyCheck     bool
 
 	// Input / server / module flags (shared by scan, ingest, etc.)
 	globalInput       string
@@ -156,11 +157,21 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			if err := ensureInitialized(); err != nil {
 				return err
 			}
-			// For commands that drive a native scan, also guarantee the core
-			// scan dependencies (chromium + nuclei templates) are installed
-			// before handing control to the command. Cheap/informational
-			// commands skip this so they don't trigger a chrome download.
-			if needsCoreDeps(cmd) {
+			// --skip-dependency-check opts out of the first-run chromium +
+			// nuclei-templates check entirely: stamp the marker now so this and
+			// every future scan fast-path past the diagnostic. Applies to any
+			// command so users can pre-seed the marker (e.g. in CI) ahead of a
+			// scan without triggering a chrome download.
+			if globalSkipDependencyCheck {
+				if skipCoreDepCheck() {
+					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(),
+						terminal.BoldCyan("Skipping dependency check (--skip-dependency-check) — stamped ~/.vigolium/initialized"))
+				}
+			} else if needsCoreDeps(cmd) {
+				// For commands that drive a native scan, guarantee the core
+				// scan dependencies (chromium + nuclei templates) are installed
+				// before handing control to the command. Cheap/informational
+				// commands skip this so they don't trigger a chrome download.
 				if err := ensureCoreDeps(); err != nil {
 					return err
 				}
@@ -213,6 +224,7 @@ func init() {
 	pf.BoolVarP(&globalListModules, "list-modules", "M", false, "List all available scanner modules")
 	pf.BoolVar(&globalListInputModes, "list-input-mode", false, "List all supported input modes with examples")
 	pf.BoolVarP(&globalForce, "force", "F", false, "Skip confirmation prompts")
+	pf.BoolVar(&globalSkipDependencyCheck, "skip-dependency-check", false, "Skip the first-run dependency check (chromium, nuclei templates) and stamp ~/.vigolium/initialized immediately")
 	pf.IntVar(&globalWidth, "width", 70, "Maximum column width for table output")
 
 	pf.StringVar(&globalScanUUID, "scan-uuid", "", "Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID)")

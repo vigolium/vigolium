@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -203,7 +204,7 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (*ScanTask, error) {
 		}).Result()
 
 		if err != nil {
-			if err == redis.Nil {
+			if errors.Is(err, redis.Nil) {
 				// No messages, continue waiting
 				continue
 			}

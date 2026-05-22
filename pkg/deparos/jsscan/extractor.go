@@ -131,7 +131,7 @@ func (e *Extractor) extractAndCache() (*CachedBinary, error) {
 	binaryPath := filepath.Join(e.cacheDir, binaryName)
 
 	if err := os.WriteFile(binaryPath, embeddedBinary, 0755); err != nil {
-		return nil, fmt.Errorf("%w: write binary: %v", ErrExtractionFailed, err)
+		return nil, fmt.Errorf("%w: write binary: %w", ErrExtractionFailed, err)
 	}
 
 	currentChecksum := getEmbeddedChecksum()

@@ -1,7 +1,7 @@
 # Architecture Entrypoints Inventory — Stage 03
 
 Generated: 2026-05-01  
-Target: `/Users/bytedance/Desktop/oss-to-run/skills`
+Target: `/Users/j3ssie/Desktop/oss-to-run/skills`
 
 ## Runtime entry points
 

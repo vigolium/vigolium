@@ -122,7 +122,9 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 	}
 
 	scan.Status = "running"
-	_ = h.repo.UpdateScan(ctx, scan)
+	if err := h.repo.UpdateScan(ctx, scan); err != nil {
+		zap.L().Warn("failed to mark scan running", zap.String("scan", scan.UUID), zap.Error(err))
+	}
 
 	st.runner = scanRunner
 	st.running = true
@@ -348,7 +350,9 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 
 	if req.DryRun {
 		scan.Status = "dry_run"
-		_ = h.repo.UpdateScan(bgCtx, scan)
+		if err := h.repo.UpdateScan(bgCtx, scan); err != nil {
+			zap.L().Warn("failed to mark scan dry_run", zap.String("scan", scan.UUID), zap.Error(err))
+		}
 		return c.Status(fiber.StatusOK).JSON(ScanResponse{
 			ProjectUUID:   projectUUID,
 			ScanUUID:      scanID,
@@ -384,7 +388,9 @@ func (h *Handlers) HandleScanAllRecords(c fiber.Ctx) error {
 	}
 
 	scan.Status = "running"
-	_ = h.repo.UpdateScan(bgCtx, scan)
+	if err := h.repo.UpdateScan(bgCtx, scan); err != nil {
+		zap.L().Warn("failed to mark scan running", zap.String("scan", scan.UUID), zap.Error(err))
+	}
 
 	st.runner = scanRunner
 	st.running = true

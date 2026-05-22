@@ -2,6 +2,7 @@ package payload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -99,7 +100,7 @@ func TestObservedProvider_Sorting(t *testing.T) {
 		var items []string
 		for {
 			item, err := provider.Next(ctx)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			require.NoError(t, err)
@@ -122,7 +123,7 @@ func TestObservedProvider_Sorting(t *testing.T) {
 		var items []string
 		for {
 			item, err := provider.Next(ctx)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			require.NoError(t, err)
@@ -244,7 +245,7 @@ func TestObservedProvider_Iteration(t *testing.T) {
 		var actual []string
 		for {
 			item, err := provider.Next(ctx)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			require.NoError(t, err)
@@ -484,7 +485,7 @@ func TestObservedProvider_Eviction(t *testing.T) {
 		var items []string
 		for {
 			item, err := provider.Next(ctx)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			items = append(items, string(item))

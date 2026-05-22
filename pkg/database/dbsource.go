@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -179,7 +180,7 @@ func (s *DBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 
 		record, seq, err := s.nextBufferedRecord(ctx)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				if s.oneShot {
 					return nil, io.EOF
 				}

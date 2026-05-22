@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"math/rand"
@@ -245,7 +246,8 @@ func utilsFuncDefs() []JSFuncDef {
 					err := c.Run()
 					exitCode := 0
 					if err != nil {
-						if exitErr, ok := err.(*exec.ExitError); ok {
+						var exitErr *exec.ExitError
+						if errors.As(err, &exitErr) {
 							exitCode = exitErr.ExitCode()
 						} else if c.ProcessState != nil {
 							// e.g. ErrWaitDelay: the process exited but a lingering

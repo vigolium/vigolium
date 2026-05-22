@@ -176,7 +176,7 @@ func (s *Scanner) executeKingfisher(ctx context.Context, binaryPath, inputPath s
 		if result != nil {
 			stderr = string(result.Stderr)
 		}
-		return nil, fmt.Errorf("%w: %v, stderr: %s", ErrScanFailed, err, stderr)
+		return nil, fmt.Errorf("%w: %w, stderr: %s", ErrScanFailed, err, stderr)
 	}
 
 	return parseKingfisherOutput(result.Stdout)

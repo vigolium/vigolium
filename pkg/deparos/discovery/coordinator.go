@@ -99,7 +99,7 @@ func (c *PayloadCoordinator) runExpander(ctx context.Context) {
 
 		taskInfo, err := c.queue.Dequeue(ctx)
 		if err != nil {
-			if err == queue.ErrQueueStopped || ctx.Err() != nil {
+			if errors.Is(err, queue.ErrQueueStopped) || ctx.Err() != nil {
 				return
 			}
 			continue
@@ -760,7 +760,7 @@ func (c *PayloadCoordinator) sendDiscoveryRequest(
 
 	rc, err := c.sendTrackedRequest(ctx, req, urlStr, cb)
 	if err != nil {
-		if err != errWAFBlocked {
+		if !errors.Is(err, errWAFBlocked) {
 			logger.Debug("HTTP request failed", zap.String("url", urlStr), zap.Error(err))
 		}
 		return nil, false

@@ -19,11 +19,16 @@ import (
 // A vulnerable REST API for testing security tools
 //
 // Known vulnerabilities:
-// - SQL Injection in /users/v1/_debug (username parameter)
-// - SQL Injection in /books/v1 (book parameter)
+// - SQL Injection in GET /users/v1/{username} (the username path segment is
+//   concatenated into a raw SQL query; injecting a quote yields an unhandled
+//   sqlite3.OperationalError — classic error-based SQLi).
 // - Broken Authentication
 // - Mass Assignment
 // - Excessive Data Exposure
+//
+// Note: /users/v1/_debug and GET /books/v1 ignore their query string entirely
+// (they dump all rows regardless of ?username= / ?book=), so those are NOT
+// injection points — the injectable surface is the {username} path segment.
 
 // TestVAmPI_SQLi tests SQL injection detection against VAmPI
 func TestVAmPI_SQLi(t *testing.T) {
@@ -51,6 +56,9 @@ func TestVAmPI_SQLi(t *testing.T) {
 
 	t.Logf("VAmPI running at %s", app.BaseURL)
 
+	// Seed the DB so the baseline query succeeds (see seedVAmPIDatabase).
+	seedVAmPIDatabase(t, app.BaseURL)
+
 	// Setup test infrastructure
 	infra, err := SetupTestInfra()
 	require.NoError(t, err, "Failed to setup test infrastructure")
@@ -64,22 +72,22 @@ func TestVAmPI_SQLi(t *testing.T) {
 		description string
 	}{
 		{
-			name:        "users_debug_sqli",
-			url:         "/users/v1/_debug?username=admin",
+			name:        "users_path_sqli_admin",
+			url:         "/users/v1/admin",
 			expectVuln:  true,
-			description: "SQL injection in username parameter",
+			description: "error-based SQL injection in the {username} path segment",
 		},
 		{
-			name:        "books_search",
-			url:         "/books/v1?book=test",
+			name:        "users_path_sqli_name1",
+			url:         "/users/v1/name1",
 			expectVuln:  true,
-			description: "SQL injection in book search parameter",
+			description: "error-based SQL injection in the {username} path segment",
 		},
 		{
 			name:        "users_list_safe",
 			url:         "/users/v1",
 			expectVuln:  false,
-			description: "Safe endpoint without injection points",
+			description: "List endpoint (no per-row query) — not an error-based injection point",
 		},
 	}
 
@@ -102,9 +110,12 @@ func TestVAmPI_SQLi(t *testing.T) {
 					t.Logf("Found SQLi: param=%s module=%s", r.FuzzingParameter, r.ModuleID)
 				}
 			} else {
-				// For safe endpoints, we don't necessarily expect 0 results
-				// but we log what was found
-				t.Logf("Results for safe endpoint %s: %d findings", tc.url, len(results))
+				// The safe list endpoint is not an error-based injection point,
+				// so the scanner must report nothing there. A non-empty result is
+				// a false positive and should fail the test.
+				assert.Empty(t, results,
+					"expected no error-based SQLi at safe endpoint %s (%s); got %d (false positive)",
+					tc.url, tc.description, len(results))
 			}
 		})
 	}
@@ -136,17 +147,22 @@ func TestVAmPI_FullScan(t *testing.T) {
 
 	t.Logf("VAmPI running at %s", app.BaseURL)
 
+	// Seed the DB so the baseline query succeeds (see seedVAmPIDatabase).
+	seedVAmPIDatabase(t, app.BaseURL)
+
 	// Setup test infrastructure
 	infra, err := SetupTestInfra()
 	require.NoError(t, err, "Failed to setup test infrastructure")
 	defer infra.Cleanup()
 
-	// Endpoints to scan
+	// Endpoints to scan. The {username} path segment is the error-based SQLi
+	// surface; the others exercise non-injectable paths (the scan should run
+	// cleanly against them and contribute no error-based findings).
 	endpoints := []string{
-		"/users/v1/_debug?username=admin",
-		"/books/v1?book=test",
+		"/users/v1/admin",
+		"/users/v1/name1",
+		"/users/v1/_debug",
 		"/users/v1/login",
-		"/users/v1/register",
 	}
 
 	sqliScanner := sqli_error_based.New()

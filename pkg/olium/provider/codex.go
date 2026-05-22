@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,17 @@ import (
 // codexDebug dumps every SSE event type to stderr when VIGOLIUM_OLIUM_DEBUG=1.
 // Kept as a quiet operator knob for tracking down stream-shape regressions.
 var codexDebug = os.Getenv("VIGOLIUM_OLIUM_DEBUG") != ""
+
+// debugToolArgErr surfaces a tool-call argument unmarshal failure under the
+// VIGOLIUM_OLIUM_DEBUG knob. A failure here is consequential: the tool is
+// invoked with empty arguments because the streamed JSON could not be
+// assembled. It is kept non-fatal (the call still proceeds) but observable.
+// Shared by the codex, anthropic, and openai stream parsers in this package.
+func debugToolArgErr(provider string, err error) {
+	if err != nil && codexDebug {
+		fmt.Fprintf(os.Stderr, "[olium %s] tool-call argument unmarshal failed: %v\n", provider, err)
+	}
+}
 
 const (
 	codexDefaultBaseURL = "https://chatgpt.com/backend-api"
@@ -273,7 +285,7 @@ func (c *Codex) consumeSSE(ctx context.Context, body io.ReadCloser, out chan<- s
 		}
 
 		evt, err := reader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return
 		}
 		if err != nil {
@@ -372,7 +384,7 @@ func (s *codexStreamState) handle(t string, ev map[string]any, out chan<- stream
 		case "function_call":
 			args := map[string]any{}
 			if s.toolJSON != "" {
-				_ = json.Unmarshal([]byte(s.toolJSON), &args)
+				debugToolArgErr("codex", json.Unmarshal([]byte(s.toolJSON), &args))
 			}
 			out <- stream.Event{Type: stream.EventToolCallEnd, ToolCall: &stream.ToolCall{
 				ID:        s.toolID,

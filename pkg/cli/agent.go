@@ -268,7 +268,9 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 
 	// Save raw output to session directory
 	if sessionDir != "" && result.RawOutput != "" {
-		_ = os.WriteFile(sessionDir+"/output.md", []byte(result.RawOutput), 0644)
+		if err := os.WriteFile(sessionDir+"/output.md", []byte(result.RawOutput), 0644); err != nil {
+			zap.L().Debug("failed to write agent output.md", zap.Error(err))
+		}
 	}
 
 	// For inline runs without a template, print raw output (skip if already streamed)

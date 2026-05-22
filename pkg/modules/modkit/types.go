@@ -42,24 +42,44 @@ func (s ScanScope) Has(check ScanScope) bool {
 }
 
 // InsertionPointTypeSet is a set of allowed insertion point types.
-// Uses bitmask for efficient storage and lookup.
-type InsertionPointTypeSet uint32
+// Uses a bitmask for efficient storage and lookup.
+//
+// Must be uint64, not uint32: insertion-point type values reach into the 30s
+// (httpmsg.INS_HEADER=32, INS_URL_PATH_FOLDER=33, INS_PARAM_NAME_URL=34,
+// INS_PARAM_NAME_BODY=35, INS_ENTIRE_BODY=36, INS_URL_PATH_FILENAME=37). With a
+// uint32 mask, `1 << t` for any t >= 32 truncates to 0, so those bits could
+// never be stored or matched — header and URL-path fuzzing were silently
+// dropped for every per-insertion-point module. (Type values 64/65/127 are
+// non-fuzzable markers — user/extension/unknown — and remain unrepresentable.)
+type InsertionPointTypeSet uint64
 
-// AllInsertionPointTypes includes all insertion point types.
-const AllInsertionPointTypes InsertionPointTypeSet = 0xFFFFFFFF
+// AllInsertionPointTypes includes all representable insertion point types
+// (bits 0-63, which covers every fuzzable type httpmsg defines).
+const AllInsertionPointTypes InsertionPointTypeSet = 0xFFFFFFFFFFFFFFFF
+
+// typeBit returns the bitmask for a type, or 0 for types that don't fit in the
+// 64-bit set (the non-fuzzable markers >= 64). Guarding the shift keeps the
+// behavior explicit rather than relying on Go's shift-overflow-to-zero.
+func typeBit(t httpmsg.InsertionPointType) InsertionPointTypeSet {
+	if t >= 64 {
+		return 0
+	}
+	return InsertionPointTypeSet(1) << uint(t)
+}
 
 // NewInsertionPointTypeSet creates a new set from the given types.
 func NewInsertionPointTypeSet(types ...httpmsg.InsertionPointType) InsertionPointTypeSet {
 	var set InsertionPointTypeSet
 	for _, t := range types {
-		set |= InsertionPointTypeSet(1 << t)
+		set |= typeBit(t)
 	}
 	return set
 }
 
 // Contains returns true if the set contains the given type.
 func (s InsertionPointTypeSet) Contains(t httpmsg.InsertionPointType) bool {
-	return s&InsertionPointTypeSet(1<<t) != 0
+	bit := typeBit(t)
+	return bit != 0 && s&bit != 0
 }
 
 // Common insertion point type presets.

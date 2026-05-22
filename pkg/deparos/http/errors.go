@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -39,25 +40,31 @@ func IsRetryable(err error) bool {
 	}
 
 	// Unwrap RequestError to get underlying error
-	if reqErr, ok := err.(*RequestError); ok {
+	var reqErr *RequestError
+	if errors.As(err, &reqErr) {
 		err = reqErr.Err
 	}
 
 	// Network errors are retryable
-	if _, ok := err.(net.Error); ok {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
 		return true
 	}
 
 	// Connection errors are retryable
-	if urlErr, ok := err.(*url.Error); ok {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
 		// Timeout errors are retryable
-		if netErr, ok := urlErr.Err.(net.Error); ok && netErr.Timeout() {
+		var timeoutErr net.Error
+		if errors.As(urlErr.Err, &timeoutErr) && timeoutErr.Timeout() {
 			return true
 		}
 
 		// Connection refused/reset errors
-		if opErr, ok := urlErr.Err.(*net.OpError); ok {
-			if sysErr, ok := opErr.Err.(*syscall.Errno); ok {
+		var opErr *net.OpError
+		if errors.As(urlErr.Err, &opErr) {
+			var sysErr *syscall.Errno
+			if errors.As(opErr.Err, &sysErr) {
 				if *sysErr == syscall.ECONNREFUSED || *sysErr == syscall.ECONNRESET {
 					return true
 				}

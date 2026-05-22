@@ -3,8 +3,28 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+)
+
+// Sentinel errors returned by the generic table API. Callers (notably the REST
+// DB handlers) discriminate on these with errors.Is to map failures to HTTP
+// status codes, rather than matching on error-message substrings. They classify
+// client-fixable input problems (unknown table/column, empty field set,
+// single-value ops on composite-PK tables) distinctly from internal failures.
+var (
+	// ErrTableNotFound indicates the requested table is unknown to the generic API.
+	ErrTableNotFound = errors.New("table not found")
+	// ErrInvalidColumn indicates a supplied column does not exist on the target table.
+	ErrInvalidColumn = errors.New("invalid column")
+	// ErrNoValidFields indicates no usable fields were supplied for an insert/update.
+	ErrNoValidFields = errors.New("no valid fields provided")
+	// ErrCompositePKUnsupported indicates a single-value PK operation was attempted
+	// on a table whose primary key spans multiple columns.
+	ErrCompositePKUnsupported = errors.New("single-value operation not supported for composite primary key table")
+	// ErrImmutablePrimaryKey indicates an attempt to update a primary-key column.
+	ErrImmutablePrimaryKey = errors.New("cannot update primary key column")
 )
 
 // GenericQueryOptions holds options for filtered, sorted, paginated generic queries.
@@ -300,7 +320,7 @@ func ValidateTableName(ctx context.Context, db *DB, tableName string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("table %q not found", tableName)
+	return fmt.Errorf("%w: %q", ErrTableNotFound, tableName)
 }
 
 // isValidColumn checks that a column name exists in the given column list.
@@ -410,7 +430,7 @@ func GetGenericRecord(ctx context.Context, db *DB, tableName, pkValue string) (m
 		return nil, fmt.Errorf("failed to detect primary key: %w", err)
 	}
 	if len(pk.Columns) != 1 {
-		return nil, fmt.Errorf("single-value lookup not supported for composite PK table %q", tableName)
+		return nil, fmt.Errorf("%w: %q (lookup)", ErrCompositePKUnsupported, tableName)
 	}
 
 	driver := db.Driver()
@@ -459,7 +479,7 @@ func InsertGenericRecord(ctx context.Context, db *DB, tableName string, fields m
 	i := 1
 	for col, val := range fields {
 		if !isValidColumn(col, allColumns) {
-			return fmt.Errorf("invalid column %q for table %q", col, tableName)
+			return fmt.Errorf("%w %q for table %q", ErrInvalidColumn, col, tableName)
 		}
 		cols = append(cols, quoteIdent(driver, col))
 		placeholders = append(placeholders, makePlaceholder(driver, i))
@@ -468,7 +488,7 @@ func InsertGenericRecord(ctx context.Context, db *DB, tableName string, fields m
 	}
 
 	if len(cols) == 0 {
-		return fmt.Errorf("no valid fields provided")
+		return ErrNoValidFields
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
@@ -492,7 +512,7 @@ func UpdateGenericRecord(ctx context.Context, db *DB, tableName, pkValue string,
 		return fmt.Errorf("failed to detect primary key: %w", err)
 	}
 	if len(pk.Columns) != 1 {
-		return fmt.Errorf("single-value update not supported for composite PK table %q", tableName)
+		return fmt.Errorf("%w: %q (update)", ErrCompositePKUnsupported, tableName)
 	}
 
 	allColumns, err := ListColumns(ctx, db, tableName)
@@ -508,10 +528,10 @@ func UpdateGenericRecord(ctx context.Context, db *DB, tableName, pkValue string,
 	i := 1
 	for col, val := range fields {
 		if col == pkColName {
-			return fmt.Errorf("cannot update primary key column %q", col)
+			return fmt.Errorf("%w %q", ErrImmutablePrimaryKey, col)
 		}
 		if !isValidColumn(col, allColumns) {
-			return fmt.Errorf("invalid column %q for table %q", col, tableName)
+			return fmt.Errorf("%w %q for table %q", ErrInvalidColumn, col, tableName)
 		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = %s", quoteIdent(driver, col), makePlaceholder(driver, i)))
 		args = append(args, val)
@@ -519,7 +539,7 @@ func UpdateGenericRecord(ctx context.Context, db *DB, tableName, pkValue string,
 	}
 
 	if len(setClauses) == 0 {
-		return fmt.Errorf("no valid fields to update")
+		return fmt.Errorf("%w: nothing to update", ErrNoValidFields)
 	}
 
 	args = append(args, pkValue)
@@ -555,7 +575,7 @@ func DeleteGenericRecord(ctx context.Context, db *DB, tableName, pkValue string)
 		return fmt.Errorf("failed to detect primary key: %w", err)
 	}
 	if len(pk.Columns) != 1 {
-		return fmt.Errorf("single-value delete not supported for composite PK table %q", tableName)
+		return fmt.Errorf("%w: %q (delete)", ErrCompositePKUnsupported, tableName)
 	}
 
 	driver := db.Driver()

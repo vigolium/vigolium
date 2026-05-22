@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -292,7 +293,7 @@ func TestRecordWriter_WriteAfterClose(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected write after Close to fail")
 	}
-	if err != ErrRecordWriterClosed {
+	if !errors.Is(err, ErrRecordWriterClosed) {
 		t.Fatalf("expected ErrRecordWriterClosed, got %v", err)
 	}
 }

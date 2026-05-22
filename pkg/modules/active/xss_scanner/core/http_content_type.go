@@ -43,9 +43,12 @@ type ContentTypeProfile struct {
 	rawContentTypeHeaderValue      string // Store the original Content-Type header strings that led to statedTypeCode
 }
 
-// isTextualForEffectiveness checks if a DefType code is like text/script/css for effective type logic.
+// isTextualForEffectiveness reports whether typeCode is one of the "textual"
+// types consulted by determineEffectiveStatedType when deciding whether to trust
+// the stated content-type over the body-inferred one. HTML is deliberately
+// excluded so a stated-HTML response always yields to the body-inferred type,
+// mirroring the upstream effective-type precedence this logic was ported from.
 func isTextualForEffectiveness(typeCode int16) bool {
-	// TODO: is this right?
 	return typeCode == DefTypePlainText || typeCode == DefTypeScript || typeCode == DefTypeCSS
 }
 

@@ -2,6 +2,7 @@ package wordlist
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -444,7 +445,7 @@ func TestTokenizer_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	err := tokenizer.Tokenize(ctx, strings.NewReader("hello world"), ContentTypeText, seen, func(token *Token) {})
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled error, got %v", err)
 	}
 }

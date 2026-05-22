@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	nethttp "net/http"
 	"net/url"
@@ -552,7 +553,7 @@ func (e *Engine) Start() error {
 
 		e.wg.Go(func() {
 			if err := e.coordinator.Run(e.ctx); err != nil {
-				if err != context.Canceled {
+				if !errors.Is(err, context.Canceled) {
 					logger.Error("Coordinator error", zap.Error(err))
 				}
 			}

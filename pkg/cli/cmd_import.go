@@ -104,6 +104,17 @@ func runImport(cmd *cobra.Command, args []string) error {
 		SessionDirArchiver: cliSessionDirArchiver,
 	}
 
+	// Announce the work before it starts: parsing an audit folder and writing
+	// findings/records to the DB can take a while for large runs, and without a
+	// progress line the terminal looks frozen until the summary prints.
+	if !globalJSON {
+		fmt.Fprint(os.Stderr, GetBanner())
+		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(),
+			terminal.BoldCyan(fmt.Sprintf("Importing scan data from %s ...", inputArg)))
+		fmt.Fprintf(os.Stderr, "  %s\n",
+			terminal.Gray("Parsing input and writing records to the database — this can take a moment for large audits"))
+	}
+
 	result, err := dbimport.ImportPath(ctx, repo, localPath, projectUUID, opts)
 	if err != nil {
 		return err
@@ -191,7 +202,6 @@ func printImportResult(localPath string, r *dbimport.Result) {
 		return
 	}
 
-	fmt.Fprint(os.Stderr, GetBanner())
 	if r.AgenticScan != nil {
 		scan := r.AgenticScan
 		fmt.Printf("%s Imported audit: %d findings (%d new, %d duplicates skipped)\n",
@@ -280,8 +290,13 @@ func emitImportReport(ctx context.Context, db *database.DB, result *dbimport.Res
 		}
 	}
 
-	if format == "pdf" {
-		fmt.Fprintf(os.Stderr, "%s Generating PDF report (headless Chrome)...\n", terminal.InfoSymbol())
+	if !globalJSON {
+		detail := ""
+		if format == "pdf" {
+			detail = " (headless Chrome)"
+		}
+		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(),
+			terminal.BoldCyan(fmt.Sprintf("Generating %s report%s — %d findings ...", format, detail, len(findings))))
 	}
 	if err := gen(items, localOutput, meta); err != nil {
 		return err

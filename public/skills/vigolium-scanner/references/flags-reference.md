@@ -15,7 +15,6 @@ Alphabetical index of all vigolium CLI flags across all commands.
 - [Agent Autopilot Flags](#agent-autopilot-flags)
 - [Agent Swarm Flags](#agent-swarm-flags)
 - [Agent Olium Flags](#agent-olium-flags)
-- [Agent Archon Flags](#agent-archon-flags)
 - [Agent Piolium Flags](#agent-piolium-flags)
 - [Agent Audit Flags](#agent-audit-flags)
 - [Agent Session Flags](#agent-session-flags)
@@ -121,6 +120,7 @@ Flags specific to `vigolium scan` and `vigolium run`.
 | `--no-cdp` | — | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-forms` | — | bool | `false` | Disable automatic form detection and filling during spidering |
 | `--oast-url` | — | string | — | Fixed out-of-band callback URL (overrides auto-generated interactsh URL) |
+| `--omit-response` | — | bool | `false` | Omit raw HTTP request/response bytes from the output file (keeps metadata, smaller files) |
 | `--output` | `-o` | string | — | Output file path |
 | `--required-only` | — | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--retries` | — | int | `1` | Number of retry attempts for failed requests |
@@ -253,19 +253,22 @@ Flags specific to `vigolium agent autopilot`. Also accepts a positional natural-
 | `--files` | — | []string | — | Specific files to include (relative to `--source`) |
 | `--focus` | — | string | — | Focus area hint |
 | `--focus-routes` | — | []string | — | Protected or browser-focused routes to prioritize after auth |
-| `--archon` | — | string | `lite` | Archon audit mode: `lite`, `balanced`, `deep`, `mock`, or `off` to disable |
-| `--piolium` | — | string | — | Piolium audit mode: `lite`, `balanced`, `deep`, `longshot`, etc. Empty triggers auto-pick (piolium when pi is installed, else archon). Setting `--piolium` explicitly forces piolium and turns archon off |
-| `--archon-mode` | — | string | — | Deprecated alias for `--archon` |
-| `--no-archon` | — | bool | `false` | Deprecated; use `--archon=off` |
+| `--audit` | — | string | `lite` | vigolium-audit mode run before the operator: `lite` (3-phase), `balanced` (9-phase), `deep` (12-phase), `mock`, or `off`. Default: `lite` when `--source` is set |
+| `--piolium` | — | string | — | Piolium audit mode: `lite`, `balanced`, `deep`, `longshot`, etc. Empty triggers auto-pick (piolium when `pi` is installed, else vigolium-audit). Setting `--piolium` explicitly forces piolium and turns `--audit` off |
 | `--diff` | — | string | — | Focus on changed code: PR URL, git ref range, or `HEAD~N` |
 | `--last-commits` | — | int | `0` | Focus on last N commits (shorthand for `--diff HEAD~N`) |
-| `--max-commands` | — | int | `100` | Maximum number of CLI commands the agent can execute |
 | `--max-duration` | — | duration | `6h` | Maximum wall-clock duration for the autopilot session |
-| `--token-budget` | — | int64 | `0` | Cap on cumulative input+output tokens (0 = no cap). Trips a graceful halt when exceeded |
-| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` |
+| `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` (sets max-command budget, audit mode, browser, pre-scan strategy) |
+| `--triage` | — | bool | `false` | After the scan completes, run an AI triage pass over the findings (confirm real issues vs false positives) |
+| `--no-prescan` | — | bool | `false` | Skip the native pre-scan that seeds http_records before the operator agent (target-only runs; no-op when `--source` is set) |
+| `--no-preflight-discovery` | — | bool | `false` | Skip the pre-flight discovery + OpenAPI/Swagger ingestion pass that seeds http_records |
+| `--no-post-halt-verify` | — | bool | `false` | Skip the post-halt coverage verification re-entry (operator halts → coverage probe → re-prompt when new routes appear) |
+| `--post-halt-gap-threshold` | — | int | `0` | Min new (method, URL) routes the post-halt probe must find before re-entering the agent (0 = built-in default 5) |
+| `--plan-file` | — | string | — | Path to a plan file mixing free-text guidance and raw HTTP request(s); owns the instruction + seed input (mutually exclusive with `--input`/`--instruction`/`--instruction-file`) |
 | `--instruction` | — | string | — | Custom instruction to guide the agent |
 | `--instruction-file` | — | string | — | Path to a file containing custom instructions |
 | `--browser` | — | bool | `false` | Enable agent-browser for browser-based interactions |
+| `--headed` | — | bool | `false` | Show the browser window during probes (requires `--browser`; sets `VIGOLIUM_BROWSER_HEADED=1`) |
 | `--credentials` | — | string | — | Credentials for auth preflight |
 | `--auth-required` | — | bool | `false` | Require auth/session preparation before the autonomous operator starts |
 | `--requires-browser` | — | bool | `false` | Require browser-assisted auth/setup instead of HTTP-only preflight |
@@ -320,8 +323,8 @@ Flags specific to `vigolium agent swarm`. Also accepts a positional natural-lang
 | `--browser` | — | bool | `false` | Enable agent-browser for browser-based auth capture |
 | `--browser-auth` | — | bool | `false` | Run browser-based auth phase before discovery (requires `--browser`) |
 | `--credentials` | — | string | — | Credentials for browser auth phase |
-| `--archon` | — | string | — | Run background archon-audit in parallel: `lite` (default if bare), `scan`, `deep`. Requires `--source` |
-| `--piolium` | — | string | — | Run background piolium audit (Pi runtime): `lite`, `balanced`, `deep`, `longshot`, etc. Requires `--source`. Empty triggers auto-pick when `--archon` is also empty (piolium when pi is installed, else nothing) |
+| `--audit` | — | string | — | Run background vigolium-audit in parallel: `lite` (default if bare), `balanced`, `deep`. Requires `--source` |
+| `--piolium` | — | string | — | Run background piolium audit (Pi runtime): `lite`, `balanced`, `deep`, `longshot`, etc. Requires `--source`. Empty triggers auto-pick when `--audit` is also empty (piolium when `pi` is installed, else nothing) |
 | `--diff` | — | string | — | Focus on changed code: PR URL, git ref range, or `HEAD~N` |
 | `--last-commits` | — | int | `0` | Focus on last N commits |
 | `--intensity` | — | string | `balanced` | Scan intensity preset: `quick`, `balanced`, or `deep` |
@@ -347,24 +350,6 @@ Flags specific to `vigolium agent olium` (and the top-level `vigolium olium` / `
 | `--system` | — | string | — | Override system prompt |
 | `--prompt` | `-p` | string | — | Run one prompt non-interactively and stream to stdout (skips TUI). Pass `-` to read from stdin |
 | `--stdin` | — | bool | `false` | Force reading prompt from stdin |
-
----
-
-## Agent Archon Flags
-
-Flags specific to `vigolium agent archon`.
-
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--agent` | — | string | `claude` | Agent platform: `claude`, `codex` |
-| `--intensity` | — | string | `balanced` | Audit intensity preset: `quick`, `balanced`, `deep`. Explicit `--mode` / `--commit-depth` override |
-| `--mode` | — | string | (from intensity) | Audit mode: `lite`, `balanced` (alias `scan`), `deep`, `revisit`, `confirm`, `merge`, `diff`, `status`, `mock` |
-| `--source` | — | string | `.` | Local directory, git URL, `gs://<project>/<key>` archive, or local archive (`.zip / .tar.gz / .tar.bz2 / .tar.xz`) |
-| `--commit-depth` | — | int | `1` | `git clone --depth` value when `--source` is a git URL (0 = full history) |
-| `--no-stream` | — | bool | `false` | Don't echo agent output to the console (still written to `{session}/runtime.log`) |
-| `--upload-results` | — | bool | `false` | Upload session bundle to cloud storage after completion |
-| `--no-preflight` | — | bool | `false` | Skip the pre-audit roundtrip check (auth + model availability; only runs for `--agent=claude` today) |
-| `--preflight-timeout` | — | duration | `30s` | Archon preflight timeout |
 
 ---
 
@@ -396,24 +381,33 @@ Flags specific to `vigolium agent piolium`.
 
 ## Agent Audit Flags
 
-Flags specific to `vigolium agent audit` (unified driver dispatcher).
+Flags specific to `vigolium agent audit` — the unified driver dispatcher that drives the embedded **vigolium-audit** harness and/or **piolium** under one parent AgenticScan. (There is no separate `agent archon` command; the vigolium-audit leg is reached with `--driver=audit`.)
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--driver` | — | string | `both` | Audit driver: `piolium`, `archon`, or `both` |
-| `--intensity` | — | string | `balanced` | Audit intensity preset: `quick`, `balanced`, `deep` |
-| `--mode` | — | string | (from intensity) | Audit mode override. Shared (allowed when `--driver=both`): `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`. Driver-specific (require `--driver=piolium\|archon`): piolium = `longshot`/`smoke`/`diff`/`status`, archon = `mock`/`diff`/`status` |
+| `--driver` | — | string | `auto` | Audit driver: `auto` (run audit; fall back to piolium only when the claude/codex CLI is missing), `both` (audit then piolium, unconditional), `audit`, or `piolium` |
+| `--intensity` | — | string | `balanced` | Audit intensity preset: `quick` (→ `lite`), `balanced` (→ `balanced`), `deep` (→ chain `deep,confirm`) |
+| `--mode` | — | string | (from intensity) | Single mode override. Shared (allowed under `auto`/`both`): `lite`, `balanced`, `deep`, `revisit`, `confirm`, `merge`. Driver-specific (require `--driver=audit\|piolium`): audit = `reinvest`/`refresh`/`mock`/`diff`/`status`, piolium = `longshot`/`smoke`/`diff`/`status` |
+| `--modes` | — | string | — | Run a chain of modes back-to-back, comma-separated (e.g. `deep,refresh,confirm`). Overrides `--mode`/`--intensity`; stops on the first non-complete mode. Per-driver, modes a driver can't run are skipped on that leg |
+| `--list-modes` | — | bool | `false` | Print the audit mode graph (phases, time estimates, descriptions) and exit |
 | `--source` | — | string | `.` | Local directory, git URL, `gs://<project>/<key>` archive, or local archive |
-| `--commit-depth` | — | int | `1` | `git clone --depth` value when `--source` is a git URL |
+| `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive it yourself (audit-only). Skips streaming, the AgenticScan row, and findings import — results land in `<source>/vigolium-results/`; import them afterward with `vigolium import`. Not valid with `--driver=piolium` |
+| `--commit-depth` | — | int | `1` | `git clone --depth` value when `--source` is a git URL (0 = full history) |
 | `--no-stream` | — | bool | `false` | Don't echo agent output (still written to `{session}/<driver>/runtime.log`) |
+| `--show-thinking` | — | bool | `false` | Render the agent's internal thinking blocks in the live stream (audit; verbose, off by default) |
+| `--keep-raw` | — | bool | `false` | [audit] Keep raw scanner output / draft findings under `<source>/vigolium-results/` (overrides deep/confirm auto-prune). No effect on the piolium leg |
 | `--upload-results` | — | bool | `false` | Upload parent session bundle (only when **all** participating drivers succeed) |
 | `--no-dedup` | — | bool | `false` | Skip the post-pass project-wide findings dedup |
-| `--archon-provider` | — | string | `""` | [archon] Olium provider hint, must be `anthropic-*` (only used when archon participates; for OpenAI workloads use `--driver=piolium`) |
+| `--provider` | — | string | — | [audit] Olium provider hint that selects the audit leg's agent: `anthropic-*` → claude, `openai-*` → codex (also forwards that provider's BYOK auth). Empty inherits `agent.olium.provider` |
+| `--agent` | — | string | — | [audit] Coding agent for the audit leg: `claude` or `codex`. Overrides the agent implied by `--provider` while keeping its auth (warns under `--driver=piolium`) |
+| `--api-key` | — | string | — | BYOK API key for the run (literal, `$ENV_NAME`, or `@path`). claude→`ANTHROPIC_API_KEY`, codex→`OPENAI_API_KEY`. Mutually exclusive with `--oauth-token`/`--oauth-cred-file` |
+| `--oauth-token` | — | string | — | BYOK Anthropic OAuth bearer token (claude only; from `claude setup-token`). Mutually exclusive with `--api-key`/`--oauth-cred-file` |
+| `--oauth-cred-file` | — | string | — | BYOK OAuth credential file path (codex `~/.codex/auth.json` shape). Mutually exclusive with `--api-key`/`--oauth-token` |
 | `--pi-provider` | — | string | — | [piolium] Override pi's `defaultProvider` |
 | `--pi-model` | — | string | — | [piolium] Override pi's `defaultModel` |
 | `--no-preflight` | — | bool | `false` | Skip the pre-audit roundtrip checks for both drivers |
 | `--preflight-timeout` | — | duration | `30s` | Per-driver preflight timeout |
-| `--plm-*` | — | various | — | [piolium] passthroughs — same set as [Agent Piolium Flags](#agent-piolium-flags). Ignored when `--driver=archon` |
+| `--plm-*` | — | various | — | [piolium] passthroughs — same set as [Agent Piolium Flags](#agent-piolium-flags). Ignored when `--driver=audit` |
 
 ---
 
@@ -424,7 +418,7 @@ Flags specific to `vigolium agent session`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--limit` | `-n` | int | `50` | Maximum number of records to display |
-| `--mode` | — | string | — | Filter by mode (query, autopilot, swarm, archon, piolium, audit) |
+| `--mode` | — | string | — | Filter by mode (query, autopilot, swarm, audit, piolium) |
 | `--offset` | `-o` | int | `0` | Number of records to skip |
 | `--tail` | — | int | `50` | Number of raw output lines to show in detail view (0 = none, -1 = all) |
 | `--full` | — | bool | `false` | Show full raw output (shortcut for `--tail -1`) |
@@ -438,13 +432,13 @@ Per-run overrides accepted on `agent query`, `agent autopilot`, `agent swarm`, a
 
 | Flag | Type | Falls back to | Description |
 |------|------|---------------|-------------|
-| `--provider` | string | `agent.olium.provider` (default `openai-codex-oauth`) | Olium provider: `openai-codex-oauth` \| `anthropic-api-key` \| `anthropic-oauth` \| `openai-api-key` \| `anthropic-cli` \| `google-vertex` |
-| `--model` | string | `agent.olium.model` | Model id |
-| `--oauth-cred` | string | `agent.olium.oauth_cred_path` or `$GOOGLE_APPLICATION_CREDENTIALS` | OAuth/SA credential file (openai-codex-oauth or google-vertex) |
+| `--provider` | string | `agent.olium.provider` (default `openai-compatible`) | Olium provider: `openai-compatible` \| `openai-codex-oauth` \| `anthropic-api-key` \| `anthropic-oauth` \| `openai-api-key` \| `anthropic-cli` \| `anthropic-vertex` \| `google-vertex` |
+| `--model` | string | `agent.olium.model` (default `gemma4:latest`) | Model id |
+| `--oauth-cred` | string | `agent.olium.oauth_cred_path` or `$GOOGLE_APPLICATION_CREDENTIALS` | OAuth/SA credential file (openai-codex-oauth, anthropic-vertex, or google-vertex) |
 | `--oauth-token` | string | `agent.olium.oauth_token` or `$ANTHROPIC_API_KEY` | Claude Code OAuth bearer token (`anthropic-oauth`) |
 | `--llm-api-key` | string | `agent.olium.llm_api_key` or provider env var (`$ANTHROPIC_API_KEY`/`$OPENAI_API_KEY`) | API key for key-based providers |
-| `--gcp-project` | string | `$GOOGLE_CLOUD_PROJECT` > `agent.olium.google_cloud_project` > SA file's `project_id` | GCP project for `google-vertex` |
-| `--gcp-location` | string | `$GOOGLE_CLOUD_LOCATION` > `agent.olium.google_cloud_location` > `us-central1` | GCP region for `google-vertex` |
+| `--gcp-project` | string | `$GOOGLE_CLOUD_PROJECT` > `agent.olium.google_cloud_project` > SA file's `project_id` | GCP project for `anthropic-vertex` / `google-vertex` |
+| `--gcp-location` | string | `$GOOGLE_CLOUD_LOCATION` > `agent.olium.google_cloud_location` > `us-central1` | GCP region for `anthropic-vertex` / `google-vertex` |
 | `--system-prompt` | string | — | Replace the built-in system prompt with this value (autopilot only) |
 | `--system-prompt-file` | string | — | Path to a file whose contents replace the built-in system prompt; takes precedence over `--system-prompt` (autopilot only) |
 | `--system` | string | — | Replace the system prompt (`agent olium` TUI only) |
@@ -467,7 +461,7 @@ Flags specific to `vigolium log` and `vigolium log ls`.
 
 ## Import Flags
 
-`vigolium import <path>` has no additional flags beyond the global project/JSON flags. Path may be an archon output folder (directory) or a JSONL export (file).
+`vigolium import <path>` has no additional flags beyond the global project/JSON flags. Path may be an audit output folder (a `vigolium-results/` directory with `audit-state.json` + `findings-draft/`) or a JSONL export (file).
 
 ---
 
@@ -691,7 +685,7 @@ Top-level `vigolium export` flags.
 |------|-------|------|---------|-------------|
 | `--format` | — | string | `jsonl` | Format: html, jsonl |
 | `--limit` | — | int | `0` | Max records per table |
-| `--lite` | — | bool | `false` | Export summary fields only, omit raw HTTP data and headers |
+| `--omit-response` | — | bool | `false` | Omit raw HTTP request/response bytes (keeps metadata, smaller files) |
 | `--only` | — | []string | all | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
 | `--output` | `-o` | string | — | Output file |
 | `--search` | — | string | — | Fuzzy search filter |

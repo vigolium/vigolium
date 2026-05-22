@@ -160,7 +160,7 @@ func (h *HttpRequestResponse) BuildRetryableRequest() (*retryablehttp.Request, e
 	}
 	req, err := retryablehttp.NewRequestFromURL(h.request.Method(), urlClone, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("could not create request: %s", err)
+		return nil, fmt.Errorf("could not create request: %w", err)
 	}
 	for _, header := range h.request.Headers() {
 		req.Header.Add(header.Name, header.Value)
@@ -372,7 +372,7 @@ func ParseRawRequest(raw string) (rr *HttpRequestResponse, err error) {
 	protoReader := textproto.NewReader(bufio.NewReader(strings.NewReader(raw)))
 	methodLine, err := protoReader.ReadLine()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read method line: %s", err)
+		return nil, fmt.Errorf("failed to read method line: %w", err)
 	}
 	rr = &HttpRequestResponse{
 		request: &HttpRequest{},
@@ -386,13 +386,13 @@ func ParseRawRequest(raw string) (rr *HttpRequestResponse, err error) {
 	// parse relative url to determine scheme (http/https)
 	urlx, err := urlutil.ParseRawRelativePath(parts[1], true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse url: %s", err)
+		return nil, fmt.Errorf("failed to parse url: %w", err)
 	}
 
 	// parse host line
 	hostLine, err := protoReader.ReadLine()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read host line: %s", err)
+		return nil, fmt.Errorf("failed to read host line: %w", err)
 	}
 	sep := strings.Index(hostLine, ":")
 	if sep <= 0 || sep >= len(hostLine)-1 {

@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -204,7 +205,7 @@ func TestAnomalyScoreCalculator(t *testing.T) {
 		calc := NewAnomalyScoreCalculator(tracker, weights, nil)
 
 		_, err := calc.CalculateScore(nil)
-		if err != ErrNilSample {
+		if !errors.Is(err, ErrNilSample) {
 			t.Errorf("Expected ErrNilSample, got %v", err)
 		}
 	})

@@ -3,6 +3,7 @@ package openapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -872,7 +873,7 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 				continue
 			}
 			ex, err := openAPIExample(v.Value, cache, fieldTypeDefaults)
-			if err == errRecursive {
+			if errors.Is(err, errRecursive) {
 				if slices.Contains(schema.Required, k) {
 					return nil, fmt.Errorf("can't get example for '%s': %w", k, err)
 				}

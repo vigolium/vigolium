@@ -173,7 +173,7 @@ func TestSyncStateOnce(t *testing.T) {
 		done: make(chan struct{}),
 	}
 
-	runner.syncStateOnce()
+	runner.syncStateOnce(context.Background())
 
 	// Verify the state was synced to session dir
 	synced, err := os.ReadFile(filepath.Join(sessionDir, "vigolium-results", "audit-state.json"))

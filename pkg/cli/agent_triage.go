@@ -154,7 +154,9 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	}
 
 	if sessionDir != "" && result.RawOutput != "" {
-		_ = os.WriteFile(filepath.Join(sessionDir, "output.md"), []byte(result.RawOutput), 0o644)
+		if err := os.WriteFile(filepath.Join(sessionDir, "output.md"), []byte(result.RawOutput), 0o644); err != nil {
+			zap.L().Debug("failed to write triage output.md", zap.Error(err))
+		}
 	}
 
 	if agentTriageDryRun {

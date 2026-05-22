@@ -230,7 +230,9 @@ func EnsureBrowser(ctx context.Context) (string, error) {
 			return "", err
 		}
 		fmt.Println("ok")
-		_ = os.WriteFile(marker, []byte(version), 0644)
+		if err := os.WriteFile(marker, []byte(version), 0644); err != nil {
+			zap.L().Debug("failed to write chrome version marker", zap.String("marker", marker), zap.Error(err))
+		}
 		fmt.Printf("  Chrome for Testing ready: %s\n", binPath)
 		return binPath, nil
 	}
@@ -336,7 +338,7 @@ func verifyBrowser(binPath string) error {
 		return fmt.Errorf("chrome binary failed: %s", output)
 	}
 
-	return fmt.Errorf("chrome binary verification failed: %s (exit: %v)", output, err)
+	return fmt.Errorf("chrome binary verification failed: %s (exit: %w)", output, err)
 }
 
 // downloadToTemp downloads a URL to a temporary file, returning its path.

@@ -55,7 +55,12 @@ jobs:
           version: v2.9.0
 
       - name: Unit tests
-        run: go test -short $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
+        run: go test -short -coverprofile=coverage.out $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
+
+      # Enforce the coverage floor against the profile produced above (no second
+      # test run). Reuses the same COVERAGE_MIN gate as `make test-ci`.
+      - name: Enforce coverage floor
+        run: make coverage-gate
 
   govulncheck:
     name: Vulnerability scan

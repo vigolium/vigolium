@@ -178,7 +178,10 @@ func (r *Runner) RunNativeScan() error {
 			duration := time.Since(scanStartedAt)
 			findingSummary := ""
 			if r.repository != nil {
-				if scan, err := r.repository.GetScanByUUID(context.Background(), infra.scanUUID); err == nil && scan != nil {
+				// Use the run context (consistent with the CompleteScan defer
+				// above) so this terminal summary read participates in
+				// cancellation instead of running on a detached Background.
+				if scan, err := r.repository.GetScanByUUID(ctx, infra.scanUUID); err == nil && scan != nil {
 					findingSummary = fmt.Sprintf(", findings: %d", scan.TotalFindings)
 				}
 			}
@@ -1046,7 +1049,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		var prevIngestedCount int64 = -1
 
 		sorCfg.OnStatus = func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
-			ctx := context.Background()
+			// Use the phase context (captured from the enclosing function) so
+			// these periodic status DB reads stop once the scan is cancelled
+			// rather than outliving it on a detached context.Background().
 
 			// Count HTTP records ingested since the scan started, scoped to the
 			// in-scope hostnames if any were configured. Cheap enough at a

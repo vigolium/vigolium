@@ -11,6 +11,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// Sobek error convention: handlers in this package report failures to the JS
+// runtime by panicking with vm.NewTypeError (caller/argument mistakes) or
+// vm.NewGoError (a wrapped Go error). This is the idiomatic Sobek mechanism, not
+// a divergence from Go error handling — the engine recovers these panics at the
+// JS call boundary and re-raises them as catchable JavaScript exceptions.
+// Returning a nil sobek.Value instead would silently swallow the failure in the
+// extension's JS code, so the panic is the correct, observable behavior here.
+
 // ─── examples ────────────────────────────────────────────────────────────────
 
 const exAgentComplete = `var resp = vigolium.agent.complete({messages: [{role: "user", content: "hello"}], max_tokens: 256})`

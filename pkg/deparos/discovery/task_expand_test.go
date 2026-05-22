@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"testing"
 
@@ -208,7 +209,7 @@ func TestSpiderTask_Expand_ContextCancellation(t *testing.T) {
 		t.Error("callback should not be called when context is cancelled")
 	})
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
@@ -911,7 +912,7 @@ func TestAllTasks_Expand_ContextCancellation(t *testing.T) {
 				t.Error("callback should not be called when context is cancelled")
 			})
 
-			if err != context.Canceled {
+			if !errors.Is(err, context.Canceled) {
 				t.Errorf("expected context.Canceled, got %v", err)
 			}
 		})
