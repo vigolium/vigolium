@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -53,22 +54,22 @@ type findingColumnDef struct {
 
 var allFindingColumns = []findingColumnDef{
 	{"ID", "", func(f *database.Finding) string { return fmt.Sprintf("%d", f.ID) }, 6},
-	{"SEVERITY", "", func(f *database.Finding) string { return colorSeverity(f.Severity) }, 10},
+	{"SEVERITY", "", func(f *database.Finding) string { return clicommon.ColorSeverity(f.Severity) }, 10},
 	{"CONFIDENCE", "", func(f *database.Finding) string { return f.Confidence }, 10},
-	{"MODULE", "", func(f *database.Finding) string { return truncate(f.ModuleName, 30) }, 30},
-	{"MODULE_ID", "", func(f *database.Finding) string { return truncate(f.ModuleID, 30) }, 30},
-	{"SHORT_DESC", "", func(f *database.Finding) string { return truncate(f.ModuleShort, 40) }, 40},
-	{"DESCRIPTION", "", func(f *database.Finding) string { return truncate(f.Description, 50) }, 50},
+	{"MODULE", "", func(f *database.Finding) string { return clicommon.Truncate(f.ModuleName, 30) }, 30},
+	{"MODULE_ID", "", func(f *database.Finding) string { return clicommon.Truncate(f.ModuleID, 30) }, 30},
+	{"SHORT_DESC", "", func(f *database.Finding) string { return clicommon.Truncate(f.ModuleShort, 40) }, 40},
+	{"DESCRIPTION", "", func(f *database.Finding) string { return clicommon.Truncate(f.Description, 50) }, 50},
 	{"TYPE", "", func(f *database.Finding) string { return colorModuleType(f.ModuleType) }, 12},
 	{"SOURCE", "", func(f *database.Finding) string { return f.FindingSource }, 20},
 	{"HOST_REPO", "URL / REPO NAME", func(f *database.Finding) string {
 		if f.RepoName != "" {
-			return truncate(f.RepoName, 60)
+			return clicommon.Truncate(f.RepoName, 60)
 		}
-		return truncate(findingURLValue(f), 60)
+		return clicommon.Truncate(findingURLValue(f), 60)
 	}, 60},
 	{"MATCHED_AT", "", func(f *database.Finding) string {
-		return truncate(strings.Join(f.MatchedAt, ", "), 50)
+		return clicommon.Truncate(strings.Join(f.MatchedAt, ", "), 50)
 	}, 50},
 	{"FOUND_AT", "", func(f *database.Finding) string {
 		return f.FoundAt.Format("2006-01-02 15:04")
@@ -80,7 +81,7 @@ var allFindingColumns = []findingColumnDef{
 		return f.ScanUUID
 	}, 8},
 	{"TAGS", "", func(f *database.Finding) string {
-		return truncate(strings.Join(f.Tags, ", "), 30)
+		return clicommon.Truncate(strings.Join(f.Tags, ", "), 30)
 	}, 30},
 }
 
@@ -187,14 +188,14 @@ func runFinding(cmd *cobra.Command, args []string) error {
 func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 	var dateFrom, dateTo *time.Time
 	if findingFrom != "" {
-		t, err := parseDate(findingFrom)
+		t, err := clicommon.ParseDate(findingFrom)
 		if err != nil {
 			return database.QueryFilters{}, fmt.Errorf("invalid --from date: %w", err)
 		}
 		dateFrom = &t
 	}
 	if findingTo != "" {
-		t, err := parseDate(findingTo)
+		t, err := clicommon.ParseDate(findingTo)
 		if err != nil {
 			return database.QueryFilters{}, fmt.Errorf("invalid --to date: %w", err)
 		}
@@ -260,7 +261,7 @@ func displayFindingsBurp(db *database.DB, ctx context.Context, findings []*datab
 		// Finding header
 		fmt.Printf("%s %s [%s] %s\n",
 			terminal.InfoSymbol(),
-			colorSeverity(f.Severity),
+			clicommon.ColorSeverity(f.Severity),
 			terminal.Cyan(f.ModuleName),
 			f.ModuleShort)
 		if len(f.MatchedAt) > 0 {
@@ -291,7 +292,7 @@ func displayFindingsRaw(db *database.DB, ctx context.Context, findings []*databa
 	repo := database.NewRepository(db)
 	for _, f := range findings {
 		fmt.Println("──────────────────────────────────────────────────────────────────")
-		fmt.Printf("Finding #%d - %s [%s] %s\n", f.ID, colorSeverity(f.Severity), f.ModuleName, f.ModuleShort)
+		fmt.Printf("Finding #%d - %s [%s] %s\n", f.ID, clicommon.ColorSeverity(f.Severity), f.ModuleName, f.ModuleShort)
 		if f.Description != "" {
 			fmt.Printf("Description: %s\n", f.Description)
 		}

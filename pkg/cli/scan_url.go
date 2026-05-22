@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
@@ -735,7 +736,7 @@ func outputScanResult(result *scanResult) error {
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "SEVERITY", "MODULE", "TYPE", "MATCHED", "NAME")
 	for _, f := range result.Findings {
 		tbl.AddRow(
-			colorSeverity(f.Info.Severity.String()),
+			clicommon.ColorSeverity(f.Info.Severity.String()),
 			terminal.Cyan(f.ModuleID),
 			colorModuleType(f.ModuleType),
 			f.Matched,

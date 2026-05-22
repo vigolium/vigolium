@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 )
 
@@ -46,7 +47,7 @@ func logRowItem(r sessionRow) tui.Item {
 	sizeCol := ""
 	if r.hasLog {
 		logCol = "file"
-		sizeCol = formatFileSize(r.logSize)
+		sizeCol = clicommon.FormatFileSize(r.logSize)
 	} else if r.kind == "agentic" {
 		logCol = "missing"
 	}

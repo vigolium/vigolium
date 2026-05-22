@@ -176,14 +176,6 @@ func printIntentDryRun(intent *agent.ScanIntent) error {
 	return nil
 }
 
-// valueOrNone returns the value or "(none)" if empty.
-func valueOrNone(s string) string {
-	if s == "" {
-		return "(none)"
-	}
-	return s
-}
-
 // loadCLISettings loads settings, falling back to defaults on error so the
 // CLI can keep working with reasonable behavior even if the YAML is unreadable.
 func loadCLISettings() *config.Settings {

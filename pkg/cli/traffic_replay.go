@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -185,8 +186,8 @@ func displayReplayComparison(rec *database.HTTPRecord, newResp *http.Response, n
 		fmt.Sprintf("%d bytes", len(newBody)))
 
 	tbl.AddRow("Content-Type",
-		truncate(rec.ResponseContentType, 30),
-		truncate(newResp.Header.Get("Content-Type"), 30))
+		clicommon.Truncate(rec.ResponseContentType, 30),
+		clicommon.Truncate(newResp.Header.Get("Content-Type"), 30))
 
 	tbl.Print()
 

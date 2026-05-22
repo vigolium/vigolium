@@ -2,9 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -73,27 +73,8 @@ var inputModes = []inputModeEntry{
 	},
 }
 
-var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-// visibleLen returns the length of s with ANSI escape codes stripped.
-func visibleLen(s string) int {
-	return len(ansiEscapeRe.ReplaceAllString(s, ""))
-}
-
 // maxAliasWidth caps the Aliases column so it doesn't dominate the table.
 const maxAliasWidth = 26
-
-// truncateVisible truncates s to maxLen visible characters, adding "…" if cut.
-func truncateVisible(s string, maxLen int) string {
-	if visibleLen(s) <= maxLen {
-		return s
-	}
-	plain := ansiEscapeRe.ReplaceAllString(s, "")
-	if len(plain) <= maxLen {
-		return s
-	}
-	return plain[:maxLen-1] + "…"
-}
 
 // printInputModes prints all supported input modes as a borderless table.
 func printInputModes() {
@@ -107,7 +88,7 @@ func printInputModes() {
 	rows := make([]row, len(inputModes))
 	for i, m := range inputModes {
 		aliasPlain := strings.Join(m.Aliases, ", ")
-		aliasDisplay := truncateVisible(aliasPlain, maxAliasWidth)
+		aliasDisplay := clicommon.TruncateVisible(aliasPlain, maxAliasWidth)
 		rows[i] = row{
 			mode:    terminal.Cyan(m.Name),
 			aliases: terminal.Cyan(aliasDisplay),
@@ -125,22 +106,22 @@ func printInputModes() {
 
 	// Compute column widths from headers and data.
 	widths := [4]int{
-		visibleLen(headers[0]),
-		visibleLen(headers[1]),
-		visibleLen(headers[2]),
-		visibleLen(headers[3]),
+		clicommon.VisibleLen(headers[0]),
+		clicommon.VisibleLen(headers[1]),
+		clicommon.VisibleLen(headers[2]),
+		clicommon.VisibleLen(headers[3]),
 	}
 	for _, r := range rows {
-		if w := visibleLen(r.mode); w > widths[0] {
+		if w := clicommon.VisibleLen(r.mode); w > widths[0] {
 			widths[0] = w
 		}
-		if w := visibleLen(r.aliases); w > widths[1] {
+		if w := clicommon.VisibleLen(r.aliases); w > widths[1] {
 			widths[1] = w
 		}
-		if w := visibleLen(r.desc); w > widths[2] {
+		if w := clicommon.VisibleLen(r.desc); w > widths[2] {
 			widths[2] = w
 		}
-		if w := visibleLen(r.example); w > widths[3] {
+		if w := clicommon.VisibleLen(r.example); w > widths[3] {
 			widths[3] = w
 		}
 	}
@@ -152,7 +133,7 @@ func printInputModes() {
 
 	// padRight pads s to width based on its visible length.
 	padRight := func(s string, width int) string {
-		pad := width - visibleLen(s)
+		pad := width - clicommon.VisibleLen(s)
 		if pad <= 0 {
 			return s
 		}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -312,5 +313,5 @@ func resolveModules() []string {
 
 // syncLogger should be deferred in RunE functions to flush buffered logs.
 func syncLogger() {
-	_ = zap.L().Sync()
+	clicommon.SyncLogger()
 }

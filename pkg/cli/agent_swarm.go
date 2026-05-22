@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/piolium"
@@ -987,7 +988,7 @@ func printSwarmResult(result *agent.SwarmResult) {
 	}
 	findingsStr := fmt.Sprintf("%s findings", colorFindingCount(result.TotalFindings))
 	if len(result.SeverityCounts) > 0 && result.TotalFindings > 0 {
-		findingsStr += " (" + formatSeverityWithSymbols(result.SeverityCounts) + ")"
+		findingsStr += " (" + clicommon.FormatSeverityWithSymbols(result.SeverityCounts) + ")"
 	}
 	parts = append(parts, findingsStr)
 	fmt.Fprintf(os.Stderr, "  %s\n", strings.Join(parts, " · "))
@@ -1040,32 +1041,6 @@ func colorFindingCount(count int) string {
 		return terminal.Green(s)
 	}
 	return terminal.BoldYellow(s)
-}
-
-// formatSeverityWithSymbols formats severity counts with colored symbols.
-// Example: ❖ 2 high, ◆ 2 medium, • 4 low, ? 1 suspect, ◇ 2 info
-func formatSeverityWithSymbols(counts map[string]int) string {
-	type sevEntry struct {
-		symbol string
-		count  int
-		label  string
-	}
-	entries := []sevEntry{
-		{terminal.CriticalSymbol(), counts["critical"], "critical"},
-		{terminal.HighSymbol(), counts["high"], "high"},
-		{terminal.MediumSymbol(), counts["medium"], "medium"},
-		{terminal.LowSymbol(), counts["low"], "low"},
-		{terminal.SuspectSymbol(), counts["suspect"], "suspect"},
-		{terminal.InfoSeveritySymbol(), counts["info"], "info"},
-	}
-
-	var parts []string
-	for _, e := range entries {
-		if e.count > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d %s", e.symbol, e.count, e.label))
-		}
-	}
-	return strings.Join(parts, ", ")
 }
 
 // splitFocusArea splits a focus area string like "**Title**: description" into title and detail.
@@ -1222,8 +1197,8 @@ func applyIntentToSwarmFlags(cmd *cobra.Command, app agent.AppIntent) {
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s discover=%v\n",
 		terminal.SuccessSymbol(),
-		valueOrNone(swarmTarget),
-		valueOrNone(terminal.ShortenHome(swarmSource)),
+		clicommon.ValueOrNone(swarmTarget),
+		clicommon.ValueOrNone(terminal.ShortenHome(swarmSource)),
 		swarmDiscover)
 }
 
@@ -1252,8 +1227,8 @@ func runMultiAppSwarm(ctx context.Context, cmd *cobra.Command, engine *agent.Eng
 
 		fmt.Fprintf(os.Stderr, "%s [%d/%d] Starting swarm: target=%s source=%s\n",
 			terminal.InfoSymbol(), idx+1, len(intent.Apps),
-			valueOrNone(app.Target),
-			valueOrNone(terminal.ShortenHome(app.SourcePath)))
+			clicommon.ValueOrNone(app.Target),
+			clicommon.ValueOrNone(terminal.ShortenHome(app.SourcePath)))
 
 		var inputs []string
 		if app.Target != "" {

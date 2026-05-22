@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -160,7 +161,7 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		sizeCol := ""
 		if r.hasLog {
 			logCol = terminal.Green("file")
-			sizeCol = formatFileSize(r.logSize)
+			sizeCol = clicommon.FormatFileSize(r.logSize)
 		} else if r.kind == "agentic" {
 			logCol = terminal.Gray("missing")
 		}

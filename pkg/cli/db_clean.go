@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -93,7 +94,7 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 	// Build filters
 	var dateFrom *time.Time
 	if cleanBefore != "" {
-		t, err := parseDate(cleanBefore)
+		t, err := clicommon.ParseDate(cleanBefore)
 		if err != nil {
 			return fmt.Errorf("invalid --before date: %w", err)
 		}
@@ -410,10 +411,7 @@ func resetDatabase() error {
 	dbPath := config.ExpandPath(settings.Database.SQLite.Path)
 
 	// Close existing connection if open
-	if dbConnection != nil {
-		_ = dbConnection.Close()
-		dbConnection = nil
-	}
+	clicommon.ResetDBCache()
 
 	// Remove the database file and its WAL/SHM companions
 	removed := 0
@@ -438,7 +436,7 @@ func resetDatabase() error {
 	if err != nil {
 		return fmt.Errorf("failed to create new database: %w", err)
 	}
-	dbConnection = db
+	clicommon.SetDBCache(db)
 
 	if err := db.CreateSchema(context.Background()); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)

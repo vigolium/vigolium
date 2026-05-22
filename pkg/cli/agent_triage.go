@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -340,11 +341,11 @@ func printTriageVerdict(finding *database.Finding, verdict *agent.TriageConfirmR
 	switch verdict.Verdict {
 	case agent.TriageVerdictFalsePositive:
 		fmt.Printf("  Verdict:  %s\n", terminal.BoldYellow(agent.TriageVerdictFalsePositive))
-		fmt.Printf("  Severity: %s → %s\n", colorSeverity(finding.Severity), colorSeverity(database.SeverityInfo))
+		fmt.Printf("  Severity: %s → %s\n", clicommon.ColorSeverity(finding.Severity), clicommon.ColorSeverity(database.SeverityInfo))
 		fmt.Printf("  Description: updated with agent reasoning\n")
 	case agent.TriageVerdictConfirmed:
 		fmt.Printf("  Verdict:  %s\n", terminal.BoldRed(agent.TriageVerdictConfirmed))
-		fmt.Printf("  Severity: %s (unchanged)\n", colorSeverity(finding.Severity))
+		fmt.Printf("  Severity: %s (unchanged)\n", clicommon.ColorSeverity(finding.Severity))
 		fmt.Printf("  Status:   %s\n", terminal.BoldGreen(database.StatusTriaged))
 	}
 

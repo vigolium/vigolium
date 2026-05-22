@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/agent/input"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/replay"
@@ -659,7 +660,7 @@ func emitReplayPretty(out *replayOutput) error {
 	tbl.AddRow("Length",
 		fmt.Sprintf("%d", b.ResponseLen),
 		fmt.Sprintf("%d (Δ%+d)", r.ResponseLen, d.LengthDelta))
-	tbl.AddRow("Hash", truncate(b.ContentHash, 16), truncate(r.ContentHash, 16))
+	tbl.AddRow("Hash", clicommon.Truncate(b.ContentHash, 16), clicommon.Truncate(r.ContentHash, 16))
 	tbl.AddRow("Time (ms)",
 		fmt.Sprintf("%d", b.ResponseTimeMs),
 		fmt.Sprintf("%d", r.ResponseTimeMs))

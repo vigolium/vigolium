@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -23,10 +24,10 @@ type columnDef struct {
 var allTrafficColumns = []columnDef{
 	{"UUID", func(r *database.HTTPRecord) string { return r.UUID[:min(8, len(r.UUID))] }, 8},
 	{"HOST", func(r *database.HTTPRecord) string {
-		return truncate(fmt.Sprintf("%s://%s:%d", r.Scheme, r.Hostname, r.Port), 30)
+		return clicommon.Truncate(fmt.Sprintf("%s://%s:%d", r.Scheme, r.Hostname, r.Port), 30)
 	}, 30},
 	{"METHOD", func(r *database.HTTPRecord) string { return r.Method }, 7},
-	{"PATH", func(r *database.HTTPRecord) string { return truncate(r.Path, 40) }, 40},
+	{"PATH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.Path, 40) }, 40},
 	{"STATUS", func(r *database.HTTPRecord) string {
 		if r.HasResponse {
 			s := fmt.Sprintf("%d", r.StatusCode)
@@ -53,19 +54,19 @@ var allTrafficColumns = []columnDef{
 		return ""
 	}, 7},
 	{"CONTENT_TYPE", func(r *database.HTTPRecord) string {
-		return truncate(r.ResponseContentType, 25)
+		return clicommon.Truncate(r.ResponseContentType, 25)
 	}, 25},
 	{"SENT_AT", func(r *database.HTTPRecord) string {
 		return r.SentAt.Format("2006-01-02 15:04:05")
 	}, 19},
-	{"TITLE", func(r *database.HTTPRecord) string { return truncate(r.ResponseTitle, 30) }, 30},
-	{"AUTH", func(r *database.HTTPRecord) string { return truncate(r.RequestAuthorization, 30) }, 30},
-	{"STATUS_PHRASE", func(r *database.HTTPRecord) string { return truncate(r.StatusPhrase, 20) }, 20},
+	{"TITLE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.ResponseTitle, 30) }, 30},
+	{"AUTH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.RequestAuthorization, 30) }, 30},
+	{"STATUS_PHRASE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.StatusPhrase, 20) }, 20},
 	{"REQ_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.RequestHeadersMap(), 40) }, 40},
 	{"RESP_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.ResponseHeadersMap(), 40) }, 40},
 	{"SOURCE", func(r *database.HTTPRecord) string { return r.Source }, 20},
 	{"REMARKS", func(r *database.HTTPRecord) string {
-		return truncate(strings.Join(r.Remarks, ", "), 40)
+		return clicommon.Truncate(strings.Join(r.Remarks, ", "), 40)
 	}, 40},
 }
 
@@ -203,14 +204,14 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 	var dateFrom, dateTo *time.Time
 	if trafficFrom != "" {
-		t, err := parseDate(trafficFrom)
+		t, err := clicommon.ParseDate(trafficFrom)
 		if err != nil {
 			return database.QueryFilters{}, fmt.Errorf("invalid --from date: %w", err)
 		}
 		dateFrom = &t
 	}
 	if trafficTo != "" {
-		t, err := parseDate(trafficTo)
+		t, err := clicommon.ParseDate(trafficTo)
 		if err != nil {
 			return database.QueryFilters{}, fmt.Errorf("invalid --to date: %w", err)
 		}
@@ -479,5 +480,5 @@ func formatHeaders(h map[string][]string, maxLen int) string {
 			parts = append(parts, k+": "+vals[0])
 		}
 	}
-	return truncate(strings.Join(parts, ", "), maxLen)
+	return clicommon.Truncate(strings.Join(parts, ", "), maxLen)
 }

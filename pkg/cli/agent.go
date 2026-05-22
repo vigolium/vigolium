@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -423,7 +424,7 @@ func printAgentResult(result *agent.Result) {
 			tbl := terminal.NewTableWithMaxWidth(globalWidth, "SEVERITY", "TITLE", "FILE", "CWE")
 			for _, f := range result.Findings {
 				tbl.AddRow(
-					colorSeverity(f.Severity),
+					clicommon.ColorSeverity(f.Severity),
 					f.Title,
 					f.File,
 					f.CWE,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -198,14 +199,14 @@ func runListHTTPRecords(ctx context.Context, db *database.DB) error {
 	// Parse date filters
 	var dateFrom, dateTo *time.Time
 	if listFrom != "" {
-		t, err := parseDate(listFrom)
+		t, err := clicommon.ParseDate(listFrom)
 		if err != nil {
 			return fmt.Errorf("invalid --from date: %w", err)
 		}
 		dateFrom = &t
 	}
 	if listTo != "" {
-		t, err := parseDate(listTo)
+		t, err := clicommon.ParseDate(listTo)
 		if err != nil {
 			return fmt.Errorf("invalid --to date: %w", err)
 		}
@@ -268,14 +269,14 @@ func runListHTTPRecords(ctx context.Context, db *database.DB) error {
 func runListFindings(ctx context.Context, db *database.DB) error {
 	var dateFrom, dateTo *time.Time
 	if listFrom != "" {
-		t, err := parseDate(listFrom)
+		t, err := clicommon.ParseDate(listFrom)
 		if err != nil {
 			return fmt.Errorf("invalid --from date: %w", err)
 		}
 		dateFrom = &t
 	}
 	if listTo != "" {
-		t, err := parseDate(listTo)
+		t, err := clicommon.ParseDate(listTo)
 		if err != nil {
 			return fmt.Errorf("invalid --to date: %w", err)
 		}
@@ -378,7 +379,7 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 		matchedAt := strings.Join(f.MatchedAt, ", ")
 		tbl.AddRow(
 			f.ID,
-			colorSeverity(f.Severity),
+			clicommon.ColorSeverity(f.Severity),
 			f.Confidence,
 			f.ModuleName,
 			f.ModuleShort,
@@ -455,8 +456,8 @@ func runListScans(ctx context.Context, db *database.DB) error {
 		)
 
 		tbl.AddRow(
-			truncate(s.Name, 30),
-			truncate(v.Target, 30),
+			clicommon.Truncate(s.Name, 30),
+			clicommon.Truncate(v.Target, 30),
 			classifyTarget(s),
 			s.ScanSource,
 			status,
@@ -481,7 +482,7 @@ func buildScanViews(scans []*database.Scan) []*database.ScanView {
 
 	views := make([]*database.ScanView, len(scans))
 	for i, s := range scans {
-		active := splitCSV(s.Modules)
+		active := clicommon.SplitCSV(s.Modules)
 		modulesDisplay := s.Modules
 		if allActiveCount > 0 && len(active) >= allActiveCount {
 			modulesDisplay = "all"
@@ -509,20 +510,6 @@ func displayTarget(s *database.Scan) string {
 		return "<grouped-from-ingest-stream>"
 	}
 	return ""
-}
-
-func splitCSV(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := parts[:0]
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // classifyTarget returns a short label describing what kind of target the scan
@@ -814,15 +801,15 @@ func displayTable(records []*database.HTTPRecord, total int64, offset, _ int) er
 		}
 
 		tbl.AddRow(
-			truncate(host, 30),
+			clicommon.Truncate(host, 30),
 			rec.Method,
-			truncate(rec.Path, 40),
+			clicommon.Truncate(rec.Path, 40),
 			status,
 			responseTime,
 			size,
 			words,
-			truncate(rec.ResponseContentType, 25),
-			truncate(rec.ResponseTitle, 30),
+			clicommon.Truncate(rec.ResponseContentType, 25),
+			clicommon.Truncate(rec.ResponseTitle, 30),
 			risk,
 		)
 	}
@@ -830,32 +817,6 @@ func displayTable(records []*database.HTTPRecord, total int64, offset, _ int) er
 	tbl.Print()
 	fmt.Println()
 	return nil
-}
-
-func parseDate(s string) (time.Time, error) {
-	t, err := time.Parse("2006-01-02", s)
-	if err == nil {
-		return t, nil
-	}
-	return time.Parse(time.RFC3339, s)
-}
-
-// colorSeverity applies color based on finding severity level.
-func colorSeverity(sev string) string {
-	switch strings.ToLower(sev) {
-	case "critical":
-		return terminal.BoldMagenta(sev)
-	case "high":
-		return terminal.BoldRed(sev)
-	case "medium":
-		return terminal.BoldYellow(sev)
-	case "low":
-		return terminal.Green(sev)
-	case "info":
-		return terminal.BoldBlue(sev)
-	default:
-		return sev
-	}
 }
 
 func colorModuleType(t string) string {
@@ -867,13 +828,6 @@ func colorModuleType(t string) string {
 	default:
 		return t
 	}
-}
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 func min(a, b int) int {

@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/audit/claudecost"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/olium"
@@ -634,8 +635,8 @@ func printAutopilotBanner(in autopilotBannerInputs) {
 
 	_, _ = fmt.Fprintf(w, "  %s Provider: %s | Model: %s\n",
 		terminal.Purple(terminal.SymbolInfo),
-		terminal.Orange(valueOrNone(in.Provider)),
-		terminal.Orange(valueOrNone(in.Model)))
+		terminal.Orange(clicommon.ValueOrNone(in.Provider)),
+		terminal.Orange(clicommon.ValueOrNone(in.Model)))
 
 	if in.ProjectUUID != "" {
 		_, _ = fmt.Fprintf(w, "  %s Project: %s\n",
@@ -665,7 +666,7 @@ func printAutopilotBanner(in autopilotBannerInputs) {
 		budgetParts = append(budgetParts, fmt.Sprintf("wall=%s",
 			terminal.HiBlue(in.MaxDuration.String())))
 	}
-	intensityLine := terminal.HiTeal(valueOrNone(in.Intensity))
+	intensityLine := terminal.HiTeal(clicommon.ValueOrNone(in.Intensity))
 	if len(budgetParts) > 0 {
 		intensityLine += " " + terminal.Muted("("+strings.Join(budgetParts, " | ")+")")
 	}

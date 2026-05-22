@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/spitolas"
@@ -464,8 +465,8 @@ func applyIntentToAutopilotFlags(app agent.AppIntent) {
 	}
 	fmt.Fprintf(os.Stderr, "%s Resolved: target=%s source=%s\n",
 		terminal.SuccessSymbol(),
-		valueOrNone(autopilotTarget),
-		valueOrNone(terminal.ShortenHome(autopilotSource)))
+		clicommon.ValueOrNone(autopilotTarget),
+		clicommon.ValueOrNone(terminal.ShortenHome(autopilotSource)))
 }
 
 // runMultiAppAutopilot fans out sequential autopilot runs for multiple apps.
@@ -490,8 +491,8 @@ func runMultiAppAutopilot(ctx context.Context, _ *agent.Engine, settings *config
 	return runMultiAppFanOut(ctx, intent, func(ctx context.Context, idx int, app agent.AppIntent) error {
 		fmt.Fprintf(os.Stderr, "%s [%d/%d] Starting autopilot: target=%s source=%s\n",
 			terminal.InfoSymbol(), idx+1, len(intent.Apps),
-			valueOrNone(app.Target),
-			valueOrNone(terminal.ShortenHome(app.SourcePath)))
+			clicommon.ValueOrNone(app.Target),
+			clicommon.ValueOrNone(terminal.ShortenHome(app.SourcePath)))
 
 		instruction := mergeIntentInstruction(autopilotInstruction, autopilotInstructionFile, app)
 		instruction = prependVerbatimPrompt(instruction, autopilotInstructionPrefix)

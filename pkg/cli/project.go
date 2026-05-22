@@ -9,54 +9,21 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-var (
-	resolvedProjectUUID string
-	resolveProjectOnce  sync.Once
-	resolveProjectErr   error
-)
-
-// resolveProjectUUID returns the effective project UUID. Resolution order:
-//  1. --project-uuid flag / VIGOLIUM_PROJECT[_UUID] env var (both feed globalProjectUUID)
-//  2. --project-name flag (DB lookup)
-//  3. ~/.vigolium/active-project file (set by `vigolium project use`)
-//  4. database.DefaultProjectUUID
+// resolveProjectUUID returns the effective project UUID, resolved once per
+// process from the --project-uuid / --project-name global flags. See
+// clicommon.ResolveProjectUUID for the full resolution order.
 func resolveProjectUUID() (string, error) {
-	resolveProjectOnce.Do(func() {
-		switch {
-		case globalProjectUUID != "":
-			resolvedProjectUUID = globalProjectUUID
-		case globalProjectName != "":
-			db, err := getDB()
-			if err != nil {
-				resolveProjectErr = fmt.Errorf("failed to open database for project name lookup: %w", err)
-				return
-			}
-			repo := database.NewRepository(db)
-			project, err := repo.GetProjectByName(context.Background(), globalProjectName)
-			if err != nil {
-				resolveProjectErr = err
-				return
-			}
-			resolvedProjectUUID = project.UUID
-		default:
-			if persisted, err := config.ReadActiveProject(); err == nil && persisted != "" {
-				resolvedProjectUUID = persisted
-			} else {
-				resolvedProjectUUID = database.DefaultProjectUUID
-			}
-		}
-	})
-	return resolvedProjectUUID, resolveProjectErr
+	return clicommon.ResolveProjectUUID(getDB, globalProjectUUID, globalProjectName)
 }
 
 // checkProjectReadonly returns an error if VIGOLIUM_PROJECT_READONLY is set,

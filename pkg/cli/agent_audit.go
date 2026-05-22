@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/audit/bin"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/piolium"
@@ -666,8 +667,8 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, age
 
 	_, _ = fmt.Fprintf(w, "  %s Driver: %s | Mode: %s\n",
 		terminal.Purple(terminal.SymbolInfo),
-		terminal.Orange(valueOrNone(driver)),
-		terminal.Orange(valueOrNone(mode)))
+		terminal.Orange(clicommon.ValueOrNone(driver)),
+		terminal.Orange(clicommon.ValueOrNone(mode)))
 
 	// Agent: render one driver per line. The first row carries the
 	// "Agent:" label and bullet; subsequent rows indent to the same

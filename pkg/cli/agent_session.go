@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/audit"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -334,8 +335,8 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 		if hasTotals {
 			fmt.Fprintf(os.Stderr, "    %-17s %s input, %s output\n",
 				terminal.Gray("Total:"),
-				terminal.Cyan(formatTokenCount(run.TotalInputTokens)),
-				terminal.Cyan(formatTokenCount(run.TotalOutputTokens)))
+				terminal.Cyan(clicommon.FormatTokenCount(run.TotalInputTokens)),
+				terminal.Cyan(clicommon.FormatTokenCount(run.TotalOutputTokens)))
 			if run.EstimatedCostUSD > 0 {
 				fmt.Fprintf(os.Stderr, "    %-17s %s\n",
 					terminal.Gray("Estimated cost:"),
@@ -348,8 +349,8 @@ func showAgentSessionDetail(ctx context.Context, repo *database.Repository, uuid
 				outputTokens := usageMap["output_tokens"]
 				fmt.Fprintf(os.Stderr, "    %-17s %s input, %s output\n",
 					terminal.Gray(phase+":"),
-					terminal.Cyan(formatTokenCount(inputTokens)),
-					terminal.Cyan(formatTokenCount(outputTokens)))
+					terminal.Cyan(clicommon.FormatTokenCount(inputTokens)),
+					terminal.Cyan(clicommon.FormatTokenCount(outputTokens)))
 			} else {
 				fmt.Fprintf(os.Stderr, "    %-17s %v\n", terminal.Gray(phase+":"), usage)
 			}
@@ -534,14 +535,14 @@ func printSessionDirListing(sessionDir string) {
 	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
 		terminal.Aqua(terminal.SymbolInfo),
 		terminal.BoldAqua("Session Directory"),
-		terminal.Gray(fmt.Sprintf("(%d file%s)", len(files), pluralSuffix(len(files)))))
+		terminal.Gray(fmt.Sprintf("(%d file%s)", len(files), clicommon.PluralSuffix(len(files)))))
 	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Path:"), terminal.Gray(terminal.ShortenHome(sessionDir)))
 
 	for _, f := range files {
 		fmt.Fprintf(os.Stderr, "    %s %-50s %s\n",
 			terminal.Gray("-"),
 			terminal.Cyan(f.relPath),
-			terminal.Gray(formatFileSize(f.size)))
+			terminal.Gray(clicommon.FormatFileSize(f.size)))
 	}
 }
 
@@ -592,7 +593,7 @@ func printSessionRawOutput(run *database.AgenticScan, sessionDir string, tailLin
 	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
 		terminal.Aqua(terminal.SymbolInfo),
 		terminal.BoldAqua("Raw Output"),
-		terminal.Gray(fmt.Sprintf("(%d line%s total)", totalLines, pluralSuffix(totalLines))))
+		terminal.Gray(fmt.Sprintf("(%d line%s total)", totalLines, clicommon.PluralSuffix(totalLines))))
 
 	if truncated {
 		fmt.Fprintf(os.Stderr, "    %s\n", terminal.Gray(fmt.Sprintf("… showing last %d lines (use --full for all) …", tailLines)))
@@ -860,7 +861,7 @@ func printSessionAuth(ctx context.Context, repo *database.Repository, run *datab
 	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
 		terminal.Aqua(terminal.SymbolInfo),
 		terminal.BoldAqua("Session Auth"),
-		terminal.Gray(fmt.Sprintf("(%d config%s)", len(rows), pluralSuffix(len(rows)))))
+		terminal.Gray(fmt.Sprintf("(%d config%s)", len(rows), clicommon.PluralSuffix(len(rows)))))
 
 	for _, sh := range rows {
 		role := sh.SessionRole
@@ -939,7 +940,7 @@ func printSessionExtensions(run *database.AgenticScan) {
 	fmt.Fprintf(os.Stderr, "\n  %s %s %s\n",
 		terminal.Aqua(terminal.SymbolInfo),
 		terminal.BoldAqua("Extensions"),
-		terminal.Gray(fmt.Sprintf("(%d file%s)", len(jsFiles), pluralSuffix(len(jsFiles)))))
+		terminal.Gray(fmt.Sprintf("(%d file%s)", len(jsFiles), clicommon.PluralSuffix(len(jsFiles)))))
 	fmt.Fprintf(os.Stderr, "    %-17s %s\n", terminal.Gray("Directory:"), terminal.Gray(terminal.ShortenHome(extDir)))
 	for _, f := range jsFiles {
 		fmt.Fprintf(os.Stderr, "    %s %s\n", terminal.Gray("-"), terminal.BoldCyan(f))
@@ -951,48 +952,4 @@ func resolveSessionsDir() string {
 	// Use the config helper which handles defaults and ~ expansion
 	ac := config.AgentConfig{}
 	return ac.EffectiveSessionsDir()
-}
-
-// formatTokenCount formats a token count from interface{} to a human-readable string.
-// Accepts the JSON-decoded float64 form from JSONB columns and the int / int64
-// form from the typed total columns on AgenticScan.
-func formatTokenCount(v interface{}) string {
-	var n float64
-	switch x := v.(type) {
-	case float64:
-		n = x
-	case int:
-		n = float64(x)
-	case int64:
-		n = float64(x)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fM", n/1_000_000)
-	}
-	if n >= 1_000 {
-		return fmt.Sprintf("%.1fK", n/1_000)
-	}
-	return fmt.Sprintf("%d", int64(n))
-}
-
-// pluralSuffix returns "s" if count != 1, "" otherwise.
-func pluralSuffix(count int) string {
-	if count == 1 {
-		return ""
-	}
-	return "s"
-}
-
-// formatFileSize returns a human-readable file size string.
-func formatFileSize(bytes int64) string {
-	switch {
-	case bytes >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(1<<20))
-	case bytes >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(1<<10))
-	default:
-		return fmt.Sprintf("%d B", bytes)
-	}
 }

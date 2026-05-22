@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -106,14 +107,14 @@ func runDBExport(cmd *cobra.Command, args []string) error {
 	return runWithWatch(func() error {
 		var dateFrom, dateTo *time.Time
 		if exportFrom != "" {
-			t, err := parseDate(exportFrom)
+			t, err := clicommon.ParseDate(exportFrom)
 			if err != nil {
 				return fmt.Errorf("invalid --from date: %w", err)
 			}
 			dateFrom = &t
 		}
 		if exportTo != "" {
-			t, err := parseDate(exportTo)
+			t, err := clicommon.ParseDate(exportTo)
 			if err != nil {
 				return fmt.Errorf("invalid --to date: %w", err)
 			}
@@ -261,13 +262,13 @@ func exportCSV(records []*database.HTTPRecord, out *os.File) error {
 			rec.Hostname,
 			rec.Port,
 			rec.Method,
-			csvEscape(rec.Path),
+			clicommon.CSVEscape(rec.Path),
 			statusCode,
 			responseTime,
-			csvEscape(rec.RequestContentType),
-			csvEscape(rec.Source),
+			clicommon.CSVEscape(rec.RequestContentType),
+			clicommon.CSVEscape(rec.Source),
 			rec.RiskScore,
-			csvEscape(remarks),
+			clicommon.CSVEscape(remarks),
 			rec.CreatedAt.Format(time.RFC3339),
 		)
 	}
@@ -323,13 +324,6 @@ func parseSeverity(s string) severity.Severity {
 	default:
 		return severity.Info
 	}
-}
-
-func csvEscape(s string) string {
-	if strings.ContainsAny(s, ",\"\n") {
-		return fmt.Sprintf("\"%s\"", strings.ReplaceAll(s, "\"", "\"\""))
-	}
-	return s
 }
 
 func exportMarkdown(records []*database.HTTPRecord, out *os.File) error {
@@ -399,13 +393,13 @@ func exportMarkdownTable(records []*database.HTTPRecord, out *os.File) error {
 
 		// Escape pipe characters in values
 		_, _ = fmt.Fprintf(out, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			mdEscape(truncate(host, 40)),
+			mdEscape(clicommon.Truncate(host, 40)),
 			rec.Method,
-			mdEscape(truncate(rec.Path, 50)),
+			mdEscape(clicommon.Truncate(rec.Path, 50)),
 			status,
 			responseTime,
 			size,
-			mdEscape(truncate(rec.ResponseContentType, 30)),
+			mdEscape(clicommon.Truncate(rec.ResponseContentType, 30)),
 			mdEscape(rec.Source),
 		)
 	}
