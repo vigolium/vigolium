@@ -7,6 +7,15 @@ trade-offs before running them on a machine you care about.
 This page mirrors the [Security Warning](https://docs.vigolium.com/others/security-warning)
 in the docs — read it before running agent mode or loading third-party extensions.
 
+## Server authentication is not tenant isolation
+
+Vigolium's server assumes a trusted operator or trusted team. Any valid login
+user or API token should be treated as trusted to operate the instance.
+
+`project_uuid` is only a data separation label for scans, findings, records,
+storage keys, and config. It is not a tenant-isolation or authorization boundary.
+Use separate scanner instances and databases/storage for mutually untrusted users.
+
 ## Agent mode runs with no sandbox
 
 Agentic modes (`vigolium agent autopilot`, `swarm`, `audit`, `piolium`, `query`,

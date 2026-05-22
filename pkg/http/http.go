@@ -50,6 +50,26 @@ type Requester struct {
 	services         *services.Services
 	customHeaders    map[string]string
 	clusterer        *RequestClusterer
+	// defaultCtx, when non-nil, is the context the context-less Execute attaches
+	// to outgoing requests. Set per scan task via WithContext so cancellation
+	// reaches modules that call Execute (not ExecuteContext). nil → Background.
+	defaultCtx context.Context
+}
+
+// WithContext returns a shallow copy of the Requester whose context-less Execute
+// uses ctx for cancellation. The copy shares the underlying HTTP clients, rate
+// limiter, clusterer, and headers — only the default context differs — so it is
+// cheap to create per scan task. The executor hands each active-module task a
+// context-bound requester so a per-module timeout or scan shutdown aborts the
+// module's in-flight requests even when the module calls Execute directly.
+// A nil ctx returns the receiver unchanged.
+func (r *Requester) WithContext(ctx context.Context) *Requester {
+	if ctx == nil {
+		return r
+	}
+	clone := *r
+	clone.defaultCtx = ctx
+	return &clone
 }
 
 // getProxyURL returns proxy URL from CLI flag or environment variable.
@@ -84,7 +104,15 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 
 	timeout := options.Timeout
 
-	// TLS config - hardcoded for pentesting (insecure, max compat)
+	// TLS config - hardcoded for pentesting (insecure, max compat).
+	//
+	// This permissiveness is SCOPED TO SCANNER/TARGET TRAFFIC: scan targets
+	// routinely present self-signed, expired, or wrong-host certs, and a scanner
+	// that refused them would be useless. It deliberately does NOT apply to
+	// vigolium's own infrastructure calls — OSINT harvesting (pkg/harvester),
+	// cloud storage, AI providers, tool downloads, webhooks — which verify certs
+	// using Go's secure defaults. Keep that split: don't copy InsecureSkipVerify
+	// into non-target/infra HTTP clients.
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 		Renegotiation:      tls.RenegotiateOnceAsClient,
@@ -217,8 +245,15 @@ func makeRedirectFunc(sameHostOnly bool, maxRedirects int) func(*http.Request, [
 
 // Execute sends HTTP request with rate limiting, host error tracking,
 // and optional request clustering to deduplicate concurrent identical requests.
+// It uses the context bound via WithContext (if any) so callers that never touch
+// ExecuteContext still honour scan/module cancellation; otherwise it is
+// equivalent to the non-cancellable legacy behaviour.
 func (r *Requester) Execute(input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
-	return r.ExecuteContext(context.Background(), input, opts)
+	ctx := r.defaultCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return r.ExecuteContext(ctx, input, opts)
 }
 
 // ExecuteContext is the cancellable variant of Execute: ctx is attached to the

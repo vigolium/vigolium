@@ -10,7 +10,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/procutil"
 )
+
+// maxBashCapture bounds how much combined stdout+stderr the bash tool retains in
+// memory. Output beyond this is drained from the pipe (so the command never
+// blocks on a full pipe) but discarded from the captured result.
+const maxBashCapture = 1 << 20 // 1 MiB
 
 // Catastrophic patterns match on a single shell *segment* (a piece
 // between separators like `;`, `&&`, `||`, `|`, or newline). Segmenting
@@ -127,6 +134,10 @@ func (*bashTool) Execute(ctx context.Context, args map[string]any, onUpdate Upda
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, "bash", "-lc", cmdStr)
+	// Kill the whole process group on timeout/cancel, and give children a short
+	// grace window to drain the pipe before Wait gives up on them.
+	procutil.SetupProcessGroup(cmd)
+	cmd.WaitDelay = 2 * time.Second
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -179,12 +190,23 @@ func (*bashTool) Execute(ctx context.Context, args map[string]any, onUpdate Upda
 	}()
 
 	reader := bufio.NewReader(stdout)
+	capped := false
 	for {
 		chunk := make([]byte, 4096)
 		n, rerr := reader.Read(chunk)
 		if n > 0 {
 			mu.Lock()
-			buf.Write(chunk[:n])
+			if !capped {
+				if buf.Len()+n > maxBashCapture {
+					buf.Write(chunk[:maxBashCapture-buf.Len()])
+					buf.WriteString(fmt.Sprintf("\n... [output capped at %d bytes; remainder discarded]", maxBashCapture))
+					capped = true
+				} else {
+					buf.Write(chunk[:n])
+				}
+			}
+			// Once capped we keep reading (below) to drain the pipe but stop
+			// appending, bounding memory regardless of how much the command emits.
 			mu.Unlock()
 		}
 		if rerr == io.EOF {

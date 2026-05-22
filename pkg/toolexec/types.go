@@ -23,6 +23,7 @@ var (
 	ErrDownloadFailed      = errors.New("failed to download binary")
 	ErrExtractionFailed    = errors.New("failed to extract binary")
 	ErrUnsupportedPlatform = errors.New("unsupported platform")
+	ErrChecksumMismatch    = errors.New("downloaded archive failed checksum verification")
 )
 
 // CachedBinary holds information about a cached tool binary.

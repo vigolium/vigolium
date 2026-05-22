@@ -1,7 +1,10 @@
 package toolexec
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -180,17 +184,27 @@ func (d *Downloader) downloadAndCache(ctx context.Context, version string) (*Cac
 	maxSize := d.spec.maxBinarySizeOrDefault()
 	binaryPath := filepath.Join(d.cacheDir, d.spec.Name)
 
+	// Read the archive into memory (bounded by maxSize) so we can verify its
+	// checksum before trusting any bytes. maxSize+1 lets us detect overflow.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: read response: %v", ErrDownloadFailed, err)
+	}
+	if int64(len(body)) > maxSize {
+		return nil, fmt.Errorf("%w: archive exceeds max size %d bytes", ErrDownloadFailed, maxSize)
+	}
+
+	if err := d.verifyChecksum(ctx, version, body); err != nil {
+		return nil, err
+	}
+
 	switch d.spec.ArchiveFormat {
 	case ArchiveZIP:
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
-		if err != nil {
-			return nil, fmt.Errorf("%w: read response: %v", ErrDownloadFailed, err)
-		}
 		if err := extractFromZIP(body, d.spec.Name, binaryPath, maxSize); err != nil {
 			return nil, err
 		}
 	case ArchiveTGZ:
-		if err := extractFromTGZ(resp.Body, d.spec.Name, binaryPath, maxSize); err != nil {
+		if err := extractFromTGZ(bytes.NewReader(body), d.spec.Name, binaryPath, maxSize); err != nil {
 			return nil, err
 		}
 	default:
@@ -213,6 +227,29 @@ func (d *Downloader) downloadAndCache(ctx context.Context, version string) (*Cac
 		Version:      version,
 		DownloadedAt: time.Now(),
 	}, nil
+}
+
+// verifyChecksum checks the downloaded archive bytes against the expected
+// SHA-256 from spec.ResolveChecksum. It is a no-op when no resolver is set or
+// the resolver returns an empty digest (tools without published checksums).
+func (d *Downloader) verifyChecksum(ctx context.Context, version string, archive []byte) error {
+	if d.spec.ResolveChecksum == nil {
+		return nil
+	}
+	expected, err := d.spec.ResolveChecksum(ctx, d, version)
+	if err != nil {
+		return fmt.Errorf("%w: resolve expected checksum: %v", ErrChecksumMismatch, err)
+	}
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	if expected == "" {
+		return nil
+	}
+	sum := sha256.Sum256(archive)
+	got := hex.EncodeToString(sum[:])
+	if got != expected {
+		return fmt.Errorf("%w: %s expected sha256 %s, got %s", ErrChecksumMismatch, d.spec.Name, expected, got)
+	}
+	return nil
 }
 
 // loadFromDisk attempts to load cached binary info from disk.

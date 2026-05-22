@@ -36,6 +36,15 @@ type ToolSpec struct {
 	// The Downloader is passed so the function can use its HTTP client.
 	ResolveDownloadURL func(ctx context.Context, d *Downloader, version string) (string, error)
 
+	// ResolveChecksum optionally returns the expected lowercase hex SHA-256 of
+	// the downloaded archive asset for the given version. When non-nil and it
+	// returns a non-empty digest, the downloader verifies the archive bytes
+	// before extraction and rejects a mismatch (ErrChecksumMismatch). Leave nil
+	// for tools whose releases do not publish checksums — TLS to the release
+	// host is then the only integrity guarantee. Use ResolveChecksumViaTemplate
+	// for releases that publish a sidecar checksum file.
+	ResolveChecksum func(ctx context.Context, d *Downloader, version string) (string, error)
+
 	// MaxBinarySize is the maximum allowed binary size in bytes.
 	// Defaults to 100MB if zero.
 	MaxBinarySize int64

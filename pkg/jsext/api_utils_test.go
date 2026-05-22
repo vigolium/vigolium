@@ -443,3 +443,26 @@ func TestDetectAnomalyNullInput(t *testing.T) {
 	length := arr.Get("length").ToInteger()
 	assert.Equal(t, int64(0), length, "Should return empty array for null input")
 }
+
+func TestCappedWriter(t *testing.T) {
+	w := &cappedWriter{max: 10}
+
+	n, err := w.Write([]byte("12345"))
+	require.NoError(t, err)
+	assert.Equal(t, 5, n, "Write must report the full input length")
+	assert.False(t, w.overflow)
+
+	// This write crosses the cap: 5 retained + 5 dropped.
+	n, err = w.Write([]byte("67890ABCDE"))
+	require.NoError(t, err)
+	assert.Equal(t, 10, n, "Write must report the full input length even when capped")
+	assert.True(t, w.overflow)
+
+	// Further writes are fully dropped but still report success.
+	n, _ = w.Write([]byte("more"))
+	assert.Equal(t, 4, n)
+
+	got := w.String()
+	assert.True(t, strings.HasPrefix(got, "1234567890"), "exactly max bytes retained, got %q", got)
+	assert.Contains(t, got, "output capped at 10 bytes")
+}

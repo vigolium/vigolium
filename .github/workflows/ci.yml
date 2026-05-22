@@ -44,8 +44,11 @@ jobs:
       - name: Verify generated/managed sources (gofmt + go.mod tidy)
         run: make verify-generated
 
+      # Filter mirrors GOLIST_EXCLUDE in the Makefile: drop vendored rod browser
+      # tests and external tooling under platform/ (incl. node_modules trees that
+      # can hold stray buildable Go packages).
       - name: go vet
-        run: go vet $(go list ./... | grep -v '/pkg/spitolas/rod')
+        run: go vet $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -53,7 +56,7 @@ jobs:
           version: v2.9.0
 
       - name: Unit tests
-        run: go test -short $(go list ./... | grep -v '/pkg/spitolas/rod')
+        run: go test -short $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
 
   govulncheck:
     name: Vulnerability scan
@@ -80,4 +83,4 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: govulncheck $(go list ./... | grep -v '/pkg/spitolas/rod')
+        run: govulncheck $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')

@@ -419,6 +419,10 @@ func (h *Handlers) HandleRunScan(c fiber.Ctx) error {
 		)
 	}
 
+	// Detached on purpose: these writes register a scan that will run in a
+	// background goroutine (see go h.runBackgroundScan below). The record must
+	// persist even if this client disconnects right after kicking the scan off,
+	// so it is deliberately not tied to the request context.
 	ctx := context.Background()
 
 	scanMode := "target"
@@ -991,6 +995,9 @@ func (h *Handlers) runBackgroundScan(scanID string, scanRunner *runner.Runner, p
 		zap.String("scan_uuid", scanID),
 		zap.Duration("elapsed", elapsed))
 
+	// Background goroutine, no request in scope: the originating request returned
+	// 202 long ago. Use a fresh context so finalizing the scan record can't be
+	// cancelled by a client disconnect.
 	ctx := context.Background()
 	if err := h.repo.CompleteScan(ctx, scanID, errMsg); err != nil {
 		zap.L().Error("Failed to complete scan record", zap.String("scan_uuid", scanID), zap.Error(err))

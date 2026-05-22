@@ -54,7 +54,7 @@ curl -s http://localhost:9002/ | jq .
   "name": "vigolium",
   "version": "v0.0.1-alpha",
   "author": "@j3ssie",
-  "docs": "https://docs.vigolium.io",
+  "docs": "https://docs.vigolium.com",
   "build_time": "2026-02-16T15:22:43Z",
   "commit": "67bdce4"
 }
@@ -106,7 +106,7 @@ curl -s http://localhost:9002/server-info | jq .
   "name": "vigolium",
   "version": "v0.0.1-alpha",
   "author": "@j3ssie",
-  "docs": "https://docs.vigolium.io",
+  "docs": "https://docs.vigolium.com",
   "build_time": "2026-02-16T15:22:43Z",
   "commit": "67bdce4",
   "uptime": "5m32s",

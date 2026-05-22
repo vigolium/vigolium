@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 // PlatformNamer returns (osName, archName) for the current platform.
@@ -72,5 +74,46 @@ func ResolveViaTemplate(urlTemplate string, platform PlatformNamer) func(context
 			return "", err
 		}
 		return fmt.Sprintf(urlTemplate, version, osName, archName), nil
+	}
+}
+
+// ResolveChecksumViaTemplate returns a ResolveChecksum function for releases
+// that publish a sidecar checksum file (e.g. "<asset>.sha256"). The template
+// takes the same three %s verbs as ResolveViaTemplate: version, osName,
+// archName. The fetched file may be a bare hex digest or the common
+// "<hex>  <filename>" coreutils format; the leading hex token is used.
+func ResolveChecksumViaTemplate(urlTemplate string, platform PlatformNamer) func(context.Context, *Downloader, string) (string, error) {
+	return func(ctx context.Context, d *Downloader, version string) (string, error) {
+		osName, archName, err := platform()
+		if err != nil {
+			return "", err
+		}
+		url := fmt.Sprintf(urlTemplate, version, osName, archName)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", fmt.Errorf("create checksum request: %w", err)
+		}
+		req.Header.Set("User-Agent", d.spec.UserAgent)
+
+		resp, err := d.httpClient.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("fetch checksum: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("checksum fetch returned status %d", resp.StatusCode)
+		}
+
+		// Checksum files are tiny; cap the read defensively.
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if err != nil {
+			return "", fmt.Errorf("read checksum: %w", err)
+		}
+		fields := strings.Fields(string(raw))
+		if len(fields) == 0 {
+			return "", fmt.Errorf("empty checksum file at %s", url)
+		}
+		return fields[0], nil
 	}
 }

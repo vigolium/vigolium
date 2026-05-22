@@ -1108,11 +1108,14 @@ func (e *Executor) runPassiveWithTimeout(
 // the call completed within the bound. When the per-module timeout fires OR the
 // phase deadline (ctx) is reached, it returns (nil, false) immediately so the
 // worker stops blocking on g.Wait() and the phase ends on time. The scan function
-// receives callCtx: modules implementing modules.ContextualActiveModule thread it
-// into http.Requester.ExecuteContext so their in-flight requests are cancelled at
-// the deadline. Legacy modules using the non-cancellable Execute still can't be
-// interrupted mid-request, but they can no longer emit findings either way (the
-// caller skips processResults when completed is false).
+// receives callCtx for explicit use. The executor also hands the module a
+// requester bound to the PHASE context (http.Requester.WithContext), so
+// context-less Execute calls abort in-flight requests on scan shutdown / phase
+// deadline. It deliberately is NOT bound to callCtx: the request clusterer
+// shares one in-flight request across modules, so a single module's per-module
+// timeout must not cancel a request other modules deduped onto. The per-module
+// timeout is still enforced here — a timed-out call returns (nil, false) and the
+// caller skips processResults — it just doesn't sever the shared socket early.
 func (e *Executor) runActiveWithTimeout(
 	ctx context.Context,
 	scanFn func(context.Context) ([]*output.ResultEvent, error),

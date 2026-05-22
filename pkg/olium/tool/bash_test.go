@@ -1,6 +1,27 @@
 package tool
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestBashOutputCapped(t *testing.T) {
+	// Emit ~2 MiB, well over maxBashCapture, and confirm the captured result is
+	// bounded with a truncation marker rather than growing without limit.
+	res, err := (&bashTool{}).Execute(context.Background(), map[string]any{
+		"command": "head -c 2097152 /dev/zero | tr '\\0' 'a'",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(res.Content) > maxBashCapture+256 {
+		t.Errorf("output not capped: got %d bytes, cap %d", len(res.Content), maxBashCapture)
+	}
+	if !strings.Contains(res.Content, "output capped") {
+		t.Errorf("expected cap marker in output")
+	}
+}
 
 func TestIsCatastrophic(t *testing.T) {
 	cases := []struct {

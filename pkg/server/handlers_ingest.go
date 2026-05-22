@@ -114,6 +114,12 @@ func (h *Handlers) HandleIngestHTTP(c fiber.Ctx) error {
 		})
 	}
 
+	// Detached on purpose: ingestion persists records, and when the async
+	// RecordWriter is enabled it enqueues the write then flushes on a background
+	// context — the record lands regardless of the client. Binding the request
+	// context here would let a client disconnect (between enqueue and flush)
+	// return an error for a record that was in fact saved. Persistence must be
+	// durable, so we use a background context.
 	ctx := context.Background()
 
 	switch req.InputMode {

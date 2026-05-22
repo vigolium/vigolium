@@ -46,6 +46,8 @@ func (h *Handlers) persistAgenticScan(agenticScanUUID, mode, agentName string) e
 		Status:    "running",
 		StartedAt: time.Now(),
 	}
+	// Detached on purpose: an agent run outlives the HTTP request that starts it,
+	// so its DB lifecycle is not tied to any request context.
 	if err := h.repo.CreateAgenticScan(context.Background(), run); err != nil {
 		if errors.Is(err, database.ErrScanProjectMismatch) {
 			return err

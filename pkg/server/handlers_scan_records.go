@@ -61,6 +61,8 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 		validUUIDs[i] = r.UUID
 	}
 
+	// Detached on purpose: registers a scan that runs in a background goroutine
+	// below, so the record must outlive this request rather than cancel with it.
 	ctx := context.Background()
 	projectUUID := getProjectUUID(c)
 

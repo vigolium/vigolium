@@ -39,10 +39,19 @@ func (e *Executor) runActivePerHost(ctx context.Context, item *httpmsg.HttpReque
 		e.goActiveTask(ctx, g, func() {
 			results, completed := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context) ([]*output.ResultEvent, error) {
+					// Bind the PHASE context (not the per-module runCtx) into the
+					// requester so even legacy modules calling the context-less Execute
+					// get in-flight requests aborted on scan shutdown / phase deadline.
+					// We must NOT bind runCtx: the request clusterer shares one in-flight
+					// request across modules via singleflight, so a single module's
+					// per-module timeout would cancel a request other modules deduped
+					// onto, poisoning them. Per-module timeouts are still enforced by
+					// runActiveWithTimeout (it discards late results).
+					reqClient := e.httpClient.WithContext(ctx)
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
-						return contextual.ScanPerHostContext(runCtx, item, e.httpClient, e.scanCtx)
+						return contextual.ScanPerHostContext(runCtx, item, reqClient, e.scanCtx)
 					}
-					return mod.ScanPerHost(item, e.httpClient, e.scanCtx)
+					return mod.ScanPerHost(item, reqClient, e.scanCtx)
 				},
 				mod, item)
 			if completed && len(results) > 0 {
@@ -73,10 +82,13 @@ func (e *Executor) runActivePerRequest(ctx context.Context, item *httpmsg.HttpRe
 		e.goActiveTask(ctx, g, func() {
 			results, completed := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context) ([]*output.ResultEvent, error) {
+					// Phase context (not runCtx) — see runActivePerHost for why the
+					// shared clusterer rules out binding the per-module timeout here.
+					reqClient := e.httpClient.WithContext(ctx)
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
-						return contextual.ScanPerRequestContext(runCtx, item, e.httpClient, e.scanCtx)
+						return contextual.ScanPerRequestContext(runCtx, item, reqClient, e.scanCtx)
 					}
-					return mod.ScanPerRequest(item, e.httpClient, e.scanCtx)
+					return mod.ScanPerRequest(item, reqClient, e.scanCtx)
 				},
 				mod, item)
 			if completed && len(results) > 0 {
@@ -141,10 +153,13 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, item *httpmsg
 			e.goActiveTask(ctx, g, func() {
 				results, completed := e.runActiveWithTimeout(ctx,
 					func(runCtx context.Context) ([]*output.ResultEvent, error) {
+						// Phase context (not runCtx) — see runActivePerHost for why the
+						// shared clusterer rules out binding the per-module timeout here.
+						reqClient := e.httpClient.WithContext(ctx)
 						if contextual, ok := mod.(modules.ContextualActiveModule); ok {
-							return contextual.ScanPerInsertionPointContext(runCtx, item, pt, e.httpClient, e.scanCtx)
+							return contextual.ScanPerInsertionPointContext(runCtx, item, pt, reqClient, e.scanCtx)
 						}
-						return mod.ScanPerInsertionPoint(item, pt, e.httpClient, e.scanCtx)
+						return mod.ScanPerInsertionPoint(item, pt, reqClient, e.scanCtx)
 					},
 					mod, item)
 				if completed && len(results) > 0 {

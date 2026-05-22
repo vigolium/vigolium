@@ -39,6 +39,8 @@ func (cc *countCache) Get(db *database.DB) (records, findings int64) {
 		return cc.records, cc.findings
 	}
 
+	// Shared cross-request cache refresh — not owned by any single request, so it
+	// uses a background context rather than one caller's request context.
 	ctx := context.Background()
 	if recordCount, err := db.NewSelect().Model((*database.HTTPRecord)(nil)).Count(ctx); err == nil {
 		cc.records = int64(recordCount)
@@ -229,7 +231,7 @@ func (h *Handlers) HandleAppInfo(c fiber.Ctx) error {
 		Name:        "vigolium",
 		Version:     h.config.Version,
 		Author:      h.config.Author,
-		Docs:        "https://docs.vigolium.io",
+		Docs:        "https://docs.vigolium.com",
 		LicenseSPDX: "AGPL-3.0-or-later",
 		Source:      "https://github.com/vigolium/vigolium",
 		BuildTime:   h.config.BuildTime,
@@ -253,7 +255,7 @@ func (h *Handlers) HandleServerInfo(c fiber.Ctx) error {
 		Name:        "vigolium",
 		Version:     h.config.Version,
 		Author:      h.config.Author,
-		Docs:        "https://docs.vigolium.io",
+		Docs:        "https://docs.vigolium.com",
 		BuildTime:   h.config.BuildTime,
 		Commit:      commit,
 		Uptime:      time.Since(h.startTime).Round(time.Second).String(),

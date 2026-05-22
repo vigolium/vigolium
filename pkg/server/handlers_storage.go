@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -53,7 +52,7 @@ func (h *Handlers) HandleStorageUploadSource(c fiber.Ctx) error {
 	filename := filepath.Base(file.Filename)
 	key := storage.UGCKey(filename)
 
-	if err := sc.Upload(context.Background(), projectUUID, key, f, file.Size, file.Header.Get("Content-Type")); err != nil {
+	if err := sc.Upload(c.Context(), projectUUID, key, f, file.Size, file.Header.Get("Content-Type")); err != nil {
 		zap.L().Error("Failed to upload source to storage", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to upload file to storage",
@@ -107,7 +106,7 @@ func (h *Handlers) HandleStorageDownloadSource(c fiber.Ctx) error {
 		})
 	}
 
-	reader, err := sc.Download(context.Background(), projectUUID, fullKey)
+	reader, err := sc.Download(c.Context(), projectUUID, fullKey)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: "file not found in storage",
@@ -164,7 +163,7 @@ func (h *Handlers) HandleStorageDownloadResults(c fiber.Ctx) error {
 	// key only surfaces an error inside io.Copy, by which point we've already
 	// committed to that key and can't fall back to the next one.
 	for _, key := range keys {
-		exists, err := sc.Exists(context.Background(), projectUUID, key)
+		exists, err := sc.Exists(c.Context(), projectUUID, key)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 				Error: "failed to check storage: " + err.Error(),
@@ -175,7 +174,7 @@ func (h *Handlers) HandleStorageDownloadResults(c fiber.Ctx) error {
 			continue
 		}
 
-		reader, err := sc.Download(context.Background(), projectUUID, key)
+		reader, err := sc.Download(c.Context(), projectUUID, key)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 				Error: "failed to open storage object: " + err.Error(),
@@ -247,9 +246,9 @@ func (h *Handlers) HandleStoragePresign(c fiber.Ctx) error {
 	var url string
 	switch req.Method {
 	case "PUT", "put":
-		url, err = sc.PresignedPutURL(context.Background(), projectUUID, req.Key, expiry)
+		url, err = sc.PresignedPutURL(c.Context(), projectUUID, req.Key, expiry)
 	default:
-		url, err = sc.PresignedGetURL(context.Background(), projectUUID, req.Key, expiry)
+		url, err = sc.PresignedGetURL(c.Context(), projectUUID, req.Key, expiry)
 	}
 
 	if err != nil {

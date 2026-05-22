@@ -65,6 +65,10 @@ func kingfisherSpec() toolexec.ToolSpec {
 			"https://github.com/mongodb/kingfisher/releases/download/%s/kingfisher-%s-%s.tgz",
 			kingfisherPlatform,
 		),
+		// mongodb/kingfisher releases do not publish per-asset checksum files, so
+		// ResolveChecksum is left nil — integrity rests on TLS to github.com. If
+		// upstream starts shipping "<asset>.sha256" sidecars, wire it with
+		// toolexec.ResolveChecksumViaTemplate to enable verification.
 	}
 }
 

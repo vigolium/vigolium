@@ -187,7 +187,7 @@ func TestAPI_AppInfo(t *testing.T) {
 	assert.Equal(t, "vigolium", body.Name)
 	assert.Equal(t, "test-v0.0.1", body.Version)
 	assert.Equal(t, "test-author", body.Author)
-	assert.Equal(t, "https://docs.vigolium.io", body.Docs)
+	assert.Equal(t, "https://docs.vigolium.com", body.Docs)
 	assert.Equal(t, "2026-01-01T00:00:00Z", body.BuildTime)
 	// Commit is truncated to 7 chars
 	assert.Equal(t, "abc1234", body.Commit)

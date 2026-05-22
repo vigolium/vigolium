@@ -22,8 +22,43 @@ import (
 	"github.com/grafana/sobek"
 	"github.com/vigolium/vigolium/pkg/anomaly"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/procutil"
 	"go.uber.org/zap"
 )
+
+// maxExecCapture bounds how much output exec() retains per stream (stdout and
+// stderr). Anything beyond is dropped, with a marker appended, so a verbose
+// command can't exhaust memory.
+const maxExecCapture = 1 << 20 // 1 MiB
+
+// cappedWriter is an io.Writer that retains at most max bytes and discards the
+// rest, always reporting a full write so the producing command never blocks.
+type cappedWriter struct {
+	buf      strings.Builder
+	max      int
+	overflow bool
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	if remaining := w.max - w.buf.Len(); remaining > 0 {
+		if len(p) <= remaining {
+			w.buf.Write(p)
+		} else {
+			w.buf.Write(p[:remaining])
+			w.overflow = true
+		}
+	} else if len(p) > 0 {
+		w.overflow = true
+	}
+	return len(p), nil
+}
+
+func (w *cappedWriter) String() string {
+	if w.overflow {
+		return w.buf.String() + fmt.Sprintf("\n... [output capped at %d bytes; remainder discarded]", w.max)
+	}
+	return w.buf.String()
+}
 
 // utilsFuncDefs returns the JSFuncDef entries for vigolium.utils.*.
 func utilsFuncDefs() []JSFuncDef {
@@ -200,15 +235,24 @@ func utilsFuncDefs() []JSFuncDef {
 					defer cancel()
 
 					c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-					var stdout, stderr strings.Builder
-					c.Stdout = &stdout
-					c.Stderr = &stderr
+					procutil.SetupProcessGroup(c) // kill the whole group on timeout, not just /bin/sh
+					c.WaitDelay = 2 * time.Second
+					stdout := &cappedWriter{max: maxExecCapture}
+					stderr := &cappedWriter{max: maxExecCapture}
+					c.Stdout = stdout
+					c.Stderr = stderr
 
 					err := c.Run()
 					exitCode := 0
 					if err != nil {
 						if exitErr, ok := err.(*exec.ExitError); ok {
 							exitCode = exitErr.ExitCode()
+						} else if c.ProcessState != nil {
+							// e.g. ErrWaitDelay: the process exited but a lingering
+							// child held stdout/stderr open past WaitDelay. The real
+							// exit status is still recorded on ProcessState, so report
+							// it rather than a misleading -1.
+							exitCode = c.ProcessState.ExitCode()
 						} else {
 							exitCode = -1
 						}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"slices"
 
 	"github.com/gofiber/fiber/v3"
@@ -41,9 +40,9 @@ func (h *Handlers) HandleStats(c fiber.Ctx) error {
 		resp.Modules.Passive.Enabled = len(passiveModules)
 	}
 
-	// Database counts (scoped to project)
+	// Database counts (scoped to project) — request-bound read, cancels with the client.
 	if h.db != nil {
-		ctx := context.Background()
+		ctx := c.Context()
 
 		recordQ := h.db.NewSelect().Model((*database.HTTPRecord)(nil))
 		if projectUUID != "" {

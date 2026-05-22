@@ -11,6 +11,15 @@ BINARY_NAME=vigolium
 INGESTOR_NAME=vigolium-ingestor
 BINARY_DIR=bin
 
+# Package-selection filter shared by test/vet/race/fmt/govulncheck (here and in
+# .github/workflows/ci.yml). Excludes vendored rod browser tests and everything
+# under platform/ (external tooling). platform/ harbours node_modules trees that
+# can contain stray buildable Go packages (e.g. flatted/golang) which would
+# otherwise be discovered by `go list ./...`; /node_modules/ is listed too as
+# defence in depth. Used inline as `$$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')`
+# so `go list` stays lazy (it needs generated embeds present).
+GOLIST_EXCLUDE=/pkg/spitolas/rod|/platform/|/node_modules/
+
 # Console output prefix (cyan color)
 PREFIX=\033[36m[*]\033[0m
 
@@ -116,20 +125,20 @@ install-gotestsum:
 		go install gotest.tools/gotestsum@latest; \
 	fi
 
-# Run all tests (install gotestsum first, excludes vendored rod browser tests)
+# Run all tests (install gotestsum first; see GOLIST_EXCLUDE for what's filtered)
 test: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Running all tests..."
-	$(TESTCMD) $(TESTFLAGS) $$(go list ./... | grep -v '/pkg/spitolas/rod')
+	$(TESTCMD) $(TESTFLAGS) $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
-# Run tests with race detector (excludes vendored rod browser tests)
+# Run tests with race detector (see GOLIST_EXCLUDE for what's filtered)
 test-race: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Running tests with race detector..."
-	$(TESTCMD) $(TESTFLAGS) -race $$(go list ./... | grep -v '/pkg/spitolas/rod')
+	$(TESTCMD) $(TESTFLAGS) -race $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
-# Run unit tests (excludes integration, e2e, and vendored rod browser tests)
+# Run unit tests (excludes integration, e2e; see GOLIST_EXCLUDE for what's filtered)
 test-unit: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Running unit tests..."
-	$(TESTCMD) $(TESTFLAGS) -short $$(go list ./... | grep -v '/pkg/spitolas/rod')
+	$(TESTCMD) $(TESTFLAGS) -short $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
 # Run integration tests (Brutelogic XSS gym benchmark)
 test-integration: install-gotestsum
@@ -960,7 +969,7 @@ lint:
 # they are not diff-verifiable here. See docs/development/generated-assets.md.)
 verify-generated:
 	@echo "$(PREFIX) Verifying formatting is clean..."
-	@unformatted="$$(gofmt -l $$(go list -f '{{.Dir}}' ./... | grep -v '/pkg/spitolas/rod'))"; \
+	@unformatted="$$(gofmt -l $$(go list -f '{{.Dir}}' ./... | grep -Ev '$(GOLIST_EXCLUDE)'))"; \
 	if [ -n "$$unformatted" ]; then \
 		echo "$(PREFIX) These files are not gofmt-clean — run 'make fmt':"; \
 		echo "$$unformatted"; \
