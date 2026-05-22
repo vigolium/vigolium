@@ -24,7 +24,7 @@ GOLIST_EXCLUDE=/pkg/spitolas/rod|/platform/|/node_modules/
 # test-ci and test-coverage-check). A regression tripwire held at/just below the
 # current baseline; ratchet it upward as coverage improves.
 # Override on the CLI: `make test-coverage-check COVERAGE_MIN=35`.
-COVERAGE_MIN ?= 30
+COVERAGE_MIN ?= 41
 
 # Console output prefix (cyan color)
 PREFIX=\033[36m[*]\033[0m

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -26,6 +27,72 @@ func TestNormalizeToRoot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNormalizeToRootEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Scheme-less inputs get the default https:// scheme applied. A bare
+		// "example.com" parses as a path (no authority), so after rooting the
+		// path the host is empty — documents the actual (lossy) behavior and
+		// exercises the u.Scheme == "" branch.
+		{"no scheme bare host parses as path", "example.com", "https:///"},
+		{"no scheme with leading slashes keeps host", "//example.com/path", "https://example.com/"},
+		// Already-rooted URLs with a non-default scheme are preserved.
+		{"explicit http scheme", "http://example.com/foo?bar=1", "http://example.com/"},
+		// Parse failures fall back to returning the input verbatim. A control
+		// byte makes url.Parse return an error.
+		{"unparseable input returned verbatim", "http://\x7f\x00bad", "http://\x7f\x00bad"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeToRoot(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizeToRoot(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestContainsHTMLMarker(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected bool
+	}{
+		{"html tag", `<html lang="en"><body></body></html>`, true},
+		{"head tag deep in body", `<!-- comment -->\n<head><title>x</title></head>`, true},
+		{"body tag", `<root><body>content</body></root>`, true},
+		{"doctype mixed case", `<!DOCTYPE html>`, true},
+		{"lowercase doctype", `<!doctype html>`, true},
+		{"no html markers (real XML)", `<rss version="2.0"><channel><item/></channel></rss>`, false},
+		{"empty body", ``, false},
+		{"marker only after the 4096-byte scan window is missed",
+			strings.Repeat("x", 5000) + "<html>", false},
+		{"marker within the 4096-byte scan window is found",
+			strings.Repeat("x", 100) + "<body>", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsHTMLMarker([]byte(tt.body))
+			if got != tt.expected {
+				t.Errorf("containsHTMLMarker(%q...) = %v, want %v", truncate(tt.body), got, tt.expected)
+			}
+		})
+	}
+}
+
+// truncate shortens a string for readable test failure messages.
+func truncate(s string) string {
+	if len(s) > 40 {
+		return s[:40]
+	}
+	return s
 }
 
 func TestClassifyBlankResponse(t *testing.T) {

@@ -1,0 +1,66 @@
+package sensitive_url_params
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+)
+
+// makeReqCtx builds a request/response pair from the given GET request line path
+// (including query string).
+func makeReqCtx(pathAndQuery string) *httpmsg.HttpRequestResponse {
+	rawReq := []byte("GET " + pathAndQuery + " HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	req := httpmsg.NewHttpRequestWithService(
+		httpmsg.NewServiceSecure("example.com", 443, true),
+		rawReq,
+	)
+	resp := httpmsg.NewHttpResponse([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html></html>"))
+	return httpmsg.NewHttpRequestResponse(req, resp)
+}
+
+func TestNew(t *testing.T) {
+	t.Parallel()
+	m := New()
+	require.NotNil(t, m)
+	assert.Equal(t, ModuleID, m.ID())
+	assert.Equal(t, ModuleName, m.Name())
+}
+
+// TestScanPerRequest_SensitiveParam drives a URL with an api_key query parameter
+// and expects a finding flagging the parameter name (value masked).
+func TestScanPerRequest_SensitiveParam(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeReqCtx("/search?q=widgets&api_key=supersecretvalue")
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assert.Equal(t, "api_key", results[0].FuzzingParameter)
+	assert.Contains(t, results[0].Info.Description, "api_key")
+}
+
+// TestScanPerRequest_PasswordParam drives a URL with a password parameter and
+// expects a finding.
+func TestScanPerRequest_PasswordParam(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeReqCtx("/login?user=bob&password=hunter2")
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assert.Equal(t, "password", results[0].FuzzingParameter)
+}
+
+// TestScanPerRequest_Benign drives a URL with only benign parameters and expects
+// no findings.
+func TestScanPerRequest_Benign(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeReqCtx("/search?q=widgets&page=2&sort=name")
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
