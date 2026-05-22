@@ -82,6 +82,10 @@ type Handlers struct {
 	configWatcher *config.ConfigWatcher
 	startTime     time.Time
 
+	// Domain handler groups extracted from this struct. Composed here and
+	// wired in NewHandlers; the routes call e.g. h.findings.HandleListFindings.
+	findings *findingsHandlers
+
 	// Per-project scan state for API-triggered scans
 	scanMu     sync.Mutex
 	scanStates map[string]*scanState // keyed by projectUUID
@@ -166,6 +170,7 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		agentCleanupStop:   make(chan struct{}),
 		counts:             newCountCache(10 * time.Second),
 	}
+	h.findings = &findingsHandlers{db: db, repo: repo}
 	if !cfg.NoAgent {
 		h.agentEngine = agent.NewEngine(settings, repo)
 		go h.agentDBCleanupLoop()

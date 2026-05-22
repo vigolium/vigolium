@@ -10,8 +10,17 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
+// findingsHandlers serves the /api/findings endpoints. It depends only on the
+// database + repository, so it can be constructed and tested in isolation from
+// the full Handlers god-struct. It is composed into Handlers (see the findings
+// field) and wired in NewHandlers.
+type findingsHandlers struct {
+	db   *database.DB
+	repo *database.Repository
+}
+
 // HandleListFindings handles GET /api/findings
-func (h *Handlers) HandleListFindings(c fiber.Ctx) error {
+func (h *findingsHandlers) HandleListFindings(c fiber.Ctx) error {
 	if h.db == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
 			Error: ErrDatabaseRequired.Error(),
@@ -129,7 +138,7 @@ func (h *Handlers) HandleListFindings(c fiber.Ctx) error {
 }
 
 // HandleDeleteFinding handles DELETE /api/findings/:id — deletes a single finding by numeric ID.
-func (h *Handlers) HandleDeleteFinding(c fiber.Ctx) error {
+func (h *findingsHandlers) HandleDeleteFinding(c fiber.Ctx) error {
 	if h.db == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
 			Error: ErrDatabaseRequired.Error(),
@@ -180,7 +189,7 @@ type UpdateFindingStatusRequest struct {
 
 // HandleUpdateFindingStatus handles PATCH /api/findings/:id/status — updates the
 // lifecycle status of a finding (draft → triaged / false_positive / accepted_risk / fixed).
-func (h *Handlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
+func (h *findingsHandlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
 	if h.db == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
 			Error: ErrDatabaseRequired.Error(),
@@ -236,7 +245,7 @@ func (h *Handlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
 }
 
 // HandleGetFinding handles GET /api/findings/:id — returns a single finding by numeric ID.
-func (h *Handlers) HandleGetFinding(c fiber.Ctx) error {
+func (h *findingsHandlers) HandleGetFinding(c fiber.Ctx) error {
 	if h.db == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
 			Error: ErrDatabaseRequired.Error(),
