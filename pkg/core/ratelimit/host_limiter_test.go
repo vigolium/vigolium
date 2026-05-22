@@ -190,6 +190,26 @@ func TestHostRateLimiter_Close(t *testing.T) {
 	}
 }
 
+// TestHostRateLimiter_AcquireAfterClose guards against the use-after-close
+// panic ("assignment to entry in nil map") that fired when an in-flight scan
+// goroutine reached Acquire after the runner had already Closed the limiter:
+// Close nils the shard maps, and getOrCreateEntry must not write into them.
+func TestHostRateLimiter_AcquireAfterClose(t *testing.T) {
+	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 1, EvictInterval: 10 * time.Millisecond})
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Must not panic — a late caller gets a transient, immediately usable slot.
+	if err := h.Acquire(context.Background(), "example.com"); err != nil {
+		t.Fatalf("Acquire after Close = %v, want nil", err)
+	}
+	h.Release("example.com") // also must be nil-map-safe
+	if err := h.AcquireWithTimeout("example.com"); err != nil {
+		t.Fatalf("AcquireWithTimeout after Close = %v, want nil", err)
+	}
+}
+
 func TestHostHeap_OrdersByLastUsed(t *testing.T) {
 	h := &hostHeap{}
 	heap.Init(h)

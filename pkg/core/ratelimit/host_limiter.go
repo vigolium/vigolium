@@ -231,6 +231,15 @@ func (h *HostRateLimiter) getOrCreateEntry(shard *hostShard, host string) *hostE
 		return entry
 	}
 
+	// If the limiter has been closed, Close() nils the shard maps. In-flight
+	// scan goroutines can still reach this path when they outlive the runner's
+	// shutdown (e.g. per-request workers spawned by a module), so hand them a
+	// transient, immediately usable entry instead of panicking on a write to a
+	// nil map. The entry isn't tracked — there's nothing left to track into.
+	if shard.hosts == nil {
+		return &hostEntry{sem: make(chan struct{}, h.maxPerHost)}
+	}
+
 	// Check if we need to evict (approximate: per-shard cap)
 	if len(shard.hosts) >= h.maxEntries/numShards {
 		h.evictOldestFromShard(shard)
