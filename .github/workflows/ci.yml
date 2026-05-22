@@ -51,7 +51,7 @@ jobs:
         run: go vet $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9.0
 
