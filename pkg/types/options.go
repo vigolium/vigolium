@@ -20,6 +20,9 @@ type Options struct {
 	Output string
 	// IncludeResponseInOutput includes HTTP response in output file.
 	IncludeResponseInOutput bool
+	// OmitResponse drops raw HTTP request/response bytes from file output
+	// (keeps metadata; produces much smaller files).
+	OmitResponse bool
 
 	SkipFormatValidation  bool
 	FormatUseRequiredOnly bool

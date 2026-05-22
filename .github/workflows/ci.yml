@@ -1,10 +1,9 @@
 name: CI
 
+# Manual-only: CI runs when you start it from the Actions tab or via
+# `gh workflow run ci.yml`, not automatically on push or pull_request.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
@@ -84,3 +83,36 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck $(go list ./... | grep -Ev '/pkg/spitolas/rod|/platform/|/node_modules/')
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    # Informational supply-chain artifact, not a gate. syft reads go.mod
+    # directly, so this needs neither a build nor the embedded jsscan binaries.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: vigolium-sbom.cdx.json
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    # Diffs the dependency graph against the PR base for known-vulnerable or
+    # license-incompatible additions; only meaningful on pull requests.
+    if: github.event_name == 'pull_request'
+    # Non-blocking for now (mirrors the govulncheck stance): surface advisories
+    # for triage rather than hard-failing unrelated PRs.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

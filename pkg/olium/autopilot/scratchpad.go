@@ -241,7 +241,7 @@ func (c *ScratchpadContext) render() string {
 		}
 	}
 
-	b.WriteString(fmt.Sprintf("\n### Notes (%d)\n", len(c.notes)))
+	fmt.Fprintf(&b, "\n### Notes (%d)\n", len(c.notes))
 	if len(c.notes) == 0 {
 		b.WriteString("_(none — call remember to pin durable facts: auth schemes, role boundaries, confirmed/refuted hypotheses)_\n")
 	} else {
@@ -298,7 +298,7 @@ func (c *ScratchpadContext) Digest() string {
 		}
 	}
 	if len(c.notes) > 0 {
-		b.WriteString(fmt.Sprintf("notes=%d (call `remember` with recall=true to read)\n", len(c.notes)))
+		fmt.Fprintf(&b, "notes=%d (call `remember` with recall=true to read)\n", len(c.notes))
 	}
 	return b.String()
 }
@@ -487,7 +487,7 @@ func (c *ScratchpadContext) recall(filter []string) string {
 		return c.render()
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("## Notes matching tags [%s]\n\n", strings.Join(filter, ", ")))
+	fmt.Fprintf(&b, "## Notes matching tags [%s]\n\n", strings.Join(filter, ", "))
 	count := 0
 	for _, n := range c.notes {
 		if !hasAllTags(n.Tags, filter) {

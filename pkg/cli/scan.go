@@ -776,8 +776,8 @@ func (e *emptySource) Close() error                                   { return n
 
 // generateReportFromDB queries all data from the database and generates a
 // report at the specified output path using the given generator function.
-func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, generate func([]any, string, output.HTMLReportMeta) error) error {
-	items, err := queryExportData(ctx, db)
+func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, generate func([]any, string, output.HTMLReportMeta) error) error {
+	items, err := queryExportData(ctx, db, omitResponse)
 	if err != nil {
 		return err
 	}
@@ -861,7 +861,7 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) {
 		if rf.beforeMsg != "" {
 			fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 		}
-		if err := generateReportFromDB(ctx, db, outPath, rf.generate); err != nil {
+		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, rf.generate); err != nil {
 			fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -889,7 +889,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 				// A transcript was captured to this path; do not overwrite it.
 				continue
 			}
-			exportStatelessConsole(ctx, db, outPath)
+			exportStatelessConsole(ctx, db, outPath, opts.OmitResponse)
 		case "jsonl":
 			exportStatelessJSONL(ctx, db, opts, outPath)
 		default:
@@ -900,7 +900,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 				if rf.beforeMsg != "" {
 					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 				}
-				if err := generateReportFromDB(ctx, db, outPath, rf.generate); err != nil {
+				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, rf.generate); err != nil {
 					fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 				} else {
 					fmt.Fprintf(os.Stderr, "%s %s exported to %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -912,7 +912,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 
 // exportStatelessJSONL writes all database records to a JSONL file.
 func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Options, outputPath string) {
-	items, err := queryExportData(ctx, db)
+	items, err := queryExportData(ctx, db, opts.OmitResponse)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
 		return
@@ -947,8 +947,8 @@ func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Opti
 // with the default console format so -o always produces a populated file even
 // when the phase only ingests HTTP records (e.g. discovery) and emits no
 // findings.
-func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string) {
-	items, err := queryExportData(ctx, db)
+func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string, omitResponse bool) {
+	items, err := queryExportData(ctx, db, omitResponse)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
 		return
@@ -991,14 +991,11 @@ func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath str
 // consoleHTTPRecordLine renders an HTTP record export item as a plain-text
 // console-style line: [status] METHOD content-type url
 func consoleHTTPRecordLine(data any) string {
-	switch r := data.(type) {
-	case *database.HTTPRecord:
-		return fmt.Sprintf("[%d] %s %s %s", r.StatusCode, r.Method, shortContentType(r.ResponseContentType), r.URL)
-	case topExportRecord:
-		return fmt.Sprintf("[%d] %s %s %s", r.StatusCode, r.Method, shortContentType(r.ContentType), r.URL)
-	default:
+	r, ok := data.(*database.HTTPRecord)
+	if !ok {
 		return ""
 	}
+	return fmt.Sprintf("[%d] %s %s %s", r.StatusCode, r.Method, shortContentType(r.ResponseContentType), r.URL)
 }
 
 // consoleFindingLine renders a finding export item as a plain-text

@@ -15,6 +15,7 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to specified output file")
 	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Show live progress stats during scanning")
 	flags.BoolVar(&scanOpts.IncludeResponseInOutput, "include-response", false, "Include full HTTP response body in output")
+	flags.BoolVar(&scanOpts.OmitResponse, "omit-response", false, "Omit raw HTTP request/response bytes from output file (keeps metadata, smaller files)")
 	flags.StringVar(&scanReportSharedURL, "report-url", "",
 		"URL for the \"Raw Report URL\" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL)")
 

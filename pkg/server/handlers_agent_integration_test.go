@@ -781,6 +781,52 @@ func TestSafeArtifactPath(t *testing.T) {
 	}
 }
 
+// TestSafeArtifactPathSymlinkEscape exercises the subtlest defense in
+// safeArtifactPath: a name with no ".." segments that resolves, via a symlink
+// living inside the session dir, to a target outside it. The lexical checks
+// pass for these names, so only the EvalSymlinks step rejects them. This is the
+// path-traversal vector most likely to regress silently if that step is dropped.
+func TestSafeArtifactPathSymlinkEscape(t *testing.T) {
+	sessionDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	secret := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	// A symlink inside the session dir whose target escapes it.
+	fileLink := filepath.Join(sessionDir, "evil-link")
+	if err := os.Symlink(secret, fileLink); err != nil {
+		t.Skipf("symlinks unavailable on this platform: %v", err)
+	}
+	if _, err := safeArtifactPath(sessionDir, "evil-link"); err == nil {
+		t.Error("safeArtifactPath must reject a symlink whose target escapes the session dir")
+	}
+
+	// Traversal *through* a symlinked directory that points outside.
+	dirLink := filepath.Join(sessionDir, "outdir")
+	if err := os.Symlink(outsideDir, dirLink); err != nil {
+		t.Skipf("symlinks unavailable on this platform: %v", err)
+	}
+	if _, err := safeArtifactPath(sessionDir, "outdir/secret.txt"); err == nil {
+		t.Error("safeArtifactPath must reject traversal through a symlinked dir that escapes")
+	}
+
+	// Control: a symlink whose target stays inside the session dir is allowed.
+	inside := filepath.Join(sessionDir, "real.txt")
+	if err := os.WriteFile(inside, []byte("ok"), 0o600); err != nil {
+		t.Fatalf("write inside: %v", err)
+	}
+	goodLink := filepath.Join(sessionDir, "good-link")
+	if err := os.Symlink(inside, goodLink); err != nil {
+		t.Skipf("symlinks unavailable on this platform: %v", err)
+	}
+	if _, err := safeArtifactPath(sessionDir, "good-link"); err != nil {
+		t.Errorf("safeArtifactPath must allow a symlink whose target stays inside: %v", err)
+	}
+}
+
 func TestArtifactKind(t *testing.T) {
 	cases := map[string]string{
 		"runtime.log":        "log",

@@ -56,7 +56,7 @@ func Render(r *TechStackReport) string {
 			if spec.Note != "" {
 				note = " — " + spec.Note
 			}
-			sb.WriteString(fmt.Sprintf("- %s spec at %s (HTTP %d)%s\n", spec.Kind, spec.URL, spec.StatusCode, note))
+			fmt.Fprintf(&sb, "- %s spec at %s (HTTP %d)%s\n", spec.Kind, spec.URL, spec.StatusCode, note)
 		}
 		sb.WriteByte('\n')
 	}
@@ -64,7 +64,7 @@ func Render(r *TechStackReport) string {
 	if len(r.SensitivePaths) > 0 {
 		sb.WriteString("**Sensitive paths reachable:**\n")
 		for _, p := range r.SensitivePaths {
-			sb.WriteString(fmt.Sprintf("- %s (HTTP %d) — %s\n", p.Path, p.StatusCode, p.Reason))
+			fmt.Fprintf(&sb, "- %s (HTTP %d) — %s\n", p.Path, p.StatusCode, p.Reason)
 		}
 		sb.WriteByte('\n')
 	}
@@ -75,10 +75,10 @@ func Render(r *TechStackReport) string {
 		if r.CORS.Permissive {
 			flag = "permissive (Access-Control-Allow-Origin: *)"
 		}
-		sb.WriteString(fmt.Sprintf("- %s with Access-Control-Allow-Credentials: %q\n",
-			flag, defaultIfEmpty(r.CORS.AllowCredentials, "(absent)")))
+		fmt.Fprintf(&sb, "- %s with Access-Control-Allow-Credentials: %q\n",
+			flag, defaultIfEmpty(r.CORS.AllowCredentials, "(absent)"))
 		if r.CORS.AllowMethods != "" {
-			sb.WriteString(fmt.Sprintf("- Access-Control-Allow-Methods: %s\n", r.CORS.AllowMethods))
+			fmt.Fprintf(&sb, "- Access-Control-Allow-Methods: %s\n", r.CORS.AllowMethods)
 		}
 		sb.WriteByte('\n')
 	}
@@ -97,7 +97,7 @@ func Render(r *TechStackReport) string {
 		}
 		sort.Strings(paths)
 		for _, p := range paths {
-			sb.WriteString(fmt.Sprintf("- %s → %s\n", p, strings.Join(r.AllowedMethods[p], ", ")))
+			fmt.Fprintf(&sb, "- %s → %s\n", p, strings.Join(r.AllowedMethods[p], ", "))
 		}
 		sb.WriteByte('\n')
 	}
@@ -111,10 +111,10 @@ func Render(r *TechStackReport) string {
 		}
 		for i := 0; i < limit; i++ {
 			w := r.WellKnown[i]
-			sb.WriteString(fmt.Sprintf("- %s (HTTP %d)\n", w.Path, w.StatusCode))
+			fmt.Fprintf(&sb, "- %s (HTTP %d)\n", w.Path, w.StatusCode)
 		}
 		if len(r.WellKnown) > limit {
-			sb.WriteString(fmt.Sprintf("- … and %d more\n", len(r.WellKnown)-limit))
+			fmt.Fprintf(&sb, "- … and %d more\n", len(r.WellKnown)-limit)
 		}
 		sb.WriteByte('\n')
 	}
@@ -135,7 +135,7 @@ func Render(r *TechStackReport) string {
 	}
 
 	if r.FaviconHash != "" {
-		sb.WriteString(fmt.Sprintf("**Favicon MD5:** `%s` (cross-reference with public favicon-hash databases for fingerprinting)\n\n", r.FaviconHash))
+		fmt.Fprintf(&sb, "**Favicon MD5:** `%s` (cross-reference with public favicon-hash databases for fingerprinting)\n\n", r.FaviconHash)
 	}
 
 	if len(r.VHostFindings) > 0 {
@@ -154,7 +154,7 @@ func Render(r *TechStackReport) string {
 		}
 		sort.Strings(paths)
 		for _, p := range paths {
-			sb.WriteString(fmt.Sprintf("- %s → %s (possible broken access control — these methods usually 405 on read-only endpoints)\n", p, strings.Join(r.MethodMatrix[p], ", ")))
+			fmt.Fprintf(&sb, "- %s → %s (possible broken access control — these methods usually 405 on read-only endpoints)\n", p, strings.Join(r.MethodMatrix[p], ", "))
 		}
 		sb.WriteByte('\n')
 	}
@@ -170,7 +170,7 @@ func Render(r *TechStackReport) string {
 			if lc.Action != "" {
 				act = " → " + lc.Action
 			}
-			sb.WriteString(fmt.Sprintf("- %s%s%s\n", lc.URL, fields, act))
+			fmt.Fprintf(&sb, "- %s%s%s\n", lc.URL, fields, act)
 		}
 		sb.WriteString("(Authenticated scanning is recommended — pass `--browser-auth`, `--cookie`, or `--header 'Authorization: …'` to the swarm CLI.)\n\n")
 	}

@@ -36,12 +36,12 @@ type bundleManifest struct {
 }
 
 type bundleFilters struct {
-	Only     []string `json:"only,omitempty"`
-	Exclude  []string `json:"exclude,omitempty"`
-	Lite     bool     `json:"lite,omitempty"`
-	Search   string   `json:"search,omitempty"`
-	Severity string   `json:"severity,omitempty"`
-	Limit    int      `json:"limit,omitempty"`
+	Only         []string `json:"only,omitempty"`
+	Exclude      []string `json:"exclude,omitempty"`
+	OmitResponse bool     `json:"omit_response,omitempty"`
+	Search       string   `json:"search,omitempty"`
+	Severity     string   `json:"severity,omitempty"`
+	Limit        int      `json:"limit,omitempty"`
 }
 
 func runExportBundle() error {
@@ -52,7 +52,7 @@ func runExportBundle() error {
 	defer closeDatabaseOnExit()
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db)
+	items, err := queryExportData(ctx, db, topExportOmitResponse)
 	if err != nil {
 		return err
 	}
@@ -113,12 +113,12 @@ func runExportBundle() error {
 		TotalItems:      len(items),
 		Sessions:        includedSessions,
 		Filters: bundleFilters{
-			Only:     topExportOnly,
-			Exclude:  topExportExclude,
-			Lite:     topExportLite,
-			Search:   topExportSearch,
-			Severity: topExportSeverity,
-			Limit:    topExportLimit,
+			Only:         topExportOnly,
+			Exclude:      topExportExclude,
+			OmitResponse: topExportOmitResponse,
+			Search:       topExportSearch,
+			Severity:     topExportSeverity,
+			Limit:        topExportLimit,
 		},
 	}
 	manifest.Report.Title = meta.Title

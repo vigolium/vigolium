@@ -294,74 +294,10 @@ func EnsureBrowser(ctx context.Context) (string, error) {
 	return binPath, nil
 }
 
-// linuxDepsBase lists packages with their optional t64 variants.
-// Ubuntu 24.04+ renames some packages with a t64 suffix.
-// Entries: {base, t64Variant} — empty t64Variant means no rename.
-// Entries: {base, t64Variant} — empty t64Variant means the package name
-// is unchanged on Ubuntu 24.04+. Only packages that were actually renamed
-// to t64 on Ubuntu 24.04 have a variant listed here.
-var linuxDepsBase = [][2]string{
-	{"libglib2.0-0", "libglib2.0-0t64"},
-	{"libnss3", ""},
-	{"libnspr4", ""},
-	{"libatk1.0-0", "libatk1.0-0t64"},
-	{"libatk-bridge2.0-0", "libatk-bridge2.0-0t64"},
-	{"libatspi2.0-0", "libatspi2.0-0t64"},
-	{"libcups2", "libcups2t64"},
-	{"libdrm2", ""},
-	{"libxkbcommon0", ""},
-	{"libxcomposite1", ""},
-	{"libxdamage1", ""},
-	{"libxfixes3", ""},
-	{"libxrandr2", ""},
-	{"libgbm1", ""},
-	{"libpango-1.0-0", ""},
-	{"libpangocairo-1.0-0", ""},
-	{"libcairo2", ""},
-	{"libcairo-gobject2", ""},
-	{"libasound2", "libasound2t64"},
-	{"libxshmfence1", ""},
-	{"libxi6", ""},
-	{"libgtk-3-0", "libgtk-3-0t64"},
-	{"libgdk-pixbuf-2.0-0", ""},
-	{"libxrender1", ""},
-	{"libfreetype6", ""},
-	{"libfontconfig1", ""},
-	{"libdbus-1-3", ""},
-	{"fonts-liberation", ""},
-}
-
-// resolveLinuxDeps returns the correct package names for the current system.
-// On Ubuntu 24.04+ some packages have t64 variants.
-func resolveLinuxDeps() []string {
-	// Detect if t64 packages exist by checking if dpkg knows about one of them.
-	useT64 := false
-	if out, err := exec.Command("dpkg", "-s", "libglib2.0-0t64").CombinedOutput(); err == nil {
-		if strings.Contains(string(out), "Status: install ok installed") ||
-			strings.Contains(string(out), "Status:") {
-			useT64 = true
-		}
-	} else {
-		// dpkg -s failed — check if the t64 package is available in apt cache.
-		if out2, err2 := exec.Command("apt-cache", "show", "libglib2.0-0t64").CombinedOutput(); err2 == nil && len(out2) > 0 {
-			useT64 = true
-		}
-	}
-
-	deps := make([]string, 0, len(linuxDepsBase))
-	for _, pair := range linuxDepsBase {
-		if useT64 && pair[1] != "" {
-			deps = append(deps, pair[1])
-		} else {
-			deps = append(deps, pair[0])
-		}
-	}
-	return deps
-}
-
 // verifyBrowser runs chrome --version to confirm the binary works.
-// If it fails due to missing shared libraries, returns an error with
-// an actionable apt-get install command.
+// If it fails due to missing shared libraries, returns an error
+// recommending a system Chromium install (which Vigolium prefers over the
+// downloaded Chrome for Testing anyway).
 func verifyBrowser(binPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -388,13 +324,13 @@ func verifyBrowser(binPath string) error {
 			if missing != "" {
 				fmt.Printf("  Missing: %s\n", missing)
 			}
-			deps := resolveLinuxDeps()
 			fmt.Println()
-			fmt.Println("  Install them with:")
-			fmt.Printf("    sudo apt-get install -y %s\n", strings.Join(deps, " "))
+			fmt.Println("  Install Chromium with your package manager instead, e.g.:")
+			fmt.Println("    sudo apt install chromium")
 			fmt.Println()
-			return fmt.Errorf("chrome binary missing shared libraries — install deps with: sudo apt-get install -y %s",
-				strings.Join(deps, " "))
+			fmt.Println("  Vigolium will use the system Chromium automatically once it's installed.")
+			fmt.Println()
+			return fmt.Errorf("chrome binary missing shared libraries — install chromium with your package manager, e.g.: sudo apt install chromium")
 		}
 
 		return fmt.Errorf("chrome binary failed: %s", output)

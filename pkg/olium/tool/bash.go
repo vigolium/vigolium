@@ -199,7 +199,7 @@ func (*bashTool) Execute(ctx context.Context, args map[string]any, onUpdate Upda
 			if !capped {
 				if buf.Len()+n > maxBashCapture {
 					buf.Write(chunk[:maxBashCapture-buf.Len()])
-					buf.WriteString(fmt.Sprintf("\n... [output capped at %d bytes; remainder discarded]", maxBashCapture))
+					fmt.Fprintf(&buf, "\n... [output capped at %d bytes; remainder discarded]", maxBashCapture)
 					capped = true
 				} else {
 					buf.Write(chunk[:n])

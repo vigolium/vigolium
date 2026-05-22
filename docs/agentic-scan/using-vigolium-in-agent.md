@@ -1056,12 +1056,12 @@ vigolium export --format jsonl --only findings,http -o results.jsonl
 vigolium export --format html -o report.html
 ```
 
-**Lite export (omit raw HTTP data):**
+**Slim export (omit raw HTTP request/response bytes, keep metadata):**
 ```
-> Export URLs only, without raw request/response data
+> Export HTTP records without the raw request/response bodies
 ```
 ```bash
-vigolium export --lite --only http -o urls.jsonl
+vigolium export --omit-response --only http -o urls.jsonl
 ```
 
 **Export with search filter:**

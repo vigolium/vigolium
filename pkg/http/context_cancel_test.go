@@ -57,7 +57,10 @@ func TestWithContext_CancelsInFlightExecute(t *testing.T) {
 
 func TestWithContext_NilReturnsReceiver(t *testing.T) {
 	r := &Requester{}
-	if r.WithContext(nil) != r {
+	// Deliberately exercise the documented nil-context path; use a typed nil so
+	// staticcheck (SA1012) doesn't flag the intentional nil literal.
+	var nilCtx context.Context
+	if r.WithContext(nilCtx) != r {
 		t.Error("WithContext(nil) should return the receiver unchanged")
 	}
 	bound := r.WithContext(context.Background())

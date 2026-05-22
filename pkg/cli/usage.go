@@ -166,7 +166,7 @@ var scanFlagGroups = []flagGroup{
 	{"KnownIssueScan", []string{"known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Request", []string{"header", "advanced-options", "retries", "stream"}},
-	{"Output", []string{"output", "stats", "include-response", "stateless"}},
+	{"Output", []string{"output", "stats", "include-response", "omit-response", "stateless"}},
 }
 
 // localFlagUsages renders local flags. For the root command (which contains

@@ -1,20 +1,32 @@
-version: 2
-updates:
-  # Go module dependencies — group patch/minor bumps to keep PR volume sane.
-  - package-ecosystem: gomod
-    directory: "/"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    groups:
-      go-minor-and-patch:
-        update-types:
-          - minor
-          - patch
+# Dependabot is intentionally DISABLED — it opens no automatic version-update PRs.
+#
+# GitHub Dependabot has no "manual only" schedule: `schedule.interval` is
+# required and its least-frequent value is "monthly" (there is no "never"). To
+# keep it from running on a cadence, the entire config below is commented out,
+# which leaves no ecosystems configured and therefore no scheduled runs. CI is
+# likewise manual-only (see .github/workflows/ci.yml — workflow_dispatch).
+#
+# To re-enable scheduled updates, uncomment the `version` and `updates` blocks
+# below. Dependabot *security* alerts are controlled in the repo's security
+# settings, not here, and are unaffected by this file.
 
-  # Keep the GitHub Actions used by CI current.
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+# version: 2
+# updates:
+#   # Go module dependencies — group patch/minor bumps to keep PR volume sane.
+#   - package-ecosystem: gomod
+#     directory: "/"
+#     schedule:
+#       interval: weekly
+#     open-pull-requests-limit: 10
+#     groups:
+#       go-minor-and-patch:
+#         update-types:
+#           - minor
+#           - patch
+#
+#   # Keep the GitHub Actions used by CI current.
+#   - package-ecosystem: github-actions
+#     directory: "/"
+#     schedule:
+#       interval: weekly
+#     open-pull-requests-limit: 5

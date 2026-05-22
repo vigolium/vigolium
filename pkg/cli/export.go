@@ -17,20 +17,20 @@ import (
 )
 
 var (
-	topExportFormat      string
-	topExportOutput      string
-	topExportOnly        []string
-	topExportExclude     []string
-	topExportLite        bool
-	topExportSearch      string
-	topExportLimit       int
-	topExportTitle       string
-	topExportSeverity    string
-	topExportTarget      string
-	topExportDuration    string
-	topExportGeneratedAt string
-	topExportReportURL   string
-	topExportScanUUIDs   []string
+	topExportFormat       string
+	topExportOutput       string
+	topExportOnly         []string
+	topExportExclude      []string
+	topExportOmitResponse bool
+	topExportSearch       string
+	topExportLimit        int
+	topExportTitle        string
+	topExportSeverity     string
+	topExportTarget       string
+	topExportDuration     string
+	topExportGeneratedAt  string
+	topExportReportURL    string
+	topExportScanUUIDs    []string
 )
 
 // validExportTypes lists all accepted --only values.
@@ -41,7 +41,7 @@ var exportCmd = &cobra.Command{
 	Short: "Export database tables and module registry",
 	Long: `Export the contents of one or more database tables (HTTP records, findings, scans, modules, OAST interactions, source repos, scopes) into JSONL, HTML, Markdown, PDF, or a bundle archive.
 
-Use --only to choose which tables to include, --lite for summary-only output (omits raw HTTP), and --search to fuzzy-filter rows before export. HTML and bundle output require -o/--output.
+Use --only to choose which tables to include, --omit-response to drop raw HTTP request/response bytes (keeps metadata, smaller files), and --search to fuzzy-filter rows before export. HTML and bundle output require -o/--output.
 
 The --format bundle (alias gz) emits a .tar.gz archive containing export.jsonl, report.html, manifest.json, and any agent session directories matching --scan-uuid <uuid> (repeatable).`,
 	RunE: runExportCmd,
@@ -53,8 +53,8 @@ func init() {
 	exportCmd.Flags().StringVarP(&topExportOutput, "output", "o", "", "Output file path or gs://<project>/<key> URL (required for html); supports {ts} and {project-uuid} placeholders")
 	exportCmd.Flags().StringSliceVar(&topExportOnly, "only", nil,
 		"Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes)")
-	exportCmd.Flags().BoolVar(&topExportLite, "lite", false,
-		"Export summary fields only, omit raw HTTP data and headers")
+	exportCmd.Flags().BoolVar(&topExportOmitResponse, "omit-response", false,
+		"Omit raw HTTP request/response bytes (keeps metadata, smaller files)")
 	exportCmd.Flags().StringVar(&topExportSearch, "search", "",
 		"Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources")
 	exportCmd.Flags().IntVar(&topExportLimit, "limit", 0,
@@ -89,19 +89,6 @@ func shouldExport(dataType string) bool {
 		}
 	}
 	return false
-}
-
-// topExportRecord is the JSONL schema for HTTP record entries.
-type topExportRecord struct {
-	URL           string   `json:"url"`
-	Method        string   `json:"method"`
-	StatusCode    int      `json:"status_code"`
-	ContentType   string   `json:"content_type,omitempty"`
-	ContentLength int64    `json:"content_length"`
-	Title         string   `json:"title,omitempty"`
-	Domain        string   `json:"domain"`
-	Source        string   `json:"source,omitempty"`
-	Remarks       []string `json:"remarks,omitempty"`
 }
 
 // exportEnvelope wraps each exported item with a type tag for JSONL output.
@@ -177,7 +164,7 @@ func runExportWithGenerator(formatLabel, defaultTitle string, generate func([]an
 	defer closeDatabaseOnExit()
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db)
+	items, err := queryExportData(ctx, db, topExportOmitResponse)
 	if err != nil {
 		return err
 	}
@@ -314,7 +301,7 @@ func runExportJSONL() error {
 	}
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db)
+	items, err := queryExportData(ctx, db, topExportOmitResponse)
 	if err != nil {
 		return err
 	}
@@ -382,7 +369,9 @@ func runExportMarkdown() error {
 
 // queryExportData queries all enabled tables and returns a slice of exportEnvelope
 // items ready for serialization. Both HTML and JSONL paths share this function.
-func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
+// When omitResponse is true, HTTP records keep all metadata but drop the bulky
+// raw request/response byte fields, yielding much smaller output files.
+func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([]any, error) {
 	var items []any
 
 	// --- Scans ---
@@ -423,18 +412,11 @@ func queryExportData(ctx context.Context, db *database.DB) ([]any, error) {
 				seen[r.URL] = struct{}{}
 
 				var data any
-				if topExportLite {
-					data = topExportRecord{
-						URL:           r.URL,
-						Method:        r.Method,
-						StatusCode:    r.StatusCode,
-						ContentType:   r.ResponseContentType,
-						ContentLength: r.ResponseContentLength,
-						Title:         r.ResponseTitle,
-						Domain:        r.Hostname,
-						Source:        r.Source,
-						Remarks:       r.Remarks,
-					}
+				if omitResponse {
+					rc := *r // shallow copy; drop bulky raw bytes, keep metadata
+					rc.RawRequest = nil
+					rc.RawResponse = nil
+					data = &rc
 				} else {
 					data = r
 				}
